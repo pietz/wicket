@@ -19,6 +19,10 @@ final class PaletteModel {
     var query = "" { didSet { if query != oldValue { refresh() } } }
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
+    /// The action panel (⌘K), when open. One optional, so at most one panel exists.
+    var actionMenu: ActionMenu?
+    /// ⌘ is held, so rows show their ⌘1 to ⌘9 hints.
+    var commandHeld = false
     @ObservationIgnored private let sources: [any ResultSource]
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var updates: [Task<Void, Never>] = []

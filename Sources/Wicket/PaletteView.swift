@@ -2,19 +2,28 @@ import AppKit
 import SwiftUI
 import WicketCore
 
-/// The palette: search field and results, on Liquid Glass.
+/// Which field has the keyboard: the search field, or the action panel's filter while it is open.
+enum PaletteFocus: Hashable {
+    case search, actions
+}
+
+/// The palette: search field, results and footer on Liquid Glass, with the action panel (⌘K) over
+/// them. Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see
+/// them; plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
-    let onActivate: (Int) -> Void
+    /// Runs the action at a position in an item's actions.
+    let onRun: (Item?, Int) -> Void
     let onHide: () -> Void
-    @FocusState private var focused: Bool
+    @FocusState private var focus: PaletteFocus?
 
     var body: some View {
         VStack(spacing: 0) {
+            // Return is handled here rather than by `onSubmit`, which ends editing.
             TextField("Search apps…", text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 22))
-                .focused($focused)
+                .focused($focus, equals: .search)
                 .onKeyPress(.upArrow) {
                     model.moveSelection(by: -1)
                     return .handled
@@ -24,7 +33,7 @@ struct PaletteRootView: View {
                     return .handled
                 }
                 .onKeyPress(.return) {
-                    onActivate(model.selection)
+                    onRun(model.selectedItem, 0)
                     return .handled
                 }
                 .onKeyPress(.escape) {
@@ -35,7 +44,22 @@ struct PaletteRootView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 14)
             Divider()
-            ResultsView(model: model, onActivate: onActivate)
+            ResultsView(model: model, onRun: onRun)
+            Divider()
+            FooterBar(item: model.selectedItem)
+        }
+        .overlay {
+            if let menu = model.actionMenu {
+                // A click anywhere outside the panel closes it rather than reaching what is beneath.
+                Color.clear
+                    .contentShape(.rect)
+                    .onTapGesture { model.actionMenu = nil }
+                    .overlay(alignment: .bottomTrailing) {
+                        ActionPanel(model: model, menu: menu, focus: $focus, onRun: onRun)
+                            .padding(.trailing, 10)
+                            .padding(.bottom, FooterBar.height + 4)
+                    }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Tinted: untinted glass is hard to read over busy windows.
@@ -44,24 +68,28 @@ struct PaletteRootView: View {
             in: .rect(cornerRadius: 22)
         )
         .clipShape(.rect(cornerRadius: 22))
-        .onAppear { focused = true }
-        .onChange(of: model.focusToken) { focused = true }
+        .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
+        .onAppear { focus = .search }
+        .onChange(of: model.focusToken) { focus = .search }
+        // Every way the panel closes hands the keyboard back to the search field, so it never
+        // unmounts while focused and leaves the window without a first responder.
+        .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? .search : .actions }
     }
 }
 
 /// The result list.
 struct ResultsView: View {
     let model: PaletteModel
-    let onActivate: (Int) -> Void
+    let onRun: (Item?, Int) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
-                        ResultRow(item: item, isSelected: index == model.selection)
+                        ResultRow(item: item, isSelected: index == model.selection, hint: hint(for: index))
                             .contentShape(Rectangle())
-                            .onTapGesture { onActivate(index) }
+                            .onTapGesture { onRun(item, 0) }
                     }
                 }
                 .padding(8)
@@ -78,11 +106,158 @@ struct ResultsView: View {
             }
         }
     }
+
+    /// "⌘1" to "⌘9" while ⌘ is held: the chords that run the first nine rows.
+    private func hint(for index: Int) -> String? {
+        guard model.commandHeld, model.actionMenu == nil, index < 9 else { return nil }
+        return "⌘\(index + 1)"
+    }
+}
+
+/// The bar under the results: what Return does, and where the other actions are.
+struct FooterBar: View {
+    static let height: CGFloat = 34
+    let item: Item?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Spacer()
+            if let item, let primary = item.actions.first {
+                KeyHint(title: ActionPresentation(primary).title, keys: "↩")
+                Divider().frame(height: 14)
+                KeyHint(title: "Actions", keys: "⌘K")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: Self.height)
+    }
+}
+
+private struct KeyHint: View {
+    let title: String
+    let keys: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 12))
+            KeyCap(keys)
+        }
+    }
+}
+
+private struct KeyCap: View {
+    let keys: String
+
+    init(_ keys: String) { self.keys = keys }
+
+    var body: some View {
+        Text(keys)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(.primary.opacity(0.08), in: .rect(cornerRadius: 4))
+    }
+}
+
+/// The action panel: every action of the item it was opened on, filtered by its own field.
+private struct ActionPanel: View {
+    @Bindable var model: PaletteModel
+    let menu: ActionMenu
+    var focus: FocusState<PaletteFocus?>.Binding
+    let onRun: (Item?, Int) -> Void
+
+    var body: some View {
+        let rows = menu.rows
+        let selected = menu.selectedRow?.id
+        VStack(spacing: 0) {
+            VStack(spacing: 2) {
+                if rows.isEmpty {
+                    Text("No Matching Actions")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(height: 30)
+                }
+                ForEach(rows) { row in
+                    ActionRow(row: row, isSelected: row.id == selected)
+                        .contentShape(.rect)
+                        .onTapGesture { onRun(menu.item, row.id) }
+                }
+            }
+            .padding(6)
+            Divider()
+            TextField("Search actions…", text: filter)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused(focus, equals: .actions)
+                .onKeyPress(.upArrow) {
+                    model.actionMenu?.moveSelection(by: -1)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    model.actionMenu?.moveSelection(by: 1)
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    if let row = model.actionMenu?.selectedRow { onRun(menu.item, row.id) }
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    if menu.filter.isEmpty { model.actionMenu = nil } else { model.actionMenu?.filter = "" }
+                    return .handled
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+        }
+        .frame(width: 320)
+        .background(.regularMaterial, in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+    }
+
+    private var filter: Binding<String> {
+        Binding(get: { menu.filter }, set: { model.actionMenu?.filter = $0 })
+    }
+}
+
+private struct ActionRow: View {
+    let row: ActionMenu.Row
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: row.presentation.symbol)
+                .frame(width: 18)
+            Text(row.presentation.title)
+                .layoutPriority(1)
+            if let detail = row.presentation.detail {
+                Text(detail)
+                    .foregroundStyle(.secondary)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            if let shortcut = ActionPresentation.shortcut(at: row.id) {
+                KeyCap(shortcut)
+            }
+        }
+        .font(.system(size: 13))
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .frame(height: 30)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.primary.opacity(0.1))
+            }
+        }
+    }
 }
 
 private struct ResultRow: View {
     let item: Item
     let isSelected: Bool
+    /// Replaces the accessory while ⌘ is held.
+    let hint: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -102,7 +277,7 @@ private struct ResultRow: View {
                 }
             }
             Spacer(minLength: 8)
-            if let accessory = item.accessory {
+            if let accessory = hint ?? item.accessory {
                 Text(accessory)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
