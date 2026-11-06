@@ -61,6 +61,29 @@ public struct Shortcut: Equatable, Sendable, CustomStringConvertible {
         self.init(key: key, modifiers: modifiers)
     }
 
+    /// A shortcut recorded from a key press, or nil if it can't be a global hotkey: an unknown key, or
+    /// no Command, Control or Option (Shift alone would take over typing), except for F-keys.
+    public init?(keyCode: Int, modifiers: Modifiers) {
+        guard let key = Self.keyCodes.first(where: { $0.value == keyCode })?.key else { return nil }
+        let isFunctionKey = key.count > 1 && key.hasPrefix("f")
+        guard isFunctionKey || !modifiers.isDisjoint(with: [.command, .control, .option]) else { return nil }
+        self.init(key: key, modifiers: modifiers)
+    }
+
+    /// How macOS menus show it, such as "⌃⌥Space".
+    public var symbols: String {
+        let names: [(Modifiers, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+        let keyName =
+            switch key {
+            case "return": "↩"
+            case "tab": "⇥"
+            case "escape": "⎋"
+            case "space": "Space"
+            default: key.uppercased()
+            }
+        return names.filter { modifiers.contains($0.0) }.map(\.1).joined() + keyName
+    }
+
     public var description: String {
         let names: [(Modifiers, String)] = [
             (.control, "ctrl"), (.option, "option"), (.shift, "shift"), (.command, "cmd"),
@@ -91,7 +114,7 @@ public struct Shortcut: Equatable, Sendable, CustomStringConvertible {
     ]
 }
 
-extension Shortcut: Decodable {
+extension Shortcut: Codable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
         let spelling = try container.decode(String.self)
@@ -101,5 +124,10 @@ extension Shortcut: Decodable {
             throw DecodingError.dataCorruptedError(
                 in: container, debugDescription: "\"\(spelling)\": \(error)")
         }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(description)
     }
 }
