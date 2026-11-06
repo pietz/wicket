@@ -15,7 +15,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Quality gate: `Scripts/check.sh` (warnings as errors, tests, swift format)
 - ✅ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
 - ⏭ Follow-up when the runtime lands: a real `reveal(url:)` action case and action titles in Item (Show in Finder currently travels as a command id)
-- ⏭ Empty palette: favorites and suggestions instead of an alphabetical app list
+- ⏭ Compact pill by default; expands only when there is something to show (owner's call)
+- 💤 Empty palette: favorites and suggestions, as an option once the pill exists
 - ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
 - ⏭ Paste-back target captured at summon, layout-aware ⌘V (the owner's Mac is German)
 - ✅ Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
@@ -28,9 +29,9 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 
 ### Extensions
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
-- 🔨 Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
+- ✅ Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
 - ⏭ Palette view stack: push list and detail views, Escape goes back
-- 🔨 `wicket` checker CLI in the bundle (runs `session.jsonl` fixtures): validate manifest, run fixture queries, check output
+- ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
 - 💤 Two or three useful sample extensions in different languages
 - 💤 "Make a command": staging, checker gate, review before enable, rollback, "Fix with agent"
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
