@@ -3,11 +3,11 @@ import Foundation
 /// The root search's results: each source's latest items for the current query, ranked together
 /// by `Ranker` into an `ItemList`, which owns the selection.
 ///
-/// Late updates carry their query's revision and are dropped unless it is current. The selection
+/// Late updates carry their query's generation and are dropped unless it is current. The selection
 /// goes back to the top only when the query text changes; a refresh with the same text (a source's
 /// data changed) keeps it.
 public struct RootResults: Sendable {
-    public private(set) var query = Query(text: "", revision: 0)
+    public private(set) var query = Query(text: "", generation: 0)
     public private(set) var list: ItemList
     private var bySource: [String: [Item]] = [:]
     /// The user's order for fallback commands; see `Ranker.rank`.
@@ -30,13 +30,13 @@ public struct RootResults: Sendable {
         rerank(resettingSelection: reset, usage: usage)
     }
 
-    /// Replaces everything `source` returned so far. Ignored, returning false, unless `revision` is
+    /// Replaces everything `source` returned so far. Ignored, returning false, unless `generation` is
     /// the current query's.
     @discardableResult
     public mutating func update(
-        _ source: String, items: [Item], revision: Int, usage: (String) -> Double
+        _ source: String, items: [Item], generation: Int, usage: (String) -> Double
     ) -> Bool {
-        guard revision == query.revision else { return false }
+        guard generation == query.generation else { return false }
         bySource[source] = items
         rerank(resettingSelection: false, usage: usage)
         return true

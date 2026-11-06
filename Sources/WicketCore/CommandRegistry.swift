@@ -129,7 +129,7 @@ public final class CommandRegistry {
     public private(set) var aliasConflicts: [KeywordConflict] = []
     /// Bumped on every change of what is registered, aliases included, so the app can tell whether
     /// a settings reload changed the catalog (and the root must search again).
-    public private(set) var revision = 0
+    public private(set) var changes = 0
     private let builtins: [RegisteredCommand]
     private var extensions: [RegisteredCommand] = []
     /// Features that are off: their built-ins aren't registered until they are on again.
@@ -217,7 +217,7 @@ public final class CommandRegistry {
     }
 
     private func rebuild() {
-        revision += 1
+        changes += 1
         commands = []
         byID = [:]
         let builtins = builtins.filter { $0.feature.map { !disabledFeatures.contains($0) } ?? true }

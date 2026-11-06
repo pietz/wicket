@@ -226,7 +226,7 @@ public final class PaletteSession {
         frames[index].pending = 0
         guard case .search(var results) = frames[index].content else { return }
 
-        let query = Query(text: frames[index].query, revision: frames[index].generation)
+        let query = Query(text: frames[index].query, generation: frames[index].generation)
         let usage = frecency()
         guard !query.text.isEmpty else {
             results.start(query, results: [:], usage: usage)
@@ -242,14 +242,15 @@ public final class PaletteSession {
         for source in sources {
             guard let stream = source.updates(query) else { continue }
             let source = source.id
-            let ticket = Ticket(frame: id, generation: query.revision)
+            let ticket = Ticket(frame: id, generation: query.generation)
             tasks.append(
                 Task { [weak self] in
                     for await items in stream {
                         guard let self else { return }
                         apply(ticket) { frame in
                             guard case .search(var results) = frame.content else { return }
-                            results.update(source, items: items, revision: query.revision, usage: frecency())
+                            results.update(
+                                source, items: items, generation: query.generation, usage: frecency())
                             frame.content = .search(results)
                         }
                     }

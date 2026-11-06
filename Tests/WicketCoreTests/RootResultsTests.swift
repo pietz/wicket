@@ -12,56 +12,57 @@ private func noUsage(_ id: String) -> Double { 0 }
 @Test func mergesSourcesByScore() {
     var results = RootResults()
     results.start(
-        Query(text: "a", revision: 1), results: ["one": [item("B", score: 5)], "two": [item("A", score: 9)]],
+        Query(text: "a", generation: 1),
+        results: ["one": [item("B", score: 5)], "two": [item("A", score: 9)]],
         usage: noUsage)
     #expect(results.items.map(\.title) == ["A", "B"])
 }
 
 @Test func staleUpdatesAreDropped() {
     var results = RootResults()
-    results.start(Query(text: "a", revision: 1), results: ["fast": [item("A")]], usage: noUsage)
-    results.start(Query(text: "ab", revision: 2), results: ["fast": [item("A")]], usage: noUsage)
-    let applied = results.update("slow", items: [item("Late")], revision: 1, usage: noUsage)
+    results.start(Query(text: "a", generation: 1), results: ["fast": [item("A")]], usage: noUsage)
+    results.start(Query(text: "ab", generation: 2), results: ["fast": [item("A")]], usage: noUsage)
+    let applied = results.update("slow", items: [item("Late")], generation: 1, usage: noUsage)
     #expect(!applied)
     #expect(results.items.map(\.title) == ["A"])
-    results.update("slow", items: [item("Fresh")], revision: 2, usage: noUsage)
+    results.update("slow", items: [item("Fresh")], generation: 2, usage: noUsage)
     #expect(results.items.map(\.title) == ["A", "Fresh"])
 }
 
 @Test func lateResultsKeepTheSelectedItem() {
     var results = RootResults()
-    results.start(Query(text: "a", revision: 1), results: ["fast": [item("A", score: 5)]], usage: noUsage)
+    results.start(Query(text: "a", generation: 1), results: ["fast": [item("A", score: 5)]], usage: noUsage)
     #expect(results.selectedItem?.title == "A")
     // A better result arriving later goes above the selection without taking it.
-    results.update("slow", items: [item("Better", score: 50)], revision: 1, usage: noUsage)
+    results.update("slow", items: [item("Better", score: 50)], generation: 1, usage: noUsage)
     #expect(results.items.first?.title == "Better")
     #expect(results.selectedItem?.title == "A")
     // An update replaces what the source sent before.
-    results.update("slow", items: [item("Other", score: 1)], revision: 1, usage: noUsage)
+    results.update("slow", items: [item("Other", score: 1)], generation: 1, usage: noUsage)
     #expect(results.items.map(\.title) == ["A", "Other"])
 }
 
 @Test func selectionResetsOnlyWhenTheTextChanges() {
     var results = RootResults()
     let sources = ["s": [item("A", score: 2), item("B", score: 1)]]
-    results.start(Query(text: "x", revision: 1), results: sources, usage: noUsage)
+    results.start(Query(text: "x", generation: 1), results: sources, usage: noUsage)
     results.moveSelection(by: 1)
     // Same text again (a source's data changed): the selection stays on B.
-    results.start(Query(text: "x", revision: 2), results: sources, usage: noUsage)
+    results.start(Query(text: "x", generation: 2), results: sources, usage: noUsage)
     #expect(results.selectedItem?.title == "B")
-    results.start(Query(text: "xy", revision: 3), results: sources, usage: noUsage)
+    results.start(Query(text: "xy", generation: 3), results: sources, usage: noUsage)
     #expect(results.selection == 0)
 }
 
 @Test func sameTextRefreshWithoutTheSelectedItemKeepsTheRow() {
     var results = RootResults()
     results.start(
-        Query(text: "x", revision: 1),
+        Query(text: "x", generation: 1),
         results: ["s": [item("A", score: 3), item("B", score: 2), item("C", score: 1)]],
         usage: noUsage)
     results.moveSelection(by: 1)
     results.start(
-        Query(text: "x", revision: 2), results: ["s": [item("A", score: 3), item("C", score: 1)]],
+        Query(text: "x", generation: 2), results: ["s": [item("A", score: 3), item("C", score: 1)]],
         usage: noUsage)
     #expect(results.selectedItem?.title == "C")
 }
@@ -69,11 +70,11 @@ private func noUsage(_ id: String) -> Double { 0 }
 @Test func lateResultsNeverTruncateTheSelection() {
     var results = RootResults(limit: 3)
     results.start(
-        Query(text: "x", revision: 1),
+        Query(text: "x", generation: 1),
         results: ["fast": [item("A", score: 3), item("B", score: 2), item("C", score: 1)]],
         usage: noUsage)
     results.moveSelection(by: 2)
-    results.update("slow", items: [item("D", score: 9), item("E", score: 8)], revision: 1, usage: noUsage)
+    results.update("slow", items: [item("D", score: 9), item("E", score: 8)], generation: 1, usage: noUsage)
     #expect(results.items.map(\.title) == ["D", "E", "C"])
     #expect(results.selectedItem?.title == "C")
 }
@@ -87,7 +88,8 @@ private func noUsage(_ id: String) -> Double { 0 }
     let start = ContinuousClock.now
     for query in queries {
         var results = RootResults(limit: 50)
-        results.start(Query(text: query, revision: 1), results: ["apps": index.search(query)], usage: noUsage)
+        results.start(
+            Query(text: query, generation: 1), results: ["apps": index.search(query)], usage: noUsage)
     }
     let perKeystroke = (ContinuousClock.now - start) / queries.count
     // Generous for unoptimised debug builds; release runs in about a tenth of this.

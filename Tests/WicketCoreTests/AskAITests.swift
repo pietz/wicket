@@ -41,7 +41,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor
 private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegistry()) -> [Item] {
-    FallbackSource(registry).instant(Query(text: text, revision: 1))
+    FallbackSource(registry).instant(Query(text: text, generation: 1))
 }
 
 @MainActor @Test func theFallbackRowIsOfferedForAnyNonEmptyQuery() throws {

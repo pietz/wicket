@@ -131,11 +131,11 @@ final class AppRuntime {
         palette?.width = CGFloat(settings.paletteWidth)
         askAI.provider = settings.ai.provider
 
-        let revision = registry.revision
+        let changes = registry.changes
         registry.setDisabledFeatures(settings.disabledFeatures)
         registry.setAliases(settings.commands.compactMapValues(\.alias))
         let refreshed = model.session.setSources(Feature.enabled(allSources, in: settings))
-        registryChanged(since: revision, refreshed: refreshed)
+        registryChanged(since: changes, refreshed: refreshed)
 
         // Nothing runs before the first snapshot, so it only starts work.
         for feature in Feature.allCases {
@@ -153,8 +153,8 @@ final class AppRuntime {
     /// After something that may have changed the registry: the runs of commands no longer in it
     /// stop (Ask AI turned off mid-answer, an extension removed), and the root searches again unless
     /// it just did, so a new alias or a command gone shows at once.
-    private func registryChanged(since revision: Int, refreshed: Bool) {
-        guard registry.revision != revision else { return }
+    private func registryChanged(since changes: Int, refreshed: Bool) {
+        guard registry.changes != changes else { return }
         model.session.stopCommands { [registry] in registry.command($0) == nil }
         if !refreshed { model.refresh() }
     }
@@ -196,12 +196,12 @@ final class AppRuntime {
 
     private func registerExtensionCommands() {
         guard Self.extensionCommandsInPalette else { return }
-        let revision = registry.revision
+        let changes = registry.changes
         registry.setExtensionCommands(
             extensions.commands.map {
                 RegisteredCommand(extension: $0.extensionID, command: $0.command, icon: $0.icon)
             })
-        registryChanged(since: revision, refreshed: false)
+        registryChanged(since: changes, refreshed: false)
         applyHotKeys(applied ?? store.settings)  // A binding waiting for one of them takes effect.
     }
 

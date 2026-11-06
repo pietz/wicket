@@ -4,11 +4,11 @@ import Foundation
 public struct Query: Codable, Sendable, Hashable {
     public var text: String
     /// Increases with every new query; results carry it back so stale ones are dropped.
-    public var revision: Int
+    public var generation: Int
 
-    public init(text: String, revision: Int) {
+    public init(text: String, generation: Int) {
         self.text = text
-        self.revision = revision
+        self.generation = generation
     }
 }
 
