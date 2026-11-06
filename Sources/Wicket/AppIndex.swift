@@ -1,5 +1,4 @@
 import AppKit
-import CoreServices
 import WicketCore
 
 struct AppRecord: Sendable, Hashable {
@@ -18,7 +17,7 @@ final class AppIndex {
     private(set) var apps: [AppRecord] = []
     var onChange: (() -> Void)?
 
-    private var stream: FSEventStreamRef?
+    private var watcher: FileWatcher?
     private var rescanTask: Task<Void, Never>?
 
     nonisolated static let scopes: [String] = [
@@ -116,23 +115,8 @@ final class AppIndex {
     // MARK: Watching
 
     private func watch() {
-        let paths = Self.scopes.filter { !$0.hasSuffix(".app") } as CFArray
-        var context = FSEventStreamContext(
-            version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil,
-            copyDescription: nil)
-        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
-            guard let info else { return }
-            let index = Unmanaged<AppIndex>.fromOpaque(info).takeUnretainedValue()
-            MainActor.assumeIsolated { index.scheduleRescan() }
-        }
-        guard
-            let stream = FSEventStreamCreate(
-                nil, callback, &context, paths, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0,
-                FSEventStreamCreateFlags(kFSEventStreamCreateFlagNone))
-        else { return }
-        FSEventStreamSetDispatchQueue(stream, .main)
-        FSEventStreamStart(stream)
-        self.stream = stream
+        let paths = Self.scopes.filter { !$0.hasSuffix(".app") }
+        watcher = FileWatcher(paths: paths, latency: 1.0) { [weak self] in self?.scheduleRescan() }
     }
 
     private func scheduleRescan() {
