@@ -56,7 +56,8 @@ final class PaletteModel {
         for source in sources { instant[source.id] = source.instant(query) }
         list.start(query, results: instant, usage: frecency())
         if !query.text.isEmpty {
-            Perf.log("query \"\(query.text)\": \(list.items.count) results in \(Perf.ms(since: start))")
+            Perf.log(
+                "query (\(query.text.count) chars): \(list.items.count) results in \(Perf.ms(since: start))")
         }
 
         for source in sources {
