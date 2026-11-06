@@ -89,3 +89,18 @@ Each step is one or more green commits with tests in Core or Host. Steps 1 to 5 
 **Features.** `Settings.disabledFeatures` (`"features": {"files": false}`) turns built-in sources off by id (`Feature`: apps, files, calculator, ask-ai; commands always stay). On reload `AppDelegate.applyFeatures` filters the root's sources (`Feature.enabled`, then `PaletteSession.setSources`, which runs the root again keeping the selection), unregisters the feature's built-in commands (`CommandRegistry.setDisabledBuiltins`: Ask AI's hotkey and alias go inert) and stops or starts the work behind a source (app scan, exchange rates).
 
 Can wait: `Encodable` wire types (for MCP and deeplinks), moving settings and usage file I/O out of Core.
+
+## Phase 2 plan (second review, 2026-11-06)
+
+The second review (Fable and Astra, independently) found the core model holding: frames, registry, dispatcher and command streams carry the consent store, Make a command, MCP and forms without a new mechanism. It found drift from parallel builds and three hard problems for running agent-written code. Each step is green commits with tests; A to F come before the consent store and Make a command.
+
+- **A. Testable app runtime.** Split the `Wicket` executable into a `WicketApp` library (AppKit allowed, `@testable`) plus `main.swift`; move the delegate's composition and settings reconciliation into an `AppRuntime` that applies one settings snapshot coherently (features, aliases, hotkeys, cancelling work of disabled commands, refreshing results) with tests; tests for `PaletteMetrics` card sizing.
+- **B. One invocation policy.** Commands declare how they take input (`immediate`, `submitText`, `liveText`) and whether a run may be repeated (`never` by default, `safeToRepeat` only by explicit contract); rows, keywords, aliases, hotkeys, the CLI and later deeplinks and MCP resolve through it. Ask AI becomes an ordinary `submitText` command (no special cases in the dispatcher, controller, model, panes or features), and its fallback row a generic fallback source reading the user's fallback order. The command mode moves out of `Manifest` into Core.
+- **C. One content model.** `RunResult` becomes `show(Screen) | close | reload`; a frame's content is `search` or `screen` (a pushed detail is a screen frame without a run), so grid and form become one new `Screen` case each.
+- **D. Process ownership.** Stopping an extension or an agent contains its descendants (children that outlive the parent, inherited pipes), through one tested process-lifetime mechanism shared by both transports.
+- **E. Diagnostics and revisions.** One bounded `Diagnostics` store (subject, severity, text, time) fed by discovery, sessions, root-source failures, bindings and registry conflicts, read by the panes and later "Fix with agent"; one message channel for HUD and toasts. `ExtensionRevision` (SHA-256 over the artifact with defined path, symlink and permission rules) on runtime handles, so a stale action can't silently run replaced code.
+- **F. Isolated checker.** `wicket check` as a gate never runs candidate code with real secrets or the user's environment: synthetic secrets, restricted environment, scratch data, read-only candidate, fixtures required.
+
+Then: the consent store (approved revisions by hash, host-owned, no API; fails closed), `install` and `rollBack` with sealed revisions, the switch deleted in favour of the gate in Host; then the build job (a Host-owned job: generating, checking, awaiting review) and the review UI as a pushed detail.
+
+Can wait: `setQuery(provisional:)` for voice partials (design now: partials never route keywords or run live commands), `Owner.mcp` and routing by owner kind, a `Settings` decoding helper, consolidating `openingFrame`.
