@@ -67,7 +67,7 @@ Compactness follows the frame (`Frame.isCompact`): the root with an empty query 
 
 ## How to add a feature
 
-- **A new kind of root result** (a built-in source): a `ResultSource` in `Wicket`, its matching and logic in Core with tests, registered in `main.swift`. Pick a relevance tier; never ship your own ranking.
+- **A new kind of root result** (a built-in source): a `ResultSource` in `Wicket`, its matching and logic in Core with tests, registered in `main.swift`. Pick a relevance tier; never ship your own ranking. If the user should be able to turn it off, add a `Feature` case whose raw value is the source's id (and stop its background work in `AppDelegate.applyFeatures`); the Features pane and settings.json pick it up.
 - **A new command**: a built-in that just does something is a case in `BuiltinCommand` (its title and icon) and its effect in the dispatcher; one that shows something is a registered command plus a `CommandRunner` (below); extension commands register from their manifests. Either gets search, keywords, aliases and hotkeys (and later deeplinks) through the registry, with no plumbing of its own; set `takesText: false` if it just does something, so a keyword or alias and a space don't open a frame for it.
 - **A new screen type** (grid, form, custom UI later): a new case of the content enum and a view for it. Not a parallel system.
 - **A new action**: a case in `Item.Action`, handled by the dispatcher, returning an outcome. Presentation (title, symbol) in `ActionPresentation`.
@@ -86,4 +86,6 @@ Each step is one or more green commits with tests in Core or Host. Steps 1 to 5 
 5. **Consent store and lifecycle.** Lifecycle done 2026-11-06: `Extensions` moved to Host with serialised session replacement; every termination path escalates to SIGKILL (`lineTooLong` included); `AgentProcess` never waits on a live child that closed stdout; `run` actions are never resent after an exit (queries may be). Still to do: host-owned approvals; discovered versus approved revisions.
 6. **Extension palette integration** (done 2026-11-06, behind the switch). `CommandRunner` streams feeding command frames; keyword routing; once (local filter) and live (debounced, superseding) frames; answer, list and detail content; loading and failures in the frame; close and reload with their messages (HUD and footer); `ExtensionRootSource`. End to end over the real samples in `Tests/WicketHostTests/PaletteIntegrationTests.swift`. Left: flip the switch once the consent store lands; diagnostics and repair on the Extensions screen.
 
-Can wait: `Encodable` wire types (for MCP and deeplinks), moving settings and usage file I/O out of Core, applying settings diffs to sources live.
+**Features.** `Settings.disabledFeatures` (`"features": {"files": false}`) turns built-in sources off by id (`Feature`: apps, files, calculator, ask-ai; commands always stay). On reload `AppDelegate.applyFeatures` filters the root's sources (`Feature.enabled`, then `PaletteSession.setSources`, which runs the root again keeping the selection), unregisters the feature's built-in commands (`CommandRegistry.setDisabledBuiltins`: Ask AI's hotkey and alias go inert) and stops or starts the work behind a source (app scan, exchange rates).
+
+Can wait: `Encodable` wire types (for MCP and deeplinks), moving settings and usage file I/O out of Core.

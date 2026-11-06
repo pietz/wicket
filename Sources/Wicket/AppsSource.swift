@@ -23,6 +23,9 @@ final class AppsSource: ResultSource {
 
     private var watcher: FileWatcher?
     private var rescanTask: Task<Void, Never>?
+    /// Between `start` and `stop`: scanning and watching. A scan that finishes after `stop` is
+    /// dropped.
+    private var isRunning = false
 
     nonisolated static let scopes: [String] = [
         "/Applications",
@@ -36,9 +39,24 @@ final class AppsSource: ResultSource {
         NSHomeDirectory() + "/Applications",
     ]
 
+    /// Scans, then watches the folders for changes. Does nothing while already running.
     func start() async {
+        guard !isRunning else { return }
+        isRunning = true
         await rescan()
+        guard isRunning else { return }
         watch()
+    }
+
+    /// Stops watching and forgets the apps, for when the feature is turned off.
+    func stop() {
+        guard isRunning else { return }
+        isRunning = false
+        watcher = nil
+        rescanTask?.cancel()
+        rescanTask = nil
+        apps = []
+        index = SearchIndex([])
     }
 
     func instant(_ query: Query) -> [Item] {
@@ -52,7 +70,7 @@ final class AppsSource: ResultSource {
             return (found, Self.index(found))
         }.value
         Perf.log("app scan: \(found.count) apps in \(Perf.ms(since: start))")
-        guard found != apps else { return }
+        guard isRunning, found != apps else { return }
         apps = found
         self.index = index
         onChange?()

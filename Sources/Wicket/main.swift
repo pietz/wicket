@@ -21,39 +21,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var registeredShortcut: Shortcut?
     /// True while the settings window records a new hotkey.
     private var hotKeyPaused = false
+    /// Every root source, before settings.json turns features off.
+    private var allSources: [any ResultSource] = []
+    /// The features turned off as last applied; nil before the first `applySettings`.
+    private var disabledFeatures: Set<Feature>?
+    /// Set until the first app scan finishes, which logs the time from launch.
+    private var launchStart: ContinuousClock.Instant?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let launchStart = ContinuousClock.now
+        launchStart = ContinuousClock.now
         NSApp.mainMenu = MainMenu.make()
         let effects = SystemEffects { [weak self] in self?.settingsWindow.show() }
-        var sources: [any ResultSource] = [
-            apps, CommandsSource(registry), calculator, files, AskAISource(registry: registry),
-        ]
-        if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
+        allSources = [apps, CommandsSource(registry), calculator, files, AskAISource(registry: registry)]
+        if Self.extensionCommandsInPalette { allSources.append(ExtensionRootSource(extensions)) }
         let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
+        // `applySettings` drops the sources of features that are off before the palette first shows.
         palette = PaletteController(
-            model: PaletteModel(sources: sources, runner: runner, registry: registry),
+            model: PaletteModel(sources: allSources, runner: runner, registry: registry),
             dispatcher: ActionDispatcher(registry: registry, effects: effects))
 
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
         boundHotKeys.onPress = { [weak self] in self?.palette.run(bound: $0) }
+        apps.onChange = { [weak self] in self?.palette.model.refresh() }
         applySettings()
         settingsWatcher = FileWatcher(paths: [store.url.deletingLastPathComponent().path], latency: 0.2) {
             [weak self] _ in
             self?.applySettings()
         }
 
-        calculator.start { [weak self] in self?.palette.model.refresh() }
         extensions.load()
         registerExtensionCommands()
         extensionsWatcher = FileWatcher(paths: [extensions.directory.path], latency: 0.3) { [weak self] in
             self?.extensions.load(changed: $0)
             self?.registerExtensionCommands()
-        }
-        apps.onChange = { [weak self] in self?.palette.model.refresh() }
-        Task {
-            await apps.start()
-            Perf.log("launch→indexed: \(Perf.ms(since: launchStart))")
         }
 
         if !CommandLine.arguments.contains("--background") { palette.show() }
@@ -69,14 +69,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Reloads settings.json (defaults if it is missing or invalid) and applies it: the aliases, and
-    /// the hotkeys that changed.
+    /// Reloads settings.json (defaults if it is missing or invalid) and applies it: the features,
+    /// the aliases, and the hotkeys that changed.
     private func applySettings() {
         store.reload()
         palette.width = store.settings.paletteWidth
         askAI.provider = store.settings.ai.provider
+        applyFeatures()
         registry.setAliases(store.settings.commands.compactMapValues(\.alias))
         applyHotKeys()
+    }
+
+    /// Turns the features on and off as settings.json says, if that changed: the root search gets
+    /// the enabled sources only, a feature's built-in commands leave the registry (before the
+    /// hotkeys are resolved against it), and the work behind a source stops or starts. Files has
+    /// nothing running between queries, so leaving the root search is all it needs.
+    private func applyFeatures() {
+        let settings = store.settings
+        guard settings.disabledFeatures != disabledFeatures else { return }
+        disabledFeatures = settings.disabledFeatures
+        registry.setDisabledBuiltins(Set(settings.disabledFeatures.flatMap(\.commands)))
+        palette.model.session.setSources(Feature.enabled(allSources, in: settings))
+        if settings.isEnabled(.apps) {
+            Task {
+                await apps.start()
+                guard let launchStart else { return }
+                self.launchStart = nil
+                Perf.log("launch→indexed: \(Perf.ms(since: launchStart))")
+            }
+        } else {
+            apps.stop()
+        }
+        if settings.isEnabled(.calculator) {
+            calculator.start { [weak self] in self?.palette.model.refresh() }
+        } else {
+            calculator.stop()
+        }
+        Perf.log("features off: \(settings.disabledFeatures.map(\.rawValue).sorted())")
     }
 
     /// Registers the commands' hotkeys and the palette's. Commands that no longer want a hotkey let

@@ -16,11 +16,22 @@ public struct Settings: Equatable, Sendable {
     /// commands that aren't registered stay here (the extension may be installed later) and do
     /// nothing until they are.
     public var commands: [CommandID: CommandBinding] = [:]
+    /// The built-in features turned off. The file says `"features": {"files": false}`; a feature it
+    /// doesn't mention, or sets to true, is on.
+    public var disabledFeatures: Set<Feature> = []
     /// Why a field the file sets was ignored for its default. A cosmetic value that is wrong or out
     /// of range shouldn't cost the whole file, so it is reported here instead of making it invalid.
     public private(set) var ignored: [String] = []
 
     public init() {}
+
+    public func isEnabled(_ feature: Feature) -> Bool {
+        !disabledFeatures.contains(feature)
+    }
+
+    public mutating func setEnabled(_ feature: Feature, _ enabled: Bool) {
+        if enabled { disabledFeatures.remove(feature) } else { disabledFeatures.insert(feature) }
+    }
 
     /// The `ai` object. Preferences only: nothing here grants anything.
     public struct AI: Equatable, Sendable {
@@ -156,7 +167,7 @@ public struct CommandBinding: Hashable, Sendable {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, ai, commands
+        case hotkey, paletteWidth, ai, commands, features
     }
 
     private enum CommandKeys: String, CodingKey {
@@ -186,6 +197,31 @@ extension Settings: Codable {
         }
         if container.contains(.commands), (try? container.decodeNil(forKey: .commands)) != true {
             decodeCommands(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands))
+        }
+        if container.contains(.features), (try? container.decodeNil(forKey: .features)) != true {
+            decodeFeatures(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .features))
+        }
+    }
+
+    /// Each entry stands alone, like the bindings: an unknown feature or a value that isn't a
+    /// boolean is ignored with its reason, and that feature stays on.
+    private mutating func decodeFeatures(_ object: KeyedDecodingContainer<AnyKey>?) {
+        guard let object else {
+            ignored.append("features must be an object; every feature is on")
+            return
+        }
+        for key in object.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
+            guard let feature = Feature(rawValue: key.stringValue) else {
+                let names = Feature.allCases.map(\.rawValue).joined(separator: ", ")
+                ignored.append("features: \"\(key.stringValue)\" is not a feature (\(names)); ignoring it")
+                continue
+            }
+            if (try? object.decodeNil(forKey: key)) == true { continue }
+            guard let enabled = try? object.decode(Bool.self, forKey: key) else {
+                ignored.append("features.\(feature.rawValue) must be true or false; leaving it on")
+                continue
+            }
+            setEnabled(feature, enabled)
         }
     }
 
@@ -282,6 +318,13 @@ extension Settings: Codable {
                 var fields = object.nestedContainer(keyedBy: CommandKeys.self, forKey: AnyKey(id.description))
                 try fields.encodeIfPresent(binding.hotkey, forKey: .hotkey)
                 try fields.encodeIfPresent(binding.alias, forKey: .alias)
+            }
+        }
+        // Only the features turned off, so `update` removes one turned back on.
+        if !disabledFeatures.isEmpty {
+            var object = container.nestedContainer(keyedBy: AnyKey.self, forKey: .features)
+            for feature in disabledFeatures {
+                try object.encode(false, forKey: AnyKey(feature.rawValue))
             }
         }
     }

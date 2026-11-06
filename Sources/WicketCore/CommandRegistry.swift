@@ -107,6 +107,8 @@ public final class CommandRegistry {
     public private(set) var aliasConflicts: [KeywordConflict] = []
     private let builtins: [RegisteredCommand]
     private var extensions: [RegisteredCommand] = []
+    /// Built-ins whose feature is off (`Feature.commands`): not registered until it is on again.
+    private var disabledBuiltins: Set<CommandID> = []
     /// The aliases settings.json asks for, registered or not.
     private var requestedAliases: [CommandID: String] = [:]
     private var byID: [CommandID: RegisteredCommand] = [:]
@@ -127,6 +129,16 @@ public final class CommandRegistry {
         extensions = commands.filter {
             if case .extension = $0.id.owner { true } else { false }
         }
+        rebuild()
+    }
+
+    /// Unregisters the built-ins in `disabled` and registers the rest again, for when settings.json
+    /// turned a feature off or on. Their hotkeys and aliases wait, inert, like those of a command
+    /// that isn't installed.
+    public func setDisabledBuiltins(_ disabled: Set<BuiltinCommand>) {
+        let ids = Set(disabled.map(\.id))
+        guard ids != disabledBuiltins else { return }
+        disabledBuiltins = ids
         rebuild()
     }
 
@@ -183,6 +195,7 @@ public final class CommandRegistry {
     private func rebuild() {
         commands = []
         byID = [:]
+        let builtins = builtins.filter { !disabledBuiltins.contains($0.id) }
         for command in builtins + extensions where byID[command.id] == nil {
             commands.append(command)
             byID[command.id] = command

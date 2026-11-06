@@ -27,7 +27,7 @@ public final class PaletteSession {
     public private(set) var opening: CommandRun?
     /// What the session needs the app to do: close the palette, or show a message briefly.
     @ObservationIgnored public var onRequest: (Request) -> Void = { _ in }
-    @ObservationIgnored private let sources: [any ResultSource]
+    @ObservationIgnored private var sources: [any ResultSource]
     @ObservationIgnored private let frecency: () -> (String) -> Double
     @ObservationIgnored private let runner: (any CommandRunner)?
     @ObservationIgnored private let registry: CommandRegistry?
@@ -97,6 +97,16 @@ public final class PaletteSession {
     /// Runs the root search again with the same text, for when a source's data changed. The
     /// selection stays on its item.
     public func refresh() {
+        start(0)
+    }
+
+    /// Replaces the root search's sources, for when a feature was turned on or off, and runs the
+    /// root again with the same text: a removed source's rows go and its work stops, an added one
+    /// is asked, and the selection stays on its item if that is still there. Nothing happens if the
+    /// sources are the same ones.
+    public func setSources(_ sources: [any ResultSource]) {
+        guard sources.map(\.id) != self.sources.map(\.id) else { return }
+        self.sources = sources
         start(0)
     }
 
