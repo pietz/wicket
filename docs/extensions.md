@@ -191,11 +191,11 @@ For commands and actions that do something rather than show something:
 | Field | Required | Meaning |
 |---|---|---|
 | `title` | yes | Main text. |
-| `id` | no | A string, stable and unique within the response; defaults to the title. Wicket keeps the selection and learns the user's favourites by it, so use a real key (a URL, a path, a database id). |
+| `id` | no | A string, stable and unique within the response; defaults to the title. Wicket keeps the selection and learns the user's favourites by it, so use a real key (a URL, a path, a database id). Ids are yours alone: Wicket keeps them apart from other extensions' and other commands'. |
 | `subtitle` | no | Secondary text. |
 | `icon` | no | Defaults to the command's icon. |
 | `accessory` | no | Short text on the right, such as a count, a date or a shortcut. |
-| `relevance` | no | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Search the web for …"). Wicket ranks by relevance first; within it, your order is kept. |
+| `relevance` | no | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Search the web for …"). Wicket ranks by relevance first; within it, your order is kept (the user's habits never reorder your items). |
 | `actions` | no | What the user can do; the first runs on Return, the others are in the action panel (⌘K). |
 
 ### Icons

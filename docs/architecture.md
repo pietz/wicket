@@ -17,9 +17,9 @@ Rule of thumb: if it can be tested without a window, it belongs in Core or Host,
 
 ## Core concepts
 
-**Item: a row.** One result row from any source, with its actions. It is not a command, a screen or an execution context. Items carry a host-stamped **origin** (which command produced them) **(target)**; ids are namespaced by origin so two extensions can't collide **(target)**.
+**Item: a row.** One result row from any source, with its actions. It is not a command, a screen or an execution context. Items carry a host-stamped **origin** (the `CommandID` whose response produced them; nil for the host's own sources); extension ids are namespaced by origin (`ext:<extension>/<command>:<id>`) so two extensions can't collide.
 
-**Action: data.** What an item can do: `open`, `copy`, `paste`, `reveal` **(target; today a `command(id: "reveal:…")` hack)**, `detail`, `run`. Actions never carry closures. One **dispatcher** turns an action plus its context into an **outcome** **(target)**:
+**Action: data.** What an item can do: `open`, `copy`, `paste`, `reveal` (host only), `detail`, `run` (resolved at decode to a `CommandID` of the item's extension), and `command(id:)` for built-ins until step 4. Actions never carry closures. One **dispatcher** turns an action plus its context into an **outcome** **(target)**:
 
 ```swift
 enum ActionOutcome { case close(message: String?), push(Content), reload, stay }
@@ -27,7 +27,7 @@ enum ActionOutcome { case close(message: String?), push(Content), reload, stay }
 
 The palette applies the outcome. Nothing hides the palette before knowing the outcome **(today `PaletteController.run` hides first)**.
 
-**Command: something you can invoke.** Built-ins (Settings, Quit, Ask AI) and extension commands share one shape and one identity **(target)**:
+**Command: something you can invoke.** Built-ins (Settings, Quit, Ask AI) and extension commands share one identity, `CommandID` (in `WicketCore/Command.swift`), and one shape **(target: `Invocation` and the registry)**:
 
 ```swift
 struct CommandID: Hashable, Codable, Sendable { var owner: Owner; var name: String }  // owner: .builtin or .extension(id)
@@ -36,11 +36,11 @@ struct Invocation: Sendable { var command: CommandID; var text: String; var args
 
 The **command registry** is the one catalog. The root search, keywords, aliases, per-command hotkeys, `wicket://` deeplinks, the fallback list and the MCP server all resolve through it, with explicit collision handling. Persistent bindings (hotkeys, aliases) store a `CommandID` or an `Invocation`, never a row id.
 
-**Content: what a screen shows.** `RunResult`'s vocabulary (answer, list, detail) is the content model for everyone, not only extensions **(target: moved out of `Extension/`, with public initialisers)**. The wire format is its encoding. A streaming producer (Ask AI) yields successive contents; each replaces the last.
+**Content: what a screen shows.** `RunResult`'s vocabulary (answer, list, detail) is the content model for everyone, not only extensions: `WicketCore/Content.swift`, with public initialisers. The wire format is its encoding (`Extension/Decoding.swift`). A streaming producer (Ask AI) yields successive contents; each replaces the last.
 
 **Palette session and frames.** `PaletteModel` owns a stack of **frames** **(target)**. A frame keeps its invocation, query, selection, content, load state and generation. The root frame is the root search; pushing a command or a detail adds a frame; Escape clears the text, else pops, else hides. Results are applied only if frame identity and generation still match; work is cancelled on pop, dismiss and superseding queries. Compactness follows the frame: an empty query inside a live command or a streaming detail is content, not a reason to collapse.
 
-**Root search.** `ResultSource` (`instant` plus optional `updates`) stays the interface for the root frame only, and stays fast and synchronous on the keystroke path. Ordering has three policies: host-scored candidates (apps, files, built-ins: tier then score then frecency), provider-ordered results (extension root items keep their order within a tier), and user-ordered fallbacks. Selection follows the item id; if the selected item disappears, the rule is explicit and tested.
+**Root search.** `ResultSource` (`instant` plus optional `updates`) stays the interface for the root frame only, and stays fast and synchronous on the keystroke path. Ordering has three policies: host-scored candidates (apps, files, built-ins: tier then score then frecency), provider-ordered results (extension root items keep their order within a tier; done: list positions become descending scores and extension items get no frecency boost), and user-ordered fallbacks **(target)**. Selection follows the item id; if the selected item disappears, the rule is explicit and tested.
 
 **Extension lifecycle.** Host owns discovery, the **approved revision** (see consent below), session replacement (old session fully shut down before the new one starts) and diagnostics **(target)**. Discovery does not imply permission to run.
 
@@ -61,7 +61,7 @@ The **command registry** is the one catalog. The root search, keywords, aliases,
 
 Each step is one or more green commits with tests in Core or Host. Steps 1 to 5 come before the extension palette integration.
 
-1. **Value model.** `Item.Action.reveal(url:)` replacing the hack; host-stamped origin and namespaced extension ids; `.run` resolved to a `CommandID`; public initialisers for `Detail` and friends; content model out of `Extension/`; provider order kept for extension items. Tests: id collisions across extensions, relative `run` resolution, order preservation.
+1. **Value model** (done 2026-11-06). `Item.Action.reveal(url:)` replacing the hack; host-stamped origin and namespaced extension ids; `.run` resolved to a `CommandID`; public initialisers for `Detail` and friends; content model out of `Extension/`; provider order kept for extension items. Tests: id collisions across extensions, relative `run` resolution, order preservation.
 2. **Root versus list behaviour.** Split selection from aggregation in `ResultList`; three ordering policies; defined behaviour when the selection disappears or is truncated. Move `ResultSource` to Core.
 3. **Frames.** `PaletteModel` becomes the session with a frame stack; Escape, Return and action intents go through it; a first detail view. Root UI unchanged.
 4. **Registry and dispatcher.** Built-ins become registered commands; `ActionRunner` becomes the dispatcher returning outcomes; `command(id:)` goes away; the previous app is captured at summon for paste-back.
