@@ -296,17 +296,22 @@ struct Evaluator {
     /// typed last (`5 ft + 1 m` is in metres), and a bare number takes the other side's unit.
     private mutating func add(_ a: Quantity, _ b: Quantity, negate: Bool) throws(CalcError) -> Quantity {
         let sign: Double = negate ? -1 : 1
+        // Cancellation noise is zero: `1 - 0.9 - 0.1` is 0, not -2.8e-17.
+        func sum(_ x: Double, _ y: Double) -> Double {
+            let total = x + sign * y
+            return abs(total) < 1e-12 * max(abs(x), abs(y)) ? 0 : total
+        }
         switch (a.kind, b.kind) {
         case (.percent, .percent), (.number, .number):
-            return Quantity(value: a.value + sign * b.value, kind: a.kind)
+            return Quantity(value: sum(a.value, b.value), kind: a.kind)
         case (.percent, _):
             throw .notACalculation
         case (_, .percent):
             return Quantity(value: a.value * (1 + sign * b.value / 100), kind: a.kind)
         case (.number, _):
-            return Quantity(value: a.value + sign * b.value, kind: b.kind)
+            return Quantity(value: sum(a.value, b.value), kind: b.kind)
         case (_, .number):
-            return Quantity(value: a.value + sign * b.value, kind: a.kind)
+            return Quantity(value: sum(a.value, b.value), kind: a.kind)
         case (.unit(let u), .unit(let v)):
             guard UnitCatalog.sameKind(u, v) else {
                 throw .incompatible(UnitCatalog.kind(of: u), UnitCatalog.kind(of: v))
@@ -314,9 +319,9 @@ struct Evaluator {
             // Absolute temperatures on different scales don't add meaningfully.
             if u is UnitTemperature, u != v { throw .notACalculation }
             let left = Measurement(value: a.value, unit: u).converted(to: v).value
-            return Quantity(value: left + sign * b.value, kind: b.kind)
+            return Quantity(value: sum(left, b.value), kind: b.kind)
         case (.currency(let c), .currency(let d)):
-            return Quantity(value: try exchange(a.value, from: c, to: d) + sign * b.value, kind: b.kind)
+            return Quantity(value: sum(try exchange(a.value, from: c, to: d), b.value), kind: b.kind)
         case (.unit(let u), .currency):
             throw .incompatible(UnitCatalog.kind(of: u), "currency")
         case (.currency, .unit(let v)):
@@ -405,6 +410,8 @@ enum Math {
     /// These keep the argument's unit or currency: `round(2.567 km)` is in km.
     private static let unitPreserving: Set = ["abs", "round", "floor", "ceil"]
 
+    private static let trigonometric: Set = ["sin", "cos", "tan"]
+
     static func isFunction(_ name: String) -> Bool { functions[name] != nil }
 
     static func isNamed(_ word: String) -> Bool {
@@ -423,7 +430,10 @@ enum Math {
         }
         switch arguments.count {
         case 1:
-            return Quantity(value: function(first.value), kind: first.kind)
+            var value = function(first.value)
+            // Trigonometry at multiples of π leaves rounding noise: sin(π) is 1.2e-16, not 0.
+            if trigonometric.contains(name), abs(value) < 1e-12 { value = 0 }
+            return Quantity(value: value, kind: first.kind)
         case 2:
             let second = arguments[1].scalar
             guard case .number = second.kind else { throw .notACalculation }

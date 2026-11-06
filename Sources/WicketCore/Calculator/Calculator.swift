@@ -37,14 +37,14 @@ public enum Calculator {
         _ text: String, rates: ExchangeRates?, defaultCurrency: String = "USD", locale: Locale = .current
     ) -> CalculatorResult? {
         guard text.utf8.contains(where: { $0 >= 0x30 && $0 <= 0x39 }),
-            var tokens = try? Tokenizer.tokenize(text)
+            var tokens = try? Tokenizer.tokenize(text, locale: locale)
         else { return nil }
         // While the next operand is still being typed (`2 * 3 +`, `2 + 3 =`), answer the prefix.
         if let last = tokens.last, last == .word("to") || (last != .op("^") && isOperator(last)) {
             tokens.removeLast()
         }
 
-        let format = Format(locale: locale)
+        let format = Format(locale: locale, digits: max(Format.displayDigits, typedDigits(tokens)))
         var evaluator = Evaluator(tokens[...], rates: rates)
         do {
             var value = try evaluator.evaluate()
@@ -63,6 +63,21 @@ public enum Calculator {
         }
     }
 
+    /// The most significant digits in any number typed, so `1.23456789 * 2` shows all of them.
+    private static func typedDigits(_ tokens: [Token]) -> Int {
+        tokens.reduce(0) { most, token in
+            guard case .number(let value) = token else { return most }
+            return max(most, significantDigits(value))
+        }
+    }
+
+    /// Significant digits of the shortest decimal that reads back as `value`: 2 for `0.25`, 3 for `1.5e20`.
+    static func significantDigits(_ value: Double) -> Int {
+        let mantissa = String(describing: abs(value)).prefix { $0 != "e" }
+        return mantissa.filter(\.isNumber).trimmingPrefix { $0 == "0" }.reversed().drop(while: { $0 == "0" })
+            .count
+    }
+
     private static func isOperator(_ token: Token) -> Bool {
         if case .op = token { return true }
         return false
@@ -71,7 +86,13 @@ public enum Calculator {
 
 /// Locale-aware text for results.
 private struct Format {
+    /// Significant digits shown unless the input typed more; copying keeps `copyDigits`.
+    static let displayDigits = 6
+    static let copyDigits = 15
+
     let locale: Locale
+    /// Significant digits to show.
+    let digits: Int
 
     func answer(_ value: Quantity, echo: [Token], usedRates: Bool, rates: ExchangeRates?) -> CalculatorResult
     {
@@ -80,15 +101,17 @@ private struct Format {
         switch value.kind {
         case .number:
             display = number(value.value)
-            copy = number(value.value, grouping: false)
+            copy = number(value.value, digits: Self.copyDigits, grouping: false)
         case .percent:
             display = number(value.value) + "%"
-            copy = number(value.value, grouping: false) + "%"
+            copy = number(value.value, digits: Self.copyDigits, grouping: false) + "%"
         case .unit(let unit):
             display = Measurement(value: value.value, unit: unit).formatted(
-                .measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: style(value.value))
-                    .locale(locale))
-            copy = number(value.value, grouping: false)
+                .measurement(
+                    width: .abbreviated, usage: .asProvided,
+                    numberFormatStyle: style(value.value, digits: digits)
+                ).locale(locale))
+            copy = number(value.value, digits: Self.copyDigits, grouping: false)
         case .currency(let code):
             display = value.value.formatted(
                 .currency(code: code).precision(money(value.value)).locale(locale))
@@ -123,23 +146,29 @@ private struct Format {
 
     // MARK: Numbers
 
-    /// Integers up to 10¹⁵ in full, other values to 10 significant digits, and very large or small
-    /// magnitudes in scientific notation.
-    private func style(_ value: Double, grouping: Bool = true) -> FloatingPointFormatStyle<Double> {
+    /// Integers up to 10¹⁵ in full; other values to `digits` significant digits but never fewer
+    /// than their whole part (`1,234,567.4` shows as `1,234,567`); very large or small magnitudes in
+    /// scientific notation.
+    private func style(_ value: Double, digits: Int, grouping: Bool = true) -> FloatingPointFormatStyle<
+        Double
+    > {
         var style = FloatingPointFormatStyle<Double>(locale: locale)
         let magnitude = abs(value)
         if magnitude < 1e15, magnitude.rounded() == magnitude {
             style = style.precision(.fractionLength(0))
         } else if magnitude >= 1e15 || magnitude < 1e-9 {
-            style = style.notation(.scientific).precision(.significantDigits(1...10))
+            style = style.notation(.scientific).precision(.significantDigits(1...digits))
+        } else if magnitude >= 1 {
+            let whole = Int(log10(magnitude)) + 1
+            style = style.precision(.fractionLength(0...max(0, digits - whole)))
         } else {
-            style = style.precision(.significantDigits(1...10))
+            style = style.precision(.significantDigits(1...digits))
         }
         return grouping ? style : style.grouping(.never)
     }
 
-    private func number(_ value: Double, grouping: Bool = true) -> String {
-        value.formatted(style(value, grouping: grouping))
+    private func number(_ value: Double, digits: Int? = nil, grouping: Bool = true) -> String {
+        value.formatted(style(value, digits: digits ?? self.digits, grouping: grouping))
     }
 
     /// Cents, widening to four significant digits below one cent.
@@ -170,6 +199,7 @@ private struct Format {
             case .open:
                 piece = "("
                 glueNext = true
+                if case .word(let word)? = previous, Math.isFunction(word.lowercased()) { glue = true }
             case .close:
                 piece = ")"
                 glue = true

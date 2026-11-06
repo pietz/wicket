@@ -36,14 +36,14 @@ func ignoresInputThatIsNotACalculation(text: String) {
     ("2 * -3", "-6"),
     ("10 / 4", "2.5"),
     ("0.1 + 0.2", "0.3"),
-    ("1/3", "0.3333333333"),
+    ("1/3", "0.333333"),
     ("2x3", "6"),
     ("2 x 3", "6"),
     ("2×3", "6"),
     ("6 ÷ 4", "1.5"),
     ("4(2+3)", "20"),
-    ("2pi", "6.283185307"),
-    ("2 pi", "6.283185307"),
+    ("2pi", "6.28319"),
+    ("2 pi", "6.28319"),
     ("1,000 + 234", "1,234"),
     ("1,234,567.5 * 2", "2,469,135"),
     ("sqrt(16)", "4"),
@@ -57,7 +57,7 @@ func ignoresInputThatIsNotACalculation(text: String) {
     ("sin(0) + cos(0)", "1"),
     ("tan(0)", "0"),
     ("2e3 + 1", "2,001"),
-    ("2^64", "1.844674407E19"),
+    ("2^64", "1.84467E19"),
     ("1e20 * 3", "3E20"),
     ("2 * 3 +", "6"),
     ("2 + 3 =", "5"),
@@ -96,32 +96,104 @@ func handlesPercentages(text: String, display: String) throws {
     #expect(try #require(calc("1,000 + 1")).copyText == "1001")
 }
 
+// MARK: Locale input
+
+@Test(arguments: [
+    ("2,5 * 2", "5"),
+    ("1.234,5 + 0", "1.234,5"),
+    ("2.5 * 2", "5"),  // A point that can't be grouping is a decimal point.
+    ("1.2345 * 2", "2,469"),
+    ("12345.5 + 0", "12.345,5"),
+    ("1.234 * 2", "2.468"),  // Valid grouping follows the locale.
+    ("1.234.567 + 1", "1.234.568"),
+    (",5 + 1", "1,5"),
+    ("round(3,2)", "3"),  // round(3.2): the comma is the decimal point here.
+    ("round(3,14159; 2)", "3,14"),
+    ("round(3,14159, 2)", "3,14"),
+    ("log(8; 2)", "3"),
+    ("5,5 km in m", "5.500 m"),
+])
+func readsGermanNumbers(text: String, display: String) throws {
+    #expect(try #require(calc(text, locale: german)).display == display)
+}
+
+@Test(arguments: ["1.234.5", "1.234,56,7", "2,5,5"])
+func rejectsInvalidGermanNumbers(text: String) {
+    #expect(calc(text + " * 2", locale: german) == nil)
+}
+
+@Test(arguments: [
+    ("2.5 * 2", "5"),
+    ("1,234.5 + 0", "1,234.5"),
+    ("1,234 * 2", "2,468"),
+    ("round(3.14159; 2)", "3.14"),
+])
+func readsEnglishNumbers(text: String, display: String) throws {
+    #expect(try #require(calc(text, locale: english)).display == display)
+}
+
+@Test(arguments: ["2,5 * 2", "1,2345 * 2", "round(3,2)"])
+func rejectsCommaDecimalsInEnglish(text: String) {
+    #expect(calc(text, locale: english) == nil)
+}
+
+// MARK: Precision
+
+@Test(arguments: [
+    ("sin(2pi)", "0"),
+    ("cos(pi/2)", "0"),
+    ("tan(1 pi)", "0"),
+    ("1 - 0.9 - 0.1", "0"),
+    ("0.1 + 0.2", "0.3"),
+    ("2^40", "1,099,511,627,776"),
+    ("1234567.4 + 0", "1,234,567.4"),
+    ("1234567.4 * 1", "1,234,567.4"),
+    ("2/3 * 1000000", "666,667"),
+    ("1.23456789 * 2", "2.46913578"),
+    ("0.000123456789 + 0", "0.000123456789"),
+    ("1 / 7000", "0.000142857"),
+])
+func roundsForDisplay(text: String, display: String) throws {
+    #expect(try #require(calc(text)).display == display)
+}
+
+@Test func copiesFullPrecision() throws {
+    let result = try #require(calc("1/3"))
+    #expect(result.display == "0.333333")
+    #expect(result.copyText == "0.333333333333333")
+}
+
+@Test func echoesFunctionCallsWithoutASpace() throws {
+    #expect(try #require(calc("sqrt (2)")).detail == "sqrt(2) = 1.41421")
+    #expect(try #require(calc("2 (3)")).detail == "2 (3) = 6")
+}
+
 // MARK: Units
 
 @Test(arguments: [
-    ("5 km in miles", "3.106855961 mi"),
-    ("5 km to mi", "3.106855961 mi"),
-    ("100f to c", "37.77777778°C"),
-    ("100 °F in °C", "37.77777778°C"),
+    ("5 km in miles", "3.10686 mi"),
+    ("5 km to mi", "3.10686 mi"),
+    ("100f to c", "37.7778°C"),
+    ("100 °F in °C", "37.7778°C"),
     ("0 c in f", "32°F"),
     ("300 kelvin to celsius", "26.85°C"),
     ("3 ft 2 in to cm", "96.52 cm"),
     ("10 in cm", "25.4 cm"),
     ("5 in in cm", "12.7 cm"),
     ("-5 °C to F", "23°F"),
-    ("5 KM TO MI", "3.106855961 mi"),
+    ("5 KM TO MI", "3.10686 mi"),
     ("1 mb in kb", "1,000 kB"),
     ("6 feet in meters", "1.8288 m"),
-    ("2 kg to lbs", "4.409245244 lb"),
-    ("1 stone in kg", "6.35029318 kg"),
-    ("1 gallon in liters", "3.785411784 L"),
-    ("500 ml to cups", "2.113376419 cup"),
-    ("1 cup in ml", "236.5882365 mL"),
+    ("2 kg to lbs", "4.40925 lb"),
+    ("1 stone in kg", "6.35029 kg"),
+    ("1 gallon in liters", "3.78541 L"),
+    ("500 ml to cups", "2.11338 cup"),
+    ("1 cup in ml", "236.588 mL"),
     ("1 knot to km/h", "1.852 km/h"),
-    ("100 km/h in mph", "62.13711922 mph"),
+    ("100 km/h in mph", "62.1371 mph"),
     ("10 m/s to km/h", "36 km/h"),
-    ("1 acre in m2", "4,046.856422 m²"),
-    ("2 sq ft to square meters", "0.18580608 m²"),
+    ("1 acre in m2", "4,046.86 m²"),
+    ("2 sq ft to square meters", "0.185806 m²"),
     ("90 min in hours", "1.5 hr"),
     ("3 days to hours", "72 hr"),
     ("1 hr 30 min to min", "90 min"),
@@ -131,7 +203,7 @@ func handlesPercentages(text: String, display: String) throws {
     ("5 kilometres to metres", "5,000 m"),
     ("5 km + 300 m", "5,300 m"),
     ("5 ft + 1 m", "2.524 m"),
-    ("3 ft 2 in", "3.166666667 ft"),
+    ("3 ft 2 in", "3.16667 ft"),
     ("2 * 5 kg", "10 kg"),
     ("10 kg / 4", "2.5 kg"),
     ("1 km / 250 m", "4"),
@@ -145,9 +217,9 @@ func convertsUnits(text: String, display: String) throws {
 
 @Test func unitResultsCopyTheBareNumber() throws {
     let result = try #require(calc("5 km in miles", locale: german))
-    #expect(result.display == "3,106855961 mi")
-    #expect(result.copyText == "3,106855961")
-    #expect(result.detail == "5 km in miles = 3,106855961 mi")
+    #expect(result.display == "3,10686 mi")
+    #expect(result.copyText == "3,10685596118667")
+    #expect(result.detail == "5 km in miles = 3,10686 mi")
 }
 
 @Test(arguments: [
