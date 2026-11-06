@@ -2,7 +2,7 @@
 
 > A wicket is the small door built into a big gate. Wicket is a small, fast, native macOS launcher that opens onto your whole Mac and your agents.
 
-Status: concept, written 2026-11-06 from a research and brainstorming session. Nothing is built yet. Treat everything below as a starting position to challenge, not a spec.
+Status: M1 (palette) built on 2026-11-06; see "Decisions" and "Measurements" below. Everything else is a starting position to challenge, not a spec.
 
 ## The thesis
 
@@ -31,7 +31,7 @@ A launcher should be a tiny, very fast native core plus **one extension protocol
 
 - **App shell:** Swift 6, AppKit `NSPanel` (non-activating, floating) hosting SwiftUI, running as an agent app (`LSUIElement`). Global hotkey via `RegisterEventHotKey` or a modern equivalent.
 - **Core features:**
-  - App search (LaunchServices plus `NSMetadataQuery`, with an in-memory index)
+  - App search (scan of fixed application folders, refreshed by FSEvents, with an in-memory index; see Decisions)
   - File search via the Spotlight index
   - Fuzzy ranking with usage frecency
   - Clipboard history
@@ -69,10 +69,40 @@ Clipboard, snippets, file search and polish come after the go decision unless th
 - A local clone may live in `reference/` (gitignored).
 - **Do not copy code** from either project: that would force our licence to (A)GPL, and the licence is not decided yet.
 
+## Decisions
+
+Made during M1, informed by Tinycast where noted.
+
+- **Project setup: SwiftPM plus `Scripts/build-app.sh`.** No Xcode project. `WicketCore` holds pure, Foundation-only logic (matching, ranking, usage) and is unit-tested with `swift test`; the `Wicket` executable is the AppKit shell. The script builds, assembles `build/Wicket.app` with `Resources/Info.plist` (`LSUIElement`) and signs it with the local Apple Development identity, so TCC grants (Accessibility, needed from M4) survive rebuilds. Tinycast uses XcodeGen plus a committed pbxproj because it embeds helper bundles and asset catalogs; we can revisit if we need those, and `actool` can be called from the script before that.
+- **Hotkey: Carbon `RegisterEventHotKey`.** Tinycast uses the same; it is still the only public system-wide hotkey API that needs no Accessibility or Input Monitoring permission. Fixed at ⌥Space for the PoC; a settings file comes later. The handler passes the key event's own timestamp along, so latency is measured from the keypress.
+- **Panel:** borderless `NSPanel` with `.nonactivatingPanel`, `canBecomeKey`, floating level, joins all Spaces and full-screen apps, no window animation. It takes the keyboard without activating Wicket, so the previous app keeps focus when the palette closes. Fixed size, and SwiftUI never drives the frame (`sizingOptions = []`): Tinycast documents top-edge drift when it did. The search field is AppKit (`NSTextField` delegate for ↑ ↓ ↩ ⎋) and only the result list is SwiftUI, so focus and key handling stay under direct control. Standard editing shortcuts are routed in the panel because there is no menu bar.
+- **App discovery: fixed folders, not `NSMetadataQuery`.** We scan `/Applications`, `/System/Applications`, their `Utilities`, `~/Applications`, CoreServices/Applications, Finder and the Safari cryptex (`/System/Volumes/Preboot/Cryptexes/App/System/Applications`; `/Applications/Safari.app` is a hidden symlink), one vendor subfolder deep, plus apps embedded in apps (Simulator in Xcode). It takes about 40 ms for about 160 apps, off the main thread, and FSEvents triggers a debounced rescan. A Spotlight query depends on indexing being on and returns copies in Downloads, build folders and disk images. Tinycast reached the same design; it also warns against filtering CoreServices by `LSUIElement`, which hides real apps.
+- **Ranking:** our own subsequence matcher (word-start and run bonuses, flat gap penalty, prefix and exact bonuses, weak scattered hits rejected), matched against the displayed name and the file name (so English names work on a localised system). Frecency (half-life 7 days, `~/Library/Application Support/Wicket/usage.json`) adds a capped boost: it breaks close calls but never beats an exact match. Ranking about 160 apps takes well under a millisecond, so it runs synchronously per keystroke.
+- **Look: Liquid Glass (`NSGlassEffectView`) with a tint.** It costs about 12 ms per summon compared with `NSVisualEffectView` (see Measurements). Kept for now because it is the native macOS 26 look and still well under 50 ms; switching is a five-line change if speed wins.
+
+## Concept challenges
+
+- **App search should not use `NSMetadataQuery`** (changed above).
+- **One-shot extensions spawned per keystroke will miss the latency target.** Interpreter start-up alone is about 30 to 80 ms (Python, Node) before any work. Recommendation for M2: debounce one-shot queries, measure spawn cost first, and make persistent mode the norm for search-as-you-type. Keep one-shot for commands that take no live query.
+- **"Extensions in seconds" oversells it.** An agent CLI run takes tens of seconds to minutes. The promise is "one sentence, no code", not seconds; M3 should time it honestly.
+- **Benchmarks need an idle Mac.** The external latency harness posts real keystrokes and takes over the screen, so it can't run while someone is working. In-app timings (`log stream --predicate 'subsystem == "app.wicket"'`) run all the time without that problem.
+
+## Measurements
+
+MacBook on macOS 27.2, release builds, 2026-11-06.
+
+| | Wicket M1 | Tinycast (main, Release) |
+|---|---:|---:|
+| Hotkey to visible, median (external harness, 20 runs) | 35 ms (23 ms without glass) | not yet measured |
+| Idle memory before first summon (`footprint`) | 18 MB | 38 MB |
+| Idle memory after use | not yet measured | 52 MB |
+| App scan | ~40 ms, 157 apps | |
+
+Hotkey to visible breaks down as: Carbon event to `show()` about 0.1 ms, then `makeKeyAndOrderFront` about 7 to 10 ms of window-server work plus the first frame. The SwiftUI result list costs nothing measurable; glass costs about 12 ms. The harness (`Scripts/bench/hotkey-latency.swift`) posts ⌥Space through the HID event tap and polls the window list (about 3 ms resolution), so it measures any launcher the same way.
+
 ## Open decisions
 
 - **Licence:** MIT versus GPL/AGPL. Leaning MIT for adoption, but undecided.
 - **Minimum macOS:** 26+ is simplest. This machine runs macOS 27.2 with Swift 6.4.
-- **Project setup:** an Xcode project versus SwiftPM plus a bundling script (more agent-friendly: no pbxproj churn). Decide early in M1.
 - **Distribution:** signing and notarisation, Homebrew cask, auto-update. Not needed for the PoC.
 - **Name checks:** Apache Wicket (a Java framework) is a minor clash. wicket.app is listed for sale and the plain GitHub org is taken, so we need a variant such as `wicket-app` or `getwicket`. Run a proper trademark check before going public.
