@@ -9,6 +9,7 @@ Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later
 Goal: a fast native palette that already beats a basic launcher, plus the headline: describe a command in one sentence and it gets built and works.
 
 ### Core
+- 🔨 Architecture checkpoint before the extension palette integration: independent reviews (Fable, Astra) of the code against the whole roadmap, then `docs/architecture.md` (core concepts, module boundaries, how to add a feature) and a refactor-first plan
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
