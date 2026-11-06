@@ -76,13 +76,15 @@ public struct ActionDispatcher {
             effects.reveal(url)
         case .detail(let detail):
             return .push(detail)
-        case .run(let id, let text, let args, _):
-            return run(id, text: text, args: args)
+        case .run(let id, let text, let args, _, let revision):
+            return run(id, text: text, args: args, revision: revision)
         }
         return .close
     }
 
-    private func run(_ id: CommandID, text: String, args: [String: JSONValue]?) -> ActionOutcome {
+    private func run(
+        _ id: CommandID, text: String, args: [String: JSONValue]?, revision: ExtensionRevision?
+    ) -> ActionOutcome {
         guard let command = registry.command(id) else {
             return .push(
                 .failure("Command Not Found", "This command isn't installed any more.", command: id))
@@ -96,7 +98,7 @@ public struct ActionDispatcher {
             return .close
         default:
             // Extension commands, and built-ins that show something: their frame runs them.
-            return .open(CommandRun(command, .invoked, text: text, args: args))
+            return .open(CommandRun(command, .invoked, text: text, args: args, revision: revision))
         }
     }
 }

@@ -35,15 +35,18 @@ public struct Item: Sendable, Hashable, Identifiable {
         /// Runs a command, built-in or extension, with `args` passed through. Extensions name a
         /// command of their own; the host resolves it against the item's origin when decoding, so
         /// only the host can name a built-in. `text` is submitted to the command (host only, such as a
-        /// fallback row's query; a wire `run` sends `""`).
+        /// fallback row's query; a wire `run` sends `""`). `revision` is the extension revision whose
+        /// output carried the action (stamped at decode, nil for the host's own): the run is refused
+        /// if the extension has changed since, so replaced code never runs from a stale row.
         case run(
-            command: CommandID, text: String = "", args: [String: JSONValue]? = nil, title: String? = nil)
+            command: CommandID, text: String = "", args: [String: JSONValue]? = nil, title: String? = nil,
+            revision: ExtensionRevision? = nil)
 
         /// The title the source gave, if any.
         public var title: String? {
             switch self {
             case .open(_, let title), .copy(_, let title), .paste(_, let title), .reveal(_, let title),
-                .run(_, _, _, let title):
+                .run(_, _, _, let title, _):
                 title
             case .detail(let detail): detail.title
             }

@@ -108,10 +108,13 @@ private final class Harness {
                 start: { harness?.work.append("start \(feature.rawValue)") },
                 stop: { harness?.work.append("stop \(feature.rawValue)") })
         }
+        let diagnostics = Diagnostics()
         runtime = AppRuntime(
-            store: SettingsStore(directory: directory), sources: [apps, calculator],
+            store: SettingsStore(directory: directory, diagnostics: diagnostics),
+            sources: [apps, calculator],
             work: [.apps: work(.apps), .calculator: work(.calculator)], askAI: askAI,
-            extensions: Extensions(directory: directory.appending(path: "extensions")),
+            extensions: Extensions(
+                directory: directory.appending(path: "extensions"), diagnostics: diagnostics),
             usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
         harness = self
@@ -149,7 +152,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+a")])
     #expect(h.runtime.registry.alias(of: AskAI.command) == "ask")
     #expect(h.store.commands.map(\.id) == h.runtime.registry.commands.map(\.id))
-    #expect(h.store.bindingProblems.isEmpty)
+    #expect(h.store.diagnostics.all.isEmpty)
 
     h.system.press(shortcut("cmd+k"))
     h.system.press(shortcut("ctrl+option+a"))
@@ -238,13 +241,15 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     try h.change(#"{"commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)
     // The palette keeps the default it holds; Quit's is in use elsewhere.
     #expect(h.system.registered == [.default])
-    #expect(h.store.bindingProblems[BuiltinCommand.quit.id] == "⌃⌥A is in use by another app.")
+    #expect(
+        h.store.diagnostics.text(for: .command(BuiltinCommand.quit.id), kind: .binding)
+            == "⌃⌥A is in use by another app.")
 
     try h.change(#"{"hotkey": "cmd+k", "commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)
     h.system.heldElsewhere = []
     try h.change(#"{"hotkey": "option+space", "commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)
     #expect(h.system.registered == [.default, shortcut("ctrl+option+a")])
-    #expect(h.store.bindingProblems.isEmpty)
+    #expect(h.store.diagnostics.all.isEmpty)
     #expect(!h.store.hotKeyFailed)
 
     h.system.heldElsewhere = [shortcut("cmd+k")]
@@ -261,4 +266,30 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     try h.write(#"{"hotkey": "cmd+k", "commands": {"builtin:quit": {"hotkey": "ctrl+option+q"}}}"#)
     h.store.pauseHotKey(false)
     #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+q")])
+}
+
+/// One message channel: the session's command messages and the paste effect's (given
+/// `runtime.messages` in `live()`) both reach the one presenter.
+@MainActor @Test func messagesHaveOneChannel() throws {
+    let h = try Harness()
+    #expect(h.session.messages === h.runtime.messages)
+    var shown: [Message] = []
+    h.runtime.messages.present = { shown.append($0) }
+    h.runtime.messages.post(Message("Copied, not pasted", kind: .copied))
+    #expect(shown == [Message("Copied, not pasted", kind: .copied)])
+}
+
+/// settings.json's ignored fields and a file that can't be read are diagnostics; the panes read
+/// them there.
+@MainActor @Test func settingsProblemsAreDiagnostics() throws {
+    let h = try Harness(settings: #"{"paletteWidth": 5}"#)
+    #expect(
+        h.store.diagnostics.text(for: .settings, kind: .settings)
+            == "paletteWidth must be a number from 480 to 900; using 600")
+    #expect(h.store.loadError == nil)
+    try h.change("{")
+    #expect(h.store.loadError != nil)
+    #expect(h.store.diagnostics.entries(for: .settings).map(\.severity) == [.error])
+    try h.change("{}")
+    #expect(h.store.diagnostics.all.isEmpty)
 }

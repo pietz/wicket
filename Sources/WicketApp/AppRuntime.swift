@@ -55,6 +55,11 @@ final class AppRuntime {
     let store: SettingsStore
     let registry = CommandRegistry()
     let model: PaletteModel
+    /// The one channel for transient messages: the session's command messages and the paste
+    /// effect's post here, and the palette controller presents them.
+    let messages = Messages()
+    /// Where every problem is reported, the panes' and the extensions' alike (`store.diagnostics`).
+    var diagnostics: Diagnostics { store.diagnostics }
     /// The palette window, once composed; hotkeys and settings reach it through here.
     var palette: (any PaletteSurface)?
     /// Opens the settings window.
@@ -87,7 +92,8 @@ final class AppRuntime {
         allSources = sources
         let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
         // `apply` drops the sources of features that are off before the palette first shows.
-        model = PaletteModel(sources: sources, runner: runner, registry: registry, usageURL: usageURL)
+        model = PaletteModel(
+            sources: sources, runner: runner, registry: registry, messages: messages, usageURL: usageURL)
         hotKeys = HotKeys(register: system.registerHotKey)
         hotKeys.onPalette = { [weak self] in self?.palette?.toggle(eventTime: $0) }
         hotKeys.onCommand = { [weak self] in self?.palette?.run(bound: $0) }
@@ -153,11 +159,27 @@ final class AppRuntime {
         if !refreshed { model.refresh() }
     }
 
-    /// Registers the hotkeys for `settings` against the current registry, and tells the panes.
+    /// Registers the hotkeys for `settings` against the current registry, and reports what isn't in
+    /// effect (bindings, keyword conflicts) to the diagnostics the panes read.
     private func applyHotKeys(_ settings: Settings) {
         hotKeys.apply(settings, registry: registry)
-        store.hotKeyFailed = hotKeys.paletteFailed
-        store.bindingProblems = hotKeys.problems(registry)
+        var bindings = hotKeys.problems(registry).sorted { $0.key.description < $1.key.description }.map {
+            Diagnostic(.command($0.key), .binding, .warning, $0.value)
+        }
+        if hotKeys.paletteFailed {
+            bindings.append(
+                Diagnostic(
+                    .bindings, .binding, .error, "\(settings.hotkey.symbols) is in use by another app."))
+        }
+        diagnostics.replace(.binding, with: bindings)
+        let title = { [registry] (id: CommandID) in registry.command(id)?.title ?? id.description }
+        diagnostics.replace(
+            .conflict,
+            with: registry.keywordConflicts.map {
+                Diagnostic(
+                    .command($0.loser), .conflict, .warning,
+                    "The keyword \($0.keyword) is already \(title($0.winner))'s.")
+            })
         store.commands = registry.commands
     }
 
@@ -212,7 +234,8 @@ extension AppRuntime {
         var logLaunch = true
         let apps = AppsSource()
         let calculator = CalculatorSource()
-        let store = SettingsStore(directory: Settings.directory())
+        let diagnostics = Diagnostics()
+        let store = SettingsStore(directory: Settings.directory(), diagnostics: diagnostics)
         weak var weakRuntime: AppRuntime?
         let work: [Feature: Work] = [
             .apps: Work(
@@ -230,18 +253,14 @@ extension AppRuntime {
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource()], work: work, askAI: AskAIRunner(),
-            extensions: Extensions(), system: .live)
+            extensions: Extensions(diagnostics: diagnostics), system: .live)
         weakRuntime = runtime
         apps.onChange = { [weak runtime] in runtime?.model.refresh() }
 
         let settingsWindow = SettingsWindowController(store: store)
-        weak var weakPalette: PaletteController?
-        let effects = SystemEffects(
-            showSettings: { settingsWindow.show() },
-            showMessage: { weakPalette?.showHUD($0, symbol: $1) })
+        let effects = SystemEffects(showSettings: { settingsWindow.show() }, messages: runtime.messages)
         let palette = PaletteController(
             model: runtime.model, dispatcher: ActionDispatcher(registry: runtime.registry, effects: effects))
-        weakPalette = palette
         runtime.palette = palette
         runtime.showSettings = { settingsWindow.show() }
         return runtime

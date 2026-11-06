@@ -271,3 +271,25 @@ private func manifest(_ id: String, commands: [String]) throws -> Manifest {
     let wrongMethod = #"{"send":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}}"#
     #expect(throws: FixtureError.self) { try Fixture(wrongMethod) }
 }
+
+/// Every `run` action an extension sends carries the revision it came from, a detail's too, so a
+/// stale one can be refused; the host's own actions carry none.
+@Test func runActionsCarryTheirRevision() throws {
+    let revision = ExtensionRevision(extensionID: "todo", sha256: String(repeating: "a", count: 64))
+    let json = #"""
+        {"list":{"items":[{"title":"A","actions":[
+          {"run":{"command":"done"}},
+          {"detail":{"markdown":"m","actions":[{"run":{"command":"done"}}]}}
+        ]}]}}
+        """#
+    let context = WireContext(commands: ["done"], origin: .extension("todo", "search"), revision: revision)
+    guard case .show(.list(let items)) = try result(json, context),
+        case .detail(let detail) = items[0].actions[1]
+    else {
+        Issue.record("not a list with a detail")
+        return
+    }
+    let done = Item.Action.run(command: .extension("todo", "done"), revision: revision)
+    #expect(items[0].actions[0] == done)
+    #expect(detail.actions == [done])
+}

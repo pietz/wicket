@@ -87,6 +87,9 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     case duplicateID(RequestID)
     /// No installed extension has the command, such as after it was removed.
     case unknownCommand
+    /// The run came from what an earlier revision of the extension showed, and its folder has
+    /// changed since, so it was refused rather than run on code nobody saw it from.
+    case extensionChanged
 
     public var description: String {
         switch self {
@@ -106,6 +109,7 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
         case .stopped: "the extension was stopped before answering"
         case .duplicateID(let id): "request id \(id) is already pending"
         case .unknownCommand: "no installed extension has this command; it may have been removed"
+        case .extensionChanged: "the extension changed since this was shown; run it again"
         }
     }
 }
@@ -123,17 +127,26 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
 public actor ExtensionSession {
     public static let lineLimit = 1 << 20
     public static let stderrLimit = 64 << 10
+    /// How many `issues` a session keeps (the newest), so a chatty extension can't grow it forever.
+    public static let issueLimit = 50
 
     public nonisolated let manifest: Manifest
     public nonisolated let folder: URL
+    /// The revision of `folder` this session was started for, stamped on the `run` actions it
+    /// decodes; nil outside the app (the checker, `wicket run`).
+    public nonisolated let revision: ExtensionRevision?
     private let configuration: SessionConfiguration
 
-    /// Protocol problems not tied to one request, such as stray stdout lines. The app records them
-    /// for diagnostics; the checker fails on them.
+    /// Protocol problems not tied to one request, such as stray stdout lines (the newest
+    /// `issueLimit`). The app records them for diagnostics; the checker fails on them.
     public private(set) var issues: [String] = []
     /// Setup problems that don't stop the extension, such as the Command Line Tools python3.
     public private(set) var warnings: [String] = []
     private let stderr = OutputTail(limit: stderrLimit)
+    /// The secret values the process was given, redacted from what `report` hands out.
+    private var secretValues: Set<String> = []
+    /// Grows with every issue and warning, so `report` can say whether anything changed.
+    private var noted = 0
 
     private var running: Running?
     private var generation = 0
@@ -149,14 +162,48 @@ public actor ExtensionSession {
 
     private static let logger = Logger(subsystem: "app.wicket", category: "extensions")
 
-    public init(manifest: Manifest, folder: URL, configuration: SessionConfiguration) {
+    public init(
+        manifest: Manifest, folder: URL, revision: ExtensionRevision? = nil,
+        configuration: SessionConfiguration
+    ) {
         self.manifest = manifest
         self.folder = folder
+        self.revision = revision
         self.configuration = configuration
     }
 
     /// The last 64 KiB the extension wrote to stderr, across restarts.
     public nonisolated var stderrTail: String { stderr.text }
+
+    /// What the session has to report for diagnostics, with the secret values it passed redacted.
+    public struct Report: Sendable, Equatable {
+        public var issues: [String]
+        public var warnings: [String]
+        /// The end of stderr, from a line start.
+        public var stderr: String
+        /// Grows whenever any of the above did; equal versions are equal reports.
+        public var version: Int
+    }
+
+    /// The session's report; the stderr tail is cut to `stderrBytes`.
+    public func report(stderrBytes: Int) -> Report {
+        Report(
+            issues: issues.map { redact($0) }, warnings: warnings.map { redact($0) },
+            stderr: redact(Diagnostics.bound(stderr.text, kind: .stderr, limit: stderrBytes)),
+            version: noted + stderr.written)
+    }
+
+    /// `text` without the secret values this session passed to its process (and, if given, the
+    /// run's `query`), for text the extension wrote that is kept for diagnostics.
+    public func redact(_ text: String, query: String? = nil) -> String {
+        Redaction.redact(text, secrets: secretValues, query: query)
+    }
+
+    private func note(issue: String) {
+        issues.append(issue)
+        if issues.count > Self.issueLimit { issues.removeFirst(issues.count - Self.issueLimit) }
+        noted += 1
+    }
 
     /// Runs `command` and returns its result. Cancelling the calling task sends `cancel` to the
     /// extension and throws `CancellationError`; an error response throws `ExtensionError`; host
@@ -310,8 +357,9 @@ public actor ExtensionSession {
         guard let running, running.generation == generation else { return }
         let line = String(decoding: data, as: UTF8.self)
         guard case .object(let object)? = try? JSONDecoder().decode(JSONValue.self, from: data) else {
-            issues.append(
-                "stdout carries only JSON-RPC responses, but the extension wrote \(Self.preview(line)); "
+            note(
+                issue:
+                    "stdout carries only JSON-RPC responses, but the extension wrote \(Self.preview(line)); "
                     + "write logs to stderr")
             return
         }
@@ -320,12 +368,12 @@ public actor ExtensionSession {
                 case .failure(let error) = response.outcome
             {
                 // It couldn't parse something it was sent, so whatever it was sent may be lost.
-                issues.append("the extension answered an error with id null: \(error.message)")
+                note(issue: "the extension answered an error with id null: \(error.message)")
                 for (id, request) in pending where request.sentTo == generation {
                     finish(id, .failure(error))
                 }
             } else {
-                issues.append("a stdout line has no valid id (an integer or a string): \(Self.preview(line))")
+                note(issue: "a stdout line has no valid id (an integer or a string): \(Self.preview(line))")
             }
             return
         }
@@ -333,14 +381,14 @@ public actor ExtensionSession {
             if cancelled.remove(id) != nil {
                 running.answered += 1
             } else {
-                issues.append("a response has id \(id), which is not pending: never sent, or answered twice")
+                note(issue: "a response has id \(id), which is not pending: never sent, or answered twice")
             }
             return
         }
         running.answered += 1
         do {
             let response = try Response.decode(
-                data, context: WireContext(command: request.command, in: manifest))
+                data, context: WireContext(command: request.command, in: manifest, revision: revision))
             finish(id, .success(Reply(line: line, outcome: response.outcome)))
             Self.logger.notice(
                 "extension \(self.manifest.id) answered in \(Self.ms(since: request.start), privacy: .public)"
@@ -354,7 +402,7 @@ public actor ExtensionSession {
 
     private func lineTooLong(generation: Int) {
         guard let running, running.generation == generation else { return }
-        issues.append("a stdout line is over \(Self.lineLimit >> 20) MiB")
+        note(issue: "a stdout line is over \(Self.lineLimit >> 20) MiB")
         for (id, request) in pending where request.sentTo == generation {
             finish(id, .failure(HostError.lineTooLong))
         }
@@ -397,7 +445,10 @@ public actor ExtensionSession {
             let warning =
                 "python3 resolves to /usr/bin/python3, the Command Line Tools stub (an old Python that may ask to "
                 + "install developer tools); install Python from python.org or Homebrew, or name its full path in run"
-            if !warnings.contains(warning) { warnings.append(warning) }
+            if !warnings.contains(warning) {
+                warnings.append(warning)
+                noted += 1
+            }
         }
         var environment = configuration.environment ?? ProcessInfo.processInfo.environment
         environment["PATH"] = path
@@ -412,6 +463,7 @@ public actor ExtensionSession {
                     extensionID: manifest.id, name: secret.name, title: secret.title)
             }
             environment[secret.name] = value
+            secretValues.insert(value)
         }
         try? FileManager.default.createDirectory(
             at: configuration.dataDirectory, withIntermediateDirectories: true)
@@ -608,14 +660,16 @@ public actor ExtensionSession {
 
 /// The last `limit` bytes of a stream, readable from any thread.
 final class OutputTail: Sendable {
-    private let data = Mutex(Data())
+    private let data = Mutex((tail: Data(), written: 0))
     private let limit: Int
 
     init(limit: Int) {
         self.limit = limit
     }
 
-    var text: String { data.withLock { String(decoding: $0, as: UTF8.self) } }
+    var text: String { data.withLock { String(decoding: $0.tail, as: UTF8.self) } }
+    /// Every byte written so far, kept or not.
+    var written: Int { data.withLock { $0.written } }
 
     func drain(_ handle: FileHandle) async {
         for await chunk in handle.chunks() { append(chunk) }
@@ -623,8 +677,9 @@ final class OutputTail: Sendable {
 
     private func append(_ chunk: Data) {
         data.withLock {
-            $0.append(chunk)
-            if $0.count > limit { $0.removeFirst($0.count - limit) }
+            $0.tail.append(chunk)
+            $0.written += chunk.count
+            if $0.tail.count > limit { $0.tail.removeFirst($0.tail.count - limit) }
         }
     }
 }

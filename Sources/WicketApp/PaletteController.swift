@@ -115,7 +115,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
     /// The app that was frontmost when the palette was summoned, where `paste` types.
     private var previousApp: RunningApp?
-    /// Where a `close` message shows, the palette being gone by then.
+    /// Where a message shows while the card is not up.
     private let hud = MessageHUD()
     /// Shows the palette once a command a hotkey ran (while it was hidden) has something to show.
     private var pendingReveal: Task<Void, Never>?
@@ -128,7 +128,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         super.init()
         panel.delegate = self
         panel.onChord = { [weak self] in self?.handle($0) }
-        model.session.onRequest = { [weak self] in self?.handle($0) }
+        model.session.onClose = { [weak self] in self?.hide() }
+        model.session.messages.present = { [weak self] in self?.present($0) }
         let root = NSHostingView(
             rootView: PaletteRootView(
                 model: model, onRun: { [weak self] in self?.run($0, action: $1) },
@@ -293,24 +294,22 @@ final class PaletteController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// What a command's run asks for. A message shows in the footer while the card is up, else in
-    /// the HUD where the pill was.
-    private func handle(_ request: PaletteSession.Request) {
-        switch request {
-        case .close(let message):
-            hide()
-            if let message { showHUD(message) }
-        case .message(let message):
-            if panel.isVisible, model.isExpanded { model.showToast(message) } else { showHUD(message) }
+    /// Every message (`Messages`) shows here: in the footer while the card is up, else in the HUD
+    /// where the pill is or was (a command that closed the palette, a paste that only copied).
+    private func present(_ message: Message) {
+        if panel.isVisible, model.isExpanded {
+            model.showToast(message.text)
+            return
         }
-    }
-
-    /// The HUD centred on where the pill is (or was).
-    func showHUD(_ message: String, symbol: String = "checkmark.circle.fill") {
+        let symbol =
+            switch message.kind {
+            case .done: "checkmark.circle.fill"
+            case .copied: "doc.on.clipboard"
+            }
         let pill = NSPoint(
             x: anchor.x + PaletteMetrics.margin + width / 2,
             y: anchor.y - PaletteMetrics.margin - PaletteMetrics.pillHeight / 2)
-        hud.show(message, symbol: symbol, centeredAt: pill)
+        hud.show(message.text, symbol: symbol, centeredAt: pill)
     }
 
     /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.

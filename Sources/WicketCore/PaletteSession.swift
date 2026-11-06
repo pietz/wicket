@@ -12,7 +12,7 @@ import Observation
 ///
 /// A command's frame is fed by its run (`CommandRunner`): every result replaces what the frame
 /// shows, `close` asks the app to close the palette, and `reload` drops the frame and runs the one
-/// beneath it again. A live command runs again for every change of the frame's text (rapid
+/// beneath it again; their messages go to `messages`. A live command runs again for every change of the frame's text (rapid
 /// keystrokes coalesced by `liveDebounce`); a once command runs when opened and filters a list
 /// locally; a command waiting for its text (`CommandRun.awaitsText`) runs nothing until the text is
 /// submitted, which runs it in a frame of its own. How a command opens is the invocation policy's
@@ -27,8 +27,10 @@ public final class PaletteSession {
     public private(set) var frames: [Frame]
     /// The command an action opened, until its first result arrives; nil otherwise.
     public private(set) var opening: CommandRun?
-    /// What the session needs the app to do: close the palette, or show a message briefly.
-    @ObservationIgnored public var onRequest: (Request) -> Void = { _ in }
+    /// Asks the app to close the palette (a command answered `close`).
+    @ObservationIgnored public var onClose: () -> Void = {}
+    /// Where a command's `close` and `reload` messages go, after the close they come with.
+    @ObservationIgnored public let messages: Messages
     @ObservationIgnored private var sources: [any ResultSource]
     @ObservationIgnored private let frecency: () -> (String) -> Double
     @ObservationIgnored private let runner: (any CommandRunner)?
@@ -46,23 +48,17 @@ public final class PaletteSession {
         case cancelledOpening
     }
 
-    /// What a command's run asks of the app.
-    public enum Request: Sendable, Hashable {
-        /// Close the palette, then show the message briefly if there is one.
-        case close(message: String?)
-        /// Show a message briefly; the palette stays.
-        case message(String)
-    }
-
     /// `frecency` gives the usage scores as of now, read at each ranking. `runner` runs commands
     /// for their frames and `registry` resolves keywords; without them no command frame opens.
+    /// `messages` is the app's message channel.
     public init(
         sources: [any ResultSource], resultLimit: Int = .max,
         frecency: @escaping () -> (String) -> Double = { { _ in 0 } },
         runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil,
-        liveDebounce: Duration = .milliseconds(50)
+        messages: Messages = Messages(), liveDebounce: Duration = .milliseconds(50)
     ) {
         self.sources = sources
+        self.messages = messages
         self.frecency = frecency
         self.runner = runner
         self.registry = registry
@@ -309,12 +305,13 @@ public final class PaletteSession {
         case .close(let message):
             guard isCurrent(ticket) else { return }
             drop(ticket.frame)
-            onRequest(.close(message: message))
+            onClose()
+            if let message { messages.post(Message(message)) }
         case .reload(let message):
             guard isCurrent(ticket) else { return }
             drop(ticket.frame)
             start(frames.count - 1)
-            if let message { onRequest(.message(message)) }
+            if let message { messages.post(Message(message)) }
         }
     }
 

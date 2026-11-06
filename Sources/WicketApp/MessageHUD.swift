@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// A message from a command that closed the palette ("Dark mode on"): a small glass capsule where
-/// the pill was, a checkmark leading so the outcome lands before the sentence is read, gone after two
-/// seconds (reading time). A newer message replaces it. It never takes the keyboard or the mouse.
+/// A message (`Messages`) while the card isn't up, such as a command that closed the palette ("Dark
+/// mode on"): a small glass capsule where the pill was, a checkmark leading so the outcome lands
+/// before the sentence is read, gone after two seconds (reading time). A newer message replaces it. It never takes the keyboard or the mouse.
 @MainActor
 final class MessageHUD {
     static let duration = Duration.seconds(2)

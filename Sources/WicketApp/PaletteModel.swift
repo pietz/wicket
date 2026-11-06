@@ -83,14 +83,15 @@ final class PaletteModel {
 
     init(
         sources: [any ResultSource], runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil,
-        usageURL: URL = defaultUsageURL
+        messages: Messages = Messages(), usageURL: URL = defaultUsageURL
     ) {
         self.usageURL = usageURL
         usage = Self.namespaced(UsageStore.load(from: usageURL))
         weak var model: PaletteModel?
         session = PaletteSession(
             sources: sources, resultLimit: Self.resultLimit,
-            frecency: { model?.frecency() ?? { _ in 0 } }, runner: runner, registry: registry)
+            frecency: { model?.frecency() ?? { _ in 0 } }, runner: runner, registry: registry,
+            messages: messages)
         model = self
     }
 

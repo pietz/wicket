@@ -57,6 +57,12 @@ week-number/          the folder name equals the manifest id
 
 Wicket tells you which folder to write into; if nobody did, name the folder after the id. Paths inside the folder are relative to it, and it is the working directory when your program runs.
 
+Wicket identifies the folder by a hash of its files (its revision): the user approves a revision, and a row your old code showed never runs your new code (the user sees "the extension changed; run it again"). So:
+
+- Keep everything your program runs inside the folder. A symbolic link must be relative and point inside the folder; a link out of it, an absolute link or a link to nothing makes the folder invalid.
+- `.git`, `node_modules`, `.venv`, `__pycache__`, `.claude` and `.DS_Store` are not part of the revision, at any depth. Nothing may link into them.
+- The rest of the folder holds at most 32 MiB in at most 5000 files. Keep data you download or build at run time in `WICKET_DATA_DIR`, not the folder.
+
 | Field | Required | Meaning |
 |---|---|---|
 | `protocol` | yes | Always `1`. |
@@ -97,7 +103,7 @@ Wicket starts your program the first time one of its commands is needed and keep
 
 - **Wicket to you, on stdin:** `run` requests and `cancel` notifications.
 - **You to Wicket, on stdout:** exactly one response per request. You never send requests or notifications.
-- **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the check. Write logs and debugging output to **stderr**: Wicket keeps the last 64 KiB for diagnostics and never shows it unless something fails.
+- **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the check. Write logs and debugging output to **stderr**: Wicket keeps the end of it for diagnostics and never shows it unless something fails.
 - **One process at a time.** Wicket never runs two processes of your extension at once, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
 - **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
 - **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with requests unanswered, Wicket resends the ones that are safe to repeat to a fresh process: every run of a `live` or `root` command, and runs of a `once` command marked `repeatable`. Every other run (any `once` command not marked, however it was started: Return on its row, its keyword, a hotkey or a `run` action, with or without `args`) fails instead, since your program may have read it and changed something before exiting, and the user sees the error. If your program exits with an error, every unanswered request fails. So a one-shot script can answer and quit, provided its `once` commands only read and say `repeatable` (a request written while it was exiting goes to the next process), while a persistent program pays its start-up cost once and answers later keystrokes from memory.
@@ -246,7 +252,7 @@ Wicket reports these failures itself, the same way: no response within 30 second
 | Time to answer a request | 30 seconds, measured from when it was sent (including start-up) |
 | Idle time before stdin is closed | about 60 seconds |
 | Exit after stdin closes (you and what you started) | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
-| stderr kept for diagnostics | last 64 KiB |
+| stderr kept for diagnostics | last 16 KiB (secret values removed) |
 
 Keep answers fast: a `live` or `root` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.
 

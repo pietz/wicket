@@ -121,3 +121,16 @@ private let mail = RunningApp(processID: 42, bundleID: "com.apple.mail")
     #expect(detail.metadata == [.init(label: "Command", value: "gone/away")])
     #expect(effects.calls.isEmpty)
 }
+
+/// A `run` action's revision reaches the invocation, where the extension runner checks it.
+@MainActor @Test func aRunKeepsTheRevisionItCameFrom() {
+    let revision = ExtensionRevision(extensionID: "todo", sha256: "abc")
+    let outcome = dispatcher(FakeEffects()).perform(
+        .run(command: todoDone, revision: revision), in: ActionContext())
+    guard case .open(let run) = outcome else {
+        Issue.record("not opened")
+        return
+    }
+    #expect(run.invocation.revision == revision)
+    #expect(CommandRun(markDone, .invoked).invocation.revision == nil)
+}

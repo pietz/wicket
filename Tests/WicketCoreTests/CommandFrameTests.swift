@@ -63,7 +63,7 @@ private let quit = RegisteredCommand(
     isListed: false)
 
 @MainActor
-private func session(debounce: Duration = .zero) -> (PaletteSession, FakeRunner, [PaletteSession.Request]) {
+private func session(debounce: Duration = .zero) -> (PaletteSession, FakeRunner, [String]) {
     let registry = CommandRegistry()
     registry.setExtensionCommands([search, reviews, quit])
     let runner = FakeRunner()
@@ -206,19 +206,22 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func aFirstCloseClosesThePaletteWithoutAFrame() async {
     var (session, runner, requests) = session()
-    session.onRequest = { requests.append($0) }
+    session.onClose = { requests.append("close") }
+    session.messages.present = { requests.append("\($0.kind): \($0.text)") }
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.close(message: "Dark mode on"))
     #expect(await eventually { !requests.isEmpty })
-    #expect(requests == [.close(message: "Dark mode on")])
+    // The palette closes first, so the message shows in the HUD, not a footer about to go.
+    #expect(requests == ["close", "done: Dark mode on"])
     #expect(session.frames.count == 1)
     #expect(session.opening == nil)
 }
 
 @MainActor @Test func aReloadRunsTheFrameItCameFromAgain() async {
     var (session, runner, requests) = session()
-    session.onRequest = { requests.append($0) }
+    session.onClose = { requests.append("close") }
+    session.messages.present = { requests.append("\($0.kind): \($0.text)") }
     session.query = "prr "
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.show(.list([row("Mail"), row("Safari"), row("Notes")])))
@@ -232,7 +235,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(runner.runs[1].retry == .never)
     runner.runs[1].continuation.yield(.reload(message: "Quit Safari"))
     #expect(await eventually { runner.runs.count == 3 })
-    #expect(requests == [.message("Quit Safari")])
+    #expect(requests == ["done: Quit Safari"])
     #expect(session.frames.count == 2)
     #expect(runner.runs[2].invocation == runner.runs[0].invocation)
 
@@ -244,7 +247,8 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func aReloadFromTheFramesOwnRunGoesBack() async {
     var (session, runner, requests) = session()
-    session.onRequest = { requests.append($0) }
+    session.onClose = { requests.append("close") }
+    session.messages.present = { requests.append("\($0.kind): \($0.text)") }
     session.query = "uc x"
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.reload(message: nil))
@@ -424,7 +428,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func aReloadOverAPushedPageRunsNothing() async {
     var (session, runner, requests) = session()
-    session.onRequest = { requests.append($0) }
+    session.messages.present = { requests.append("\($0.kind): \($0.text)") }
     let page = Detail(title: "PR 1", markdown: "Fix login")
     session.push(page)
     let id = session.top.id
@@ -433,7 +437,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.open(CommandRun(quit, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.reload(message: "Done"))
-    #expect(await eventually { requests == [.message("Done")] })
+    #expect(await eventually { requests == ["done: Done"] })
     // The page has no run to repeat: it stays as it was.
     #expect(session.frames.count == 2)
     #expect(session.top.id == id)

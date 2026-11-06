@@ -66,11 +66,19 @@ public struct Invocation: Hashable, Sendable {
     public var text: String
     /// Passed through from a `run` action.
     public var args: [String: JSONValue]?
+    /// The extension revision a `run` action came from: the run fails, rather than run other code,
+    /// if the extension is no longer at it. Nil runs whatever is installed (a row, a keyword, a
+    /// hotkey: the user named the command, not a row an old version made).
+    public var revision: ExtensionRevision?
 
-    public init(command: CommandID, text: String = "", args: [String: JSONValue]? = nil) {
+    public init(
+        command: CommandID, text: String = "", args: [String: JSONValue]? = nil,
+        revision: ExtensionRevision? = nil
+    ) {
         self.command = command
         self.text = text
         self.args = args
+        self.revision = revision
     }
 }
 
@@ -145,7 +153,7 @@ public struct CommandRun: Sendable, Hashable {
     /// A run may be resent only if the command says so (`RegisteredCommand.retry`), however it came.
     public init(
         _ command: RegisteredCommand, _ trigger: CommandTrigger, text: String = "",
-        args: [String: JSONValue]? = nil
+        args: [String: JSONValue]? = nil, revision: ExtensionRevision? = nil
     ) {
         var runText = text
         var query: String?
@@ -168,7 +176,8 @@ public struct CommandRun: Sendable, Hashable {
             query = text
         }
         self.init(
-            command: command, invocation: Invocation(command: command.id, text: runText, args: args),
+            command: command,
+            invocation: Invocation(command: command.id, text: runText, args: args, revision: revision),
             retry: command.retry, query: query)
     }
 

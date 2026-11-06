@@ -17,16 +17,13 @@ final class SystemEffects: ActionEffects {
     static let settleDelay = Duration.milliseconds(50)
 
     private let showSettings: () -> Void
-    private let showMessage: (_ message: String, _ symbol: String) -> Void
+    private let messages: Messages
     /// Whether this session asked for Accessibility already, so a paste prompts at most once.
     private var promptedForAccessibility = false
 
-    init(
-        showSettings: @escaping () -> Void,
-        showMessage: @escaping (_ message: String, _ symbol: String) -> Void
-    ) {
+    init(showSettings: @escaping () -> Void, messages: Messages) {
         self.showSettings = showSettings
-        self.showMessage = showMessage
+        self.messages = messages
     }
 
     /// Doesn't wait for the app to launch: the palette closes at once.
@@ -95,7 +92,7 @@ final class SystemEffects: ActionEffects {
     }
 
     private func fallBack(_ fallback: PasteFallback) {
-        showMessage(fallback.message, "doc.on.clipboard")
+        messages.post(Message(fallback.message, kind: .copied))
         guard case .notTrusted(prompt: true) = fallback else { return }
         promptedForAccessibility = true
         // The system's dialog, which lists Wicket in Privacy & Security > Accessibility and offers to

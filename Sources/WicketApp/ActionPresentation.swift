@@ -24,7 +24,7 @@ struct ActionPresentation {
             named = ("Show in Finder", "folder", nil)
         case .detail:
             named = ("Show Details", "doc.text", nil)
-        case .run(let command, _, _, _):
+        case .run(let command, _, _, _, _):
             named = ("Run", command.owner == .builtin ? "command" : "play", nil)
         }
         // A source's own title wins; the value stays visible either way.

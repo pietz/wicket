@@ -82,7 +82,9 @@ extension Item.Action: Decodable {
             guard let origin = decoder.wire.origin, case .extension = origin.owner else {
                 throw run.invalid("command", "a run action needs the extension it came from")
             }
-            self = .run(command: CommandID(owner: origin.owner, name: command), args: args, title: title)
+            self = .run(
+                command: CommandID(owner: origin.owner, name: command), args: args, title: title,
+                revision: decoder.wire.revision)
         }
     }
 }

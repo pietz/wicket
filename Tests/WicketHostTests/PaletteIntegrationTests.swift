@@ -304,10 +304,12 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(log() == "123\n")
 
     // A failure isn't shown in the root search; it is kept for the Extensions screen.
+    let diagnostics = palette.extensions.diagnostics
+    let failure = { diagnostics.text(for: .command(.extension("double", "double")), kind: .run) }
     session.query = "13"
-    #expect(await eventually { palette.root.failures[.extension("double", "double")] == "Unlucky" })
+    #expect(await eventually { failure() == "Unlucky" })
     #expect(palette.titles.isEmpty)
     session.query = "2"
     #expect(await eventually { palette.titles == ["4"] })
-    #expect(palette.root.failures.isEmpty)
+    #expect(failure() == nil)
 }

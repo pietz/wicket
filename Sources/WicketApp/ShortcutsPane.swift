@@ -48,7 +48,7 @@ struct ShortcutsPane: View {
             isRecording
             ? (recorder.rejected
                 ? "Add ⌘, ⌃ or ⌥ to the key (F-keys work alone). Esc cancels." : "Esc cancels.")
-            : errors[command.id] ?? store.bindingProblems[command.id]
+            : errors[command.id] ?? store.diagnostics.text(for: .command(command.id), kind: .binding)
         return LabeledContent {
             HStack(spacing: 6) {
                 AliasField(alias: binding?.alias) { setAlias($0, for: command) }

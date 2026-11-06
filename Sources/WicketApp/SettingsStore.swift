@@ -1,5 +1,6 @@
 import AppKit
 import WicketCore
+import WicketHost
 
 /// settings.json as the app applied it, for the app and the settings window. The file is the single
 /// source of truth: the window writes it through `update`, and the folder's FileWatcher calls
@@ -8,23 +9,30 @@ import WicketCore
 @Observable
 final class SettingsStore {
     let url: URL
+    /// The app's diagnostics: the panes read their problem lines here. `reload` reports settings.json
+    /// (`.settings`), the runtime the hotkeys and aliases (`.binding`) and keyword conflicts.
+    let diagnostics: Diagnostics
     private(set) var settings = Settings()
-    /// Why settings.json could not be loaded, while defaults are in use.
-    private(set) var loadError: String?
-    /// True when `settings.hotkey` could not be registered because another app owns it.
-    var hotKeyFailed = false
-    /// The registered commands, for the Shortcuts pane. Set by the app delegate.
+    /// The registered commands, for the Shortcuts pane. Set by the runtime.
     var commands: [RegisteredCommand] = []
-    /// Why a command's hotkey or alias from settings.json isn't in effect (taken by the palette or
-    /// another command, held by another app). Set by the app delegate.
-    var bindingProblems: [CommandID: String] = [:]
     /// Stops the global hotkeys (the palette's and the commands') while the settings window records
     /// a new one, so pressing a current combination reaches the recorder instead of running what it
     /// is bound to. Set by the app delegate.
     @ObservationIgnored var pauseHotKey: (Bool) -> Void = { _ in }
 
-    init(directory: URL) {
+    init(directory: URL, diagnostics: Diagnostics = Diagnostics()) {
         url = directory.appending(path: "settings.json")
+        self.diagnostics = diagnostics
+    }
+
+    /// Why settings.json could not be loaded, while the last good settings are in use.
+    var loadError: String? {
+        diagnostics.entries(for: .settings).first { $0.severity == .error }?.text
+    }
+
+    /// True when `settings.hotkey` could not be registered because another app owns it.
+    var hotKeyFailed: Bool {
+        diagnostics.text(for: .bindings, kind: .binding) != nil
     }
 
     /// Loads settings.json: defaults if it is missing; if it is invalid (often an agent or editor
@@ -32,14 +40,14 @@ final class SettingsStore {
     func reload() {
         do {
             settings = try Settings.load(from: url)
-            loadError = nil
+            diagnostics.set(.settings, of: .settings, .warning, settings.ignored)
             for reason in settings.ignored {
                 Perf.logger.error("settings.json: \(reason, privacy: .public)")
             }
         } catch {
             let reason = error.localizedDescription
             Perf.logger.error("\(reason, privacy: .public); keeping the last good settings")
-            loadError = reason
+            diagnostics.set(.settings, of: .settings, .error, [reason])
         }
     }
 
