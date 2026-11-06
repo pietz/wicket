@@ -7,8 +7,13 @@ let package = Package(
     targets: [
         // Pure, Foundation-only logic (matching, ranking, usage). Unit-tested.
         .target(name: "WicketCore"),
+        // Runs extensions: processes, sessions, the checker. Shared by the app and the CLI.
+        .target(name: "WicketHost", dependencies: ["WicketCore"]),
         // The app: AppKit shell, panel, hotkey, app index.
-        .executableTarget(name: "Wicket", dependencies: ["WicketCore"]),
+        .executableTarget(name: "Wicket", dependencies: ["WicketCore", "WicketHost"]),
+        // The `wicket` command-line tool, bundled at Wicket.app/Contents/Helpers/wicket.
+        .executableTarget(name: "WicketCLI", dependencies: ["WicketCore", "WicketHost"]),
         .testTarget(name: "WicketCoreTests", dependencies: ["WicketCore"]),
+        .testTarget(name: "WicketHostTests", dependencies: ["WicketHost"]),
     ]
 )

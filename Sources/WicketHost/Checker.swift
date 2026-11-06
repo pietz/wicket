@@ -1,0 +1,206 @@
+import Foundation
+import WicketCore
+
+/// What `wicket check` found, line by line, for the agent or person fixing the extension.
+public struct CheckReport: Sendable {
+    public enum Kind: String, Sendable {
+        case ok, warning, error
+    }
+
+    public struct Line: Sendable {
+        public var kind: Kind
+        public var text: String
+    }
+
+    public private(set) var lines: [Line] = []
+    public var passed: Bool { !lines.contains { $0.kind == .error } }
+    public var errors: [String] { lines.filter { $0.kind == .error }.map(\.text) }
+
+    mutating func add(_ kind: Kind, _ text: String) {
+        if kind == .warning, lines.contains(where: { $0.kind == .warning && $0.text == text }) { return }
+        lines.append(Line(kind: kind, text: text))
+    }
+}
+
+/// Validates an extension folder by running it the way Wicket does: the manifest, then every
+/// fixture replayed against a fresh process, with every response checked against the protocol.
+public enum Checker {
+    public static func check(_ folder: URL, configuration: SessionConfiguration) async -> CheckReport {
+        var report = CheckReport()
+        let manifest: Manifest
+        do {
+            manifest = try Manifest.load(from: folder)
+        } catch {
+            report.add(.error, error.description)
+            return report
+        }
+        let commands = manifest.commands.count
+        report.add(
+            .ok,
+            "\(Manifest.fileName): \(manifest.id) \(manifest.version), \(commands) command\(commands == 1 ? "" : "s")"
+        )
+        let folderName = folder.standardizedFileURL.lastPathComponent
+        if folderName != manifest.id {
+            report.add(
+                .warning,
+                "the folder is named \(folderName) but the id is \(manifest.id); installed extensions live in a folder named after the id"
+            )
+        }
+
+        let fixtures = fixtureFiles(in: folder)
+        if fixtures.isEmpty {
+            report.add(
+                .warning,
+                "no session.jsonl: add one with requests and the responses they should get, so this check can replay them"
+            )
+            let session = ExtensionSession(manifest: manifest, folder: folder, configuration: configuration)
+            do {
+                try await session.launch()
+            } catch {
+                report.add(.error, "start: \(error)")
+                return report
+            }
+            await finish(session, name: "start", errorsBefore: report.errors.count, into: &report)
+            return report
+        }
+        for url in fixtures {
+            let name = url.lastPathComponent
+            do {
+                let fixture = try Fixture(String(decoding: try Data(contentsOf: url), as: UTF8.self))
+                await replay(
+                    fixture, name: name, manifest: manifest, folder: folder, configuration: configuration,
+                    into: &report)
+            } catch let error as FixtureError {
+                report.add(.error, "\(name):\(error.line): \(error.message)")
+            } catch {
+                report.add(.error, "\(name): \(error.localizedDescription)")
+            }
+        }
+        return report
+    }
+
+    /// `session.jsonl` and `*.session.jsonl` at the top of the folder.
+    private static func fixtureFiles(in folder: URL) -> [URL] {
+        let files =
+            (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.filter {
+            $0.lastPathComponent == "session.jsonl" || $0.lastPathComponent.hasSuffix(".session.jsonl")
+        }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private struct Sent {
+        let line: Int
+        let id: RequestID
+        let command: String
+        let reply: Task<Reply, any Error>
+    }
+
+    private static func replay(
+        _ fixture: Fixture, name: String, manifest: Manifest, folder: URL,
+        configuration: SessionConfiguration,
+        into report: inout CheckReport
+    ) async {
+        let start = ContinuousClock.now
+        let errorsBefore = report.errors.count
+        let session = ExtensionSession(manifest: manifest, folder: folder, configuration: configuration)
+        var lastExpect: [RequestID: Int] = [:]
+        for (line, step) in fixture.steps {
+            if case .expect(let id, _) = step { lastExpect[id] = line }
+        }
+        var sent: [RequestID: Sent] = [:]
+        var matched = 0
+
+        /// The reply to `request`, with protocol failures added to the report.
+        func outcome(_ request: Sent, into report: inout CheckReport) async -> Reply? {
+            do {
+                let reply = try await request.reply.value
+                if case .success = reply.outcome, manifest.command(request.command) == nil {
+                    report.add(
+                        .error,
+                        "\(name):\(request.line): run for \"\(request.command)\", which wicket.json doesn't declare, got a result; answer unknown commands with an error (code 1)"
+                    )
+                }
+                return reply
+            } catch {
+                report.add(
+                    .error, "\(name):\(request.line): request \(request.id) (\(request.command)): \(error)")
+                return nil
+            }
+        }
+
+        for (line, step) in fixture.steps {
+            switch step {
+            case .send(.run(let id, let params)):
+                do {
+                    let reply = try await session.submit(id, params)
+                    sent[id] = Sent(line: line, id: id, command: params.command, reply: reply)
+                } catch {
+                    report.add(.error, "\(name):\(line): \(error)")
+                }
+            case .send(.cancel(let id)):
+                if let expect = lastExpect[id], expect > line {
+                    await session.notifyCancel(id)
+                } else {
+                    // Nothing waits for this answer, so the extension may skip it.
+                    await session.cancel(id)
+                    sent[id] = nil
+                }
+            case .expect(let id, let pattern):
+                guard let request = sent.removeValue(forKey: id) else {
+                    report.add(
+                        .error,
+                        "\(name):\(line): expects a response with id \(id), but no earlier line sends a run with that id"
+                    )
+                    continue
+                }
+                guard let reply = await outcome(request, into: &report) else { continue }
+                let actual = (try? JSONDecoder().decode(JSONValue.self, from: Data(reply.line.utf8))) ?? .null
+                if let mismatch = pattern.mismatch(in: actual) {
+                    report.add(.error, "\(name):\(line): the response to id \(id) doesn't match: \(mismatch)")
+                } else {
+                    matched += 1
+                }
+            }
+        }
+        // Requests without an expect still need a valid response.
+        for request in sent.values.sorted(by: { $0.line < $1.line }) {
+            _ = await outcome(request, into: &report)
+        }
+        await finish(session, name: name, errorsBefore: errorsBefore, into: &report)
+        if report.errors.count == errorsBefore {
+            let seconds =
+                Double((ContinuousClock.now - start).components.attoseconds) / 1e18
+                + Double((ContinuousClock.now - start).components.seconds)
+            report.add(
+                .ok,
+                "\(name): \(fixture.steps.count) lines replayed, \(matched) expects matched (\(String(format: "%.2f", seconds)) s)"
+            )
+        }
+    }
+
+    /// Checks the process exits once stdin closes, reports what the session noticed on the way, and
+    /// adds the end of stderr if anything since `errorsBefore` failed.
+    private static func finish(
+        _ session: ExtensionSession, name: String, errorsBefore: Int, into report: inout CheckReport
+    ) async {
+        for warning in await session.warnings { report.add(.warning, warning) }
+        for issue in await session.issues { report.add(.error, "\(name): \(issue)") }
+        switch await session.shutdown() {
+        case .terminated, .killed:
+            report.add(
+                .error,
+                "\(name): the process kept running 2 s after its stdin closed; exit when stdin reaches end of file"
+            )
+        case .exited(let exit) where !exit.isClean:
+            report.add(.warning, "\(name): the process \(exit) after its stdin closed")
+        default:
+            break
+        }
+        let stderr = session.stderrTail.split(separator: "\n").suffix(20)
+        if report.errors.count > errorsBefore, !stderr.isEmpty {
+            report.add(
+                .error, "\(name): the last stderr lines were:\n    " + stderr.joined(separator: "\n    "))
+        }
+    }
+}

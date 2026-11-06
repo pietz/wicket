@@ -78,7 +78,7 @@ public enum RequestID: Sendable, Hashable, Codable, CustomStringConvertible {
         }
     }
 
-    init?(_ value: JSONValue?) {
+    public init?(_ value: JSONValue?) {
         switch value {
         case .integer(let number): self = .number(number)
         case .string(let string): self = .string(string)
