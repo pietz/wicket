@@ -40,7 +40,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ⏭ Per-command hotkeys and aliases (any item can get a global shortcut or a short alias)
 - ✅ Launch at login (`SMAppService`, in Settings ▸ General)
 - ⏭ Minimal main menu while the settings window is open (⌘Q, ⌘M, Edit menu), without stealing palette shortcuts
-- 💤 App icon
+- ✅ App icon (doorway, `Resources/AppIcon.icns`); a layered Icon Composer version is optional polish
 - 💤 First-run onboarding: pick the hotkey, explain type-or-speak, optional AI setup
 - 💤 Permissions flow (Accessibility for paste and selection, microphone for voice), asked only when a feature needs it
 - 💤 Menu bar icon (optional): open palette, settings, quit
