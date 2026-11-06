@@ -138,7 +138,7 @@ final class AppsSource: ResultSource {
 
     private func watch() {
         let paths = Self.scopes.filter { !$0.hasSuffix(".app") }
-        watcher = FileWatcher(paths: paths, latency: 1.0) { [weak self] in self?.scheduleRescan() }
+        watcher = FileWatcher(paths: paths, latency: 1.0) { [weak self] _ in self?.scheduleRescan() }
     }
 
     private func scheduleRescan() {

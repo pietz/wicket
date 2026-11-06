@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let apps = AppsSource()
     private let calculator = CalculatorSource()
     private let files = FilesSource()
+    private let extensions = Extensions()
     private var palette: PaletteController!
     private let store = SettingsStore(directory: Settings.directory())
     private lazy var settingsWindow = SettingsWindowController(store: store)
@@ -32,11 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
         applySettings()
         settingsWatcher = FileWatcher(paths: [store.url.deletingLastPathComponent().path], latency: 0.2) {
-            [weak self] in
+            [weak self] _ in
             self?.applySettings()
         }
 
         calculator.start { [weak self] in self?.palette.model.refresh() }
+        extensions.start()
         apps.onChange = { [weak self] in self?.appsChanged() }
         Task {
             await apps.start()
