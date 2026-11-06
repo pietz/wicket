@@ -42,6 +42,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func pane(_ title: String, symbol: String, _ view: some View) -> NSTabViewItem {
         let controller = NSHostingController(rootView: view)
+        // The tab view controller titles the window after the selected pane's controller.
+        controller.title = title
         // Each pane sizes the window to fit, so switching tabs resizes it.
         controller.sizingOptions = .preferredContentSize
         let item = NSTabViewItem(viewController: controller)
