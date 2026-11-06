@@ -119,6 +119,8 @@ Each is the call and its reason; the mechanism is in docs/architecture.md. All d
 - **An action opens a frame only when its first result is content,** so a toggle answering `close` never flashes a frame.
 - **Close messages in a glass capsule where the pill was.** The checkmark and reading-time dwell are from Tinycast's message pill; Tinycast anchors it near the screen edge, ours stays where the user was looking.
 
+- **A process has ended only when everything it started has (2026-11-06).** Tree membership is "still linked to the child": its process group, holders of its pipes, parentage, and anything seen as a member before, because macOS has no subreaper or inheritable tag. Leftovers of a process that exits by itself are stopped before the next one starts; deliberate daemonising is the sandbox's job. A finished agent run is stopped gracefully, a cancelled one gets SIGTERM at once.
+
 ### AI
 
 - **Codex through `app-server`, not `exec --json`:** no slower for one-shot runs (about 0.2 s setup) and it gives typed items, token usage, a sandbox per turn and approvals as requests. Claude Code through `-p` stream-json.

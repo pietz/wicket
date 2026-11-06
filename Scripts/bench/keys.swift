@@ -30,7 +30,11 @@ for arg in CommandLine.arguments.dropFirst() {
         let name = String(arg.dropFirst(6))
         let deadline = Date().addingTimeInterval(2)
         while !paletteVisible(name) {
-            if Date() > deadline { print("\(name) palette not visible; stopping"); exit(1) }
+            if Date() > deadline {
+                print("\(name) palette not visible; stopping")
+                releaseAllModifiers()
+                exit(1)
+            }
             usleep(10_000)
         }
         continue
@@ -47,10 +51,30 @@ for arg in CommandLine.arguments.dropFirst() {
         }
     }
     guard let code = codes[key] else { print("unknown key \(key)"); exit(2) }
+    // Press and release the modifier keys themselves around the key, like a person would: posting
+    // only flags left the system believing ⌥ or ⌃ stayed down (seen with Raycast's keyboard tap
+    // active), which turned every later chord into one nobody registered.
+    let modifierKeys: [CGKeyCode] = parts.compactMap { ["opt": 58, "ctrl": 59, "cmd": 55][$0] }
+    post(modifierKeys, down: true, flags: flags)
     for down in [true, false] {
         let e = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down)!
         e.flags = flags
         e.post(tap: .cghidEventTap)
     }
+    post(modifierKeys.reversed(), down: false, flags: [])
     usleep(120_000)
+}
+releaseAllModifiers()
+
+func post(_ keys: [CGKeyCode], down: Bool, flags: CGEventFlags) {
+    for key in keys {
+        let e = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down)!
+        e.flags = flags
+        e.post(tap: .cghidEventTap)
+    }
+}
+
+/// Leaves no modifier held, whatever happened before.
+func releaseAllModifiers() {
+    post([58, 61, 59, 62, 56, 60, 55, 54], down: false, flags: [])
 }
