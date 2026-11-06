@@ -79,3 +79,34 @@ public struct CommandRun: Sendable, Hashable {
 public protocol CommandRunner: AnyObject {
     func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
 }
+
+/// The one runner the palette session gets: each run goes to its command's owner, built-ins to the
+/// runner registered for them (Ask AI), extension commands to the extensions' runner.
+@MainActor
+public final class CommandRouter: CommandRunner {
+    private let builtins: [CommandID: any CommandRunner]
+    private let extensions: (any CommandRunner)?
+
+    public init(builtins: [CommandID: any CommandRunner], extensions: (any CommandRunner)?) {
+        self.builtins = builtins
+        self.extensions = extensions
+    }
+
+    public func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
+    {
+        let runner =
+            switch invocation.command.owner {
+            case .builtin: builtins[invocation.command]
+            case .extension: extensions
+            }
+        guard let runner else {
+            return AsyncThrowingStream { $0.finish(throwing: Unrouted()) }
+        }
+        return runner.run(invocation, kind: kind)
+    }
+
+    /// A command nothing runs, such as a built-in without a runner.
+    struct Unrouted: Error, CustomStringConvertible {
+        var description: String { "Nothing runs this command." }
+    }
+}

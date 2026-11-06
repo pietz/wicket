@@ -90,7 +90,7 @@ public struct ActionDispatcher {
         case .quit:
             effects.quit()
             return .close
-        case nil:
+        case .askAI, nil:
             // Extension commands, and built-ins that show something (Ask AI): their frame runs them.
             let kind = Self.kind(of: invocation, command)
             return .open(CommandRun(command: command, invocation: invocation, kind: kind))

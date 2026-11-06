@@ -202,3 +202,62 @@ private func read(_ url: URL) throws -> String {
         try Settings.load(from: url)
     }
 }
+
+@Test(arguments: [
+    (#"{}"#, nil, nil),
+    (#"{"ai": {"provider": "claude"}}"#, AgentProvider.claude, nil),
+    (#"{"ai": {"provider": "codex", "future": 1}}"#, .codex, nil),
+    (#"{"ai": {"provider": null}}"#, nil, nil),
+    (#"{"ai": null}"#, nil, nil),
+    (
+        #"{"ai": {"provider": "gemini"}}"#, nil,
+        #"ai.provider must be "codex" or "claude"; using the first one that's ready"#
+    ),
+    (
+        #"{"ai": {"provider": 1}}"#, nil,
+        #"ai.provider must be "codex" or "claude"; using the first one that's ready"#
+    ),
+    (#"{"ai": "codex"}"#, nil, "ai must be an object; using defaults"),
+])
+func aiProviderFallsBackAlone(json: String, provider: AgentProvider?, ignored: String?) throws {
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+    #expect(settings.ai.provider == provider)
+    #expect(settings.ignored == (ignored.map { [$0] } ?? []))
+}
+
+@Test func updateSetsAndClearsTheProviderKeepingUnknownKeys() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"hotkey": "opt+space", "ai": {"model": "fast"}}"#, to: url)
+    try Settings.update(at: url) { $0.ai.provider = .claude }
+    #expect(try Settings.load(from: url).ai.provider == .claude)
+    #expect(try read(url).contains(#""model" : "fast""#))
+    // The hotkey's spelling is the file's: only what changed is written.
+    #expect(try read(url).contains(#""hotkey" : "opt+space""#))
+
+    try Settings.update(at: url) { $0.ai.provider = nil }
+    #expect(
+        try read(url) == """
+            {
+              "ai" : {
+                "model" : "fast"
+              },
+              "hotkey" : "opt+space"
+            }
+
+            """)
+
+    // Automatic again with nothing else in the object: the object goes too.
+    try write(#"{"ai": {"provider": "codex"}}"#, to: url)
+    try Settings.update(at: url) { $0.ai.provider = nil }
+    #expect(try read(url) == "{\n\n}\n")
+}
+
+/// A bad provider is reported, not fixed, until a provider is chosen.
+@Test func updateKeepsIgnoredProvider() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"ai": {"provider": "gemini"}}"#, to: url)
+    try Settings.update(at: url) { $0.hotkey = try! Shortcut("cmd+k") }
+    #expect(try read(url).contains(#""provider" : "gemini""#))
+    try Settings.update(at: url) { $0.ai.provider = .codex }
+    #expect(try Settings.load(from: url).ai.provider == .codex)
+}

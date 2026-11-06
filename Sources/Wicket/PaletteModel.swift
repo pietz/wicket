@@ -102,9 +102,12 @@ final class PaletteModel {
         }
     }
 
-    /// Answers are computed per query, so a usage boost for them would mean nothing.
+    /// Answers are computed per query and fallback rows (Ask AI) are offered for any query, so a
+    /// usage boost for them would mean nothing.
     func recordUse(of item: Item) {
-        guard item.relevance != .answer else { return }
+        guard item.relevance != .answer, item.relevance != .fallback, item.origin != AskAI.command else {
+            return
+        }
         usage.record(item.id, now: Date())
         let snapshot = usage
         let url = usageURL

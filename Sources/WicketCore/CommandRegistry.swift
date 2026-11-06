@@ -4,6 +4,9 @@ import Foundation
 /// action dispatcher like any other command.
 public enum BuiltinCommand: String, CaseIterable, Sendable {
     case settings, quit
+    /// Answers a question with the user's agent CLI in its own frame (`AskAI`). Hidden: the root
+    /// offers it as a fallback row for whatever was typed.
+    case askAI = "ask-ai"
 
     public var id: CommandID { .builtin(rawValue) }
 
@@ -11,6 +14,8 @@ public enum BuiltinCommand: String, CaseIterable, Sendable {
         switch self {
         case .settings: RegisteredCommand(id: id, title: "Wicket Settings", icon: .symbol(name: "gearshape"))
         case .quit: RegisteredCommand(id: id, title: "Quit Wicket", icon: .symbol(name: "power"))
+        case .askAI:
+            RegisteredCommand(id: id, title: "Ask AI", icon: .symbol(name: AskAI.symbol), isListed: false)
         }
     }
 }

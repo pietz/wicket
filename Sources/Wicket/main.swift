@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let calculator = CalculatorSource()
     private let files = FilesSource()
     private let extensions = Extensions()
+    private let askAI = AskAIRunner()
     private let registry = CommandRegistry()
     private var palette: PaletteController!
     private let store = SettingsStore(directory: Settings.directory())
@@ -23,10 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStart = ContinuousClock.now
         let effects = SystemEffects { [weak self] in self?.settingsWindow.show() }
-        var sources: [any ResultSource] = [apps, CommandsSource(registry), calculator, files]
+        var sources: [any ResultSource] = [apps, CommandsSource(registry), calculator, files, AskAISource()]
         if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
+        let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
         palette = PaletteController(
-            model: PaletteModel(sources: sources, runner: extensions, registry: registry),
+            model: PaletteModel(sources: sources, runner: runner, registry: registry),
             dispatcher: ActionDispatcher(registry: registry, effects: effects))
 
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
@@ -62,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applySettings() {
         store.reload()
         palette.width = store.settings.paletteWidth
+        askAI.provider = store.settings.ai.provider
         let shortcut = store.settings.hotkey
         guard !hotKeyPaused, shortcut != registeredShortcut else { return }
         hotKey = nil  // Unregister first: Carbon refuses a combination this app already holds.
