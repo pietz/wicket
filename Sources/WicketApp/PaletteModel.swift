@@ -54,7 +54,8 @@ final class PaletteModel {
     private(set) var toast: String?
     @ObservationIgnored private var toastExpiry: Task<Void, Never>?
     @ObservationIgnored private var usage: UsageStore
-    @ObservationIgnored private let usageURL: URL
+    /// Saves usage.json off the main actor, one snapshot at a time, the newest last.
+    @ObservationIgnored private let usageWriter: LatestWriter<UsageStore>
 
     /// Where usage is kept: Application Support/Wicket/usage.json.
     nonisolated static var defaultUsageURL: URL {
@@ -66,7 +67,7 @@ final class PaletteModel {
         sources: [any ResultSource], runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil,
         messages: Messages = Messages(), usageURL: URL = defaultUsageURL
     ) {
-        self.usageURL = usageURL
+        usageWriter = LatestWriter { try? $0.save(to: usageURL) }
         usage = Self.namespaced(UsageStore.load(from: usageURL))
         weak var model: PaletteModel?
         session = PaletteSession(
@@ -114,9 +115,7 @@ final class PaletteModel {
     func recordUse(of item: Item) {
         guard item.relevance != .answer, item.relevance != .fallback else { return }
         usage.record(item.id, now: Date())
-        let snapshot = usage
-        let url = usageURL
-        Task.detached(priority: .utility) { try? snapshot.save(to: url) }
+        usageWriter.submit(usage)
     }
 
     private func logQuery(since start: ContinuousClock.Instant) {
