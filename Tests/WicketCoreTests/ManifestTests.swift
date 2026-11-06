@@ -1,0 +1,98 @@
+import Foundation
+import Testing
+
+@testable import WicketCore
+
+private let valid = #"""
+    {
+      "$schema": "../extension.schema.json",
+      "protocol": 1, "id": "github-prs", "name": "GitHub", "version": "1.2.3",
+      "icon": {"symbol": {"name": "cloud"}},
+      "run": ["python3", "main.py"], "capabilities": ["network"],
+      "secrets": [{"name": "GITHUB_TOKEN", "title": "GitHub token"}],
+      "commands": [
+        {"id": "prs", "title": "Pull Requests", "keyword": "pr", "mode": "live", "placeholder": "Filter"},
+        {"id": "convert", "title": "Convert", "mode": "root", "pattern": "(?i)^\\d+ ?usd$"},
+        {"id": "done", "title": "Done", "hidden": true}
+      ]
+    }
+    """#
+
+private func manifest(_ json: String) throws -> Manifest {
+    try JSONDecoder().decode(Manifest.self, from: Data(json.utf8))
+}
+
+/// `valid` with one replacement applied, and the summary of the error it causes.
+private func problem(_ old: String, _ new: String) -> String? {
+    #expect(valid.contains(old), "\(old)")
+    do {
+        _ = try manifest(valid.replacingOccurrences(of: old, with: new))
+        return nil
+    } catch let error as DecodingError {
+        return error.summary
+    } catch {
+        return "\(error)"
+    }
+}
+
+@Test func decodesAValidManifest() throws {
+    let manifest = try manifest(valid)
+    #expect(manifest.id == "github-prs")
+    #expect(manifest.secrets.map(\.name) == ["GITHUB_TOKEN"])
+    #expect(manifest.capabilities == [.network])
+    #expect(manifest.commands.map(\.mode) == [.live, .root, .once])
+    #expect(manifest.command("done")?.hidden == true)
+    #expect(manifest.command("prs")?.keyword == "pr")
+}
+
+@Test(arguments: [
+    (#""protocol": 1"#, #""protocol": 2"#, "this Wicket speaks protocol 1"),
+    (#""id": "github-prs""#, #""id": "GitHub""#, "is not a valid id"),
+    (#""id": "github-prs""#, #""id": "a--b""#, "is not a valid id"),
+    (#""name": "GitHub""#, #""name": """#, "name: must not be empty"),
+    (#""version": "1.2.3""#, #""version": "1.2""#, "must be major.minor.patch"),
+    (#""run": ["python3", "main.py"]"#, #""run": []"#, "must name a program"),
+    (#""capabilities": ["network"]"#, #""capabilities": ["internet"]"#, "must be network, clipboard"),
+    (#""capabilities": ["network"]"#, #""capabilities": ["network", "network"]"#, "twice"),
+    (#""GITHUB_TOKEN""#, #""github_token""#, "must be an environment variable name"),
+    (#""GITHUB_TOKEN""#, #""WICKET_TOKEN""#, "reserved"),
+    (#""GITHUB_TOKEN""#, #""PATH""#, "reserved"),
+    (#""mode": "live""#, #""mode": "stream""#, "must be once, live or root"),
+    (#""keyword": "pr""#, #""keyword": "p r""#, "must be one word"),
+    (#""pattern": "(?i)^\\d+ ?usd$""#, #""pattern": "(unclosed""#, "not a valid regular expression"),
+    (
+        #""mode": "root","#, #""mode": "root", "keyword": "c","#,
+        "commands[1].keyword: is not allowed for a root"
+    ),
+    (
+        #""mode": "root","#, #""mode": "root", "hidden": false,"#,
+        "commands[1].hidden: is not allowed for a root"
+    ),
+    (#""hidden": true"#, #""hidden": true, "pattern": "x""#, "commands[2].pattern: is only for root"),
+    (#""id": "done""#, #""id": "prs""#, "two commands with the id \"prs\""),
+    (#""title": "Done""#, #""title": "Done", "subtitel": "x""#, #"commands[2].subtitel: unknown field"#),
+    (#""protocol": 1,"#, #""protocol": 1, "author": "me","#, #"author: unknown field"#),
+    (#""run": ["python3", "main.py"],"#, "", #"run: missing required field"#),
+])
+func rejectsInvalidManifests(old: String, new: String, expected: String) {
+    let summary = problem(old, new)
+    #expect(summary?.contains(expected) == true, "\(summary ?? "accepted")")
+}
+
+@Test func loadNamesTheFile() throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    #expect(throws: ManifestError.self) { try Manifest.load(from: folder) }
+    try Data(#"{"protocol":1}"#.utf8).write(to: folder.appending(path: "wicket.json"))
+    #expect(throws: ManifestError(description: #"wicket.json: id: missing required field "id""#)) {
+        try Manifest.load(from: folder)
+    }
+}
+
+@Test func theExamplesAreValid() throws {
+    let examples = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../docs/examples")
+    for name in ["unicode", "week-number"] {
+        #expect(try Manifest.load(from: examples.appending(path: name)).id == name)
+    }
+}

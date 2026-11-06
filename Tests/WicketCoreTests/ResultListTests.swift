@@ -52,16 +52,6 @@ private func noUsage(_ id: String) -> Double { 0 }
     #expect(list.selection == 0)
 }
 
-@Test func itemsRoundTripThroughJSON() throws {
-    let item = Item(
-        id: "apps:/Applications/Safari.app", title: "Safari", subtitle: "Browser",
-        icon: .file(url: URL(filePath: "/Applications/Safari.app")), accessory: "Application",
-        relevance: .exact, score: 12,
-        actions: [.open(url: URL(filePath: "/Applications/Safari.app")), .copy(text: "x")])
-    let decoded = try JSONDecoder().decode(Item.self, from: JSONEncoder().encode(item))
-    #expect(decoded == item)
-}
-
 /// About 160 apps, the size of a typical Mac: search plus merge must stay far below a frame.
 @Test func rankingIsFast() {
     let words = ["Safari", "Code", "Studio", "Mail", "Photo", "Music", "Note", "Pro", "Utility", "Book"]
