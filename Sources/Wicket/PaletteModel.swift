@@ -30,7 +30,7 @@ enum PaletteMode {
 final class PaletteModel {
     static let resultLimit = 50
 
-    private(set) var list = ResultList(limit: resultLimit)
+    private(set) var list = RootResults(limit: resultLimit)
     var results: [Item] { list.items }
     var selection: Int { list.selection }
     var selectedItem: Item? { list.selectedItem }

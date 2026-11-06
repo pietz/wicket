@@ -123,12 +123,24 @@ func topResult(query: String, expected: String) {
     #expect(abs(store.frecency("a", now: start.addingTimeInterval(UsageStore.halfLife)) - 1) < 1e-9)
 }
 
-private func fromExtension(_ titles: [String], _ id: String, relevance: Item.Relevance = .match) -> [Item] {
-    titles.enumerated().map { index, title in
+private func fromExtension(
+    _ titles: [String], _ id: String, command: String = "search", relevance: Item.Relevance = .match
+) -> [Item] {
+    titles.map { title in
         Item(
-            id: "ext:\(id)/search:\(title)", title: title, icon: .symbol(name: "x"), relevance: relevance,
-            score: -Double(index), actions: [], origin: .extension(id, "search"))
+            id: "ext:\(id)/\(command):\(title)", title: title, icon: .symbol(name: "x"),
+            relevance: relevance, actions: [], origin: .extension(id, command))
     }
+}
+
+private func host(_ title: String, relevance: Item.Relevance = .match, score: Double = 0) -> Item {
+    Item(
+        id: "host:" + title, title: title, icon: .symbol(name: "x"), relevance: relevance, score: score,
+        actions: [])
+}
+
+private func rank(_ items: [Item], usage: [String: Double] = [:], fallbacks: [CommandID] = []) -> [String] {
+    Ranker.rank(items, query: "x", usage: { usage[$0] ?? 0 }, fallbackOrder: fallbacks).map(\.title)
 }
 
 @Test func extensionItemsKeepTheirOrderWithinATier() {
@@ -136,25 +148,45 @@ private func fromExtension(_ titles: [String], _ id: String, relevance: Item.Rel
     let usage = ["ext:fruit/search:Mango": 1000.0]
     #expect(
         Ranker.rank(items, query: "a", usage: { usage[$0] ?? 0 }).map(\.title) == ["Zebra", "Apple", "Mango"])
-    #expect(
-        Ranker.rank(items.reversed(), query: "", usage: { _ in 0 }).map(\.title) == [
-            "Zebra", "Apple", "Mango",
-        ])
+    #expect(Ranker.rank(items, query: "", usage: { _ in 0 }).map(\.title) == ["Zebra", "Apple", "Mango"])
 }
 
 @Test func tiersStillComeFirstForExtensionItems() {
     let items =
         fromExtension(["Search the web"], "web", relevance: .fallback)
         + fromExtension(["B", "A"], "letters")
-    #expect(Ranker.rank(items, query: "x", usage: { _ in 0 }).map(\.title) == ["B", "A", "Search the web"])
+    #expect(rank(items) == ["B", "A", "Search the web"])
 }
 
-@Test func twoExtensionsEachKeepTheirOrder() {
-    let ranked = Ranker.rank(
-        fromExtension(["c", "a"], "one") + fromExtension(["d", "b"], "two"), query: "", usage: { _ in 0 }
-    ).map(\.title)
-    #expect(ranked.firstIndex(of: "c")! < ranked.firstIndex(of: "a")!)
-    #expect(ranked.firstIndex(of: "d")! < ranked.firstIndex(of: "b")!)
+@Test func eachCommandIsOneBlockInItsOwnOrder() {
+    // Interleaved input, as several sources or commands might deliver it.
+    let one = fromExtension(["c", "a"], "one")
+    let two = fromExtension(["d", "b"], "two")
+    let other = fromExtension(["f", "e"], "one", command: "other")
+    #expect(rank([two[0], one[0], other[0], two[1], one[1], other[1]]) == ["f", "e", "c", "a", "d", "b"])
+}
+
+@Test func hostItemsComeBeforeProviderItemsInATier() {
+    let items = fromExtension(["Ext"], "web") + [host("Weak match", score: -50), host("Strong", score: 90)]
+    #expect(rank(items) == ["Strong", "Weak match", "Ext"])
+    // A higher tier still wins.
+    let answer = fromExtension(["42"], "calc", relevance: .answer)
+    #expect(rank(items + answer).first == "42")
+}
+
+@Test func fallbacksFollowTheUserOrderAndNotHabit() {
+    let web = fromExtension(["Search the web"], "web", relevance: .fallback)
+    let ai = fromExtension(["Ask AI"], "ai", relevance: .fallback)
+    let notes = host("New note", relevance: .fallback)
+    let match = host("Match")
+    let items = [notes, match] + web + ai
+    #expect(
+        rank(items, fallbacks: [.extension("ai", "search"), .extension("web", "search")]) == [
+            "Match", "Ask AI", "Search the web", "New note",
+        ])
+    // Unlisted fallbacks: host before provider, and frecency doesn't reorder them.
+    let other = host("Another", relevance: .fallback)
+    #expect(rank([notes, other], usage: ["host:New note": 1000]) == ["Another", "New note"])
 }
 
 @Test func usageStillReordersHostItems() {

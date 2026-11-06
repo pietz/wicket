@@ -1,9 +1,10 @@
-import WicketCore
+import Foundation
 
-/// A provider of palette results. The palette asks every source on each keystroke and ranks all
-/// their items together (`Ranker`); sources choose each item's relevance tier and score.
+/// A provider of root search results. The palette asks every source on each keystroke and ranks all
+/// their items together (`RootResults`, `Ranker`); sources choose each item's relevance tier and
+/// score. Only the root frame uses sources: a command's own list is the command's business.
 @MainActor
-protocol ResultSource {
+public protocol ResultSource {
     /// Prefix of this source's item ids ("apps" gives "apps:/Applications/Safari.app").
     var id: String { get }
 
@@ -18,5 +19,5 @@ protocol ResultSource {
 }
 
 extension ResultSource {
-    func updates(_ query: Query) -> AsyncStream<[Item]>? { nil }
+    public func updates(_ query: Query) -> AsyncStream<[Item]>? { nil }
 }

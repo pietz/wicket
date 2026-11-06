@@ -195,7 +195,7 @@ For commands and actions that do something rather than show something:
 | `subtitle` | no | Secondary text. |
 | `icon` | no | Defaults to the command's icon. |
 | `accessory` | no | Short text on the right, such as a count, a date or a shortcut. |
-| `relevance` | no | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Search the web for …"). Wicket ranks by relevance first; within it, your order is kept (the user's habits never reorder your items). |
+| `relevance` | no | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Search the web for …"). Wicket ranks by relevance first; within it, your order is kept (the user's habits never reorder your items), after Wicket's own matches such as apps and files. |
 | `actions` | no | What the user can do; the first runs on Return, the others are in the action panel (⌘K). |
 
 ### Icons

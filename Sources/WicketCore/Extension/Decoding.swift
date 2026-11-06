@@ -1,8 +1,7 @@
 import Foundation
 
 // Decoding of items and content from what extensions send (docs/extensions.md), with the host's
-// stamps: the item's origin, its namespaced id, `run` actions resolved to a `CommandID` and list
-// positions as scores.
+// stamps: the item's origin, its namespaced id and `run` actions resolved to a `CommandID`.
 
 /// The fallback when neither the item, its command nor its extension names an icon.
 private let extensionIcon = Item.Icon.symbol(name: "puzzlepiece.extension")
@@ -124,7 +123,7 @@ extension RunResult: Decodable {
             self = .answer(item)
         case "list":
             let list = try object.object(kind, ["items"])
-            var items: [Item] = try list.required("items")
+            let items: [Item] = try list.required("items")
             if items.count > Self.itemLimit {
                 throw list.invalid("items", "has \(items.count) items; the limit is \(Self.itemLimit)")
             }
@@ -136,8 +135,6 @@ extension RunResult: Decodable {
                     "item id \"\(item.id.dropFirst(prefix))\" appears twice; ids (which default to the title) "
                         + "must be unique")
             }
-            // Descending scores keep the extension's order within a tier when ranked.
-            for index in items.indices { items[index].score = -Double(index) }
             self = .list(items)
         case "detail":
             self = .detail(try object.required(kind))

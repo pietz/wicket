@@ -183,10 +183,11 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
     #expect(problem(json)?.contains("needs the extension it came from") == true)
 }
 
-@Test func listsKeepTheirOrderAsScores() throws {
+@Test func listsKeepTheirOrder() throws {
     let json = #"{"list":{"items":[{"title":"b"},{"title":"a"},{"title":"c"}]}}"#
     guard case .list(let items) = try result(json) else { return }
-    #expect(items.map(\.score) == [0, -1, -2])
+    #expect(items.map(\.title) == ["b", "a", "c"])
+    #expect(items.allSatisfy { $0.score == 0 })
 }
 
 private func manifest(_ id: String, commands: [String]) throws -> Manifest {

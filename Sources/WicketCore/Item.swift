@@ -82,8 +82,8 @@ public struct Item: Sendable, Hashable, Identifiable {
     public var icon: Icon
     public var accessory: String?
     public var relevance: Relevance
-    /// Orders items within a relevance tier; `SearchIndex` uses the fuzzy-matcher score, extension
-    /// lists their position. Host only.
+    /// Orders the host's own items within a relevance tier, such as `SearchIndex`'s fuzzy-matcher
+    /// score. Extension items keep the order they were sent in instead (`Ranker`). Host only.
     public var score: Double
     /// The first action is the primary one, run by Return.
     public var actions: [Action]
@@ -104,10 +104,5 @@ public struct Item: Sendable, Hashable, Identifiable {
         self.score = score
         self.actions = actions
         self.origin = origin
-    }
-
-    /// Whether the item came from an extension, whose order the host keeps instead of ranking it.
-    public var isFromExtension: Bool {
-        if case .extension = origin?.owner { true } else { false }
     }
 }
