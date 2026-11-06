@@ -72,5 +72,6 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ## Cross-cutting rules
 - Every change passes `Scripts/check.sh`; hot-path changes get measured.
 - Design first, then compare with Tinycast before building; record decisions in CONCEPT.md.
+- Architecture review before each major core workstream, or every few milestones: two independent reviewers, run per [docs/reviews/architecture-review.md](docs/reviews/architecture-review.md).
 - Screen-bound checks (visual, latency harness) are batched into sessions when the owner's Mac is free.
 - No telemetry, no accounts. Queries and file paths never go into public logs.
