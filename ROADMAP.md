@@ -19,11 +19,11 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ### Features
 - ✅ Apps
 - 🔨 Calculator: arithmetic, units, currency (ECB daily rates, staleness shown)
-- ⏭ Files via Spotlight (async source)
+- 🔨 Files via Spotlight (async source)
 - ⏭ Quick AI answer: "Ask AI" fallback row, streams into a detail view, via Codex or Claude CLI
 
 ### Extensions
-- ⏭ Protocol spec: `docs/extensions.md` (one page, agent-facing) plus JSON schema
+- 🔨 Protocol spec: `docs/extensions.md` (one page, agent-facing) plus JSON schema
 - 💤 Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, list and detail views
 - 💤 `wicket` checker CLI in the bundle: validate manifest, run fixture queries, check output
 - 💤 Two or three useful sample extensions in different languages
@@ -31,7 +31,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
 
 ### App shell
-- ⏭ Settings window (native SwiftUI): General (hotkey recorder, launch at login, appearance), Features (toggle each source), AI (providers), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
+- 🔨 Settings window (native SwiftUI): General (hotkey recorder, launch at login, appearance), Features (toggle each source), AI (providers), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
 - ⏭ Per-command hotkeys and aliases (any item can get a global shortcut or a short alias)
 - 💤 Launch at login (`SMAppService`)
 - 💤 First-run onboarding: pick the hotkey, explain type-or-speak, optional AI setup
