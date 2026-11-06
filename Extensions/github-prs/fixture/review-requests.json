@@ -1,0 +1,33 @@
+{
+  "status": 200,
+  "body": {
+    "total_count": 2,
+    "incomplete_results": false,
+    "items": [
+      {
+        "html_url": "https://github.com/acme/web/pull/12",
+        "repository_url": "https://api.github.com/repos/acme/web",
+        "number": 12,
+        "title": "Fix login timeout",
+        "user": { "login": "sam" },
+        "labels": [{ "name": "bug" }, { "name": "auth" }],
+        "comments": 3,
+        "draft": false,
+        "updated_at": "2026-01-15T09:30:00Z",
+        "body": "Raises the session timeout to **30 minutes**."
+      },
+      {
+        "html_url": "https://github.com/acme/app/pull/15",
+        "repository_url": "https://api.github.com/repos/acme/app",
+        "number": 15,
+        "title": "Bump Swift to 6.4",
+        "user": { "login": "alex" },
+        "labels": [],
+        "comments": 0,
+        "draft": true,
+        "updated_at": "2026-01-14T18:00:00Z",
+        "body": null
+      }
+    ]
+  }
+}

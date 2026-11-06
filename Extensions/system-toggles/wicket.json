@@ -1,0 +1,30 @@
+{
+  "protocol": 1,
+  "id": "system-toggles",
+  "name": "System Toggles",
+  "description": "Switches dark mode, mutes the sound and puts the displays to sleep.",
+  "version": "1.0.0",
+  "icon": { "symbol": { "name": "switch.2" } },
+  "run": ["/bin/sh", "toggles.sh"],
+  "capabilities": ["shell"],
+  "commands": [
+    {
+      "id": "dark-mode",
+      "title": "Toggle Dark Mode",
+      "subtitle": "Switch between light and dark appearance",
+      "icon": { "symbol": { "name": "circle.lefthalf.filled" } }
+    },
+    {
+      "id": "mute",
+      "title": "Toggle Mute",
+      "subtitle": "Mute or unmute the sound output",
+      "icon": { "symbol": { "name": "speaker.slash" } }
+    },
+    {
+      "id": "sleep-displays",
+      "title": "Sleep Displays",
+      "subtitle": "Turn the displays off now",
+      "icon": { "symbol": { "name": "display" } }
+    }
+  ]
+}

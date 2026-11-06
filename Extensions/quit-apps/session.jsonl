@@ -1,0 +1,10 @@
+{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"quit-apps","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"list":{}}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"run","params":{"command":"app","text":"","revision":2,"args":{"pid":99999999}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"error":{"code":1,"message":"That app is no longer running."}}}
+{"send":{"jsonrpc":"2.0","id":3,"method":"run","params":{"command":"quit","text":"","revision":3,"args":{"pid":99999999,"name":"Ghost","after":"reload"}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"error":{"code":1,"message":"Ghost is no longer running."}}}
+{"send":{"jsonrpc":"2.0","id":4,"method":"run","params":{"command":"force-quit","text":"","revision":4,"args":{"pid":99999999,"name":"Ghost","after":"close"}}}}
+{"expect":{"jsonrpc":"2.0","id":4,"error":{"code":1,"message":"Ghost is no longer running."}}}
+{"send":{"jsonrpc":"2.0","id":5,"method":"run","params":{"command":"missing","text":"","revision":5}}}
+{"expect":{"jsonrpc":"2.0","id":5,"error":{"code":1,"message":"Unknown command missing"}}}

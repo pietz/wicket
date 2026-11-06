@@ -1,0 +1,25 @@
+{
+  "protocol": 1,
+  "id": "github-prs",
+  "name": "GitHub Pull Requests",
+  "description": "Lists open pull requests waiting for your review, and your own.",
+  "version": "1.0.0",
+  "icon": { "symbol": { "name": "arrow.triangle.pull" } },
+  "run": ["/bin/sh", "prs.sh"],
+  "capabilities": ["network"],
+  "secrets": [{ "name": "GITHUB_TOKEN", "title": "GitHub token with read access to your repositories" }],
+  "commands": [
+    {
+      "id": "review-requests",
+      "title": "GitHub Review Requests",
+      "subtitle": "Open pull requests waiting for your review",
+      "keyword": "prr"
+    },
+    {
+      "id": "my-prs",
+      "title": "My Pull Requests",
+      "subtitle": "Your open pull requests on GitHub",
+      "keyword": "prs"
+    }
+  ]
+}
