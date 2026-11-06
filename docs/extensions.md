@@ -252,7 +252,7 @@ Wicket reports these failures itself, the same way: no response within 30 second
 | Time to answer a request | 30 seconds, measured from when it was sent (including start-up) |
 | Idle time before stdin is closed | about 60 seconds |
 | Exit after stdin closes (you and what you started) | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
-| stderr kept for diagnostics | last 16 KiB (secret values removed) |
+| stderr kept for diagnostics | last 16 KiB (secret values and recent queries removed; anything else kept as written) |
 
 Keep answers fast: a `live` or `root` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.
 

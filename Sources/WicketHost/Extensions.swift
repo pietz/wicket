@@ -107,7 +107,7 @@ public final class Extensions {
             return result
         } catch {
             if !(error is CancellationError) {
-                let text = await session.redact(Self.diagnostic(for: error), query: invocation.text)
+                let text = await session.redact(Self.diagnostic(for: error))
                 if sessions[id] === session { diagnostics.set(.run, of: .command(command), .error, [text]) }
                 Self.logger.error("command \(command, privacy: .public) failed")
             }

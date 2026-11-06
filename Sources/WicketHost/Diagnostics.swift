@@ -3,8 +3,10 @@ import Observation
 import WicketCore
 
 /// Something wrong (or worth knowing) about one part of Wicket, for the panes, the Extensions screen
-/// and later "Fix with agent". Never query text or secret values: Wicket's own texts don't quote
-/// queries, and what an extension wrote has its secrets and the run's text redacted first.
+/// and later "Fix with agent". Wicket's own texts never quote a query. What an extension wrote
+/// (stderr, protocol issues, error messages) is its own text with the secret values its session
+/// passed and the queries the session was recently sent replaced (see `Redaction`); whatever else it
+/// wrote is kept, and nothing here is logged.
 public struct Diagnostic: Hashable, Sendable {
     public enum Subject: Hashable, Sendable {
         case `extension`(String)
@@ -154,7 +156,8 @@ public final class Diagnostics {
     }
 
     /// A text within its limit (by default its kind's): a stderr tail keeps its end from a line
-    /// start, so no cut-off secret survives redaction; anything else keeps its beginning.
+    /// start (or a cut-off line, if the end has no newline); anything else keeps its beginning.
+    /// Redact before bounding: a cut can split a secret so redaction no longer matches it.
     nonisolated static func bound(_ text: String, kind: Diagnostic.Kind, limit: Int? = nil) -> String {
         let limit = limit ?? (kind == .stderr ? stderrLimit : textLimit)
         let utf8 = text.utf8
@@ -176,18 +179,26 @@ extension Diagnostic {
     }
 }
 
-/// Redaction for text an extension wrote before it becomes a diagnostic.
+/// Redaction for text an extension wrote before it becomes a diagnostic. It replaces only values
+/// the host knows (secrets it passed, texts it sent); anything else the extension writes, such as
+/// file contents or what an API returned, is kept as written.
 enum Redaction {
-    /// `text` with every value of `secrets` and, if it is at least 3 characters (shorter would blank
-    /// out ordinary words), the run's `query` replaced. Secrets shorter than 4 characters are not
-    /// tokens anyone would store; they are left alone for the same reason.
-    static func redact(_ text: String, secrets: some Sequence<String>, query: String? = nil) -> String {
+    /// Shorter secrets aren't tokens anyone would store; shorter queries would blank out ordinary
+    /// words. Both are left alone.
+    static let minimumSecretLength = 4
+    static let minimumQueryLength = 3
+
+    /// `text` with every value of `secrets` and `queries` (each long enough) replaced, longest
+    /// first, so a value that contains another is replaced whole.
+    static func redact(_ text: String, secrets: some Sequence<String>, queries: some Sequence<String>)
+        -> String
+    {
+        let values =
+            secrets.filter { $0.count >= minimumSecretLength }.map { ($0, "‹secret›") }
+            + queries.filter { $0.count >= minimumQueryLength }.map { ($0, "‹query›") }
         var text = text
-        for secret in secrets where secret.count >= 4 {
-            text = text.replacingOccurrences(of: secret, with: "‹secret›")
-        }
-        if let query, query.count >= 3 {
-            text = text.replacingOccurrences(of: query, with: "‹query›")
+        for (value, marker) in values.sorted(by: { $0.0.count > $1.0.count }) {
+            text = text.replacingOccurrences(of: value, with: marker)
         }
         return text
     }

@@ -57,13 +57,51 @@ import WicketCore
     #expect(diagnostics.report(forExtension: "a").map(\.text) == ["bad manifest", "failed"])
 }
 
-@Test func redactionDropsSecretsAndTheQuery() {
-    let text = "token abcd1234 for heart, a b"
+@Test func redactionDropsSecretsAndQueries() {
+    let text = "token abcd1234 for heart and hearth, a b"
     #expect(
-        Redaction.redact(text, secrets: ["abcd1234", "b"], query: "heart")
-            == "token ‹secret› for ‹query›, a b")
+        Redaction.redact(text, secrets: ["abcd1234", "b"], queries: ["heart", "hearth"])
+            == "token ‹secret› for ‹query› and ‹query›, a b")
     // Short queries would blank out ordinary words.
-    #expect(Redaction.redact(text, secrets: [], query: "a") == text)
+    #expect(Redaction.redact(text, secrets: [], queries: ["a"]) == text)
+}
+
+/// A session for `script`, given `secret` as `ECHO_TOKEN`.
+private func secretSession(_ secret: String, script: String) throws -> ExtensionSession {
+    let ext = try TestExtension(
+        id: "echo", secrets: #"[{"name":"ECHO_TOKEN","title":"Token"}]"#, script: script)
+    return ExtensionSession(
+        manifest: try ext.manifest, folder: ext.folder,
+        configuration: testConfiguration(secrets: ["ECHO_TOKEN": secret]))
+}
+
+@Test func theStderrTailIsRedactedBeforeItIsCut() async throws {
+    // A secret on a line with no newline: cutting first kept its end, which redaction can't match.
+    let session = try secretSession(
+        "abcdefgh12345678", script: #"printf 'token=%s' "$ECHO_TOKEN" >&2; "# + answering(#"{"close":{}}"#))
+    _ = try await session.run("go", text: "", retry: .safeToRepeat)
+    _ = await session.shutdown()
+    #expect(session.stderrTail == "token=abcdefgh12345678")
+    let stderr = await session.report(stderrBytes: 12).stderr
+    #expect(stderr == "‹secret›")
+}
+
+@Test func theQueriesASessionWasSentAreRedacted() async throws {
+    // Echoes every line it receives to stderr.
+    let session = try secretSession(
+        "unused-secret",
+        script: answering(#"{"close":{}}"#).replacingOccurrences(
+            of: "while read -r line; do\n", with: "while read -r line; do\n  echo \"$line\" >&2\n"))
+    for text in ["first-private", "second-private", "ok"] {
+        _ = try await session.run("go", text: text, retry: .safeToRepeat)
+    }
+    _ = await session.shutdown()
+    #expect(session.stderrTail.contains("first-private"))
+    let report = await session.report(stderrBytes: Diagnostics.stderrLimit)
+    #expect(!report.stderr.contains("first-private"), "\(report.stderr)")
+    #expect(!report.stderr.contains("second-private"))
+    #expect(report.stderr.contains("‹query›"))
+    #expect(await session.redact("failed on first-private") == "failed on ‹query›")
 }
 
 /// An extension that leaks: its secret to stderr, a stray stdout line, and the query and secret in

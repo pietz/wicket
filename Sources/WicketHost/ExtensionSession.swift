@@ -145,6 +145,10 @@ public actor ExtensionSession {
     private let stderr = OutputTail(limit: stderrLimit)
     /// The secret values the process was given, redacted from what `report` hands out.
     private var secretValues: Set<String> = []
+    /// The texts of the newest `recentQueryLimit` runs, oldest first, redacted from what `report`
+    /// hands out: a live command is sent every keystroke, and stderr outlives the run that wrote it.
+    private var recentQueries: [String] = []
+    static let recentQueryLimit = 64
     /// Grows with every issue and warning, so `report` can say whether anything changed.
     private var noted = 0
 
@@ -175,7 +179,8 @@ public actor ExtensionSession {
     /// The last 64 KiB the extension wrote to stderr, across restarts.
     public nonisolated var stderrTail: String { stderr.text }
 
-    /// What the session has to report for diagnostics, with the secret values it passed redacted.
+    /// What the session has to report for diagnostics: the extension's own text, with the secret
+    /// values it passed and the queries it was recently sent redacted, nothing else.
     public struct Report: Sendable, Equatable {
         public var issues: [String]
         public var warnings: [String]
@@ -185,18 +190,28 @@ public actor ExtensionSession {
         public var version: Int
     }
 
-    /// The session's report; the stderr tail is cut to `stderrBytes`.
+    /// The session's report; the stderr tail is redacted, then cut to `stderrBytes` (cutting first
+    /// could keep the end of a secret, which redaction no longer matches).
     public func report(stderrBytes: Int) -> Report {
         Report(
             issues: issues.map { redact($0) }, warnings: warnings.map { redact($0) },
-            stderr: redact(Diagnostics.bound(stderr.text, kind: .stderr, limit: stderrBytes)),
+            stderr: Diagnostics.bound(redact(stderr.text), kind: .stderr, limit: stderrBytes),
             version: noted + stderr.written)
     }
 
-    /// `text` without the secret values this session passed to its process (and, if given, the
-    /// run's `query`), for text the extension wrote that is kept for diagnostics.
-    public func redact(_ text: String, query: String? = nil) -> String {
-        Redaction.redact(text, secrets: secretValues, query: query)
+    /// `text` without the secret values this session passed to its process and the queries it was
+    /// recently sent, for text the extension wrote that is kept for diagnostics.
+    public func redact(_ text: String) -> String {
+        Redaction.redact(text, secrets: secretValues, queries: recentQueries)
+    }
+
+    private func remember(query: String) {
+        guard query.count >= Redaction.minimumQueryLength else { return }
+        recentQueries.removeAll { $0 == query }
+        recentQueries.append(query)
+        if recentQueries.count > Self.recentQueryLimit {
+            recentQueries.removeFirst(recentQueries.count - Self.recentQueryLimit)
+        }
     }
 
     private func note(issue: String) {
@@ -227,6 +242,8 @@ public actor ExtensionSession {
     public func submit(_ id: RequestID, _ params: RunParams, retry: RetryPolicy) async throws
         -> Task<Reply, any Error>
     {
+        // First, so a failure of this very run is redacted of its text too.
+        remember(query: params.text)
         if path == nil { path = await LoginShell.path() }
         guard !stopped else { throw HostError.stopped }
         guard pending[id] == nil else { throw HostError.duplicateID(id) }
