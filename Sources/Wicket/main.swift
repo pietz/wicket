@@ -11,8 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let launchStart = ContinuousClock.now
         palette = PaletteController()
 
-        // ⌥Space. Configurable shortcuts come later.
-        hotKey = HotKey(keyCode: kVK_Space, modifiers: optionKey) { [weak self] eventTime in
+        // ⌥Space; WICKET_HOTKEY=ctrl uses ⌃⌥Space (the benchmark uses it to dodge apps like ChatGPT
+        // that also claim ⌥Space). A settings file comes later.
+        let ctrl = ProcessInfo.processInfo.environment["WICKET_HOTKEY"] == "ctrl"
+        hotKey = HotKey(keyCode: kVK_Space, modifiers: ctrl ? optionKey | controlKey : optionKey) { [weak self] eventTime in
             self?.palette.toggle(eventTime: eventTime)
         }
         if hotKey == nil { Perf.logger.error("could not register ⌥Space; another app owns it") }

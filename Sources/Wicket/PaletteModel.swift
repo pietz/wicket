@@ -29,7 +29,9 @@ final class PaletteModel {
     private(set) var results: [PaletteItem] = []
     var selection = 0
 
-    @ObservationIgnored private(set) var query = ""
+    var query = "" { didSet { if query != oldValue { refresh() } } }
+    /// Bumped on every summon so a SwiftUI search field can take focus.
+    var focusToken = 0
     @ObservationIgnored private var items: [PaletteItem] = []
     @ObservationIgnored private var candidates: [Candidate] = []
     @ObservationIgnored private var usage: UsageStore
@@ -44,11 +46,6 @@ final class PaletteModel {
     func setItems(_ items: [PaletteItem], alternates: [String: [String]]) {
         self.items = items
         candidates = items.map { Candidate(id: $0.id, title: $0.title, alternates: alternates[$0.id] ?? []) }
-        refresh()
-    }
-
-    func setQuery(_ query: String) {
-        self.query = query
         refresh()
     }
 

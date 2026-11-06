@@ -1,8 +1,44 @@
 import AppKit
 import SwiftUI
 
-/// The result list. The search field is AppKit (see `PaletteController`) so key handling and focus
-/// stay under direct control; SwiftUI only draws rows.
+/// The palette: search field and results, on Liquid Glass.
+struct PaletteRootView: View {
+    @Bindable var model: PaletteModel
+    let onActivate: (Int) -> Void
+    let onHide: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TextField("Search apps…", text: $model.query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 22))
+                .focused($focused)
+                .onKeyPress(.upArrow) { model.moveSelection(by: -1); return .handled }
+                .onKeyPress(.downArrow) { model.moveSelection(by: 1); return .handled }
+                .onKeyPress(.return) { onActivate(model.selection); return .handled }
+                .onKeyPress(.escape) {
+                    if model.query.isEmpty { onHide() } else { model.query = "" }
+                    return .handled
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 14)
+            Divider()
+            ResultsView(model: model, onActivate: onActivate)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Tinted: untinted glass is hard to read over busy windows.
+        .glassEffect(
+            .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)),
+            in: .rect(cornerRadius: 22))
+        .clipShape(.rect(cornerRadius: 22))
+        .onAppear { focused = true }
+        .onChange(of: model.focusToken) { focused = true }
+    }
+}
+
+/// The result list.
 struct ResultsView: View {
     let model: PaletteModel
     let onActivate: (Int) -> Void

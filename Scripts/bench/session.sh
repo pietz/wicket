@@ -1,5 +1,5 @@
 #!/bin/zsh
-# One benchmark session: latency, memory and a typing smoke test for each Wicket variant, then
+# One benchmark session: latency, memory and a typing smoke test for Wicket (and any variants), then
 # Tinycast. Takes over the keyboard and screen for ~3 minutes: only run when the Mac is free.
 #   Scripts/bench/session.sh <Tinycast.app path> <output dir>
 # Everything uses ⌃⌥Space so a ChatGPT-style ⌥Space binding cannot interfere.
@@ -30,9 +30,8 @@ variant() {  # $1 label, rest: env assignments
   pkill -x Wicket; sleep 1
 }
 
-variant appkit-glass WICKET_FIELD=appkit
-variant appkit-blur WICKET_FIELD=appkit WICKET_GLASS=0
-variant swiftui-glass WICKET_FIELD=swiftui
+# Add `variant <label> VAR=value ...` lines to A/B an experiment switch.
+variant wicket
 
 defaults write com.tinycast.app hotkey.togglePalette -string \
   '{"combo":{"_0":{"carbonKeyCode":49,"carbonModifiers":6144}}}'

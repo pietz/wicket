@@ -77,10 +77,10 @@ Made during M1, informed by Tinycast where noted.
 
 - **Project setup: SwiftPM plus `Scripts/build-app.sh`.** No Xcode project. `WicketCore` holds pure, Foundation-only logic (matching, ranking, usage) and is unit-tested with `swift test`; the `Wicket` executable is the AppKit shell. The script builds, assembles `build/Wicket.app` with `Resources/Info.plist` (`LSUIElement`) and signs it with the local Apple Development identity, so TCC grants (Accessibility, needed from M4) survive rebuilds. Tinycast uses XcodeGen plus a committed pbxproj because it embeds helper bundles and asset catalogs; we can revisit if we need those, and `actool` can be called from the script before that.
 - **Hotkey: Carbon `RegisterEventHotKey`.** Tinycast uses the same; it is still the only public system-wide hotkey API that needs no Accessibility or Input Monitoring permission. Fixed at ⌥Space for the PoC; a settings file comes later. The handler passes the key event's own timestamp along, so latency is measured from the keypress.
-- **Panel:** borderless `NSPanel` with `.nonactivatingPanel`, `canBecomeKey`, floating level, joins all Spaces and full-screen apps, no window animation. It takes the keyboard without activating Wicket, so the previous app keeps focus when the palette closes. Fixed size, and SwiftUI never drives the frame (`sizingOptions = []`): Tinycast documents top-edge drift when it did. The search field is AppKit (`NSTextField` delegate for ↑ ↓ ↩ ⎋) and only the result list is SwiftUI, so focus and key handling stay under direct control. Standard editing shortcuts are routed in the panel because there is no menu bar.
+- **Panel:** borderless `NSPanel` with `.nonactivatingPanel`, `canBecomeKey`, floating level, joins all Spaces and full-screen apps, no window animation. It takes the keyboard without activating Wicket, so the previous app keeps focus when the palette closes. Fixed size, and SwiftUI never drives the frame (`sizingOptions = []`): Tinycast documents top-edge drift when it did. Everything inside the panel is SwiftUI: a `TextField` with `@FocusState` and `onKeyPress` for ↑ ↓ ↩ ⎋, and a `LazyVStack` of results. An AppKit `NSTextField` variant (Tinycast's choice, for key chords SwiftUI misses) measured the same, so the SwiftUI version won on less code. Standard editing shortcuts are routed in the panel because there is no menu bar.
 - **App discovery: fixed folders, not `NSMetadataQuery`.** We scan `/Applications`, `/System/Applications`, their `Utilities`, `~/Applications`, CoreServices/Applications, Finder and the Safari cryptex (`/System/Volumes/Preboot/Cryptexes/App/System/Applications`; `/Applications/Safari.app` is a hidden symlink), one vendor subfolder deep, plus apps embedded in apps (Simulator in Xcode). It takes about 40 ms for about 160 apps, off the main thread, and FSEvents triggers a debounced rescan. A Spotlight query depends on indexing being on and returns copies in Downloads, build folders and disk images. Tinycast reached the same design; it also warns against filtering CoreServices by `LSUIElement`, which hides real apps.
 - **Ranking:** our own subsequence matcher (word-start and run bonuses, flat gap penalty, prefix and exact bonuses, weak scattered hits rejected), matched against the displayed name and the file name (so English names work on a localised system). Frecency (half-life 7 days, `~/Library/Application Support/Wicket/usage.json`) adds a capped boost: it breaks close calls but never beats an exact match. Ranking about 160 apps takes well under a millisecond, so it runs synchronously per keystroke.
-- **Look: Liquid Glass (`NSGlassEffectView`) with a tint.** It costs about 12 ms per summon compared with `NSVisualEffectView` (see Measurements). Kept for now because it is the native macOS 26 look and still well under 50 ms; switching is a five-line change if speed wins.
+- **Look: SwiftUI `.glassEffect` with a tint**, clipped to the rounded shape. On an idle Mac it measured within about 1 ms of a plain `NSVisualEffectView`; the 12 ms gap seen earlier came from a busy machine.
 
 ## Concept challenges
 
@@ -93,17 +93,19 @@ Made during M1, informed by Tinycast where noted.
 
 MacBook on macOS 27.2, release builds, 2026-11-06.
 
+Idle Mac, 30 summons each, ⌃⌥Space for both apps.
+
 | | Wicket M1 | Tinycast (main, Release) |
 |---|---:|---:|
-| Hotkey to visible, median (external harness, 20 runs) | 35 ms (23 ms without glass) | 45 ms |
-| Hotkey to visible, p90 | 107 ms (50 to 115 across runs) | 59 ms |
+| Hotkey to visible, median | 25 ms | 46 ms |
+| Hotkey to visible, p90 | 32 ms | 56 ms |
 | Idle memory before first summon (`footprint`) | 18 MB | 38 MB |
-| Idle memory after 20 summons | 23 MB | 37 MB |
+| Idle memory after 30 summons | 24 MB | 40 MB |
 | App scan | ~40 ms, 157 apps | |
 
-Wicket wins the median and memory but has a worse tail: a few summons in each run take 80 to 120 ms. In-app logs place the whole tail after `show()` (hotkey to `show()` is always about 0.1 ms), so it is window-server ordering plus the first glass frame, not our code. Next experiments, in order: Tinycast's off-screen layout flush before ordering front, then a tail comparison without glass. Investigate before M2 adds work to the summon path. Tinycast was bound to ⌃⌥Space for its run because the ChatGPT app owns ⌥Space.
+The AppKit-field and no-glass variants measured within about 1.5 ms of the shipped SwiftUI-plus-glass palette. Earlier runs with someone using the Mac showed a p90 near 100 ms for Wicket; on an idle machine the tail is gone, so treat busy-machine numbers as noise. `Scripts/bench/session.sh` reruns the whole comparison.
 
-Hotkey to visible breaks down as: Carbon event to `show()` about 0.1 ms, then `makeKeyAndOrderFront` about 7 to 10 ms of window-server work plus the first frame. The SwiftUI result list costs nothing measurable; glass costs about 12 ms. The harness (`Scripts/bench/hotkey-latency.swift`) posts ⌥Space through the HID event tap and polls the window list (about 3 ms resolution), so it measures any launcher the same way.
+Hotkey to visible breaks down as: Carbon event to `show()` about 0.1 ms, then window-server ordering plus the first frame. The harness (`Scripts/bench/hotkey-latency.swift`) posts ⌥Space through the HID event tap and polls the window list (about 3 ms resolution), so it measures any launcher the same way.
 
 ## Open decisions
 
