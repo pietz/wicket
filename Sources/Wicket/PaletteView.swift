@@ -19,6 +19,8 @@ enum PaletteMetrics {
     /// Inset of the rows from the card's edge; their highlight stays concentric with its corners.
     static let rowInset: CGFloat = 8
     static let rowHeight: CGFloat = 40
+    /// An answer at the top, such as a calculation, shown large.
+    static let answerRowHeight: CGFloat = 60
     static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
@@ -26,7 +28,8 @@ enum PaletteMetrics {
     /// panel while it is open; 0, no card, when there are no results.
     static func cardHeight(for results: [Item], actionMenu: ActionMenu?) -> CGFloat {
         guard !results.isEmpty else { return 0 }
-        let rows = CGFloat(results.count) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
+        var rows = CGFloat(results.count) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
+        if ResultRow.isProminent(results[0], at: 0) { rows += answerRowHeight - rowHeight }
         let menu =
             actionMenu.map { ActionPanel.height(rows: $0.item.actions.count) + ActionPanel.clearance } ?? 0
         return min(max(rows + 1 + FooterBar.height, menu), maxCardHeight)
@@ -155,9 +158,12 @@ struct ResultsView: View {
             ScrollView {
                 LazyVStack(spacing: PaletteMetrics.rowSpacing) {
                     ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
-                        ResultRow(item: item, isSelected: index == model.selection, hint: hint(for: index))
-                            .contentShape(Rectangle())
-                            .onTapGesture { onRun(item, 0) }
+                        ResultRow(
+                            item: item, isProminent: ResultRow.isProminent(item, at: index),
+                            isSelected: index == model.selection, hint: hint(for: index)
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture { onRun(item, 0) }
                     }
                 }
                 .padding(PaletteMetrics.rowInset)
@@ -336,11 +342,19 @@ private struct ActionRow: View {
     }
 }
 
-private struct ResultRow: View {
+/// A result. An answer at the top (a calculation, an extension's answer) is shown large: the result
+/// is the point, so it gets the big text and its interpretation the small line below. It stays large
+/// while the selection moves, so the list never reflows under the arrow keys.
+struct ResultRow: View {
     let item: Item
+    let isProminent: Bool
     let isSelected: Bool
     /// Replaces the accessory while ⌘ is held.
     let hint: String?
+
+    static func isProminent(_ item: Item, at index: Int) -> Bool {
+        index == 0 && item.relevance == .answer
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -348,13 +362,15 @@ private struct ResultRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 26, height: 26)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: isProminent ? 0 : 1) {
                 Text(item.title)
-                    .font(.system(size: 14))
+                    .font(
+                        isProminent ? .system(size: 24, weight: .medium).monospacedDigit() : .system(size: 14)
+                    )
                     .lineLimit(1)
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .font(.system(size: isProminent ? 12 : 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -367,7 +383,7 @@ private struct ResultRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: PaletteMetrics.rowHeight)
+        .frame(height: isProminent ? PaletteMetrics.answerRowHeight : PaletteMetrics.rowHeight)
         .background {
             if isSelected {
                 RoundedRectangle(
