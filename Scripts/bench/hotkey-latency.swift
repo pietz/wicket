@@ -1,7 +1,7 @@
 // Measures hotkey-to-visible latency for any launcher, from outside the process.
 //
 // Posts ⌥Space through the HID event tap, then polls the window server until a window of the target
-// process at least 300×100 pt is on screen. Closes it with Escape and repeats. "Visible" means the
+// process at least 300×40 pt (Tinycast opens as a compact bar) is on screen. Closes it with Escape and repeats. "Visible" means the
 // window server lists the window on screen, which is the same for every app measured; it does not
 // include the final compositor frame (~one display refresh).
 //
@@ -30,7 +30,7 @@ func panelOnScreen() -> Bool {
     return list.contains { info in
         guard (info[kCGWindowOwnerPID as String] as? Int32) == pid,
             let b = info[kCGWindowBounds as String] as? [String: CGFloat],
-            (b["Width"] ?? 0) >= 300, (b["Height"] ?? 0) >= 100,
+            (b["Width"] ?? 0) >= 300, (b["Height"] ?? 0) >= 40,
             (info[kCGWindowAlpha as String] as? Double ?? 0) > 0
         else { return false }
         return true
