@@ -247,3 +247,22 @@ func samplesPass(path: String) async {
         "\($0)".contains("no-such-interpreter-wicket in run was not found on the login shell PATH")
     }
 }
+
+@Test(arguments: [
+    "", "\n\n", #"{"send":{"jsonrpc":"2.0","method":"cancel","params":{"id":1}}}"#,
+])
+func fixturesThatExerciseNothingFail(fixture: String) async throws {
+    // Run, this would fail on the stray stdout line; an empty fixture must not pass by launching nothing.
+    let ext = try TestExtension(script: "echo stray; " + answering(#"{"close":{}}"#), fixture: fixture)
+    let report = await check(ext)
+    #expect(report.errors.count == 1, "\(report.errors)")
+    #expect(report.errors.first?.hasPrefix("session.jsonl: sends no run") == true, "\(report.errors)")
+}
+
+@Test func aFixtureWhoseRunsGetNoAnswerFails() async throws {
+    // The only run is cancelled before anything waits for it, so nothing was answered.
+    let fixture = send(1) + "\n" + #"{"send":{"jsonrpc":"2.0","method":"cancel","params":{"id":1}}}"#
+    let ext = try TestExtension(script: "read r; read r; read r", fixture: fixture)
+    let errors = await check(ext).errors
+    #expect(errors.contains { $0.hasPrefix("session.jsonl: no run got a response") }, "\(errors)")
+}

@@ -389,7 +389,7 @@ A fixture is `session.jsonl` (or any `*.session.jsonl`) in the extension folder,
 - `{"send": message}` writes a `run` request or `cancel` notification, exactly as Wicket would send it. Sends go out in file order without waiting.
 - `{"expect": response}` waits for the response with that `id` and compares it as a pattern: every field in the expectation must be present with an equal value (numbers compare by value); fields it leaves out are not checked; arrays must have the same length. Leave out values that change, like a date: `{"list":{}}` accepts any list, and `{}` in an array accepts any element there.
 
-Every `run` must get a valid response, expected or not. A request cancelled with no later `expect` may go unanswered. For example:
+Every `run` must get a valid response, expected or not. A request cancelled with no later `expect` may go unanswered. A fixture must send at least one `run` that gets a response: an empty fixture, or one whose runs are all cancelled unanswered, fails, since it checks nothing. For example:
 
 ```jsonl
 {"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}}

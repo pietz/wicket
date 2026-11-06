@@ -129,6 +129,13 @@ public enum Checker {
         configuration: SessionConfiguration,
         into report: inout CheckReport
     ) async {
+        // A fixture must exercise the candidate: a launch and an answer, not just a clean parse.
+        guard fixture.steps.contains(where: { if case .send(.run) = $0.step { true } else { false } }) else {
+            report.add(
+                .error,
+                "\(name): sends no run, so nothing was checked; add a run and the response it should get")
+            return
+        }
         let start = ContinuousClock.now
         let errorsBefore = report.errors.count
         let session = ExtensionSession(manifest: manifest, folder: folder, configuration: configuration)
@@ -138,11 +145,13 @@ public enum Checker {
         }
         var sent: [RequestID: Sent] = [:]
         var matched = 0
+        var answered = 0
 
         /// The reply to `request`, with protocol failures added to the report.
         func outcome(_ request: Sent, into report: inout CheckReport) async -> Reply? {
             do {
                 let reply = try await request.reply.value
+                answered += 1
                 if case .success = reply.outcome, manifest.command(request.command) == nil {
                     report.add(
                         .error,
@@ -196,6 +205,12 @@ public enum Checker {
         // Requests without an expect still need a valid response.
         for request in sent.values.sorted(by: { $0.line < $1.line }) {
             _ = await outcome(request, into: &report)
+        }
+        if answered == 0 {
+            report.add(
+                .error,
+                "\(name): no run got a response, so nothing was checked; expect the response to at least one run"
+            )
         }
         await finish(session, name: name, errorsBefore: errorsBefore, into: &report)
         if report.errors.count == errorsBefore {
