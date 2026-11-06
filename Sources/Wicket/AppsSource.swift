@@ -63,7 +63,7 @@ final class AppsSource: ResultSource {
             apps.map { app in
                 let item = Item(
                     id: "apps:" + app.url.path, title: app.name, icon: .file(url: app.url),
-                    accessory: "Application", actions: [.open(url: app.url)])
+                    accessory: "Application", actions: Item.Action.forFile(app.url))
                 return (item, app.alternates)
             })
     }

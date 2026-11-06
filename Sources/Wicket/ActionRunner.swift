@@ -7,12 +7,16 @@ struct ActionRunner {
     let commands: CommandsSource
 
     func run(_ action: Item.Action) {
+        if let url = action.revealedURL {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return
+        }
         switch action {
         case .open(let url):
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             NSWorkspace.shared.open(url, configuration: configuration) { _, error in
-                if let error { Perf.logger.error("open \(url, privacy: .public): \(error)") }
+                if let error { Perf.logger.error("open failed: \(error)") }
             }
         case .copy(let text):
             NSPasteboard.general.clearContents()

@@ -54,7 +54,7 @@ func exclusion(path: String, excluded: Bool) {
     #expect(first.title == "Invoice.pdf")
     #expect(first.subtitle == "~/Documents")
     #expect(first.relevance == .match)
-    #expect(first.actions == [.open(url: URL(filePath: home + "/Documents/Invoice.pdf"))])
+    #expect(first.actions == Item.Action.forFile(URL(filePath: home + "/Documents/Invoice.pdf")))
 }
 
 @Test func itemsRankByNameAndCap() {

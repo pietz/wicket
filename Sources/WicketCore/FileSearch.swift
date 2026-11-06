@@ -72,7 +72,7 @@ public enum FileSearch {
             return Item(
                 id: "files:" + hit.path, title: name, subtitle: displayFolder(of: hit.path, home: home),
                 icon: .file(url: url), accessory: hit.isFolder ? "Folder" : "File",
-                score: Double(score) - penalty, actions: [.open(url: url)])
+                score: Double(score) - penalty, actions: Item.Action.forFile(url))
         }
     }
 
