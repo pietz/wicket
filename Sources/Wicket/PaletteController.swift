@@ -39,6 +39,13 @@ final class PalettePanel: NSPanel {
             onChord(chord)
             return
         }
+        // A new frame rebuilds the search field and focuses it a run-loop turn later; a key that
+        // lands in between (Escape, the first typed letter) would find no field. Focus it now.
+        if event.type == .keyDown, !(firstResponder is NSTextView),
+            let field = contentView?.firstEditableField
+        {
+            makeFirstResponder(field)
+        }
         super.sendEvent(event)
     }
 
@@ -310,5 +317,16 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         hide()
+    }
+}
+
+extension NSView {
+    /// The first editable text field in this view's subtree, depth first: the palette's search field.
+    fileprivate var firstEditableField: NSTextField? {
+        for subview in subviews {
+            if let field = subview as? NSTextField, field.isEditable { return field }
+            if let field = subview.firstEditableField { return field }
+        }
+        return nil
     }
 }
