@@ -31,9 +31,11 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
 
 ### App shell
-- 🔨 Settings window (native SwiftUI): General (hotkey recorder, launch at login, appearance), Features (toggle each source), AI (providers), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
+- 🔨 Settings window (native SwiftUI): ✅ General (hotkey recorder, launch at login, open settings.json); ⏭ appearance, Features (toggle each source), AI (providers), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
 - ⏭ Per-command hotkeys and aliases (any item can get a global shortcut or a short alias)
-- 💤 Launch at login (`SMAppService`)
+- ✅ Launch at login (`SMAppService`, in Settings ▸ General)
+- ⏭ Minimal main menu while the settings window is open (⌘Q, ⌘M, Edit menu), without stealing palette shortcuts
+- 💤 App icon
 - 💤 First-run onboarding: pick the hotkey, explain type-or-speak, optional AI setup
 - 💤 Permissions flow (Accessibility for paste and selection, microphone for voice), asked only when a feature needs it
 - 💤 Menu bar icon (optional): open palette, settings, quit
