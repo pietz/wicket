@@ -6,6 +6,8 @@ public struct SearchKey: Sendable, Hashable {
     let scalars: [UInt32]
     /// Per scalar: 2 at the start of the string, 1 at the start of a word, 0 otherwise.
     let boundary: [UInt8]
+    /// `scalars` without whitespace, matching how queries are folded, for exact and prefix checks.
+    let compact: [UInt32]
 
     public init(_ text: String) {
         var scalars: [UInt32] = []
@@ -25,6 +27,7 @@ public struct SearchKey: Sendable, Hashable {
         }
         self.scalars = scalars
         self.boundary = boundary
+        self.compact = scalars.filter { !(Unicode.Scalar($0)?.properties.isWhitespace ?? false) }
     }
 
     public var isEmpty: Bool { scalars.isEmpty }
@@ -124,8 +127,8 @@ public enum FuzzyMatcher {
         }
 
         guard var best = previous.max(), best > unset else { return nil }
-        if key.scalars.starts(with: query) {
-            best += n == m ? Weight.exact : Weight.prefix
+        if key.compact.starts(with: query) {
+            best += n == key.compact.count ? Weight.exact : Weight.prefix
         }
         // Reject scattered mid-word hits: on average each scalar must earn more than a gap costs.
         guard best >= 2 * n else { return nil }

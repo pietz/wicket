@@ -52,6 +52,13 @@ func topResult(query: String, expected: String) {
     #expect(top(query) == expected)
 }
 
+@Test func multiWordExactBeatsUsage() {
+    // "system settings" is exact for System Settings, so heavy use of Script Editor can't win.
+    #expect(top("system settings", usage: ["Script Editor": 1000]) == "System Settings")
+    #expect(
+        index.search("visual studio code").first { $0.title == "Visual Studio Code" }?.relevance == .exact)
+}
+
 @Test func exactBeatsUsage() {
     // Heavy use of Maps must not shadow an exact "mail".
     #expect(top("mail", usage: ["Maps": 1000]) == "Mail")
@@ -59,8 +66,10 @@ func topResult(query: String, expected: String) {
 
 @Test func exactAliasIsExact() {
     let localized = SearchIndex([(item("Systemeinstellungen"), ["System Settings"])])
-    #expect(localized.search("systemsettings").first?.relevance == .match)
+    #expect(localized.search("system settings").first?.relevance == .exact)
+    #expect(localized.search("systemsettings").first?.relevance == .exact)
     #expect(localized.search("Systemeinstellungen").first?.relevance == .exact)
+    #expect(localized.search("system").first?.relevance == .match)
 }
 
 @Test func relevanceTiersBeatScoreAndUsage() {

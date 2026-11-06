@@ -31,7 +31,7 @@ public struct SearchIndex: Sendable {
             var exact = false
             for (index, key) in entry.keys.enumerated() {
                 guard var score = FuzzyMatcher.score(query, key) else { continue }
-                if key.scalars == query { exact = true }
+                if key.compact == query { exact = true }
                 if index > 0 { score -= 1 }  // the displayed name wins ties against an alternate
                 best = max(best ?? score, score)
             }
