@@ -5,6 +5,7 @@ import WicketCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let apps = AppsSource()
     private let calculator = CalculatorSource()
+    private let files = FilesSource()
     private var palette: PaletteController!
     private let store = SettingsStore(directory: Settings.directory())
     private lazy var settingsWindow = SettingsWindowController(store: store)
@@ -24,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .init(id: "quit", title: "Quit Wicket", symbol: "power") { NSApp.terminate(nil) },
         ])
         palette = PaletteController(
-            model: PaletteModel(sources: [apps, commands, calculator]),
+            model: PaletteModel(sources: [apps, commands, calculator, files]),
             actions: ActionRunner(commands: commands),
             openSettings: { [weak self] in self?.settingsWindow.show() })
 
