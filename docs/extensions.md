@@ -363,12 +363,12 @@ The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Hel
 
 - `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error.
 - `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it.
-- `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. When testing, an environment variable of the same name takes precedence over the Keychain.
+- `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. When testing, an environment variable of the same name takes precedence over the Keychain. `check` and `run` need every declared secret too, so to check without the real one, pass a placeholder (`GITHUB_TOKEN=unused wicket check .`) and give your program a way to answer from canned data instead of the network.
 
 A fixture is `session.jsonl` (or any `*.session.jsonl`) in the extension folder, one JSON object per line, blank lines ignored:
 
 - `{"send": message}` writes a `run` request or `cancel` notification, exactly as Wicket would send it. Sends go out in file order without waiting.
-- `{"expect": response}` waits for the response with that `id` and compares it as a pattern: every field in the expectation must be present with an equal value (numbers compare by value); fields it leaves out are not checked; arrays must have the same length. Leave out values that change, like a date.
+- `{"expect": response}` waits for the response with that `id` and compares it as a pattern: every field in the expectation must be present with an equal value (numbers compare by value); fields it leaves out are not checked; arrays must have the same length. Leave out values that change, like a date: `{"list":{}}` accepts any list, and `{}` in an array accepts any element there.
 
 Every `run` must get a valid response, expected or not. A request cancelled with no later `expect` may go unanswered. For example:
 
