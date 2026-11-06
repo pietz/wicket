@@ -90,14 +90,10 @@ struct ShortcutsPane: View {
         errors[command.id] = nil
         recording = command.id
         recorder.start(pausing: store.pauseHotKey) { shortcut in
-            if shortcut == store.settings.hotkey {
-                errors[command.id] = "\(shortcut.symbols) opens Wicket."
-            } else if let other = store.settings.commands.first(where: {
-                $0.key != command.id && $0.value.hotkey == shortcut
-            }) {
-                errors[command.id] = "\(shortcut.symbols) is already \(title(other.key))'s."
-            } else {
-                update(command.id) { $0.hotkey = shortcut }
+            switch store.settings.hotkeyConflict(shortcut, for: command.id, isRegistered: isRegistered) {
+            case .palette: errors[command.id] = "\(shortcut.symbols) opens Wicket."
+            case .taken(let other): errors[command.id] = "\(shortcut.symbols) is already \(title(other))'s."
+            case nil: update(command.id) { $0.hotkey = shortcut }
             }
         }
     }
@@ -112,13 +108,18 @@ struct ShortcutsPane: View {
             update(command.id) { $0.alias = nil }
         } else if !CommandBinding.isValidAlias(alias) {
             errors[command.id] = "An alias is one word of at most 32 characters."
-        } else if let other = store.settings.commands.first(where: {
-            $0.key != command.id && $0.value.alias?.lowercased() == alias.lowercased()
-        }) {
-            errors[command.id] = "The alias is already \(title(other.key))'s."
+        } else if let other = store.settings.aliasConflict(alias, for: command.id, isRegistered: isRegistered)
+        {
+            errors[command.id] = "The alias is already \(title(other))'s."
         } else {
             update(command.id) { $0.alias = alias }
         }
+    }
+
+    /// A binding of a command that isn't registered (an extension not installed, a feature off) is
+    /// inert and takes nothing, so it is no conflict here either.
+    private func isRegistered(_ id: CommandID) -> Bool {
+        store.commands.contains { $0.id == id }
     }
 
     private func title(_ id: CommandID) -> String {

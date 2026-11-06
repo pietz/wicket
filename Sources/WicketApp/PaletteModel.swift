@@ -75,9 +75,16 @@ final class PaletteModel {
     @ObservationIgnored private var usage: UsageStore
     @ObservationIgnored private let usageURL: URL
 
-    init(sources: [any ResultSource], runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil) {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let usageURL = support.appending(path: "Wicket/usage.json")
+    /// Where usage is kept: Application Support/Wicket/usage.json.
+    nonisolated static var defaultUsageURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Wicket/usage.json")
+    }
+
+    init(
+        sources: [any ResultSource], runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil,
+        usageURL: URL = defaultUsageURL
+    ) {
         self.usageURL = usageURL
         usage = Self.namespaced(UsageStore.load(from: usageURL))
         weak var model: PaletteModel?
