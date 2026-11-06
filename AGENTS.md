@@ -7,7 +7,7 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 - Measure performance (hotkey-to-visible, query latency, idle memory) when touching hot paths.
 - Design first, then compare: work out our own approach, check how Tinycast (and Vicinae if relevant) does it before building, then pick the better one on the merits. Never copy their code (see "Reference policy" in CONCEPT.md).
 - Prefer the newest Apple APIs (SwiftUI, Observation, Liquid Glass, Swift Testing) over hand-written code; use older APIs only where nothing modern works, with a comment saying why.
-- Update CONCEPT.md when a decision is made and ROADMAP.md when a workstream changes status, so both stay the source of truth.
+- Update CONCEPT.md when a decision is made, so it stays the source of truth. ROADMAP.md is owned by the lead: delegated builders report status in their final message instead of editing it (parallel edits kept conflicting).
 - Never log query text, file paths or AI content publicly (`privacy: .public`); counts and timings only.
 
 ## Commands
