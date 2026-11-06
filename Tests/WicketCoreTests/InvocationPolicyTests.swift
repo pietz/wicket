@@ -258,3 +258,22 @@ private let find = CommandID.extension("todo", "find")
     registry.setAliases([rival.id: "ai"])
     #expect(registry.command(keyword: "ai")?.id == rival.id)
 }
+
+@Test func submittingAWaitingFrameKeepsItsInvocation() {
+    // A `run` action with args from an extension's row opens a frame waiting for text; submitting
+    // replaces only the text, so the args and the revision the row came from still go with it.
+    let id = CommandID.extension("notes", "add")
+    let command = RegisteredCommand(
+        id: id, title: "Add Note", icon: .symbol(name: "note"), input: .submitText)
+    let revision = ExtensionRevision(extensionID: "notes", sha256: "abc")
+    let invocation = Invocation(command: id, args: ["folder": .string("work")], revision: revision)
+    let frame = ScreenFrame(
+        run: CommandRun(command: command, invocation: invocation, retry: .never, query: ""))
+    #expect(frame.run?.awaitsText == true)
+    #expect(
+        frame.target(query: "buy milk")?.actions == [
+            .run(
+                command: id, text: "buy milk", args: ["folder": .string("work")], title: "Add Note",
+                revision: revision)
+        ])
+}

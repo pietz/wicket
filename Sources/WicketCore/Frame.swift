@@ -112,12 +112,17 @@ public struct ScreenFrame: Sendable {
 
     var isLive: Bool { run?.command.input == .liveText }
 
-    /// What Return acts on; a frame waiting for its text submits `query`, once there is one.
+    /// What Return acts on; a frame waiting for its text submits `query`, once there is one, as its
+    /// own invocation with only the text replaced (the args and revision it was opened with stay).
     func target(query: String) -> ActionTarget? {
         if let run, run.awaitsText {
             guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            let command = run.command
-            return ActionTarget(actions: [.run(command: command.id, text: query, title: command.title)])
+            let invocation = run.invocation
+            return ActionTarget(actions: [
+                .run(
+                    command: invocation.command, text: query, args: invocation.args, title: run.command.title,
+                    revision: invocation.revision)
+            ])
         }
         return screen?.target ?? list?.selectedItem.map(ActionTarget.init(item:))
     }
