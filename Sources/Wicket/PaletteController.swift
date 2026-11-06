@@ -140,8 +140,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
         Task { [weak self, model] in
             let cards = Observations {
                 Card(
-                    height: PaletteMetrics.cardHeight(for: model.top, actionMenu: model.actionMenu),
-                    frame: model.top.id, isCompact: model.top.isCompact)
+                    height: PaletteMetrics.cardHeight(
+                        for: model.top, actionMenu: model.actionMenu, detailHeight: model.detailHeight),
+                    frame: model.top.id, isCompact: model.top.isCompact,
+                    isUnmeasuredDetail: model.top.isDetail && model.detailHeight == nil)
             }
             for await card in cards {
                 self?.follow(card)
@@ -260,15 +262,23 @@ final class PaletteController: NSObject, NSWindowDelegate {
         let height: CGFloat?
         let frame: Frame.ID
         let isCompact: Bool
+        /// A detail not laid out yet, so not measured; it needs a card to be laid out in.
+        let isUnmeasuredDetail: Bool
     }
 
     /// Grows at once; shrinks after `shrinkDelay` without a taller result, so results that drop and
     /// return within it never move the card. Clearing the query (back to the bare pill) and going
-    /// to another frame change it at once; a command frame still waiting for its first content
-    /// keeps the card as it is, and the content then sizes it at once.
+    /// to another frame change it at once; a command frame still waiting for its first content, or a
+    /// detail for its first measurement, keeps the card as it is, and the content then sizes it at
+    /// once. A detail with no card to keep opens a small one to be measured in, then grows to fit.
+    /// So a streaming answer's card grows with the text (it never shrinks mid-stream, see
+    /// `DetailMeasure`), and its scroll position holds once the card is at its tallest.
     private func follow(_ card: Card) {
         pendingShrink?.cancel()
-        guard let height = card.height else { return }
+        let unmeasured = card.isUnmeasuredDetail && model.cardHeight == 0
+        guard let height = card.height ?? (unmeasured ? PaletteMetrics.unmeasuredDetailHeight : nil) else {
+            return
+        }
         defer { shownFrame = card.frame }
         if height >= model.cardHeight || card.isCompact || card.frame != shownFrame {
             setCardHeight(height)

@@ -48,6 +48,16 @@ public struct Frame: Identifiable, Sendable {
         }
     }
 
+    /// Whether the frame shows a page: a pushed detail, or a command's detail screen.
+    public var isDetail: Bool {
+        switch content {
+        case .search: false
+        case .detail: true
+        case .command(let command):
+            if case .detail = command.screen { true } else { false }
+        }
+    }
+
     /// Whether the palette shows just the pill: the root search with nothing typed, or a live
     /// command with nothing typed and nothing to show (its placeholder says what to type). An empty
     /// query anywhere else is still a screen with content.

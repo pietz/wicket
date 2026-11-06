@@ -3,9 +3,16 @@ import WicketCore
 
 /// A detail frame: the markdown page, with its metadata in a column beside it. The title is in the
 /// pill and the actions in the footer and the action panel (⌘K).
+///
+/// The card fits the page: `onMeasure` gets the content's height (the taller of the page and the
+/// metadata column) whenever it changes, laid out at the card's width inside the scroll views, so
+/// it doesn't depend on the card's height and resizing the card never measures again.
 struct DetailView: View {
     static let metadataWidth: CGFloat = 180
     let detail: Detail
+    let onMeasure: (CGFloat) -> Void
+    @State private var pageHeight: CGFloat = 0
+    @State private var metadataHeight: CGFloat = 0
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -13,6 +20,7 @@ struct DetailView: View {
                 MarkdownView(blocks: MarkdownBlock.parse(detail.markdown))
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { pageHeight = $0 }
             }
             if !detail.metadata.isEmpty {
                 Divider()
@@ -30,12 +38,16 @@ struct DetailView: View {
                     }
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { metadataHeight = $0 }
                 }
                 .frame(width: Self.metadataWidth)
             }
         }
         .scrollIndicators(.never)
         .textSelection(.enabled)
+        .onChange(of: max(pageHeight, detail.metadata.isEmpty ? 0 : metadataHeight)) { _, height in
+            onMeasure(height)
+        }
     }
 }
 

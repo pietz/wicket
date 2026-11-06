@@ -54,6 +54,12 @@ final class PaletteModel {
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0
     var isExpanded: Bool { cardHeight > 0 }
+    /// The top frame's detail content as last laid out, which sizes its card.
+    private var detailMeasure: DetailMeasure?
+    /// The height the top frame's detail content needs; nil for a list, or before it is laid out.
+    var detailHeight: CGFloat? {
+        detailMeasure?.height(of: top.id, isLoading: top.isLoading).map { CGFloat($0) }
+    }
     /// A command is running for what's on screen: one an action is opening, or the top frame's run
     /// (the root's slow sources don't count). The pill shows a spinner.
     var isBusy: Bool {
@@ -77,6 +83,16 @@ final class PaletteModel {
             sources: sources, resultLimit: Self.resultLimit,
             frecency: { model?.frecency() ?? { _ in 0 } }, runner: runner, registry: registry)
         model = self
+    }
+
+    /// The detail view of `frame` was laid out with its content `height` tall.
+    func measureDetail(_ height: CGFloat, of frame: Frame.ID) {
+        guard frame == top.id else { return }
+        if detailMeasure == nil {
+            detailMeasure = DetailMeasure(frame: frame, height: Double(height))
+        } else {
+            detailMeasure?.record(Double(height), frame: frame, isLoading: top.isLoading)
+        }
     }
 
     func moveSelection(by delta: Int) {

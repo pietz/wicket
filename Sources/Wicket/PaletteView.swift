@@ -24,23 +24,24 @@ enum PaletteMetrics {
     static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
-    /// The card for `frame`. A list fits its rows (and the divider and footer) up to
-    /// `maxCardHeight`, and the action panel while it is open; a detail is a page and takes the
-    /// tallest card. The root search has no card without results, a command's list shows one row
-    /// saying so (unless the frame is compact). Nil, keep the card as it is, while a command frame
-    /// waits for its first content.
-    static func cardHeight(for frame: Frame, actionMenu: ActionMenu?) -> CGFloat? {
+    /// The card for `frame`, up to `maxCardHeight`, and while the action panel is open at least tall
+    /// enough for it. A list fits its rows (and the divider and footer), computed; a detail fits its
+    /// content as measured (`detailHeight`), since markdown wraps. The root search has no card
+    /// without results, a command's list shows one row saying so (unless the frame is compact). Nil,
+    /// keep the card as it is, while a command frame waits for its first content or a detail for its
+    /// first measurement.
+    static func cardHeight(for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?) -> CGFloat? {
         let results: [Item]
         switch frame.content {
         case .search(let search):
             results = search.items
             guard !results.isEmpty else { return 0 }
         case .detail:
-            return maxCardHeight
+            return detailHeight.map { card(content: $0, actionMenu: actionMenu) }
         case .command(let command):
             switch command.screen {
             case nil: return nil
-            case .detail: return maxCardHeight
+            case .detail: return detailHeight.map { card(content: $0, actionMenu: actionMenu) }
             case .answer, .list:
                 guard !frame.isCompact else { return 0 }
                 results = command.list?.items ?? []
@@ -50,9 +51,18 @@ enum PaletteMetrics {
         if let first = results.first, ResultRow.isProminent(first, at: 0) {
             rows += answerRowHeight - rowHeight
         }
+        return card(content: rows, actionMenu: actionMenu)
+    }
+
+    /// A detail's card before its content is laid out, when no card is up to keep: the view must be
+    /// on screen to be measured, so it opens this small (under any page's height) and grows to fit.
+    static let unmeasuredDetailHeight = rowHeight + 1 + FooterBar.height
+
+    /// The card for `content` above the divider and footer.
+    private static func card(content: CGFloat, actionMenu: ActionMenu?) -> CGFloat {
         let menu =
             actionMenu.map { ActionPanel.height(rows: $0.target.actions.count) + ActionPanel.clearance } ?? 0
-        return min(max(rows + 1 + FooterBar.height, menu), maxCardHeight)
+        return min(max((content + 1 + FooterBar.height).rounded(.up), menu), maxCardHeight)
     }
 
     /// The window for a card of `cardHeight` (0 for just the pill).
@@ -220,13 +230,20 @@ private struct FrameContent: View {
     let model: PaletteModel
     let onRun: (ActionTarget?, Int) -> Void
 
+    /// Reports a detail's content height for the frame this view shows, so a view on its way out
+    /// never sizes the next frame's card.
+    private var measure: (CGFloat) -> Void {
+        let frame = model.top.id
+        return { [model] in model.measureDetail($0, of: frame) }
+    }
+
     var body: some View {
         switch model.top.content {
         case .search: ResultsView(model: model, onRun: onRun)
-        case .detail(let detail): DetailView(detail: detail)
+        case .detail(let detail): DetailView(detail: detail, onMeasure: measure)
         case .command(let frame):
             switch frame.screen {
-            case .detail(let detail): DetailView(detail: detail)
+            case .detail(let detail): DetailView(detail: detail, onMeasure: measure)
             case .answer, .list: ResultsView(model: model, onRun: onRun)
             case nil: Color.clear
             }
