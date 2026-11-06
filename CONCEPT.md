@@ -24,7 +24,7 @@ The owner's direction after M1, captured before the architecture is reworked aro
 
 ## Why build it (research summary, November 2026)
 
-- **Commercial market.** Raycast 2.0 (Aug 2026) rewrote the app around WebViews plus Node. Power users complain about memory, process count and AI being pushed, and in Sept 2026 AI moved to credits with bring-your-own-key behind Pro ($10/mo). Alfred is one-time paid, steady but slow; Alfred 6 adds native workflow UIs. Monarch is a solo-dev, pre-1.0, one-time-paid app.
+- **Commercial market.** Raycast 2.0 (Aug 2026) rewrote the app around WebViews plus Node. Power users complain about memory, process count and AI being pushed, and in Sept 2026 AI moved to credits with bring-your-own-key behind Pro ($10/mo). Alfred is one-time paid, steady but slow; Alfred 6 (native workflow UIs) is still in closed beta as of November 2026. Monarch is a solo-dev, pre-1.0, one-time-paid app.
 - **Apple.** Spotlight on macOS 26 Tahoe added actions via App Intents, quick keys, clipboard history and Shortcuts. The casual tier is gone; a new launcher has to win on depth, speed and taste for keyboard-heavy users. macOS 27 mainly adds Siri chat to Spotlight.
 - **Open source.**
   - **Tinycast** (github.com/abue-ammar/tinycast) is native Swift 6, AGPL-3.0, macOS 26+, 9k stars since June 2026, and mostly one author. It is excellent but feature-in-core: of about 132k Swift lines, roughly 24k are launcher core and the rest is around 30 built-in features (AI 21k, Raycast compatibility runtime 14.5k Swift plus 11k JS, calculator 9.6k, window management 9k). The author plans to remove Raycast compatibility once a native plugin system exists (issue #1397). It has no App Intents, and Alfred import, contextual "act on selection" (#1323) and non-US keyboard layouts are explicitly not planned (docs/not-planned.md).
@@ -39,8 +39,9 @@ The owner's direction after M1, captured before the architecture is reworked aro
 3. **One protocol, documented for agents.** One page of docs plus a JSON schema, so an agent with no other context can write a working extension in any language.
 4. **Native UI only.** Extensions send data; Wicket draws it with AppKit and SwiftUI. No WebViews.
 5. **Bring your own intelligence.** No accounts, no telemetry, no hosted AI. AI features call the user's local agent CLIs or their own API keys.
-6. **Simple over clever.** Fewer settings, fewer special cases.
-7. **Use the newest Apple frameworks.** Prefer the latest SwiftUI, AppKit and system APIs (Liquid Glass, Observation, Swift Testing, App Intents) over hand-written equivalents: less code, and Apple's implementations are usually well optimised. Drop to older APIs (Carbon, AppKit) only where no modern one does the job, and say why in a comment.
+6. **The settings file never grants consent.** Agents and people edit `settings.json`, so anything that amounts to a permission (auto-paste, keystroke listening, exposing an MCP server, enabling a downloaded extension) is only switched on through the UI, never by the file or a backup import. Lesson from Tinycast's settings import.
+7. **Simple over clever.** Fewer settings, fewer special cases.
+8. **Use the newest Apple frameworks.** Prefer the latest SwiftUI, AppKit and system APIs (Liquid Glass, Observation, Swift Testing, App Intents) over hand-written equivalents: less code, and Apple's implementations are usually well optimised. Drop to older APIs (Carbon, AppKit) only where no modern one does the job, and say why in a comment.
 
 ## Architecture sketch (to validate in the PoC)
 
@@ -101,6 +102,8 @@ From the Vision v2 brainstorm, two independent advisor memos (Claude Fable 5.1 a
 - **0.0.1 alpha scope:** result sources; apps, Spotlight file search, calculator with currency; extension runtime with answer, list and detail plus two or three useful samples; "make a command" via Codex; quick AI answers; settings file; signed build and Homebrew cask. Next: voice, MCP client and server, grid and form, level 3 UI, chat history.
 
 ## Decisions
+
+- **App icon:** the approved warm ivory open doorway on graphite. `Resources/AppIcon-master.png` is the unmasked 1024px source; `Resources/AppIcon.icns` is the static macOS export with all standard/Retina sizes, an 824px continuous rounded tile and 100px transparent margins on its 1024px canvas. The bundling script copies it and `CFBundleIconFile` selects it. The padding belongs only to the static export, not to future Icon Composer layers.
 
 - **Extension protocol v1 accepted (2026-11-06)**, spec in `docs/extensions.md` and `docs/extension.schema.json`. Two methods only: `run` (request) and `cancel` (notification); no `initialize` or `shutdown` handshake (the protocol version is in the manifest, context comes in environment variables, shutdown is stdin close then SIGTERM then SIGKILL, as in MCP's stdio rules). Command modes `once`, `live` and `root` (with a `pattern` regex so root extensions aren't woken for unrelated typing). Results: `answer`, `list`, `detail`, `close`, `reload`. Actions: `open`, `copy`, `paste`, `detail`, `run`. A clean exit with unanswered requests means "restart me", which unifies one-shot scripts and persistent processes in one session model. Validated with a schema, replayed fixtures, and a fresh agent that built a working extension from the page alone. Lead's calls on its open questions: secrets declared in the manifest, stored in the Keychain, passed as environment variables (v1); `session.jsonl` fixtures are the checker's format; the host warns when `python3` is the Command Line Tools stub; streaming, cached root items and list sections come later. The `Item` model gains wire-friendly decoding (defaults for optional fields, `score` host-only) and the new action cases.
 

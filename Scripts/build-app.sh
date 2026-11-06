@@ -16,6 +16,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 identity="${WICKET_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
   | awk '/Apple Development/ {print $2; exit}')}"

@@ -1,6 +1,6 @@
 # Roadmap
 
-The living plan: every workstream, its status and what's next. CONCEPT.md holds the why and the decisions; this file holds the what and when. The lead keeps it current as work lands.
+The living plan: every workstream, its status and what's next. CONCEPT.md holds the why and the decisions; this file holds the what and when. [docs/feature-landscape.md](docs/feature-landscape.md) compares Alfred, Raycast, Tinycast and Monarch and is the pool of ideas this plan draws from. The lead keeps it current as work lands.
 
 Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later
 
@@ -14,6 +14,9 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
 - ✅ Quality gate: `Scripts/check.sh` (warnings as errors, tests, swift format)
 - 🔨 Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
+- ⏭ Empty palette: favorites and suggestions instead of an alphabetical app list
+- ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
+- ⏭ Paste-back target captured at summon, layout-aware ⌘V (the owner's Mac is German)
 - 🔨 Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
 
 ### Features
@@ -49,6 +52,11 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - 💤 Fresh-machine validation pass
 
 ## Next (after 0.0.1)
+- `wicket://` deeplinks and Copy Deeplink for any item (Shortcuts, Karabiner, agents)
+- Single-file script commands with a metadata header, the lowest extension rung
+- Alfred Script Filter adapter (thin, only if cheap)
+- Compact mode (bar only until there are results)
+- Menu bar item search; searchable query history; scheduled AI prompts
 - Voice: type or speak on summon (SpeechAnalyzer), spoken answers
 - MCP client (tools as actions) and server (Wicket's core for other agents)
 - Selection AI actions (act on selected text)
