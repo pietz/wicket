@@ -14,9 +14,18 @@ struct PaletteRootView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 22))
                 .focused($focused)
-                .onKeyPress(.upArrow) { model.moveSelection(by: -1); return .handled }
-                .onKeyPress(.downArrow) { model.moveSelection(by: 1); return .handled }
-                .onKeyPress(.return) { onActivate(model.selection); return .handled }
+                .onKeyPress(.upArrow) {
+                    model.moveSelection(by: -1)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    model.moveSelection(by: 1)
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    onActivate(model.selection)
+                    return .handled
+                }
                 .onKeyPress(.escape) {
                     if model.query.isEmpty { onHide() } else { model.query = "" }
                     return .handled
@@ -31,7 +40,8 @@ struct PaletteRootView: View {
         // Tinted: untinted glass is hard to read over busy windows.
         .glassEffect(
             .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)),
-            in: .rect(cornerRadius: 22))
+            in: .rect(cornerRadius: 22)
+        )
         .clipShape(.rect(cornerRadius: 22))
         .onAppear { focused = true }
         .onChange(of: model.focusToken) { focused = true }
@@ -113,7 +123,8 @@ enum IconCache {
             image = NSWorkspace.shared.icon(forFile: url.path)
         case .symbol(let name):
             let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
-            image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            image =
+                NSImage(systemSymbolName: name, accessibilityDescription: nil)?
                 .withSymbolConfiguration(config) ?? NSImage()
         }
         image.size = size

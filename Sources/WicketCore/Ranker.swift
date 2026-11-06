@@ -46,7 +46,8 @@ public enum Ranker {
 
         scored.sort { a, b in
             if a.score != b.score { return a.score > b.score }
-            let ta = candidates[a.index].title, tb = candidates[b.index].title
+            let ta = candidates[a.index].title
+            let tb = candidates[b.index].title
             if ta.count != tb.count, !folded.isEmpty { return ta.count < tb.count }
             return ta.localizedStandardCompare(tb) == .orderedAscending
         }

@@ -26,14 +26,15 @@ final class PalettePanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == .command || flags == [.command, .shift] {
-            let action: Selector? = switch event.charactersIgnoringModifiers?.lowercased() {
-            case "x": #selector(NSText.cut(_:))
-            case "c": #selector(NSText.copy(_:))
-            case "v": #selector(NSText.paste(_:))
-            case "a": #selector(NSText.selectAll(_:))
-            case "z": flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
-            default: nil
-            }
+            let action: Selector? =
+                switch event.charactersIgnoringModifiers?.lowercased() {
+                case "x": #selector(NSText.cut(_:))
+                case "c": #selector(NSText.copy(_:))
+                case "v": #selector(NSText.paste(_:))
+                case "a": #selector(NSText.selectAll(_:))
+                case "z": flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
+                default: nil
+                }
             if let action, NSApp.sendAction(action, to: nil, from: self) { return true }
         }
         return super.performKeyEquivalent(with: event)
@@ -54,9 +55,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
         panel = PalettePanel(contentRect: NSRect(origin: .zero, size: Self.size))
         super.init()
         panel.delegate = self
-        let root = NSHostingView(rootView: PaletteRootView(
-            model: model, onActivate: { [weak self] in self?.activate(index: $0) },
-            onHide: { [weak self] in self?.hide() }))
+        let root = NSHostingView(
+            rootView: PaletteRootView(
+                model: model, onActivate: { [weak self] in self?.activate(index: $0) },
+                onHide: { [weak self] in self?.hide() }))
         // The controller owns the frame; SwiftUI must never resize the panel.
         root.sizingOptions = []
         panel.contentView = root
@@ -118,10 +120,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
         guard panel.occlusionState.contains(.visible), let pending = pendingShow else { return }
         pendingShow = nil
         let now = ProcessInfo.processInfo.systemUptime
-        Perf.log(String(
-            format: "hotkey→visible %.2f ms (event→show %.2f ms, show→visible %.2f ms)",
-            (now - pending.eventTime) * 1000, (pending.showStart - pending.eventTime) * 1000,
-            (now - pending.showStart) * 1000))
+        Perf.log(
+            String(
+                format: "hotkey→visible %.2f ms (event→show %.2f ms, show→visible %.2f ms)",
+                (now - pending.eventTime) * 1000, (pending.showStart - pending.eventTime) * 1000,
+                (now - pending.showStart) * 1000))
     }
 
     // MARK: NSWindowDelegate

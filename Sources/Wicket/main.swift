@@ -14,7 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌥Space; WICKET_HOTKEY=ctrl uses ⌃⌥Space (the benchmark uses it to dodge apps like ChatGPT
         // that also claim ⌥Space). A settings file comes later.
         let ctrl = ProcessInfo.processInfo.environment["WICKET_HOTKEY"] == "ctrl"
-        hotKey = HotKey(keyCode: kVK_Space, modifiers: ctrl ? optionKey | controlKey : optionKey) { [weak self] eventTime in
+        hotKey = HotKey(keyCode: kVK_Space, modifiers: ctrl ? optionKey | controlKey : optionKey) {
+            [weak self] eventTime in
             self?.palette.toggle(eventTime: eventTime)
         }
         if hotKey == nil { Perf.logger.error("could not register ⌥Space; another app owns it") }
@@ -38,14 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var alternates: [String: [String]] = [:]
         for app in index.apps {
             let id = app.url.path
-            items.append(PaletteItem(
-                id: id, title: app.name, accessory: "Application", icon: .file(app.url),
-                action: .openApp(app.url)))
+            items.append(
+                PaletteItem(
+                    id: id, title: app.name, accessory: "Application", icon: .file(app.url),
+                    action: .openApp(app.url)))
             alternates[id] = app.alternates
         }
-        items.append(PaletteItem(
-            id: "wicket.quit", title: "Quit Wicket", accessory: "Command", icon: .symbol("power"),
-            action: .quit))
+        items.append(
+            PaletteItem(
+                id: "wicket.quit", title: "Quit Wicket", accessory: "Command", icon: .symbol("power"),
+                action: .quit))
         palette.model.setItems(items, alternates: alternates)
         // Warm the icons the empty palette shows first, off the summon path.
         for item in palette.model.results.prefix(12) { _ = IconCache.image(for: item.icon) }

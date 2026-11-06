@@ -61,7 +61,9 @@ final class AppIndex {
             // Apps shipped inside apps: Simulator and Instruments inside Xcode.
             for inner in ["Contents/Applications", "Contents/Developer/Applications"] {
                 for child in appChildren(of: url.appending(path: inner), fm: fm) {
-                    if seen.insert(child.standardizedFileURL.path).inserted { records.append(record(for: child)) }
+                    if seen.insert(child.standardizedFileURL.path).inserted {
+                        records.append(record(for: child))
+                    }
                 }
             }
         }
@@ -72,9 +74,10 @@ final class AppIndex {
                 if fm.fileExists(atPath: scope) { add(url) }
                 continue
             }
-            guard let children = try? fm.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
-                options: [.skipsHiddenFiles])
+            guard
+                let children = try? fm.contentsOfDirectory(
+                    at: url, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                    options: [.skipsHiddenFiles])
             else { continue }
             for child in children {
                 if child.pathExtension == "app" {
@@ -89,8 +92,9 @@ final class AppIndex {
     }
 
     nonisolated private static func appChildren(of folder: URL, fm: FileManager) -> [URL] {
-        guard let children = try? fm.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        guard
+            let children = try? fm.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         else { return [] }
         return children.filter { $0.pathExtension == "app" }
     }
@@ -121,9 +125,10 @@ final class AppIndex {
             let index = Unmanaged<AppIndex>.fromOpaque(info).takeUnretainedValue()
             MainActor.assumeIsolated { index.scheduleRescan() }
         }
-        guard let stream = FSEventStreamCreate(
-            nil, callback, &context, paths, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNone))
+        guard
+            let stream = FSEventStreamCreate(
+                nil, callback, &context, paths, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0,
+                FSEventStreamCreateFlags(kFSEventStreamCreateFlagNone))
         else { return }
         FSEventStreamSetDispatchQueue(stream, .main)
         FSEventStreamStart(stream)

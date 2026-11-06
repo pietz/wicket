@@ -55,7 +55,8 @@ public enum Fold {
     /// The one text fold used for both index and query.
     public static func fold(_ text: String) -> String {
         if text.utf8.allSatisfy({ $0 < 0x80 }) { return text.lowercased() }
-        return text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+        return text.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
     }
 
     /// Query scalars with whitespace removed: "vs code" and "vscode" behave alike.
@@ -111,7 +112,8 @@ public enum FuzzyMatcher {
                 if i == 0 {
                     current[j] = here
                 } else {
-                    let adjacent = j >= 1 && previous[j - 1] > unset
+                    let adjacent =
+                        j >= 1 && previous[j - 1] > unset
                         ? previous[j - 1] + Weight.consecutive : unset
                     let jumped = bestBeforeGap > unset ? bestBeforeGap + Weight.gap : unset
                     let best = max(adjacent, jumped)

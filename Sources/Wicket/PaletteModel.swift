@@ -60,7 +60,8 @@ final class PaletteModel {
 
     func recordUse(of item: PaletteItem) {
         usage.record(item.id, now: Date())
-        let snapshot = usage, url = usageURL
+        let snapshot = usage
+        let url = usageURL
         Task.detached(priority: .utility) { try? snapshot.save(to: url) }
     }
 
@@ -73,6 +74,8 @@ final class PaletteModel {
             limit: Self.resultLimit)
         results = ranked.map { items[$0] }
         selection = 0
-        if !query.isEmpty { Perf.log("rank \"\(query)\": \(ranked.count) results in \(Perf.ms(since: start))") }
+        if !query.isEmpty {
+            Perf.log("rank \"\(query)\": \(ranked.count) results in \(Perf.ms(since: start))")
+        }
     }
 }
