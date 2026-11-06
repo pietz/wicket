@@ -10,13 +10,12 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 
 ### Core
 - ✅ Architecture checkpoint: independent reviews (Fable, Astra), merged into [docs/architecture.md](docs/architecture.md)
-- 🔨 Architecture refactor, steps 1 to 5 of docs/architecture.md before the extension palette integration: value model, root versus list, frames, registry and dispatcher, consent store and lifecycle
+- 🔨 Architecture refactor before the extension palette integration (docs/architecture.md): ✅ 1 value model; 🔨 2 root versus list and 3 frames; ⏭ 4 registry and dispatcher; ✅ 5a process lifecycle; ⏭ 5b consent store (owner decision pending)
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
 - ✅ Quality gate: `Scripts/check.sh` (warnings as errors, tests, swift format)
 - ✅ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
-- ⏭ Follow-up when the runtime lands: a real `reveal(url:)` action case and action titles in Item (Show in Finder currently travels as a command id)
 - ✅ Compact pill by default; a content-sized card expands only when there is something to show (owner's call); large answer row; `paletteWidth` setting (600 pt default, slider in General)
 - 💤 Empty palette: favorites and suggestions, as an option once the pill exists
 - ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
