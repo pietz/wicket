@@ -161,6 +161,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         pendingShow = (eventTime, ProcessInfo.processInfo.systemUptime)
         anchor = Self.anchor(width: width)
         resize(cardHeight: 0)
+        // ⌘ may have been pressed or released while hidden, where the view saw no change.
+        model.commandHeld = NSEvent.modifierFlags.contains(.command)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         model.focusToken += 1
