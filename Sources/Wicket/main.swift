@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         calculator.start { [weak self] in self?.palette.model.refresh() }
         extensions.start()
-        apps.onChange = { [weak self] in self?.appsChanged() }
+        apps.onChange = { [weak self] in self?.palette.model.refresh() }
         Task {
             await apps.start()
             Perf.log("launch→indexed: \(Perf.ms(since: launchStart))")
@@ -83,11 +83,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func appsChanged() {
-        palette.model.refresh()
-        // Warm the icons the empty palette shows first, off the summon path.
-        for item in palette.model.results.prefix(12) { _ = IconCache.image(for: item.icon) }
-    }
 }
 
 MainActor.assumeIsolated {

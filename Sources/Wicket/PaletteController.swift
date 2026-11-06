@@ -61,15 +61,27 @@ final class PalettePanel: NSPanel {
     }
 }
 
-/// Owns the panel: summoning, placement, dismissal and activation. The content is all SwiftUI.
+/// Owns the panel: summoning, placement, dismissal and activation, and the window's frame. The
+/// content is all SwiftUI.
+///
+/// The window is either compact (just the pill) or expanded (pill and results card), always with
+/// its top edge at the anchor resolved on summon, so the pill never moves. Expanding grows the window
+/// at once, then animates the card into the transparent space; collapsing animates the card away,
+/// then shrinks the window. SwiftUI never resizes the panel, so the two never fight over the frame.
 @MainActor
 final class PaletteController: NSObject, NSWindowDelegate {
-    static let size = NSSize(width: 680, height: 440)
+    static let motion = Animation.snappy(duration: 0.28)
+    /// How long a query with no results keeps the card, so slow sources (files) answering a beat
+    /// after each keystroke don't make it flicker.
+    static let collapseDelay = Duration.milliseconds(300)
 
     let model: PaletteModel
     private let actions: ActionRunner
     private let openSettings: () -> Void
     private let panel: PalettePanel
+    /// The window's top-left corner, resolved once per summon so only the height ever changes.
+    private var anchor = NSPoint.zero
+    private var pendingCollapse: Task<Void, Never>?
     /// Timestamp of the event that summoned the palette, until it is on screen.
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
 
@@ -77,7 +89,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         self.model = model
         self.actions = actions
         self.openSettings = openSettings
-        panel = PalettePanel(contentRect: NSRect(origin: .zero, size: Self.size))
+        panel = PalettePanel(
+            contentRect: NSRect(origin: .zero, size: PaletteMetrics.windowSize(expanded: false)))
         super.init()
         panel.delegate = self
         panel.onChord = { [weak self] in self?.handle($0) }
@@ -91,6 +104,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(occlusionChanged), name: NSWindow.didChangeOcclusionStateNotification,
             object: panel)
+        Task { [weak self, model] in
+            for await hasResults in Observations({ !model.results.isEmpty }) {
+                self?.follow(hasResults: hasResults)
+            }
+        }
     }
 
     func toggle(eventTime: TimeInterval) {
@@ -99,7 +117,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     func show(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         pendingShow = (eventTime, ProcessInfo.processInfo.systemUptime)
-        position()
+        anchor = Self.anchor()
+        resize(expanded: false)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         model.focusToken += 1
@@ -109,9 +128,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         // Reset while hidden so the next summon has nothing to redraw.
+        pendingCollapse?.cancel()
         model.actionMenu = nil
         model.commandHeld = false
         model.query = ""
+        model.isExpanded = false
     }
 
     /// Runs the action at `position` in the item's actions (0 is the primary) and closes the palette.
@@ -149,15 +170,55 @@ final class PaletteController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Horizontally centred on the screen with the pointer, a fifth of the way down.
-    private func position() {
+    // MARK: Frame
+
+    /// Expands as soon as there are results; collapses at once when the query is cleared, and after
+    /// `collapseDelay` when the query matches nothing.
+    private func follow(hasResults: Bool) {
+        pendingCollapse?.cancel()
+        if hasResults || model.query.isEmpty {
+            setExpanded(hasResults)
+            return
+        }
+        pendingCollapse = Task { [weak self] in
+            try? await Task.sleep(for: Self.collapseDelay)
+            guard !Task.isCancelled else { return }
+            self?.setExpanded(false)
+        }
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        guard panel.isVisible, expanded != model.isExpanded else { return }
+        if expanded { resize(expanded: true) }
+        withAnimation(Self.motion) {
+            model.isExpanded = expanded
+        } completion: { [weak self] in
+            guard let self, model.isExpanded == expanded else { return }
+            if !expanded { resize(expanded: false) }
+            // The window's shadow follows the drawn shapes only when asked to.
+            panel.invalidateShadow()
+        }
+    }
+
+    /// Sets the height for the state, keeping the top edge at the anchor, and lays the content out
+    /// before anything is drawn, so a summon never flashes the expanded layout and the pill never
+    /// shifts while the window grows.
+    private func resize(expanded: Bool) {
+        let size = PaletteMetrics.windowSize(expanded: expanded)
+        panel.setFrame(
+            NSRect(origin: NSPoint(x: anchor.x, y: anchor.y - size.height), size: size), display: false)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.invalidateShadow()
+    }
+
+    /// Horizontally centred on the screen with the pointer, its top a fifth of the way down.
+    private static func anchor() -> NSPoint {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
-        guard let visible = screen?.visibleFrame else { return }
-        let origin = NSPoint(
-            x: (visible.midX - Self.size.width / 2).rounded(),
-            y: (visible.maxY - visible.height * 0.2 - Self.size.height).rounded())
-        panel.setFrame(NSRect(origin: origin, size: Self.size), display: false)
+        guard let visible = screen?.visibleFrame else { return .zero }
+        let width = PaletteMetrics.windowSize(expanded: false).width
+        return NSPoint(
+            x: (visible.midX - width / 2).rounded(), y: (visible.maxY - visible.height * 0.2).rounded())
     }
 
     // MARK: Measurement

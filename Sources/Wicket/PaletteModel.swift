@@ -2,10 +2,29 @@ import Foundation
 import Observation
 import WicketCore
 
+/// What the pill is doing. Only idle exists today; listening and thinking become cases here, each
+/// with its own glyph and prompt.
+enum PaletteMode {
+    case idle
+
+    var symbol: String {
+        switch self {
+        case .idle: "magnifyingglass"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .idle: "Search or run a command"
+        }
+    }
+}
+
 /// The palette's session: the query, every source's results for it, and the selection.
 ///
 /// Each keystroke starts a new query revision, collects every source's instant results
 /// synchronously, then applies slow updates as they arrive if their revision is still current.
+/// An empty query asks no source: the palette opens as the bare pill.
 @MainActor
 @Observable
 final class PaletteModel {
@@ -23,6 +42,10 @@ final class PaletteModel {
     var actionMenu: ActionMenu?
     /// ⌘ is held, so rows show their ⌘1 to ⌘9 hints.
     var commandHeld = false
+    var mode = PaletteMode.idle
+    /// The results card under the pill is shown. Set by `PaletteController`, which sizes the window
+    /// to match.
+    var isExpanded = false
     @ObservationIgnored private let sources: [any ResultSource]
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var updates: [Task<Void, Never>] = []
@@ -58,13 +81,14 @@ final class PaletteModel {
         for task in updates { task.cancel() }
         updates = []
 
+        guard !query.text.isEmpty else {
+            list.start(query, results: [:], usage: frecency())
+            return
+        }
         var instant: [String: [Item]] = [:]
         for source in sources { instant[source.id] = source.instant(query) }
         list.start(query, results: instant, usage: frecency())
-        if !query.text.isEmpty {
-            Perf.log(
-                "query (\(query.text.count) chars): \(list.items.count) results in \(Perf.ms(since: start))")
-        }
+        Perf.log("query (\(query.text.count) chars): \(list.items.count) results in \(Perf.ms(since: start))")
 
         for source in sources {
             guard let stream = source.updates(query) else { continue }

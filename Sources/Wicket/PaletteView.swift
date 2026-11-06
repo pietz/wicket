@@ -7,22 +7,107 @@ enum PaletteFocus: Hashable {
     case search, actions
 }
 
-/// The palette: search field, results and footer on Liquid Glass, with the action panel (⌘K) over
-/// them. Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see
-/// them; plain keys are handled here, by whichever field has focus.
+/// The palette's sizes. The window is the visible shapes plus a transparent `margin`, where the
+/// glass draws its rim.
+enum PaletteMetrics {
+    static let width: CGFloat = 680
+    static let pillHeight: CGFloat = 56
+    static let gap: CGFloat = 8
+    static let cardHeight: CGFloat = 384
+    static let cardRadius: CGFloat = 24
+    /// Inset of the rows from the card's edge; their highlight stays concentric with its corners.
+    static let rowInset: CGFloat = 8
+    static let margin: CGFloat = 4
+
+    static func windowSize(expanded: Bool) -> NSSize {
+        let content = expanded ? pillHeight + gap + cardHeight : pillHeight
+        return NSSize(width: width + 2 * margin, height: content + 2 * margin)
+    }
+}
+
+/// The palette: a Liquid Glass pill holding the search field and, while there is something to show,
+/// a glass card under it with the results and footer, with the action panel (⌘K) over them. The
+/// glass shapes sit in one container, so the card morphs out of the pill; the content is layered
+/// above the container, where a morph can't smear it.
+///
+/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
+/// plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
     /// Runs the action at a position in an item's actions.
     let onRun: (Item?, Int) -> Void
     let onHide: () -> Void
     @FocusState private var focus: PaletteFocus?
+    @Namespace private var glass
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Return is handled here rather than by `onSubmit`, which ends editing.
-            TextField("Search apps…", text: $model.query)
+        ZStack(alignment: .top) {
+            GlassEffectContainer(spacing: PaletteMetrics.gap) {
+                VStack(spacing: PaletteMetrics.gap) {
+                    Color.clear
+                        .frame(height: PaletteMetrics.pillHeight)
+                        .glassEffect(Self.glass, in: .capsule)
+                        .glassEffectID("pill", in: glass)
+                    if model.isExpanded {
+                        Color.clear
+                            .frame(height: PaletteMetrics.cardHeight)
+                            .glassEffect(Self.glass, in: Self.card)
+                            .glassEffectID("card", in: glass)
+                    }
+                }
+            }
+            VStack(spacing: PaletteMetrics.gap) {
+                searchField
+                if model.isExpanded {
+                    VStack(spacing: 0) {
+                        ResultsView(model: model, onRun: onRun)
+                        Divider()
+                        FooterBar(item: model.selectedItem)
+                    }
+                    .frame(height: PaletteMetrics.cardHeight)
+                    .clipShape(Self.card)
+                    .transition(.opacity)
+                }
+            }
+            .overlay {
+                if let menu = model.actionMenu {
+                    // A click anywhere outside the panel closes it rather than reaching what is beneath.
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { model.actionMenu = nil }
+                        .overlay(alignment: .bottomTrailing) {
+                            ActionPanel(model: model, menu: menu, focus: $focus, onRun: onRun)
+                                .padding(.trailing, 10)
+                                .padding(.bottom, FooterBar.height + 4)
+                        }
+                }
+            }
+        }
+        .padding(PaletteMetrics.margin)
+        // Top-aligned, so the pill stays put while the window grows and shrinks beneath it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
+        .onAppear { focus = .search }
+        .onChange(of: model.focusToken) { focus = .search }
+        // Every way the panel closes hands the keyboard back to the search field, so it never
+        // unmounts while focused and leaves the window without a first responder.
+        .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? .search : .actions }
+    }
+
+    /// Tinted: untinted glass is hard to read over busy windows.
+    private static var glass: Glass { .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)) }
+    private static var card: some Shape { .rect(cornerRadius: PaletteMetrics.cardRadius, style: .continuous) }
+
+    // Return is handled here rather than by `onSubmit`, which ends editing.
+    private var searchField: some View {
+        HStack(spacing: 12) {
+            Image(systemName: model.mode.symbol)
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+            TextField(model.mode.prompt, text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 22))
+                .font(.system(size: 21))
                 .focused($focus, equals: .search)
                 .onKeyPress(.upArrow) {
                     model.moveSelection(by: -1)
@@ -40,40 +125,9 @@ struct PaletteRootView: View {
                     if model.query.isEmpty { onHide() } else { model.query = "" }
                     return .handled
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 14)
-            Divider()
-            ResultsView(model: model, onRun: onRun)
-            Divider()
-            FooterBar(item: model.selectedItem)
         }
-        .overlay {
-            if let menu = model.actionMenu {
-                // A click anywhere outside the panel closes it rather than reaching what is beneath.
-                Color.clear
-                    .contentShape(.rect)
-                    .onTapGesture { model.actionMenu = nil }
-                    .overlay(alignment: .bottomTrailing) {
-                        ActionPanel(model: model, menu: menu, focus: $focus, onRun: onRun)
-                            .padding(.trailing, 10)
-                            .padding(.bottom, FooterBar.height + 4)
-                    }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Tinted: untinted glass is hard to read over busy windows.
-        .glassEffect(
-            .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)),
-            in: .rect(cornerRadius: 22)
-        )
-        .clipShape(.rect(cornerRadius: 22))
-        .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
-        .onAppear { focus = .search }
-        .onChange(of: model.focusToken) { focus = .search }
-        // Every way the panel closes hands the keyboard back to the search field, so it never
-        // unmounts while focused and leaves the window without a first responder.
-        .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? .search : .actions }
+        .padding(.horizontal, 18)
+        .frame(height: PaletteMetrics.pillHeight)
     }
 }
 
@@ -92,7 +146,7 @@ struct ResultsView: View {
                             .onTapGesture { onRun(item, 0) }
                     }
                 }
-                .padding(8)
+                .padding(PaletteMetrics.rowInset)
             }
             .scrollIndicators(.never)
             .onChange(of: model.selection) { _, selection in
@@ -287,7 +341,10 @@ private struct ResultRow: View {
         .frame(height: 40)
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(0.1))
+                RoundedRectangle(
+                    cornerRadius: PaletteMetrics.cardRadius - PaletteMetrics.rowInset, style: .continuous
+                )
+                .fill(.primary.opacity(0.1))
             }
         }
     }
