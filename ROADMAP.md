@@ -28,7 +28,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Calculator: arithmetic, units, currency (ECB daily rates, rates day shown), locale-aware input
 - ✅ Files via Spotlight (async source)
 - ✅ Agent adapters (WicketHost): Codex app-server and Claude stream-json, answer and build modes, sandboxed, status checks, `wicket agent status|ask`
-- ⏭ Quick AI answer: "Ask AI" fallback row, streams into a detail view, on the agent adapters
+- ✅ Quick AI answer: "Ask AI" fallback row (and `ai <question>`), streams into a detail frame via Codex or Claude, verified on screen
 
 ### Extensions
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
@@ -41,7 +41,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
 
 ### App shell
-- 🔨 Settings window (native SwiftUI): ✅ General (hotkey recorder, launch at login, open settings.json); ⏭ appearance, Features (toggle each source), AI (providers), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
+- 🔨 Settings window (native SwiftUI): ✅ General (hotkey recorder, palette width, launch at login, open settings.json); ✅ AI (provider and status); ⏭ Features (toggle each source), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
 - ⏭ Per-command hotkeys and aliases (any item can get a global shortcut or a short alias)
 - ✅ Launch at login (`SMAppService`, in Settings ▸ General)
 - ⏭ Minimal main menu while the settings window is open (⌘Q, ⌘M, Edit menu), without stealing palette shortcuts
