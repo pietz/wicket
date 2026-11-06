@@ -26,6 +26,9 @@ final class SettingsStore {
         do {
             settings = try Settings.load(from: url)
             loadError = nil
+            for reason in settings.ignored {
+                Perf.logger.error("settings.json: \(reason, privacy: .public)")
+            }
         } catch {
             let reason = error.localizedDescription
             Perf.logger.error("\(reason, privacy: .public); using defaults")

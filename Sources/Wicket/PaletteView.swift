@@ -8,9 +8,8 @@ enum PaletteFocus: Hashable {
 }
 
 /// The palette's sizes. The window is the visible shapes plus a transparent `margin`, where the
-/// glass draws its rim.
+/// glass draws its rim. The width is a setting (`paletteWidth`); the content follows the window's.
 enum PaletteMetrics {
-    static let width: CGFloat = 680
     static let pillHeight: CGFloat = 56
     static let gap: CGFloat = 8
     static let cardHeight: CGFloat = 384
@@ -19,7 +18,7 @@ enum PaletteMetrics {
     static let rowInset: CGFloat = 8
     static let margin: CGFloat = 40
 
-    static func windowSize(expanded: Bool) -> NSSize {
+    static func windowSize(width: CGFloat, expanded: Bool) -> NSSize {
         let content = expanded ? pillHeight + gap + cardHeight : pillHeight
         return NSSize(width: width + 2 * margin, height: content + 2 * margin)
     }

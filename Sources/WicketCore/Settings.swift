@@ -4,7 +4,15 @@ import Foundation
 /// Every field is optional in the file, and unknown fields are ignored, so files written for newer
 /// builds still load.
 public struct Settings: Equatable, Sendable {
+    public static let defaultPaletteWidth: Double = 600
+    public static let paletteWidths: ClosedRange<Double> = 480...900
+
     public var hotkey: Shortcut = .default
+    /// The palette's width in points, within `paletteWidths`.
+    public var paletteWidth = defaultPaletteWidth
+    /// Why a field the file sets was ignored for its default. A cosmetic value that is wrong or out
+    /// of range shouldn't cost the whole file, so it is reported here instead of making it invalid.
+    public private(set) var ignored: [String] = []
 
     public init() {}
 
@@ -96,16 +104,28 @@ public struct Settings: Equatable, Sendable {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey
+        case hotkey, paletteWidth
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try container.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? .default
+        if container.contains(.paletteWidth) {
+            let width = try? container.decode(Double.self, forKey: .paletteWidth)
+            if let width, Self.paletteWidths.contains(width) {
+                paletteWidth = width
+            } else {
+                let range = Self.paletteWidths
+                ignored.append(
+                    "paletteWidth must be a number from \(Int(range.lowerBound)) to \(Int(range.upperBound)); "
+                        + "using \(Int(paletteWidth))")
+            }
+        }
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(hotkey, forKey: .hotkey)
+        try container.encode(paletteWidth, forKey: .paletteWidth)
     }
 }

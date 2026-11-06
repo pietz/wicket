@@ -2,13 +2,16 @@ import ServiceManagement
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ General: the hotkey, launch at login and the settings file.
+/// Settings ▸ General: the hotkey, the palette's width, launch at login and the settings file.
 struct GeneralPane: View {
     let store: SettingsStore
     @State private var recorder = ShortcutRecorder()
     /// Launch at login lives in the system (SMAppService), not in settings.json.
     @State private var loginStatus = SMAppService.mainApp.status
     @State private var error: String?
+    /// The width last written, until settings.json is reloaded with it, so the slider doesn't jump
+    /// back while the file catches up.
+    @State private var width: Double?
 
     var body: some View {
         Form {
@@ -40,6 +43,13 @@ struct GeneralPane: View {
                 }
             }
             Section {
+                Slider(
+                    value: paletteWidth, in: Settings.paletteWidths, step: 60,
+                    label: { Text("Palette width") },
+                    minimumValueLabel: { Text("Narrow") },
+                    maximumValueLabel: { Text("Wide") })
+            }
+            Section {
                 Toggle("Launch at login", isOn: launchAtLogin)
                 if loginStatus == .requiresApproval {
                     LabeledContent("Needs your approval in System Settings") {
@@ -67,6 +77,9 @@ struct GeneralPane: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .onDisappear { recorder.stop() }
+        .onChange(of: store.settings.paletteWidth) { _, applied in
+            if applied == width { width = nil }
+        }
         // The user may have approved or removed the login item in System Settings meanwhile.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) {
             _ in
@@ -78,6 +91,16 @@ struct GeneralPane: View {
         error = nil
         recorder.start(pausing: store.pauseHotKey) { shortcut in
             perform { try store.update { $0.hotkey = shortcut } }
+        }
+    }
+
+    private var paletteWidth: Binding<Double> {
+        Binding {
+            width ?? store.settings.paletteWidth
+        } set: { newWidth in
+            guard newWidth != (width ?? store.settings.paletteWidth) else { return }
+            width = newWidth
+            perform { try store.update { $0.paletteWidth = newWidth } }
         }
     }
 

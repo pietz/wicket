@@ -87,6 +87,31 @@ func rejectsInvalidSpellings(spelling: String, error: Shortcut.ParseError) {
     #expect(throws: DecodingError.self) { try decode("not json") }
 }
 
+@Test(arguments: [
+    (#"{}"#, 600.0, false),
+    (#"{"paletteWidth": 720}"#, 720, false),
+    (#"{"paletteWidth": 480}"#, 480, false),
+    (#"{"paletteWidth": 900.5}"#, 600, true),
+    (#"{"paletteWidth": 100}"#, 600, true),
+    (#"{"paletteWidth": "wide"}"#, 600, true),
+    (#"{"paletteWidth": null}"#, 600, true),
+])
+func paletteWidthFallsBackAlone(json: String, width: Double, ignored: Bool) throws {
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+    #expect(settings.paletteWidth == width)
+    #expect(settings.ignored == (ignored ? ["paletteWidth must be a number from 480 to 900; using 600"] : []))
+}
+
+/// A bad width is reported, not fixed: the file keeps it until the width itself is changed.
+@Test func updateKeepsIgnoredWidth() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"hotkey": "cmd+k", "paletteWidth": "wide"}"#, to: url)
+    try Settings.update(at: url) { $0.hotkey = .default }
+    #expect(try read(url).contains(#""paletteWidth" : "wide""#))
+    try Settings.update(at: url) { $0.paletteWidth = 720 }
+    #expect(try Settings.load(from: url).paletteWidth == 720)
+}
+
 @Test func settingsDirectory() {
     #expect(Settings.directory(environment: ["WICKET_CONFIG_DIR": "/tmp/w"]).path == "/tmp/w")
     #expect(Settings.directory(environment: [:]).path.hasSuffix("/.config/wicket"))
@@ -125,7 +150,7 @@ private func read(_ url: URL) throws -> String {
 @Test func updateCreatesMissingFileWithCurrentValues() throws {
     let url = temporarySettingsURL()
     try Settings.update(at: url) { _ in }
-    #expect(try read(url) == "{\n  \"hotkey\" : \"option+space\"\n}\n")
+    #expect(try read(url) == "{\n  \"hotkey\" : \"option+space\",\n  \"paletteWidth\" : 600\n}\n")
 }
 
 @Test func updateKeepsUnknownFields() throws {

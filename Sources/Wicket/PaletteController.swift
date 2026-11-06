@@ -76,6 +76,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     static let collapseDelay = Duration.milliseconds(300)
 
     let model: PaletteModel
+    /// The pill's width, from settings; applied on the next summon.
+    var width = CGFloat(Settings.defaultPaletteWidth)
     private let actions: ActionRunner
     private let openSettings: () -> Void
     private let panel: PalettePanel
@@ -90,7 +92,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         self.actions = actions
         self.openSettings = openSettings
         panel = PalettePanel(
-            contentRect: NSRect(origin: .zero, size: PaletteMetrics.windowSize(expanded: false)))
+            contentRect: NSRect(origin: .zero, size: PaletteMetrics.windowSize(width: width, expanded: false))
+        )
         super.init()
         panel.delegate = self
         panel.onChord = { [weak self] in self?.handle($0) }
@@ -117,7 +120,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     func show(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         pendingShow = (eventTime, ProcessInfo.processInfo.systemUptime)
-        anchor = Self.anchor()
+        anchor = Self.anchor(width: width)
         resize(expanded: false)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
@@ -204,7 +207,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// before anything is drawn, so a summon never flashes the expanded layout and the pill never
     /// shifts while the window grows.
     private func resize(expanded: Bool) {
-        let size = PaletteMetrics.windowSize(expanded: expanded)
+        let size = PaletteMetrics.windowSize(width: width, expanded: expanded)
         panel.setFrame(
             NSRect(origin: NSPoint(x: anchor.x, y: anchor.y - size.height), size: size), display: false)
         panel.contentView?.layoutSubtreeIfNeeded()
@@ -212,13 +215,13 @@ final class PaletteController: NSObject, NSWindowDelegate {
     }
 
     /// Horizontally centred on the screen with the pointer, its top a fifth of the way down.
-    private static func anchor() -> NSPoint {
+    private static func anchor(width: CGFloat) -> NSPoint {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { return .zero }
-        let width = PaletteMetrics.windowSize(expanded: false).width
+        let window = PaletteMetrics.windowSize(width: width, expanded: false)
         return NSPoint(
-            x: (visible.midX - width / 2).rounded(),
+            x: (visible.midX - window.width / 2).rounded(),
             y: (visible.maxY - visible.height * 0.2 + PaletteMetrics.margin).rounded())
     }
 

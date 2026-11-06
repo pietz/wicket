@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// changed.
     private func applySettings() {
         store.reload()
+        palette.width = store.settings.paletteWidth
         let shortcut = store.settings.hotkey
         guard !hotKeyPaused, shortcut != registeredShortcut else { return }
         hotKey = nil  // Unregister first: Carbon refuses a combination this app already holds.
