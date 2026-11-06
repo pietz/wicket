@@ -20,7 +20,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Compact pill by default; a content-sized card expands only when there is something to show (owner's call); large answer row; `paletteWidth` setting (600 pt default, slider in General)
 - 💤 Empty palette: favorites and suggestions, as an option once the pill exists
 - ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
-- ⏭ Paste-back target captured at summon, layout-aware ⌘V (the owner's Mac is German)
+- ✅ Paste-back: target captured at summon, layout-aware ⌘V, Accessibility asked on first paste (on-screen check needs the owner's grant)
 - ✅ Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
 
 ### Features
