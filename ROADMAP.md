@@ -30,9 +30,10 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ### Extensions
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
 - ✅ Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
+- ⏭ Checker polish from the samples: placeholder secrets in `wicket check`, `WICKET_CHECK=1` for dry runs, clearer `shell` capability wording
 - ⏭ Palette view stack: push list and detail views, Escape goes back
 - ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
-- 💤 Two or three useful sample extensions in different languages
+- ✅ Sample extensions in `Extensions/`: system-toggles, quit-apps, github-prs (sh + jq, all pass `wicket check`)
 - 💤 "Make a command": staging, checker gate, review before enable, rollback, "Fix with agent"
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
 
