@@ -130,6 +130,12 @@ struct PaletteRootView: View {
         .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
         .onAppear { focus = .search }
         .onChange(of: model.focusToken) { focus = .search }
+        // The field is new (see `searchField`), and focus already says `.search`, so setting it
+        // again would be ignored: clear it, then focus the new field once it exists.
+        .onChange(of: model.top.id) {
+            focus = nil
+            Task { @MainActor in focus = .search }
+        }
         // Every way the panel closes hands the keyboard back to the search field, so it never
         // unmounts while focused and leaves the window without a first responder.
         .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? .search : .actions }
@@ -179,6 +185,10 @@ struct PaletteRootView: View {
             pillGlyph
                 .frame(width: 24)
             TextField(pill.prompt, text: $model.query)
+                // A new field per frame: a keyword opens a frame from inside the field's own edit,
+                // and an editing TextField ignores a binding change made there, so it would keep
+                // showing "week " and append the next keys to it.
+                .id(model.top.id)
                 .textFieldStyle(.plain)
                 .font(.system(size: 21))
                 .focused($focus, equals: .search)
