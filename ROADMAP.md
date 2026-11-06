@@ -44,7 +44,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - 🔨 Settings window (native SwiftUI): ✅ General (hotkey recorder, palette width, launch at login, open settings.json); ✅ AI (provider and status); ⏭ Features (toggle each source), Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
 - ⏭ Per-command hotkeys and aliases (any item can get a global shortcut or a short alias)
 - ✅ Launch at login (`SMAppService`, in Settings ▸ General)
-- ⏭ Minimal main menu while the settings window is open (⌘Q, ⌘M, Edit menu), without stealing palette shortcuts
+- ✅ Minimal main menu while the settings window is open (⌘Q, ⌘W, ⌘M, Edit menu), inert in the palette; Settings takes focus when opened from the palette
 - ✅ App icon (doorway, `Resources/AppIcon.icns`); a layered Icon Composer version is optional polish
 - 💤 First-run onboarding: pick the hotkey, explain type-or-speak, optional AI setup
 - 💤 Permissions flow (Accessibility for paste and selection, microphone for voice), asked only when a feature needs it
