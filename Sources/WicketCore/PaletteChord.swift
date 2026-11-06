@@ -45,3 +45,22 @@ public enum PaletteChord: Equatable, Sendable {
         }
     }
 }
+
+/// The standard editing shortcuts, which the palette's panel sends to the focused field itself: the
+/// main menu that would route them exists only for the settings window, and never acts from the
+/// palette.
+public enum EditCommand: Equatable, Sendable {
+    case cut, copy, paste, selectAll, undo, redo
+
+    public init?(characters: String?, modifiers: Shortcut.Modifiers) {
+        switch (characters?.lowercased(), modifiers) {
+        case ("x", .command): self = .cut
+        case ("c", .command): self = .copy
+        case ("v", .command): self = .paste
+        case ("a", .command): self = .selectAll
+        case ("z", .command): self = .undo
+        case ("z", [.command, .shift]): self = .redo
+        default: return nil
+        }
+    }
+}

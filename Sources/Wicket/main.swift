@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStart = ContinuousClock.now
+        NSApp.mainMenu = MainMenu.make()
         let effects = SystemEffects { [weak self] in self?.settingsWindow.show() }
         var sources: [any ResultSource] = [apps, CommandsSource(registry), calculator, files, AskAISource()]
         if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
@@ -52,6 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if !CommandLine.arguments.contains("--background") { palette.show() }
+    }
+
+    /// The main menu's Settings… item, sent up the responder chain.
+    @objc func showSettings(_ sender: Any?) {
+        settingsWindow.show()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

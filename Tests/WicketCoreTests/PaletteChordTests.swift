@@ -25,3 +25,30 @@ import Testing
     #expect(PaletteChord(keyCode: 0x2D, characters: "n", modifiers: .command) == nil)
     #expect(PaletteChord(keyCode: 0x00, characters: "a", modifiers: .command) == nil)
 }
+
+@Test func editingShortcutsGoToTheField() {
+    #expect(EditCommand(characters: "c", modifiers: .command) == .copy)
+    #expect(EditCommand(characters: "x", modifiers: .command) == .cut)
+    #expect(EditCommand(characters: "v", modifiers: .command) == .paste)
+    #expect(EditCommand(characters: "a", modifiers: .command) == .selectAll)
+    #expect(EditCommand(characters: "z", modifiers: .command) == .undo)
+    // Shift makes the character uppercase.
+    #expect(EditCommand(characters: "Z", modifiers: [.command, .shift]) == .redo)
+    #expect(EditCommand(characters: "C", modifiers: [.command, .shift]) == nil)
+    #expect(EditCommand(characters: "c", modifiers: .control) == nil)
+}
+
+/// The panel claims chords before the main menu and swallows the rest of the menu's keys, so the
+/// palette's ⌘ keys must stay distinct: ⌘, is a chord (the menu's Settings… never runs from the
+/// palette), and the menu's window and app keys are neither, which leaves them to be swallowed.
+@Test func paletteKeysAreNotTheMenusWindowKeys() {
+    let menuOnly: [(Int, String)] = [(0x0C, "q"), (0x0D, "w"), (0x04, "h"), (0x2E, "m")]
+    for (keyCode, character) in menuOnly {
+        #expect(PaletteChord(keyCode: keyCode, characters: character, modifiers: .command) == nil)
+        #expect(EditCommand(characters: character, modifiers: .command) == nil)
+    }
+    for (row, keyCode) in [0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19].enumerated() {
+        #expect(PaletteChord(keyCode: keyCode, characters: "\(row + 1)", modifiers: .command) == .runRow(row))
+    }
+    #expect(PaletteChord(keyCode: 0x2B, characters: ",", modifiers: .command) == .openSettings)
+}

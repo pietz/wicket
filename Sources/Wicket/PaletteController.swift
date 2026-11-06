@@ -28,14 +28,10 @@ final class PalettePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
     /// Palette chords are matched here, before the focused field: the field editor binds some of them
-    /// (⌃N, ⌃P), and SwiftUI's `onKeyPress` never sees those. Keys an input method is composing with
-    /// stay with it.
+    /// (⌃N, ⌃P), and SwiftUI's `onKeyPress` never sees those. ⌘ chords usually arrive in
+    /// `performKeyEquivalent` first, which AppKit calls before this.
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown, (firstResponder as? NSTextView)?.hasMarkedText() != true,
-            let chord = PaletteChord(
-                keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
-                modifiers: Shortcut.Modifiers(event.modifierFlags))
-        {
+        if event.type == .keyDown, let chord = chord(for: event) {
             onChord(chord)
             return
         }
@@ -49,22 +45,44 @@ final class PalettePanel: NSPanel {
         super.sendEvent(event)
     }
 
-    /// There is no menu bar to route standard editing shortcuts, so handle them here.
+    /// AppKit offers a ⌘ key to the key window here, then to the main menu, and only then to
+    /// `sendEvent`. So the palette's chords are claimed here (the menu binds ⌘, too), editing
+    /// shortcuts go straight to the focused field, and any other key the main menu binds (⌘Q, ⌘W,
+    /// ⌘H, ⌘M) is swallowed: the menu is for the settings window and never acts from the palette.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command || flags == [.command, .shift] {
-            let action: Selector? =
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "x": #selector(NSText.cut(_:))
-                case "c": #selector(NSText.copy(_:))
-                case "v": #selector(NSText.paste(_:))
-                case "a": #selector(NSText.selectAll(_:))
-                case "z": flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
-                default: nil
-                }
-            if let action, NSApp.sendAction(action, to: nil, from: self) { return true }
+        if let chord = chord(for: event) {
+            onChord(chord)
+            return true
         }
-        return super.performKeyEquivalent(with: event)
+        if let edit = EditCommand(
+            characters: event.charactersIgnoringModifiers, modifiers: Shortcut.Modifiers(event.modifierFlags)),
+            NSApp.sendAction(edit.selector, to: nil, from: self)
+        {
+            return true
+        }
+        if super.performKeyEquivalent(with: event) { return true }
+        return NSApp.mainMenu?.bindsKeyEquivalent(of: event) == true
+    }
+
+    /// The chord `event` is, unless an input method is composing with it.
+    private func chord(for event: NSEvent) -> PaletteChord? {
+        guard (firstResponder as? NSTextView)?.hasMarkedText() != true else { return nil }
+        return PaletteChord(
+            keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
+            modifiers: Shortcut.Modifiers(event.modifierFlags))
+    }
+}
+
+extension EditCommand {
+    fileprivate var selector: Selector {
+        switch self {
+        case .cut: #selector(NSText.cut(_:))
+        case .copy: #selector(NSText.copy(_:))
+        case .paste: #selector(NSText.paste(_:))
+        case .selectAll: #selector(NSText.selectAll(_:))
+        case .undo: Selector(("undo:"))
+        case .redo: Selector(("redo:"))
+        }
     }
 }
 

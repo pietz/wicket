@@ -33,8 +33,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store)))
         tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store)))
-        let window = SettingsWindow(contentViewController: tabs)
-        window.styleMask = [.titled, .closable]
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable, .miniaturizable]
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -56,18 +56,5 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         window = nil  // Free the panes while closed; the next open builds them again.
         NSApp.setActivationPolicy(.accessory)
-    }
-}
-
-/// Wicket has no main menu (it never shows a menu bar of its own), so ⌘W is handled here.
-private final class SettingsWindow: NSWindow {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-            event.charactersIgnoringModifiers == "w"
-        {
-            performClose(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
     }
 }
