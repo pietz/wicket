@@ -112,7 +112,7 @@ final class AppRuntime {
         palette?.show(eventTime: ProcessInfo.processInfo.systemUptime)
     }
 
-    /// Reloads settings.json (defaults if it is missing or invalid) and applies it.
+    /// Reloads settings.json (defaults if missing, the last good settings if invalid) and applies it.
     func reload() {
         store.reload()
         apply(store.settings)

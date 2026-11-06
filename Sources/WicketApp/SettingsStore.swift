@@ -27,7 +27,8 @@ final class SettingsStore {
         url = directory.appending(path: "settings.json")
     }
 
-    /// Loads settings.json, falling back to defaults if it is missing or invalid.
+    /// Loads settings.json: defaults if it is missing; if it is invalid (often an agent or editor
+    /// halfway through a write), the last good settings stay, so nothing resets and restarts.
     func reload() {
         do {
             settings = try Settings.load(from: url)
@@ -37,8 +38,7 @@ final class SettingsStore {
             }
         } catch {
             let reason = error.localizedDescription
-            Perf.logger.error("\(reason, privacy: .public); using defaults")
-            settings = Settings()
+            Perf.logger.error("\(reason, privacy: .public); keeping the last good settings")
             loadError = reason
         }
     }
