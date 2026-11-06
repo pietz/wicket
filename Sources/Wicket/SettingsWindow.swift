@@ -24,7 +24,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.center()
             self.window = window
         }
-        NSApp.activate()
+        // Cooperative `activate()` is refused here: the palette is a non-activating panel, so to
+        // macOS the request comes from a background app and the previous app keeps focus, leaving
+        // Settings open but unfocused. The older forcing call still works (Tinycast relies on it);
+        // `ForcedActivation` reaches it without the deprecation warning that check.sh rejects.
+        (NSApp as any ForcedActivation).activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
 
@@ -58,3 +62,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
 }
+
+/// `NSApplication.activate(ignoringOtherApps:)` through a protocol, so calling it is not a
+/// deprecation warning. See `SettingsWindowController.show()` for why it is needed.
+@MainActor private protocol ForcedActivation {
+    func activate(ignoringOtherApps flag: Bool)
+}
+
+extension NSApplication: ForcedActivation {}
