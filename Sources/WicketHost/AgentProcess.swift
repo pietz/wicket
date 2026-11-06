@@ -77,7 +77,7 @@ enum AgentProcess {
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         let stdin = Input(input.fileHandleForWriting)
         let stderr = OutputTail(limit: 16 << 10)
-        Task.detached { await stderr.drain(errors.fileHandleForReading) }
+        let stderrDrained = Task.detached { await stderr.drain(errors.fileHandleForReading) }
 
         var transcript = transcript
         var finished = false
@@ -105,7 +105,10 @@ enum AgentProcess {
 
         if !finished, !Task.isCancelled {
             // stdout closed without a final event: report how the process ended.
-            let exitStatus = await ended(exit, within: exitGrace)
+            let exitStatus = await value(of: exit, within: exitGrace)
+            // The exit can beat the last stderr chunk; wait briefly for EOF so the message has the
+            // agent's own explanation (bounded: a grandchild may still hold the pipe open).
+            if exitStatus != nil { _ = await value(of: stderrDrained, within: .milliseconds(500)) }
             emit(.error(failure(name, exitStatus, stderr: stderr.text)))
         }
         killTree(of: process)
@@ -116,12 +119,12 @@ enum AgentProcess {
             """)
     }
 
-    /// The process's exit, or nil if it is still running after `limit` or the caller is cancelled.
-    /// Never waits on a live process beyond that: a task group would, since its child awaiting
-    /// `exit.value` can't be cancelled. The waiter left behind ends once the caller kills the tree.
-    static func ended(_ exit: Task<Exit, Never>, within limit: Duration) async -> Exit? {
-        let (first, continuation) = AsyncStream<Exit?>.makeStream()
-        let waiter = Task { continuation.yield(await exit.value) }
+    /// The task's value (such as the process's exit), or nil if it hasn't finished after `limit` or
+    /// the caller is cancelled. Never waits beyond that: a task group would, since its child awaiting
+    /// `task.value` can't be cancelled. The waiter left behind ends once the caller kills the tree.
+    static func value<T: Sendable>(of task: Task<T, Never>, within limit: Duration) async -> T? {
+        let (first, continuation) = AsyncStream<T?>.makeStream()
+        let waiter = Task { continuation.yield(await task.value) }
         let timer = Task {
             try? await Task.sleep(for: limit)
             continuation.yield(nil)
