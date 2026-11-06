@@ -276,10 +276,10 @@ public final class PaletteSession {
         let runner = runner
         work[frame.id] = [
             Task { [weak self] in
-                if let delay {
-                    try? await Task.sleep(for: delay)
-                    guard !Task.isCancelled else { return }
-                }
+                if let delay { try? await Task.sleep(for: delay) }
+                // A run cancelled before it started (Escape, another command opened) never starts:
+                // a built-in's effect or an extension request would otherwise still go out.
+                guard !Task.isCancelled else { return }
                 guard let runner else {
                     self?.fail(ticket, "Commands can't run here.")
                     return

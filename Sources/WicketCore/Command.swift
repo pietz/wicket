@@ -24,7 +24,7 @@ public struct CommandID: Hashable, Codable, Sendable {
 }
 
 extension CommandID {
-    /// One of Wicket's own commands (`BuiltinCommand`).
+    /// One of Wicket's own commands (a `Builtin` in the app's table).
     public static func builtin(_ name: String) -> CommandID {
         CommandID(owner: .builtin, name: name)
     }
@@ -82,8 +82,8 @@ public struct Invocation: Hashable, Sendable {
     }
 }
 
-/// How a command takes its text. The command declares it (built-ins in `BuiltinCommand`, extension
-/// commands translated from their manifest's mode), and `CommandRun(_:_:text:args:)` turns it into
+/// How a command takes its text. The command declares it (a built-in in its `RegisteredCommand`,
+/// extension commands translated from their manifest's mode), and `CommandRun(_:_:text:args:)` turns it into
 /// what each way of reaching the command does.
 public enum CommandInput: Sendable, Hashable {
     /// Takes no text and runs when invoked (Settings, Quit). A keyword or alias and a space doesn't
@@ -198,15 +198,57 @@ public protocol CommandRunner: AnyObject {
     func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
 }
 
-/// The one runner the palette session gets: each run goes to its command's owner, built-ins to the
-/// runner registered for them (Ask AI), extension commands to the extensions' runner.
+/// One of Wicket's own commands: how it is registered and what runs it. The app's table of them
+/// (`AppRuntime.live()`) is the only place a built-in is declared: the registry takes the commands,
+/// the router the runners, so a built-in gets search, keywords, aliases, hotkeys and its frame from
+/// one entry. Everything the host does for the user is a built-in reached by a `run` action, never
+/// a new `Item.Action` case.
+@MainActor
+public struct Builtin {
+    public var command: RegisteredCommand
+    public var runner: any CommandRunner
+
+    /// A built-in that shows something in its frame (Ask AI).
+    public init(_ command: RegisteredCommand, runner: any CommandRunner) {
+        self.command = command
+        self.runner = runner
+    }
+
+    /// A built-in that just does something (open the settings window, quit): `effect` runs when it
+    /// is run, and the palette closes without a frame ever showing.
+    public init(_ command: RegisteredCommand, effect: @escaping @MainActor () -> Void) {
+        self.init(command, runner: EffectRunner(effect))
+    }
+}
+
+/// Runs a built-in that just does something: its effect, then `close`.
+@MainActor
+final class EffectRunner: CommandRunner {
+    private let effect: @MainActor () -> Void
+
+    init(_ effect: @escaping @MainActor () -> Void) {
+        self.effect = effect
+    }
+
+    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+        effect()
+        return AsyncThrowingStream {
+            $0.yield(.close(message: nil))
+            $0.finish()
+        }
+    }
+}
+
+/// The one runner the palette session gets: each run goes to its command's owner, built-ins to their
+/// runner in the app's table, extension commands to the extensions' runner.
 @MainActor
 public final class CommandRouter: CommandRunner {
     private let builtins: [CommandID: any CommandRunner]
     private let extensions: (any CommandRunner)?
 
-    public init(builtins: [CommandID: any CommandRunner], extensions: (any CommandRunner)?) {
-        self.builtins = builtins
+    public init(builtins: [Builtin], extensions: (any CommandRunner)?) {
+        self.builtins = Dictionary(
+            builtins.map { ($0.command.id, $0.runner) }, uniquingKeysWith: { a, _ in a })
         self.extensions = extensions
     }
 

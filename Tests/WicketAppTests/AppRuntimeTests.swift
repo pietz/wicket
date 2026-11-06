@@ -84,6 +84,9 @@ private final class FakeAgent: Sendable {
     }
 }
 
+private let askAICommand = CommandID.builtin("ask-ai")
+private let quitCommand = CommandID.builtin("quit")
+
 @MainActor
 private final class Harness {
     let directory = URL(filePath: NSTemporaryDirectory()).appending(path: "wicket-runtime-\(UUID())")
@@ -92,6 +95,8 @@ private final class Harness {
     let agent = FakeAgent()
     let askAI: AskAIRunner
     private(set) var work: [String] = []
+    /// The built-ins' effects that ran.
+    private(set) var effects: [String] = []
     let runtime: AppRuntime
 
     var session: PaletteSession { runtime.model.session }
@@ -99,10 +104,28 @@ private final class Harness {
 
     init(settings json: String = "{}") throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        askAI = AskAIRunner(backend: agent.backend, interval: .zero)
+        weak var harness: Harness?
+        askAI = AskAIRunner(
+            backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider })
+        // The table as `live()` composes it, with effects that are only recorded.
+        let builtins = [
+            Builtin(
+                RegisteredCommand(
+                    id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"), input: .none),
+                effect: { harness?.effects.append("settings") }),
+            Builtin(
+                RegisteredCommand(
+                    id: quitCommand, title: "Quit Wicket", icon: .symbol(name: "power"), input: .none),
+                effect: { harness?.effects.append("quit") }),
+            Builtin(
+                RegisteredCommand(
+                    id: askAICommand, title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
+                    isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
+                    feature: .askAI),
+                runner: askAI),
+        ]
         let apps = StaticSource("apps", items: [item("Safari")])
         let calculator = StaticSource("calculator", items: [])
-        weak var harness: Harness?
         let work = { (feature: Feature) in
             AppRuntime.Work(
                 start: { harness?.work.append("start \(feature.rawValue)") },
@@ -112,7 +135,7 @@ private final class Harness {
         runtime = AppRuntime(
             store: SettingsStore(directory: directory, diagnostics: diagnostics),
             sources: [apps, calculator],
-            work: [.apps: work(.apps), .calculator: work(.calculator)], askAI: askAI,
+            work: [.apps: work(.apps), .calculator: work(.calculator)], builtins: builtins,
             extensions: Extensions(
                 directory: directory.appending(path: "extensions"), diagnostics: diagnostics),
             usageURL: directory.appending(path: "usage.json"), system: system.system)
@@ -147,17 +170,17 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
              "commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a", "alias": "ask"}}}
             """#)
     #expect(h.palette.width == 720)
-    #expect(h.askAI.provider == .claude)
+    #expect(h.askAI.provider() == .claude)
     #expect(h.work == ["start apps"])
     #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+a")])
-    #expect(h.runtime.registry.alias(of: AskAI.command) == "ask")
+    #expect(h.runtime.registry.alias(of: askAICommand) == "ask")
     #expect(h.store.commands.map(\.id) == h.runtime.registry.commands.map(\.id))
     #expect(h.store.diagnostics.all.isEmpty)
 
     h.system.press(shortcut("cmd+k"))
     h.system.press(shortcut("ctrl+option+a"))
     #expect(h.palette.toggles == [42])
-    #expect(h.palette.bound == [AskAI.command])
+    #expect(h.palette.bound == [askAICommand])
 }
 
 @MainActor @Test func featureWorkFollowsItsFeatureOnly() throws {
@@ -185,6 +208,24 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(!h.rootIDs.contains("commands:quit"))
 }
 
+/// Settings and Quit are table entries like Ask AI: their rows run through the router, their effect
+/// runs and the palette closes without a frame.
+@MainActor @Test func builtinsThatDoSomethingRunTheirEffectAndClose() async throws {
+    let h = try Harness()
+    var closed = 0
+    h.session.onClose = { closed += 1 }
+    for id in [CommandID.settings, quitCommand] {
+        h.session.open(CommandRun(try #require(h.runtime.registry.command(id)), .invoked))
+    }
+    #expect(await eventually { closed == 1 })
+    // Opening Quit cancelled Settings' opening before it ran: one at a time, like any command.
+    #expect(h.effects == ["quit"])
+    h.session.open(CommandRun(try #require(h.runtime.registry.command(.settings)), .invoked))
+    #expect(await eventually { closed == 2 })
+    #expect(h.effects == ["quit", "settings"])
+    #expect(h.session.frames.count == 1)
+}
+
 @MainActor @Test func turningAFeatureOffTakesItsRowsAtOnce() throws {
     let h = try Harness()
     h.session.query = "saf"
@@ -198,7 +239,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
 /// The review's gap: turning Ask AI off left a running answer streaming.
 @MainActor @Test func turningAskAIOffStopsARunningAnswer() async throws {
     let h = try Harness(settings: #"{"commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
-    let command = try #require(h.runtime.registry.command(AskAI.command))
+    let command = try #require(h.runtime.registry.command(askAICommand))
     h.session.open(CommandRun(command, .invoked, text: "hello"))
     #expect(await eventually { h.session.frames.count == 2 })
     #expect(h.session.top.isLoading)
@@ -221,7 +262,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     h.system.press(shortcut("ctrl+option+a"))
     h.system.press(.default)
     #expect(h.palette.toggles == [42])
-    #expect(h.palette.bound == [AskAI.command])
+    #expect(h.palette.bound == [askAICommand])
     #expect(!h.store.hotKeyFailed)
 }
 
@@ -232,7 +273,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.store.loadError == nil)
     #expect(h.store.settings.ignored.count == 1)
     #expect(h.system.registered == [.default])
-    #expect(h.runtime.registry.alias(of: BuiltinCommand.quit.id) == "bye")
+    #expect(h.runtime.registry.alias(of: quitCommand) == "bye")
 }
 
 @MainActor @Test func aHotkeyAnotherAppHoldsIsRetried() throws {
@@ -242,7 +283,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     // The palette keeps the default it holds; Quit's is in use elsewhere.
     #expect(h.system.registered == [.default])
     #expect(
-        h.store.diagnostics.text(for: .command(BuiltinCommand.quit.id), kind: .binding)
+        h.store.diagnostics.text(for: .command(quitCommand), kind: .binding)
             == "⌃⌥A is in use by another app.")
 
     try h.change(#"{"hotkey": "cmd+k", "commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)

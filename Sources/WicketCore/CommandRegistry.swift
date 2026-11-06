@@ -1,26 +1,5 @@
 import Foundation
 
-/// Wicket's own commands. Each is registered as `CommandID.builtin(rawValue)` and runs through the
-/// action dispatcher like any other command.
-public enum BuiltinCommand: String, CaseIterable, Sendable {
-    case settings, quit
-    /// Answers a question with the user's agent CLI in its own frame (`AskAI`).
-    case askAI = "ask-ai"
-
-    public var id: CommandID { .builtin(rawValue) }
-
-    public var registered: RegisteredCommand {
-        switch self {
-        case .settings:
-            RegisteredCommand(
-                id: id, title: "Wicket Settings", icon: .symbol(name: "gearshape"), input: .none)
-        case .quit:
-            RegisteredCommand(id: id, title: "Quit Wicket", icon: .symbol(name: "power"), input: .none)
-        case .askAI: AskAI.registered
-        }
-    }
-}
-
 /// One entry of the command registry: what the root search lists and what a keyword, an id, an
 /// alias, a hotkey (and later a deeplink or MCP call) resolves to. How it takes text and whether a
 /// run may be resent are the command's own declarations; `CommandRun(_:_:text:args:)` applies them
@@ -143,7 +122,8 @@ public final class CommandRegistry {
     private var byKeyword: [String: CommandID] = [:]
     private var index = SearchIndex([])
 
-    public init(builtins: [RegisteredCommand] = BuiltinCommand.allCases.map(\.registered)) {
+    /// `builtins` are the commands of the app's `Builtin` table, in its order.
+    public init(builtins: [RegisteredCommand] = []) {
         self.builtins = builtins
         rebuild()
     }

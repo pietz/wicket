@@ -57,6 +57,11 @@ private final class FakeAgents: Sendable {
     func wasEnded(_ run: Int) -> Bool { state.withLock { $0.ended.contains(run) } }
 }
 
+/// Ask AI as the app's table registers it (`AppRuntime.live()`).
+private let askAI = RegisteredCommand(
+    id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
+    input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .askAI)
+
 @MainActor
 private struct Palette {
     let session: PaletteSession
@@ -64,15 +69,15 @@ private struct Palette {
 
     init(_ backend: AgentBackend, interval: Duration = .zero) {
         runner = AskAIRunner(backend: backend, interval: interval)
-        let router = CommandRouter(builtins: [AskAI.command: runner], extensions: nil)
-        let registry = CommandRegistry()
+        let router = CommandRouter(builtins: [Builtin(askAI, runner: runner)], extensions: nil)
+        let registry = CommandRegistry(builtins: [askAI])
         session = PaletteSession(sources: [FallbackSource(registry)], runner: router, registry: registry)
     }
 
     /// Types `question` and picks the Ask AI row, as Return on it would.
     func ask(_ question: String) {
         session.query = question
-        session.open(CommandRun(BuiltinCommand.askAI.registered, .invoked, text: question))
+        session.open(CommandRun(askAI, .invoked, text: question))
     }
 
     var detail: Detail? {
@@ -172,7 +177,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
     // Chosen in settings: that one or nothing, never another.
     agents.set(.codex, .loggedOut)
-    palette.runner.provider = .codex
+    palette.runner.provider = { .codex }
     palette.ask("hi")
     #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
     #expect(
@@ -222,7 +227,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let agents = FakeAgents([.codex: .ready])
     let runner = AskAIRunner(backend: agents.backend, interval: .seconds(60))
     let stream = runner.run(
-        Invocation(command: AskAI.command, text: "count"), retry: .never)
+        Invocation(command: askAI.id, text: "count"), retry: .never)
     let events: [AgentEvent] = [.text("1"), .text(" 2"), .text(" 3"), .answer("1 2 3", usage: nil)]
     let feed = Task {
         while agents.runs.isEmpty { try await Task.sleep(for: .milliseconds(1)) }

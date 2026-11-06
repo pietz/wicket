@@ -53,7 +53,7 @@ final class AppRuntime {
     static let extensionCommandsInPalette = false
 
     let store: SettingsStore
-    let registry = CommandRegistry()
+    let registry: CommandRegistry
     let model: PaletteModel
     /// The one channel for transient messages: the session's command messages and the paste
     /// effect's post here, and the palette controller presents them.
@@ -66,7 +66,6 @@ final class AppRuntime {
     var showSettings: () -> Void = {}
 
     private let extensions: Extensions
-    private let askAI: AskAIRunner
     /// Every root source, before settings.json turns features off.
     private let allSources: [any ResultSource]
     private let work: [Feature: Work]
@@ -78,19 +77,21 @@ final class AppRuntime {
 
     /// `sources` are the host's own root sources (apps, calculator, files); the runtime adds the
     /// registry's commands, its fallback rows and, behind the switch, the extensions' root commands.
+    /// `builtins` is the table of Wicket's own commands (`live()` composes it): the registry takes
+    /// their commands, the router their runners.
     init(
-        store: SettingsStore, sources: [any ResultSource], work: [Feature: Work], askAI: AskAIRunner,
+        store: SettingsStore, sources: [any ResultSource], work: [Feature: Work], builtins: [Builtin],
         extensions: Extensions, usageURL: URL = PaletteModel.defaultUsageURL, system: System
     ) {
         self.store = store
         self.extensions = extensions
-        self.askAI = askAI
+        registry = CommandRegistry(builtins: builtins.map(\.command))
         self.work = work
         self.system = system
         var sources = sources + [CommandsSource(registry), FallbackSource(registry)]
         if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
         allSources = sources
-        let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
+        let runner = CommandRouter(builtins: builtins, extensions: extensions)
         // `apply` drops the sources of features that are off before the palette first shows.
         model = PaletteModel(
             sources: sources, runner: runner, registry: registry, messages: messages, usageURL: usageURL)
@@ -129,7 +130,6 @@ final class AppRuntime {
         let previous = applied
         applied = settings
         palette?.width = CGFloat(settings.paletteWidth)
-        askAI.provider = settings.ai.provider
 
         let changes = registry.changes
         registry.setDisabledFeatures(settings.disabledFeatures)
@@ -197,10 +197,7 @@ final class AppRuntime {
     private func registerExtensionCommands() {
         guard Self.extensionCommandsInPalette else { return }
         let changes = registry.changes
-        registry.setExtensionCommands(
-            extensions.commands.map {
-                RegisteredCommand(extension: $0.extensionID, command: $0.command, icon: $0.icon)
-            })
+        registry.setExtensionCommands(extensions.commands)
         registryChanged(since: changes, refreshed: false)
         applyHotKeys(applied ?? store.settings)  // A binding waiting for one of them takes effect.
     }
@@ -236,6 +233,7 @@ extension AppRuntime {
         let calculator = CalculatorSource()
         let diagnostics = Diagnostics()
         let store = SettingsStore(directory: Settings.directory(), diagnostics: diagnostics)
+        let settingsWindow = SettingsWindowController(store: store)
         weak var weakRuntime: AppRuntime?
         let work: [Feature: Work] = [
             .apps: Work(
@@ -251,18 +249,43 @@ extension AppRuntime {
             .calculator: Work(
                 start: { calculator.start { weakRuntime?.model.refresh() } }, stop: calculator.stop),
         ]
+        // Wicket's own commands: each is one entry, its registration and its runner. Search, keywords,
+        // aliases, hotkeys and its frame come from the registry and the invocation policy.
+        let builtins = [
+            Builtin(
+                RegisteredCommand(
+                    id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"), input: .none),
+                effect: { settingsWindow.show() }),
+            Builtin(
+                RegisteredCommand(
+                    id: .builtin("quit"), title: "Quit Wicket", icon: .symbol(name: "power"), input: .none),
+                effect: { NSApp.terminate(nil) }),
+            // Answers a question with the user's agent CLI. Its keyword `ai` (a built-in keeps it
+            // against extensions), alias or hotkey open its frame waiting for the question; the root
+            // offers it as a fallback row for whatever was typed.
+            Builtin(
+                RegisteredCommand(
+                    id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
+                    isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
+                    feature: .askAI),
+                runner: AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })),
+        ]
         let runtime = AppRuntime(
-            store: store, sources: [apps, calculator, FilesSource()], work: work, askAI: AskAIRunner(),
+            store: store, sources: [apps, calculator, FilesSource()], work: work, builtins: builtins,
             extensions: Extensions(diagnostics: diagnostics), system: .live)
         weakRuntime = runtime
         apps.onChange = { [weak runtime] in runtime?.model.refresh() }
 
-        let settingsWindow = SettingsWindowController(store: store)
-        let effects = SystemEffects(showSettings: { settingsWindow.show() }, messages: runtime.messages)
+        let effects = SystemEffects(messages: runtime.messages)
         let palette = PaletteController(
             model: runtime.model, dispatcher: ActionDispatcher(registry: runtime.registry, effects: effects))
         runtime.palette = palette
         runtime.showSettings = { settingsWindow.show() }
         return runtime
     }
+}
+
+extension CommandID {
+    /// Wicket Settings, a built-in in `live()`'s table, which ⌘, in the palette runs.
+    static let settings = CommandID.builtin("settings")
 }

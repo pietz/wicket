@@ -16,13 +16,11 @@ final class SystemEffects: ActionEffects {
     /// app's window isn't instant.
     static let settleDelay = Duration.milliseconds(50)
 
-    private let showSettings: () -> Void
     private let messages: Messages
     /// Whether this session asked for Accessibility already, so a paste prompts at most once.
     private var promptedForAccessibility = false
 
-    init(showSettings: @escaping () -> Void, messages: Messages) {
-        self.showSettings = showSettings
+    init(messages: Messages) {
         self.messages = messages
     }
 
@@ -124,14 +122,6 @@ final class SystemEffects: ActionEffects {
 
     func reveal(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
-    func openSettings() {
-        showSettings()
-    }
-
-    func quit() {
-        NSApp.terminate(nil)
     }
 }
 

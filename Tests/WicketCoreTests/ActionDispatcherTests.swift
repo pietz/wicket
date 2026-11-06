@@ -11,7 +11,6 @@ private final class FakeEffects: ActionEffects {
         case copy(String)
         case paste(String, RunningApp?)
         case reveal(URL)
-        case openSettings, quit
     }
 
     var calls: [Call] = []
@@ -20,8 +19,6 @@ private final class FakeEffects: ActionEffects {
     func copy(_ text: String) { calls.append(.copy(text)) }
     func paste(_ text: String, into app: RunningApp?) { calls.append(.paste(text, app)) }
     func reveal(_ url: URL) { calls.append(.reveal(url)) }
-    func openSettings() { calls.append(.openSettings) }
-    func quit() { calls.append(.quit) }
 }
 
 private let todoAdd = CommandID.extension("todo", "add")
@@ -32,7 +29,7 @@ private let markDone = RegisteredCommand(
 
 @MainActor
 private func dispatcher(_ effects: FakeEffects) -> ActionDispatcher {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([addTodo, markDone])
     return ActionDispatcher(registry: registry, effects: effects)
 }
@@ -59,17 +56,40 @@ private let mail = RunningApp(processID: 42, bundleID: "com.apple.mail")
     #expect(effects.calls.isEmpty)
 }
 
+/// A built-in that just does something is an ordinary command: the dispatcher opens it, and its
+/// runner does the effect and closes the palette before any frame shows.
 @MainActor
-@Test func builtinsRunThroughTheRegistry() async {
+@Test func builtinsThatDoSomethingRunTheirEffectAndClose() async {
     let effects = FakeEffects()
     let actions = dispatcher(effects)
-    #expect(
-        actions.perform(.run(command: BuiltinCommand.settings.id), in: ActionContext())
-            == .close)
-    #expect(
-        actions.perform(.run(command: BuiltinCommand.quit.id), in: ActionContext())
-            == .close)
-    #expect(effects.calls == [.openSettings, .quit])
+    let outcome = actions.perform(.run(command: CommandID.settings), in: ActionContext())
+    #expect(outcome == .open(CommandRun(.settings, .invoked)))
+    #expect(effects.calls.isEmpty)
+
+    var opened = 0
+    let registry = CommandRegistry(builtins: builtins)
+    let router = CommandRouter(
+        builtins: [Builtin(.settings, effect: { opened += 1 })], extensions: nil)
+    let session = PaletteSession(sources: [], runner: router, registry: registry)
+    var closed = 0
+    session.onClose = { closed += 1 }
+    guard case .open(let run) = outcome else { return }
+    session.open(run)
+    #expect(await eventually { closed == 1 })
+    #expect(opened == 1)
+    #expect(session.frames.count == 1)
+    #expect(session.opening == nil)
+}
+
+/// Lets the session's tasks run until `condition` holds, for up to two seconds.
+@MainActor
+private func eventually(_ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + .seconds(2)
+    while ContinuousClock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+    return condition()
 }
 
 @MainActor
@@ -100,7 +120,7 @@ private let mail = RunningApp(processID: 42, bundleID: "com.apple.mail")
     // the action submits.
     let ask = RegisteredCommand(
         id: .builtin("ask"), title: "Ask", icon: .symbol(name: "sparkles"), input: .submitText)
-    let registry = CommandRegistry(builtins: BuiltinCommand.allCases.map(\.registered) + [ask])
+    let registry = CommandRegistry(builtins: builtins + [ask])
     let actions = ActionDispatcher(registry: registry, effects: FakeEffects())
     let question = Invocation(command: ask.id, text: "Capital of France?")
     #expect(

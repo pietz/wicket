@@ -55,7 +55,7 @@ private func decode(_ json: String) throws -> Settings {
     #expect(settings.ignored == [])
     #expect(
         settings.commands == [
-            AskAI.command: CommandBinding(hotkey: try Shortcut("ctrl+option+a"), alias: "ask"),
+            CommandID.askAI: CommandBinding(hotkey: try Shortcut("ctrl+option+a"), alias: "ask"),
             .extension("github", "search"): CommandBinding(alias: "GH"),
             // Unknown commands are kept: the extension may be installed later.
             .extension("not-installed", "yet"): CommandBinding(hotkey: try Shortcut("f13")),
@@ -75,7 +75,7 @@ private func decode(_ json: String) throws -> Settings {
         """#)
     #expect(settings.hotkey == (try Shortcut("cmd+space")))
     #expect(settings.paletteWidth == 700)
-    #expect(settings.commands == [AskAI.command: CommandBinding(alias: "ask")])
+    #expect(settings.commands == [CommandID.askAI: CommandBinding(alias: "ask")])
     #expect(
         settings.ignored == [
             #"commands.builtin:ask-ai.hotkey: "ctrl+bogus": unknown key or modifier "bogus"; ignoring it"#,
@@ -127,7 +127,7 @@ private func read(_ url: URL) throws -> String {
         """#, to: url)
     try Settings.update(at: url) { $0.commands[.extension("a", "b"), default: CommandBinding()].alias = "ab" }
     try Settings.update(at: url) {
-        $0.commands[AskAI.command] = CommandBinding(hotkey: try! Shortcut("ctrl+opt+a"))
+        $0.commands[CommandID.askAI] = CommandBinding(hotkey: try! Shortcut("ctrl+opt+a"))
     }
     #expect(
         try read(url) == """
@@ -158,12 +158,12 @@ private func read(_ url: URL) throws -> String {
     try write(
         #"{"hotkey": "opt+space", "commands": {"builtin:quit": {"alias": "q", "hotkey": "ctrl+opt+q"}}}"#,
         to: url)
-    try Settings.update(at: url) { $0.commands[BuiltinCommand.quit.id]?.alias = nil }
+    try Settings.update(at: url) { $0.commands[CommandID.quit]?.alias = nil }
     #expect(
         try Settings.load(from: url).commands == [
-            BuiltinCommand.quit.id: CommandBinding(hotkey: try Shortcut("ctrl+opt+q"))
+            CommandID.quit: CommandBinding(hotkey: try Shortcut("ctrl+opt+q"))
         ])
-    try Settings.update(at: url) { $0.commands[BuiltinCommand.quit.id] = nil }
+    try Settings.update(at: url) { $0.commands[CommandID.quit] = nil }
     #expect(try read(url) == "{\n  \"hotkey\" : \"opt+space\"\n}\n")
 }
 
@@ -181,14 +181,14 @@ private let hidden = RegisteredCommand(
 
 @MainActor
 private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([github, unicode, hidden])
     registry.setAliases(aliases)
     return registry
 }
 
 @MainActor @Test func anAliasAloneListsItsCommandInTheAliasTier() throws {
-    let registry = makeRegistry([BuiltinCommand.settings.id: "Prefs"])
+    let registry = makeRegistry([CommandID.settings: "Prefs"])
     let hit = try #require(registry.search("prefs").first)
     #expect(hit.id == "commands:settings")
     #expect(hit.relevance == .alias)
@@ -196,12 +196,12 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
     #expect(registry.search("prefs ").first?.relevance == .alias)
     // A prefix of the alias is an ordinary match.
     #expect(registry.search("pre").first?.relevance == .match)
-    #expect(registry.command(alias: "PREFS")?.id == BuiltinCommand.settings.id)
-    #expect(registry.alias(of: BuiltinCommand.settings.id) == "Prefs")
+    #expect(registry.command(alias: "PREFS")?.id == CommandID.settings)
+    #expect(registry.alias(of: CommandID.settings) == "Prefs")
 }
 
 @MainActor @Test func theAliasTierBeatsAnAppOfThatNameAndOtherExactMatches() throws {
-    let registry = makeRegistry([BuiltinCommand.quit.id: "safari"])
+    let registry = makeRegistry([CommandID.quit: "safari"])
     let quit = try #require(registry.search("safari").first)
     let app = Item(
         id: "apps:/Applications/Safari.app", title: "Safari", icon: .symbol(name: "safari"),
@@ -217,21 +217,21 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
     // Its own keyword still works.
     #expect(registry.command(keyword: "gh")?.id == github.id)
     // Commands that take no text, and hidden ones, are never opened by a word and a space.
-    let other = makeRegistry([BuiltinCommand.settings.id: "s", hidden.id: "done"])
+    let other = makeRegistry([CommandID.settings: "s", hidden.id: "done"])
     #expect(other.command(keyword: "s") == nil)
     #expect(other.command(keyword: "done") == nil)
     #expect(other.search("done").isEmpty)
 }
 
 @MainActor @Test func aliasAgainstAliasTheFirstIDKeepsIt() {
-    let registry = makeRegistry([github.id: "s", unicode.id: "S", BuiltinCommand.settings.id: "s"])
-    #expect(registry.command(alias: "s")?.id == BuiltinCommand.settings.id)
+    let registry = makeRegistry([github.id: "s", unicode.id: "S", CommandID.settings: "s"])
+    #expect(registry.command(alias: "s")?.id == CommandID.settings)
     #expect(registry.alias(of: github.id) == nil)
     #expect(
         Set(registry.aliasConflicts)
             == Set<CommandRegistry.KeywordConflict>([
-                .init(keyword: "s", winner: BuiltinCommand.settings.id, loser: github.id),
-                .init(keyword: "s", winner: BuiltinCommand.settings.id, loser: unicode.id),
+                .init(keyword: "s", winner: CommandID.settings, loser: github.id),
+                .init(keyword: "s", winner: CommandID.settings, loser: unicode.id),
             ]))
 
     let extensions = makeRegistry([unicode.id: "x", github.id: "x"])
@@ -246,11 +246,11 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
     #expect(registry.keywordConflicts == [.init(keyword: "gh", winner: unicode.id, loser: github.id)])
 
     // An alias of a command that takes no text still reserves the word.
-    let settings = makeRegistry([BuiltinCommand.settings.id: "uc"])
+    let settings = makeRegistry([CommandID.settings: "uc"])
     #expect(settings.command(keyword: "uc") == nil)
     #expect(
         settings.keywordConflicts == [
-            .init(keyword: "uc", winner: BuiltinCommand.settings.id, loser: unicode.id)
+            .init(keyword: "uc", winner: CommandID.settings, loser: unicode.id)
         ])
     #expect(settings.search("uc").first?.id == "commands:settings")
 
@@ -300,17 +300,17 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
 }
 
 @MainActor @Test func anAliasForAskAIWorksLikeItsKeyword() throws {
-    let registry = makeRegistry([AskAI.command: "ask"])
-    #expect(registry.command(keyword: "ask")?.id == AskAI.command)
-    #expect(registry.command(keyword: "ai")?.id == AskAI.command)
+    let registry = makeRegistry([CommandID.askAI: "ask"])
+    #expect(registry.command(keyword: "ask")?.id == CommandID.askAI)
+    #expect(registry.command(keyword: "ai")?.id == CommandID.askAI)
     // Its frame waits for the question with what followed the alias in the field; nothing runs.
     let session = PaletteSession(
-        sources: [], runner: CommandRouter(builtins: [:], extensions: nil), registry: registry)
+        sources: [], runner: CommandRouter(builtins: [], extensions: nil), registry: registry)
     session.query = "Ask capital of peru"
     #expect(session.frames.count == 2)
     #expect(session.query == "capital of peru")
     #expect(!session.top.isLoading)
-    #expect(session.top.target?.actions == [AskAI.action(asking: "capital of peru")])
+    #expect(session.top.target?.actions == [asking("capital of peru")])
     // Without the alias the word is just a question.
     #expect(makeRegistry([:]).command(keyword: "ask") == nil)
 }
@@ -323,22 +323,22 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     let commands: [CommandID: CommandBinding] = [
         .extension("b", "two"): CommandBinding(hotkey: shortcut("ctrl+opt+k")),
         .extension("a", "one"): CommandBinding(hotkey: shortcut("ctrl+opt+k")),
-        BuiltinCommand.quit.id: CommandBinding(hotkey: shortcut("opt+space")),
-        AskAI.command: CommandBinding(hotkey: shortcut("ctrl+opt+a"), alias: "ask"),
-        BuiltinCommand.settings.id: CommandBinding(alias: "s"),
+        CommandID.quit: CommandBinding(hotkey: shortcut("opt+space")),
+        CommandID.askAI: CommandBinding(hotkey: shortcut("ctrl+opt+a"), alias: "ask"),
+        CommandID.settings: CommandBinding(alias: "s"),
         .extension("later", "cmd"): CommandBinding(hotkey: shortcut("ctrl+opt+a")),
     ]
     let registered: Set<CommandID> = [
-        .extension("a", "one"), .extension("b", "two"), BuiltinCommand.quit.id, AskAI.command,
-        BuiltinCommand.settings.id,
+        .extension("a", "one"), .extension("b", "two"), CommandID.quit, CommandID.askAI,
+        CommandID.settings,
     ]
     let (hotkeys, rejected) = CommandHotkeys.resolve(
         commands, palette: .default, isRegistered: { registered.contains($0) })
     #expect(
-        hotkeys == [shortcut("ctrl+opt+k"): .extension("a", "one"), shortcut("ctrl+opt+a"): AskAI.command])
+        hotkeys == [shortcut("ctrl+opt+k"): .extension("a", "one"), shortcut("ctrl+opt+a"): CommandID.askAI])
     #expect(
         rejected == [
-            .init(command: BuiltinCommand.quit.id, hotkey: .default, reason: .palette),
+            .init(command: CommandID.quit, hotkey: .default, reason: .palette),
             .init(
                 command: .extension("b", "two"), hotkey: shortcut("ctrl+opt+k"),
                 reason: .taken(by: .extension("a", "one"))),
@@ -355,9 +355,9 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     let (hotkeys, rejected) = CommandHotkeys.resolve(
         [
             .extension("aaa", "x"): CommandBinding(hotkey: shortcut("cmd+shift+1")),
-            BuiltinCommand.settings.id: CommandBinding(hotkey: shortcut("shift+cmd+1")),
+            CommandID.settings: CommandBinding(hotkey: shortcut("shift+cmd+1")),
         ], palette: .default, isRegistered: { _ in true })
-    #expect(hotkeys == [shortcut("cmd+shift+1"): BuiltinCommand.settings.id])
+    #expect(hotkeys == [shortcut("cmd+shift+1"): CommandID.settings])
     #expect(rejected.map(\.command) == [.extension("aaa", "x")])
 }
 
@@ -370,24 +370,24 @@ private final class Effects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
-    func openSettings() { calls.append("settings") }
-    func quit() { calls.append("quit") }
 }
 
-/// A hotkey resolves to a `CommandID`, which runs through the dispatcher like its row: Settings and
-/// Quit run their effect and close; a command that shows something opens its frame.
+/// A hotkey resolves to a `CommandID`, which runs through the dispatcher like its row: every command
+/// opens its frame (Settings' runner closes before one shows).
 @MainActor @Test func aBoundCommandRunsThroughTheDispatcher() throws {
     let registry = makeRegistry([:])
     let effects = Effects()
     let dispatcher = ActionDispatcher(registry: registry, effects: effects)
     let (hotkeys, _) = CommandHotkeys.resolve(
         [
-            BuiltinCommand.settings.id: CommandBinding(hotkey: shortcut("ctrl+opt+,")),
+            CommandID.settings: CommandBinding(hotkey: shortcut("ctrl+opt+,")),
             github.id: CommandBinding(hotkey: shortcut("ctrl+opt+g")),
         ], palette: .default, isRegistered: { registry.command($0) != nil })
     let settings = try #require(hotkeys[shortcut("ctrl+opt+,")])
-    #expect(dispatcher.perform(.run(command: settings), in: ActionContext()) == .close)
-    #expect(effects.calls == ["settings"])
+    #expect(
+        dispatcher.perform(.run(command: settings), in: ActionContext())
+            == .open(CommandRun(.settings, .invoked)))
+    #expect(effects.calls.isEmpty)
 
     let search = try #require(hotkeys[shortcut("ctrl+opt+g")])
     let outcome = dispatcher.perform(.run(command: search), in: ActionContext())
@@ -397,7 +397,7 @@ private final class Effects: ActionEffects {
 
     // The palette session opens it: a live command's frame at once.
     let session = PaletteSession(
-        sources: [], runner: CommandRouter(builtins: [:], extensions: nil), registry: registry)
+        sources: [], runner: CommandRouter(builtins: [], extensions: nil), registry: registry)
     guard case .open(let run) = outcome else { return }
     session.open(run)
     #expect(session.frames.count == 2)
@@ -415,15 +415,15 @@ private final class Effects: ActionEffects {
     let isRegistered = { (id: CommandID) in id != missing }
 
     // Only a registered command's binding takes a hotkey or an alias from another.
-    #expect(settings.hotkeyConflict(k, for: BuiltinCommand.askAI.id, isRegistered: isRegistered) == nil)
-    #expect(settings.aliasConflict("GH", for: BuiltinCommand.askAI.id, isRegistered: isRegistered) == nil)
+    #expect(settings.hotkeyConflict(k, for: CommandID.askAI, isRegistered: isRegistered) == nil)
+    #expect(settings.aliasConflict("GH", for: CommandID.askAI, isRegistered: isRegistered) == nil)
 
     settings.commands[installed] = CommandBinding(hotkey: k, alias: "gh")
     #expect(
-        settings.hotkeyConflict(k, for: BuiltinCommand.askAI.id, isRegistered: isRegistered)
+        settings.hotkeyConflict(k, for: CommandID.askAI, isRegistered: isRegistered)
             == .taken(by: installed))
     #expect(
-        settings.aliasConflict("GH", for: BuiltinCommand.askAI.id, isRegistered: isRegistered) == installed)
+        settings.aliasConflict("GH", for: CommandID.askAI, isRegistered: isRegistered) == installed)
     // A command's own binding is no conflict, and the palette's hotkey always is.
     #expect(settings.hotkeyConflict(k, for: installed, isRegistered: isRegistered) == nil)
     #expect(settings.aliasConflict("gh", for: installed, isRegistered: isRegistered) == nil)

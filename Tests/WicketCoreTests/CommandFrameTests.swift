@@ -64,7 +64,7 @@ private let quit = RegisteredCommand(
 
 @MainActor
 private func session(debounce: Duration = .zero) -> (PaletteSession, FakeRunner, [String]) {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([search, reviews, quit])
     let runner = FakeRunner()
     return (
@@ -349,7 +349,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 }
 
 @MainActor @Test func withoutARunnerAFrameSaysSo() async {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([reviews])
     let session = PaletteSession(sources: [], registry: registry)
     session.query = "prr "

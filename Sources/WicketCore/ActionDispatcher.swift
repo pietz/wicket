@@ -44,16 +44,15 @@ public protocol ActionEffects {
     /// when it can't, the text is copied and a message says why.
     func paste(_ text: String, into app: RunningApp?)
     func reveal(_ url: URL)
-    func openSettings()
-    func quit()
 }
 
 /// Turns an action and its context into an outcome: the one place where activating something
 /// reaches past the palette. `run` actions resolve through the command registry, so built-ins and
 /// extension commands are invoked the same way, by `CommandID`, and what a command does with its
-/// text and whether a run may be resent come from the one invocation policy (`CommandRun`). Settings
-/// and Quit run their effect here; every other command opens its frame, whose run the palette session
-/// owns.
+/// text and whether a run may be resent come from the one invocation policy (`CommandRun`). Every
+/// command opens its frame, whose run the palette session owns; one that just does something (Settings,
+/// Quit) answers `close` before a frame shows. What the host does for the user is a built-in reached
+/// by `run`, so `Item.Action` gains no cases for it.
 @MainActor
 public struct ActionDispatcher {
     private let registry: CommandRegistry
@@ -89,16 +88,6 @@ public struct ActionDispatcher {
             return .push(
                 .failure("Command Not Found", "This command isn't installed any more.", command: id))
         }
-        switch command.id {
-        case BuiltinCommand.settings.id:
-            effects.openSettings()
-            return .close
-        case BuiltinCommand.quit.id:
-            effects.quit()
-            return .close
-        default:
-            // Extension commands, and built-ins that show something: their frame runs them.
-            return .open(CommandRun(command, .invoked, text: text, args: args, revision: revision))
-        }
+        return .open(CommandRun(command, .invoked, text: text, args: args, revision: revision))
     }
 }

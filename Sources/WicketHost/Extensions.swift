@@ -2,16 +2,6 @@ import Foundation
 import WicketCore
 import os
 
-/// A command of an installed extension, as the palette lists and routes it.
-public struct ExtensionCommand: Hashable, Sendable {
-    public let extensionID: String
-    public let command: Manifest.Command
-    /// The command's icon, else the extension's.
-    public let icon: Item.Icon?
-
-    public var id: CommandID { .extension(extensionID, command.id) }
-}
-
 /// The installed extensions: one folder per extension in `directory`, named by its id. Manifests are
 /// validated and each folder's revision computed on `load`, again when a folder changes, which also
 /// stops that extension's process. Processes start with the first request and are reaped when idle.
@@ -69,26 +59,29 @@ public final class Extensions {
         }
     }
 
-    /// Every command of every extension, hidden ones included, in manifest order.
-    public var commands: [ExtensionCommand] {
+    /// Every command of every extension, hidden ones included, as the registry takes them: by
+    /// extension id, then in manifest order; each with its own icon, else its extension's.
+    public var commands: [RegisteredCommand] {
         installed.values.sorted { $0.manifest.id < $1.manifest.id }.flatMap { ext in
             ext.manifest.commands.map {
-                ExtensionCommand(
-                    extensionID: ext.manifest.id, command: $0, icon: $0.icon ?? ext.manifest.icon)
+                RegisteredCommand(extension: ext.manifest.id, command: $0, icon: $0.icon ?? ext.manifest.icon)
             }
         }
     }
 
     /// The root commands a main-search query goes to: those whose pattern matches it, or that have
     /// none. Empty queries go nowhere.
-    public func rootCommands(matching query: String) -> [ExtensionCommand] {
+    public func rootCommands(matching query: String) -> [RegisteredCommand] {
         guard !query.isEmpty else { return [] }
-        return commands.filter { command in
-            guard command.command.mode == .root else { return false }
-            guard let pattern = installed[command.extensionID]?.patterns[command.command.id] else {
-                return true
+        return installed.values.sorted { $0.manifest.id < $1.manifest.id }.flatMap { ext in
+            ext.manifest.commands.filter { command in
+                guard command.mode == .root else { return false }
+                guard let pattern = ext.patterns[command.id] else { return true }
+                return pattern.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)) != nil
             }
-            return pattern.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)) != nil
+            .map {
+                RegisteredCommand(extension: ext.manifest.id, command: $0, icon: $0.icon ?? ext.manifest.icon)
+            }
         }
     }
 

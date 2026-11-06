@@ -139,10 +139,7 @@ private func actingExtension() throws -> TestExtension {
     }
     extensions.load()
     let registry = CommandRegistry()
-    registry.setExtensionCommands(
-        extensions.commands.map {
-            RegisteredCommand(extension: $0.extensionID, command: $0.command, icon: nil)
-        })
+    registry.setExtensionCommands(extensions.commands)
     let dispatcher = ActionDispatcher(registry: registry, effects: NoEffects())
     let loaded = try #require(extensions.revisions["acting"])
 
@@ -187,6 +184,4 @@ private final class NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
-    func openSettings() {}
-    func quit() {}
 }

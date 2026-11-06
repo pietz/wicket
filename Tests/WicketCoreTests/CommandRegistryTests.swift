@@ -18,20 +18,20 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 
 @MainActor
 @Test func builtinsAreListedAndRunByID() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     #expect(titles(registry.search("")) == ["Wicket Settings", "Quit Wicket"])
     let quit = try #require(registry.search("quit").first)
     // The same row id as before the registry, so recorded usage still applies.
     #expect(quit.id == "commands:quit")
     #expect(quit.actions == [.run(command: .builtin("quit"))])
     #expect(quit.origin == nil)
-    #expect(registry.command(BuiltinCommand.settings.id)?.title == "Wicket Settings")
+    #expect(registry.command(CommandID.settings)?.title == "Wicket Settings")
     #expect(registry.command(.builtin("nope")) == nil)
 }
 
 @MainActor
 @Test func extensionCommandsAreListedUnlessHiddenOrRoot() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([
         try command("todo", "add"), try command("todo", "done", hidden: true),
         try command("units", "convert", mode: "root"),
@@ -47,7 +47,7 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 
 @MainActor
 @Test func settingExtensionCommandsReplacesTheEarlierOnes() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([try command("todo", "add", keyword: "todo")])
     registry.setExtensionCommands([try command("notes", "new")])
     #expect(registry.command(.extension("todo", "add")) == nil)
@@ -57,16 +57,16 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 
 @MainActor
 @Test func anExtensionCantTakeABuiltinsIdentity() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     let impostor = RegisteredCommand(id: .builtin("quit"), title: "Not Quit", icon: .symbol(name: "x"))
     registry.setExtensionCommands([impostor])
     #expect(registry.command(.builtin("quit"))?.title == "Quit Wicket")
-    #expect(registry.commands.count == BuiltinCommand.allCases.count)
+    #expect(registry.commands.count == builtins.count)
 }
 
 @MainActor
 @Test func keywordsResolveIgnoringCaseAndMatchInSearch() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([try command("unicode", "search", keyword: "uc")])
     #expect(registry.command(keyword: "UC")?.id == .extension("unicode", "search"))
     #expect(registry.command(keyword: "u") == nil)
@@ -93,7 +93,7 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 
 @MainActor
 @Test func amongExtensionsTheFirstInRegistryOrderKeepsAKeyword() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([
         try command("alpha", "go", keyword: "go"), try command("beta", "go", keyword: "go"),
     ])
@@ -103,7 +103,7 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 
 @MainActor
 @Test func commandsSourceProjectsTheRegistry() throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     let source = CommandsSource(registry)
     #expect(source.id == "commands")
     #expect(titles(source.instant(Query(text: "sett", generation: 1))) == ["Wicket Settings"])
@@ -112,14 +112,14 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 }
 
 @MainActor @Test func changesCountChangesOnly() {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     let start = registry.changes
     registry.setAliases([:])
     registry.setDisabledFeatures([])
     #expect(registry.changes == start)
-    registry.setAliases([BuiltinCommand.quit.id: "bye"])
+    registry.setAliases([CommandID.quit: "bye"])
     #expect(registry.changes == start + 1)
-    registry.setAliases([BuiltinCommand.quit.id: "bye"])
+    registry.setAliases([CommandID.quit: "bye"])
     registry.setDisabledFeatures([.askAI])
     #expect(registry.changes == start + 2)
 }

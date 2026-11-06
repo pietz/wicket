@@ -327,7 +327,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
             guard model.actionMenu == nil, model.results.indices.contains(row) else { break }
             run(ActionTarget(item: model.results[row]), action: 0)
         case .openSettings:
-            perform(.run(command: BuiltinCommand.settings.id))
+            perform(.run(command: .settings))
         case .move(let delta):
             if model.actionMenu != nil {
                 model.actionMenu?.moveSelection(by: delta)

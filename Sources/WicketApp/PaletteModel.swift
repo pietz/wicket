@@ -2,24 +2,6 @@ import Foundation
 import Observation
 import WicketCore
 
-/// What the pill is doing. Only idle exists today; listening and thinking become cases here, each
-/// with its own glyph and prompt.
-enum PaletteMode {
-    case idle
-
-    var symbol: String {
-        switch self {
-        case .idle: "magnifyingglass"
-        }
-    }
-
-    var prompt: String {
-        switch self {
-        case .idle: "Search or run a command"
-        }
-    }
-}
-
 /// The palette's view state around its `PaletteSession` (Core), which owns the frames, the search
 /// and the navigation: this adds what only the window needs (focus, the action panel, the card's
 /// height) and the usage store.
@@ -51,7 +33,6 @@ final class PaletteModel {
     var commandHeld = false
     /// The name of the app a paste types into (frontmost at summon), for "Paste to Mail".
     var pasteTarget: String?
-    var mode = PaletteMode.idle
     /// The height of the results card under the pill, 0 while there is none. Set by
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0

@@ -96,26 +96,26 @@ private struct StubSource: ResultSource {
 // MARK: Commands
 
 @MainActor @Test func askAIOffUnregistersItsCommandAndItsBindingsGoInert() throws {
-    let registry = CommandRegistry()
-    registry.setAliases([AskAI.command: "ask"])
+    let registry = CommandRegistry(builtins: builtins)
+    registry.setAliases([CommandID.askAI: "ask"])
     let hotkey = try Shortcut("ctrl+option+a")
-    let bindings = [AskAI.command: CommandBinding(hotkey: hotkey, alias: "ask")]
+    let bindings = [CommandID.askAI: CommandBinding(hotkey: hotkey, alias: "ask")]
     let resolve = {
         CommandHotkeys.resolve(bindings, palette: .default, isRegistered: { registry.command($0) != nil })
     }
-    #expect(resolve().hotkeys == [hotkey: AskAI.command])
+    #expect(resolve().hotkeys == [hotkey: CommandID.askAI])
 
     registry.setDisabledFeatures([.askAI])
-    #expect(registry.command(AskAI.command) == nil)
+    #expect(registry.command(CommandID.askAI) == nil)
     #expect(registry.command(alias: "ask") == nil)
-    #expect(registry.alias(of: AskAI.command) == nil)
+    #expect(registry.alias(of: CommandID.askAI) == nil)
     #expect(resolve().hotkeys.isEmpty)
     #expect(resolve().rejected.isEmpty)
-    #expect(registry.command(BuiltinCommand.settings.id) != nil)
+    #expect(registry.command(CommandID.settings) != nil)
 
     registry.setDisabledFeatures([])
-    #expect(registry.alias(of: AskAI.command) == "ask")
-    #expect(resolve().hotkeys == [hotkey: AskAI.command])
+    #expect(registry.alias(of: CommandID.askAI) == "ask")
+    #expect(resolve().hotkeys == [hotkey: CommandID.askAI])
 }
 
 // MARK: Live changes

@@ -48,8 +48,6 @@ private struct NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
-    func openSettings() {}
-    func quit() {}
 }
 
 /// The review's gap: Return on a listed command's row, without args, was classed as a query and

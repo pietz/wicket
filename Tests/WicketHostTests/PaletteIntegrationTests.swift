@@ -20,8 +20,6 @@ private final class InertEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
-    func openSettings() {}
-    func quit() {}
 }
 
 /// A palette over copies of the named extensions, with every extension command registered (the
@@ -64,10 +62,7 @@ private struct Palette {
         }
         extensions.load()
         let registry = CommandRegistry()
-        registry.setExtensionCommands(
-            extensions.commands.map {
-                RegisteredCommand(extension: $0.extensionID, command: $0.command, icon: $0.icon)
-            })
+        registry.setExtensionCommands(extensions.commands)
         root = ExtensionRootSource(extensions, debounce: .milliseconds(30))
         session = PaletteSession(
             sources: [CommandsSource(registry), root], runner: extensions, registry: registry,

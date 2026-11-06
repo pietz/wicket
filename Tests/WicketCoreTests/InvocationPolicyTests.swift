@@ -26,8 +26,6 @@ private final class Effects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
-    func openSettings() { calls.append("settings") }
-    func quit() { calls.append("quit") }
 }
 
 @MainActor
@@ -58,7 +56,7 @@ private func manifestCommands() throws -> [RegisteredCommand] {
 /// One palette over the built-ins and the manifest's commands, with an alias for each kind.
 @MainActor
 private struct Palette {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     let effects = Effects()
     let runner = Recorder()
     let session: PaletteSession
@@ -67,8 +65,8 @@ private struct Palette {
     init() throws {
         registry.setExtensionCommands(try manifestCommands())
         registry.setAliases([
-            BuiltinCommand.settings.id: "prefs", .extension("todo", "toggle"): "dm",
-            .extension("todo", "find"): "f", AskAI.command: "ask",
+            CommandID.settings: "prefs", .extension("todo", "toggle"): "dm",
+            .extension("todo", "find"): "f", CommandID.askAI: "ask",
         ])
         session = PaletteSession(
             sources: [CommandsSource(registry), FallbackSource(registry)], runner: runner, registry: registry,
@@ -130,9 +128,10 @@ private let find = CommandID.extension("todo", "find")
     throws
 {
     let palette = try Palette()
-    #expect(try palette.row(BuiltinCommand.settings.id) == .close)
-    #expect(try palette.hotkey(BuiltinCommand.settings.id) == .close)
-    #expect(palette.effects.calls == ["settings", "settings"])
+    // It opens like any command; its runner does the effect and closes before a frame shows.
+    let opened = ActionOutcome.open(CommandRun(.settings, .invoked))
+    #expect(try palette.row(CommandID.settings) == opened)
+    #expect(try palette.hotkey(CommandID.settings) == opened)
     // A space after its alias opens nothing: it stays a root search.
     palette.session.query = "prefs "
     #expect(palette.session.frames.count == 1)
@@ -183,18 +182,18 @@ private let find = CommandID.extension("todo", "find")
 
 @MainActor @Test func aSubmitTextCommandWaitsForItsTextUnlessItWasSubmitted() async throws {
     let palette = try Palette()
-    let ask = try palette.command(AskAI.command)
+    let ask = try palette.command(CommandID.askAI)
     let waiting = CommandRun(
-        command: ask, invocation: Invocation(command: AskAI.command), retry: .never, query: "")
+        command: ask, invocation: Invocation(command: CommandID.askAI), retry: .never, query: "")
     // A hotkey or `run` without text opens its frame waiting for the text; nothing runs.
-    #expect(try palette.hotkey(AskAI.command) == .open(waiting))
+    #expect(try palette.hotkey(CommandID.askAI) == .open(waiting))
     #expect(waiting.awaitsText)
     #expect(CommandRun(ask, .invoked, text: "  ") == waiting)
     // Submitted text (its fallback row, a `run` with text) runs now.
     #expect(
         CommandRun(ask, .invoked, text: "why")
             == CommandRun(
-                command: ask, invocation: Invocation(command: AskAI.command, text: "why"), retry: .never))
+                command: ask, invocation: Invocation(command: CommandID.askAI, text: "why"), retry: .never))
 
     // Its keyword and its alias put what followed them in the waiting frame's field; never run it.
     for typed in ["ai why is the sky blue", "ask why is the sky blue"] {
@@ -212,7 +211,7 @@ private let find = CommandID.extension("todo", "find")
 
     // Return submits the field, which runs it in a frame of its own; Escape goes back to the question.
     let target = try #require(palette.session.top.target)
-    #expect(target.actions == [AskAI.action(asking: "why is the sky blue?")])
+    #expect(target.actions == [asking("why is the sky blue?")])
     #expect(target.item == nil)
     guard case .open(let run) = palette.dispatcher.perform(target.actions[0], in: ActionContext()) else {
         Issue.record("submitting didn't open a run")
@@ -232,12 +231,12 @@ private let find = CommandID.extension("todo", "find")
 @MainActor @Test func askAIKeepsItsKeywordAgainstAnExtension() async throws {
     let rival = RegisteredCommand(
         id: .extension("assistant", "chat"), title: "Assistant", icon: .symbol(name: "bubble"), keyword: "ai")
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([rival])
-    #expect(registry.command(keyword: "ai")?.id == AskAI.command)
+    #expect(registry.command(keyword: "ai")?.id == CommandID.askAI)
     #expect(
         registry.keywordConflicts
-            == [CommandRegistry.KeywordConflict(keyword: "ai", winner: AskAI.command, loser: rival.id)])
+            == [CommandRegistry.KeywordConflict(keyword: "ai", winner: CommandID.askAI, loser: rival.id)])
 
     // So "ai " opens Ask AI, waiting for the question, and the extension is never run.
     let runner = Recorder()
@@ -247,7 +246,7 @@ private let find = CommandID.extension("todo", "find")
         Issue.record("no frame")
         return
     }
-    #expect(frame.run?.command.id == AskAI.command)
+    #expect(frame.run?.command.id == CommandID.askAI)
     try? await Task.sleep(for: .milliseconds(20))
     #expect(runner.runs.isEmpty)
 

@@ -27,7 +27,7 @@ public final class ExtensionRootSource: ResultSource {
         guard !matching.isEmpty else { return nil }
         let commands = matching.map(\.id)
         // Root queries are searches, so their manifest translation makes them safe to repeat.
-        let retry = Dictionary(matching.map { ($0.id, $0.command.retry) }, uniquingKeysWith: { a, _ in a })
+        let retry = Dictionary(matching.map { ($0.id, $0.retry) }, uniquingKeysWith: { a, _ in a })
         let text = query.text
         return AsyncStream { continuation in
             // Cancelling it (a newer query, dismissal) cancels every request in flight.

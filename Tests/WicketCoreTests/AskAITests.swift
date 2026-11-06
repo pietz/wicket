@@ -24,8 +24,6 @@ private struct NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
-    func openSettings() {}
-    func quit() {}
 }
 
 /// Lets the session's tasks run until `condition` holds, for up to two seconds.
@@ -40,7 +38,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 }
 
 @MainActor
-private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegistry()) -> [Item] {
+private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegistry(builtins: builtins))
+    -> [Item]
+{
     FallbackSource(registry).instant(Query(text: text, generation: 1))
 }
 
@@ -53,8 +53,8 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
         #expect(row.title == "Ask AI")
         #expect(row.subtitle == text)
         #expect(row.relevance == .fallback)
-        #expect(row.origin == AskAI.command)
-        #expect(row.actions == [AskAI.action(asking: text)])
+        #expect(row.origin == CommandID.askAI)
+        #expect(row.actions == [asking(text)])
     }
     // The same id while typing, so the selection follows it.
     #expect(fallbacks("ca").first?.id == fallbacks("capital").first?.id)
@@ -67,8 +67,8 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     // Only a submit-text command can take the query as its text.
     let notSubmit = RegisteredCommand(
         id: .builtin("live"), title: "Live", icon: .symbol(name: "bolt"), input: .liveText, isFallback: true)
-    let registry = CommandRegistry(builtins: BuiltinCommand.allCases.map(\.registered) + [web, notSubmit])
-    #expect(fallbacks("paris", registry).map(\.origin) == [AskAI.command, web.id])
+    let registry = CommandRegistry(builtins: builtins + [web, notSubmit])
+    #expect(fallbacks("paris", registry).map(\.origin) == [CommandID.askAI, web.id])
     #expect(
         fallbacks("paris", registry)[1].actions == [.run(command: web.id, text: "paris", title: web.title)])
 
@@ -89,19 +89,19 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
         actions: [], origin: .builtin("web"))
     #expect(
         Ranker.rank(
-            [row, web], query: "saf", usage: { _ in 0 }, fallbackOrder: [.builtin("web"), AskAI.command]
+            [row, web], query: "saf", usage: { _ in 0 }, fallbackOrder: [.builtin("web"), CommandID.askAI]
         )
         .map(\.id) == [web.id, row.id])
 }
 
 @MainActor @Test func pickingTheRowRunsAskAIOnTheQueryThroughTheRouter() async throws {
-    let registry = CommandRegistry()
+    let registry = CommandRegistry(builtins: builtins)
     let askAI = RecordingRunner()
     let extensions = RecordingRunner()
-    let router = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
+    let router = CommandRouter(builtins: [Builtin(.askAI, runner: askAI)], extensions: extensions)
     let session = PaletteSession(sources: [FallbackSource(registry)], runner: router, registry: registry)
     // Not listed: the root offers it only as its fallback row.
-    #expect(registry.command(AskAI.command)?.isListed == false)
+    #expect(registry.command(CommandID.askAI)?.isListed == false)
     #expect(registry.search("ask").isEmpty)
 
     session.query = "capital of peru"
@@ -112,7 +112,7 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
         Issue.record("expected Ask AI to open its frame, got \(outcome)")
         return
     }
-    #expect(run == CommandRun(BuiltinCommand.askAI.registered, .invoked, text: "capital of peru"))
+    #expect(run == CommandRun(RegisteredCommand.askAI, .invoked, text: "capital of peru"))
     #expect(run.query == nil)
     session.open(run)
     #expect(session.opening == run)
@@ -125,10 +125,10 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
 @MainActor @Test func theRouterSendsEachRunToItsOwner() async {
     let askAI = RecordingRunner()
     let extensions = RecordingRunner()
-    let router = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
-    _ = router.run(Invocation(command: AskAI.command, text: "why"), retry: .never)
+    let router = CommandRouter(builtins: [Builtin(.askAI, runner: askAI)], extensions: extensions)
+    _ = router.run(Invocation(command: CommandID.askAI, text: "why"), retry: .never)
     _ = router.run(Invocation(command: .extension("unicode", "search"), text: "x"), retry: .safeToRepeat)
-    #expect(askAI.runs.map(\.command) == [AskAI.command])
+    #expect(askAI.runs.map(\.command) == [CommandID.askAI])
     #expect(extensions.runs.map(\.text) == ["x"])
 
     // A built-in nothing runs fails its frame rather than hanging it.

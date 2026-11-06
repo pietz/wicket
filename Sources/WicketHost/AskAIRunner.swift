@@ -28,20 +28,20 @@ public struct AgentBackend: Sendable {
         })
 }
 
-/// Runs Ask AI (`AskAI`, WicketCore) for its frame: the question goes to the user's agent CLI in
+/// Runs Ask AI (a built-in in the app's table) for its frame: the question goes to the user's agent CLI in
 /// answer mode (no tools), and the frame shows a detail that grows with the streamed text, at most
 /// about 30 times a second, replaced by the final answer at the end. Its actions copy or paste the
 /// answer. A provider that isn't ready, or a run that fails, ends the stream with an error the frame
 /// shows; ending the iteration (pop, dismiss) kills the agent's process tree.
 ///
-/// The provider is checked before each run, never at launch: the chosen one (`provider`, from
-/// settings), else the first ready one in `AgentProvider.allCases` order. A provider found ready is
+/// The provider is checked before each run, never at launch: the chosen one (`provider`, read from
+/// the applied settings on each run), else the first ready one in `AgentProvider.allCases` order. A provider found ready is
 /// trusted for `statusLifetime`, so repeated questions skip the 20 to 150 ms check; one that isn't
 /// ready is checked again every time, so signing in takes effect at once.
 @MainActor
 public final class AskAIRunner: CommandRunner {
-    /// The settings' `ai.provider`; nil for the first ready one.
-    public var provider: AgentProvider?
+    /// The settings' `ai.provider`, read when a question is asked; nil for the first ready one.
+    public var provider: @MainActor () -> AgentProvider?
     private let backend: AgentBackend
     private let interval: Duration
     private let statusLifetime: Duration
@@ -52,8 +52,9 @@ public final class AskAIRunner: CommandRunner {
     /// `interval` is the shortest time between two shown updates while the answer streams.
     public init(
         backend: AgentBackend = .installed, interval: Duration = .milliseconds(33),
-        statusLifetime: Duration = .seconds(60)
+        statusLifetime: Duration = .seconds(60), provider: @escaping @MainActor () -> AgentProvider? = { nil }
     ) {
+        self.provider = provider
         self.backend = backend
         self.interval = interval
         self.statusLifetime = statusLifetime
@@ -129,7 +130,7 @@ public final class AskAIRunner: CommandRunner {
 
     /// The provider to ask, or an error saying why none can answer.
     private func readyProvider() async throws -> AgentProvider {
-        let chosen = provider
+        let chosen = provider()
         var statuses: [AgentStatus] = []
         for candidate in chosen.map({ [$0] }) ?? AgentProvider.allCases {
             if let checked = ready[candidate], ContinuousClock.now < checked + statusLifetime {
