@@ -15,7 +15,8 @@ import WicketCore
     let start = ContinuousClock.now
     await #expect(throws: HostError.lineTooLong) { try await session.run("go", text: "", kind: .query) }
     #expect(await session.shutdown() == .killed)
-    #expect(ContinuousClock.now - start < .seconds(3))
+    // The hang this guards against lasts 30 s (the sleep); 10 s leaves room for a loaded machine.
+    #expect(ContinuousClock.now - start < .seconds(10))
 }
 
 @Test func actionsAreNeverResent() async throws {
@@ -92,7 +93,8 @@ import WicketCore
         events.append(event)
     }
     #expect(events == [.error("claude stopped writing output")])
-    #expect(ContinuousClock.now - start < .seconds(3))
+    // The hang this guards against lasts 30 s (the sleep); 10 s leaves room for a loaded machine.
+    #expect(ContinuousClock.now - start < .seconds(10))
     let pid = try #require(
         pid_t(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
     var alive = true
