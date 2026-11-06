@@ -137,7 +137,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.titles == ["Bump Swift to 6.4"])
     session.query = "login"
     #expect(palette.titles == ["Fix login timeout"])
-    #expect(!session.top.isLoading)
+    // The frame was pushed with the first result; the run ends a moment later.
+    #expect(await eventually { !session.top.isLoading })
 
     // Its third action pushes the detail it carries.
     palette.perform(2)
