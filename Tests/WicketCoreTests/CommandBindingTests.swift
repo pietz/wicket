@@ -401,3 +401,29 @@ private final class Effects: ActionEffects {
     #expect(session.frames.count == 2)
     #expect(session.opening == nil)
 }
+
+// MARK: Conflicts the Shortcuts pane refuses
+
+@Test func paneConflictsIgnoreInertBindings() throws {
+    var settings = Settings()
+    let k = try Shortcut("cmd+shift+k")
+    let installed = CommandID.extension("github", "search")
+    let missing = CommandID.extension("gone", "search")
+    settings.commands[missing] = CommandBinding(hotkey: k, alias: "gh")
+    let isRegistered = { (id: CommandID) in id != missing }
+
+    // Only a registered command's binding takes a hotkey or an alias from another.
+    #expect(settings.hotkeyConflict(k, for: BuiltinCommand.askAI.id, isRegistered: isRegistered) == nil)
+    #expect(settings.aliasConflict("GH", for: BuiltinCommand.askAI.id, isRegistered: isRegistered) == nil)
+
+    settings.commands[installed] = CommandBinding(hotkey: k, alias: "gh")
+    #expect(
+        settings.hotkeyConflict(k, for: BuiltinCommand.askAI.id, isRegistered: isRegistered)
+            == .taken(by: installed))
+    #expect(
+        settings.aliasConflict("GH", for: BuiltinCommand.askAI.id, isRegistered: isRegistered) == installed)
+    // A command's own binding is no conflict, and the palette's hotkey always is.
+    #expect(settings.hotkeyConflict(k, for: installed, isRegistered: isRegistered) == nil)
+    #expect(settings.aliasConflict("gh", for: installed, isRegistered: isRegistered) == nil)
+    #expect(settings.hotkeyConflict(.default, for: installed, isRegistered: isRegistered) == .palette)
+}

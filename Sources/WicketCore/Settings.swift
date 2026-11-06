@@ -165,6 +165,36 @@ public struct CommandBinding: Hashable, Sendable {
     }
 }
 
+extension Settings {
+    /// Who already has `hotkey` if `command` took it: the palette, or the first other registered
+    /// command (in canonical id order) settings.json binds it to. A binding of a command that isn't
+    /// registered is inert (`CommandHotkeys`) and takes nothing, so it is no conflict. For the
+    /// Shortcuts pane, which refuses to create a collision rather than leave it to `CommandHotkeys`.
+    public func hotkeyConflict(
+        _ hotkey: Shortcut, for command: CommandID, isRegistered: (CommandID) -> Bool
+    ) -> CommandHotkeys.Rejection.Reason? {
+        if hotkey == self.hotkey { return .palette }
+        return bindingOwner(except: command, isRegistered: isRegistered) { $0.hotkey == hotkey }
+            .map { .taken(by: $0) }
+    }
+
+    /// The first other registered command (in canonical id order) that settings.json gives `alias`,
+    /// ignoring case. Like a hotkey, an alias of a command that isn't registered takes nothing.
+    public func aliasConflict(
+        _ alias: String, for command: CommandID, isRegistered: (CommandID) -> Bool
+    ) -> CommandID? {
+        let word = alias.lowercased()
+        return bindingOwner(except: command, isRegistered: isRegistered) { $0.alias?.lowercased() == word }
+    }
+
+    private func bindingOwner(
+        except command: CommandID, isRegistered: (CommandID) -> Bool, where matches: (CommandBinding) -> Bool
+    ) -> CommandID? {
+        commands.filter { $0.key != command && isRegistered($0.key) && matches($0.value) }
+            .map(\.key).min { $0.description < $1.description }
+    }
+}
+
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkey, paletteWidth, ai, commands, features
@@ -180,7 +210,9 @@ extension Settings: Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        hotkey = try container.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? .default
+        if container.contains(.hotkey), (try? container.decodeNil(forKey: .hotkey)) == false {
+            decodeHotkey(container)
+        }
         if container.contains(.paletteWidth) {
             let width = try? container.decode(Double.self, forKey: .paletteWidth)
             if let width, Self.paletteWidths.contains(width) {
@@ -200,6 +232,22 @@ extension Settings: Codable {
         }
         if container.contains(.features), (try? container.decodeNil(forKey: .features)) != true {
             decodeFeatures(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .features))
+        }
+    }
+
+    /// Like the width, a bad hotkey costs only itself: it is ignored with its reason and the palette
+    /// keeps the default, so Wicket can still be summoned. It must leave typing alone, like a
+    /// command's (`Shortcut.leavesTypingAlone`).
+    private mutating func decodeHotkey(_ container: KeyedDecodingContainer<CodingKeys>) {
+        do {
+            let hotkey = try container.decode(Shortcut.self, forKey: .hotkey)
+            if hotkey.leavesTypingAlone {
+                self.hotkey = hotkey
+            } else {
+                ignored.append("hotkey needs cmd, ctrl or option (or an F-key); using \(Shortcut.default)")
+            }
+        } catch {
+            ignored.append("hotkey: \(Self.reason(error)); using \(Shortcut.default)")
         }
     }
 

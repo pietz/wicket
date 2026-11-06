@@ -110,3 +110,16 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
     registry.setExtensionCommands([try command("todo", "add")])
     #expect(titles(source.instant(Query(text: "todo", revision: 2))) == ["todo add"])
 }
+
+@MainActor @Test func revisionCountsChangesOnly() {
+    let registry = CommandRegistry()
+    let start = registry.revision
+    registry.setAliases([:])
+    registry.setDisabledBuiltins([])
+    #expect(registry.revision == start)
+    registry.setAliases([BuiltinCommand.quit.id: "bye"])
+    #expect(registry.revision == start + 1)
+    registry.setAliases([BuiltinCommand.quit.id: "bye"])
+    registry.setDisabledBuiltins([.askAI])
+    #expect(registry.revision == start + 2)
+}

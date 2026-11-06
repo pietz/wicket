@@ -353,3 +353,39 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(await eventually { content(session)?.screen != nil })
     #expect(!session.top.isLoading)
 }
+
+// MARK: Commands that leave the registry
+
+@MainActor @Test func stoppingACommandPopsItsFrameAndEndsItsRun() async {
+    let (session, runner, _) = session()
+    session.query = "prr"
+    session.query = "prr "
+    #expect(await eventually { runner.runs.count == 1 })
+    runner.runs[0].continuation.yield(.list([row("PR 1", actions: [.copy(text: "1")])]))
+    #expect(await eventually { session.top.list?.items.count == 1 })
+    session.push(Detail(title: "PR 1", markdown: "", actions: []))
+    #expect(session.frames.count == 3)
+
+    #expect(!session.stopCommands { $0 == search.id })
+    #expect(session.frames.count == 3)
+    #expect(session.stopCommands { $0 == reviews.id })
+    // The detail it pushed goes with it, back to where it was opened from.
+    #expect(session.frames.count == 1)
+    #expect(session.query == "prr")
+    #expect(await eventually { runner.wasEnded(0) })
+}
+
+@MainActor @Test func stoppingACommandCancelsItsOpening() async {
+    let (session, runner, _) = session()
+    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .action))
+    #expect(session.opening != nil)
+    #expect(await eventually { runner.runs.count == 1 })
+    #expect(session.stopCommands { $0 == reviews.id })
+    #expect(session.opening == nil)
+    #expect(session.frames.count == 1)
+    #expect(await eventually { runner.wasEnded(0) })
+    // A late result of the cancelled run shows nothing.
+    runner.runs[0].continuation.yield(.list([row("late")]))
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(session.frames.count == 1)
+}

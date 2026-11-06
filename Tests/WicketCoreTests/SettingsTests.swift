@@ -82,9 +82,36 @@ func rejectsInvalidSpellings(spelling: String, error: Shortcut.ParseError) {
     #expect(try decode(#"{"hotkey": "ctrl+option+space"}"#).hotkey == Shortcut("ctrl+option+space"))
     #expect(try decode(#"{"hotkey": "cmd+k", "future": {"x": 1}}"#).hotkey == Shortcut("cmd+k"))
     #expect(try decode("{}") == Settings())
-    #expect(throws: DecodingError.self) { try decode(#"{"hotkey": "option+spacebar"}"#) }
-    #expect(throws: DecodingError.self) { try decode(#"{"hotkey": 1}"#) }
+    #expect(try decode(#"{"hotkey": null}"#) == Settings())
     #expect(throws: DecodingError.self) { try decode("not json") }
+}
+
+/// A bad hotkey is ignored on its own, like every other field: the rest of the file still applies
+/// and the palette keeps the default hotkey, so Wicket can still be summoned.
+@Test(arguments: [
+    (
+        #"{"hotkey": "option+spacebar"}"#,
+        #"hotkey: "option+spacebar": unknown key or modifier "spacebar"; using option+space"#
+    ),
+    (#"{"hotkey": 1}"#, "hotkey: Expected to decode String but found number instead.; using option+space"),
+    (#"{"hotkey": "shift+k"}"#, "hotkey needs cmd, ctrl or option (or an F-key); using option+space"),
+])
+func badHotkeyFallsBackAlone(json: String, reason: String) throws {
+    let object = String(json.dropLast()) + #", "paletteWidth": 720}"#
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(object.utf8))
+    #expect(settings.hotkey == .default)
+    #expect(settings.paletteWidth == 720)
+    #expect(settings.ignored == [reason])
+}
+
+/// Like a bad width, a bad hotkey stays in the file until the hotkey itself is changed.
+@Test func updateKeepsIgnoredHotkey() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"hotkey": "option+spacebar"}"#, to: url)
+    try Settings.update(at: url) { $0.paletteWidth = 720 }
+    #expect(try read(url).contains(#""hotkey" : "option+spacebar""#))
+    try Settings.update(at: url) { $0.hotkey = try! Shortcut("cmd+k") }
+    #expect(try Settings.load(from: url).hotkey == Shortcut("cmd+k"))
 }
 
 @Test(arguments: [
@@ -184,7 +211,7 @@ private func read(_ url: URL) throws -> String {
 
 @Test func updateNeverOverwritesInvalidFile() throws {
     let url = temporarySettingsURL()
-    for json in ["not json", #"{"hotkey": "option+spacebar", "x": 1}"#, "[1]"] {
+    for json in ["not json", #"{"hotkey": "cmd+k", "x": 1"#, "[1]"] {
         try write(json, to: url)
         #expect(throws: Settings.InvalidFile.self) { try Settings.update(at: url) { $0.hotkey = .default } }
         #expect(throws: Settings.InvalidFile.self) { try Settings.load(from: url) }
@@ -194,11 +221,8 @@ private func read(_ url: URL) throws -> String {
 
 @Test func invalidFileExplainsWhy() throws {
     let url = temporarySettingsURL()
-    try write(#"{"hotkey": "option+spacebar"}"#, to: url)
-    #expect(
-        throws: Settings.InvalidFile(
-            description: #"hotkey: "option+spacebar": unknown key or modifier "spacebar""#)
-    ) {
+    try write(#"{"commands": {}, "hotkey": "cmd+k""#, to: url)
+    #expect(throws: Settings.InvalidFile(description: "The given data was not valid JSON.")) {
         try Settings.load(from: url)
     }
 }
