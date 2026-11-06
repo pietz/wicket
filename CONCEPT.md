@@ -26,6 +26,7 @@ A launcher should be a tiny, very fast native core plus **one extension protocol
 4. **Native UI only.** Extensions send data; Wicket draws it with AppKit and SwiftUI. No WebViews.
 5. **Bring your own intelligence.** No accounts, no telemetry, no hosted AI. AI features call the user's local agent CLIs or their own API keys.
 6. **Simple over clever.** Fewer settings, fewer special cases.
+7. **Use the newest Apple frameworks.** Prefer the latest SwiftUI, AppKit and system APIs (Liquid Glass, Observation, Swift Testing, App Intents) over hand-written equivalents: less code, and Apple's implementations are usually well optimised. Drop to older APIs (Carbon, AppKit) only where no modern one does the job, and say why in a comment.
 
 ## Architecture sketch (to validate in the PoC)
 
@@ -66,7 +67,7 @@ Clipboard, snippets, file search and polish come after the go decision unless th
 ## Reference policy
 
 - Tinycast (AGPL-3.0) and Vicinae (GPL-3.0) are **references, not sources**. Before committing to a non-trivial design decision (hotkey handling, panel behaviour, app indexing, text injection, Accessibility, extension rendering), check how they solved it and why. Their docs and issue trackers record many pitfalls. Tinycast's `docs/features/*.md`, `docs/not-planned.md` and `CONTRIBUTING.md` are especially useful.
-- **Tinycast's approach is the default fallback.** It is proven and performant. We take a different route only when ours is measurably faster, smaller or simpler; otherwise we adopt their idea (re-implemented, never copied).
+- **Design first, then compare.** For each non-trivial feature we first work out our own approach from first principles. Before building, we check how Tinycast (and Vicinae if relevant) solved the same problem and ask whether our design is still the best one knowing theirs. If we have good reasons to differ, we build ours; if theirs turns out cleaner, we adopt the idea (re-implemented, never copied). Record the comparison in Decisions.
 - A local clone may live in `reference/` (gitignored).
 - **Do not copy code** from either project: that would force our licence to (A)GPL, and the licence is not decided yet.
 
