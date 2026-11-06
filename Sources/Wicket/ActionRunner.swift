@@ -23,9 +23,12 @@ struct ActionRunner {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         case .command(let id):
             commands.run(id)
-        case .detail, .run:
-            // Extension views: the palette's view stack will handle these before they reach here.
-            Perf.logger.notice("extension view actions are not wired into the palette yet")
+        case .detail:
+            // The palette pushes details itself (`PaletteController.run`); they never get here.
+            break
+        case .run:
+            // Extension commands: the palette integration (refactor step 6) will run them in a frame.
+            Perf.logger.notice("extension run actions are not wired into the palette yet")
         }
     }
 }

@@ -85,6 +85,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// The window's top-left corner, resolved once per summon so only the height ever changes.
     private var anchor = NSPoint.zero
     private var pendingShrink: Task<Void, Never>?
+    /// The frame the card last followed, so a push or pop resizes at once.
+    private var shownFrame: Frame.ID?
     /// Timestamp of the event that summoned the palette, until it is on screen.
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
 
@@ -100,7 +102,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         let root = NSHostingView(
             rootView: PaletteRootView(
                 model: model, onRun: { [weak self] in self?.run($0, action: $1) },
-                onHide: { [weak self] in self?.hide() }))
+                onEscape: { [weak self] in self?.escape() }))
         // The controller owns the frame; SwiftUI must never resize the panel.
         root.sizingOptions = []
         panel.contentView = root
@@ -108,11 +110,13 @@ final class PaletteController: NSObject, NSWindowDelegate {
             self, selector: #selector(occlusionChanged), name: NSWindow.didChangeOcclusionStateNotification,
             object: panel)
         Task { [weak self, model] in
-            let heights = Observations {
-                PaletteMetrics.cardHeight(for: model.results, actionMenu: model.actionMenu)
+            let cards = Observations {
+                Card(
+                    height: PaletteMetrics.cardHeight(for: model.top, actionMenu: model.actionMenu),
+                    frame: model.top.id, isCompact: model.top.isCompact)
             }
-            for await height in heights {
-                self?.follow(cardHeight: height)
+            for await card in cards {
+                self?.follow(card)
             }
         }
     }
@@ -137,17 +141,32 @@ final class PaletteController: NSObject, NSWindowDelegate {
         pendingShrink?.cancel()
         model.actionMenu = nil
         model.commandHeld = false
-        model.query = ""
+        model.session.reset()
         model.cardHeight = 0
     }
 
-    /// Runs the action at `position` in the item's actions (0 is the primary) and closes the palette.
-    /// Does nothing if the item has no such action, so Return on a message row keeps the palette open.
-    func run(_ item: Item?, action position: Int) {
-        guard let item, item.actions.indices.contains(position) else { return }
-        model.recordUse(of: item)
+    /// Escape in the search field: clears the text, else goes back a frame, else hides.
+    func escape() {
+        if model.session.escape() == .hide { hide() }
+    }
+
+    /// Runs the action at `position` in the target's actions (0 is the primary) and closes the
+    /// palette, except for showing a detail, which pushes it. Does nothing if there is no such
+    /// action, so Return on a message row keeps the palette open.
+    ///
+    /// The detail case is the one outcome known before running; the dispatcher (refactor step 4)
+    /// replaces this with outcomes for every action.
+    func run(_ target: ActionTarget?, action position: Int) {
+        guard let target, target.actions.indices.contains(position) else { return }
+        if let item = target.item { model.recordUse(of: item) }
+        let action = target.actions[position]
+        if case .detail(let detail) = action {
+            model.actionMenu = nil
+            model.session.push(detail)
+            return
+        }
         hide()
-        actions.run(item.actions[position])
+        actions.run(action)
     }
 
     /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.
@@ -156,14 +175,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
         case .toggleActions:
             if model.actionMenu != nil {
                 model.actionMenu = nil
-            } else if let item = model.selectedItem, !item.actions.isEmpty {
-                model.actionMenu = ActionMenu(item: item)
+            } else if let target = model.target, !target.actions.isEmpty {
+                model.actionMenu = ActionMenu(target: target)
             }
         case .runSecondary:
-            run(model.actionMenu?.item ?? model.selectedItem, action: 1)
+            run(model.actionMenu?.target ?? model.target, action: 1)
         case .runRow(let row):
             guard model.actionMenu == nil, model.results.indices.contains(row) else { break }
-            run(model.results[row], action: 0)
+            run(ActionTarget(item: model.results[row]), action: 0)
         case .openSettings:
             hide()
             openSettings()
@@ -178,11 +197,21 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     // MARK: Frame
 
+    /// The card the top frame wants: its height, and what decides how fast to get there.
+    private struct Card {
+        let height: CGFloat
+        let frame: Frame.ID
+        let isCompact: Bool
+    }
+
     /// Grows at once; shrinks after `shrinkDelay` without a taller result, so results that drop and
-    /// return within it never move the card. Clearing the query collapses at once.
-    private func follow(cardHeight height: CGFloat) {
+    /// return within it never move the card. Clearing the query (back to the bare pill) and going
+    /// to another frame change it at once.
+    private func follow(_ card: Card) {
         pendingShrink?.cancel()
-        if height >= model.cardHeight || model.query.isEmpty {
+        let height = card.height
+        defer { shownFrame = card.frame }
+        if height >= model.cardHeight || card.isCompact || card.frame != shownFrame {
             setCardHeight(height)
             return
         }

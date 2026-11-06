@@ -24,14 +24,17 @@ enum PaletteMetrics {
     static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
-    /// The card that fits `results` (rows, divider and footer) up to `maxCardHeight`, and the action
-    /// panel while it is open; 0, no card, when there are no results.
-    static func cardHeight(for results: [Item], actionMenu: ActionMenu?) -> CGFloat {
+    /// The card for `frame`. A search fits its results (rows, divider and footer) up to
+    /// `maxCardHeight`, and the action panel while it is open; 0, no card, when there are no
+    /// results. A detail is a page and takes the tallest card.
+    static func cardHeight(for frame: Frame, actionMenu: ActionMenu?) -> CGFloat {
+        guard case .search(let search) = frame.content else { return maxCardHeight }
+        let results = search.items
         guard !results.isEmpty else { return 0 }
         var rows = CGFloat(results.count) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
         if ResultRow.isProminent(results[0], at: 0) { rows += answerRowHeight - rowHeight }
         let menu =
-            actionMenu.map { ActionPanel.height(rows: $0.item.actions.count) + ActionPanel.clearance } ?? 0
+            actionMenu.map { ActionPanel.height(rows: $0.target.actions.count) + ActionPanel.clearance } ?? 0
         return min(max(rows + 1 + FooterBar.height, menu), maxCardHeight)
     }
 
@@ -43,7 +46,8 @@ enum PaletteMetrics {
 }
 
 /// The palette: a Liquid Glass pill holding the search field and, while there is something to show,
-/// a glass card under it with the results and footer, with the action panel (⌘K) over them. The
+/// a glass card under it with the top frame (the results, or a detail) and the footer, with the
+/// action panel (⌘K) over them. The
 /// glass shapes sit in one container, so the card morphs out of the pill; the content is layered
 /// above the container, where a morph can't smear it.
 ///
@@ -51,9 +55,9 @@ enum PaletteMetrics {
 /// plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
-    /// Runs the action at a position in an item's actions.
-    let onRun: (Item?, Int) -> Void
-    let onHide: () -> Void
+    /// Runs the action at a position in a target's actions.
+    let onRun: (ActionTarget?, Int) -> Void
+    let onEscape: () -> Void
     @FocusState private var focus: PaletteFocus?
     @Namespace private var glass
 
@@ -77,9 +81,12 @@ struct PaletteRootView: View {
                 searchField
                 if model.isExpanded {
                     VStack(spacing: 0) {
-                        ResultsView(model: model, onRun: onRun)
+                        switch model.top.content {
+                        case .search: ResultsView(model: model, onRun: onRun)
+                        case .detail(let detail): DetailView(detail: detail)
+                        }
                         Divider()
-                        FooterBar(item: model.selectedItem)
+                        FooterBar(target: model.target)
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
@@ -115,14 +122,22 @@ struct PaletteRootView: View {
     private static var glass: Glass { .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)) }
     private static var card: some Shape { .rect(cornerRadius: PaletteMetrics.cardRadius, style: .continuous) }
 
+    /// The pill's glyph and prompt: the mode's at the root, the page's title in a detail.
+    private var pill: (symbol: String, prompt: String) {
+        switch model.top.content {
+        case .search: (model.mode.symbol, model.mode.prompt)
+        case .detail(let detail): ("doc.text", detail.title ?? "Details")
+        }
+    }
+
     // Return is handled here rather than by `onSubmit`, which ends editing.
     private var searchField: some View {
         HStack(spacing: 12) {
-            Image(systemName: model.mode.symbol)
+            Image(systemName: pill.symbol)
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 24)
-            TextField(model.mode.prompt, text: $model.query)
+            TextField(pill.prompt, text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 21))
                 .focused($focus, equals: .search)
@@ -135,11 +150,11 @@ struct PaletteRootView: View {
                     return .handled
                 }
                 .onKeyPress(.return) {
-                    onRun(model.selectedItem, 0)
+                    onRun(model.target, 0)
                     return .handled
                 }
                 .onKeyPress(.escape) {
-                    if model.query.isEmpty { onHide() } else { model.query = "" }
+                    onEscape()
                     return .handled
                 }
         }
@@ -151,7 +166,7 @@ struct PaletteRootView: View {
 /// The result list.
 struct ResultsView: View {
     let model: PaletteModel
-    let onRun: (Item?, Int) -> Void
+    let onRun: (ActionTarget?, Int) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -163,7 +178,7 @@ struct ResultsView: View {
                             isSelected: index == model.selection, hint: hint(for: index)
                         )
                         .contentShape(Rectangle())
-                        .onTapGesture { onRun(item, 0) }
+                        .onTapGesture { onRun(ActionTarget(item: item), 0) }
                     }
                 }
                 .padding(PaletteMetrics.rowInset)
@@ -173,9 +188,14 @@ struct ResultsView: View {
                 guard model.results.indices.contains(selection) else { return }
                 proxy.scrollTo(model.results[selection].id)
             }
+            .onAppear {
+                // Back from a pushed frame: show the selection where it was left.
+                guard model.selection > 0, let item = model.top.list?.selectedItem else { return }
+                proxy.scrollTo(item.id)
+            }
             .onChange(of: model.results) {
                 // The selection follows its item across updates; at the top, show the list's start.
-                guard let item = model.selectedItem else { return }
+                guard let item = model.top.list?.selectedItem else { return }
                 proxy.scrollTo(item.id, anchor: model.selection == 0 ? .top : nil)
             }
         }
@@ -188,15 +208,15 @@ struct ResultsView: View {
     }
 }
 
-/// The bar under the results: what Return does, and where the other actions are.
+/// The bar under the results or a detail: what Return does, and where the other actions are.
 struct FooterBar: View {
     static let height: CGFloat = 34
-    let item: Item?
+    let target: ActionTarget?
 
     var body: some View {
         HStack(spacing: 10) {
             Spacer()
-            if let item, let primary = item.actions.first {
+            if let primary = target?.actions.first {
                 KeyHint(title: ActionPresentation(primary).title, keys: "↩")
                 Divider().frame(height: 14)
                 KeyHint(title: "Actions", keys: "⌘K")
@@ -235,7 +255,7 @@ private struct KeyCap: View {
     }
 }
 
-/// The action panel: every action of the item it was opened on, filtered by its own field.
+/// The action panel: every action of what it was opened on, filtered by its own field.
 struct ActionPanel: View {
     static let rowHeight: CGFloat = 30
     static let rowSpacing: CGFloat = 2
@@ -255,7 +275,7 @@ struct ActionPanel: View {
     @Bindable var model: PaletteModel
     let menu: ActionMenu
     var focus: FocusState<PaletteFocus?>.Binding
-    let onRun: (Item?, Int) -> Void
+    let onRun: (ActionTarget?, Int) -> Void
 
     var body: some View {
         let rows = menu.rows
@@ -271,7 +291,7 @@ struct ActionPanel: View {
                 ForEach(rows) { row in
                     ActionRow(row: row, isSelected: row.id == selected)
                         .contentShape(.rect)
-                        .onTapGesture { onRun(menu.item, row.id) }
+                        .onTapGesture { onRun(menu.target, row.id) }
                 }
             }
             .padding(Self.padding)
@@ -289,7 +309,7 @@ struct ActionPanel: View {
                     return .handled
                 }
                 .onKeyPress(.return) {
-                    if let row = model.actionMenu?.selectedRow { onRun(menu.item, row.id) }
+                    if let row = model.actionMenu?.selectedRow { onRun(menu.target, row.id) }
                     return .handled
                 }
                 .onKeyPress(.escape) {

@@ -42,27 +42,28 @@ struct ActionPresentation {
     }
 }
 
-/// The open action panel: the item it was opened on, its filter and the selected row.
+/// The open action panel: what it was opened on (the selected item, or a detail), its filter and
+/// the selected row.
 struct ActionMenu {
     struct Row: Identifiable {
-        /// Position in the item's actions.
+        /// Position in the target's actions.
         let id: Int
         let action: Item.Action
         let presentation: ActionPresentation
     }
 
     /// Captured on opening, so a late result never changes what the panel runs.
-    let item: Item
+    let target: ActionTarget
     var filter = "" {
         didSet { if filter != oldValue { selection = 0 } }
     }
     /// Index into `rows`.
     private(set) var selection = 0
 
-    /// The item's actions whose title matches the filter.
+    /// The target's actions whose title matches the filter.
     var rows: [Row] {
         let query = Fold.query(filter)
-        return item.actions.enumerated()
+        return target.actions.enumerated()
             .map { Row(id: $0.offset, action: $0.element, presentation: ActionPresentation($0.element)) }
             .filter { query.isEmpty || FuzzyMatcher.score(query, SearchKey($0.presentation.title)) != nil }
     }

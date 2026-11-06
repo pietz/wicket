@@ -20,22 +20,29 @@ enum PaletteMode {
     }
 }
 
-/// The palette's session: the query, every source's results for it, and the selection.
-///
-/// Each keystroke starts a new query revision, collects every source's instant results
-/// synchronously, then applies slow updates as they arrive if their revision is still current.
-/// An empty query asks no source: the palette opens as the bare pill.
+/// The palette's view state around its `PaletteSession` (Core), which owns the frames, the search
+/// and the navigation: this adds what only the window needs (focus, the action panel, the card's
+/// height) and the usage store.
 @MainActor
 @Observable
 final class PaletteModel {
     static let resultLimit = 50
 
-    private(set) var list = RootResults(limit: resultLimit)
-    var results: [Item] { list.items }
-    var selection: Int { list.selection }
-    var selectedItem: Item? { list.selectedItem }
+    let session: PaletteSession
+    var top: Frame { session.top }
+    /// The top frame's rows; empty for a detail.
+    var results: [Item] { top.list?.items ?? [] }
+    var selection: Int { top.list?.selection ?? 0 }
+    var target: ActionTarget? { top.target }
 
-    var query = "" { didSet { if query != oldValue { refresh() } } }
+    var query: String {
+        get { session.query }
+        set {
+            let start = ContinuousClock.now
+            session.query = newValue
+            logQuery(since: start)
+        }
+    }
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
     /// The action panel (⌘K), when open. One optional, so at most one panel exists.
@@ -47,22 +54,30 @@ final class PaletteModel {
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0
     var isExpanded: Bool { cardHeight > 0 }
-    @ObservationIgnored private let sources: [any ResultSource]
-    @ObservationIgnored private var revision = 0
-    @ObservationIgnored private var updates: [Task<Void, Never>] = []
     @ObservationIgnored private var usage: UsageStore
     @ObservationIgnored private let usageURL: URL
 
     init(sources: [any ResultSource]) {
-        self.sources = sources
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        usageURL = support.appending(path: "Wicket/usage.json")
+        let usageURL = support.appending(path: "Wicket/usage.json")
+        self.usageURL = usageURL
         usage = Self.namespaced(UsageStore.load(from: usageURL))
-        refresh()
+        weak var model: PaletteModel?
+        session = PaletteSession(sources: sources, resultLimit: Self.resultLimit) {
+            model?.frecency() ?? { _ in 0 }
+        }
+        model = self
     }
 
     func moveSelection(by delta: Int) {
-        list.moveSelection(by: delta)
+        session.moveSelection(by: delta)
+    }
+
+    /// Runs the root search again, for when a source's data changed.
+    func refresh() {
+        let start = ContinuousClock.now
+        session.refresh()
+        logQuery(since: start)
     }
 
     /// Answers are computed per query, so a usage boost for them would mean nothing.
@@ -74,34 +89,9 @@ final class PaletteModel {
         Task.detached(priority: .utility) { try? snapshot.save(to: url) }
     }
 
-    /// Runs the current query again on every source, for when a source's data changed.
-    func refresh() {
-        let start = ContinuousClock.now
-        revision += 1
-        let query = Query(text: query, revision: revision)
-        for task in updates { task.cancel() }
-        updates = []
-
-        guard !query.text.isEmpty else {
-            list.start(query, results: [:], usage: frecency())
-            return
-        }
-        var instant: [String: [Item]] = [:]
-        for source in sources { instant[source.id] = source.instant(query) }
-        list.start(query, results: instant, usage: frecency())
-        Perf.log("query (\(query.text.count) chars): \(list.items.count) results in \(Perf.ms(since: start))")
-
-        for source in sources {
-            guard let stream = source.updates(query) else { continue }
-            let id = source.id
-            updates.append(
-                Task { [weak self] in
-                    for await items in stream {
-                        guard let self else { return }
-                        list.update(id, items: items, revision: query.revision, usage: frecency())
-                    }
-                })
-        }
+    private func logQuery(since start: ContinuousClock.Instant) {
+        guard case .search = top.content, !top.query.isEmpty else { return }
+        Perf.log("query (\(top.query.count) chars): \(results.count) results in \(Perf.ms(since: start))")
     }
 
     private func frecency() -> (String) -> Double {
