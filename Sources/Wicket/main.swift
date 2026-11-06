@@ -1,5 +1,6 @@
 import AppKit
 import WicketCore
+import WicketHost
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -11,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = SettingsStore(directory: Settings.directory())
     private lazy var settingsWindow = SettingsWindowController(store: store)
     private var settingsWatcher: FileWatcher?
+    private var extensionsWatcher: FileWatcher?
     private var hotKey: HotKey?
     /// The shortcut `hotKey` holds; nil while none is registered, so the next change retries.
     private var registeredShortcut: Shortcut?
@@ -38,7 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         calculator.start { [weak self] in self?.palette.model.refresh() }
-        extensions.start()
+        extensions.load()
+        extensionsWatcher = FileWatcher(paths: [extensions.directory.path], latency: 0.3) { [weak self] in
+            self?.extensions.load(changed: $0)
+        }
         apps.onChange = { [weak self] in self?.palette.model.refresh() }
         Task {
             await apps.start()

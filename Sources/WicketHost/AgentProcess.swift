@@ -32,11 +32,15 @@ enum AgentProcess {
     private static let logger = Logger(subsystem: "app.wicket", category: "agent")
 
     static func run(
-        _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript
+        _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
+        exitGrace: Duration = .seconds(2)
     ) -> AsyncStream<AgentEvent> {
         let (stream, continuation) = AsyncStream<AgentEvent>.makeStream()
         let task = Task.detached {
-            await drive(executable, arguments: arguments, request: request, transcript: transcript) {
+            await drive(
+                executable, arguments: arguments, request: request, transcript: transcript,
+                exitGrace: exitGrace
+            ) {
                 continuation.yield($0)
             }
             continuation.finish()
@@ -47,7 +51,7 @@ enum AgentProcess {
 
     private static func drive(
         _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
-        emit: (AgentEvent) -> Void
+        exitGrace: Duration, emit: (AgentEvent) -> Void
     ) async {
         let start = ContinuousClock.now
         let name = executable.lastPathComponent
@@ -101,17 +105,8 @@ enum AgentProcess {
 
         if !finished, !Task.isCancelled {
             // stdout closed without a final event: report how the process ended.
-            let ended = await withTaskGroup(of: Exit?.self) { group in
-                group.addTask { await exit.value }
-                group.addTask {
-                    try? await Task.sleep(for: .seconds(2))
-                    return nil
-                }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                return first
-            }
-            emit(.error(failure(name, ended, stderr: stderr.text)))
+            let exitStatus = await ended(exit, within: exitGrace)
+            emit(.error(failure(name, exitStatus, stderr: stderr.text)))
         }
         killTree(of: process)
         logger.notice(
@@ -119,6 +114,24 @@ enum AgentProcess {
             agent \(name, privacy: .public) run ended (\(finished ? "finished" : "stopped", privacy: .public), \
             \(events, privacy: .public) events) after \(ContinuousClock.now - start, privacy: .public)
             """)
+    }
+
+    /// The process's exit, or nil if it is still running after `limit` or the caller is cancelled.
+    /// Never waits on a live process beyond that: a task group would, since its child awaiting
+    /// `exit.value` can't be cancelled. The waiter left behind ends once the caller kills the tree.
+    static func ended(_ exit: Task<Exit, Never>, within limit: Duration) async -> Exit? {
+        let (first, continuation) = AsyncStream<Exit?>.makeStream()
+        let waiter = Task { continuation.yield(await exit.value) }
+        let timer = Task {
+            try? await Task.sleep(for: limit)
+            continuation.yield(nil)
+        }
+        defer {
+            waiter.cancel()
+            timer.cancel()
+        }
+        for await ended in first { return ended }
+        return nil
     }
 
     /// The error for a process that ended without a final event, with the end of its stderr.

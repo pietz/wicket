@@ -133,7 +133,7 @@ public enum Checker {
             switch step {
             case .send(.run(let id, let params)):
                 do {
-                    let reply = try await session.submit(id, params)
+                    let reply = try await session.submit(id, params, kind: .query)
                     sent[id] = Sent(line: line, id: id, command: params.command, reply: reply)
                 } catch {
                     report.add(.error, "\(name):\(line): \(error)")

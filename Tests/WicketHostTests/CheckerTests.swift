@@ -155,7 +155,7 @@ func examplesPass(name: String) async {
         """#
     let session = try TestExtension(script: script).session()
     let replies = try await withThrowingTaskGroup(of: RunResult.self) { group in
-        for _ in 0..<3 { group.addTask { try await session.run("go", text: "") } }
+        for _ in 0..<3 { group.addTask { try await session.run("go", text: "", kind: .query) } }
         return try await group.reduce(into: []) { $0.append($1) }
     }
     let pids = Set(replies.compactMap { if case .answer(let item) = $0 { item.title } else { nil } })
@@ -169,7 +169,7 @@ func examplesPass(name: String) async {
     let session = ExtensionSession(
         manifest: try ext.manifest, folder: ext.folder,
         configuration: testConfiguration(secrets: ["TOKEN": "s3cret"]))
-    guard case .answer(let item) = try await session.run("go", text: "") else {
+    guard case .answer(let item) = try await session.run("go", text: "", kind: .query) else {
         Issue.record("not an answer")
         return
     }
@@ -178,7 +178,7 @@ func examplesPass(name: String) async {
 
     let missing = try ext.session()
     await #expect(throws: HostError.missingSecret(extensionID: "env", name: "TOKEN", title: "API token")) {
-        try await missing.run("go", text: "")
+        try await missing.run("go", text: "", kind: .query)
     }
 }
 
@@ -194,11 +194,11 @@ func examplesPass(name: String) async {
         done
         """#
     let session = try TestExtension(script: script).session()
-    let task = Task { try await session.run("go", text: "") }
+    let task = Task { try await session.run("go", text: "", kind: .query) }
     try await Task.sleep(for: .milliseconds(100))
     task.cancel()
     await #expect(throws: CancellationError.self) { try await task.value }
-    #expect(try await session.run("go", text: "") == .close(message: nil))
+    #expect(try await session.run("go", text: "", kind: .query) == .close(message: nil))
     let cancel = session.stderrTail.split(separator: "\n").first { $0.contains(#""method":"cancel""#) }
     #expect(cancel?.contains(#""params":{"id":1}"#) == true)
     #expect(await session.issues.isEmpty)
@@ -209,17 +209,17 @@ func examplesPass(name: String) async {
     let session = try TestExtension(script: answering(#"{"close":{}}"#)).session {
         $0.idleTimeout = .milliseconds(200)
     }
-    _ = try await session.run("go", text: "")
+    _ = try await session.run("go", text: "", kind: .query)
     try await Task.sleep(for: .milliseconds(600))
     #expect(await session.shutdown() == .notRunning)
     // The next request starts a fresh process.
-    #expect(try await session.run("go", text: "") == .close(message: nil))
+    #expect(try await session.run("go", text: "", kind: .query) == .close(message: nil))
 }
 
 @Test func overlongLinesStopTheProcess() async throws {
     let script = #"read r; head -c 1100000 /dev/zero | tr '\0' 'a'; echo; sleep 5"#
     let session = try TestExtension(script: script).session()
-    await #expect(throws: HostError.lineTooLong) { try await session.run("go", text: "") }
+    await #expect(throws: HostError.lineTooLong) { try await session.run("go", text: "", kind: .query) }
 }
 
 @Test func missingProgramsAreNamed() async throws {
@@ -228,7 +228,7 @@ func examplesPass(name: String) async {
     manifest.run = ["no-such-interpreter-wicket", "main.sh"]
     let session = ExtensionSession(manifest: manifest, folder: ext.folder, configuration: testConfiguration())
     await #expect {
-        try await session.run("go", text: "")
+        try await session.run("go", text: "", kind: .query)
     } throws: {
         "\($0)".contains("no-such-interpreter-wicket in run was not found on the login shell PATH")
     }

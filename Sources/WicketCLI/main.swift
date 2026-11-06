@@ -89,7 +89,8 @@ func run(_ arguments: [String]) async -> Never {
         command: command, text: arguments.count == 3 ? arguments[2] : "", revision: 1, args: args)
     let result: Result<Reply, any Error>
     do {
-        result = .success(try await session.submit(.number(1), params).value)
+        result = .success(
+            try await session.submit(.number(1), params, kind: args == nil ? .query : .action).value)
     } catch {
         result = .failure(error)
     }

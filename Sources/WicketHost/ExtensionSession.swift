@@ -62,6 +62,15 @@ public enum Shutdown: Sendable, Equatable {
     case killed
 }
 
+/// Whether a request may be resent to a fresh process when the one that had it exits cleanly.
+public enum RequestKind: Sendable, Equatable {
+    /// Search text for a root, live or once command: reading only, so resending it is safe.
+    case query
+    /// A command run by an item's `run` action. It may have changed something before the process
+    /// exited, so it is never resent.
+    case action
+}
+
 /// Failures the host reports for a request, worded for the person or agent fixing the extension.
 public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     case missingSecret(extensionID: String, name: String, title: String)
@@ -71,6 +80,8 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     case lineTooLong
     /// The process ended while the request was pending, and it couldn't be resent.
     case exited(Exit)
+    /// The process exited cleanly while a `run` action was pending; actions are never resent.
+    case actionInterrupted
     /// The extension was stopped (updated or disabled) while the request was pending.
     case stopped
     case duplicateID(RequestID)
@@ -88,6 +99,8 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
         case .exited(let exit) where exit.isClean:
             "exited (status 0) before answering, without answering anything since it started"
         case .exited(let exit): "\(exit) before answering"
+        case .actionInterrupted:
+            "exited (status 0) before answering this action; actions are never resent, since they may already have changed something"
         case .stopped: "the extension was stopped before answering"
         case .duplicateID(let id): "request id \(id) is already pending"
         }
@@ -99,7 +112,8 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
 ///
 /// The process starts with the first request and is reaped after `idleTimeout` without one. Only one
 /// process runs at a time. A process that exits cleanly after answering something gets its pending
-/// requests resent to a fresh one, so one-shot scripts and persistent programs share one model.
+/// queries resent to a fresh one, so one-shot scripts and persistent programs share one model; pending
+/// actions fail instead. After `stop()` the session refuses new requests.
 public actor ExtensionSession {
     public static let lineLimit = 1 << 20
     public static let stderrLimit = 64 << 10
@@ -125,6 +139,7 @@ public actor ExtensionSession {
     private var exitWaiters: [CheckedContinuation<Shutdown, Never>] = []
     private var idleTask: Task<Void, Never>?
     private var path: String?
+    private var stopped = false
 
     private static let logger = Logger(subsystem: "app.wicket", category: "extensions")
 
@@ -140,13 +155,13 @@ public actor ExtensionSession {
     /// Runs `command` and returns its result. Cancelling the calling task sends `cancel` to the
     /// extension and throws `CancellationError`; an error response throws `ExtensionError`; host
     /// failures throw `HostError`.
-    public func run(_ command: String, text: String, args: [String: JSONValue]? = nil) async throws
-        -> RunResult
-    {
+    public func run(
+        _ command: String, text: String, args: [String: JSONValue]? = nil, kind: RequestKind
+    ) async throws -> RunResult {
         lastRunID += 1
         let id = RequestID.number(lastRunID)
         let reply = try await submit(
-            id, RunParams(command: command, text: text, revision: lastRunID, args: args))
+            id, RunParams(command: command, text: text, revision: lastRunID, args: args), kind: kind)
         return try await withTaskCancellationHandler {
             try await reply.value.outcome.get()
         } onCancel: {
@@ -156,8 +171,11 @@ public actor ExtensionSession {
 
     /// Writes a `run` request (starting the process if needed) and returns a task that finishes with
     /// its reply. Requests are written in the order they are submitted.
-    public func submit(_ id: RequestID, _ params: RunParams) async throws -> Task<Reply, any Error> {
+    public func submit(_ id: RequestID, _ params: RunParams, kind: RequestKind) async throws
+        -> Task<Reply, any Error>
+    {
         if path == nil { path = await LoginShell.path() }
+        guard !stopped else { throw HostError.stopped }
         guard pending[id] == nil else { throw HostError.duplicateID(id) }
         idleTask?.cancel()
         let (stream, continuation) = AsyncThrowingStream<Reply, any Error>.makeStream()
@@ -165,7 +183,7 @@ public actor ExtensionSession {
         sequence += 1
         pending[id] = Pending(
             sequence: sequence, line: HostMessage.run(id: id, params).line, command: params.command,
-            continuation: continuation,
+            kind: kind, continuation: continuation,
             timer: Task { [weak self] in
                 try? await Task.sleep(for: timeout)
                 if !Task.isCancelled { await self?.timedOut(id) }
@@ -180,6 +198,7 @@ public actor ExtensionSession {
     /// Starts the process now rather than with the first request.
     public func launch() async throws {
         if path == nil { path = await LoginShell.path() }
+        guard !stopped else { throw HostError.stopped }
         if running == nil { try start() }
     }
 
@@ -207,7 +226,9 @@ public actor ExtensionSession {
     }
 
     /// Fails every pending request and shuts down, for when the extension is updated or disabled.
+    /// The session refuses requests from then on, so it can never start a process again.
     public func stop() async {
+        stopped = true
         for id in pending.keys { finish(id, .failure(HostError.stopped)) }
         _ = await shutdown()
     }
@@ -218,6 +239,7 @@ public actor ExtensionSession {
         let sequence: Int
         let line: Data
         let command: String
+        let kind: RequestKind
         let continuation: AsyncThrowingStream<Reply, any Error>.Continuation
         let timer: Task<Void, Never>
         let start = ContinuousClock.now
@@ -329,8 +351,7 @@ public actor ExtensionSession {
         for (id, request) in pending where request.sentTo == generation {
             finish(id, .failure(HostError.lineTooLong))
         }
-        running.closing = true
-        kill(running.process.processIdentifier, SIGTERM)
+        terminate(running)
     }
 
     private static func preview(_ line: String) -> String {
@@ -513,12 +534,14 @@ public actor ExtensionSession {
             }
         for waiter in exitWaiters { waiter.resume(returning: outcome) }
         exitWaiters = []
+        // A clean exit after progress means "restart me": queries go to a fresh process. Each round
+        // needs an answer, so this ends. Actions may have changed something already, so they fail.
         let resend = exit.isClean && finished.answered > 0
         for (id, request) in pending where request.sentTo == finished.generation {
-            if resend {
-                pending[id]?.sentTo = nil
-            } else {
-                finish(id, .failure(HostError.exited(exit)))
+            switch (resend, request.kind) {
+            case (true, .query): pending[id]?.sentTo = nil
+            case (true, .action): finish(id, .failure(HostError.actionInterrupted))
+            case (false, _): finish(id, .failure(HostError.exited(exit)))
             }
         }
         dispatch()
@@ -545,6 +568,21 @@ public actor ExtensionSession {
         Task { [weak self] in
             try? await Task.sleep(for: grace)
             await self?.signal(SIGTERM, generation: generation)
+            try? await Task.sleep(for: grace)
+            await self?.signal(SIGKILL, generation: generation)
+        }
+    }
+
+    /// Stops the process now: closes stdin, sends SIGTERM, and SIGKILL if it is still running after
+    /// the grace period. Every path that gives up on a process ends here or in `close()`, and both
+    /// escalate to SIGKILL.
+    private func terminate(_ running: Running) {
+        idleTask?.cancel()
+        running.closeInput()
+        let generation = running.generation
+        let grace = configuration.exitGrace
+        signal(SIGTERM, generation: generation)
+        Task { [weak self] in
             try? await Task.sleep(for: grace)
             await self?.signal(SIGKILL, generation: generation)
         }

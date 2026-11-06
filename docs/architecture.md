@@ -9,7 +9,7 @@ Status markers: **(now)** is how the code works today, **(target)** is what the 
 | Target | Owns | Never |
 |---|---|---|
 | `WicketCore` | Values and deterministic policy: `Item`, actions, content (`Detail`, `RunResult`), commands and their ids, ranking, search, the navigation stack's logic, calculator, wire decoding | Processes, AppKit, SwiftUI |
-| `WicketHost` | Everything that talks to another process or to OS services shared with the CLI: `ExtensionSession`, `Agent`, Keychain, login shell, checker, the extension lifecycle **(target)** | Windows, views |
+| `WicketHost` | Everything that talks to another process or to OS services shared with the CLI: `ExtensionSession`, `Extensions` (discovery and session lifecycle), `Agent`, Keychain, login shell, checker | Windows, views |
 | `Wicket` | AppKit and SwiftUI: the panel, views, hotkeys, OS integrations (Spotlight, apps, settings window), composition in `main.swift` | Policy that could be tested in Core |
 | `WicketCLI` | The `wicket` tool: a thin client over Host | Its own copies of Host logic |
 
@@ -42,7 +42,7 @@ The **command registry** is the one catalog. The root search, keywords, aliases,
 
 **Root search.** `ResultSource` (`instant` plus optional `updates`) stays the interface for the root frame only, and stays fast and synchronous on the keystroke path. Ordering has three policies: host-scored candidates (apps, files, built-ins: tier then score then frecency), provider-ordered results (extension root items keep their order within a tier; done: list positions become descending scores and extension items get no frecency boost), and user-ordered fallbacks **(target)**. Selection follows the item id; if the selected item disappears, the rule is explicit and tested.
 
-**Extension lifecycle.** Host owns discovery, the **approved revision** (see consent below), session replacement (old session fully shut down before the new one starts) and diagnostics **(target)**. Discovery does not imply permission to run.
+**Extension lifecycle.** Host owns discovery and session replacement (`Extensions`: the old session is fully shut down before the new one starts; the app only feeds it folder changes), the **approved revision** (see consent below) and diagnostics **(target)**. Discovery does not imply permission to run. Every request carries a host-side `RequestKind`: queries may be resent after a clean exit, `run` actions never are. Every termination path escalates to SIGKILL.
 
 **Agent runs.** `Agent` (Host) yields `AgentEvent`s. A small adapter maps them into a detail frame's content. Agent events stay separate from extension RPC.
 
@@ -65,7 +65,7 @@ Each step is one or more green commits with tests in Core or Host. Steps 1 to 5 
 2. **Root versus list behaviour.** Split selection from aggregation in `ResultList`; three ordering policies; defined behaviour when the selection disappears or is truncated. Move `ResultSource` to Core.
 3. **Frames.** `PaletteModel` becomes the session with a frame stack; Escape, Return and action intents go through it; a first detail view. Root UI unchanged.
 4. **Registry and dispatcher.** Built-ins become registered commands; `ActionRunner` becomes the dispatcher returning outcomes; `command(id:)` goes away; the previous app is captured at summon for paste-back.
-5. **Consent store and lifecycle.** Host-owned approvals; discovered versus approved revisions; serialised session replacement; fixes for the termination holes (`lineTooLong` without SIGKILL escalation, `AgentProcess` waiting on a live child that closed stdout); no automatic replay of `run` invocations after a crash or exit (root and live queries may replay).
+5. **Consent store and lifecycle.** Lifecycle done 2026-11-06: `Extensions` moved to Host with serialised session replacement; every termination path escalates to SIGKILL (`lineTooLong` included); `AgentProcess` never waits on a live child that closed stdout; `run` actions are never resent after an exit (queries may be). Still to do: host-owned approvals; discovered versus approved revisions.
 6. **Extension palette integration.** Keyword routing, root aggregation (debounced), once and live frames, detail rendering, errors with diagnostics.
 
 Can wait: `Encodable` wire types (for MCP and deeplinks), moving settings and usage file I/O out of Core, applying settings diffs to sources live.
