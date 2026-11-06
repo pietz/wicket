@@ -17,7 +17,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Quality gate: `Scripts/check.sh` (warnings as errors, tests, swift format)
 - ✅ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
 - ⏭ Follow-up when the runtime lands: a real `reveal(url:)` action case and action titles in Item (Show in Finder currently travels as a command id)
-- ⏭ Compact pill by default; expands only when there is something to show (owner's call)
+- ✅ Compact pill by default; a content-sized card expands only when there is something to show (owner's call); large answer row; `paletteWidth` setting (600 pt default, slider in General)
 - 💤 Empty palette: favorites and suggestions, as an option once the pill exists
 - ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
 - ⏭ Paste-back target captured at summon, layout-aware ⌘V (the owner's Mac is German)
