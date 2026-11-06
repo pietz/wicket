@@ -12,8 +12,11 @@
 import AppKit
 import CoreGraphics
 
-let args = CommandLine.arguments
-guard args.count >= 2 else { print("usage: hotkey-latency <process name> [runs]"); exit(2) }
+var args = CommandLine.arguments
+// --ctrl adds Control (⌃⌥Space), for when another app owns ⌥Space.
+let hotkeyFlags: CGEventFlags = args.contains("--ctrl") ? [.maskAlternate, .maskControl] : .maskAlternate
+args.removeAll { $0 == "--ctrl" }
+guard args.count >= 2 else { print("usage: hotkey-latency <process name> [runs] [--ctrl]"); exit(2) }
 let name = args[1]
 let runs = args.count > 2 ? Int(args[2]) ?? 30 : 30
 
@@ -63,13 +66,13 @@ usleep(500_000)
 var samples: [Double] = []
 for i in 0..<runs {
     let t0 = now()
-    press(49, flags: .maskAlternate)  // ⌥Space
+    press(49, flags: hotkeyFlags)  // ⌥Space
     // Abort at once: without a panel, every further keystroke lands in the frontmost app.
     guard waitUntil(true) else { print("run \(i): panel never appeared; aborting"); exit(1) }
     samples.append(now() - t0)
     usleep(150_000)
     press(53)  // Escape
-    if !waitUntil(false) { press(49, flags: .maskAlternate); _ = waitUntil(false) }
+    if !waitUntil(false) { press(49, flags: hotkeyFlags); _ = waitUntil(false) }
     usleep(UInt32.random(in: 350_000...650_000))
 }
 guard !samples.isEmpty else { exit(1) }

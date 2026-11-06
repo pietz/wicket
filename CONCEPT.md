@@ -93,10 +93,13 @@ MacBook on macOS 27.2, release builds, 2026-11-06.
 
 | | Wicket M1 | Tinycast (main, Release) |
 |---|---:|---:|
-| Hotkey to visible, median (external harness, 20 runs) | 35 ms (23 ms without glass) | not yet measured |
+| Hotkey to visible, median (external harness, 20 runs) | 35 ms (23 ms without glass) | 45 ms |
+| Hotkey to visible, p90 | 107 ms (50 to 115 across runs) | 59 ms |
 | Idle memory before first summon (`footprint`) | 18 MB | 38 MB |
-| Idle memory after use | not yet measured | 52 MB |
+| Idle memory after 20 summons | 23 MB | 37 MB |
 | App scan | ~40 ms, 157 apps | |
+
+Wicket wins the median and memory but has a worse tail: a few summons in each run take 80 to 120 ms. Not explained yet (Tinycast does nothing special about App Nap); investigate before M2 adds work to the summon path. Tinycast was bound to ⌃⌥Space for its run because the ChatGPT app owns ⌥Space.
 
 Hotkey to visible breaks down as: Carbon event to `show()` about 0.1 ms, then `makeKeyAndOrderFront` about 7 to 10 ms of window-server work plus the first frame. The SwiftUI result list costs nothing measurable; glass costs about 12 ms. The harness (`Scripts/bench/hotkey-latency.swift`) posts ⌥Space through the HID event tap and polls the window list (about 3 ms resolution), so it measures any launcher the same way.
 
