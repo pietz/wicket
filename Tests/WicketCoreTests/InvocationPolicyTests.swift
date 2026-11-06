@@ -1,0 +1,261 @@
+import Foundation
+import Testing
+
+@testable import WicketCore
+
+// The one invocation policy: a command does the same whether it is reached from its row, a hotkey,
+// `wicket run`, its keyword or an alias, for each way it takes text; a run is resent only if its
+// command says it may be.
+
+@MainActor
+private final class Recorder: CommandRunner {
+    var runs: [Invocation] = []
+    var retries: [RetryPolicy] = []
+
+    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+        runs.append(invocation)
+        retries.append(retry)
+        return AsyncThrowingStream { _ in }
+    }
+}
+
+@MainActor
+private final class Effects: ActionEffects {
+    var calls: [String] = []
+    func open(_ url: URL) {}
+    func copy(_ text: String) {}
+    func paste(_ text: String, into app: RunningApp?) {}
+    func reveal(_ url: URL) {}
+    func openSettings() { calls.append("settings") }
+    func quit() { calls.append("quit") }
+}
+
+@MainActor
+private func settle(_ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + .seconds(2)
+    while ContinuousClock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+    return condition()
+}
+
+/// Commands from manifests, so the translation is part of what is checked.
+private func manifestCommands() throws -> [RegisteredCommand] {
+    let json = #"""
+        {"protocol":1,"id":"todo","name":"Todo","version":"1.0.0","run":["/bin/sh","x.sh"],"commands":[
+          {"id":"toggle","title":"Toggle Dark Mode","keyword":"dark"},
+          {"id":"list","title":"List Todos","keyword":"todos","repeatable":true},
+          {"id":"find","title":"Find Todos","keyword":"find","mode":"live"},
+          {"id":"done","title":"Mark Done","hidden":true},
+          {"id":"words","title":"Word Count","mode":"root"}
+        ]}
+        """#
+    let manifest = try JSONDecoder().decode(Manifest.self, from: Data(json.utf8))
+    return manifest.commands.map { RegisteredCommand(extension: manifest.id, command: $0, icon: nil) }
+}
+
+/// One palette over the built-ins and the manifest's commands, with an alias for each kind.
+@MainActor
+private struct Palette {
+    let registry = CommandRegistry()
+    let effects = Effects()
+    let runner = Recorder()
+    let session: PaletteSession
+    let dispatcher: ActionDispatcher
+
+    init() throws {
+        registry.setExtensionCommands(try manifestCommands())
+        registry.setAliases([
+            BuiltinCommand.settings.id: "prefs", .extension("todo", "toggle"): "dm",
+            .extension("todo", "find"): "f", AskAI.command: "ask",
+        ])
+        session = PaletteSession(
+            sources: [CommandsSource(registry), FallbackSource(registry)], runner: runner, registry: registry,
+            liveDebounce: .zero)
+        dispatcher = ActionDispatcher(registry: registry, effects: effects)
+    }
+
+    func command(_ id: CommandID) throws -> RegisteredCommand { try #require(registry.command(id)) }
+
+    /// Return on the command's root row: the action its row carries.
+    func row(_ id: CommandID) throws -> ActionOutcome {
+        let item = try #require(registry.search("").first { $0.id == CommandRegistry.itemID(for: id) })
+        return dispatcher.perform(item.actions[0], in: ActionContext())
+    }
+
+    /// A hotkey: `CommandHotkeys` resolves it to the command's id, which the controller dispatches
+    /// as `.run(command:)`.
+    func hotkey(_ id: CommandID) throws -> ActionOutcome {
+        let key = try Shortcut("ctrl+option+k")
+        let resolved = CommandHotkeys.resolve(
+            [id: CommandBinding(hotkey: key)], palette: .default,
+            isRegistered: { registry.command($0) != nil })
+        let bound = try #require(resolved.hotkeys[key])
+        return dispatcher.perform(.run(command: bound), in: ActionContext())
+    }
+
+    /// `wicket run <folder> <command> [text]`: the CLI resolves the manifest command the same way.
+    func cli(_ id: CommandID, text: String = "") throws -> CommandRun {
+        CommandRun(try command(id), .invoked, text: text)
+    }
+
+    var commandFrame: CommandFrame? {
+        if case .command(let frame) = session.top.content { frame } else { nil }
+    }
+}
+
+private let toggle = CommandID.extension("todo", "toggle")
+private let list = CommandID.extension("todo", "list")
+private let find = CommandID.extension("todo", "find")
+
+@MainActor @Test func manifestsTranslateIntoInputAndRetry() throws {
+    let commands = Dictionary(uniqueKeysWithValues: try manifestCommands().map { ($0.id.name, $0) })
+    #expect(commands["toggle"]?.input == .immediateText)
+    #expect(commands["toggle"]?.retry == .never)
+    #expect(commands["list"]?.retry == .safeToRepeat)
+    #expect(commands["find"]?.input == .liveText)
+    #expect(commands["find"]?.retry == .safeToRepeat)
+    #expect(commands["done"]?.retry == .never)
+    #expect(commands["words"]?.retry == .safeToRepeat)
+    #expect(commands["words"]?.isListed == false)
+
+    // `repeatable` is a once command's contract; live and root runs always are.
+    let live =
+        #"{"protocol":1,"id":"x","name":"X","version":"1.0.0","run":["x"],"commands":[{"id":"a","title":"A","mode":"live","repeatable":true}]}"#
+    #expect(throws: DecodingError.self) { try JSONDecoder().decode(Manifest.self, from: Data(live.utf8)) }
+}
+
+@MainActor @Test func aCommandWithoutTextRunsTheSameFromItsRowAndItsHotkeyAndItsAliasOnlyNamesIt()
+    throws
+{
+    let palette = try Palette()
+    #expect(try palette.row(BuiltinCommand.settings.id) == .close)
+    #expect(try palette.hotkey(BuiltinCommand.settings.id) == .close)
+    #expect(palette.effects.calls == ["settings", "settings"])
+    // A space after its alias opens nothing: it stays a root search.
+    palette.session.query = "prefs "
+    #expect(palette.session.frames.count == 1)
+    #expect(palette.registry.command(keyword: "prefs") == nil)
+}
+
+@MainActor @Test func anImmediateCommandRunsNowFromEveryWayIn() async throws {
+    let palette = try Palette()
+    let expected = CommandRun(
+        command: try palette.command(toggle), invocation: Invocation(command: toggle), retry: .never)
+    #expect(try palette.row(toggle) == .open(expected))
+    #expect(try palette.hotkey(toggle) == .open(expected))
+    #expect(try palette.cli(toggle) == expected)
+    // Its frame shows once the first content arrives, so a toggle answering `close` never flashes one.
+    #expect(expected.query == nil)
+
+    // From its keyword or alias: the rest of the line is its text, and the frame shows at once so
+    // further typing filters it. The run is the same, never resent.
+    for typed in ["dark now", "dm now"] {
+        palette.session.reset()
+        palette.session.query = typed
+        #expect(palette.session.frames.count == 2)
+        #expect(palette.commandFrame?.run.invocation == Invocation(command: toggle, text: "now"))
+        #expect(palette.session.query == "")
+        #expect(await settle { palette.runner.runs.last == Invocation(command: toggle, text: "now") })
+        #expect(palette.runner.retries.last == .never)
+    }
+}
+
+@MainActor @Test func aLiveCommandShowsItsFrameAtOnceFromEveryWayIn() async throws {
+    let palette = try Palette()
+    let expected = CommandRun(
+        command: try palette.command(find), invocation: Invocation(command: find), retry: .safeToRepeat,
+        query: "")
+    #expect(try palette.row(find) == .open(expected))
+    #expect(try palette.hotkey(find) == .open(expected))
+    #expect(try palette.cli(find, text: "milk").invocation.text == "milk")
+
+    for typed in ["find milk", "f milk"] {
+        palette.session.reset()
+        palette.session.query = typed
+        #expect(palette.commandFrame?.run.command.id == find)
+        #expect(palette.session.query == "milk")
+        #expect(await settle { palette.runner.runs.last?.text == "milk" })
+        #expect(palette.runner.retries.last == .safeToRepeat)
+    }
+}
+
+@MainActor @Test func aSubmitTextCommandWaitsForItsTextUnlessItWasSubmitted() async throws {
+    let palette = try Palette()
+    let ask = try palette.command(AskAI.command)
+    let waiting = CommandRun(
+        command: ask, invocation: Invocation(command: AskAI.command), retry: .never, query: "")
+    // A hotkey or `run` without text opens its frame waiting for the text; nothing runs.
+    #expect(try palette.hotkey(AskAI.command) == .open(waiting))
+    #expect(waiting.awaitsText)
+    #expect(CommandRun(ask, .invoked, text: "  ") == waiting)
+    // Submitted text (its fallback row, a `run` with text) runs now.
+    #expect(
+        CommandRun(ask, .invoked, text: "why")
+            == CommandRun(
+                command: ask, invocation: Invocation(command: AskAI.command, text: "why"), retry: .never))
+
+    // Its keyword and its alias put what followed them in the waiting frame's field; never run it.
+    for typed in ["ai why is the sky blue", "ask why is the sky blue"] {
+        palette.session.reset()
+        palette.session.query = typed
+        #expect(palette.commandFrame?.run.invocation == waiting.invocation)
+        #expect(palette.commandFrame?.run.awaitsText == true)
+        #expect(palette.session.query == "why is the sky blue")
+        #expect(palette.session.top.isCompact)
+        #expect(!palette.session.top.isLoading)
+    }
+    palette.session.query = "why is the sky blue?"
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(palette.runner.runs.isEmpty)
+
+    // Return submits the field, which runs it in a frame of its own; Escape goes back to the question.
+    let target = try #require(palette.session.top.target)
+    #expect(target.actions == [AskAI.action(asking: "why is the sky blue?")])
+    #expect(target.item == nil)
+    guard case .open(let run) = palette.dispatcher.perform(target.actions[0], in: ActionContext()) else {
+        Issue.record("submitting didn't open a run")
+        return
+    }
+    palette.session.open(run)
+    #expect(await settle { palette.runner.runs.count == 1 })
+    #expect(palette.runner.runs[0].text == "why is the sky blue?")
+    #expect(palette.session.escape() == .cancelledOpening)
+    #expect(palette.session.query == "why is the sky blue?")
+
+    // An empty field has nothing to submit.
+    palette.session.query = ""
+    #expect(palette.session.top.target == nil)
+}
+
+@MainActor @Test func askAIKeepsItsKeywordAgainstAnExtension() async throws {
+    let rival = RegisteredCommand(
+        id: .extension("assistant", "chat"), title: "Assistant", icon: .symbol(name: "bubble"), keyword: "ai")
+    let registry = CommandRegistry()
+    registry.setExtensionCommands([rival])
+    #expect(registry.command(keyword: "ai")?.id == AskAI.command)
+    #expect(
+        registry.keywordConflicts
+            == [CommandRegistry.KeywordConflict(keyword: "ai", winner: AskAI.command, loser: rival.id)])
+
+    // So "ai " opens Ask AI, waiting for the question, and the extension is never run.
+    let runner = Recorder()
+    let session = PaletteSession(sources: [], runner: runner, registry: registry, liveDebounce: .zero)
+    session.query = "ai "
+    guard case .command(let frame) = session.top.content else {
+        Issue.record("no frame")
+        return
+    }
+    #expect(frame.run.command.id == AskAI.command)
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(runner.runs.isEmpty)
+
+    // With Ask AI off, the extension has the word.
+    registry.setDisabledFeatures([.askAI])
+    #expect(registry.command(keyword: "ai")?.id == rival.id)
+    // The user's alias beats even a built-in's keyword.
+    registry.setDisabledFeatures([])
+    registry.setAliases([rival.id: "ai"])
+    #expect(registry.command(keyword: "ai")?.id == rival.id)
+}

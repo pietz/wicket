@@ -12,18 +12,18 @@ import Testing
 private final class FakeRunner: CommandRunner {
     struct Run {
         let invocation: Invocation
-        let kind: RequestKind
+        let retry: RetryPolicy
         let continuation: AsyncThrowingStream<RunResult, any Error>.Continuation
     }
 
     private(set) var runs: [Run] = []
     private let ended = Mutex<Set<Int>>([])
 
-    func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         let index = runs.count
         continuation.onTermination = { [self] _ in ended.withLock { _ = $0.insert(index) } }
-        runs.append(Run(invocation: invocation, kind: kind, continuation: continuation))
+        runs.append(Run(invocation: invocation, retry: retry, continuation: continuation))
         return stream
     }
 
@@ -54,7 +54,7 @@ private func row(_ title: String, actions: [Item.Action] = []) -> Item {
 
 private let search = RegisteredCommand(
     id: .extension("unicode", "search"), title: "Search Unicode Characters", icon: .symbol(name: "character"),
-    keyword: "uc", mode: .live, placeholder: "Character name")
+    keyword: "uc", input: .liveText, retry: .safeToRepeat, placeholder: "Character name")
 private let reviews = RegisteredCommand(
     id: .extension("github-prs", "review-requests"), title: "GitHub Review Requests",
     icon: .symbol(name: "arrow.triangle.pull"), keyword: "prr")
@@ -93,7 +93,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(content(session)?.screen == nil)
     #expect(await eventually { runner.runs.count == 1 })
     #expect(runner.texts == ["heart"])
-    #expect(runner.runs[0].kind == .query)
+    #expect(runner.runs[0].retry == .safeToRepeat)
 
     runner.runs[0].continuation.yield(.list([row("Heavy Black Heart")]))
     runner.runs[0].continuation.finish()
@@ -177,7 +177,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func anActionOpensItsFrameWhenTheFirstContentArrives() async {
     let (session, runner, _) = session()
-    let run = CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .query)
+    let run = CommandRun(reviews, .invoked)
     session.open(run)
     #expect(session.opening == run)
     #expect(session.frames.count == 1)
@@ -197,17 +197,17 @@ private func titles(_ session: PaletteSession) -> [String] {
     let (session, runner, _) = session()
     let args: [String: JSONValue] = ["repo": .string("acme/web")]
     session.open(
-        CommandRun(command: search, invocation: Invocation(command: search.id, args: args), kind: .action))
+        CommandRun(search, .invoked, args: args))
     #expect(session.frames.count == 2)
     session.query = "x"
     #expect(await eventually { runner.texts.last == "x" })
-    #expect(runner.runs.allSatisfy { $0.invocation.args == args && $0.kind == .query })
+    #expect(runner.runs.allSatisfy { $0.invocation.args == args && $0.retry == .safeToRepeat })
 }
 
 @MainActor @Test func aFirstCloseClosesThePaletteWithoutAFrame() async {
     var (session, runner, requests) = session()
     session.onRequest = { requests.append($0) }
-    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .query))
+    session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.close(message: "Dark mode on"))
     #expect(await eventually { !requests.isEmpty })
@@ -227,10 +227,9 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.moveSelection(by: 1)
     #expect(session.top.list?.selectedItem?.title == "Safari")
 
-    let action = Invocation(command: quit.id, args: ["pid": .integer(7)])
-    session.open(CommandRun(command: quit, invocation: action, kind: .action))
+    session.open(CommandRun(quit, .invoked, args: ["pid": .integer(7)]))
     #expect(await eventually { runner.runs.count == 2 })
-    #expect(runner.runs[1].kind == .action)
+    #expect(runner.runs[1].retry == .never)
     runner.runs[1].continuation.yield(.reload(message: "Quit Safari"))
     #expect(await eventually { runner.runs.count == 3 })
     #expect(requests == [.message("Quit Safari")])
@@ -255,7 +254,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func failuresShowInTheFrame() async {
     let (session, runner, _) = session()
-    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .query))
+    session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.finish(throwing: Failure())
     #expect(await eventually { session.frames.count == 2 })
@@ -296,7 +295,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 @MainActor @Test func streamedContentReplacesTheFrameInPlace() async {
     // The mechanism a streaming AI answer uses: a growing detail, element after element.
     let (session, runner, _) = session()
-    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .query))
+    session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     var markdown = ""
     var frame: Frame.ID?
@@ -317,7 +316,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 @MainActor @Test func runsEndWithTheirFrame() async {
     let (session, runner, _) = session()
     // Escape stops a command still being opened.
-    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .query))
+    session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     #expect(session.escape() == .cancelledOpening)
     #expect(session.opening == nil)
@@ -336,7 +335,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 
     // Dismissing ends everything, including an opening.
     session.query = "prr "
-    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .query))
+    session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 5 })
     session.reset()
     #expect(await eventually { runner.wasEnded(3) && runner.wasEnded(4) })
@@ -377,7 +376,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func stoppingACommandCancelsItsOpening() async {
     let (session, runner, _) = session()
-    session.open(CommandRun(command: reviews, invocation: Invocation(command: reviews.id), kind: .action))
+    session.open(CommandRun(reviews, .invoked))
     #expect(session.opening != nil)
     #expect(await eventually { runner.runs.count == 1 })
     #expect(session.stopCommands { $0 == reviews.id })

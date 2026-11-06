@@ -62,8 +62,19 @@
         "keyword": { "type": "string", "pattern": "^\\S+$" },
         "placeholder": { "type": "string" },
         "hidden": { "type": "boolean", "default": false },
-        "pattern": { "type": "string", "format": "regex", "description": "Root only: queries that don't match are not sent." }
+        "pattern": { "type": "string", "format": "regex", "description": "Root only: queries that don't match are not sent." },
+        "repeatable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Once only: running it twice does no harm, so Wicket may resend it after a clean exit."
+        }
       },
+      "allOf": [
+        {
+          "if": { "required": ["mode"], "properties": { "mode": { "enum": ["live", "root"] } } },
+          "then": { "not": { "required": ["repeatable"] } }
+        }
+      ],
       "if": { "required": ["mode"], "properties": { "mode": { "const": "root" } } },
       "then": {
         "not": {

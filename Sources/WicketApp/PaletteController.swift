@@ -204,19 +204,13 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     /// Runs a command bound to a global hotkey (settings.json `commands`) without the root search
     /// first, through the same dispatcher as its row. One that shows something summons the palette
-    /// straight into its frame; one that just does something (Quit, a toggle answering `close`)
-    /// shows nothing but its close message, since a hidden palette is revealed only when the command
-    /// has content (or is still running after `revealDelay`). Ask AI takes its question from the
-    /// root, so its hotkey summons the palette with its prefix typed. Pressing a command's hotkey
-    /// while its frame is on top closes the palette, as the palette's own hotkey does.
+    /// straight into its frame (a command that takes typed text, like Ask AI, into its frame waiting
+    /// for the text); one that just does something (Quit, a toggle answering `close`) shows nothing
+    /// but its close message, since a hidden palette is revealed only when the command has content
+    /// (or is still running after `revealDelay`). Pressing a command's hotkey while its frame is on
+    /// top closes the palette, as the palette's own hotkey does.
     func run(bound id: CommandID) {
         if panel.isVisible, case .command(let frame) = model.top.content, frame.run.command.id == id {
-            hide()
-            return
-        }
-        if panel.isVisible, id == AskAI.command, model.session.frames.count == 1,
-            model.query == AskAI.prefix + " "
-        {
             hide()
             return
         }
@@ -226,11 +220,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
             model.session.reset()
         } else {
             capturePreviousApp()
-        }
-        if id == AskAI.command {
-            reveal()
-            model.query = AskAI.prefix + " "
-            return
         }
         switch dispatcher.perform(.run(command: id), in: ActionContext(previousApp: previousApp)) {
         case .close: hide()

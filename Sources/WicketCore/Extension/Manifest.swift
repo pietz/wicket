@@ -56,10 +56,14 @@ public struct Manifest: Sendable, Hashable, Decodable {
         public var hidden: Bool
         /// Root only: an ICU regular expression a query must match to be sent.
         public var pattern: String?
+        /// Once only: running it twice does no harm, so a run its process left unanswered at a clean
+        /// exit may be resent (`retry`). Live and root runs always may.
+        public var repeatable: Bool
 
         public init(from decoder: any Decoder) throws {
             let object = try decoder.object([
                 "id", "title", "subtitle", "icon", "mode", "keyword", "placeholder", "hidden", "pattern",
+                "repeatable",
             ])
             id = try object.slug("id")
             title = try object.nonEmpty("title")
@@ -74,6 +78,7 @@ public struct Manifest: Sendable, Hashable, Decodable {
             placeholder = try object.optional("placeholder")
             hidden = try object.optional("hidden") ?? false
             pattern = try object.optional("pattern")
+            repeatable = try object.optional("repeatable") ?? false
             if let keyword, keyword.isEmpty || keyword.contains(where: \.isWhitespace) {
                 throw object.invalid("keyword", "\"\(keyword)\" must be one word without spaces")
             }
@@ -83,6 +88,9 @@ public struct Manifest: Sendable, Hashable, Decodable {
                 }
             } else if object.has("pattern") {
                 throw object.invalid("pattern", "is only for root commands")
+            }
+            if parsed != .once, object.has("repeatable") {
+                throw object.invalid("repeatable", "is only for once commands; live and root runs always are")
             }
             if let pattern {
                 do {

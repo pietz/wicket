@@ -14,10 +14,12 @@ import Observation
 /// shows, `close` asks the app to close the palette, and `reload` drops the frame and runs the one
 /// beneath it again. A live command runs again for every change of the frame's text (rapid
 /// keystrokes coalesced by `liveDebounce`); a once command runs when opened and filters a list
-/// locally. Typing a command's keyword and a space in the root search opens its frame at once, with
-/// the rest of the text as its query (live) or its text (once). An action that runs a command opens
-/// a live command at once, but anything else only when its first content arrives, so a command that
-/// just does something and closes never flashes a frame; until then the session is `opening` it.
+/// locally; a command waiting for its text (`CommandRun.awaitsText`) runs nothing until the text is
+/// submitted, which runs it in a frame of its own. How a command opens is the invocation policy's
+/// (`CommandRun`): typing its keyword and a space in the root search, like a `run` action, a row or a
+/// hotkey, resolves through it. A run with a `query` shows its frame at once; any other only when
+/// its first content arrives, so a command that just does something and closes never flashes a
+/// frame; until then the session is `opening` it.
 @MainActor
 @Observable
 public final class PaletteSession {
@@ -82,7 +84,7 @@ public final class PaletteSession {
         if index == 0, let (command, rest) = keywordCommand(in: text) {
             // The root keeps the keyword, so going back shows where the user came from.
             setRootQuery(String(text.prefix(while: { $0 != " " })))
-            open(command, text: rest)
+            open(CommandRun(command, .keyword, text: rest))
             return
         }
         frames[index].query = text
@@ -144,13 +146,15 @@ public final class PaletteSession {
         frames.append(Frame(id: lastID, content: .detail(detail)))
     }
 
-    /// Shows `run` in a command frame: a live command's at once, anything else's once its first
-    /// result is content (a first `close` or `reload` acts on the palette instead).
+    /// Shows `run` in a command frame: at once with its `query` if it has one (a live command, a
+    /// keyword's once command, a command waiting for its text), else once its first result is content
+    /// (a first `close` or `reload` acts on the palette instead).
     public func open(_ run: CommandRun) {
         cancelOpening()
         lastID += 1
         var frame = Frame(id: lastID, content: .command(CommandFrame(run: run)))
-        if run.command.mode == .live {
+        if let query = run.query {
+            frame.query = query
             frames.append(frame)
             start(frames.count - 1)
         } else {
@@ -200,21 +204,6 @@ public final class PaletteSession {
         guard frames[0].query != text else { return }
         frames[0].query = text
         start(0)
-    }
-
-    /// Opens `command`'s frame at once, from its keyword: a live command searches `text`, a once
-    /// command runs on it and starts with an empty filter.
-    private func open(_ command: RegisteredCommand, text: String) {
-        cancelOpening()
-        let live = command.mode == .live
-        let run = CommandRun(
-            command: command, invocation: Invocation(command: command.id, text: live ? "" : text),
-            kind: .query)
-        lastID += 1
-        var frame = Frame(id: lastID, content: .command(CommandFrame(run: run)))
-        frame.query = live ? text : ""
-        frames.append(frame)
-        start(frames.count - 1)
     }
 
     private func cancelOpening() {
@@ -282,18 +271,15 @@ public final class PaletteSession {
     }
 
     /// Starts a new generation of a command frame's run: its invocation, with the frame's query as
-    /// the text for a live command (always a query; a once command runs as its `CommandRun` says).
+    /// the text for a live command. A frame waiting for its text runs nothing.
     private func startCommand(_ frame: inout Frame, debounce: Bool) {
-        guard case .command(let command) = frame.content else { return }
+        guard case .command(let command) = frame.content, !command.run.awaitsText else { return }
         cancel(frame.id)
         frame.generation += 1
         frame.pending = 1
         var invocation = command.run.invocation
-        var kind = command.run.kind
-        if command.isLive {
-            invocation.text = frame.query
-            kind = .query
-        }
+        let retry = command.run.retry
+        if command.isLive { invocation.text = frame.query }
         let ticket = Ticket(frame: frame.id, generation: frame.generation)
         let delay = debounce && command.isLive ? liveDebounce : nil
         let runner = runner
@@ -308,7 +294,7 @@ public final class PaletteSession {
                     return
                 }
                 do {
-                    for try await result in runner.run(invocation, kind: kind) {
+                    for try await result in runner.run(invocation, retry: retry) {
                         guard let self, !Task.isCancelled else { return }
                         receive(result, ticket, text: invocation.text)
                     }

@@ -81,16 +81,16 @@ public final class Extensions {
         }
     }
 
-    /// Runs `invocation`'s command (its `text`, and the `args` of a `run` action with `kind`
-    /// `.action`) and returns its result. Cancelling the calling task cancels the request. Throws
+    /// Runs `invocation`'s command (its `text` and `args`), resent after a clean exit only if `retry`
+    /// allows, and returns its result. Cancelling the calling task cancels the request. Throws
     /// `ExtensionError` for an error response and `HostError` otherwise, `.unknownCommand` if no
     /// installed extension has it.
-    public func result(of invocation: Invocation, kind: RequestKind) async throws -> RunResult {
+    public func result(of invocation: Invocation, retry: RetryPolicy) async throws -> RunResult {
         let command = invocation.command
         guard case .extension(let id) = command.owner, installed[id]?.manifest.command(command.name) != nil
         else { throw HostError.unknownCommand }
         return try await session(for: id).run(
-            command.name, text: invocation.text, args: invocation.args, kind: kind)
+            command.name, text: invocation.text, args: invocation.args, retry: retry)
     }
 
     /// The extension's session, created once the sessions it replaces have shut down.
@@ -163,13 +163,13 @@ public final class Extensions {
 
 /// Extension commands feed their frames with one result per run.
 extension Extensions: CommandRunner {
-    /// One element, `result(of:kind:)`'s; ending the iteration cancels the request.
-    public func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
+    /// One element, `result(of:retry:)`'s; ending the iteration cancels the request.
+    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    continuation.yield(try await result(of: invocation, kind: kind))
+                    continuation.yield(try await result(of: invocation, retry: retry))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

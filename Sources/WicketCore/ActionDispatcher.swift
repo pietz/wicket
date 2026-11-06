@@ -50,8 +50,10 @@ public protocol ActionEffects {
 
 /// Turns an action and its context into an outcome: the one place where activating something
 /// reaches past the palette. `run` actions resolve through the command registry, so built-ins and
-/// extension commands are invoked the same way, by `CommandID`. Settings and Quit run their effect
-/// here; every other command opens its frame, whose run the palette session owns.
+/// extension commands are invoked the same way, by `CommandID`, and what a command does with its
+/// text and whether a run may be resent come from the one invocation policy (`CommandRun`). Settings
+/// and Quit run their effect here; every other command opens its frame, whose run the palette session
+/// owns.
 @MainActor
 public struct ActionDispatcher {
     private let registry: CommandRegistry
@@ -74,37 +76,27 @@ public struct ActionDispatcher {
             effects.reveal(url)
         case .detail(let detail):
             return .push(detail)
-        case .run(let id, let args, _):
-            return run(Invocation(command: id, args: args))
+        case .run(let id, let text, let args, _):
+            return run(id, text: text, args: args)
         }
         return .close
     }
 
-    private func run(_ invocation: Invocation) -> ActionOutcome {
-        guard let command = registry.command(invocation.command) else {
+    private func run(_ id: CommandID, text: String, args: [String: JSONValue]?) -> ActionOutcome {
+        guard let command = registry.command(id) else {
             return .push(
-                .failure(
-                    "Command Not Found", "This command isn't installed any more.", command: invocation.command
-                ))
+                .failure("Command Not Found", "This command isn't installed any more.", command: id))
         }
-        switch command.id.owner == .builtin ? BuiltinCommand(rawValue: command.id.name) : nil {
-        case .settings:
+        switch command.id {
+        case BuiltinCommand.settings.id:
             effects.openSettings()
             return .close
-        case .quit:
+        case BuiltinCommand.quit.id:
             effects.quit()
             return .close
-        case .askAI, nil:
-            // Extension commands, and built-ins that show something (Ask AI): their frame runs them.
-            let kind = Self.kind(of: invocation, command)
-            return .open(CommandRun(command: command, invocation: invocation, kind: kind))
+        default:
+            // Extension commands, and built-ins that show something: their frame runs them.
+            return .open(CommandRun(command, .invoked, text: text, args: args))
         }
-    }
-
-    /// Opening a listed command without `args` is the same as pressing Return on its row, a query;
-    /// anything else a `run` action starts (a hidden command, or one given `args`) may change
-    /// something, so it is an action and never resent (docs/extensions.md).
-    static func kind(of invocation: Invocation, _ command: RegisteredCommand) -> RequestKind {
-        command.isListed && invocation.args == nil ? .query : .action
     }
 }

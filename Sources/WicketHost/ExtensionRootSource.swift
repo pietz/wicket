@@ -28,8 +28,11 @@ public final class ExtensionRootSource: ResultSource {
     public func instant(_ query: Query) -> [Item] { [] }
 
     public func updates(_ query: Query) -> AsyncStream<[Item]>? {
-        let commands = extensions.rootCommands(matching: query.text).map(\.id)
-        guard !commands.isEmpty else { return nil }
+        let matching = extensions.rootCommands(matching: query.text)
+        guard !matching.isEmpty else { return nil }
+        let commands = matching.map(\.id)
+        // Root queries are searches, so their manifest translation makes them safe to repeat.
+        let retry = Dictionary(matching.map { ($0.id, $0.command.retry) }, uniquingKeysWith: { a, _ in a })
         let text = query.text
         return AsyncStream { continuation in
             // Cancelling it (a newer query, dismissal) cancels every request in flight.
@@ -39,7 +42,9 @@ public final class ExtensionRootSource: ResultSource {
                 var answered: [CommandID: [Item]] = [:]
                 await withTaskGroup(of: (CommandID, Result<RunResult, any Error>).self) { group in
                     for command in commands {
-                        group.addTask { await (command, Self.ask(extensions, command, text)) }
+                        group.addTask {
+                            await (command, Self.ask(extensions, command, text, retry[command] ?? .never))
+                        }
                     }
                     for await (command, outcome) in group {
                         switch outcome {
@@ -59,12 +64,12 @@ public final class ExtensionRootSource: ResultSource {
         }
     }
 
-    private static func ask(_ extensions: Extensions, _ command: CommandID, _ text: String) async
-        -> Result<RunResult, any Error>
-    {
+    private static func ask(
+        _ extensions: Extensions, _ command: CommandID, _ text: String, _ retry: RetryPolicy
+    ) async -> Result<RunResult, any Error> {
         do {
             return .success(
-                try await extensions.result(of: Invocation(command: command, text: text), kind: .query))
+                try await extensions.result(of: Invocation(command: command, text: text), retry: retry))
         } catch {
             return .failure(error)
         }

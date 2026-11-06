@@ -59,13 +59,13 @@ public final class AskAIRunner: CommandRunner {
         self.statusLifetime = statusLifetime
     }
 
-    public func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
+    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
-        let prompt = AskAI.prompt(of: invocation)
+        let prompt = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let task = Task {
             do {
-                guard let prompt else { throw Failure("There's no question to ask.") }
+                guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
                 try await answer(prompt, continuation)
                 continuation.finish()
             } catch {

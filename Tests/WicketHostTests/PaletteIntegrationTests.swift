@@ -241,7 +241,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         "pid": .integer(99_999_999), "name": .string("Ghost"), "after": .string("reload"),
     ]
     palette.perform(.run(command: .extension("quit-apps", "quit"), args: ghost))
-    #expect(session.opening?.kind == .action)
+    #expect(session.opening?.retry == .never)
     #expect(await eventually { session.frames.count == 3 })
     guard case .detail(let failure) = palette.screen else {
         Issue.record("expected the failure")

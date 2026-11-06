@@ -65,8 +65,8 @@ struct PaletteMetricsTests {
     }
 
     @Test func commandFrameWaitsForContent() async {
-        let live = command("search", mode: .live)
-        session.open(CommandRun(command: live, invocation: Invocation(command: live.id), kind: .query))
+        let live = command("search", input: .liveText, retry: .safeToRepeat)
+        session.open(CommandRun(live, .invoked))
         #expect(card(session.top) == nil)
         #expect(await eventually { runner.count[live.id] == 1 })
 
@@ -81,5 +81,16 @@ struct PaletteMetricsTests {
         runner.runs[live.id]?.yield(.list([]))
         #expect(await eventually { !session.top.isCompact && session.top.list != nil })
         #expect(card(session.top) == 91)
+    }
+
+    /// A command waiting for its text is the bare pill, even over a root that had a card.
+    @Test func aFrameWaitingForItsTextIsThePill() {
+        #expect(card(search([item("a")])) == 91)
+        let ask = command("ask", input: .submitText)
+        session.open(CommandRun(ask, .invoked))
+        #expect(session.frames.count == 2)
+        #expect(card(session.top) == 0)
+        session.query = "why"
+        #expect(card(session.top) == 0)
     }
 }

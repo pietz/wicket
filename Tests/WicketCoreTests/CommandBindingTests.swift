@@ -171,11 +171,11 @@ private func read(_ url: URL) throws -> String {
 
 private let github = RegisteredCommand(
     id: .extension("github", "search"), title: "Search GitHub", icon: .symbol(name: "magnifyingglass"),
-    keyword: "gh", mode: .live)
+    keyword: "gh", input: .liveText, retry: .safeToRepeat)
 private let unicode = RegisteredCommand(
     id: .extension("unicode", "search"), title: "Search Unicode", icon: .symbol(name: "character"),
     keyword: "uc",
-    mode: .live)
+    input: .liveText, retry: .safeToRepeat)
 private let hidden = RegisteredCommand(
     id: .extension("todo", "done"), title: "Mark as Done", icon: .symbol(name: "checkmark"), isListed: false)
 
@@ -280,7 +280,7 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
 @MainActor @Test func typingAnAliasAndASpaceOpensTheFrame() async {
     @MainActor final class Recorder: CommandRunner {
         var runs: [Invocation] = []
-        func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error> {
+        func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
             runs.append(invocation)
             return AsyncThrowingStream { _ in }
         }
@@ -299,18 +299,20 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
     }
 }
 
-@MainActor @Test func anAliasForAskAIWorksLikeItsPrefix() throws {
+@MainActor @Test func anAliasForAskAIWorksLikeItsKeyword() throws {
     let registry = makeRegistry([AskAI.command: "ask"])
-    let source = AskAISource(registry: registry)
-    let row = try #require(source.instant(Query(text: "Ask capital of peru", revision: 1)).first)
-    #expect(row.relevance == .alias)
-    #expect(row.subtitle == "capital of peru")
-    #expect(row.actions == [AskAI.action(asking: "capital of peru")])
-    // `ai` still works, and without the alias the word is just a question.
-    #expect(source.instant(Query(text: "ai why", revision: 1)).first?.relevance == .exact)
-    #expect(AskAISource().instant(Query(text: "ask why", revision: 1)).first?.relevance == .fallback)
-    // Ask AI isn't a keyword: a space doesn't open its frame.
-    #expect(registry.command(keyword: "ask") == nil)
+    #expect(registry.command(keyword: "ask")?.id == AskAI.command)
+    #expect(registry.command(keyword: "ai")?.id == AskAI.command)
+    // Its frame waits for the question with what followed the alias in the field; nothing runs.
+    let session = PaletteSession(
+        sources: [], runner: CommandRouter(builtins: [:], extensions: nil), registry: registry)
+    session.query = "Ask capital of peru"
+    #expect(session.frames.count == 2)
+    #expect(session.query == "capital of peru")
+    #expect(!session.top.isLoading)
+    #expect(session.top.target?.actions == [AskAI.action(asking: "capital of peru")])
+    // Without the alias the word is just a question.
+    #expect(makeRegistry([:]).command(keyword: "ask") == nil)
 }
 
 // MARK: Hotkeys
@@ -391,7 +393,7 @@ private final class Effects: ActionEffects {
     let outcome = dispatcher.perform(.run(command: search), in: ActionContext())
     #expect(
         outcome
-            == .open(CommandRun(command: github, invocation: Invocation(command: github.id), kind: .query)))
+            == .open(CommandRun(github, .invoked)))
 
     // The palette session opens it: a live command's frame at once.
     let session = PaletteSession(

@@ -8,8 +8,14 @@
   "run": ["/bin/sh", "main.sh"],
   "capabilities": ["shell"],
   "commands": [
-    { "id": "quit-apps", "title": "Quit Apps", "subtitle": "Running apps by memory use", "keyword": "quit" },
-    { "id": "app", "title": "App Details", "hidden": true },
+    {
+      "id": "quit-apps",
+      "title": "Quit Apps",
+      "subtitle": "Running apps by memory use",
+      "keyword": "quit",
+      "repeatable": true
+    },
+    { "id": "app", "title": "App Details", "hidden": true, "repeatable": true },
     { "id": "quit", "title": "Quit App", "hidden": true },
     { "id": "force-quit", "title": "Force Quit App", "hidden": true }
   ]

@@ -61,7 +61,8 @@ extension CommandID: LosslessStringConvertible {
 /// store, and what a `run` action becomes.
 public struct Invocation: Hashable, Sendable {
     public var command: CommandID
-    /// What the user typed for it; `""` for a `run` action.
+    /// The text it runs on: what followed its keyword, what was submitted to it; `""` for a plain
+    /// `run` action.
     public var text: String
     /// Passed through from a `run` action.
     public var args: [String: JSONValue]?
@@ -73,27 +74,108 @@ public struct Invocation: Hashable, Sendable {
     }
 }
 
-/// Whether a request may be resent to a fresh process when the one that had it exits cleanly.
-public enum RequestKind: Sendable, Equatable, Hashable {
-    /// Search text for a root, live or once command: reading only, so resending it is safe.
-    case query
-    /// A command run by an item's `run` action. It may have changed something before the process
-    /// exited, so it is never resent.
-    case action
+/// How a command takes its text. The command declares it (built-ins in `BuiltinCommand`, extension
+/// commands translated from their manifest's mode), and `CommandRun(_:_:text:args:)` turns it into
+/// what each way of reaching the command does.
+public enum CommandInput: Sendable, Hashable {
+    /// Takes no text and runs when invoked (Settings, Quit). A keyword or alias and a space doesn't
+    /// open it, so its alias only names it.
+    case none
+    /// Runs when invoked, on the text that came with it: `""` from its row or a hotkey, the rest of
+    /// the line after its keyword (an extension's `once` command).
+    case immediateText
+    /// Takes typed text and runs only when it is submitted (Return), never on a keystroke (Ask AI).
+    /// Reached without text, its frame waits for it.
+    case submitText
+    /// Runs again for every change of its frame's text (an extension's `live` command).
+    case liveText
 }
 
-/// A command to show in a frame: the command, what to run it on, and how its first run counts.
-/// A command frame runs `invocation` on open and on reload (a live command with the frame's query
-/// as its text); a live command's searches are always queries.
+/// Whether a run may be sent again to a fresh process when the one that had it exits cleanly before
+/// answering: the host can't tell whether the process read it, so only a run that does no harm twice
+/// may be.
+public enum RetryPolicy: Sendable, Hashable {
+    /// It may already have changed something: never resent, it fails instead. The default.
+    case never
+    /// Its contract says running it twice is harmless: a search (live and root commands) or a once
+    /// command whose manifest says `repeatable`.
+    case safeToRepeat
+}
+
+/// How a command was reached, which decides whether text that came with it was submitted or only
+/// typed.
+public enum CommandTrigger: Sendable, Hashable {
+    /// Named directly: Return on its row or fallback row, a `run` action, a hotkey, `wicket run` (and
+    /// later a deeplink or an MCP call). Text that comes with it is submitted.
+    case invoked
+    /// Its keyword or alias and a space in the root search: the rest of the line was typed, not
+    /// submitted.
+    case keyword
+}
+
+/// A command to show in a frame: the command, what to run it on, whether a run may be resent, and
+/// how its frame starts. A command frame runs `invocation` on open and on reload (a live command with
+/// the frame's query as its text); a frame waiting for text runs nothing until it is submitted.
 public struct CommandRun: Sendable, Hashable {
     public var command: RegisteredCommand
     public var invocation: Invocation
-    public var kind: RequestKind
+    public var retry: RetryPolicy
+    /// Nil: the command runs now and its frame shows once the first result is content, so a command
+    /// that just does something and closes never flashes one. Otherwise its frame shows at once with
+    /// this text in its field: a live command searching it, a once command from its keyword (the
+    /// field filters its list), a command waiting for its text.
+    public var query: String?
 
-    public init(command: RegisteredCommand, invocation: Invocation, kind: RequestKind) {
+    public init(command: RegisteredCommand, invocation: Invocation, retry: RetryPolicy, query: String? = nil)
+    {
         self.command = command
         self.invocation = invocation
-        self.kind = kind
+        self.retry = retry
+        self.query = query
+    }
+
+    /// The one invocation policy: what reaching `command` by `trigger`, with `text` and `args`,
+    /// does. Rows, keywords, aliases, hotkeys and `wicket run` all come through here, so a command
+    /// behaves the same whichever way it is reached:
+    /// - `none` and `immediateText` run now on the text (a keyword's rest of the line, whose frame
+    ///   shows at once so further typing filters it);
+    /// - `submitText` runs now on submitted text, and otherwise shows its frame waiting for the text
+    ///   (a keyword's rest of the line is put in the field, never run);
+    /// - `liveText` shows its frame at once, searching the text.
+    /// A run may be resent only if the command says so (`RegisteredCommand.retry`), however it came.
+    public init(
+        _ command: RegisteredCommand, _ trigger: CommandTrigger, text: String = "",
+        args: [String: JSONValue]? = nil
+    ) {
+        var runText = text
+        var query: String?
+        switch (command.input, trigger) {
+        case (.none, _):
+            runText = ""
+        case (.immediateText, .invoked):
+            break
+        case (.immediateText, .keyword):
+            query = ""
+        case (.submitText, .invoked):
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                runText = ""
+                query = ""
+            }
+        case (.submitText, .keyword):
+            runText = ""
+            query = text
+        case (.liveText, _):
+            query = text
+        }
+        self.init(
+            command: command, invocation: Invocation(command: command.id, text: runText, args: args),
+            retry: command.retry, query: query)
+    }
+
+    /// A submit-text command reached without text: its frame runs nothing until the text is
+    /// submitted.
+    public var awaitsText: Bool {
+        command.input == .submitText && invocation.text.isEmpty
     }
 }
 
@@ -104,7 +186,7 @@ public struct CommandRun: Sendable, Hashable {
 /// iteration (the frame was popped, the palette dismissed, the query superseded) must stop the work.
 @MainActor
 public protocol CommandRunner: AnyObject {
-    func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
+    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
 }
 
 /// The one runner the palette session gets: each run goes to its command's owner, built-ins to the
@@ -119,7 +201,7 @@ public final class CommandRouter: CommandRunner {
         self.extensions = extensions
     }
 
-    public func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
+    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
         let runner =
             switch invocation.command.owner {
@@ -129,7 +211,7 @@ public final class CommandRouter: CommandRunner {
         guard let runner else {
             return AsyncThrowingStream { $0.finish(throwing: Unrouted()) }
         }
-        return runner.run(invocation, kind: kind)
+        return runner.run(invocation, retry: retry)
     }
 
     /// A command nothing runs, such as a built-in without a runner.

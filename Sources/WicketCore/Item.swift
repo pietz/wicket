@@ -34,14 +34,16 @@ public struct Item: Sendable, Hashable, Identifiable {
         case detail(Detail)
         /// Runs a command, built-in or extension, with `args` passed through. Extensions name a
         /// command of their own; the host resolves it against the item's origin when decoding, so
-        /// only the host can name a built-in.
-        case run(command: CommandID, args: [String: JSONValue]? = nil, title: String? = nil)
+        /// only the host can name a built-in. `text` is submitted to the command (host only, such as a
+        /// fallback row's query; a wire `run` sends `""`).
+        case run(
+            command: CommandID, text: String = "", args: [String: JSONValue]? = nil, title: String? = nil)
 
         /// The title the source gave, if any.
         public var title: String? {
             switch self {
             case .open(_, let title), .copy(_, let title), .paste(_, let title), .reveal(_, let title),
-                .run(_, _, let title):
+                .run(_, _, _, let title):
                 title
             case .detail(let detail): detail.title
             }

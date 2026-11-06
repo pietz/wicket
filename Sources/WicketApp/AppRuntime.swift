@@ -72,7 +72,7 @@ final class AppRuntime {
     private(set) var applied: Settings?
 
     /// `sources` are the host's own root sources (apps, calculator, files); the runtime adds the
-    /// registry's commands, Ask AI's row and, behind the switch, the extensions' root commands.
+    /// registry's commands, its fallback rows and, behind the switch, the extensions' root commands.
     init(
         store: SettingsStore, sources: [any ResultSource], work: [Feature: Work], askAI: AskAIRunner,
         extensions: Extensions, usageURL: URL = PaletteModel.defaultUsageURL, system: System
@@ -82,7 +82,7 @@ final class AppRuntime {
         self.askAI = askAI
         self.work = work
         self.system = system
-        var sources = sources + [CommandsSource(registry), AskAISource(registry: registry)]
+        var sources = sources + [CommandsSource(registry), FallbackSource(registry)]
         if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
         allSources = sources
         let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
@@ -126,7 +126,7 @@ final class AppRuntime {
         askAI.provider = settings.ai.provider
 
         let revision = registry.revision
-        registry.setDisabledBuiltins(Set(settings.disabledFeatures.flatMap(\.commands)))
+        registry.setDisabledFeatures(settings.disabledFeatures)
         registry.setAliases(settings.commands.compactMapValues(\.alias))
         let refreshed = model.session.setSources(Feature.enabled(allSources, in: settings))
         registryChanged(since: revision, refreshed: refreshed)

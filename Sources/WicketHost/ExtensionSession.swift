@@ -79,8 +79,9 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     case lineTooLong
     /// The process ended while the request was pending, and it couldn't be resent.
     case exited(Exit)
-    /// The process exited cleanly while a `run` action was pending; actions are never resent.
-    case actionInterrupted
+    /// The process exited cleanly while a run that may not be repeated was pending
+    /// (`RetryPolicy.never`), so it wasn't resent.
+    case notResent
     /// The extension was stopped (updated or disabled) while the request was pending.
     case stopped
     case duplicateID(RequestID)
@@ -100,8 +101,8 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
         case .exited(let exit) where exit.isClean:
             "exited (status 0) before answering, without answering anything since it started"
         case .exited(let exit): "\(exit) before answering"
-        case .actionInterrupted:
-            "exited (status 0) before answering this action; actions are never resent, since they may already have changed something"
+        case .notResent:
+            "exited (status 0) before answering; this command is never resent, since it may already have changed something (mark a once command that only reads \"repeatable\")"
         case .stopped: "the extension was stopped before answering"
         case .duplicateID(let id): "request id \(id) is already pending"
         case .unknownCommand: "no installed extension has this command; it may have been removed"
@@ -115,8 +116,9 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
 /// The process starts with the first request and is reaped after `idleTimeout` without one. Only one
 /// process runs at a time, and a process has ended only once everything it started has too
 /// (`ProcessTree`), so a successor never overlaps what its predecessor left running. A process that
-/// exits cleanly after answering something gets its pending queries resent to a fresh one, so one-shot
-/// scripts and persistent programs share one model; pending actions fail instead. After `stop()` the
+/// exits cleanly after answering something gets the pending runs that are safe to repeat resent to a
+/// fresh one (`RetryPolicy`), so one-shot scripts and persistent programs share one model; the others
+/// fail. After `stop()` the
 /// session refuses new requests.
 public actor ExtensionSession {
     public static let lineLimit = 1 << 20
@@ -160,12 +162,12 @@ public actor ExtensionSession {
     /// extension and throws `CancellationError`; an error response throws `ExtensionError`; host
     /// failures throw `HostError`.
     public func run(
-        _ command: String, text: String, args: [String: JSONValue]? = nil, kind: RequestKind
+        _ command: String, text: String, args: [String: JSONValue]? = nil, retry: RetryPolicy
     ) async throws -> RunResult {
         lastRunID += 1
         let id = RequestID.number(lastRunID)
         let reply = try await submit(
-            id, RunParams(command: command, text: text, revision: lastRunID, args: args), kind: kind)
+            id, RunParams(command: command, text: text, revision: lastRunID, args: args), retry: retry)
         return try await withTaskCancellationHandler {
             try await reply.value.outcome.get()
         } onCancel: {
@@ -175,7 +177,7 @@ public actor ExtensionSession {
 
     /// Writes a `run` request (starting the process if needed) and returns a task that finishes with
     /// its reply. Requests are written in the order they are submitted.
-    public func submit(_ id: RequestID, _ params: RunParams, kind: RequestKind) async throws
+    public func submit(_ id: RequestID, _ params: RunParams, retry: RetryPolicy) async throws
         -> Task<Reply, any Error>
     {
         if path == nil { path = await LoginShell.path() }
@@ -187,7 +189,7 @@ public actor ExtensionSession {
         sequence += 1
         pending[id] = Pending(
             sequence: sequence, line: HostMessage.run(id: id, params).line, command: params.command,
-            kind: kind, continuation: continuation,
+            retry: retry, continuation: continuation,
             timer: Task { [weak self] in
                 try? await Task.sleep(for: timeout)
                 if !Task.isCancelled { await self?.timedOut(id) }
@@ -244,7 +246,7 @@ public actor ExtensionSession {
         let sequence: Int
         let line: Data
         let command: String
-        let kind: RequestKind
+        let retry: RetryPolicy
         let continuation: AsyncThrowingStream<Reply, any Error>.Continuation
         let timer: Task<Void, Never>
         let start = ContinuousClock.now
@@ -548,13 +550,13 @@ public actor ExtensionSession {
             """)
         for waiter in exitWaiters { waiter.resume(returning: outcome) }
         exitWaiters = []
-        // A clean exit after progress means "restart me": queries go to a fresh process. Each round
-        // needs an answer, so this ends. Actions may have changed something already, so they fail.
+        // A clean exit after progress means "restart me": runs safe to repeat go to a fresh process.
+        // Each round needs an answer, so this ends. The others may have changed something, so fail.
         let resend = exit.isClean && finished.answered > 0
         for (id, request) in pending where request.sentTo == finished.generation {
-            switch (resend, request.kind) {
-            case (true, .query): pending[id]?.sentTo = nil
-            case (true, .action): finish(id, .failure(HostError.actionInterrupted))
+            switch (resend, request.retry) {
+            case (true, .safeToRepeat): pending[id]?.sentTo = nil
+            case (true, .never): finish(id, .failure(HostError.notResent))
             case (false, _): finish(id, .failure(HostError.exited(exit)))
             }
         }

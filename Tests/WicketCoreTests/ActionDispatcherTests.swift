@@ -76,33 +76,36 @@ private let mail = RunningApp(processID: 42, bundleID: "com.apple.mail")
 @Test func extensionCommandsOpenTheirFrame() {
     let effects = FakeEffects()
     let actions = dispatcher(effects)
-    // Opening a listed command, like Return on its row, is a query; one given args or a hidden one
-    // is an action, never resent.
+    // Through the invocation policy: a once command runs now, never resent whether listed or not,
+    // with or without args.
+    let add = actions.perform(.run(command: todoAdd), in: ActionContext())
+    #expect(add == .open(CommandRun(addTodo, .invoked)))
     #expect(
-        actions.perform(.run(command: todoAdd), in: ActionContext())
-            == .open(CommandRun(command: addTodo, invocation: Invocation(command: todoAdd), kind: .query)))
+        add == .open(CommandRun(command: addTodo, invocation: Invocation(command: todoAdd), retry: .never)))
     #expect(
         actions.perform(.run(command: todoAdd, args: ["id": .integer(12)]), in: ActionContext())
             == .open(
                 CommandRun(
                     command: addTodo, invocation: Invocation(command: todoAdd, args: ["id": .integer(12)]),
-                    kind: .action)))
+                    retry: .never)))
     #expect(
         actions.perform(.run(command: todoDone), in: ActionContext())
-            == .open(CommandRun(command: markDone, invocation: Invocation(command: todoDone), kind: .action)))
+            == .open(CommandRun(markDone, .invoked)))
     #expect(effects.calls.isEmpty)
 }
 
 @MainActor
 @Test func builtinsWithoutAnEffectOpenTheirFrame() {
-    // How a built-in that shows something (Ask AI) plugs in: registered, then run for its frame.
-    let ask = RegisteredCommand(id: .builtin("ask"), title: "Ask AI", icon: .symbol(name: "sparkles"))
+    // How a built-in that shows something plugs in: registered, then run for its frame on the text
+    // the action submits.
+    let ask = RegisteredCommand(
+        id: .builtin("ask"), title: "Ask", icon: .symbol(name: "sparkles"), input: .submitText)
     let registry = CommandRegistry(builtins: BuiltinCommand.allCases.map(\.registered) + [ask])
     let actions = ActionDispatcher(registry: registry, effects: FakeEffects())
-    let question = Invocation(command: ask.id, args: ["prompt": .string("Capital of France?")])
+    let question = Invocation(command: ask.id, text: "Capital of France?")
     #expect(
-        actions.perform(.run(command: ask.id, args: question.args), in: ActionContext())
-            == .open(CommandRun(command: ask, invocation: question, kind: .action)))
+        actions.perform(.run(command: ask.id, text: question.text), in: ActionContext())
+            == .open(CommandRun(command: ask, invocation: question, retry: .never)))
 }
 
 @MainActor

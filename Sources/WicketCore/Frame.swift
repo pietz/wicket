@@ -44,7 +44,7 @@ public struct Frame: Identifiable, Sendable {
         switch content {
         case .search(let results): results.selectedItem.map(ActionTarget.init(item:))
         case .detail(let detail): ActionTarget(detail: detail)
-        case .command(let command): command.target
+        case .command(let command): command.target(query: query)
         }
     }
 
@@ -58,15 +58,16 @@ public struct Frame: Identifiable, Sendable {
         }
     }
 
-    /// Whether the palette shows just the pill: the root search with nothing typed, or a live
-    /// command with nothing typed and nothing to show (its placeholder says what to type). An empty
-    /// query anywhere else is still a screen with content.
+    /// Whether the palette shows just the pill: the root search with nothing typed, a live command
+    /// with nothing typed and nothing to show, or a command waiting for its text (the placeholder says
+    /// what to type). An empty query anywhere else is still a screen with content.
     public var isCompact: Bool {
         switch content {
         case .search: query.isEmpty
         case .detail: false
         case .command(let command):
-            command.run.command.mode == .live && query.isEmpty && command.list?.items.isEmpty == true
+            command.run.awaitsText
+                || (command.isLive && query.isEmpty && command.list?.items.isEmpty == true)
         }
     }
 
@@ -107,10 +108,16 @@ public struct CommandFrame: Sendable {
         self.run = run
     }
 
-    var isLive: Bool { run.command.mode == .live }
+    var isLive: Bool { run.command.input == .liveText }
 
-    var target: ActionTarget? {
-        switch screen {
+    /// What Return acts on; a frame waiting for its text submits `query`, once there is one.
+    func target(query: String) -> ActionTarget? {
+        if run.awaitsText {
+            guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            let command = run.command
+            return ActionTarget(actions: [.run(command: command.id, text: query, title: command.title)])
+        }
+        return switch screen {
         case .detail(let detail): ActionTarget(detail: detail)
         case .answer, .list: list?.selectedItem.map(ActionTarget.init(item:))
         case nil: nil
@@ -178,6 +185,12 @@ public struct ActionTarget: Sendable, Hashable {
     public init(item: Item) {
         actions = item.actions
         self.item = item
+    }
+
+    /// Actions that belong to no item, such as submitting a frame's text.
+    public init(actions: [Item.Action]) {
+        self.actions = actions
+        item = nil
     }
 
     /// A detail's actions; without any, Return copies the markdown (docs/extensions.md).

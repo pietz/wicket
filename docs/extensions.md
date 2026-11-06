@@ -17,7 +17,7 @@ This page is the whole contract. The JSON Schema in [extension.schema.json](exte
   "version": "1.0.0",
   "run": ["/bin/sh", "week.sh"],
   "commands": [
-    { "id": "week", "title": "Week Number", "keyword": "week" }
+    { "id": "week", "title": "Week Number", "keyword": "week", "repeatable": true }
   ]
 }
 ```
@@ -34,7 +34,7 @@ jq -nc --argjson id "$id" --arg week "$week" \
   '{jsonrpc: "2.0", id: $id, result: {answer: {title: $week, subtitle: "ISO week number"}}}'
 ```
 
-The user types "week" and presses Return. Wicket sends one line and the script answers with one line:
+The user types "week" and presses Return. Wicket sends one line and the script answers with one line (`repeatable` says running it twice does no harm, which a one-shot script needs, see [The session](#the-session)):
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}
@@ -83,6 +83,7 @@ Each command:
 | `placeholder` | no | Search field hint for a `live` command. Not for `root`. |
 | `hidden` | no | `true` keeps the command out of search; it can then only be reached by a [`run` action](#actions). Not for `root`. |
 | `pattern` | no | `root` only: a regular expression (ICU syntax, as in `NSRegularExpression`). Only queries in which it finds a match are sent to you, so you are not woken for unrelated typing. It searches the query exactly as typed: anchor it with `^` and `$`, and add `(?i)` to ignore case. |
+| `repeatable` | no | `once` only: `true` if running the command twice does no harm because it only reads (an answer, a list, a detail). Wicket may then send a run again after your program exits (see [The session](#the-session)). Leave it out for anything that changes something (a toggle, a write, a request that posts). `live` and `root` runs are searches, so they always may be resent. |
 
 The three modes:
 
@@ -99,7 +100,7 @@ Wicket starts your program the first time one of its commands is needed and keep
 - **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the check. Write logs and debugging output to **stderr**: Wicket keeps the last 64 KiB for diagnostics and never shows it unless something fails.
 - **One process at a time.** Wicket never runs two processes of your extension at once, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
 - **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
-- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with queries unanswered (the search text of a root, live or once command), Wicket resends them to a fresh process; if it exits with an error, they fail. A command started by an item's `run` action with `args`, or a hidden one, is never resent, since it may already have changed something: if your program exits before answering it, it fails and the user sees the error. (A `run` action that just names a listed command, without `args`, is the same as pressing Return on that command.) So a one-shot script can answer and quit, while a persistent program pays its start-up cost once and answers later keystrokes from memory.
+- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with requests unanswered, Wicket resends the ones that are safe to repeat to a fresh process: every run of a `live` or `root` command, and runs of a `once` command marked `repeatable`. Every other run (any `once` command not marked, however it was started: Return on its row, its keyword, a hotkey or a `run` action, with or without `args`) fails instead, since your program may have read it and changed something before exiting, and the user sees the error. If your program exits with an error, every unanswered request fails. So a one-shot script can answer and quit, provided its `once` commands only read and say `repeatable` (a request written while it was exiting goes to the next process), while a persistent program pays its start-up cost once and answers later keystrokes from memory.
 - **Shutdown:** after about a minute without requests, or when the extension is disabled or updated, Wicket closes your stdin. Exit then (a `for line in stdin` loop ends by itself). Wicket sends SIGTERM if you are still running 2 seconds later, and SIGKILL 2 seconds after that.
 - **What you start ends with you.** Processes your program starts belong to it, even in the background or in a session of their own: when your program exits (by itself or at shutdown), they get the same 2 seconds, then SIGTERM, then SIGKILL, and Wicket starts your next process only after they are gone. Don't leave work running in the background after answering; do it before answering, or in a persistent program.
 
@@ -396,5 +397,6 @@ Every `run` must get a valid response, expected or not. A request cancelled with
 - Every request gets exactly one response with the same `id`, either `result` or `error`.
 - The program exits when stdin closes.
 - Every `run` action names a declared command, and your code handles its `args`.
+- `once` commands that only read are `repeatable`; ones that change something are not.
 - Capabilities list everything the code does beyond computing an answer.
 - A `session.jsonl` covers each command, including an error case, and `wicket check` passes (offline: with `WICKET_CHECK=1`, answer from canned data).

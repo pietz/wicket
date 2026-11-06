@@ -1,7 +1,8 @@
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ Shortcuts: a global hotkey and an alias for each command the root lists (and Ask AI).
+/// Settings ▸ Shortcuts: a global hotkey and an alias for each command the root offers (its listed
+/// commands and fallbacks).
 /// Both are preferences in settings.json (`commands`, keyed by the command's canonical id); like
 /// every pane this only writes the file, and the reload applies it.
 struct ShortcutsPane: View {
@@ -35,9 +36,9 @@ struct ShortcutsPane: View {
         }
     }
 
-    /// Listed commands and Ask AI; hidden and root-mode commands can still be bound in the file.
+    /// Offered commands; hidden and root-mode commands can still be bound in the file.
     private var commands: [RegisteredCommand] {
-        store.commands.filter { $0.isListed || $0.id == AskAI.command }
+        store.commands.filter(\.isOffered)
     }
 
     private func row(_ command: RegisteredCommand) -> some View {

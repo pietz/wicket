@@ -78,19 +78,22 @@ func run(_ arguments: [String]) async -> Never {
         fail("error: \(error)")
     }
     let command = arguments[1]
-    guard manifest.command(command) != nil else {
+    guard let declared = manifest.command(command) else {
         let ids = manifest.commands.map(\.id).joined(separator: ", ")
         fail("error: wicket.json declares no command \"\(command)\"; its commands are \(ids)", status: 2)
     }
     let session = ExtensionSession(
         manifest: manifest, folder: folder,
         configuration: configuration(for: manifest.id, dataDirectory: ExtensionPaths.data(for: manifest.id)))
+    // Through the same invocation policy as a row, a keyword or a hotkey in the app.
+    let run = CommandRun(
+        RegisteredCommand(extension: manifest.id, command: declared, icon: nil), .invoked,
+        text: arguments.count == 3 ? arguments[2] : "", args: args)
     let params = RunParams(
-        command: command, text: arguments.count == 3 ? arguments[2] : "", revision: 1, args: args)
+        command: command, text: run.invocation.text, revision: 1, args: run.invocation.args)
     let result: Result<Reply, any Error>
     do {
-        result = .success(
-            try await session.submit(.number(1), params, kind: args == nil ? .query : .action).value)
+        result = .success(try await session.submit(.number(1), params, retry: run.retry).value)
     } catch {
         result = .failure(error)
     }

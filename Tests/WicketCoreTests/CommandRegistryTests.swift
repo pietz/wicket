@@ -115,11 +115,11 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
     let registry = CommandRegistry()
     let start = registry.revision
     registry.setAliases([:])
-    registry.setDisabledBuiltins([])
+    registry.setDisabledFeatures([])
     #expect(registry.revision == start)
     registry.setAliases([BuiltinCommand.quit.id: "bye"])
     #expect(registry.revision == start + 1)
     registry.setAliases([BuiltinCommand.quit.id: "bye"])
-    registry.setDisabledBuiltins([.askAI])
+    registry.setDisabledFeatures([.askAI])
     #expect(registry.revision == start + 2)
 }

@@ -186,23 +186,17 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     let h = try Harness()
     h.session.query = "saf"
     #expect(h.rootIDs.contains("test:Safari"))
-    #expect(h.rootIDs.contains { $0.hasPrefix("ask-ai:") })
+    #expect(h.rootIDs.contains("fallback:builtin:ask-ai"))
     try h.change(#"{"features": {"apps": false, "ask-ai": false}}"#)
     #expect(!h.rootIDs.contains("test:Safari"))
-    #expect(!h.rootIDs.contains { $0.hasPrefix("ask-ai:") })
+    #expect(!h.rootIDs.contains("fallback:builtin:ask-ai"))
 }
 
 /// The review's gap: turning Ask AI off left a running answer streaming.
 @MainActor @Test func turningAskAIOffStopsARunningAnswer() async throws {
     let h = try Harness(settings: #"{"commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
     let command = try #require(h.runtime.registry.command(AskAI.command))
-    let action = AskAI.action(asking: "hello")
-    guard case .run(_, let args, _) = action else {
-        Issue.record("not a run")
-        return
-    }
-    h.session.open(
-        CommandRun(command: command, invocation: Invocation(command: command.id, args: args), kind: .action))
+    h.session.open(CommandRun(command, .invoked, text: "hello"))
     #expect(await eventually { h.session.frames.count == 2 })
     #expect(h.session.top.isLoading)
 

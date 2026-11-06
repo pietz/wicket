@@ -13,13 +13,15 @@
       "id": "review-requests",
       "title": "GitHub Review Requests",
       "subtitle": "Open pull requests waiting for your review",
-      "keyword": "prr"
+      "keyword": "prr",
+      "repeatable": true
     },
     {
       "id": "my-prs",
       "title": "My Pull Requests",
       "subtitle": "Your open pull requests on GitHub",
-      "keyword": "prs"
+      "keyword": "prs",
+      "repeatable": true
     }
   ]
 }

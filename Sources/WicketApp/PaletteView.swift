@@ -27,9 +27,9 @@ enum PaletteMetrics {
     /// The card for `frame`, up to `maxCardHeight`, and while the action panel is open at least tall
     /// enough for it. A list fits its rows (and the divider and footer), computed; a detail fits its
     /// content as measured (`detailHeight`), since markdown wraps. The root search has no card
-    /// without results, a command's list shows one row saying so (unless the frame is compact). Nil,
-    /// keep the card as it is, while a command frame waits for its first content or a detail for its
-    /// first measurement.
+    /// without results, a command's list shows one row saying so (unless the frame is compact, as one
+    /// waiting for its text is). Nil, keep the card as it is, while a command frame waits for its
+    /// first content or a detail for its first measurement.
     static func cardHeight(for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?) -> CGFloat? {
         let results: [Item]
         switch frame.content {
@@ -39,6 +39,7 @@ enum PaletteMetrics {
         case .detail:
             return detailHeight.map { card(content: $0, actionMenu: actionMenu) }
         case .command(let command):
+            if command.run.awaitsText { return 0 }
             switch command.screen {
             case nil: return nil
             case .detail: return detailHeight.map { card(content: $0, actionMenu: actionMenu) }

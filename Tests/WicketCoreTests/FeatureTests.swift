@@ -105,7 +105,7 @@ private struct StubSource: ResultSource {
     }
     #expect(resolve().hotkeys == [hotkey: AskAI.command])
 
-    registry.setDisabledBuiltins(Set(Feature.askAI.commands))
+    registry.setDisabledFeatures([.askAI])
     #expect(registry.command(AskAI.command) == nil)
     #expect(registry.command(alias: "ask") == nil)
     #expect(registry.alias(of: AskAI.command) == nil)
@@ -113,7 +113,7 @@ private struct StubSource: ResultSource {
     #expect(resolve().rejected.isEmpty)
     #expect(registry.command(BuiltinCommand.settings.id) != nil)
 
-    registry.setDisabledBuiltins([])
+    registry.setDisabledFeatures([])
     #expect(registry.alias(of: AskAI.command) == "ask")
     #expect(resolve().hotkeys == [hotkey: AskAI.command])
 }

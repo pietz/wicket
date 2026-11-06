@@ -161,7 +161,9 @@ public enum Checker {
             switch step {
             case .send(.run(let id, let params)):
                 do {
-                    let reply = try await session.submit(id, params, kind: .query)
+                    // The same retry the app gives this command's runs; an undeclared one never.
+                    let retry = manifest.command(params.command)?.retry ?? .never
+                    let reply = try await session.submit(id, params, retry: retry)
                     sent[id] = Sent(line: line, id: id, command: params.command, reply: reply)
                 } catch {
                     report.add(.error, "\(name):\(line): \(error)")
