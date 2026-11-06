@@ -6,7 +6,8 @@ import WicketCore
 @testable import WicketHost
 
 // Process lifecycle: every way of giving up on a process ends in SIGKILL, actions are never resent,
-// and a replaced extension's process is gone before its successor starts.
+// and a replaced extension's process, and everything it left running, is gone before its successor
+// starts.
 
 @Test func overlongLinesEscalateToSIGKILL() async throws {
     // Ignores SIGTERM (the disposition survives exec) and stdin closing.
@@ -103,4 +104,70 @@ import WicketCore
         alive = kill(pid, 0) == 0
     }
     #expect(!alive)
+}
+
+@Test func aProcessHasEndedOnlyOnceWhatItLeftRunningHas() async throws {
+    // Answers, then exits, leaving a child in its own session that holds stdout, so EOF never comes
+    // by itself.
+    let data = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/data-\(UUID().uuidString)")
+    let script = #"""
+        read -r line
+        /usr/bin/perl -e '
+          use POSIX;
+          POSIX::setsid();
+          open(my $f, ">", "$ENV{WICKET_DATA_DIR}/pid.new"); print $f "$$"; close $f;
+          rename("$ENV{WICKET_DATA_DIR}/pid.new", "$ENV{WICKET_DATA_DIR}/pid");
+          sleep 30;
+        ' &
+        until [ -f "$WICKET_DATA_DIR/pid" ]; do /bin/sleep 0.01; done
+        id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"close":{}}}\n' "$id"
+        """#
+    let session = try TestExtension(script: script).session { $0.dataDirectory = data }
+    let start = ContinuousClock.now
+    #expect(try await session.run("go", text: "", kind: .query) == .close(message: nil))
+    let child = try #require(
+        pid_t(String(contentsOf: data.appending(path: "pid"), encoding: .utf8)))
+    #expect(await session.shutdown() == .terminated)
+    #expect(!isRunning(child))
+    #expect(ContinuousClock.now - start < .seconds(10))
+}
+
+@MainActor
+@Test func replacementWaitsForWhatTheOldProcessLeftRunning() async throws {
+    // Leaves a child in its own session that holds stdout and takes 0.2 s to exit on SIGTERM, logging
+    // both; the successor must start after that.
+    let script = #"""
+        echo start >> "$WICKET_DATA_DIR/log"
+        /usr/bin/perl -e '
+          use POSIX;
+          sub note { open(my $f, ">>", "$ENV{WICKET_DATA_DIR}/$_[0]"); print $f "$_[1]\n"; close $f }
+          $SIG{TERM} = sub { note("log", "term"); select(undef, undef, undef, 0.2); note("log", "gone"); exit 0 };
+          POSIX::setsid();
+          note("ready", "");
+          sleep 30;
+        ' &
+        until [ -f "$WICKET_DATA_DIR/ready" ]; do /bin/sleep 0.01; done
+        rm "$WICKET_DATA_DIR/ready"
+        \#(answering(#"{"close":{}}"#))
+        """#
+    let ext = try TestExtension(script: script)
+    let data = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/data-\(UUID().uuidString)")
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in
+        testConfiguration { $0.dataDirectory = data }
+    }
+    extensions.load()
+    let command = Invocation(command: try #require(extensions.commands.first).id)
+    #expect(try await extensions.result(of: command, kind: .query) == .close(message: nil))
+
+    extensions.load(changed: [ext.folder.appending(path: "main.sh").path])
+    #expect(try await extensions.result(of: command, kind: .query) == .close(message: nil))
+    let log = try String(contentsOf: data.appending(path: "log"), encoding: .utf8)
+    #expect(log.split(separator: "\n") == ["start", "term", "gone", "start"])
+
+    try FileManager.default.removeItem(at: ext.folder)
+    extensions.load()
+    await #expect(throws: HostError.unknownCommand) { try await extensions.result(of: command, kind: .query) }
 }

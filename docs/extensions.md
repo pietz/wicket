@@ -101,6 +101,7 @@ Wicket starts your program the first time one of its commands is needed and keep
 - **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
 - **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with queries unanswered (the search text of a root, live or once command), Wicket resends them to a fresh process; if it exits with an error, they fail. A command started by an item's `run` action with `args`, or a hidden one, is never resent, since it may already have changed something: if your program exits before answering it, it fails and the user sees the error. (A `run` action that just names a listed command, without `args`, is the same as pressing Return on that command.) So a one-shot script can answer and quit, while a persistent program pays its start-up cost once and answers later keystrokes from memory.
 - **Shutdown:** after about a minute without requests, or when the extension is disabled or updated, Wicket closes your stdin. Exit then (a `for line in stdin` loop ends by itself). Wicket sends SIGTERM if you are still running 2 seconds later, and SIGKILL 2 seconds after that.
+- **What you start ends with you.** Processes your program starts belong to it, even in the background or in a session of their own: when your program exits (by itself or at shutdown), they get the same 2 seconds, then SIGTERM, then SIGKILL, and Wicket starts your next process only after they are gone. Don't leave work running in the background after answering; do it before answering, or in a persistent program.
 
 Environment of the process:
 
@@ -243,7 +244,7 @@ Wicket reports these failures itself, the same way: no response within 30 second
 | Items in a list | 500; in `root` mode at most 10 are shown |
 | Time to answer a request | 30 seconds, measured from when it was sent (including start-up) |
 | Idle time before stdin is closed | about 60 seconds |
-| Exit after stdin closes | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
+| Exit after stdin closes (you and what you started) | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
 | stderr kept for diagnostics | last 64 KiB |
 
 Keep answers fast: a `live` or `root` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.

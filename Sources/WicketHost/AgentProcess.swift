@@ -26,7 +26,7 @@ struct AgentStep {
     }
 }
 
-/// Runs agent CLIs: one process per run, its stdout parsed by a transcript, its process tree killed
+/// Runs agent CLIs: one process per run, its stdout parsed by a transcript, its process tree stopped
 /// when the run ends or is cancelled.
 enum AgentProcess {
     private static let logger = Logger(subsystem: "app.wicket", category: "agent")
@@ -60,22 +60,18 @@ enum AgentProcess {
         process.arguments = arguments
         process.currentDirectoryURL = request.workingDirectory
         process.environment = await environment()
-        let input = Pipe()
         let output = Pipe()
         let errors = Pipe()
-        process.standardInput = input
+        process.standardInput = Pipe()
         process.standardOutput = output
         process.standardError = errors
-        let exit: Task<Exit, Never>
+        let tree: ProcessTree
         do {
-            exit = try process.start()
+            tree = try ProcessTree(launching: process)
         } catch {
             emit(.error("could not start \(executable.path): \(error.localizedDescription)"))
             return
         }
-        // A write after the agent exited must fail with EPIPE, not kill Wicket with SIGPIPE.
-        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        let stdin = Input(input.fileHandleForWriting)
         let stderr = OutputTail(limit: 16 << 10)
         let stderrDrained = Task.detached { await stderr.drain(errors.fileHandleForReading) }
 
@@ -85,8 +81,8 @@ enum AgentProcess {
         func apply(_ step: AgentStep) {
             for event in step.events { emit(event) }
             events += step.events.count
-            for line in step.send { stdin.write(line) }
-            if step.closeInput { stdin.close() }
+            for line in step.send { tree.write(line) }
+            if step.closeInput { tree.closeInput() }
             finished = finished || step.finished
         }
 
@@ -100,41 +96,25 @@ enum AgentProcess {
                 }
             }
         } onCancel: {
-            killTree(of: process)
+            tree.stop(after: .zero, grace: exitGrace)
         }
 
         if !finished, !Task.isCancelled {
             // stdout closed without a final event: report how the process ended.
-            let exitStatus = await value(of: exit, within: exitGrace)
+            let exitStatus = await tree.exit.value(within: exitGrace)
             // The exit can beat the last stderr chunk; wait briefly for EOF so the message has the
             // agent's own explanation (bounded: a grandchild may still hold the pipe open).
-            if exitStatus != nil { _ = await value(of: stderrDrained, within: .milliseconds(500)) }
+            if exitStatus != nil { _ = await stderrDrained.value(within: .milliseconds(500)) }
             emit(.error(failure(name, exitStatus, stderr: stderr.text)))
         }
-        killTree(of: process)
+        // Whatever the agent left running goes with it: the stream ends once the tree is gone.
+        let ending = await tree.stop(after: exitGrace, grace: exitGrace).value
         logger.notice(
             """
             agent \(name, privacy: .public) run ended (\(finished ? "finished" : "stopped", privacy: .public), \
-            \(events, privacy: .public) events) after \(ContinuousClock.now - start, privacy: .public)
+            \(events, privacy: .public) events, \(String(describing: ending), privacy: .public)) after \
+            \(ContinuousClock.now - start, privacy: .public)
             """)
-    }
-
-    /// The task's value (such as the process's exit), or nil if it hasn't finished after `limit` or
-    /// the caller is cancelled. Never waits beyond that: a task group would, since its child awaiting
-    /// `task.value` can't be cancelled. The waiter left behind ends once the caller kills the tree.
-    static func value<T: Sendable>(of task: Task<T, Never>, within limit: Duration) async -> T? {
-        let (first, continuation) = AsyncStream<T?>.makeStream()
-        let waiter = Task { continuation.yield(await task.value) }
-        let timer = Task {
-            try? await Task.sleep(for: limit)
-            continuation.yield(nil)
-        }
-        defer {
-            waiter.cancel()
-            timer.cancel()
-        }
-        for await ended in first { return ended }
-        return nil
     }
 
     /// The error for a process that ended without a final event, with the end of its stderr.
@@ -164,58 +144,18 @@ enum AgentProcess {
         process.standardError = FileHandle.nullDevice
         let output = Pipe()
         process.standardOutput = output
-        guard let exit = try? process.start() else { return nil }
+        guard let tree = try? ProcessTree(launching: process) else { return nil }
         let deadline = Task {
             try await Task.sleep(for: .seconds(5))
-            killTree(of: process)
+            tree.stop(after: .zero, grace: .seconds(1))
         }
         defer { deadline.cancel() }
         var data = Data()
         for await chunk in output.fileHandleForReading.chunks() { data.append(chunk) }
-        guard case .status(let status) = await exit.value else { return nil }
+        guard
+            case .exited(.status(let status)) = await tree.stop(after: .seconds(1), grace: .seconds(1)).value
+        else { return nil }
         return (status, String(decoding: data, as: UTF8.self))
-    }
-
-    /// SIGKILLs the process and all its descendants. Each one is stopped before its children are
-    /// listed, so none can start another in between; Codex runs commands in their own sessions, so
-    /// a process group kill would miss them.
-    static func killTree(of process: Process) {
-        guard process.isRunning else { return }
-        var pending = [process.processIdentifier]
-        var stopped: [pid_t] = []
-        while let pid = pending.popLast() {
-            guard kill(pid, SIGSTOP) == 0 else { continue }
-            stopped.append(pid)
-            pending += children(of: pid)
-        }
-        for pid in stopped { kill(pid, SIGKILL) }
-    }
-
-    static func children(of pid: pid_t) -> [pid_t] {
-        var buffer = [pid_t](repeating: 0, count: 512)
-        let count = buffer.withUnsafeMutableBytes {
-            proc_listchildpids(pid, $0.baseAddress, Int32($0.count))
-        }
-        return count > 0 ? Array(buffer.prefix(Int(count))) : []
-    }
-}
-
-/// Writes to the agent's stdin off the caller's thread, in order: a full pipe blocks until the agent
-/// reads.
-private final class Input: Sendable {
-    private let handle: FileHandle
-    private let queue = DispatchQueue(label: "app.wicket.agent.stdin")
-
-    init(_ handle: FileHandle) {
-        self.handle = handle
-    }
-
-    func write(_ data: Data) {
-        queue.async { [handle] in try? handle.write(contentsOf: data) }
-    }
-
-    func close() {
-        queue.async { [handle] in try? handle.close() }
     }
 }
 

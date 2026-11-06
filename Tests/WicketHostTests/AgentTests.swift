@@ -254,6 +254,46 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(alive.isEmpty)
     }
 
+    @Test func cancellingAfterTheAgentExitedStopsWhatItLeft() async throws {
+        let pids = FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/pids-\(UUID().uuidString)")
+        // Exits mid-run, leaving a child in its own session that holds stdout: with the parent gone,
+        // only the pipe links them.
+        let agent = try fakeAgent(
+            .claude,
+            """
+            echo $$ > '\(pids.path)'
+            /usr/bin/perl -e '
+              use POSIX;
+              POSIX::setsid();
+              open(my $f, ">>", $ARGV[0]); print $f "$$\\n"; close $f;
+              $| = 1;
+              print qq({"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"working"}}}\\n);
+              sleep 60;
+            ' '\(pids.path)' &
+            """)
+        let request = AgentRequest(
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+        let consumer = Task {
+            for await event in agent.run(request) {
+                guard case .text = event else { continue }
+                // End the run once the agent itself has exited.
+                let parent = try #require(
+                    String(contentsOf: pids, encoding: .utf8).split(separator: "\n").first.flatMap {
+                        pid_t($0)
+                    })
+                return await within10s { !isRunning(parent) }
+            }
+            return false
+        }
+        #expect(try await consumer.value)
+        let started = try String(contentsOf: pids, encoding: .utf8).split(separator: "\n").compactMap {
+            pid_t($0)
+        }
+        #expect(started.count == 2)
+        #expect(await within10s { !started.contains(where: isRunning) })
+    }
+
     @Test func splitsLinesAcrossChunks() {
         var splitter = LineSplitter()
         #expect(splitter.split(Data("a\nb".utf8)) == [Data("a".utf8)])

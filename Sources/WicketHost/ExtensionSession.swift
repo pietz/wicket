@@ -9,7 +9,8 @@ public struct SessionConfiguration: Sendable {
     public var requestTimeout: Duration = .seconds(30)
     /// Time without requests before stdin is closed; nil keeps the process until `shutdown()`.
     public var idleTimeout: Duration? = .seconds(60)
-    /// Time to exit after stdin closes, and again after SIGTERM before SIGKILL.
+    /// Time to exit after stdin closes (or for what it left running to exit after it did), and again
+    /// after SIGTERM before SIGKILL.
     public var exitGrace: Duration = .seconds(2)
     /// `WICKET_DATA_DIR`; created before the process starts.
     public var dataDirectory: URL
@@ -58,14 +59,14 @@ public enum Exit: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-/// How a process ended after `shutdown()` closed its stdin.
+/// How a process and everything it started ended after their stdin closed.
 public enum Shutdown: Sendable, Equatable {
     case notRunning
-    /// It exited by itself.
+    /// They exited by themselves; this is how the process itself did.
     case exited(Exit)
-    /// It needed SIGTERM.
+    /// One of them needed SIGTERM.
     case terminated
-    /// It needed SIGKILL.
+    /// One of them needed SIGKILL.
     case killed
 }
 
@@ -112,9 +113,11 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
 /// as specified in docs/extensions.md.
 ///
 /// The process starts with the first request and is reaped after `idleTimeout` without one. Only one
-/// process runs at a time. A process that exits cleanly after answering something gets its pending
-/// queries resent to a fresh one, so one-shot scripts and persistent programs share one model; pending
-/// actions fail instead. After `stop()` the session refuses new requests.
+/// process runs at a time, and a process has ended only once everything it started has too
+/// (`ProcessTree`), so a successor never overlaps what its predecessor left running. A process that
+/// exits cleanly after answering something gets its pending queries resent to a fresh one, so one-shot
+/// scripts and persistent programs share one model; pending actions fail instead. After `stop()` the
+/// session refuses new requests.
 public actor ExtensionSession {
     public static let lineLimit = 1 << 20
     public static let stderrLimit = 64 << 10
@@ -219,7 +222,8 @@ public actor ExtensionSession {
         running?.write(HostMessage.cancel(id: id).line)
     }
 
-    /// Closes stdin and waits until the process has exited, escalating to SIGTERM and SIGKILL.
+    /// Closes stdin and waits until the process and everything it started have exited, escalating
+    /// to SIGTERM and SIGKILL.
     public func shutdown() async -> Shutdown {
         guard running != nil else { return .notRunning }
         close()
@@ -263,7 +267,7 @@ public actor ExtensionSession {
                 return
             }
         }
-        guard let running, !running.closing, running.exit == nil else { return }
+        guard let running, running.stopping == nil else { return }
         for (id, request) in unsent {
             running.write(request.line)
             pending[id]?.sentTo = running.generation
@@ -352,7 +356,7 @@ public actor ExtensionSession {
         for (id, request) in pending where request.sentTo == generation {
             finish(id, .failure(HostError.lineTooLong))
         }
-        terminate(running)
+        stop(running, after: .zero)
     }
 
     private static func preview(_ line: String) -> String {
@@ -363,34 +367,24 @@ public actor ExtensionSession {
     // MARK: - Process
 
     private final class Running {
-        let process: Process
+        let tree: ProcessTree
         let generation: Int
-        let stdin: FileHandle
         let start = ContinuousClock.now
-        /// Writes happen off the actor: a full pipe blocks until the extension reads, and the session
-        /// must keep answering meanwhile. A serial queue keeps them in order.
-        private let writer = DispatchQueue(label: "app.wicket.extension.stdin")
         var answered = 0
-        var closing = false
-        var signalled: Int32?
-        var exit: Exit?
-        /// stdout and stderr; the process is finished once both are closed and it exited.
+        /// The tree being stopped; requests wait for the next process from then on.
+        var stopping: Task<Shutdown, Never>?
+        /// How the tree ended, once it has.
+        var ended: Shutdown?
+        /// stdout and stderr; the process is finished once both are closed and the tree has ended.
         var openOutputs = 2
 
-        init(process: Process, generation: Int, stdin: FileHandle) {
-            self.process = process
+        init(tree: ProcessTree, generation: Int) {
+            self.tree = tree
             self.generation = generation
-            self.stdin = stdin
         }
 
         func write(_ line: Data) {
-            guard !closing else { return }
-            writer.async { [stdin] in try? stdin.write(contentsOf: line) }
-        }
-
-        func closeInput() {
-            closing = true
-            writer.async { [stdin] in try? stdin.close() }
+            if stopping == nil { tree.write(line) }
         }
     }
 
@@ -431,26 +425,24 @@ public actor ExtensionSession {
         }
         process.currentDirectoryURL = folder
         process.environment = environment
-        let input = Pipe()
         let output = Pipe()
         let errors = Pipe()
-        process.standardInput = input
+        process.standardInput = Pipe()
         process.standardOutput = output
         process.standardError = errors
-        generation += 1
-        let generation = generation
-        process.terminationHandler = { [weak self] process in
-            let exit = Exit(process)
-            Task { await self?.exited(exit, generation: generation) }
-        }
+        let tree: ProcessTree
         do {
-            try process.run()
+            tree = try ProcessTree(launching: process)
         } catch {
             throw HostError.launch("could not start \(executable.path): \(error.localizedDescription)")
         }
-        // A write after the extension exited must fail with EPIPE, not kill Wicket with SIGPIPE.
-        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        running = Running(process: process, generation: generation, stdin: input.fileHandleForWriting)
+        generation += 1
+        let generation = generation
+        running = Running(tree: tree, generation: generation)
+        Task { [weak self] in
+            _ = await tree.exit.value
+            await self?.exited(generation: generation)
+        }
         Task.detached { [self] in await readLines(output.fileHandleForReading, generation: generation) }
         Task.detached { [self, stderr] in
             await stderr.drain(errors.fileHandleForReading)
@@ -502,16 +494,34 @@ public actor ExtensionSession {
     private func outputClosed(generation: Int) {
         guard let running, running.generation == generation else { return }
         running.openOutputs -= 1
-        if running.openOutputs == 0, running.exit != nil { finalize(running) }
+        if running.openOutputs == 0 { finalize(running) }
     }
 
-    private func exited(_ exit: Exit, generation: Int) {
+    /// The process exited by itself: what it left running gets the same grace as after stdin closes.
+    private func exited(generation: Int) {
         guard let running, running.generation == generation else { return }
-        running.exit = exit
+        stop(running, after: configuration.exitGrace)
+    }
+
+    /// Stops the process tree: closes stdin, waits `wait` for it to exit, then SIGTERM and, after the
+    /// grace period, SIGKILL. Every path that gives up on a process ends here.
+    private func stop(_ running: Running, after wait: Duration) {
+        guard running.stopping == nil else { return }
+        idleTask?.cancel()
+        let stopping = running.tree.stop(after: wait, grace: configuration.exitGrace)
+        running.stopping = stopping
+        let generation = running.generation
+        Task { [weak self] in await self?.ended(await stopping.value, generation: generation) }
+    }
+
+    private func ended(_ shutdown: Shutdown, generation: Int) {
+        guard let running, running.generation == generation else { return }
+        running.ended = shutdown
         if running.openOutputs == 0 {
             finalize(running)
         } else {
-            // A child it left behind may hold stdout open; don't wait for that forever.
+            // The tree is gone, so the pipes close any moment; a holder it couldn't see (another
+            // user's process) mustn't keep the session waiting.
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(1))
                 await self?.finalize(generation: generation)
@@ -523,22 +533,19 @@ public actor ExtensionSession {
         if let running, running.generation == generation { finalize(running) }
     }
 
-    /// The process is gone: wake `shutdown()` callers, then resend or fail what it left unanswered.
+    /// The process tree is gone: wake `shutdown()` callers, then resend or fail what it left
+    /// unanswered.
     private func finalize(_ finished: Running) {
-        guard running === finished, let exit = finished.exit else { return }
+        guard running === finished, let outcome = finished.ended else { return }
         running = nil
         cancelled.removeAll()
+        // Known by now: the tree waited for it, unless the process survived SIGKILL.
+        let exit = finished.tree.exitStatus ?? .signal(SIGKILL)
         Self.logger.notice(
             """
             extension \(self.manifest.id) \(exit, privacy: .public) after \
             \(Self.ms(since: finished.start), privacy: .public), \(finished.answered, privacy: .public) answers
             """)
-        let outcome: Shutdown =
-            switch finished.signalled {
-            case SIGKILL: .killed
-            case SIGTERM: .terminated
-            default: .exited(exit)
-            }
         for waiter in exitWaiters { waiter.resume(returning: outcome) }
         exitWaiters = []
         // A clean exit after progress means "restart me": queries go to a fresh process. Each round
@@ -560,45 +567,15 @@ public actor ExtensionSession {
 
     /// Closes stdin, then sends SIGTERM and SIGKILL if the process doesn't exit in time.
     private func close() {
-        guard let running, !running.closing else { return }
-        idleTask?.cancel()
-        if let footprint = Self.footprint(of: running.process.processIdentifier) {
+        guard let running, running.stopping == nil else { return }
+        if let footprint = Self.footprint(of: running.tree.pid) {
             Self.logger.notice(
                 """
                 extension \(self.manifest.id) reaped: footprint \(footprint >> 20, privacy: .public) MB after \
                 \(Self.ms(since: running.start), privacy: .public)
                 """)
         }
-        running.closeInput()
-        let generation = running.generation
-        let grace = configuration.exitGrace
-        Task { [weak self] in
-            try? await Task.sleep(for: grace)
-            await self?.signal(SIGTERM, generation: generation)
-            try? await Task.sleep(for: grace)
-            await self?.signal(SIGKILL, generation: generation)
-        }
-    }
-
-    /// Stops the process now: closes stdin, sends SIGTERM, and SIGKILL if it is still running after
-    /// the grace period. Every path that gives up on a process ends here or in `close()`, and both
-    /// escalate to SIGKILL.
-    private func terminate(_ running: Running) {
-        idleTask?.cancel()
-        running.closeInput()
-        let generation = running.generation
-        let grace = configuration.exitGrace
-        signal(SIGTERM, generation: generation)
-        Task { [weak self] in
-            try? await Task.sleep(for: grace)
-            await self?.signal(SIGKILL, generation: generation)
-        }
-    }
-
-    private func signal(_ signal: Int32, generation: Int) {
-        guard let running, running.generation == generation, running.exit == nil else { return }
-        running.signalled = signal
-        kill(running.process.processIdentifier, signal)
+        stop(running, after: configuration.exitGrace)
     }
 
     // MARK: - Helpers
