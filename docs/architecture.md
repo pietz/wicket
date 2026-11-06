@@ -10,7 +10,8 @@ Status markers: **(now)** is how the code works today, **(target)** is what the 
 |---|---|---|
 | `WicketCore` | Values and deterministic policy: `Item`, actions and their dispatcher, content (`Detail`, `RunResult`), commands, their ids and the registry, ranking, search, the navigation stack's logic, calculator, wire decoding | Processes, AppKit, SwiftUI |
 | `WicketHost` | Everything that talks to another process or to OS services shared with the CLI: `ExtensionSession`, `Extensions` (discovery and session lifecycle), `Agent`, Keychain, login shell, checker | Windows, views |
-| `Wicket` | AppKit and SwiftUI: the panel, views, hotkeys, OS integrations (Spotlight, apps, settings window), composition in `main.swift` | Policy that could be tested in Core |
+| `WicketApp` | AppKit and SwiftUI: the panel, views, hotkeys, OS integrations (Spotlight, apps, settings window), composition (`AppDelegate`). A library so `WicketAppTests` can `@testable import` it | Policy that could be tested in Core |
+| `Wicket` | The executable: only `main.swift`, which starts `WicketApp` | Anything else |
 | `WicketCLI` | The `wicket` tool: a thin client over Host | Its own copies of Host logic |
 
 Rule of thumb: if it can be tested without a window, it belongs in Core or Host, with a test.
