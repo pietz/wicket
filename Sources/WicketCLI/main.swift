@@ -12,6 +12,11 @@ let usage = """
                Send one run request and print the response line as the extension wrote it.
            wicket secret set <extension-id> <NAME>
                Store a secret declared in wicket.json in the Keychain; the value is read from stdin.
+           wicket agent status
+               Show whether Codex and Claude Code are installed, logged in and a tested version.
+           wicket agent ask <prompt> [--provider codex|claude]
+               Stream a quick answer (no tools, no file access) to stdout; tool activity and token
+               usage go to stderr. Uses the first ready provider unless one is named.
 
     Secrets are read from environment variables of the same name first, then from the Keychain.
     """
@@ -121,12 +126,76 @@ func setSecret(id: String, name: String) -> Never {
     exit(0)
 }
 
+func agentStatus() async -> Never {
+    for provider in AgentProvider.allCases { print(await Agent.status(of: provider)) }
+    exit(0)
+}
+
+func ask(_ arguments: [String]) async -> Never {
+    var arguments = arguments
+    var provider: AgentProvider?
+    if let index = arguments.firstIndex(of: "--provider") {
+        guard index + 1 < arguments.count, let named = AgentProvider(rawValue: arguments[index + 1]) else {
+            fail("--provider needs codex or claude", status: 2)
+        }
+        provider = named
+        arguments.removeSubrange(index...index + 1)
+    }
+    guard arguments.count == 1 else { fail(usage, status: 2) }
+    var statuses: [AgentStatus] = []
+    for candidate in provider.map({ [$0] }) ?? AgentProvider.allCases {
+        statuses.append(await Agent.status(of: candidate))
+        if statuses.last?.state == .ready { break }
+    }
+    guard let status = statuses.last, status.state == .ready, let agent = await Agent.locate(status.provider)
+    else { fail(statuses.map { "error: \($0)" }.joined(separator: "\n")) }
+    if let warning = status.warning { warn("warning: \(warning)") }
+
+    // An empty folder, so the agent's working directory holds nothing to read.
+    let folder = FileManager.default.temporaryDirectory.appending(path: "wicket-ask-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    var streamed = false
+    for await event in agent.run(AgentRequest(prompt: arguments[0], workingDirectory: folder, mode: .answer))
+    {
+        switch event {
+        case .text(let text):
+            streamed = true
+            write(text)
+        case .activity(let activity):
+            warn("· \(activity)")
+        case .answer(let answer, let usage):
+            write(streamed ? "\n" : answer + "\n")
+            if let usage {
+                warn(
+                    "\(status.provider.name): \(usage.inputTokens) input tokens (\(usage.cachedInputTokens) cached), "
+                        + "\(usage.outputTokens) output")
+            }
+        case .error(let message):
+            if streamed { write("\n") }
+            fail("error: \(message)")
+        }
+    }
+    exit(0)
+}
+
+/// Unbuffered, so answer text and stderr lines appear in order.
+func write(_ text: String) {
+    FileHandle.standardOutput.write(Data(text.utf8))
+}
+
+func warn(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "check" where arguments.count == 2: await check(arguments[1])
 case "run": await run(Array(arguments.dropFirst()))
 case "secret" where arguments.count == 4 && arguments[1] == "set":
     setSecret(id: arguments[2], name: arguments[3])
+case "agent" where arguments.count == 2 && arguments[1] == "status": await agentStatus()
+case "agent" where arguments.count >= 3 && arguments[1] == "ask": await ask(Array(arguments.dropFirst(2)))
 case "help", "-h", "--help": print(usage)
 default: fail(usage, status: 2)
 }
