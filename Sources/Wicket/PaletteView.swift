@@ -9,17 +9,32 @@ enum PaletteFocus: Hashable {
 
 /// The palette's sizes. The window is the visible shapes plus a transparent `margin`, where the
 /// glass draws its rim. The width is a setting (`paletteWidth`); the content follows the window's.
+@MainActor
 enum PaletteMetrics {
     static let pillHeight: CGFloat = 56
     static let gap: CGFloat = 8
-    static let cardHeight: CGFloat = 384
+    /// The tallest card: eight rows, with a sliver of the next one hinting that the list scrolls.
+    static let maxCardHeight: CGFloat = 384
     static let cardRadius: CGFloat = 24
     /// Inset of the rows from the card's edge; their highlight stays concentric with its corners.
     static let rowInset: CGFloat = 8
+    static let rowHeight: CGFloat = 40
+    static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
-    static func windowSize(width: CGFloat, expanded: Bool) -> NSSize {
-        let content = expanded ? pillHeight + gap + cardHeight : pillHeight
+    /// The card that fits `results` (rows, divider and footer) up to `maxCardHeight`, and the action
+    /// panel while it is open; 0, no card, when there are no results.
+    static func cardHeight(for results: [Item], actionMenu: ActionMenu?) -> CGFloat {
+        guard !results.isEmpty else { return 0 }
+        let rows = CGFloat(results.count) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
+        let menu =
+            actionMenu.map { ActionPanel.height(rows: $0.item.actions.count) + ActionPanel.clearance } ?? 0
+        return min(max(rows + 1 + FooterBar.height, menu), maxCardHeight)
+    }
+
+    /// The window for a card of `cardHeight` (0 for just the pill).
+    static func windowSize(width: CGFloat, cardHeight: CGFloat) -> NSSize {
+        let content = cardHeight > 0 ? pillHeight + gap + cardHeight : pillHeight
         return NSSize(width: width + 2 * margin, height: content + 2 * margin)
     }
 }
@@ -49,7 +64,7 @@ struct PaletteRootView: View {
                         .glassEffectID("pill", in: glass)
                     if model.isExpanded {
                         Color.clear
-                            .frame(height: PaletteMetrics.cardHeight)
+                            .frame(height: model.cardHeight)
                             .glassEffect(Self.glass, in: Self.card)
                             .glassEffectID("card", in: glass)
                     }
@@ -63,7 +78,7 @@ struct PaletteRootView: View {
                         Divider()
                         FooterBar(item: model.selectedItem)
                     }
-                    .frame(height: PaletteMetrics.cardHeight)
+                    .frame(height: model.cardHeight)
                     .clipShape(Self.card)
                     .transition(.opacity)
                 }
@@ -77,7 +92,7 @@ struct PaletteRootView: View {
                         .overlay(alignment: .bottomTrailing) {
                             ActionPanel(model: model, menu: menu, focus: $focus, onRun: onRun)
                                 .padding(.trailing, 10)
-                                .padding(.bottom, FooterBar.height + 4)
+                                .padding(.bottom, ActionPanel.bottomPadding)
                         }
                 }
             }
@@ -138,7 +153,7 @@ struct ResultsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: PaletteMetrics.rowSpacing) {
                     ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
                         ResultRow(item: item, isSelected: index == model.selection, hint: hint(for: index))
                             .contentShape(Rectangle())
@@ -215,7 +230,22 @@ private struct KeyCap: View {
 }
 
 /// The action panel: every action of the item it was opened on, filtered by its own field.
-private struct ActionPanel: View {
+struct ActionPanel: View {
+    static let rowHeight: CGFloat = 30
+    static let rowSpacing: CGFloat = 2
+    static let padding: CGFloat = 6
+    static let fieldHeight: CGFloat = 34
+    /// It sits just above the footer.
+    static let bottomPadding = FooterBar.height + 4
+    /// Room the card keeps around the panel: below it, and above it so it never covers the pill.
+    static let clearance = bottomPadding + 8
+
+    /// The panel's height with every one of `rows` actions showing.
+    static func height(rows: Int) -> CGFloat {
+        let rows = CGFloat(max(rows, 1))
+        return 2 * padding + rows * (rowHeight + rowSpacing) - rowSpacing + 1 + fieldHeight
+    }
+
     @Bindable var model: PaletteModel
     let menu: ActionMenu
     var focus: FocusState<PaletteFocus?>.Binding
@@ -225,12 +255,12 @@ private struct ActionPanel: View {
         let rows = menu.rows
         let selected = menu.selectedRow?.id
         VStack(spacing: 0) {
-            VStack(spacing: 2) {
+            VStack(spacing: Self.rowSpacing) {
                 if rows.isEmpty {
                     Text("No Matching Actions")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                        .frame(height: 30)
+                        .frame(height: Self.rowHeight)
                 }
                 ForEach(rows) { row in
                     ActionRow(row: row, isSelected: row.id == selected)
@@ -238,7 +268,7 @@ private struct ActionPanel: View {
                         .onTapGesture { onRun(menu.item, row.id) }
                 }
             }
-            .padding(6)
+            .padding(Self.padding)
             Divider()
             TextField("Search actions…", text: filter)
                 .textFieldStyle(.plain)
@@ -261,7 +291,7 @@ private struct ActionPanel: View {
                     return .handled
                 }
                 .padding(.horizontal, 12)
-                .frame(height: 34)
+                .frame(height: Self.fieldHeight)
         }
         .frame(width: 320)
         .background(.regularMaterial, in: .rect(cornerRadius: 12))
@@ -297,7 +327,7 @@ private struct ActionRow: View {
         .font(.system(size: 13))
         .lineLimit(1)
         .padding(.horizontal, 8)
-        .frame(height: 30)
+        .frame(height: ActionPanel.rowHeight)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.primary.opacity(0.1))
@@ -337,7 +367,7 @@ private struct ResultRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 40)
+        .frame(height: PaletteMetrics.rowHeight)
         .background {
             if isSelected {
                 RoundedRectangle(

@@ -43,9 +43,10 @@ final class PaletteModel {
     /// ⌘ is held, so rows show their ⌘1 to ⌘9 hints.
     var commandHeld = false
     var mode = PaletteMode.idle
-    /// The results card under the pill is shown. Set by `PaletteController`, which sizes the window
-    /// to match.
-    var isExpanded = false
+    /// The height of the results card under the pill, 0 while there is none. Set by
+    /// `PaletteController`, which sizes the window to match.
+    var cardHeight: CGFloat = 0
+    var isExpanded: Bool { cardHeight > 0 }
     @ObservationIgnored private let sources: [any ResultSource]
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var updates: [Task<Void, Never>] = []
