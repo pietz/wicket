@@ -10,8 +10,9 @@ public struct Settings: Equatable, Sendable {
 
     /// A settings file that exists but can't be read as settings: not JSON, or a known field with an
     /// invalid value.
-    public struct InvalidFile: Error, Equatable, CustomStringConvertible {
+    public struct InvalidFile: LocalizedError, Equatable, CustomStringConvertible {
         public let description: String
+        public var errorDescription: String? { "settings.json is invalid: \(description)" }
     }
 
     /// `$WICKET_CONFIG_DIR`, else `~/.config/wicket`.

@@ -4,6 +4,9 @@ import SwiftUI
 /// A borderless, non-activating floating panel: it takes the keyboard without activating Wicket, so
 /// the app the user came from stays frontmost and gets focus back when the palette closes.
 final class PalettePanel: NSPanel {
+    /// ⌘, as in every Mac app.
+    var onSettings: () -> Void = {}
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -25,6 +28,10 @@ final class PalettePanel: NSPanel {
     /// There is no menu bar to route standard editing shortcuts, so handle them here.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command, event.charactersIgnoringModifiers == "," {
+            onSettings()
+            return true
+        }
         if flags == .command || flags == [.command, .shift] {
             let action: Selector? =
                 switch event.charactersIgnoringModifiers?.lowercased() {
@@ -52,12 +59,16 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// Timestamp of the event that summoned the palette, until it is on screen.
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
 
-    init(model: PaletteModel, actions: ActionRunner) {
+    init(model: PaletteModel, actions: ActionRunner, openSettings: @escaping () -> Void) {
         self.model = model
         self.actions = actions
         panel = PalettePanel(contentRect: NSRect(origin: .zero, size: Self.size))
         super.init()
         panel.delegate = self
+        panel.onSettings = { [weak self] in
+            self?.hide()
+            openSettings()
+        }
         let root = NSHostingView(
             rootView: PaletteRootView(
                 model: model, onActivate: { [weak self] in self?.activate(index: $0) },
