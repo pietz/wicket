@@ -19,7 +19,7 @@ final class PalettePanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         animationBehavior = .none
@@ -218,7 +218,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         guard let visible = screen?.visibleFrame else { return .zero }
         let width = PaletteMetrics.windowSize(expanded: false).width
         return NSPoint(
-            x: (visible.midX - width / 2).rounded(), y: (visible.maxY - visible.height * 0.2).rounded())
+            x: (visible.midX - width / 2).rounded(),
+            y: (visible.maxY - visible.height * 0.2 + PaletteMetrics.margin).rounded())
     }
 
     // MARK: Measurement

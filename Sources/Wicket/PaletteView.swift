@@ -17,7 +17,7 @@ enum PaletteMetrics {
     static let cardRadius: CGFloat = 24
     /// Inset of the rows from the card's edge; their highlight stays concentric with its corners.
     static let rowInset: CGFloat = 8
-    static let margin: CGFloat = 4
+    static let margin: CGFloat = 40
 
     static func windowSize(expanded: Bool) -> NSSize {
         let content = expanded ? pillHeight + gap + cardHeight : pillHeight
