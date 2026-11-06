@@ -58,7 +58,7 @@ extension Item.Icon: Decodable {
 }
 
 extension Item.Action: Decodable {
-    /// `reveal` and `command` are host only, so they are not among the kinds.
+    /// `reveal` is host only, so it is not among the kinds; `run` can only name the sender's commands.
     public init(from decoder: any Decoder) throws {
         let (kind, object) = try decoder.oneOf(["open", "copy", "paste", "detail", "run"], what: "an action")
         switch kind {

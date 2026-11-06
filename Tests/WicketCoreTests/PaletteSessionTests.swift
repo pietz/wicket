@@ -162,6 +162,23 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     #expect(session.top.list?.selectedItem?.title == "B")
 }
 
+@MainActor @Test func reloadRerunsTheTopFrameKeepingItsText() async {
+    let source = FakeSource("apps", instant: ["a": [item("A")]], slow: true)
+    let session = PaletteSession(sources: [source])
+    session.query = "a"
+    let generation = session.top.generation
+    session.reload()
+    #expect(session.top.generation == generation + 1)
+    #expect(session.query == "a")
+    #expect(await eventually { source.wasTerminated("a") })
+    #expect(titles(session) == ["A"])
+
+    // In a detail it leaves the root alone.
+    session.push(page)
+    session.reload()
+    #expect(session.frames[0].generation == generation + 1)
+}
+
 @Test func detailsActOnTheirOwnActions() {
     #expect(ActionTarget(detail: page).actions == [.copy(text: "x")])
     #expect(ActionTarget(detail: page).item == nil)

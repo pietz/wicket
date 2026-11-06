@@ -55,6 +55,12 @@ public final class PaletteSession {
         start(0)
     }
 
+    /// Runs the top frame again with the same text, for a `reload` outcome. Only the root search has
+    /// work to redo until command frames keep their invocation (refactor step 6).
+    public func reload() {
+        start(frames.count - 1)
+    }
+
     public func moveSelection(by delta: Int) {
         frames[frames.count - 1].moveSelection(by: delta)
     }

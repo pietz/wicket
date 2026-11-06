@@ -8,6 +8,8 @@ public struct ExtensionCommand: Hashable, Sendable {
     public let command: Manifest.Command
     /// The command's icon, else the extension's.
     public let icon: Item.Icon?
+
+    public var id: CommandID { .extension(extensionID, command.id) }
 }
 
 /// The installed extensions: one folder per extension in `directory`, named by its id. Manifests are
@@ -79,14 +81,15 @@ public final class Extensions {
         }
     }
 
-    /// Runs `command` with `text` (and the `args` of a `run` action, with `kind` `.action`).
-    /// Cancelling the calling task cancels the request. Throws `ExtensionError` for an error response
-    /// and `HostError` otherwise.
-    public func run(
-        _ command: ExtensionCommand, text: String, args: [String: JSONValue]? = nil, kind: RequestKind
-    ) async throws -> RunResult {
-        try await session(for: command.extensionID).run(
-            command.command.id, text: text, args: args, kind: kind)
+    /// Runs `invocation`'s command (its `text`, and the `args` of a `run` action with `kind`
+    /// `.action`). Cancelling the calling task cancels the request. Throws `ExtensionError` for an
+    /// error response and `HostError` otherwise, `.unknownCommand` if no installed extension has it.
+    public func run(_ invocation: Invocation, kind: RequestKind) async throws -> RunResult {
+        let command = invocation.command
+        guard case .extension(let id) = command.owner, installed[id]?.manifest.command(command.name) != nil
+        else { throw HostError.unknownCommand }
+        return try await session(for: id).run(
+            command.name, text: invocation.text, args: invocation.args, kind: kind)
     }
 
     /// The extension's session, created once the sessions it replaces have shut down.

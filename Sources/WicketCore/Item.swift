@@ -32,11 +32,10 @@ public struct Item: Sendable, Hashable, Identifiable {
         case reveal(url: URL, title: String? = nil)
         /// Pushes a detail view; its title names the action.
         case detail(Detail)
-        /// Runs a command with `args` passed through. Extensions name a command of their own; the
-        /// host resolves it against the item's origin when decoding.
+        /// Runs a command, built-in or extension, with `args` passed through. Extensions name a
+        /// command of their own; the host resolves it against the item's origin when decoding, so
+        /// only the host can name a built-in.
         case run(command: CommandID, args: [String: JSONValue]? = nil, title: String? = nil)
-        /// Runs one of Wicket's built-in commands. Host only: extensions can't send it.
-        case command(id: String)
 
         /// The title the source gave, if any.
         public var title: String? {
@@ -45,7 +44,6 @@ public struct Item: Sendable, Hashable, Identifiable {
                 .run(_, _, let title):
                 title
             case .detail(let detail): detail.title
-            case .command: nil
             }
         }
     }

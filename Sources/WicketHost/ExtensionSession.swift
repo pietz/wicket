@@ -85,6 +85,8 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     /// The extension was stopped (updated or disabled) while the request was pending.
     case stopped
     case duplicateID(RequestID)
+    /// No installed extension has the command, such as after it was removed.
+    case unknownCommand
 
     public var description: String {
         switch self {
@@ -103,6 +105,7 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
             "exited (status 0) before answering this action; actions are never resent, since they may already have changed something"
         case .stopped: "the extension was stopped before answering"
         case .duplicateID(let id): "request id \(id) is already pending"
+        case .unknownCommand: "no installed extension has this command; it may have been removed"
         }
     }
 }

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let calculator = CalculatorSource()
     private let files = FilesSource()
     private let extensions = Extensions()
+    private let registry = CommandRegistry()
     private var palette: PaletteController!
     private let store = SettingsStore(directory: Settings.directory())
     private lazy var settingsWindow = SettingsWindowController(store: store)
@@ -21,16 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStart = ContinuousClock.now
-        let commands = CommandsSource([
-            .init(id: "settings", title: "Wicket Settings", symbol: "gearshape") { [weak self] in
-                self?.settingsWindow.show()
-            },
-            .init(id: "quit", title: "Quit Wicket", symbol: "power") { NSApp.terminate(nil) },
-        ])
+        let effects = SystemEffects(extensions: extensions) { [weak self] in self?.settingsWindow.show() }
         palette = PaletteController(
-            model: PaletteModel(sources: [apps, commands, calculator, files]),
-            actions: ActionRunner(commands: commands),
-            openSettings: { [weak self] in self?.settingsWindow.show() })
+            model: PaletteModel(sources: [apps, CommandsSource(registry), calculator, files]),
+            dispatcher: ActionDispatcher(registry: registry, effects: effects))
 
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
         applySettings()
@@ -41,8 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         calculator.start { [weak self] in self?.palette.model.refresh() }
         extensions.load()
+        registerExtensionCommands()
         extensionsWatcher = FileWatcher(paths: [extensions.directory.path], latency: 0.3) { [weak self] in
             self?.extensions.load(changed: $0)
+            self?.registerExtensionCommands()
         }
         apps.onChange = { [weak self] in self?.palette.model.refresh() }
         Task {
@@ -77,6 +74,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             Perf.log("hotkey: \(shortcut)")
         }
+    }
+
+    /// The switch for extension commands in the palette. They run without any approval until the
+    /// consent store lands (refactor step 5b), so they stay out of the command registry, and with it
+    /// out of the root search, keywords and `run` actions (which fail as "not found").
+    private static let extensionCommandsInPalette = false
+
+    private func registerExtensionCommands() {
+        guard Self.extensionCommandsInPalette else { return }
+        registry.setExtensionCommands(
+            extensions.commands.map {
+                RegisteredCommand(extension: $0.extensionID, command: $0.command, icon: $0.icon)
+            })
+        palette.model.refresh()
     }
 
     private func pauseHotKey(_ paused: Bool) {

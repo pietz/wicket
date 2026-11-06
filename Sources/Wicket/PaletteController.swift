@@ -79,8 +79,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     let model: PaletteModel
     /// The pill's width, from settings; applied on the next summon.
     var width = CGFloat(Settings.defaultPaletteWidth)
-    private let actions: ActionRunner
-    private let openSettings: () -> Void
+    private let dispatcher: ActionDispatcher
     private let panel: PalettePanel
     /// The window's top-left corner, resolved once per summon so only the height ever changes.
     private var anchor = NSPoint.zero
@@ -89,11 +88,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private var shownFrame: Frame.ID?
     /// Timestamp of the event that summoned the palette, until it is on screen.
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
+    /// The app that was frontmost when the palette was summoned, where `paste` types.
+    private var previousApp: RunningApp?
+    /// The action being performed, until its outcome is applied; at most one at a time.
+    private var running: Task<Void, Never>?
 
-    init(model: PaletteModel, actions: ActionRunner, openSettings: @escaping () -> Void) {
+    init(model: PaletteModel, dispatcher: ActionDispatcher) {
         self.model = model
-        self.actions = actions
-        self.openSettings = openSettings
+        self.dispatcher = dispatcher
         panel = PalettePanel(
             contentRect: NSRect(origin: .zero, size: PaletteMetrics.windowSize(width: width, cardHeight: 0)))
         super.init()
@@ -132,6 +134,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         model.focusToken += 1
+        // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
+        // activate Wicket, so the frontmost app is still the one the user came from.
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        previousApp = frontmost.flatMap {
+            $0 == .current ? nil : RunningApp(processID: $0.processIdentifier, bundleID: $0.bundleIdentifier)
+        }
     }
 
     func hide() {
@@ -139,6 +147,9 @@ final class PaletteController: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
         // Reset while hidden so the next summon has nothing to redraw.
         pendingShrink?.cancel()
+        // An action still running has nowhere to show its outcome; cancelling it cancels the request.
+        running?.cancel()
+        running = nil
         model.actionMenu = nil
         model.commandHeld = false
         model.session.reset()
@@ -150,23 +161,45 @@ final class PaletteController: NSObject, NSWindowDelegate {
         if model.session.escape() == .hide { hide() }
     }
 
-    /// Runs the action at `position` in the target's actions (0 is the primary) and closes the
-    /// palette, except for showing a detail, which pushes it. Does nothing if there is no such
-    /// action, so Return on a message row keeps the palette open.
-    ///
-    /// The detail case is the one outcome known before running; the dispatcher (refactor step 4)
-    /// replaces this with outcomes for every action.
+    /// Runs the action at `position` in the target's actions (0 is the primary) and applies its
+    /// outcome. Does nothing if there is no such action, so Return on a message row keeps the
+    /// palette open, or while another action is still running.
     func run(_ target: ActionTarget?, action position: Int) {
-        guard let target, target.actions.indices.contains(position) else { return }
+        guard running == nil, let target, target.actions.indices.contains(position) else { return }
         if let item = target.item { model.recordUse(of: item) }
-        let action = target.actions[position]
-        if case .detail(let detail) = action {
-            model.actionMenu = nil
-            model.session.push(detail)
-            return
+        perform(target.actions[position])
+    }
+
+    private func perform(_ action: Item.Action) {
+        guard running == nil else { return }
+        model.actionMenu = nil
+        let context = ActionContext(previousApp: previousApp)
+        running = Task { [weak self, dispatcher] in
+            let outcome = await dispatcher.perform(action, in: context)
+            // Cancelled by `hide`, which already cleared `running`.
+            guard let self, !Task.isCancelled else { return }
+            running = nil
+            apply(outcome)
         }
-        hide()
-        actions.run(action)
+    }
+
+    /// Messages aren't drawn yet: the HUD arrives with the extension palette integration (refactor
+    /// step 6), the first producer of them.
+    private func apply(_ outcome: ActionOutcome) {
+        switch outcome {
+        case .close:
+            hide()
+        case .push(.detail(let detail)):
+            model.session.push(detail)
+        case .push(.answer), .push(.list):
+            // Pushed lists and answers arrive with command frames (refactor step 6). Nothing can
+            // produce one yet: extension commands and items aren't in the palette.
+            Perf.logger.fault("a pushed list or answer reached the palette before command frames exist")
+        case .reload:
+            model.session.reload()
+        case .stay:
+            break
+        }
     }
 
     /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.
@@ -184,8 +217,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
             guard model.actionMenu == nil, model.results.indices.contains(row) else { break }
             run(ActionTarget(item: model.results[row]), action: 0)
         case .openSettings:
-            hide()
-            openSettings()
+            perform(.run(command: BuiltinCommand.settings.id))
         case .move(let delta):
             if model.actionMenu != nil {
                 model.actionMenu?.moveSelection(by: delta)
