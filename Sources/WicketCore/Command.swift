@@ -30,6 +30,33 @@ extension CommandID {
     }
 }
 
+/// The canonical spelling, used wherever a command is named in text: settings.json keys
+/// (`"commands": {"builtin:ask-ai": …}`), logs, and the prefix of the item ids an extension's
+/// command produces ("ext:github/search:pr-12"). `builtin:<name>` for Wicket's own commands,
+/// `ext:<extension>/<command>` for an extension's. Every part is a slug, so the separators can't
+/// appear inside one and the spelling round-trips.
+extension CommandID: LosslessStringConvertible {
+    public var description: String {
+        switch owner {
+        case .builtin: "builtin:\(name)"
+        case .extension(let id): "ext:\(id)/\(name)"
+        }
+    }
+
+    /// Parses the canonical spelling; nil for anything else (other separators, upper case, spaces).
+    public init?(_ description: String) {
+        if let name = description.wholeMatch(of: /builtin:([^\/:]+)/)?.1, Manifest.isSlug(String(name)) {
+            self = .builtin(String(name))
+        } else if let match = description.wholeMatch(of: /ext:([^\/:]+)\/([^\/:]+)/),
+            Manifest.isSlug(String(match.1)), Manifest.isSlug(String(match.2))
+        {
+            self = .extension(String(match.1), String(match.2))
+        } else {
+            return nil
+        }
+    }
+}
+
 /// A command with what to run it on: the shape persistent bindings (hotkeys, aliases, deeplinks)
 /// store, and what a `run` action becomes.
 public struct Invocation: Hashable, Sendable {

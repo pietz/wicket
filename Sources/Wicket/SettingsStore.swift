@@ -13,8 +13,14 @@ final class SettingsStore {
     private(set) var loadError: String?
     /// True when `settings.hotkey` could not be registered because another app owns it.
     var hotKeyFailed = false
-    /// Stops the global hotkey while the settings window records a new one, so pressing the current
-    /// combination reaches the recorder instead of toggling the palette. Set by the app delegate.
+    /// The registered commands, for the Shortcuts pane. Set by the app delegate.
+    var commands: [RegisteredCommand] = []
+    /// Why a command's hotkey or alias from settings.json isn't in effect (taken by the palette or
+    /// another command, held by another app). Set by the app delegate.
+    var bindingProblems: [CommandID: String] = [:]
+    /// Stops the global hotkeys (the palette's and the commands') while the settings window records
+    /// a new one, so pressing a current combination reaches the recorder instead of running what it
+    /// is bound to. Set by the app delegate.
     @ObservationIgnored var pauseHotKey: (Bool) -> Void = { _ in }
 
     init(directory: URL) {

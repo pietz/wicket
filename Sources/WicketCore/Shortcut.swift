@@ -2,8 +2,8 @@ import Foundation
 
 /// A global keyboard shortcut spelled like `"ctrl+option+space"`: lowercase modifiers in any order
 /// (`cmd`, `ctrl`, `option` or its aliases `opt` and `alt`, `shift`) joined by `+`, then one key.
-public struct Shortcut: Equatable, Sendable, CustomStringConvertible {
-    public struct Modifiers: OptionSet, Sendable {
+public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
+    public struct Modifiers: OptionSet, Hashable, Sendable {
         public let rawValue: Int
         public init(rawValue: Int) { self.rawValue = rawValue }
 
@@ -65,9 +65,15 @@ public struct Shortcut: Equatable, Sendable, CustomStringConvertible {
     /// no Command, Control or Option (Shift alone would take over typing), except for F-keys.
     public init?(keyCode: Int, modifiers: Modifiers) {
         guard let key = Self.keyCodes.first(where: { $0.value == keyCode })?.key else { return nil }
-        let isFunctionKey = key.count > 1 && key.hasPrefix("f")
-        guard isFunctionKey || !modifiers.isDisjoint(with: [.command, .control, .option]) else { return nil }
         self.init(key: key, modifiers: modifiers)
+        guard leavesTypingAlone else { return nil }
+    }
+
+    /// Whether it can be a global hotkey without taking over typing: it has Command, Control or
+    /// Option (Shift alone would swallow capitals), or it is an F-key.
+    public var leavesTypingAlone: Bool {
+        let isFunctionKey = key.count > 1 && key.hasPrefix("f")
+        return isFunctionKey || !modifiers.isDisjoint(with: [.command, .control, .option])
     }
 
     /// How macOS menus show it, such as "⌃⌥Space".

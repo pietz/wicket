@@ -50,7 +50,10 @@ public struct Item: Sendable, Hashable, Identifiable {
 
     /// Ranking tiers owned by the host, best first. Sources pick a tier; the score orders within it.
     public enum Relevance: String, Codable, Sendable, Hashable, Comparable {
-        /// The query is exactly the title or an alias.
+        /// The query is exactly the alias the user gave the command (settings.json `commands`): the
+        /// user's explicit choice, so it beats every other match, an app of that name included.
+        case alias
+        /// The query is exactly the title or an alternate name (a keyword, an app's other name).
         case exact
         /// A computed answer to the query, such as a calculation.
         case answer
@@ -63,10 +66,11 @@ public struct Item: Sendable, Hashable, Identifiable {
 
         private var order: Int {
             switch self {
-            case .exact: 0
-            case .answer: 1
-            case .match: 2
-            case .fallback: 3
+            case .alias: 0
+            case .exact: 1
+            case .answer: 2
+            case .match: 3
+            case .fallback: 4
             }
         }
     }

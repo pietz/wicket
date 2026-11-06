@@ -28,31 +28,48 @@ public enum AskAI {
 /// The root's "Ask AI" row: for any non-empty query, one static row in the fallback tier (so it
 /// comes last, never moves by habit, and takes its place in the user's fallback order through its
 /// origin). With the `ai` prefix and a question after it, the row asks only the question and ranks
-/// as an exact match, at the top.
+/// as an exact match, at the top; the user's alias for Ask AI (settings.json `commands`) works the
+/// same and ranks in the alias tier. A prefix and a space with no question yet (what Ask AI's hotkey
+/// types) shows the row at the top waiting for one.
 ///
 /// Not a registry keyword: a keyword opens its command's frame as soon as the space is typed, and
 /// Ask AI must neither run on an empty question (a once frame) nor on every keystroke (a live one).
 public struct AskAISource: ResultSource {
     public let id = "ask-ai"
+    private let registry: CommandRegistry?
 
-    public init() {}
+    /// `registry` gives the user's alias for Ask AI, if any.
+    public init(registry: CommandRegistry? = nil) {
+        self.registry = registry
+    }
 
     public func instant(_ query: Query) -> [Item] {
         let text = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
-        let (prompt, relevance) = Self.prefixed(text).map { ($0, Item.Relevance.exact) } ?? (text, .fallback)
-        return [
-            Item(
-                id: "ask-ai:ask", title: AskAI.title, subtitle: prompt, icon: .symbol(name: AskAI.symbol),
-                relevance: relevance, actions: [AskAI.action(asking: prompt)], origin: AskAI.command)
-        ]
+        var row = Item(
+            id: "ask-ai:ask", title: AskAI.title, subtitle: text, icon: .symbol(name: AskAI.symbol),
+            relevance: .fallback, actions: [AskAI.action(asking: text)], origin: AskAI.command)
+        let alias = registry?.alias(of: AskAI.command)
+        if let (prefix, question) = Self.prefixed(
+            query.text, prefixes: [AskAI.prefix] + (alias.map { [$0] } ?? []))
+        {
+            row.relevance = prefix == AskAI.prefix ? .exact : .alias
+            row.subtitle = question ?? "Type a question"
+            row.actions = question.map { [AskAI.action(asking: $0)] } ?? []
+        }
+        return [row]
     }
 
-    /// The question after the `ai` prefix and a space, if there is one.
-    static func prefixed(_ text: String) -> String? {
-        let words = text.split(separator: " ", maxSplits: 1)
-        guard words.count == 2, words[0].lowercased() == AskAI.prefix else { return nil }
-        let rest = words[1].trimmingCharacters(in: .whitespaces)
-        return rest.isEmpty ? nil : rest
+    /// The prefix `text` starts with (ignoring case) and a space, and the question after it (nil
+    /// while there is none yet).
+    static func prefixed(_ text: String, prefixes: [String] = [AskAI.prefix]) -> (
+        prefix: String, question: String?
+    )? {
+        let text = text.drop(while: \.isWhitespace)
+        guard let space = text.firstIndex(where: \.isWhitespace) else { return nil }
+        let word = text[..<space].lowercased()
+        guard let prefix = prefixes.first(where: { $0.lowercased() == word }) else { return nil }
+        let rest = text[space...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return (prefix, rest.isEmpty ? nil : rest)
     }
 }

@@ -27,7 +27,8 @@ extension Item: Decodable {
                 throw object.invalid("relevance", "is only for root commands; this is a \(mode) command")
             }
             let value = try object.required("relevance", as: String.self)
-            guard let relevance = Relevance(rawValue: value), relevance != .exact else {
+            // Exact and alias say what the user typed, which only the host knows.
+            guard let relevance = Relevance(rawValue: value), relevance > .exact else {
                 throw object.invalid("relevance", "\"\(value)\" must be answer, match or fallback")
             }
             self.relevance = relevance
@@ -39,10 +40,7 @@ extension Item: Decodable {
     /// The host id of an item `origin` sent with `id`: "ext:<extension>/<command>:<id>". Extension
     /// and command ids are slugs, so the prefix can't be forged by another extension's ids.
     static func namespaced(_ id: String, by origin: CommandID) -> String {
-        switch origin.owner {
-        case .builtin: "builtin:\(origin.name):\(id)"
-        case .extension(let owner): "ext:\(owner)/\(origin.name):\(id)"
-        }
+        "\(origin):\(id)"
     }
 }
 

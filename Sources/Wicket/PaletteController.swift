@@ -117,6 +117,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private var previousApp: RunningApp?
     /// Where a `close` message shows, the palette being gone by then.
     private let hud = MessageHUD()
+    /// Shows the palette once a command a hotkey ran (while it was hidden) has something to show.
+    private var pendingReveal: Task<Void, Never>?
 
     init(model: PaletteModel, dispatcher: ActionDispatcher) {
         self.model = model
@@ -164,8 +166,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
         model.focusToken += 1
         // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
         // activate Wicket, so the frontmost app is still the one the user came from.
-        let frontmost = NSWorkspace.shared.frontmostApplication
-        previousApp = frontmost.flatMap {
+        previousApp = Self.frontmostApp()
+    }
+
+    /// The frontmost app, unless it is Wicket.
+    private static func frontmostApp() -> RunningApp? {
+        NSWorkspace.shared.frontmostApplication.flatMap {
             $0 == .current ? nil : RunningApp(processID: $0.processIdentifier, bundleID: $0.bundleIdentifier)
         }
     }
@@ -176,11 +182,90 @@ final class PaletteController: NSObject, NSWindowDelegate {
         // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
         // cancels every command run, including one an action is still opening.
         pendingShrink?.cancel()
+        pendingReveal?.cancel()
         model.actionMenu = nil
         model.showToast(nil)
         model.commandHeld = false
         model.session.reset()
         model.cardHeight = 0
+    }
+
+    // MARK: Bound commands
+
+    /// Runs a command bound to a global hotkey (settings.json `commands`) without the root search
+    /// first, through the same dispatcher as its row. One that shows something summons the palette
+    /// straight into its frame; one that just does something (Quit, a toggle answering `close`)
+    /// shows nothing but its close message, since a hidden palette is revealed only when the command
+    /// has content (or is still running after `revealDelay`). Ask AI takes its question from the
+    /// root, so its hotkey summons the palette with its prefix typed. Pressing a command's hotkey
+    /// while its frame is on top closes the palette, as the palette's own hotkey does.
+    func run(bound id: CommandID) {
+        if panel.isVisible, case .command(let frame) = model.top.content, frame.run.command.id == id {
+            hide()
+            return
+        }
+        if panel.isVisible, id == AskAI.command, model.session.frames.count == 1,
+            model.query == AskAI.prefix + " "
+        {
+            hide()
+            return
+        }
+        pendingReveal?.cancel()
+        if panel.isVisible {
+            model.actionMenu = nil
+            model.session.reset()
+        } else {
+            previousApp = Self.frontmostApp()
+        }
+        if id == AskAI.command {
+            reveal()
+            model.query = AskAI.prefix + " "
+            return
+        }
+        switch dispatcher.perform(.run(command: id), in: ActionContext(previousApp: previousApp)) {
+        case .close: hide()
+        case .push(let detail):
+            model.session.push(detail)
+            reveal()
+        case .open(let run):
+            model.session.open(run)
+            if model.session.opening == nil { reveal() } else if !panel.isVisible { revealWhenOpened() }
+        }
+    }
+
+    /// How long a command a hotkey ran may work unseen before the palette shows it running.
+    private static let revealDelay = Duration.milliseconds(250)
+
+    /// Shows the palette, sized for the frame already on top: the card follows the top frame only
+    /// while the panel is visible.
+    private func reveal() {
+        guard !panel.isVisible else { return }
+        show()
+        if let height = PaletteMetrics.cardHeight(
+            for: model.top, actionMenu: nil, detailHeight: model.detailHeight)
+        {
+            setCardHeight(height)
+        }
+    }
+
+    /// Reveals the palette when the command being opened pushes its frame, or after `revealDelay`
+    /// if it is still running; not if it closed or reloaded without one.
+    private func revealWhenOpened() {
+        let session = model.session
+        pendingReveal = Task { [weak self] in
+            let delay = Task {
+                try? await Task.sleep(for: Self.revealDelay)
+                guard !Task.isCancelled, session.opening != nil else { return }
+                self?.reveal()
+            }
+            defer { delay.cancel() }
+            for await (opening, pushed) in Observations({ (session.opening != nil, session.frames.count > 1) }
+            ) {
+                guard !Task.isCancelled else { return }
+                if pushed { self?.reveal() }
+                if pushed || !opening { return }
+            }
+        }
     }
 
     /// Escape in the search field: clears the text, else goes back a frame, else hides.

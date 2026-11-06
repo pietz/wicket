@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWatcher: FileWatcher?
     private var extensionsWatcher: FileWatcher?
     private var hotKey: HotKey?
+    private let boundHotKeys = BoundHotKeys()
     /// The shortcut `hotKey` holds; nil while none is registered, so the next change retries.
     private var registeredShortcut: Shortcut?
     /// True while the settings window records a new hotkey.
@@ -25,7 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let launchStart = ContinuousClock.now
         NSApp.mainMenu = MainMenu.make()
         let effects = SystemEffects { [weak self] in self?.settingsWindow.show() }
-        var sources: [any ResultSource] = [apps, CommandsSource(registry), calculator, files, AskAISource()]
+        var sources: [any ResultSource] = [
+            apps, CommandsSource(registry), calculator, files, AskAISource(registry: registry),
+        ]
         if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
         let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)
         palette = PaletteController(
@@ -33,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dispatcher: ActionDispatcher(registry: registry, effects: effects))
 
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
+        boundHotKeys.onPress = { [weak self] in self?.palette.run(bound: $0) }
         applySettings()
         settingsWatcher = FileWatcher(paths: [store.url.deletingLastPathComponent().path], latency: 0.2) {
             [weak self] _ in
@@ -65,12 +69,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Reloads settings.json (defaults if it is missing or invalid) and re-registers the hotkey if it
-    /// changed.
+    /// Reloads settings.json (defaults if it is missing or invalid) and applies it: the aliases, and
+    /// the hotkeys that changed.
     private func applySettings() {
         store.reload()
         palette.width = store.settings.paletteWidth
         askAI.provider = store.settings.ai.provider
+        registry.setAliases(store.settings.commands.compactMapValues(\.alias))
+        applyHotKeys()
+    }
+
+    /// Registers the commands' hotkeys and the palette's. Commands that no longer want a hotkey let
+    /// go of it first, so the palette can take it, and the rest register after the palette let go
+    /// of its old one.
+    private func applyHotKeys() {
+        boundHotKeys.update(store.settings, registry: registry)
+        registerPaletteHotKey()
+        boundHotKeys.apply()
+        store.bindingProblems = boundHotKeys.problems(registry)
+        store.commands = registry.commands
+    }
+
+    private func registerPaletteHotKey() {
         let shortcut = store.settings.hotkey
         guard !hotKeyPaused, shortcut != registeredShortcut else { return }
         hotKey = nil  // Unregister first: Carbon refuses a combination this app already holds.
@@ -100,10 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 RegisteredCommand(extension: $0.extensionID, command: $0.command, icon: $0.icon)
             })
         palette.model.refresh()
+        applyHotKeys()  // A binding waiting for one of them takes effect.
     }
 
     private func pauseHotKey(_ paused: Bool) {
         hotKeyPaused = paused
+        boundHotKeys.paused = paused
         if paused {
             hotKey = nil
             registeredShortcut = nil

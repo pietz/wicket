@@ -37,6 +37,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store)))
         tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store)))
+        tabs.addTabViewItem(pane("Shortcuts", symbol: "command", ShortcutsPane(store: store)))
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.toolbarStyle = .preference

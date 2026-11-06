@@ -12,8 +12,11 @@ public enum BuiltinCommand: String, CaseIterable, Sendable {
 
     public var registered: RegisteredCommand {
         switch self {
-        case .settings: RegisteredCommand(id: id, title: "Wicket Settings", icon: .symbol(name: "gearshape"))
-        case .quit: RegisteredCommand(id: id, title: "Quit Wicket", icon: .symbol(name: "power"))
+        case .settings:
+            RegisteredCommand(
+                id: id, title: "Wicket Settings", icon: .symbol(name: "gearshape"), takesText: false)
+        case .quit:
+            RegisteredCommand(id: id, title: "Quit Wicket", icon: .symbol(name: "power"), takesText: false)
         case .askAI:
             RegisteredCommand(id: id, title: "Ask AI", icon: .symbol(name: AskAI.symbol), isListed: false)
         }
@@ -38,10 +41,14 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     public var mode: Manifest.Command.Mode
     /// The search field's hint in a live command's frame.
     public var placeholder: String?
+    /// Whether its keyword or alias and a space open its frame with the rest of the text. Commands
+    /// that just do something (Settings, Quit) take none: their alias only names them.
+    public var takesText: Bool
 
     public init(
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
-        isListed: Bool = true, mode: Manifest.Command.Mode = .once, placeholder: String? = nil
+        isListed: Bool = true, mode: Manifest.Command.Mode = .once, placeholder: String? = nil,
+        takesText: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -51,6 +58,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.isListed = isListed
         self.mode = mode
         self.placeholder = placeholder
+        self.takesText = takesText
     }
 
     /// A command from an extension's manifest; `icon` is the command's, else the extension's.
@@ -65,14 +73,24 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
 
 /// The one catalog of invocable commands: Wicket's built-ins and the commands of installed
 /// extensions, keyed by `CommandID`. The root search lists it (`CommandsSource`), the action
-/// dispatcher resolves `run` actions through it, and keywords resolve here; per-command hotkeys,
-/// aliases, deeplinks, the fallback list and the MCP server are meant to resolve here too, storing a
-/// `CommandID` or an `Invocation`, never a row id.
+/// dispatcher resolves `run` actions through it, and keywords and the user's aliases resolve here;
+/// per-command hotkeys resolve their `CommandID` here too (`CommandHotkeys`), and deeplinks, the
+/// fallback list and the MCP server are meant to, storing a `CommandID` or an `Invocation`, never a
+/// row id.
 ///
-/// Keyword collisions: a built-in always keeps its keyword; among extensions the first in registry
-/// order wins (extension id, then manifest order, as `Extensions.commands` lists them), so the
-/// winner never depends on install or load order. Each loser keeps its other ways in (search, id)
-/// and is reported in `keywordConflicts`.
+/// Aliases (settings.json `commands`) are the user's own words for a command. Typed alone in the
+/// root, an alias lists its command first (the `alias` tier, above every exact match); typed with a
+/// space it works as the command's keyword (for a listed command that `takesText`). Matched ignoring
+/// case. An alias of a command that isn't registered does nothing until it is.
+///
+/// Collisions, all resolved so the winner never depends on file, install or load order:
+/// - Alias against alias: the command first in canonical id order (`builtin:` before `ext:`) keeps
+///   it; the loser is in `aliasConflicts`.
+/// - Alias against keyword: the alias wins, built-in keywords included; the keyword's command is a
+///   loser in `keywordConflicts`.
+/// - Keyword against keyword: a built-in always keeps its keyword; among extensions the first in
+///   registry order wins (extension id, then manifest order, as `Extensions.commands` lists them).
+/// Each loser keeps its other ways in (search, id, a hotkey).
 @MainActor
 public final class CommandRegistry {
     /// A keyword claimed by more than one command: `winner` gets it, `loser` doesn't.
@@ -85,37 +103,72 @@ public final class CommandRegistry {
     /// Built-ins first, then extension commands in the order given.
     public private(set) var commands: [RegisteredCommand] = []
     public private(set) var keywordConflicts: [KeywordConflict] = []
+    /// Aliases settings.json gives to more than one registered command.
+    public private(set) var aliasConflicts: [KeywordConflict] = []
     private let builtins: [RegisteredCommand]
+    private var extensions: [RegisteredCommand] = []
+    /// The aliases settings.json asks for, registered or not.
+    private var requestedAliases: [CommandID: String] = [:]
     private var byID: [CommandID: RegisteredCommand] = [:]
+    /// Lowercased alias to the command that has it; registered commands only.
+    private var byAlias: [String: CommandID] = [:]
+    private var aliasOf: [CommandID: String] = [:]
     private var byKeyword: [String: CommandID] = [:]
     private var index = SearchIndex([])
 
     public init(builtins: [RegisteredCommand] = BuiltinCommand.allCases.map(\.registered)) {
         self.builtins = builtins
-        rebuild(extensions: [])
+        rebuild()
     }
 
     /// Replaces every extension command, for when extensions were loaded or changed. Entries owned
     /// by `.builtin` are ignored: an extension can't take a built-in's identity.
     public func setExtensionCommands(_ commands: [RegisteredCommand]) {
-        rebuild(
-            extensions: commands.filter {
-                if case .extension = $0.id.owner { true } else { false }
-            })
+        extensions = commands.filter {
+            if case .extension = $0.id.owner { true } else { false }
+        }
+        rebuild()
+    }
+
+    /// Replaces the user's aliases, for when settings.json was loaded or changed.
+    public func setAliases(_ aliases: [CommandID: String]) {
+        guard aliases != requestedAliases else { return }
+        requestedAliases = aliases
+        rebuild()
     }
 
     public func command(_ id: CommandID) -> RegisteredCommand? {
         byID[id]
     }
 
+    /// The command whose keyword (or alias) `keyword` is, if typing it and a space opens its frame.
+    /// A word that is someone's alias is never another command's keyword.
     public func command(keyword: String) -> RegisteredCommand? {
         byKeyword[keyword.lowercased()].flatMap { byID[$0] }
     }
 
+    /// The command that has `alias`, ignoring case.
+    public func command(alias: String) -> RegisteredCommand? {
+        byAlias[alias.lowercased()].flatMap { byID[$0] }
+    }
+
+    /// The alias `id` has in effect: the user's, unless another command won it. Nil for a command
+    /// that isn't registered.
+    public func alias(of id: CommandID) -> String? {
+        aliasOf[id]
+    }
+
     /// The listed commands matching `text` as root items (all of them for an empty text). A keyword
-    /// matches as an alternate name.
+    /// or an alias matches as an alternate name, and the text being exactly an alias puts its command
+    /// in the `alias` tier.
     public func search(_ text: String) -> [Item] {
-        index.search(text)
+        var items = index.search(text)
+        let word = text.trimmingCharacters(in: .whitespaces)
+        if !word.isEmpty, let id = byAlias[word.lowercased()] {
+            let itemID = Self.itemID(for: id)
+            if let index = items.firstIndex(where: { $0.id == itemID }) { items[index].relevance = .alias }
+        }
+        return items
     }
 
     /// The root item id of a command, stable across launches so frecency follows it:
@@ -127,28 +180,57 @@ public final class CommandRegistry {
         }
     }
 
-    private func rebuild(extensions: [RegisteredCommand]) {
+    private func rebuild() {
         commands = []
         byID = [:]
-        byKeyword = [:]
-        keywordConflicts = []
         for command in builtins + extensions where byID[command.id] == nil {
             commands.append(command)
             byID[command.id] = command
-            // A hidden command is reachable by `run` actions only (docs/extensions.md).
-            guard command.isListed, let keyword = command.keyword?.lowercased() else { continue }
-            if let winner = byKeyword[keyword] {
-                keywordConflicts.append(KeywordConflict(keyword: keyword, winner: winner, loser: command.id))
+        }
+
+        byAlias = [:]
+        aliasOf = [:]
+        aliasConflicts = []
+        let aliases = requestedAliases.filter { byID[$0.key] != nil }.sorted {
+            $0.key.description < $1.key.description
+        }
+        for (id, alias) in aliases {
+            let word = alias.lowercased()
+            if let winner = byAlias[word] {
+                aliasConflicts.append(KeywordConflict(keyword: word, winner: winner, loser: id))
+            } else {
+                byAlias[word] = id
+                aliasOf[id] = alias
+            }
+        }
+
+        byKeyword = [:]
+        keywordConflicts = []
+        // A hidden command is reachable by `run` actions only (docs/extensions.md), and one that
+        // takes no text has no frame to open with it.
+        let routed = commands.filter { $0.isListed && $0.takesText }
+        for command in routed {
+            if let alias = aliasOf[command.id]?.lowercased() { byKeyword[alias] = command.id }
+        }
+        for command in routed {
+            guard let keyword = command.keyword?.lowercased() else { continue }
+            if let winner = byAlias[keyword] ?? byKeyword[keyword] {
+                if winner != command.id {
+                    keywordConflicts.append(
+                        KeywordConflict(keyword: keyword, winner: winner, loser: command.id))
+                }
             } else {
                 byKeyword[keyword] = command.id
             }
         }
+
         index = SearchIndex(
             commands.filter(\.isListed).map { command in
                 let item = Item(
                     id: Self.itemID(for: command.id), title: command.title, subtitle: command.subtitle,
                     icon: command.icon, accessory: "Command", actions: [.run(command: command.id)])
-                return (item, command.keyword.map { [$0] } ?? [])
+                let alternates = [command.keyword, aliasOf[command.id]].compactMap { $0 }
+                return (item, alternates)
             })
     }
 }

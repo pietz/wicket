@@ -31,7 +31,6 @@ private func ask(_ text: String) -> [Item] {
     ("ai capital of peru", "capital of peru", Item.Relevance.exact),
     ("AI  capital of peru ", "capital of peru", .exact),
     ("ai", "ai", .fallback),
-    ("ai ", "ai", .fallback),
     ("aim high", "aim high", .fallback),
 ])
 @MainActor func thePrefixAsksOnlyTheQuestionAtTheTop(text: String, prompt: String, relevance: Item.Relevance)
@@ -41,6 +40,14 @@ private func ask(_ text: String) -> [Item] {
     #expect(row.subtitle == prompt)
     #expect(row.relevance == relevance)
     #expect(row.actions == [AskAI.action(asking: prompt)])
+}
+
+/// What Ask AI's hotkey types: the prefix and a space put the row at the top, waiting for a question.
+@MainActor @Test func thePrefixAloneWaitsForAQuestion() throws {
+    let row = try #require(ask("ai ").first)
+    #expect(row.relevance == .exact)
+    #expect(row.subtitle == "Type a question")
+    #expect(row.actions.isEmpty)
 }
 
 @MainActor @Test func theRowRanksLastAndHabitNeverMovesIt() throws {

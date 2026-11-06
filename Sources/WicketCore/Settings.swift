@@ -11,6 +11,11 @@ public struct Settings: Equatable, Sendable {
     /// The palette's width in points, within `paletteWidths`.
     public var paletteWidth = defaultPaletteWidth
     public var ai = AI()
+    /// What the user bound to commands: a global hotkey, an alias. Keyed by `CommandID`, written in
+    /// the file by its canonical spelling (`"builtin:ask-ai"`, `"ext:github/search"`). Entries for
+    /// commands that aren't registered stay here (the extension may be installed later) and do
+    /// nothing until they are.
+    public var commands: [CommandID: CommandBinding] = [:]
     /// Why a field the file sets was ignored for its default. A cosmetic value that is wrong or out
     /// of range shouldn't cost the whole file, so it is reported here instead of making it invalid.
     public private(set) var ignored: [String] = []
@@ -127,9 +132,35 @@ public struct Settings: Equatable, Sendable {
     }
 }
 
+/// What settings.json binds to one command. A preference, never consent (CONCEPT principle 6):
+/// binding a hotkey or an alias to an extension's command doesn't enable or approve the extension.
+public struct CommandBinding: Hashable, Sendable {
+    /// Runs the command from anywhere, without the root search first.
+    public var hotkey: Shortcut?
+    /// One word typed in the root search: alone it lists the command first; followed by a space it
+    /// works as the command's keyword (`CommandRegistry`). Matched ignoring case.
+    public var alias: String?
+
+    public init(hotkey: Shortcut? = nil, alias: String? = nil) {
+        self.hotkey = hotkey
+        self.alias = alias
+    }
+
+    public var isEmpty: Bool { hotkey == nil && alias == nil }
+
+    /// One word: not empty, no spaces, at most 32 characters.
+    public static func isValidAlias(_ alias: String) -> Bool {
+        !alias.isEmpty && alias.count <= 32 && !alias.contains(where: \.isWhitespace)
+    }
+}
+
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, ai
+        case hotkey, paletteWidth, ai, commands
+    }
+
+    private enum CommandKeys: String, CodingKey {
+        case hotkey, alias
     }
 
     private enum AIKeys: String, CodingKey {
@@ -152,6 +183,68 @@ extension Settings: Codable {
         }
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
+        }
+        if container.contains(.commands), (try? container.decodeNil(forKey: .commands)) != true {
+            decodeCommands(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands))
+        }
+    }
+
+    /// Each binding stands alone: a bad key, hotkey or alias is ignored with its reason and costs
+    /// nothing else, like the width.
+    private mutating func decodeCommands(_ object: KeyedDecodingContainer<AnyKey>?) {
+        guard let object else {
+            ignored.append("commands must be an object; no command has a hotkey or alias")
+            return
+        }
+        for key in object.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
+            guard let id = CommandID(key.stringValue) else {
+                ignored.append(
+                    "commands: \"\(key.stringValue)\" is not a command id (builtin:<name> or "
+                        + "ext:<extension>/<command>); ignoring it")
+                continue
+            }
+            if (try? object.decodeNil(forKey: key)) == true { continue }
+            guard let fields = try? object.nestedContainer(keyedBy: CommandKeys.self, forKey: key) else {
+                ignored.append("commands.\(id) must be an object; ignoring it")
+                continue
+            }
+            var binding = CommandBinding()
+            if fields.contains(.hotkey), (try? fields.decodeNil(forKey: .hotkey)) == false {
+                do {
+                    let hotkey = try fields.decode(Shortcut.self, forKey: .hotkey)
+                    if hotkey.leavesTypingAlone {
+                        binding.hotkey = hotkey
+                    } else {
+                        ignored.append(
+                            "commands.\(id).hotkey needs cmd, ctrl or option (or an F-key); ignoring it")
+                    }
+                } catch {
+                    ignored.append("commands.\(id).hotkey: \(Self.reason(error)); ignoring it")
+                }
+            }
+            if fields.contains(.alias), (try? fields.decodeNil(forKey: .alias)) == false {
+                if let alias = try? fields.decode(String.self, forKey: .alias),
+                    CommandBinding.isValidAlias(alias)
+                {
+                    binding.alias = alias
+                } else {
+                    ignored.append(
+                        "commands.\(id).alias must be one word of at most 32 characters; ignoring it")
+                }
+            }
+            if !binding.isEmpty { commands[id] = binding }
+        }
+    }
+
+    /// A decoding error's message without its coding path.
+    private static func reason(_ error: any Error) -> String {
+        guard let error = error as? DecodingError else { return String(describing: error) }
+        switch error {
+        case .dataCorrupted(let context), .typeMismatch(_, let context), .valueNotFound(_, let context),
+            .keyNotFound(_, let context):
+            return context.debugDescription
+        @unknown default:
+            return String(describing: error)
         }
     }
 
@@ -179,6 +272,17 @@ extension Settings: Codable {
         if let provider = ai.provider {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
             try nested.encode(provider, forKey: .provider)
+        }
+        // Like the provider, only what is bound, so `update` removes a cleared binding (and the
+        // object once nothing is left in it).
+        let bound = commands.filter { !$0.value.isEmpty }
+        if !bound.isEmpty {
+            var object = container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands)
+            for (id, binding) in bound {
+                var fields = object.nestedContainer(keyedBy: CommandKeys.self, forKey: AnyKey(id.description))
+                try fields.encodeIfPresent(binding.hotkey, forKey: .hotkey)
+                try fields.encodeIfPresent(binding.alias, forKey: .alias)
+            }
         }
     }
 }
