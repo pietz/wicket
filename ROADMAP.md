@@ -19,7 +19,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ### Features
 - ✅ Apps
 - ✅ Calculator: arithmetic, units, currency (ECB daily rates, rates day shown), locale-aware input
-- 🔨 Files via Spotlight (async source)
+- ✅ Files via Spotlight (async source)
 - ⏭ Quick AI answer: "Ask AI" fallback row, streams into a detail view, via Codex or Claude CLI
 
 ### Extensions
