@@ -4,6 +4,7 @@ import WicketCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let apps = AppsSource()
+    private let calculator = CalculatorSource()
     private var palette: PaletteController!
     private let store = SettingsStore(directory: Settings.directory())
     private lazy var settingsWindow = SettingsWindowController(store: store)
@@ -23,7 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .init(id: "quit", title: "Quit Wicket", symbol: "power") { NSApp.terminate(nil) },
         ])
         palette = PaletteController(
-            model: PaletteModel(sources: [apps, commands]), actions: ActionRunner(commands: commands),
+            model: PaletteModel(sources: [apps, commands, calculator]),
+            actions: ActionRunner(commands: commands),
             openSettings: { [weak self] in self?.settingsWindow.show() })
 
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
@@ -33,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.applySettings()
         }
 
+        calculator.start { [weak self] in self?.palette.model.refresh() }
         apps.onChange = { [weak self] in self?.appsChanged() }
         Task {
             await apps.start()

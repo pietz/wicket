@@ -37,7 +37,9 @@ final class PaletteModel {
         list.moveSelection(by: delta)
     }
 
+    /// Answers are computed per query, so a usage boost for them would mean nothing.
     func recordUse(of item: Item) {
+        guard item.relevance != .answer else { return }
         usage.record(item.id, now: Date())
         let snapshot = usage
         let url = usageURL
