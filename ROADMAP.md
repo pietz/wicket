@@ -26,7 +26,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Apps
 - ✅ Calculator: arithmetic, units, currency (ECB daily rates, rates day shown), locale-aware input
 - ✅ Files via Spotlight (async source)
-- ⏭ Quick AI answer: "Ask AI" fallback row, streams into a detail view, via Codex or Claude CLI
+- ✅ Agent adapters (WicketHost): Codex app-server and Claude stream-json, answer and build modes, sandboxed, status checks, `wicket agent status|ask`
+- ⏭ Quick AI answer: "Ask AI" fallback row, streams into a detail view, on the agent adapters
 
 ### Extensions
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
