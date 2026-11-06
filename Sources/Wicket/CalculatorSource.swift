@@ -24,7 +24,10 @@ final class CalculatorSource: ResultSource {
                 query.text, rates: rates.rates, defaultCurrency: defaultCurrency, locale: .current)
         else { return [] }
         let expression = query.text.trimmingCharacters(in: .whitespaces)
-        let actions: [Item.Action] = result.copyText.map { [.copy(text: $0), .copy(text: expression)] } ?? []
+        let actions: [Item.Action] =
+            result.copyText.map {
+                [.copy(text: $0, title: "Copy Result"), .copy(text: expression, title: "Copy Expression")]
+            } ?? []
         return [
             Item(
                 id: "calculator:answer", title: result.display, subtitle: result.detail,

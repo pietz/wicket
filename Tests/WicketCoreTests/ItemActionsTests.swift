@@ -12,5 +12,8 @@ import Testing
 
 @Test func filesOpenRevealAndCopyTheirPath() {
     let url = URL(filePath: "/Users/me/Documents/Invoice.pdf")
-    #expect(Item.Action.forFile(url) == [.open(url: url), .reveal(url), .copy(text: url.path)])
+    #expect(
+        Item.Action.forFile(url) == [
+            .open(url: url), .reveal(url), .copy(text: url.path, title: "Copy Path"),
+        ])
 }

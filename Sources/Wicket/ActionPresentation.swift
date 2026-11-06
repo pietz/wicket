@@ -14,15 +14,24 @@ struct ActionPresentation {
             (title, symbol, detail) = ("Show in Finder", "folder", nil)
             return
         }
+        let named: (title: String, symbol: String, detail: String?)
         switch action {
-        case .open(let url):
+        case .open(let url, _):
             let web = url.scheme == "http" || url.scheme == "https"
-            (title, symbol, detail) = (web ? "Open in Browser" : "Open", "arrow.up.forward.app", nil)
-        case .copy(let text):
-            (title, symbol, detail) = ("Copy", "doc.on.doc", text)
+            named = (web ? "Open in Browser" : "Open", "arrow.up.forward.app", nil)
+        case .copy(let text, _):
+            named = ("Copy", "doc.on.doc", text)
+        case .paste(let text, _):
+            named = ("Paste", "doc.on.clipboard", text)
+        case .detail:
+            named = ("Show Details", "doc.text", nil)
+        case .run:
+            named = ("Run", "play", nil)
         case .command:
-            (title, symbol, detail) = ("Run", "command", nil)
+            named = ("Run", "command", nil)
         }
+        // A source's own title wins; the value stays visible either way.
+        (title, symbol, detail) = (action.title ?? named.title, named.symbol, named.detail)
     }
 
     /// The shortcut that runs the action at `position` in an item's actions without the panel.
