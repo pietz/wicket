@@ -1,52 +1,5 @@
 import Foundation
 
-/// What a command shows or does: the `result` of a response.
-public enum RunResult: Sendable, Hashable, Decodable {
-    /// One item, shown large; ranks as an answer in root mode unless it says otherwise.
-    case answer(Item)
-    case list([Item])
-    case detail(Detail)
-    case close(message: String?)
-    /// Re-runs the view the user is looking at.
-    case reload(message: String?)
-
-    public static let itemLimit = 500
-
-    public init(from decoder: any Decoder) throws {
-        let kinds = ["answer", "list", "detail", "close", "reload"]
-        let (kind, object) = try decoder.oneOf(kinds, what: "a result")
-        if decoder.wire.mode == .root, kind != "answer", kind != "list" {
-            throw object.invalid(kind, "is not allowed for a root command; return answer or list")
-        }
-        switch kind {
-        case "answer":
-            var item: Item = try object.required(kind)
-            if !(try object.nestedContainer(keyedBy: AnyKey.self, forKey: AnyKey(kind)).has("relevance")) {
-                item.relevance = .answer
-            }
-            self = .answer(item)
-        case "list":
-            let list = try object.object(kind, ["items"])
-            let items: [Item] = try list.required("items")
-            if items.count > Self.itemLimit {
-                throw list.invalid("items", "has \(items.count) items; the limit is \(Self.itemLimit)")
-            }
-            var ids = Set<String>()
-            for item in items where !ids.insert(item.id).inserted {
-                throw list.invalid(
-                    "items",
-                    "item id \"\(item.id)\" appears twice; ids (which default to the title) must be unique")
-            }
-            self = .list(items)
-        case "detail":
-            self = .detail(try object.required(kind))
-        default:
-            let message: String? = try object.object(kind, ["message"]).optional("message")
-            self = kind == "close" ? .close(message: message) : .reload(message: message)
-        }
-    }
-}
-
 /// A JSON-RPC request id: a number or a string, echoed back unchanged.
 public enum RequestID: Sendable, Hashable, Codable, CustomStringConvertible {
     case number(Int)

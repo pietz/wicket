@@ -12,18 +12,25 @@ public struct WireContext: Sendable {
     public var icon: Item.Icon?
     /// The extension's command ids, which `run` actions must name; nil skips the check.
     public var commands: Set<String>?
+    /// The command the response answers: stamped on its items, namespacing their ids, and the
+    /// extension `run` actions resolve against. Nil decodes items as sent and rejects `run`.
+    public var origin: CommandID?
 
-    public init(mode: Manifest.Command.Mode? = nil, icon: Item.Icon? = nil, commands: Set<String>? = nil) {
+    public init(
+        mode: Manifest.Command.Mode? = nil, icon: Item.Icon? = nil, commands: Set<String>? = nil,
+        origin: CommandID? = nil
+    ) {
         self.mode = mode
         self.icon = icon
         self.commands = commands
+        self.origin = origin
     }
 
     public init(command id: String, in manifest: Manifest) {
         let command = manifest.command(id)
         self.init(
             mode: command?.mode, icon: command?.icon ?? manifest.icon,
-            commands: Set(manifest.commands.map(\.id)))
+            commands: Set(manifest.commands.map(\.id)), origin: .extension(manifest.id, id))
     }
 
     static let key = CodingUserInfoKey(rawValue: "app.wicket.wire")!

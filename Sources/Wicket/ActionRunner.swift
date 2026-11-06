@@ -7,10 +7,6 @@ struct ActionRunner {
     let commands: CommandsSource
 
     func run(_ action: Item.Action) {
-        if let url = action.revealedURL {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-            return
-        }
         switch action {
         case .open(let url, _):
             let configuration = NSWorkspace.OpenConfiguration()
@@ -23,6 +19,8 @@ struct ActionRunner {
         case .copy(let text, _), .paste(let text, _):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        case .reveal(let url, _):
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         case .command(let id):
             commands.run(id)
         case .detail, .run:

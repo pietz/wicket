@@ -122,3 +122,42 @@ func topResult(query: String, expected: String) {
     #expect(store.frecency("a", now: start) == 2)
     #expect(abs(store.frecency("a", now: start.addingTimeInterval(UsageStore.halfLife)) - 1) < 1e-9)
 }
+
+private func fromExtension(_ titles: [String], _ id: String, relevance: Item.Relevance = .match) -> [Item] {
+    titles.enumerated().map { index, title in
+        Item(
+            id: "ext:\(id)/search:\(title)", title: title, icon: .symbol(name: "x"), relevance: relevance,
+            score: -Double(index), actions: [], origin: .extension(id, "search"))
+    }
+}
+
+@Test func extensionItemsKeepTheirOrderWithinATier() {
+    let items = fromExtension(["Zebra", "Apple", "Mango"], "fruit")
+    let usage = ["ext:fruit/search:Mango": 1000.0]
+    #expect(
+        Ranker.rank(items, query: "a", usage: { usage[$0] ?? 0 }).map(\.title) == ["Zebra", "Apple", "Mango"])
+    #expect(
+        Ranker.rank(items.reversed(), query: "", usage: { _ in 0 }).map(\.title) == [
+            "Zebra", "Apple", "Mango",
+        ])
+}
+
+@Test func tiersStillComeFirstForExtensionItems() {
+    let items =
+        fromExtension(["Search the web"], "web", relevance: .fallback)
+        + fromExtension(["B", "A"], "letters")
+    #expect(Ranker.rank(items, query: "x", usage: { _ in 0 }).map(\.title) == ["B", "A", "Search the web"])
+}
+
+@Test func twoExtensionsEachKeepTheirOrder() {
+    let ranked = Ranker.rank(
+        fromExtension(["c", "a"], "one") + fromExtension(["d", "b"], "two"), query: "", usage: { _ in 0 }
+    ).map(\.title)
+    #expect(ranked.firstIndex(of: "c")! < ranked.firstIndex(of: "a")!)
+    #expect(ranked.firstIndex(of: "d")! < ranked.firstIndex(of: "b")!)
+}
+
+@Test func usageStillReordersHostItems() {
+    let plain = [item("Alpha"), item("Beta")]
+    #expect(Ranker.rank(plain, query: "", usage: { $0 == "Beta" ? 5 : 0 }).map(\.title) == ["Beta", "Alpha"])
+}

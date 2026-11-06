@@ -10,10 +10,6 @@ struct ActionPresentation {
     let detail: String?
 
     init(_ action: Item.Action) {
-        if action.revealedURL != nil {
-            (title, symbol, detail) = ("Show in Finder", "folder", nil)
-            return
-        }
         let named: (title: String, symbol: String, detail: String?)
         switch action {
         case .open(let url, _):
@@ -23,6 +19,8 @@ struct ActionPresentation {
             named = ("Copy", "doc.on.doc", text)
         case .paste(let text, _):
             named = ("Paste", "doc.on.clipboard", text)
+        case .reveal:
+            named = ("Show in Finder", "folder", nil)
         case .detail:
             named = ("Show Details", "doc.text", nil)
         case .run:

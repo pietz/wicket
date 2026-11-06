@@ -7,11 +7,16 @@ public enum Ranker {
 
     /// Best first: by relevance tier, then score plus frecency boost, then (for a non-empty query)
     /// the shorter title, then by name. An empty query therefore lists by usage, then name.
+    ///
+    /// Extension items get no frecency boost: their scores encode the extension's order (see
+    /// `RunResult` decoding), which docs/extensions.md promises to keep within a tier.
     public static func rank(
         _ items: [Item], query: String, usage: (String) -> Double, limit: Int = .max
     ) -> [Item] {
         let typed = !Fold.query(query).isEmpty
-        var scored = items.map { (item: $0, score: $0.score + usageBoost(usage($0.id))) }
+        var scored = items.map { item in
+            (item: item, score: item.score + (item.isFromExtension ? 0 : usageBoost(usage(item.id))))
+        }
         scored.sort { a, b in
             if a.item.relevance != b.item.relevance { return a.item.relevance < b.item.relevance }
             if a.score != b.score { return a.score > b.score }

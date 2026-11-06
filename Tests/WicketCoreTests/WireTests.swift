@@ -60,7 +60,8 @@ private func item(_ title: String, relevance: Item.Relevance) -> Item {
           {"detail":{"title":"More","markdown":"# Hi","metadata":[{"label":"A","value":"B"}]}}
         ]}}
         """#
-    guard case .answer(let item) = try result(json, WireContext(commands: ["done"])) else { return }
+    let context = WireContext(commands: ["done"], origin: .extension("todo", "search"))
+    guard case .answer(let item) = try result(json, context) else { return }
     let home = FileManager.default.homeDirectoryForCurrentUser
     #expect(item.actions[0] == .open(url: home.appending(path: "Documents"), title: "Open Folder"))
     #expect(item.actions[1] == .open(url: URL(filePath: "/Applications/Safari.app")))
@@ -72,7 +73,7 @@ private func item(_ title: String, relevance: Item.Relevance) -> Item {
         "id": .integer(12), "big": .integer(12_345_678_901_234_567), "f": .number(1.5),
         "tags": .array([.string("a"), .null, .bool(true)]),
     ]
-    #expect(item.actions[5] == .run(command: "done", args: args))
+    #expect(item.actions[5] == .run(command: .extension("todo", "done"), args: args))
     guard case .detail(let detail) = item.actions[6] else { return }
     #expect(item.actions[6].title == "More")
     #expect(detail.metadata.map(\.value) == ["B"])
@@ -102,6 +103,10 @@ private func item(_ title: String, relevance: Item.Relevance) -> Item {
     (
         #"{"answer":{"title":"x","actions":[{"command":{"id":"quit"}}]}}"#,
         "one of open, copy, paste, detail, run"
+    ),
+    (
+        #"{"answer":{"title":"x","actions":[{"reveal":{"url":"/tmp"}}]}}"#,
+        "one of open, copy, paste, detail, run; found reveal"
     ),
     (#"{"answer":{"title":"x","icon":{"emoji":"x"}}}"#, "an icon must have"),
     // Values.
@@ -137,9 +142,58 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
         problem(#"{"list":{"items":[{"title":"a","relevance":"match"}]}}"#, live)?.contains("only for root")
             == true)
     #expect(problem(#"{"reload":{}}"#, live) == nil)
-    let commands = WireContext(commands: ["search"])
+    let commands = WireContext(commands: ["search"], origin: .extension("todo", "search"))
     let run = #"{"answer":{"title":"x","actions":[{"run":{"command":"other"}}]}}"#
     #expect(problem(run, commands)?.contains(#""other" is not a command in wicket.json"#) == true)
+}
+
+@Test func itemsCarryTheirOriginAndNamespacedIds() throws {
+    let json = #"{"list":{"items":[{"id":"1","title":"Fix login"},{"title":"Fix login"}]}}"#
+    let github = WireContext(command: "search", in: try manifest("github", commands: ["search"]))
+    let linear = WireContext(command: "search", in: try manifest("linear", commands: ["search"]))
+    guard case .list(let a) = try result(json, github), case .list(let b) = try result(json, linear) else {
+        Issue.record("not lists")
+        return
+    }
+    #expect(a.map(\.id) == ["ext:github/search:1", "ext:github/search:Fix login"])
+    #expect(a.allSatisfy { $0.origin == .extension("github", "search") })
+    #expect(b[0].origin == .extension("linear", "search"))
+    // Same ids and titles from two extensions stay distinct.
+    #expect(Set(a.map(\.id)).isDisjoint(with: b.map(\.id)))
+    // Duplicates are reported by the extension's own id.
+    let twice = #"{"list":{"items":[{"id":"7","title":"a"},{"id":"7","title":"b"}]}}"#
+    #expect(problem(twice, github)?.contains(#"item id "7" appears twice"#) == true)
+}
+
+@Test func runActionsResolveAgainstTheirExtension() throws {
+    let json = #"""
+        {"detail":{"markdown":"x","actions":[{"run":{"command":"character","args":{"n":1},"title":"More"}}]}}
+        """#
+    let context = WireContext(
+        command: "search", in: try manifest("unicode", commands: ["search", "character"]))
+    guard case .detail(let detail) = try result(json, context) else {
+        Issue.record("not a detail")
+        return
+    }
+    #expect(
+        detail.actions == [
+            .run(command: .extension("unicode", "character"), args: ["n": .integer(1)], title: "More")
+        ])
+    // Without an extension to resolve against, a run action can't be decoded.
+    #expect(problem(json)?.contains("needs the extension it came from") == true)
+}
+
+@Test func listsKeepTheirOrderAsScores() throws {
+    let json = #"{"list":{"items":[{"title":"b"},{"title":"a"},{"title":"c"}]}}"#
+    guard case .list(let items) = try result(json) else { return }
+    #expect(items.map(\.score) == [0, -1, -2])
+}
+
+private func manifest(_ id: String, commands: [String]) throws -> Manifest {
+    let list = commands.map { #"{"id":"\#($0)","title":"\#($0)"}"# }.joined(separator: ",")
+    let json =
+        #"{"protocol":1,"id":"\#(id)","name":"\#(id)","version":"1.0.0","run":["./x"],"commands":[\#(list)]}"#
+    return try JSONDecoder().decode(Manifest.self, from: Data(json.utf8))
 }
 
 @Test func responsesFollowJSONRPC() throws {
