@@ -12,6 +12,8 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 
 ## Commands
 
+- Once per clone: `git config core.hooksPath Scripts/hooks`, so every commit runs `Scripts/check.sh`.
+
 - Check (definition of done): `Scripts/check.sh` builds with warnings as errors, runs the tests and lints formatting against `.swift-format`. It must pass before a commit. Fix formatting with `swift format format --in-place --recursive Sources Tests Package.swift`.
 - Test: `swift test` (pure logic in `Sources/WicketCore`).
 - Build and bundle: `Scripts/build-app.sh` (release) or `Scripts/build-app.sh debug`, producing `build/Wicket.app`.

@@ -1,0 +1,8 @@
+#!/bin/zsh
+# Runs the definition-of-done gate before every commit. Enabled per clone with:
+#   git config core.hooksPath Scripts/hooks
+# Commits that only touch docs skip the Swift checks.
+if git diff --cached --name-only | grep -qE '\.swift$|^Package\.swift$|\.swift-format$'; then
+  exec "$(git rev-parse --show-toplevel)/Scripts/check.sh" >/dev/null 2>&1 || {
+    echo "pre-commit: Scripts/check.sh failed; run it to see why" >&2; exit 1; }
+fi
