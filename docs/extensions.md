@@ -41,16 +41,11 @@ The user types "week" and presses Return. Wicket sends one line and the script a
 {"jsonrpc":"2.0","id":1,"result":{"answer":{"title":"Week 45","subtitle":"ISO week number"}}}
 ```
 
-Test any extension without Wicket by piping requests into it from its folder, one per line:
+Try it with the `wicket` tool, which runs the extension exactly as Wicket does and checks the response (see [Testing](#testing)):
 
 ```sh
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"run","params":{"command":"week","text":"","revision":2}}' \
-  | /bin/sh week.sh
+wicket run week-number week
 ```
-
-(This script answers once and exits, so it prints one line; a persistent extension answers both.)
 
 ## The folder and the manifest
 
@@ -72,6 +67,7 @@ Wicket tells you which folder to write into; if nobody did, name the folder afte
 | `version` | yes | `major.minor.patch`. Bump it when you change the extension. |
 | `icon` | no | An [icon](#icons) for the extension; commands inherit it. |
 | `run` | yes | Program and arguments, for example `["python3", "main.py"]`. A bare program name is looked up on the user's login-shell `PATH`. Prefer naming the interpreter (`["/bin/sh", "x.sh"]`) over relying on the executable bit. |
+| `secrets` | no | Values the user stores in the Keychain, such as API tokens, passed to your program as environment variables: `[{"name": "GITHUB_TOKEN", "title": "GitHub token"}]`. `name` is uppercase letters, digits and `_`, and not `PATH`, `LANG`, `HOME`, `USER`, `SHELL`, `TMPDIR` or `WICKET_…`; `title` is what the user is asked for. Every declared secret is required: without it the run fails with a message saying how to set it. Never write secrets into your folder or your output. |
 | `capabilities` | no | What your code does beyond computing an answer, for the review screen: `network` (talks to the internet), `clipboard` (reads the clipboard; writing it through a `copy` action needs nothing), `files` (reads or writes files outside its folder and `WICKET_DATA_DIR`), `shell` (runs other programs). Declare every one that applies; it is not enforced but users rely on it. |
 | `commands` | yes | One or more commands, below. |
 
@@ -116,6 +112,7 @@ Environment of the process:
 | `WICKET_EXTENSION_ID` | Your manifest id. |
 | `WICKET_DATA_DIR` | A folder that exists and is yours to keep state, caches and settings in. It survives updates; your extension folder may be replaced. |
 | `PATH` | The user's login-shell `PATH`, so `python3`, `node` and Homebrew tools resolve as in Terminal. |
+| each secret's `name` | The value the user stored for it. |
 
 ### `run` (request)
 
@@ -360,6 +357,26 @@ A session (the user types "uc grinning cat", then opens the details):
 {"jsonrpc":"2.0","id":3,"result":{"detail":{"title":"Grinning Cat Face With Smiling Eyes","markdown":"# 😸\n\n`U+1F638` GRINNING CAT FACE WITH SMILING EYES","metadata":[{"label":"Code point","value":"U+1F638"},{"label":"Category","value":"So"},{"label":"UTF-8","value":"F0 9F 98 B8"}],"actions":[{"copy":{"text":"😸"}},{"copy":{"text":"U+1F638","title":"Copy Code Point"}}]}}}
 ```
 
+## Testing
+
+The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Helpers/wicket`.
+
+- `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error.
+- `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it.
+- `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. When testing, an environment variable of the same name takes precedence over the Keychain.
+
+A fixture is `session.jsonl` (or any `*.session.jsonl`) in the extension folder, one JSON object per line, blank lines ignored:
+
+- `{"send": message}` writes a `run` request or `cancel` notification, exactly as Wicket would send it. Sends go out in file order without waiting.
+- `{"expect": response}` waits for the response with that `id` and compares it as a pattern: every field in the expectation must be present with an equal value (numbers compare by value); fields it leaves out are not checked; arrays must have the same length. Leave out values that change, like a date.
+
+Every `run` must get a valid response, expected or not. A request cancelled with no later `expect` may go unanswered. For example:
+
+```jsonl
+{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"answer":{"subtitle":"ISO week number"}}}}
+```
+
 ## Checklist
 
 - `wicket.json` validates against the schema, and every command id you handle is declared in it.
@@ -368,4 +385,4 @@ A session (the user types "uc grinning cat", then opens the details):
 - The program exits when stdin closes.
 - Every `run` action names a declared command, and your code handles its `args`.
 - Capabilities list everything the code does beyond computing an answer.
-- Pipe a few requests into your program and check its output before you finish.
+- A `session.jsonl` covers each command, including an error case, and `wicket check` passes.

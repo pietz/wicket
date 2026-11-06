@@ -28,7 +28,25 @@
           "items": { "enum": ["network", "clipboard", "files", "shell"] },
           "description": "What the code does beyond answering, shown on the review screen. Not enforced."
         },
+        "secrets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Secret" },
+          "description": "Values stored in the Keychain and passed as environment variables. Names must be unique."
+        },
         "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Command" } }
+      }
+    },
+    "Secret": {
+      "type": "object",
+      "required": ["name", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(?!WICKET_)(?!(PATH|LANG|HOME|USER|SHELL|TMPDIR|_)$)[A-Z_][A-Z0-9_]*$",
+          "description": "Environment variable name."
+        },
+        "title": { "type": "string", "minLength": 1, "description": "What the user is asked for." }
       }
     },
     "Command": {
