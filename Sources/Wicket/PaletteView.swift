@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WicketCore
 
 /// The palette: search field and results, on Liquid Glass.
 struct PaletteRootView: View {
@@ -70,15 +71,17 @@ struct ResultsView: View {
                 guard model.results.indices.contains(selection) else { return }
                 proxy.scrollTo(model.results[selection].id)
             }
-            .onChange(of: model.results) { _, results in
-                if let first = results.first { proxy.scrollTo(first.id, anchor: .top) }
+            .onChange(of: model.results) {
+                // The selection follows its item across updates; at the top, show the list's start.
+                guard let item = model.selectedItem else { return }
+                proxy.scrollTo(item.id, anchor: model.selection == 0 ? .top : nil)
             }
         }
     }
 }
 
 private struct ResultRow: View {
-    let item: PaletteItem
+    let item: Item
     let isSelected: Bool
 
     var body: some View {
@@ -87,13 +90,23 @@ private struct ResultRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 26, height: 26)
-            Text(item.title)
-                .font(.system(size: 14))
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(.system(size: 14))
+                    .lineLimit(1)
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
             Spacer(minLength: 8)
-            Text(item.accessory)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            if let accessory = item.accessory {
+                Text(accessory)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
@@ -110,7 +123,7 @@ enum IconCache {
     private static let cache = NSCache<NSString, NSImage>()
     static let size = NSSize(width: 32, height: 32)
 
-    static func image(for icon: PaletteItem.Icon) -> NSImage {
+    static func image(for icon: Item.Icon) -> NSImage {
         let key: String
         switch icon {
         case .file(let url): key = url.path

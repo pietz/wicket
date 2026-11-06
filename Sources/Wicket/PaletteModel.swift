@@ -1,81 +1,90 @@
-import AppKit
+import Foundation
 import Observation
 import WicketCore
 
-struct PaletteItem: Identifiable, Equatable {
-    enum Icon: Equatable {
-        case file(URL)
-        case symbol(String)
-    }
-
-    enum Action: Equatable {
-        case openApp(URL)
-        case quit
-    }
-
-    let id: String
-    let title: String
-    let accessory: String
-    let icon: Icon
-    let action: Action
-}
-
-/// The palette's state: everything searchable, the current query and its ranked results.
+/// The palette's session: the query, every source's results for it, and the selection.
+///
+/// Each keystroke starts a new query revision, collects every source's instant results
+/// synchronously, then applies slow updates as they arrive if their revision is still current.
 @MainActor
 @Observable
 final class PaletteModel {
     static let resultLimit = 50
 
-    private(set) var results: [PaletteItem] = []
-    var selection = 0
+    private(set) var list = ResultList(limit: resultLimit)
+    var results: [Item] { list.items }
+    var selection: Int { list.selection }
+    var selectedItem: Item? { list.selectedItem }
 
     var query = "" { didSet { if query != oldValue { refresh() } } }
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
-    @ObservationIgnored private var items: [PaletteItem] = []
-    @ObservationIgnored private var candidates: [Candidate] = []
+    @ObservationIgnored private let sources: [any ResultSource]
+    @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var updates: [Task<Void, Never>] = []
     @ObservationIgnored private var usage: UsageStore
     @ObservationIgnored private let usageURL: URL
 
-    init() {
+    init(sources: [any ResultSource]) {
+        self.sources = sources
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         usageURL = support.appending(path: "Wicket/usage.json")
-        usage = UsageStore.load(from: usageURL)
-    }
-
-    func setItems(_ items: [PaletteItem], alternates: [String: [String]]) {
-        self.items = items
-        candidates = items.map { Candidate(id: $0.id, title: $0.title, alternates: alternates[$0.id] ?? []) }
+        usage = Self.namespaced(UsageStore.load(from: usageURL))
         refresh()
     }
 
     func moveSelection(by delta: Int) {
-        guard !results.isEmpty else { return }
-        selection = min(max(selection + delta, 0), results.count - 1)
+        list.moveSelection(by: delta)
     }
 
-    var selectedItem: PaletteItem? {
-        results.indices.contains(selection) ? results[selection] : nil
-    }
-
-    func recordUse(of item: PaletteItem) {
+    func recordUse(of item: Item) {
         usage.record(item.id, now: Date())
         let snapshot = usage
         let url = usageURL
         Task.detached(priority: .utility) { try? snapshot.save(to: url) }
     }
 
-    private func refresh() {
+    /// Runs the current query again on every source, for when a source's data changed.
+    func refresh() {
         let start = ContinuousClock.now
-        let now = Date()
-        let usage = self.usage
-        let ranked = Ranker.rank(
-            query: query, candidates: candidates, usage: { usage.frecency($0, now: now) },
-            limit: Self.resultLimit)
-        results = ranked.map { items[$0] }
-        selection = 0
-        if !query.isEmpty {
-            Perf.log("rank \"\(query)\": \(ranked.count) results in \(Perf.ms(since: start))")
+        revision += 1
+        let query = Query(text: query, revision: revision)
+        for task in updates { task.cancel() }
+        updates = []
+
+        var instant: [String: [Item]] = [:]
+        for source in sources { instant[source.id] = source.instant(query) }
+        list.start(query, results: instant, usage: frecency())
+        if !query.text.isEmpty {
+            Perf.log("query \"\(query.text)\": \(list.items.count) results in \(Perf.ms(since: start))")
         }
+
+        for source in sources {
+            guard let stream = source.updates(query) else { continue }
+            let id = source.id
+            updates.append(
+                Task { [weak self] in
+                    for await items in stream {
+                        guard let self else { return }
+                        list.update(id, items: items, revision: query.revision, usage: frecency())
+                    }
+                })
+        }
+    }
+
+    private func frecency() -> (String) -> Double {
+        let usage = self.usage
+        let now = Date()
+        return { usage.frecency($0, now: now) }
+    }
+
+    /// usage.json from before result sources keyed apps by bare path and Quit as "wicket.quit".
+    private static func namespaced(_ store: UsageStore) -> UsageStore {
+        let entries = store.entries.map { id, entry in
+            let renamed =
+                id == "wicket.quit" ? "commands:quit" : id.hasPrefix("/") ? "apps:" + id : id
+            return (renamed, entry)
+        }
+        return UsageStore(entries: Dictionary(entries, uniquingKeysWith: { first, _ in first }))
     }
 }

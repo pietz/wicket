@@ -3,7 +3,10 @@ import WicketCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let index = AppIndex()
+    private let apps = AppsSource()
+    private let commands = CommandsSource([
+        .init(id: "quit", title: "Quit Wicket", symbol: "power") { NSApp.terminate(nil) }
+    ])
     private var palette: PaletteController!
     private let configDirectory = Settings.directory()
     private var settingsWatcher: FileWatcher?
@@ -13,16 +16,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStart = ContinuousClock.now
-        palette = PaletteController()
+        palette = PaletteController(
+            model: PaletteModel(sources: [apps, commands]), actions: ActionRunner(commands: commands))
 
         applySettings()
         settingsWatcher = FileWatcher(paths: [configDirectory.path], latency: 0.2) { [weak self] in
             self?.applySettings()
         }
 
-        index.onChange = { [weak self] in self?.publishItems() }
+        apps.onChange = { [weak self] in self?.appsChanged() }
         Task {
-            await index.start()
+            await apps.start()
             Perf.log("launch→indexed: \(Perf.ms(since: launchStart))")
         }
 
@@ -61,22 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func publishItems() {
-        var items: [PaletteItem] = []
-        var alternates: [String: [String]] = [:]
-        for app in index.apps {
-            let id = app.url.path
-            items.append(
-                PaletteItem(
-                    id: id, title: app.name, accessory: "Application", icon: .file(app.url),
-                    action: .openApp(app.url)))
-            alternates[id] = app.alternates
-        }
-        items.append(
-            PaletteItem(
-                id: "wicket.quit", title: "Quit Wicket", accessory: "Command", icon: .symbol("power"),
-                action: .quit))
-        palette.model.setItems(items, alternates: alternates)
+    private func appsChanged() {
+        palette.model.refresh()
         // Warm the icons the empty palette shows first, off the summon path.
         for item in palette.model.results.prefix(12) { _ = IconCache.image(for: item.icon) }
     }

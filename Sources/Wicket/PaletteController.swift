@@ -41,17 +41,20 @@ final class PalettePanel: NSPanel {
     }
 }
 
-/// Owns the panel: summoning, placement, dismissal and launching. The content is all SwiftUI.
+/// Owns the panel: summoning, placement, dismissal and activation. The content is all SwiftUI.
 @MainActor
 final class PaletteController: NSObject, NSWindowDelegate {
     static let size = NSSize(width: 680, height: 440)
 
-    let model = PaletteModel()
+    let model: PaletteModel
+    private let actions: ActionRunner
     private let panel: PalettePanel
     /// Timestamp of the event that summoned the palette, until it is on screen.
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
 
-    override init() {
+    init(model: PaletteModel, actions: ActionRunner) {
+        self.model = model
+        self.actions = actions
         panel = PalettePanel(contentRect: NSRect(origin: .zero, size: Self.size))
         super.init()
         panel.delegate = self
@@ -86,21 +89,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
         model.query = ""
     }
 
+    /// Runs the item's primary action.
     func activate(index: Int) {
         guard model.results.indices.contains(index) else { return }
         let item = model.results[index]
+        guard let action = item.actions.first else { return }
         model.recordUse(of: item)
         hide()
-        switch item.action {
-        case .openApp(let url):
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = true
-            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
-                if let error { Perf.logger.error("open \(url.path, privacy: .public): \(error)") }
-            }
-        case .quit:
-            NSApp.terminate(nil)
-        }
+        actions.run(action)
     }
 
     /// Horizontally centred on the screen with the pointer, a fifth of the way down.

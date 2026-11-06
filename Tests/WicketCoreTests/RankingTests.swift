@@ -10,15 +10,23 @@ private let apps = [
     "Preview", "Photos", "Simulator", "Screenshot", "Script Editor", "Google Chrome", "Zed",
     "Microsoft Excel", "Microsoft Word", "Font Book", "FaceTime", "Disk Utility",
 ]
-private let candidates = apps.map { Candidate(id: $0, title: $0) }
+private func item(_ title: String) -> Item {
+    Item(id: title, title: title, icon: .symbol(name: "app"), actions: [])
+}
+
+private let index = SearchIndex(apps.map { (item($0), []) })
+
+private func ranked(_ query: String, usage: [String: Double] = [:], in index: SearchIndex = index) -> [String]
+{
+    Ranker.rank(index.search(query), query: query, usage: { usage[$0] ?? 0 }).map(\.title)
+}
 
 private func top(_ query: String, usage: [String: Double] = [:]) -> String? {
-    Ranker.rank(query: query, candidates: candidates, usage: { usage[$0] ?? 0 }, limit: 1)
-        .first.map { candidates[$0].title }
+    ranked(query, usage: usage).first
 }
 
 private func results(_ query: String) -> [String] {
-    Ranker.rank(query: query, candidates: candidates, usage: { _ in 0 }).map { candidates[$0].title }
+    ranked(query)
 }
 
 @Test(arguments: [
@@ -49,6 +57,25 @@ func topResult(query: String, expected: String) {
     #expect(top("mail", usage: ["Maps": 1000]) == "Mail")
 }
 
+@Test func exactAliasIsExact() {
+    let localized = SearchIndex([(item("Systemeinstellungen"), ["System Settings"])])
+    #expect(localized.search("systemsettings").first?.relevance == .match)
+    #expect(localized.search("Systemeinstellungen").first?.relevance == .exact)
+}
+
+@Test func relevanceTiersBeatScoreAndUsage() {
+    let answer = Item(
+        id: "calc", title: "= 4", icon: .symbol(name: "equal"), relevance: .answer, score: 0,
+        actions: [.copy(text: "4")])
+    let fallback = Item(
+        id: "ai", title: "Ask AI", icon: .symbol(name: "sparkles"), relevance: .fallback, score: 1000,
+        actions: [])
+    let mail = index.search("mail")
+    let order = Ranker.rank(mail + [fallback, answer], query: "mail", usage: { $0 == "Maps" ? 1000 : 0 })
+    #expect(order.map(\.id).prefix(2) == ["Mail", "calc"])
+    #expect(order.last?.id == "ai")
+}
+
 @Test func usageBreaksCloseCalls() {
     #expect(top("m") != "Messages")
     #expect(top("m", usage: ["Messages": 20]) == "Messages")
@@ -65,18 +92,17 @@ func topResult(query: String, expected: String) {
 }
 
 @Test func emptyQueryOrdersByUsageThenName() {
-    let order = Ranker.rank(query: "", candidates: candidates, usage: { $0 == "Zed" ? 3 : 0 })
-        .map { candidates[$0].title }
+    let order = ranked("", usage: ["Zed": 3])
     #expect(order.first == "Zed")
     #expect(order.dropFirst().first == "1Password")
 }
 
 @Test func diacriticsAndAlternates() {
-    let localized = [Candidate(id: "settings", title: "Systemeinstellungen", alternates: ["System Settings"])]
-    let hit = Ranker.rank(query: "settings", candidates: localized, usage: { _ in 0 })
-    #expect(hit == [0])
-    let accented = [Candidate(id: "c", title: "Café Menu")]
-    #expect(Ranker.rank(query: "cafe", candidates: accented, usage: { _ in 0 }) == [0])
+    let localized = SearchIndex([(item("Systemeinstellungen"), ["System Settings"])])
+    #expect(ranked("settings", in: localized) == ["Systemeinstellungen"])
+    #expect(ranked("system settings", in: localized) == ["Systemeinstellungen"])
+    let accented = SearchIndex([(item("Café Menu"), [])])
+    #expect(ranked("cafe", in: accented) == ["Café Menu"])
 }
 
 @Test func frecencyDecays() {

@@ -8,14 +8,18 @@ struct AppRecord: Sendable, Hashable {
 }
 
 /// Applications found by scanning fixed folders, refreshed by FSEvents.
+/// Item ids are "apps:" plus the bundle path.
 ///
 /// Scanning known folders (rather than an `NSMetadataQuery` over the Spotlight index) is fast,
 /// deterministic and works with Spotlight indexing off; a Spotlight query also returns copies in
 /// Downloads, build folders, backups and mounted images.
 @MainActor
-final class AppIndex {
-    private(set) var apps: [AppRecord] = []
+final class AppsSource: ResultSource {
+    let id = "apps"
     var onChange: (() -> Void)?
+
+    private var apps: [AppRecord] = []
+    private var index = SearchIndex([])
 
     private var watcher: FileWatcher?
     private var rescanTask: Task<Void, Never>?
@@ -37,13 +41,31 @@ final class AppIndex {
         watch()
     }
 
+    func instant(_ query: Query) -> [Item] {
+        index.search(query.text)
+    }
+
     func rescan() async {
         let start = ContinuousClock.now
-        let found = await Task.detached(priority: .userInitiated) { Self.scan(Self.scopes) }.value
+        let (found, index) = await Task.detached(priority: .userInitiated) {
+            let found = Self.scan(Self.scopes)
+            return (found, Self.index(found))
+        }.value
         Perf.log("app scan: \(found.count) apps in \(Perf.ms(since: start))")
         guard found != apps else { return }
         apps = found
+        self.index = index
         onChange?()
+    }
+
+    nonisolated static func index(_ apps: [AppRecord]) -> SearchIndex {
+        SearchIndex(
+            apps.map { app in
+                let item = Item(
+                    id: "apps:" + app.url.path, title: app.name, icon: .file(url: app.url),
+                    accessory: "Application", actions: [.open(url: app.url)])
+                return (item, app.alternates)
+            })
     }
 
     // MARK: Scanning

@@ -1,57 +1,30 @@
 import Foundation
 
-/// One rankable entry: a primary name plus optional alternates (file name, English name).
-public struct Candidate: Sendable {
-    public let id: String
-    public let title: String
-    public let keys: [SearchKey]
-
-    public init(id: String, title: String, alternates: [String] = []) {
-        self.id = id
-        self.title = title
-        var names = [title]
-        for alternate in alternates where Fold.fold(alternate) != Fold.fold(title) {
-            names.append(alternate)
-        }
-        self.keys = names.map(SearchKey.init)
-    }
-}
-
+/// Merges results from every source into one order.
 public enum Ranker {
     /// Frecency adds at most this much, so habit breaks ties but never beats a clearly better match.
     static let maxUsageBoost = 18.0
 
-    /// Indices of matching candidates, best first. An empty query sorts everything by usage, then name.
+    /// Best first: by relevance tier, then score plus frecency boost, then (for a non-empty query)
+    /// the shorter title, then by name. An empty query therefore lists by usage, then name.
     public static func rank(
-        query: String, candidates: [Candidate], usage: (String) -> Double, limit: Int = .max
-    ) -> [Int] {
-        let folded = Fold.query(query)
-        var scored: [(index: Int, score: Double)] = []
-        scored.reserveCapacity(candidates.count)
-
-        for (index, candidate) in candidates.enumerated() {
-            let boost = usageBoost(usage(candidate.id))
-            if folded.isEmpty {
-                scored.append((index, boost))
-                continue
-            }
-            var best: Int?
-            for (keyIndex, key) in candidate.keys.enumerated() {
-                guard var s = FuzzyMatcher.score(folded, key) else { continue }
-                if keyIndex > 0 { s -= 1 }  // the displayed name wins ties against an alternate
-                best = max(best ?? s, s)
-            }
-            if let best { scored.append((index, Double(best) + boost)) }
-        }
-
+        _ items: [Item], query: String, usage: (String) -> Double, limit: Int = .max
+    ) -> [Item] {
+        let typed = !Fold.query(query).isEmpty
+        var scored = items.map { (item: $0, score: $0.score + usageBoost(usage($0.id))) }
         scored.sort { a, b in
+            if a.item.relevance != b.item.relevance { return a.item.relevance < b.item.relevance }
             if a.score != b.score { return a.score > b.score }
-            let ta = candidates[a.index].title
-            let tb = candidates[b.index].title
-            if ta.count != tb.count, !folded.isEmpty { return ta.count < tb.count }
-            return ta.localizedStandardCompare(tb) == .orderedAscending
+            let ta = a.item.title
+            let tb = b.item.title
+            if typed, ta.count != tb.count { return ta.count < tb.count }
+            switch ta.localizedStandardCompare(tb) {
+            case .orderedAscending: return true
+            case .orderedDescending: return false
+            case .orderedSame: return a.item.id < b.item.id
+            }
         }
-        return scored.prefix(limit).map(\.index)
+        return scored.prefix(limit).map(\.item)
     }
 
     static func usageBoost(_ frecency: Double) -> Double {
