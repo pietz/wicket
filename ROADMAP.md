@@ -11,7 +11,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ### Core
 - ✅ Architecture checkpoint: independent reviews (Fable, Astra), merged into [docs/architecture.md](docs/architecture.md)
 - ✅ Architecture refactor (docs/architecture.md): value model, root versus list, frames, registry and dispatcher, process lifecycle, stream-fed command frames
-- 🔨 Phase 2 refactor from the second architecture review (docs/architecture.md): ✅ A testable app runtime; ✅ F isolated checker; ✅ D process ownership; 🔨 B invocation policy, C one content model, E diagnostics and revisions
+- 🔨 Phase 2 refactor from the second architecture review (docs/architecture.md): ✅ A testable app runtime; ✅ F isolated checker; ✅ D process ownership; ✅ B invocation policy; 🔨 C one content model, E diagnostics and revisions
 - ⏭ Consent store (refactor 5b), then flip `extensionCommandsInPalette` on: owner decision pending on approval
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
