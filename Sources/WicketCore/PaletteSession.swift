@@ -88,9 +88,9 @@ public final class PaletteSession {
             return
         }
         frames[index].query = text
-        if case .command(var command) = frames[index].content, !command.isLive {
-            command.filter(text)
-            frames[index].content = .command(command)
+        if case .screen(var screen) = frames[index].content, !screen.isLive {
+            screen.filter(text)
+            frames[index].content = .screen(screen)
             return
         }
         start(index, debounce: true)
@@ -126,8 +126,8 @@ public final class PaletteSession {
             stopped = true
         }
         let index = frames.firstIndex { frame in
-            guard case .command(let command) = frame.content else { return false }
-            return shouldStop(command.run.command.id)
+            guard case .screen(let screen) = frame.content, let run = screen.run else { return false }
+            return shouldStop(run.command.id)
         }
         if let index {
             for frame in frames[index...] { cancel(frame.id) }
@@ -143,7 +143,7 @@ public final class PaletteSession {
 
     public func push(_ detail: Detail) {
         lastID += 1
-        frames.append(Frame(id: lastID, content: .detail(detail)))
+        frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail)))))
     }
 
     /// Shows `run` in a command frame: at once with its `query` if it has one (a live command, a
@@ -152,7 +152,7 @@ public final class PaletteSession {
     public func open(_ run: CommandRun) {
         cancelOpening()
         lastID += 1
-        var frame = Frame(id: lastID, content: .command(CommandFrame(run: run)))
+        var frame = Frame(id: lastID, content: .screen(ScreenFrame(run: run)))
         if let query = run.query {
             frame.query = query
             frames.append(frame)
@@ -213,20 +213,14 @@ public final class PaletteSession {
         opening = nil
     }
 
-    /// Runs the frame at `index` again with the same text, for a `reload`: the root search, or a
-    /// command's run. A detail has nothing to run.
-    private func restart(_ index: Int) {
-        if case .detail = frames[index].content { return }
-        start(index)
-    }
-
     // MARK: Work
 
-    /// Starts a new generation of the frame at `index`, cancelling the previous one's work. A live
-    /// command waits `liveDebounce` first when `debounce` is set (a keystroke), so a burst of them
-    /// sends only the last text.
+    /// Starts a new generation of the frame at `index`, cancelling the previous one's work: the root
+    /// search, or a command's run (a pushed page has none, so nothing happens). A live command waits
+    /// `liveDebounce` first when `debounce` is set (a keystroke), so a burst of them sends only the
+    /// last text.
     private func start(_ index: Int, debounce: Bool = false) {
-        if case .command = frames[index].content {
+        if case .screen = frames[index].content {
             startCommand(&frames[index], debounce: debounce)
             return
         }
@@ -271,17 +265,17 @@ public final class PaletteSession {
     }
 
     /// Starts a new generation of a command frame's run: its invocation, with the frame's query as
-    /// the text for a live command. A frame waiting for its text runs nothing.
+    /// the text for a live command. A frame waiting for its text runs nothing, nor does a page.
     private func startCommand(_ frame: inout Frame, debounce: Bool) {
-        guard case .command(let command) = frame.content, !command.run.awaitsText else { return }
+        guard case .screen(let screen) = frame.content, let run = screen.run, !run.awaitsText else { return }
         cancel(frame.id)
         frame.generation += 1
         frame.pending = 1
-        var invocation = command.run.invocation
-        let retry = command.run.retry
-        if command.isLive { invocation.text = frame.query }
+        var invocation = run.invocation
+        let retry = run.retry
+        if screen.isLive { invocation.text = frame.query }
         let ticket = Ticket(frame: frame.id, generation: frame.generation)
-        let delay = debounce && command.isLive ? liveDebounce : nil
+        let delay = debounce && screen.isLive ? liveDebounce : nil
         let runner = runner
         work[frame.id] = [
             Task { [weak self] in
@@ -311,9 +305,7 @@ public final class PaletteSession {
     /// One result of a command's run, which searched `text` if the command is live.
     private func receive(_ result: RunResult, _ ticket: Ticket, text: String) {
         switch result {
-        case .answer(let item): show(.answer(item), ticket, text: text)
-        case .list(let items): show(.list(items), ticket, text: text)
-        case .detail(let detail): show(.detail(detail), ticket, text: text)
+        case .show(let screen): show(screen, ticket, text: text)
         case .close(let message):
             guard isCurrent(ticket) else { return }
             drop(ticket.frame)
@@ -321,7 +313,7 @@ public final class PaletteSession {
         case .reload(let message):
             guard isCurrent(ticket) else { return }
             drop(ticket.frame)
-            restart(frames.count - 1)
+            start(frames.count - 1)
             if let message { onRequest(.message(message)) }
         }
     }
@@ -329,9 +321,9 @@ public final class PaletteSession {
     /// Replaces a command frame's content; the frame being opened is pushed with its first.
     private func show(_ screen: Screen, _ ticket: Ticket, text: String) {
         let update = { (frame: inout Frame) in
-            guard case .command(var command) = frame.content else { return }
-            command.show(screen, text: command.isLive ? text : frame.query)
-            frame.content = .command(command)
+            guard case .screen(var shown) = frame.content else { return }
+            shown.show(screen, text: shown.isLive ? text : frame.query)
+            frame.content = .screen(shown)
         }
         if var frame = openingFrame, frame.id == ticket.frame, frame.generation == ticket.generation {
             update(&frame)
@@ -345,16 +337,17 @@ public final class PaletteSession {
 
     /// The run failed: the frame shows what went wrong, until a new query of a live command.
     private func fail(_ ticket: Ticket, _ message: String) {
-        guard isCurrent(ticket), case .command(let command) = frame(ticket.frame)?.content else { return }
-        let title = command.run.command.title
-        show(.detail(.failure("\(title) Failed", message, command: command.run.command.id)), ticket, text: "")
+        guard isCurrent(ticket), case .screen(let screen) = frame(ticket.frame)?.content,
+            let command = screen.run?.command
+        else { return }
+        show(.detail(.failure("\(command.title) Failed", message, command: command.id)), ticket, text: "")
         apply(ticket) { $0.pending = 0 }
     }
 
     /// The run ended. One that sent nothing to show is a failure: nothing would ever fill its frame.
     private func finish(_ ticket: Ticket) {
         guard isCurrent(ticket) else { return }
-        if case .command(let command) = frame(ticket.frame)?.content, command.screen == nil {
+        if case .screen(let screen) = frame(ticket.frame)?.content, screen.screen == nil {
             fail(ticket, "The command finished without a result.")
         } else {
             apply(ticket) { $0.pending = 0 }

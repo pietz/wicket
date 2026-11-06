@@ -19,5 +19,5 @@ import Testing
         actions: [.copy(text: "26.0")])
     #expect(Item.Action.detail(detail).title == "Safari")
     #expect(Detail(markdown: "x").metadata.isEmpty)
-    #expect(RunResult.detail(detail) != RunResult.detail(Detail(markdown: "x")))
+    #expect(RunResult.show(.detail(detail)) != RunResult.show(.detail(Detail(markdown: "x"))))
 }

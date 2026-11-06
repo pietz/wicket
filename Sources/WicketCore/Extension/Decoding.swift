@@ -106,6 +106,7 @@ extension Detail.Metadata: Decodable {
 extension RunResult: Decodable {
     public static let itemLimit = 500
 
+    /// The wire has no `show`: a screen's kind (`answer`, `list`, `detail`) is the result's.
     public init(from decoder: any Decoder) throws {
         let kinds = ["answer", "list", "detail", "close", "reload"]
         let (kind, object) = try decoder.oneOf(kinds, what: "a result")
@@ -120,7 +121,7 @@ extension RunResult: Decodable {
             }
             // Return runs the first action; an answer without any copies its title.
             if item.actions.isEmpty { item.actions = [.copy(text: item.title)] }
-            self = .answer(item)
+            self = .show(.answer(item))
         case "list":
             let list = try object.object(kind, ["items"])
             let items: [Item] = try list.required("items")
@@ -135,9 +136,9 @@ extension RunResult: Decodable {
                     "item id \"\(item.id.dropFirst(prefix))\" appears twice; ids (which default to the title) "
                         + "must be unique")
             }
-            self = .list(items)
+            self = .show(.list(items))
         case "detail":
-            self = .detail(try object.required(kind))
+            self = .show(.detail(try object.required(kind)))
         default:
             let message: String? = try object.object(kind, ["message"]).optional("message")
             self = kind == "close" ? .close(message: message) : .reload(message: message)

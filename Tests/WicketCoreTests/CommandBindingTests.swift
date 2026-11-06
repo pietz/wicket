@@ -292,8 +292,8 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
     #expect(session.frames.count == 2)
     #expect(session.frames[0].query == "g")
     #expect(session.query == "swift")
-    if case .command(let frame) = session.top.content {
-        #expect(frame.run.command.id == github.id)
+    if case .screen(let frame) = session.top.content {
+        #expect(frame.run?.command.id == github.id)
     } else {
         Issue.record("no command frame")
     }

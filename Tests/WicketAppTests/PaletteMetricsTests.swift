@@ -64,6 +64,18 @@ struct PaletteMetricsTests {
         #expect(card(session.top, detail: 2000) == PaletteMetrics.maxCardHeight)
     }
 
+    /// A command's page is sized like a pushed one: by its measured content.
+    @Test func aCommandsDetailFitsItsMeasuredContent() async {
+        let once = command("show")
+        session.open(CommandRun(once, .invoked))
+        #expect(await eventually { runner.count[once.id] == 1 })
+        runner.runs[once.id]?.yield(.show(.detail(Detail(title: "Page", markdown: "# Page"))))
+        #expect(await eventually { session.frames.count == 2 })
+        #expect(session.top.isMeasured)
+        #expect(card(session.top) == nil)
+        #expect(card(session.top, detail: 200) == 235)
+    }
+
     @Test func commandFrameWaitsForContent() async {
         let live = command("search", input: .liveText, retry: .safeToRepeat)
         session.open(CommandRun(live, .invoked))
@@ -71,14 +83,14 @@ struct PaletteMetricsTests {
         #expect(await eventually { runner.count[live.id] == 1 })
 
         // A live command with an empty query and no results is the bare pill.
-        runner.runs[live.id]?.yield(.list([]))
+        runner.runs[live.id]?.yield(.show(.list([])))
         #expect(await eventually { session.top.isCompact })
         #expect(card(session.top) == 0)
 
         // With a query, an empty list says so in one row.
         session.query = "q"
         #expect(await eventually { runner.count[live.id] == 2 })
-        runner.runs[live.id]?.yield(.list([]))
+        runner.runs[live.id]?.yield(.show(.list([])))
         #expect(await eventually { !session.top.isCompact && session.top.list != nil })
         #expect(card(session.top) == 91)
     }

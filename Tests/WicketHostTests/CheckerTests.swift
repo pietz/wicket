@@ -170,7 +170,7 @@ func samplesPass(path: String) async {
         for _ in 0..<3 { group.addTask { try await session.run("go", text: "", retry: .safeToRepeat) } }
         return try await group.reduce(into: []) { $0.append($1) }
     }
-    let pids = Set(replies.compactMap { if case .answer(let item) = $0 { item.title } else { nil } })
+    let pids = Set(replies.compactMap { if case .show(.answer(let item)) = $0 { item.title } else { nil } })
     #expect(pids.count == 3)
 }
 
@@ -181,7 +181,7 @@ func samplesPass(path: String) async {
     let session = ExtensionSession(
         manifest: try ext.manifest, folder: ext.folder,
         configuration: testConfiguration(secrets: ["TOKEN": "s3cret"]))
-    guard case .answer(let item) = try await session.run("go", text: "", retry: .safeToRepeat) else {
+    guard case .show(.answer(let item)) = try await session.run("go", text: "", retry: .safeToRepeat) else {
         Issue.record("not an answer")
         return
     }

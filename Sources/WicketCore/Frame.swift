@@ -1,15 +1,13 @@
 import Foundation
 
-/// One screen of the palette: the root search at the bottom of the stack, or something pushed on
-/// top of it (a detail, or a command's frame). `PaletteSession` owns the stack.
+/// One screen of the palette: the root search at the bottom of the stack, or a screen pushed on top
+/// of it (a command's, or a page). `PaletteSession` owns the stack.
 public struct Frame: Identifiable, Sendable {
     public enum Content: Sendable {
         /// The root search. Only the bottom frame has it.
         case search(RootResults)
-        /// A page pushed by a `detail` action, or a failure.
-        case detail(Detail)
-        /// A command, fed by its run: each result replaces what the frame shows.
-        case command(CommandFrame)
+        /// A command's screen, fed by its run, or a page pushed by a `detail` action.
+        case screen(ScreenFrame)
     }
 
     /// Unique within a session, so work started for a popped frame never lands on a new one.
@@ -30,12 +28,11 @@ public struct Frame: Identifiable, Sendable {
 
     public var isLoading: Bool { pending > 0 }
 
-    /// The frame's list, whose selection the arrow keys move; nil for a detail.
+    /// The frame's list, whose selection the arrow keys move; nil for a screen without rows.
     public var list: ItemList? {
         switch content {
         case .search(let results): results.list
-        case .detail: nil
-        case .command(let command): command.list
+        case .screen(let screen): screen.list
         }
     }
 
@@ -43,19 +40,15 @@ public struct Frame: Identifiable, Sendable {
     public var target: ActionTarget? {
         switch content {
         case .search(let results): results.selectedItem.map(ActionTarget.init(item:))
-        case .detail(let detail): ActionTarget(detail: detail)
-        case .command(let command): command.target(query: query)
+        case .screen(let screen): screen.target(query: query)
         }
     }
 
-    /// Whether the frame shows a page: a pushed detail, or a command's detail screen.
-    public var isDetail: Bool {
-        switch content {
-        case .search: false
-        case .detail: true
-        case .command(let command):
-            if case .detail = command.screen { true } else { false }
-        }
+    /// Whether the frame shows a screen without rows (a page), whose view lays out its content and
+    /// measures it to size the card.
+    public var isMeasured: Bool {
+        guard case .screen(let screen) = content, let shown = screen.screen else { return false }
+        return shown.items == nil
     }
 
     /// Whether the palette shows just the pill: the root search with nothing typed, a live command
@@ -64,10 +57,9 @@ public struct Frame: Identifiable, Sendable {
     public var isCompact: Bool {
         switch content {
         case .search: query.isEmpty
-        case .detail: false
-        case .command(let command):
-            command.run.awaitsText
-                || (command.isLive && query.isEmpty && command.list?.items.isEmpty == true)
+        case .screen(let screen):
+            screen.run?.awaitsText == true
+                || (screen.isLive && query.isEmpty && screen.list?.items.isEmpty == true)
         }
     }
 
@@ -76,27 +68,30 @@ public struct Frame: Identifiable, Sendable {
         case .search(var results):
             results.moveSelection(by: delta)
             content = .search(results)
-        case .command(var command):
-            command.moveSelection(by: delta)
-            content = .command(command)
-        case .detail:
-            break
+        case .screen(var screen):
+            screen.moveSelection(by: delta)
+            content = .screen(screen)
         }
     }
 }
 
-/// A command's frame: what it runs, and what its run sent last.
+/// A frame's screen: what it shows, and the command run feeding it, if any.
+///
+/// A command's frame starts without content and each result of its run replaces it. A page pushed
+/// by a `detail` action (or a failure saying what went wrong) has no run: it shows its screen and
+/// never runs, so a reload of it does nothing.
 ///
 /// A list from a `once` command is filtered locally by the frame's query with the shared fuzzy
 /// matcher (best match first, the command's order breaking ties; all items in its order for an empty
 /// query). A `live` command's list is shown as sent: the command did the searching. Either way the
 /// selection follows its item when the content is replaced, and goes back to the top when the text
 /// the list answers changes.
-public struct CommandFrame: Sendable {
-    public let run: CommandRun
-    /// The latest content; nil until the first arrives.
+public struct ScreenFrame: Sendable {
+    /// The command feeding the frame; nil for a pushed page.
+    public let run: CommandRun?
+    /// The latest content; nil until a command's first arrives.
     public private(set) var screen: Screen?
-    /// A list's rows (filtered, for a once command) or an answer's one row, with the selection.
+    /// The screen's rows (a list's filtered, for a once command) with the selection.
     public private(set) var list: ItemList?
     /// A once command's list as sent and its search index, for filtering.
     private var items: [Item] = []
@@ -104,49 +99,53 @@ public struct CommandFrame: Sendable {
     /// The text `list` answers (live) or is filtered by (once).
     private var listText = ""
 
+    /// A command's frame, empty until its run sends something.
     init(run: CommandRun) {
         self.run = run
     }
 
-    var isLive: Bool { run.command.input == .liveText }
+    /// A pushed page, with no run behind it.
+    init(showing screen: Screen) {
+        run = nil
+        show(screen, text: "")
+    }
+
+    var isLive: Bool { run?.command.input == .liveText }
 
     /// What Return acts on; a frame waiting for its text submits `query`, once there is one.
     func target(query: String) -> ActionTarget? {
-        if run.awaitsText {
+        if let run, run.awaitsText {
             guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             let command = run.command
             return ActionTarget(actions: [.run(command: command.id, text: query, title: command.title)])
         }
-        return switch screen {
-        case .detail(let detail): ActionTarget(detail: detail)
-        case .answer, .list: list?.selectedItem.map(ActionTarget.init(item:))
-        case nil: nil
-        }
+        return screen?.target ?? list?.selectedItem.map(ActionTarget.init(item:))
     }
 
     /// Replaces the content with `screen`, which answers `text` (the frame's query when it arrived).
+    /// Only a list is filtered and keeps its selection by the text; any other rows replace the
+    /// list's, following the selected item.
     mutating func show(_ screen: Screen, text: String) {
         self.screen = screen
-        switch screen {
-        case .list(let sent):
-            var list = self.list ?? ItemList()
+        guard let rows = screen.items else {
+            list = nil
+            return
+        }
+        var list = self.list ?? ItemList()
+        if case .list = screen {
             let reset = text != listText || self.list == nil
             if isLive {
-                list.replace(with: sent, resettingSelection: reset)
+                list.replace(with: rows, resettingSelection: reset)
             } else {
-                items = sent
-                index = SearchIndex(sent.map { ($0, []) })
+                items = rows
+                index = SearchIndex(rows.map { ($0, []) })
                 list.replace(with: filtered(text), resettingSelection: reset)
             }
-            self.list = list
             listText = text
-        case .answer(let item):
-            var list = self.list ?? ItemList()
-            list.replace(with: [item])
-            self.list = list
-        case .detail:
-            list = nil
+        } else {
+            list.replace(with: rows)
         }
+        self.list = list
     }
 
     /// Filters a once command's list by `text`; does nothing for anything else.

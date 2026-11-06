@@ -76,7 +76,7 @@ private struct Palette {
     }
 
     var detail: Detail? {
-        if case .command(let frame) = session.top.content, case .detail(let detail) = frame.screen {
+        if case .screen(let frame) = session.top.content, case .detail(let detail) = frame.screen {
             detail
         } else {
             nil
@@ -230,7 +230,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     }
     var shown: [String] = []
     for try await result in stream {
-        if case .detail(let detail) = result { shown.append(detail.markdown) }
+        if case .show(.detail(let detail)) = result { shown.append(detail.markdown) }
     }
     try await feed.value
     // The status, the first text at once, then nothing until the interval is up: the answer ended it.

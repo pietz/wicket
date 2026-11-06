@@ -30,7 +30,7 @@ final class PaletteModel {
 
     let session: PaletteSession
     var top: Frame { session.top }
-    /// The top frame's rows; empty for a detail.
+    /// The top frame's rows; empty for a page.
     var results: [Item] { top.list?.items ?? [] }
     var selection: Int { top.list?.selection ?? 0 }
     var target: ActionTarget? { top.target }
@@ -56,9 +56,9 @@ final class PaletteModel {
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0
     var isExpanded: Bool { cardHeight > 0 }
-    /// The top frame's detail content as last laid out, which sizes its card.
+    /// The top frame's page content as last laid out, which sizes its card.
     private var detailMeasure: DetailMeasure?
-    /// The height the top frame's detail content needs; nil for a list, or before it is laid out.
+    /// The height the top frame's page content needs; nil for rows, or before it is laid out.
     var detailHeight: CGFloat? {
         detailMeasure?.height(of: top.id, isLoading: top.isLoading).map { CGFloat($0) }
     }
@@ -66,7 +66,7 @@ final class PaletteModel {
     /// (the root's slow sources don't count). The pill shows a spinner.
     var isBusy: Bool {
         if session.opening != nil { return true }
-        if case .command = top.content { return top.isLoading }
+        if case .screen = top.content { return top.isLoading }
         return false
     }
     /// A `reload`'s message, shown in the footer for a moment.

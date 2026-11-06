@@ -100,8 +100,8 @@ private struct Palette {
         CommandRun(try command(id), .invoked, text: text)
     }
 
-    var commandFrame: CommandFrame? {
-        if case .command(let frame) = session.top.content { frame } else { nil }
+    var commandFrame: ScreenFrame? {
+        if case .screen(let frame) = session.top.content { frame } else { nil }
     }
 }
 
@@ -155,7 +155,7 @@ private let find = CommandID.extension("todo", "find")
         palette.session.reset()
         palette.session.query = typed
         #expect(palette.session.frames.count == 2)
-        #expect(palette.commandFrame?.run.invocation == Invocation(command: toggle, text: "now"))
+        #expect(palette.commandFrame?.run?.invocation == Invocation(command: toggle, text: "now"))
         #expect(palette.session.query == "")
         #expect(await settle { palette.runner.runs.last == Invocation(command: toggle, text: "now") })
         #expect(palette.runner.retries.last == .never)
@@ -174,7 +174,7 @@ private let find = CommandID.extension("todo", "find")
     for typed in ["find milk", "f milk"] {
         palette.session.reset()
         palette.session.query = typed
-        #expect(palette.commandFrame?.run.command.id == find)
+        #expect(palette.commandFrame?.run?.command.id == find)
         #expect(palette.session.query == "milk")
         #expect(await settle { palette.runner.runs.last?.text == "milk" })
         #expect(palette.runner.retries.last == .safeToRepeat)
@@ -200,8 +200,8 @@ private let find = CommandID.extension("todo", "find")
     for typed in ["ai why is the sky blue", "ask why is the sky blue"] {
         palette.session.reset()
         palette.session.query = typed
-        #expect(palette.commandFrame?.run.invocation == waiting.invocation)
-        #expect(palette.commandFrame?.run.awaitsText == true)
+        #expect(palette.commandFrame?.run?.invocation == waiting.invocation)
+        #expect(palette.commandFrame?.run?.awaitsText == true)
         #expect(palette.session.query == "why is the sky blue")
         #expect(palette.session.top.isCompact)
         #expect(!palette.session.top.isLoading)
@@ -243,11 +243,11 @@ private let find = CommandID.extension("todo", "find")
     let runner = Recorder()
     let session = PaletteSession(sources: [], runner: runner, registry: registry, liveDebounce: .zero)
     session.query = "ai "
-    guard case .command(let frame) = session.top.content else {
+    guard case .screen(let frame) = session.top.content else {
         Issue.record("no frame")
         return
     }
-    #expect(frame.run.command.id == AskAI.command)
+    #expect(frame.run?.command.id == AskAI.command)
     try? await Task.sleep(for: .milliseconds(20))
     #expect(runner.runs.isEmpty)
 

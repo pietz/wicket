@@ -25,29 +25,16 @@ enum PaletteMetrics {
     static let margin: CGFloat = 40
 
     /// The card for `frame`, up to `maxCardHeight`, and while the action panel is open at least tall
-    /// enough for it. A list fits its rows (and the divider and footer), computed; a detail fits its
-    /// content as measured (`detailHeight`), since markdown wraps. The root search has no card
-    /// without results, a command's list shows one row saying so (unless the frame is compact, as one
-    /// waiting for its text is). Nil, keep the card as it is, while a command frame waits for its
-    /// first content or a detail for its first measurement.
+    /// enough for it. A compact frame has none. Rows fit the card (with the divider and footer),
+    /// computed; a screen without rows (a page) fits its content as measured (`detailHeight`), since
+    /// markdown wraps. The root search has no card without results, a command's empty list shows one
+    /// row saying so. Nil, keep the card as it is, while a command frame waits for its first content
+    /// or a page for its first measurement.
     static func cardHeight(for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?) -> CGFloat? {
-        let results: [Item]
-        switch frame.content {
-        case .search(let search):
-            results = search.items
-            guard !results.isEmpty else { return 0 }
-        case .detail:
-            return detailHeight.map { card(content: $0, actionMenu: actionMenu) }
-        case .command(let command):
-            if command.run.awaitsText { return 0 }
-            switch command.screen {
-            case nil: return nil
-            case .detail: return detailHeight.map { card(content: $0, actionMenu: actionMenu) }
-            case .answer, .list:
-                guard !frame.isCompact else { return 0 }
-                results = command.list?.items ?? []
-            }
-        }
+        if frame.isCompact { return 0 }
+        if frame.isMeasured { return detailHeight.map { card(content: $0, actionMenu: actionMenu) } }
+        guard let results = frame.list?.items else { return nil }
+        if case .search = frame.content, results.isEmpty { return 0 }
         var rows = CGFloat(max(results.count, 1)) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
         if let first = results.first, ResultRow.isProminent(first, at: 0) {
             rows += answerRowHeight - rowHeight
@@ -156,18 +143,20 @@ struct PaletteRootView: View {
     private static var glass: Glass { .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)) }
     private static var card: some Shape { .rect(cornerRadius: PaletteMetrics.cardRadius, style: .continuous) }
 
-    /// The pill's glyph and prompt: the mode's at the root, the page's title in a detail, and in a
-    /// command's frame its icon with its placeholder or title (a detail's title for a detail).
+    /// The pill's glyph and prompt: the mode's at the root; in a command's frame its icon with the
+    /// screen's title, else its title for a page (which takes no text) or its placeholder; a pushed
+    /// page's title.
     private var pill: (icon: Item.Icon, prompt: String) {
         switch model.top.content {
-        case .search: (.symbol(name: model.mode.symbol), model.mode.prompt)
-        case .detail(let detail): (.symbol(name: "doc.text"), detail.title ?? "Details")
-        case .command(let frame):
-            if case .detail(let detail) = frame.screen {
-                (frame.run.command.icon, detail.title ?? frame.run.command.title)
-            } else {
-                (frame.run.command.icon, frame.run.command.placeholder ?? frame.run.command.title)
+        case .search:
+            return (.symbol(name: model.mode.symbol), model.mode.prompt)
+        case .screen(let frame):
+            let title = frame.screen?.title
+            guard let command = frame.run?.command else {
+                return (.symbol(name: "doc.text"), title ?? "Details")
             }
+            let prompt = model.top.isMeasured ? command.title : command.placeholder ?? command.title
+            return (command.icon, title ?? prompt)
         }
     }
 
@@ -225,8 +214,9 @@ struct PaletteRootView: View {
     }
 }
 
-/// The top frame's content in the card: a list (the root's results, or a command's rows), or a
-/// page. A command frame waiting for its first content shows nothing yet; the pill spins.
+/// The top frame's content in the card: a list (the root's results, or a screen's rows), or a page.
+/// A command frame waiting for its first content shows nothing yet; the pill spins. The one place a
+/// `Screen` case meets its view: a view without rows reports its height through `measure`.
 private struct FrameContent: View {
     let model: PaletteModel
     let onRun: (ActionTarget?, Int) -> Void
@@ -241,11 +231,10 @@ private struct FrameContent: View {
     var body: some View {
         switch model.top.content {
         case .search: ResultsView(model: model, onRun: onRun)
-        case .detail(let detail): DetailView(detail: detail, onMeasure: measure)
-        case .command(let frame):
+        case .screen(let frame):
             switch frame.screen {
-            case .detail(let detail): DetailView(detail: detail, onMeasure: measure)
             case .answer, .list: ResultsView(model: model, onRun: onRun)
+            case .detail(let detail): DetailView(detail: detail, onMeasure: measure)
             case nil: Color.clear
             }
         }

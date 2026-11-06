@@ -145,7 +145,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
                     height: PaletteMetrics.cardHeight(
                         for: model.top, actionMenu: model.actionMenu, detailHeight: model.detailHeight),
                     frame: model.top.id, isCompact: model.top.isCompact,
-                    isUnmeasuredDetail: model.top.isDetail && model.detailHeight == nil)
+                    isUnmeasuredDetail: model.top.isMeasured && model.detailHeight == nil)
             }
             for await card in cards {
                 self?.follow(card)
@@ -210,7 +210,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// (or is still running after `revealDelay`). Pressing a command's hotkey while its frame is on
     /// top closes the palette, as the palette's own hotkey does.
     func run(bound id: CommandID) {
-        if panel.isVisible, case .command(let frame) = model.top.content, frame.run.command.id == id {
+        if panel.isVisible, case .screen(let frame) = model.top.content, frame.run?.command.id == id {
             hide()
             return
         }

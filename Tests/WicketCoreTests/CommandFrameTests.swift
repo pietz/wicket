@@ -73,8 +73,8 @@ private func session(debounce: Duration = .zero) -> (PaletteSession, FakeRunner,
 }
 
 @MainActor
-private func content(_ session: PaletteSession) -> CommandFrame? {
-    if case .command(let command) = session.top.content { command } else { nil }
+private func content(_ session: PaletteSession) -> ScreenFrame? {
+    if case .screen(let screen) = session.top.content { screen } else { nil }
 }
 
 @MainActor
@@ -95,7 +95,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(runner.texts == ["heart"])
     #expect(runner.runs[0].retry == .safeToRepeat)
 
-    runner.runs[0].continuation.yield(.list([row("Heavy Black Heart")]))
+    runner.runs[0].continuation.yield(.show(.list([row("Heavy Black Heart")])))
     runner.runs[0].continuation.finish()
     #expect(await eventually { !session.top.isLoading })
     #expect(titles(session) == ["Heavy Black Heart"])
@@ -116,15 +116,15 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.query = "uc "
     #expect(await eventually { runner.texts == [""] })
     // Nothing typed and nothing to show: the bare pill, whose placeholder says what to type.
-    runner.runs[0].continuation.yield(.list([]))
+    runner.runs[0].continuation.yield(.show(.list([])))
     #expect(await eventually { session.top.isCompact })
 
     for text in ["g", "gr", "gri"] { session.query = text }
     #expect(await eventually { runner.texts == ["", "gri"] })
     #expect(runner.wasEnded(0))
     // The superseded run's late answer is dropped.
-    runner.runs[0].continuation.yield(.list([row("Stale")]))
-    runner.runs[1].continuation.yield(.list([row("Grinning Face"), row("Grinning Cat")]))
+    runner.runs[0].continuation.yield(.show(.list([row("Stale")])))
+    runner.runs[1].continuation.yield(.show(.list([row("Grinning Face"), row("Grinning Cat")])))
     #expect(await eventually { titles(session) == ["Grinning Face", "Grinning Cat"] })
     #expect(!session.top.isCompact)
 }
@@ -133,17 +133,17 @@ private func titles(_ session: PaletteSession) -> [String] {
     let (session, runner, _) = session()
     session.query = "uc cat"
     #expect(await eventually { runner.runs.count == 1 })
-    runner.runs[0].continuation.yield(.list([row("A"), row("B")]))
+    runner.runs[0].continuation.yield(.show(.list([row("A"), row("B")])))
     #expect(await eventually { titles(session) == ["A", "B"] })
     session.moveSelection(by: 1)
     // A second answer for the same text (a streaming producer) keeps the selection on its item.
-    runner.runs[0].continuation.yield(.list([row("Z"), row("A"), row("B")]))
+    runner.runs[0].continuation.yield(.show(.list([row("Z"), row("A"), row("B")])))
     #expect(await eventually { titles(session) == ["Z", "A", "B"] })
     #expect(session.top.list?.selectedItem?.title == "B")
 
     session.query = "cats"
     #expect(await eventually { runner.runs.count == 2 })
-    runner.runs[1].continuation.yield(.list([row("A"), row("B")]))
+    runner.runs[1].continuation.yield(.show(.list([row("A"), row("B")])))
     #expect(await eventually { titles(session) == ["A", "B"] })
     #expect(session.top.list?.selection == 0)
 }
@@ -157,7 +157,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     // Typed before the list arrives: it opens filtered.
     session.query = "login"
     runner.runs[0].continuation.yield(
-        .list([row("Bump Swift to 6.4"), row("Fix login timeout"), row("Login page")]))
+        .show(.list([row("Bump Swift to 6.4"), row("Fix login timeout"), row("Login page")])))
     runner.runs[0].continuation.finish()
     #expect(await eventually { !titles(session).isEmpty })
     #expect(titles(session) == ["Login page", "Fix login timeout"])
@@ -182,7 +182,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(session.opening == run)
     #expect(session.frames.count == 1)
     #expect(await eventually { runner.runs.count == 1 })
-    runner.runs[0].continuation.yield(.answer(row("Week 45", actions: [.copy(text: "Week 45")])))
+    runner.runs[0].continuation.yield(.show(.answer(row("Week 45", actions: [.copy(text: "Week 45")]))))
     #expect(await eventually { session.frames.count == 2 })
     #expect(session.opening == nil)
     #expect(titles(session) == ["Week 45"])
@@ -221,7 +221,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.onRequest = { requests.append($0) }
     session.query = "prr "
     #expect(await eventually { runner.runs.count == 1 })
-    runner.runs[0].continuation.yield(.list([row("Mail"), row("Safari"), row("Notes")]))
+    runner.runs[0].continuation.yield(.show(.list([row("Mail"), row("Safari"), row("Notes")])))
     runner.runs[0].continuation.finish()
     #expect(await eventually { titles(session).count == 3 })
     session.moveSelection(by: 1)
@@ -237,7 +237,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(runner.runs[2].invocation == runner.runs[0].invocation)
 
     // The list comes back without Safari; the selection stays on its row.
-    runner.runs[2].continuation.yield(.list([row("Mail"), row("Notes")]))
+    runner.runs[2].continuation.yield(.show(.list([row("Mail"), row("Notes")])))
     #expect(await eventually { titles(session) == ["Mail", "Notes"] })
     #expect(session.top.list?.selectedItem?.title == "Notes")
 }
@@ -275,7 +275,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(await eventually { content(session)?.screen != nil })
     session.query = "ab"
     #expect(await eventually { runner.runs.count == 3 })
-    runner.runs[2].continuation.yield(.list([row("AB")]))
+    runner.runs[2].continuation.yield(.show(.list([row("AB")])))
     #expect(await eventually { titles(session) == ["AB"] })
 }
 
@@ -301,7 +301,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     var frame: Frame.ID?
     for word in ["Paris", " is", " the", " capital."] {
         markdown += word
-        runner.runs[0].continuation.yield(.detail(Detail(title: "Answer", markdown: markdown)))
+        runner.runs[0].continuation.yield(.show(.detail(Detail(title: "Answer", markdown: markdown))))
         #expect(await eventually { session.top.target?.actions == [.copy(text: markdown)] })
         frame = frame ?? session.top.id
         #expect(session.top.id == frame)
@@ -321,7 +321,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(session.escape() == .cancelledOpening)
     #expect(session.opening == nil)
     #expect(await eventually { runner.wasEnded(0) })
-    runner.runs[0].continuation.yield(.list([row("Late")]))
+    runner.runs[0].continuation.yield(.show(.list([row("Late")])))
     try? await Task.sleep(for: .milliseconds(5))
     #expect(session.frames.count == 1)
 
@@ -360,7 +360,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.query = "prr"
     session.query = "prr "
     #expect(await eventually { runner.runs.count == 1 })
-    runner.runs[0].continuation.yield(.list([row("PR 1", actions: [.copy(text: "1")])]))
+    runner.runs[0].continuation.yield(.show(.list([row("PR 1", actions: [.copy(text: "1")])])))
     #expect(await eventually { session.top.list?.items.count == 1 })
     session.push(Detail(title: "PR 1", markdown: "", actions: []))
     #expect(session.frames.count == 3)
@@ -384,7 +384,69 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(session.frames.count == 1)
     #expect(await eventually { runner.wasEnded(0) })
     // A late result of the cancelled run shows nothing.
-    runner.runs[0].continuation.yield(.list([row("late")]))
+    runner.runs[0].continuation.yield(.show(.list([row("late")])))
     try? await Task.sleep(for: .milliseconds(20))
     #expect(session.frames.count == 1)
+}
+
+// MARK: Pages with and without a run
+
+@MainActor @Test func aPushedPageAndACommandsPageAreTheSameScreen() async {
+    let (session, runner, _) = session()
+    let page = Detail(title: "PR 1", markdown: "Fix login", actions: [.copy(text: "1")])
+    session.push(page)
+    let pushed = content(session)
+    #expect(pushed?.run == nil)
+    #expect(pushed?.screen == .detail(page))
+    #expect(session.top.isMeasured)
+    #expect(session.top.list == nil)
+    #expect(!session.top.isCompact)
+    #expect(!session.top.isLoading)
+    #expect(session.top.target?.actions == [.copy(text: "1")])
+    // Typing in a page runs nothing and changes nothing.
+    let generation = session.top.generation
+    session.query = "x"
+    #expect(session.top.generation == generation)
+    #expect(content(session)?.screen == .detail(page))
+    #expect(runner.runs.isEmpty)
+
+    session.reset()
+    session.open(CommandRun(reviews, .invoked))
+    #expect(await eventually { runner.runs.count == 1 })
+    runner.runs[0].continuation.yield(.show(.detail(page)))
+    #expect(await eventually { session.frames.count == 2 })
+    #expect(content(session)?.run?.command.id == reviews.id)
+    #expect(content(session)?.screen == .detail(page))
+    #expect(session.top.isMeasured)
+    #expect(session.top.list == nil)
+    #expect(session.top.target?.actions == [.copy(text: "1")])
+}
+
+@MainActor @Test func aReloadOverAPushedPageRunsNothing() async {
+    var (session, runner, requests) = session()
+    session.onRequest = { requests.append($0) }
+    let page = Detail(title: "PR 1", markdown: "Fix login")
+    session.push(page)
+    let id = session.top.id
+    let generation = session.top.generation
+
+    session.open(CommandRun(quit, .invoked))
+    #expect(await eventually { runner.runs.count == 1 })
+    runner.runs[0].continuation.yield(.reload(message: "Done"))
+    #expect(await eventually { requests == [.message("Done")] })
+    // The page has no run to repeat: it stays as it was.
+    #expect(session.frames.count == 2)
+    #expect(session.top.id == id)
+    #expect(session.top.generation == generation)
+    #expect(content(session)?.screen == .detail(page))
+    #expect(!session.top.isLoading)
+    try? await Task.sleep(for: .milliseconds(5))
+    #expect(runner.runs.count == 1)
+}
+
+@MainActor @Test func stoppingCommandsLeavesAPushedPage() {
+    let (session, _, _) = session()
+    session.push(Detail(markdown: "Not found"))
+    #expect(!session.stopCommands { _ in true })
+    #expect(session.frames.count == 2)
 }

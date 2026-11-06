@@ -78,7 +78,7 @@ private struct Palette {
     var titles: [String] { session.top.list?.items.map(\.title) ?? [] }
 
     var screen: Screen? {
-        if case .command(let command) = session.top.content { command.screen } else { nil }
+        if case .screen(let frame) = session.top.content { frame.screen } else { nil }
     }
 
     /// Return on the selected row, or the action at `position` of what is selected.
@@ -142,7 +142,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
     // Its third action pushes the detail it carries.
     palette.perform(2)
-    guard case .detail(let detail) = session.top.content else {
+    guard case .screen(let frame) = session.top.content, frame.run == nil,
+        case .detail(let detail) = frame.screen
+    else {
         Issue.record("expected a detail")
         return
     }

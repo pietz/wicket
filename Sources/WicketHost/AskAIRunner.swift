@@ -83,13 +83,13 @@ public final class AskAIRunner: CommandRunner {
         let provider = try await readyProvider()
         try Task.checkCancellation()
         let draft = Draft(prompt: prompt, status: "Asking \(provider.name)…")
-        output.yield(.detail(draft.detail))
+        output.yield(.show(.detail(draft.detail)))
 
         // An empty folder, so the agent's working directory holds nothing to read.
         let folder = FileManager.default.temporaryDirectory.appending(path: "wicket-ask-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let throttle = Throttle(interval: interval) { output.yield(.detail(draft.detail)) }
+        let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         defer { throttle.cancel() }
         var firstText: Duration?
         let request = AgentRequest(prompt: prompt, workingDirectory: folder, mode: .answer)
@@ -109,7 +109,7 @@ public final class AskAIRunner: CommandRunner {
                 // The final message alone; anything streamed before it (commentary) goes.
                 if !answer.isEmpty { draft.text = answer }
                 guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
-                output.yield(.detail(draft.detail))
+                output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
                     ask-ai: \(provider.rawValue, privacy: .public) first text after \
