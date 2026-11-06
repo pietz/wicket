@@ -10,7 +10,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 
 ### Core
 - ✅ Architecture checkpoint: independent reviews (Fable, Astra), merged into [docs/architecture.md](docs/architecture.md)
-- 🔨 Architecture refactor before the extension palette integration (docs/architecture.md): ✅ 1 value model; 🔨 2 root versus list and 3 frames; ⏭ 4 registry and dispatcher; ✅ 5a process lifecycle; ⏭ 5b consent store (owner decision pending)
+- 🔨 Architecture refactor before the extension palette integration (docs/architecture.md): ✅ 1 value model; ✅ 2 root versus list; ✅ 3 frames and a detail view; 🔨 4 registry and dispatcher; ✅ 5a process lifecycle; ⏭ 5b consent store (owner decision pending)
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
