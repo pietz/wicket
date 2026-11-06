@@ -10,7 +10,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 
 ### Core
 - ✅ Architecture checkpoint: independent reviews (Fable, Astra), merged into [docs/architecture.md](docs/architecture.md)
-- 🔨 Architecture refactor before the extension palette integration (docs/architecture.md): ✅ 1 value model; ✅ 2 root versus list; ✅ 3 frames and a detail view; ✅ 4 registry and dispatcher; ✅ 5a process lifecycle; ⏭ 5b consent store (owner decision pending)
+- ✅ Architecture refactor (docs/architecture.md): value model, root versus list, frames, registry and dispatcher, process lifecycle, stream-fed command frames
+- ⏭ Consent store (refactor 5b), then flip `extensionCommandsInPalette` on: owner decision pending on approval
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
@@ -33,7 +34,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
 - ✅ Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
 - ⏭ Checker polish from the samples: placeholder secrets in `wicket check`, `WICKET_CHECK=1` for dry runs, clearer `shell` capability wording
-- ⏭ Palette view stack: push list and detail views, Escape goes back
+- ✅ Palette view stack and extension frames (once, live, root, keywords), behind the switch until the consent store lands; verified on screen with the samples
 - ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
 - ✅ Sample extensions in `Extensions/`: system-toggles, quit-apps, github-prs (sh + jq, all pass `wicket check`)
 - 💤 "Make a command": staging, checker gate, review before enable, rollback, "Fix with agent"
