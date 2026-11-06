@@ -13,8 +13,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
 - ✅ Quality gate: `Scripts/check.sh` (warnings as errors, tests, swift format)
-- ⏭ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
-- ⏭ Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
+- 🔨 Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
+- 🔨 Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
 
 ### Features
 - ✅ Apps
@@ -24,9 +24,9 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 
 ### Extensions
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
-- ⏭ Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
+- 🔨 Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
 - ⏭ Palette view stack: push list and detail views, Escape goes back
-- ⏭ `wicket` checker CLI in the bundle (runs `session.jsonl` fixtures): validate manifest, run fixture queries, check output
+- 🔨 `wicket` checker CLI in the bundle (runs `session.jsonl` fixtures): validate manifest, run fixture queries, check output
 - 💤 Two or three useful sample extensions in different languages
 - 💤 "Make a command": staging, checker gate, review before enable, rollback, "Fix with agent"
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
