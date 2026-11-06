@@ -14,5 +14,6 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 - Check (definition of done): `Scripts/check.sh` builds with warnings as errors, runs the tests and lints formatting against `.swift-format`. It must pass before a commit. Fix formatting with `swift format format --in-place --recursive Sources Tests Package.swift`.
 - Test: `swift test` (pure logic in `Sources/WicketCore`).
 - Build and bundle: `Scripts/build-app.sh` (release) or `Scripts/build-app.sh debug`, producing `build/Wicket.app`.
+- Settings: `~/.config/wicket/settings.json`, reloaded live; point `WICKET_CONFIG_DIR` at another folder to test without touching the real one.
 - Perf log: `/usr/bin/log stream --predicate 'subsystem == "app.wicket"'` (zsh has a `log` builtin, so use the full path).
 - Latency benchmark: `Scripts/bench/hotkey-latency.swift`. It posts real keystrokes and takes over the screen, so only run it when the user says the Mac is free.

@@ -7,6 +7,8 @@ set -uo pipefail
 cd "${0:A:h}/../.."
 tinycast="$1"; out="$2"; runs="${RUNS:-30}"
 mkdir -p "$out" build
+config="$(mktemp -d)"
+echo '{"hotkey": "ctrl+option+space"}' > "$config/settings.json"
 swiftc -O Scripts/bench/hotkey-latency.swift -o build/hotkey-latency
 swiftc -O Scripts/bench/keys.swift -o build/keys
 Scripts/build-app.sh >/dev/null
@@ -21,7 +23,7 @@ smoke() {  # $1 label, $2 process: open, type "term", move down, screenshot, clo
 
 variant() {  # $1 label, rest: env assignments
   local label=$1; shift
-  env "$@" WICKET_HOTKEY=ctrl build/Wicket.app/Contents/MacOS/Wicket --background >/dev/null 2>&1 &
+  env "$@" WICKET_CONFIG_DIR="$config" build/Wicket.app/Contents/MacOS/Wicket --background >/dev/null 2>&1 &
   sleep 4
   echo "== $label"
   build/hotkey-latency Wicket "$runs" --ctrl || echo "latency run aborted"

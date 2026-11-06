@@ -1,24 +1,24 @@
 import AppKit
-import Carbon.HIToolbox
+import WicketCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let index = AppIndex()
     private var palette: PaletteController!
+    private let configDirectory = Settings.directory()
+    private var settingsWatcher: FileWatcher?
     private var hotKey: HotKey?
+    /// The shortcut `hotKey` holds; nil while none is registered, so the next change retries.
+    private var registeredShortcut: Shortcut?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStart = ContinuousClock.now
         palette = PaletteController()
 
-        // ⌥Space; WICKET_HOTKEY=ctrl uses ⌃⌥Space (the benchmark uses it to dodge apps like ChatGPT
-        // that also claim ⌥Space). A settings file comes later.
-        let ctrl = ProcessInfo.processInfo.environment["WICKET_HOTKEY"] == "ctrl"
-        hotKey = HotKey(keyCode: kVK_Space, modifiers: ctrl ? optionKey | controlKey : optionKey) {
-            [weak self] eventTime in
-            self?.palette.toggle(eventTime: eventTime)
+        applySettings()
+        settingsWatcher = FileWatcher(paths: [configDirectory.path], latency: 0.2) { [weak self] in
+            self?.applySettings()
         }
-        if hotKey == nil { Perf.logger.error("could not register ⌥Space; another app owns it") }
 
         index.onChange = { [weak self] in self?.publishItems() }
         Task {
@@ -32,6 +32,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         palette.show()
         return false
+    }
+
+    /// Loads settings.json (defaults if it is missing or invalid) and re-registers the hotkey if it changed.
+    private func applySettings() {
+        let url = configDirectory.appending(path: "settings.json")
+        let settings: Settings
+        do {
+            settings = try Settings.load(from: url)
+        } catch {
+            let reason = String(describing: error)
+            Perf.logger.error(
+                "invalid \(url.path, privacy: .public), using defaults: \(reason, privacy: .public)")
+            settings = Settings()
+        }
+        let shortcut = settings.hotkey
+        guard shortcut != registeredShortcut else { return }
+        hotKey = nil  // Unregister first: Carbon refuses a combination this app already holds.
+        hotKey = HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers.rawValue) {
+            [weak self] eventTime in
+            self?.palette.toggle(eventTime: eventTime)
+        }
+        registeredShortcut = hotKey == nil ? nil : shortcut
+        if hotKey == nil {
+            Perf.logger.error("could not register hotkey \(shortcut, privacy: .public); another app owns it")
+        } else {
+            Perf.log("hotkey: \(shortcut)")
+        }
     }
 
     private func publishItems() {
