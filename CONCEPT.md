@@ -8,6 +8,20 @@ Status: M1 (palette) built on 2026-11-06; see "Decisions" and "Measurements" bel
 
 A launcher should be a tiny, very fast native core plus **one extension protocol simple enough that coding agents write extensions in seconds**. In the agent era, a large built-in feature set and a click-optimised extension store matter less than a documented, performant way to extend. The launcher can even write its own extensions using the coding agent the user already has (Codex CLI on a ChatGPT subscription, or Claude Code).
 
+## Vision v2: the AI-era command surface (brainstorm, 2026-11-06)
+
+The owner's direction after M1, captured before the architecture is reworked around it. "Launcher" undersells it: the question is what the most integral piece of the OS looks like once AI agents exist. Nothing here is decided yet; the advisor round and a design memo come next.
+
+- **Many first-class features, not just apps.** App launching is one of several: local file search, a smart calculator (natural-language input, unit and currency conversion with current exchange rates, AI fallback for questions it can't compute), AI chat and quick answers, MCP tools, and extensions. Pick the best of Raycast and Alfred, kept clean, fast and intuitive.
+- **Levelled extensions.**
+  1. No UI: return one result instantly (an answer, a copyable value, an action).
+  2. Pick from fixed native layouts (list, detail, grid, form), Raycast-style.
+  3. Later: genuinely custom UIs that still follow Wicket's design language.
+- **Extensions by prompt, self-extending like the Pi agent harness.** Software is now personal: people write single-user SwiftUI apps with agents. Wicket's built-in AI knows Wicket's own extension system, writes new extensions when asked, and hot-reloads them, so "add a feature" is a sentence. Open question: does the user ever need to see an extensions directory, or is it an implementation detail the agent manages?
+- **AI at the core, not bolted on.** Which providers, subscriptions and API keys to support (agent CLIs on existing subscriptions such as Codex and Claude Code, API keys, on-device Apple Foundation Models), and what AI can do here: chat, quick answers, acting on selected text, building extensions, routing a request to the right feature.
+- **Voice.** Summon with the hotkey and, if no key is typed, just speak: on-device transcription (macOS 26 SpeechAnalyzer) turns speech into the query, and the AI can answer aloud. Everything AI and voice related must be switchable and customisable.
+- **Release style.** Work on `main`; publish early as an alpha (0.0.x) once it's worth showing.
+
 ## Why build it (research summary, November 2026)
 
 - **Commercial market.** Raycast 2.0 (Aug 2026) rewrote the app around WebViews plus Node. Power users complain about memory, process count and AI being pushed, and in Sept 2026 AI moved to credits with bring-your-own-key behind Pro ($10/mo). Alfred is one-time paid, steady but slow; Alfred 6 adds native workflow UIs. Monarch is a solo-dev, pre-1.0, one-time-paid app.
