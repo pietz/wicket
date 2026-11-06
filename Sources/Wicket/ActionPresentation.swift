@@ -9,7 +9,8 @@ struct ActionPresentation {
     /// clipboard.
     let detail: String?
 
-    init(_ action: Item.Action) {
+    /// `pasteTarget` is the app a paste types into, if known, so a plain paste reads "Paste to Mail".
+    init(_ action: Item.Action, pasteTarget: String? = nil) {
         let named: (title: String, symbol: String, detail: String?)
         switch action {
         case .open(let url, _):
@@ -18,7 +19,7 @@ struct ActionPresentation {
         case .copy(let text, _):
             named = ("Copy", "doc.on.doc", text)
         case .paste(let text, _):
-            named = ("Paste", "doc.on.clipboard", text)
+            named = (pasteTarget.map { "Paste to \($0)" } ?? "Paste", "doc.on.clipboard", text)
         case .reveal:
             named = ("Show in Finder", "folder", nil)
         case .detail:
@@ -52,6 +53,8 @@ struct ActionMenu {
 
     /// Captured on opening, so a late result never changes what the panel runs.
     let target: ActionTarget
+    /// The app a paste types into, for its title.
+    var pasteTarget: String?
     var filter = "" {
         didSet { if filter != oldValue { selection = 0 } }
     }
@@ -62,7 +65,11 @@ struct ActionMenu {
     var rows: [Row] {
         let query = Fold.query(filter)
         return target.actions.enumerated()
-            .map { Row(id: $0.offset, action: $0.element, presentation: ActionPresentation($0.element)) }
+            .map {
+                Row(
+                    id: $0.offset, action: $0.element,
+                    presentation: ActionPresentation($0.element, pasteTarget: pasteTarget))
+            }
             .filter { query.isEmpty || FuzzyMatcher.score(query, SearchKey($0.presentation.title)) != nil }
     }
 

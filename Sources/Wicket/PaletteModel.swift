@@ -49,6 +49,8 @@ final class PaletteModel {
     var actionMenu: ActionMenu?
     /// ⌘ is held, so rows show their ⌘1 to ⌘9 hints.
     var commandHeld = false
+    /// The name of the app a paste types into (frontmost at summon), for "Paste to Mail".
+    var pasteTarget: String?
     var mode = PaletteMode.idle
     /// The height of the results card under the pill, 0 while there is none. Set by
     /// `PaletteController`, which sizes the window to match.

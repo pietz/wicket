@@ -4,10 +4,13 @@ import Foundation
 public struct RunningApp: Sendable, Hashable {
     public var processID: Int32
     public var bundleID: String?
+    /// Its display name, for "Paste to Mail" and the paste messages.
+    public var name: String?
 
-    public init(processID: Int32, bundleID: String?) {
+    public init(processID: Int32, bundleID: String?, name: String? = nil) {
         self.processID = processID
         self.bundleID = bundleID
+        self.name = name
     }
 }
 
@@ -37,7 +40,8 @@ public enum ActionOutcome: Sendable, Hashable {
 public protocol ActionEffects {
     func open(_ url: URL)
     func copy(_ text: String)
-    /// Types `text` into `app`, the app the user came from.
+    /// Types `text` into `app`, the app the user came from, once the palette has closed (`PastePlan`);
+    /// when it can't, the text is copied and a message says why.
     func paste(_ text: String, into app: RunningApp?)
     func reveal(_ url: URL)
     func openSettings()

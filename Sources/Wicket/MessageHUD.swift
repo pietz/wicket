@@ -24,9 +24,10 @@ final class MessageHUD {
         panel.animationBehavior = .none
     }
 
-    /// Shows `message` centred on `center`.
-    func show(_ message: String, centeredAt center: NSPoint) {
-        let content = NSHostingView(rootView: HUDView(message: message))
+    /// Shows `message` centred on `center`, after `symbol` (a checkmark unless the outcome is
+    /// something else, such as a paste that only copied).
+    func show(_ message: String, symbol: String = "checkmark.circle.fill", centeredAt center: NSPoint) {
+        let content = NSHostingView(rootView: HUDView(message: message, symbol: symbol))
         let size = content.fittingSize
         panel.contentView = content
         panel.setFrame(
@@ -53,9 +54,10 @@ final class MessageHUD {
 
 private struct HUDView: View {
     let message: String
+    let symbol: String
 
     var body: some View {
-        Label(message, systemImage: "checkmark.circle.fill")
+        Label(message, systemImage: symbol)
             .font(.system(size: 14, weight: .medium))
             .lineLimit(1)
             .padding(.horizontal, 20)

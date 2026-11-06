@@ -31,7 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         launchStart = ContinuousClock.now
         NSApp.mainMenu = MainMenu.make()
-        let effects = SystemEffects { [weak self] in self?.settingsWindow.show() }
+        let effects = SystemEffects(
+            showSettings: { [weak self] in self?.settingsWindow.show() },
+            showMessage: { [weak self] in self?.palette.showHUD($0, symbol: $1) })
         allSources = [apps, CommandsSource(registry), calculator, files, AskAISource(registry: registry)]
         if Self.extensionCommandsInPalette { allSources.append(ExtensionRootSource(extensions)) }
         let runner = CommandRouter(builtins: [AskAI.command: askAI], extensions: extensions)

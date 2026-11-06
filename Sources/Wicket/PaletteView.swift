@@ -113,7 +113,7 @@ struct PaletteRootView: View {
                             // (a live list, a growing answer) updates in place.
                             .id(model.top.id)
                         Divider()
-                        FooterBar(target: model.target, toast: model.toast)
+                        FooterBar(target: model.target, toast: model.toast, pasteTarget: model.pasteTarget)
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
@@ -311,6 +311,7 @@ struct FooterBar: View {
     static let height: CGFloat = 34
     let target: ActionTarget?
     var toast: String?
+    var pasteTarget: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -322,7 +323,7 @@ struct FooterBar: View {
             }
             Spacer()
             if let primary = target?.actions.first {
-                KeyHint(title: ActionPresentation(primary).title, keys: "↩")
+                KeyHint(title: ActionPresentation(primary, pasteTarget: pasteTarget).title, keys: "↩")
                 Divider().frame(height: 14)
                 KeyHint(title: "Actions", keys: "⌘K")
             }

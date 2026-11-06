@@ -168,13 +168,21 @@ final class PaletteController: NSObject, NSWindowDelegate {
         model.focusToken += 1
         // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
         // activate Wicket, so the frontmost app is still the one the user came from.
+        capturePreviousApp()
+    }
+
+    private func capturePreviousApp() {
         previousApp = Self.frontmostApp()
+        model.pasteTarget = previousApp?.name
     }
 
     /// The frontmost app, unless it is Wicket.
     private static func frontmostApp() -> RunningApp? {
         NSWorkspace.shared.frontmostApplication.flatMap {
-            $0 == .current ? nil : RunningApp(processID: $0.processIdentifier, bundleID: $0.bundleIdentifier)
+            $0 == .current
+                ? nil
+                : RunningApp(
+                    processID: $0.processIdentifier, bundleID: $0.bundleIdentifier, name: $0.localizedName)
         }
     }
 
@@ -217,7 +225,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
             model.actionMenu = nil
             model.session.reset()
         } else {
-            previousApp = Self.frontmostApp()
+            capturePreviousApp()
         }
         if id == AskAI.command {
             reveal()
@@ -309,11 +317,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
     }
 
     /// The HUD centred on where the pill is (or was).
-    private func showHUD(_ message: String) {
+    func showHUD(_ message: String, symbol: String = "checkmark.circle.fill") {
         let pill = NSPoint(
             x: anchor.x + PaletteMetrics.margin + width / 2,
             y: anchor.y - PaletteMetrics.margin - PaletteMetrics.pillHeight / 2)
-        hud.show(message, centeredAt: pill)
+        hud.show(message, symbol: symbol, centeredAt: pill)
     }
 
     /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.
@@ -323,7 +331,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
             if model.actionMenu != nil {
                 model.actionMenu = nil
             } else if let target = model.target, !target.actions.isEmpty {
-                model.actionMenu = ActionMenu(target: target)
+                model.actionMenu = ActionMenu(target: target, pasteTarget: model.pasteTarget)
             }
         case .runSecondary:
             run(model.actionMenu?.target ?? model.target, action: 1)
