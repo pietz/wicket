@@ -17,6 +17,13 @@ public struct SessionConfiguration: Sendable {
     public var version: String
     /// The value of a declared secret by name, or nil if the user hasn't stored it.
     public var secret: @Sendable (String) -> String?
+    /// The variables the process starts from, before PATH, LANG, the `WICKET_` variables and the
+    /// secrets are set; nil inherits Wicket's own environment. The checker passes a minimal one.
+    public var environment: [String: String]?
+    /// A command the process runs inside, such as the checker's `sandbox-exec -f <profile>`: when
+    /// set, the process is `wrapper[0]` with the rest of `wrapper`, then the resolved program and
+    /// its arguments. The wrapper must exec the program, so signals reach it.
+    public var wrapper: [String] = []
 
     public init(dataDirectory: URL, version: String, secret: @escaping @Sendable (String) -> String?) {
         self.dataDirectory = dataDirectory
@@ -396,7 +403,7 @@ public actor ExtensionSession {
                 + "install developer tools); install Python from python.org or Homebrew, or name its full path in run"
             if !warnings.contains(warning) { warnings.append(warning) }
         }
-        var environment = ProcessInfo.processInfo.environment
+        var environment = configuration.environment ?? ProcessInfo.processInfo.environment
         environment["PATH"] = path
         environment["LANG"] = Self.lang
         environment["WICKET_PROTOCOL"] = String(Manifest.protocolVersion)
@@ -414,8 +421,14 @@ public actor ExtensionSession {
             at: configuration.dataDirectory, withIntermediateDirectories: true)
 
         let process = Process()
-        process.executableURL = executable
-        process.arguments = Array(manifest.run.dropFirst())
+        if let wrapper = configuration.wrapper.first {
+            process.executableURL = URL(filePath: wrapper)
+            process.arguments =
+                configuration.wrapper.dropFirst() + [executable.path] + manifest.run.dropFirst()
+        } else {
+            process.executableURL = executable
+            process.arguments = Array(manifest.run.dropFirst())
+        }
         process.currentDirectoryURL = folder
         process.environment = environment
         let input = Pipe()

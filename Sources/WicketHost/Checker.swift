@@ -22,14 +22,41 @@ public struct CheckReport: Sendable {
     }
 }
 
+/// How `Checker.check` runs the candidate.
+public struct CheckOptions: Sendable {
+    /// `WICKET_VERSION`.
+    public var version: String
+    public var requestTimeout: Duration = .seconds(30)
+    /// Time to exit after stdin closes, and again after SIGTERM before SIGKILL.
+    public var exitGrace: Duration = .seconds(2)
+    /// Tests point this elsewhere to see the check fail closed.
+    var sandboxExecutable = CheckIsolation.sandboxExecutable
+
+    public init(version: String) {
+        self.version = version
+    }
+}
+
 /// Validates an extension folder by running it the way Wicket does: the manifest, then every
 /// fixture replayed against a fresh process, with every response checked against the protocol.
+///
+/// The check is the gate before code is approved, so it is isolated (`CheckIsolation`): it runs a
+/// sealed copy of the folder in a sandbox, with placeholder secrets, a minimal environment and
+/// scratch data, never the user's own. Without a fixture nothing runs.
 public enum Checker {
-    public static func check(_ folder: URL, configuration: SessionConfiguration) async -> CheckReport {
+    public static func check(_ folder: URL, options: CheckOptions) async -> CheckReport {
         var report = CheckReport()
+        let isolation: CheckIsolation
+        do {
+            isolation = try CheckIsolation(sealing: folder)
+        } catch {
+            report.add(.error, error.description)
+            return report
+        }
+        defer { isolation.remove() }
         let manifest: Manifest
         do {
-            manifest = try Manifest.load(from: folder)
+            manifest = try Manifest.load(from: isolation.candidate)
         } catch {
             report.add(.error, error.description)
             return report
@@ -47,29 +74,30 @@ public enum Checker {
             )
         }
 
-        let fixtures = fixtureFiles(in: folder)
-        if fixtures.isEmpty {
+        let fixtures = fixtureFiles(in: isolation.candidate)
+        guard !fixtures.isEmpty else {
             report.add(
-                .warning,
-                "no session.jsonl: add one with requests and the responses they should get, so this check can replay them"
+                .error,
+                "no session.jsonl: add one with requests and the responses they should get; the check replays fixtures and runs nothing without one"
             )
-            let session = ExtensionSession(manifest: manifest, folder: folder, configuration: configuration)
-            do {
-                try await session.launch()
-            } catch {
-                report.add(.error, "start: \(error)")
-                return report
-            }
-            await finish(session, name: "start", errorsBefore: report.errors.count, into: &report)
             return report
         }
+        do {
+            try isolation.verifySandbox(executable: options.sandboxExecutable)
+        } catch {
+            report.add(.error, error.description)
+            return report
+        }
+        var configuration = isolation.configuration(version: options.version)
+        configuration.requestTimeout = options.requestTimeout
+        configuration.exitGrace = options.exitGrace
         for url in fixtures {
             let name = url.lastPathComponent
             do {
                 let fixture = try Fixture(String(decoding: try Data(contentsOf: url), as: UTF8.self))
                 await replay(
-                    fixture, name: name, manifest: manifest, folder: folder, configuration: configuration,
-                    into: &report)
+                    fixture, name: name, manifest: manifest, folder: isolation.candidate,
+                    configuration: configuration, into: &report)
             } catch let error as FixtureError {
                 report.add(.error, "\(name):\(error.line): \(error.message)")
             } catch {
@@ -184,9 +212,11 @@ public enum Checker {
     private static func finish(
         _ session: ExtensionSession, name: String, errorsBefore: Int, into report: inout CheckReport
     ) async {
+        // Shut down first: what the process does once its stdin closes counts too.
+        let shutdown = await session.shutdown()
         for warning in await session.warnings { report.add(.warning, warning) }
         for issue in await session.issues { report.add(.error, "\(name): \(issue)") }
-        switch await session.shutdown() {
+        switch shutdown {
         case .terminated, .killed:
             report.add(
                 .error,

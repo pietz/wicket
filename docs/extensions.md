@@ -112,7 +112,8 @@ Environment of the process:
 | `WICKET_EXTENSION_ID` | Your manifest id. |
 | `WICKET_DATA_DIR` | A folder that exists and is yours to keep state, caches and settings in. It survives updates; your extension folder may be replaced. |
 | `PATH` | The user's login-shell `PATH`, so `python3`, `node` and Homebrew tools resolve as in Terminal. |
-| each secret's `name` | The value the user stored for it. |
+| each secret's `name` | The value the user stored for it. Under `wicket check`, the placeholder `wicket-check-placeholder`. |
+| `WICKET_CHECK` | `1` only under `wicket check`: answer from canned data instead of the network or the user's files (see [Testing](#testing)). Unset otherwise. |
 
 ### `run` (request)
 
@@ -361,9 +362,19 @@ A session (the user types "uc grinning cat", then opens the details):
 
 The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Helpers/wicket`.
 
-- `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error.
-- `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it.
-- `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. When testing, an environment variable of the same name takes precedence over the Keychain. `check` and `run` need every declared secret too, so to check without the real one, pass a placeholder (`GITHUB_TOKEN=unused wicket check .`) and give your program a way to answer from canned data instead of the network.
+- `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails, including one written while the program shuts down), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error. It is the gate before an extension is approved, so it runs your code isolated (below), and without a fixture it runs nothing and fails.
+- `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it. Unlike `check` it runs your folder itself, unsandboxed, with your environment and your real secrets: use it to try the real thing.
+- `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. For `run`, an environment variable of the same name takes precedence over the Keychain.
+
+How `check` runs your code:
+
+- **A sealed copy.** The folder is copied into a scratch folder and the copy runs; it is read-only, so write state to `WICKET_DATA_DIR`.
+- **No real secrets.** Every declared secret is `wicket-check-placeholder`; the Keychain is never read.
+- **A minimal environment.** Only `PATH`, `LANG`, the `WICKET_` variables, the secrets, `HOME` and `TMPDIR` (both empty scratch folders) and `WICKET_CHECK=1`. Nothing from your shell comes through, so `FOO=bar wicket check .` doesn't set `FOO`.
+- **A fresh `WICKET_DATA_DIR`** per check, shared by its fixtures, deleted afterwards.
+- **A sandbox.** No network at all (not even local sockets), no writes outside `HOME`, `TMPDIR` and `WICKET_DATA_DIR`, no Keychain or clipboard, no Apple events to other apps, no opening URLs or apps. Reading files and running other programs work.
+
+So when `WICKET_CHECK` is `1`, answer from canned data that ships in your folder instead of calling an API (the [github-prs sample](../Extensions/github-prs) reads `fixture/<command>.json`), and don't depend on the user's files. Fixtures then test your parsing and your responses, offline and the same on every Mac.
 
 A fixture is `session.jsonl` (or any `*.session.jsonl`) in the extension folder, one JSON object per line, blank lines ignored:
 
@@ -385,4 +396,4 @@ Every `run` must get a valid response, expected or not. A request cancelled with
 - The program exits when stdin closes.
 - Every `run` action names a declared command, and your code handles its `args`.
 - Capabilities list everything the code does beyond computing an answer.
-- A `session.jsonl` covers each command, including an error case, and `wicket check` passes.
+- A `session.jsonl` covers each command, including an error case, and `wicket check` passes (offline: with `WICKET_CHECK=1`, answer from canned data).

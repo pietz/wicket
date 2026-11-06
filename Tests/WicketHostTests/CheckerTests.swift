@@ -60,18 +60,30 @@ func answering(_ result: String) -> String {
     """
 }
 
-func check(_ ext: TestExtension) async -> CheckReport {
-    await Checker.check(ext.folder, configuration: testConfiguration())
+func checkOptions(_ configure: (inout CheckOptions) -> Void = { _ in }) -> CheckOptions {
+    var options = CheckOptions(version: "test")
+    options.requestTimeout = .seconds(1)
+    options.exitGrace = .milliseconds(300)
+    configure(&options)
+    return options
 }
 
-private let examples = URL(filePath: #filePath).deletingLastPathComponent().appending(
-    path: "../../docs/examples")
+func check(_ ext: TestExtension, _ configure: (inout CheckOptions) -> Void = { _ in }) async -> CheckReport {
+    await Checker.check(ext.folder, options: checkOptions(configure))
+}
 
-@Test(arguments: ["unicode", "week-number"])
-func examplesPass(name: String) async {
-    var configuration = testConfiguration()
-    configuration.requestTimeout = .seconds(30)
-    let report = await Checker.check(examples.appending(path: name), configuration: configuration)
+private let repository = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../..")
+    .standardizedFileURL
+
+/// Every sample passes the gate as it is, offline: github-prs answers from fixture/ when
+/// WICKET_CHECK is set.
+@Test(arguments: [
+    "docs/examples/unicode", "docs/examples/week-number", "Extensions/github-prs", "Extensions/quit-apps",
+    "Extensions/system-toggles",
+])
+func samplesPass(path: String) async {
+    let report = await Checker.check(
+        repository.appending(path: path), options: checkOptions { $0.requestTimeout = .seconds(30) })
     #expect(report.passed, "\(report.errors)")
 }
 

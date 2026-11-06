@@ -7,9 +7,12 @@ import WicketHost
 let usage = """
     usage: wicket check <folder>
                Validate the manifest, replay every session.jsonl fixture against the extension and
-               check each response against the protocol. Exits 1 if anything fails.
+               check each response against the protocol. Exits 1 if anything fails. Runs a sealed
+               copy in a sandbox (no network, no writes outside scratch folders) with placeholder
+               secrets, WICKET_CHECK=1 and none of your environment; without a fixture it runs nothing.
            wicket run <folder> <command> [text] [--args <json-object>]
-               Send one run request and print the response line as the extension wrote it.
+               Send one run request and print the response line as the extension wrote it. Runs
+               the folder itself, unsandboxed, with your environment and real secrets.
            wicket secret set <extension-id> <NAME>
                Store a secret declared in wicket.json in the Keychain; the value is read from stdin.
            wicket agent status
@@ -18,7 +21,8 @@ let usage = """
                Stream a quick answer (no tools, no file access) to stdout; tool activity and token
                usage go to stderr. Uses the first ready provider unless one is named.
 
-    Secrets are read from environment variables of the same name first, then from the Keychain.
+    For run, secrets are read from environment variables of the same name first, then from the
+    Keychain.
     """
 
 func fail(_ message: String, status: Int32 = 1) -> Never {
@@ -33,6 +37,7 @@ func appVersion() -> String {
     return app.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String } ?? "dev"
 }
 
+/// `wicket run`: the developer's own run, with their environment and real secrets.
 func configuration(for id: String, dataDirectory: URL) -> SessionConfiguration {
     var configuration = SessionConfiguration(dataDirectory: dataDirectory, version: appVersion()) { name in
         ProcessInfo.processInfo.environment[name] ?? Keychain.secret(name, extension: id)
@@ -46,12 +51,7 @@ func folder(_ path: String) -> URL {
 }
 
 func check(_ path: String) async -> Never {
-    let folder = folder(path)
-    let id = (try? Manifest.load(from: folder))?.id ?? "check"
-    // A fresh data folder, so fixtures don't depend on state from earlier runs.
-    let data = FileManager.default.temporaryDirectory.appending(path: "wicket-check-\(UUID().uuidString)")
-    let report = await Checker.check(folder, configuration: configuration(for: id, dataDirectory: data))
-    try? FileManager.default.removeItem(at: data)
+    let report = await Checker.check(folder(path), options: CheckOptions(version: appVersion()))
     for line in report.lines { print("\(line.kind.rawValue): \(line.text)") }
     let errors = report.errors.count
     print(report.passed ? "check passed" : "check failed: \(errors) error\(errors == 1 ? "" : "s")")

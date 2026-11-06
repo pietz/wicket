@@ -3,9 +3,11 @@
 # Persistent loop: answers every request on stdin and exits when Wicket closes it.
 #
 # Testing: when GITHUB_PRS_FIXTURE_DIR is set, the API is not called. Each command reads
-# $GITHUB_PRS_FIXTURE_DIR/<command>.json instead, shaped {"status": <HTTP status>, "body": <JSON>},
-# so `wicket check` can replay session.jsonl without the network:
-#   GITHUB_TOKEN=unused GITHUB_PRS_FIXTURE_DIR=fixture wicket check .
+# $GITHUB_PRS_FIXTURE_DIR/<command>.json instead, shaped {"status": <HTTP status>, "body": <JSON>}.
+# `wicket check` sets WICKET_CHECK=1 and has no network, so then the canned answers in fixture/ are
+# used and session.jsonl replays offline: `wicket check .`
+
+if [ "${WICKET_CHECK:-}" = 1 ]; then : "${GITHUB_PRS_FIXTURE_DIR:=fixture}"; fi
 
 reply() { jq -nc --argjson id "$1" --argjson result "$2" '{jsonrpc: "2.0", id: $id, result: $result}'; }
 fail() {
