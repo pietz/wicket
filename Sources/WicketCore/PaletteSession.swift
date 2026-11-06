@@ -9,28 +9,62 @@ import Observation
 /// are applied only while their frame is still on the stack at the same generation, and work is
 /// cancelled when its frame's query changes, when the frame is popped and when the palette is
 /// dismissed. An empty root query asks no source: the palette opens as the bare pill.
+///
+/// A command's frame is fed by its run (`CommandRunner`): every result replaces what the frame
+/// shows, `close` asks the app to close the palette, and `reload` drops the frame and runs the one
+/// beneath it again. A live command runs again for every change of the frame's text (rapid
+/// keystrokes coalesced by `liveDebounce`); a once command runs when opened and filters a list
+/// locally. Typing a command's keyword and a space in the root search opens its frame at once, with
+/// the rest of the text as its query (live) or its text (once). An action that runs a command opens
+/// a live command at once, but anything else only when its first content arrives, so a command that
+/// just does something and closes never flashes a frame; until then the session is `opening` it.
 @MainActor
 @Observable
 public final class PaletteSession {
     /// Bottom first; never empty, and only the bottom frame is the root search.
     public private(set) var frames: [Frame]
+    /// The command an action opened, until its first result arrives; nil otherwise.
+    public private(set) var opening: CommandRun?
+    /// What the session needs the app to do: close the palette, or show a message briefly.
+    @ObservationIgnored public var onRequest: (Request) -> Void = { _ in }
     @ObservationIgnored private let sources: [any ResultSource]
     @ObservationIgnored private let frecency: () -> (String) -> Double
+    @ObservationIgnored private let runner: (any CommandRunner)?
+    @ObservationIgnored private let registry: CommandRegistry?
+    @ObservationIgnored private let liveDebounce: Duration
+    /// The frame `opening` will push, not on the stack yet.
+    @ObservationIgnored private var openingFrame: Frame?
     @ObservationIgnored private var work: [Frame.ID: [Task<Void, Never>]] = [:]
     @ObservationIgnored private var lastID = 0
 
     /// What Escape did, so the app knows when to hide.
     public enum EscapeOutcome: Sendable {
         case clearedText, popped, hide
+        /// Stopped a command an action was opening.
+        case cancelledOpening
     }
 
-    /// `frecency` gives the usage scores as of now, read at each ranking.
+    /// What a command's run asks of the app.
+    public enum Request: Sendable, Hashable {
+        /// Close the palette, then show the message briefly if there is one.
+        case close(message: String?)
+        /// Show a message briefly; the palette stays.
+        case message(String)
+    }
+
+    /// `frecency` gives the usage scores as of now, read at each ranking. `runner` runs commands
+    /// for their frames and `registry` resolves keywords; without them no command frame opens.
     public init(
         sources: [any ResultSource], resultLimit: Int = .max,
-        frecency: @escaping () -> (String) -> Double = { { _ in 0 } }
+        frecency: @escaping () -> (String) -> Double = { { _ in 0 } },
+        runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil,
+        liveDebounce: Duration = .milliseconds(50)
     ) {
         self.sources = sources
         self.frecency = frecency
+        self.runner = runner
+        self.registry = registry
+        self.liveDebounce = liveDebounce
         frames = [Frame(id: 0, content: .search(RootResults(limit: resultLimit)))]
     }
 
@@ -45,20 +79,25 @@ public final class PaletteSession {
     public func setQuery(_ text: String) {
         let index = frames.count - 1
         guard frames[index].query != text else { return }
+        if index == 0, let (command, rest) = keywordCommand(in: text) {
+            // The root keeps the keyword, so going back shows where the user came from.
+            setRootQuery(String(text.prefix(while: { $0 != " " })))
+            open(command, text: rest)
+            return
+        }
         frames[index].query = text
-        start(index)
+        if case .command(var command) = frames[index].content, !command.isLive {
+            command.filter(text)
+            frames[index].content = .command(command)
+            return
+        }
+        start(index, debounce: true)
     }
 
     /// Runs the root search again with the same text, for when a source's data changed. The
     /// selection stays on its item.
     public func refresh() {
         start(0)
-    }
-
-    /// Runs the top frame again with the same text, for a `reload` outcome. Only the root search has
-    /// work to redo until command frames keep their invocation (refactor step 6).
-    public func reload() {
-        start(frames.count - 1)
     }
 
     public func moveSelection(by delta: Int) {
@@ -70,8 +109,29 @@ public final class PaletteSession {
         frames.append(Frame(id: lastID, content: .detail(detail)))
     }
 
-    /// Escape clears the text, else pops the top frame, else asks to hide.
+    /// Shows `run` in a command frame: a live command's at once, anything else's once its first
+    /// result is content (a first `close` or `reload` acts on the palette instead).
+    public func open(_ run: CommandRun) {
+        cancelOpening()
+        lastID += 1
+        var frame = Frame(id: lastID, content: .command(CommandFrame(run: run)))
+        if run.command.mode == .live {
+            frames.append(frame)
+            start(frames.count - 1)
+        } else {
+            startCommand(&frame, debounce: false)
+            openingFrame = frame
+            opening = run
+        }
+    }
+
+    /// Escape stops a command being opened, else clears the text, else pops the top frame, else
+    /// asks to hide.
     public func escape() -> EscapeOutcome {
+        if opening != nil {
+            cancelOpening()
+            return .cancelledOpening
+        }
         if !top.query.isEmpty {
             setQuery("")
             return .clearedText
@@ -84,16 +144,68 @@ public final class PaletteSession {
 
     /// Back to an empty root search with no work running, for when the palette is dismissed.
     public func reset() {
+        cancelOpening()
         for frame in frames.dropFirst() { cancel(frame.id) }
         frames.removeSubrange(1...)
         frames[0].query = ""
         start(0)
     }
 
+    // MARK: Commands
+
+    /// The command whose keyword starts `text`, followed by a space, and the rest of the text.
+    private func keywordCommand(in text: String) -> (RegisteredCommand, String)? {
+        guard let space = text.firstIndex(of: " "), space > text.startIndex,
+            let command = registry?.command(keyword: String(text[..<space]))
+        else { return nil }
+        return (command, String(text[text.index(after: space)...]))
+    }
+
+    private func setRootQuery(_ text: String) {
+        guard frames[0].query != text else { return }
+        frames[0].query = text
+        start(0)
+    }
+
+    /// Opens `command`'s frame at once, from its keyword: a live command searches `text`, a once
+    /// command runs on it and starts with an empty filter.
+    private func open(_ command: RegisteredCommand, text: String) {
+        cancelOpening()
+        let live = command.mode == .live
+        let run = CommandRun(
+            command: command, invocation: Invocation(command: command.id, text: live ? "" : text),
+            kind: .query)
+        lastID += 1
+        var frame = Frame(id: lastID, content: .command(CommandFrame(run: run)))
+        frame.query = live ? text : ""
+        frames.append(frame)
+        start(frames.count - 1)
+    }
+
+    private func cancelOpening() {
+        guard let frame = openingFrame else { return }
+        cancel(frame.id)
+        openingFrame = nil
+        opening = nil
+    }
+
+    /// Runs the frame at `index` again with the same text, for a `reload`: the root search, or a
+    /// command's run. A detail has nothing to run.
+    private func restart(_ index: Int) {
+        if case .detail = frames[index].content { return }
+        start(index)
+    }
+
     // MARK: Work
 
-    /// Starts a new generation of the frame at `index`, cancelling the previous one's work.
-    private func start(_ index: Int) {
+    /// Starts a new generation of the frame at `index`, cancelling the previous one's work. A live
+    /// command waits `liveDebounce` first when `debounce` is set (a keystroke), so a burst of them
+    /// sends only the last text.
+    private func start(_ index: Int, debounce: Bool = false) {
+        if case .command = frames[index].content {
+            startCommand(&frames[index], debounce: debounce)
+            return
+        }
         let id = frames[index].id
         cancel(id)
         frames[index].generation += 1
@@ -134,14 +246,136 @@ public final class PaletteSession {
         work[id] = tasks
     }
 
+    /// Starts a new generation of a command frame's run: its invocation, with the frame's query as
+    /// the text for a live command (always a query; a once command runs as its `CommandRun` says).
+    private func startCommand(_ frame: inout Frame, debounce: Bool) {
+        guard case .command(let command) = frame.content else { return }
+        cancel(frame.id)
+        frame.generation += 1
+        frame.pending = 1
+        var invocation = command.run.invocation
+        var kind = command.run.kind
+        if command.isLive {
+            invocation.text = frame.query
+            kind = .query
+        }
+        let ticket = Ticket(frame: frame.id, generation: frame.generation)
+        let delay = debounce && command.isLive ? liveDebounce : nil
+        let runner = runner
+        work[frame.id] = [
+            Task { [weak self] in
+                if let delay {
+                    try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { return }
+                }
+                guard let runner else {
+                    self?.fail(ticket, "Commands can't run here.")
+                    return
+                }
+                do {
+                    for try await result in runner.run(invocation, kind: kind) {
+                        guard let self, !Task.isCancelled else { return }
+                        receive(result, ticket, text: invocation.text)
+                    }
+                    guard !Task.isCancelled else { return }
+                    self?.finish(ticket)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self?.fail(ticket, String(describing: error))
+                }
+            }
+        ]
+    }
+
+    /// One result of a command's run, which searched `text` if the command is live.
+    private func receive(_ result: RunResult, _ ticket: Ticket, text: String) {
+        switch result {
+        case .answer(let item): show(.answer(item), ticket, text: text)
+        case .list(let items): show(.list(items), ticket, text: text)
+        case .detail(let detail): show(.detail(detail), ticket, text: text)
+        case .close(let message):
+            guard isCurrent(ticket) else { return }
+            drop(ticket.frame)
+            onRequest(.close(message: message))
+        case .reload(let message):
+            guard isCurrent(ticket) else { return }
+            drop(ticket.frame)
+            restart(frames.count - 1)
+            if let message { onRequest(.message(message)) }
+        }
+    }
+
+    /// Replaces a command frame's content; the frame being opened is pushed with its first.
+    private func show(_ screen: Screen, _ ticket: Ticket, text: String) {
+        let update = { (frame: inout Frame) in
+            guard case .command(var command) = frame.content else { return }
+            command.show(screen, text: command.isLive ? text : frame.query)
+            frame.content = .command(command)
+        }
+        if var frame = openingFrame, frame.id == ticket.frame, frame.generation == ticket.generation {
+            update(&frame)
+            openingFrame = nil
+            opening = nil
+            frames.append(frame)
+        } else {
+            apply(ticket, update)
+        }
+    }
+
+    /// The run failed: the frame shows what went wrong, until a new query of a live command.
+    private func fail(_ ticket: Ticket, _ message: String) {
+        guard isCurrent(ticket), case .command(let command) = frame(ticket.frame)?.content else { return }
+        let title = command.run.command.title
+        show(.detail(.failure("\(title) Failed", message, command: command.run.command.id)), ticket, text: "")
+        apply(ticket) { $0.pending = 0 }
+    }
+
+    /// The run ended. One that sent nothing to show is a failure: nothing would ever fill its frame.
+    private func finish(_ ticket: Ticket) {
+        guard isCurrent(ticket) else { return }
+        if case .command(let command) = frame(ticket.frame)?.content, command.screen == nil {
+            fail(ticket, "The command finished without a result.")
+        } else {
+            apply(ticket) { $0.pending = 0 }
+        }
+    }
+
+    /// Takes the frame off the stack (with any above it), or stops opening it.
+    private func drop(_ id: Frame.ID) {
+        if openingFrame?.id == id {
+            cancelOpening()
+        } else if let index = frames.firstIndex(where: { $0.id == id }), index > 0 {
+            for frame in frames[index...] { cancel(frame.id) }
+            frames.removeSubrange(index...)
+        }
+    }
+
+    /// The frame with `id`, on the stack or being opened.
+    private func frame(_ id: Frame.ID) -> Frame? {
+        openingFrame?.id == id ? openingFrame : frames.first { $0.id == id }
+    }
+
     /// Identifies the frame and generation a piece of work belongs to.
     private struct Ticket {
         let frame: Frame.ID
         let generation: Int
     }
 
-    /// Applies `change` if the ticket's frame is still on the stack at the same generation.
+    /// Whether the ticket's frame is on the stack, or being opened, at the same generation.
+    private func isCurrent(_ ticket: Ticket) -> Bool {
+        if let frame = openingFrame, frame.id == ticket.frame { return frame.generation == ticket.generation }
+        return frames.contains { $0.id == ticket.frame && $0.generation == ticket.generation }
+    }
+
+    /// Applies `change` if the ticket's frame is still on the stack (or being opened) at the same
+    /// generation.
     private func apply(_ ticket: Ticket, _ change: (inout Frame) -> Void) {
+        if var frame = openingFrame, frame.id == ticket.frame {
+            guard frame.generation == ticket.generation else { return }
+            change(&frame)
+            openingFrame = frame
+            return
+        }
         guard let index = frames.firstIndex(where: { $0.id == ticket.frame }),
             frames[index].generation == ticket.generation
         else { return }

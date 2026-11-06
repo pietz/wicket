@@ -22,9 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStart = ContinuousClock.now
-        let effects = SystemEffects(extensions: extensions) { [weak self] in self?.settingsWindow.show() }
+        let effects = SystemEffects { [weak self] in self?.settingsWindow.show() }
+        var sources: [any ResultSource] = [apps, CommandsSource(registry), calculator, files]
+        if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
         palette = PaletteController(
-            model: PaletteModel(sources: [apps, CommandsSource(registry), calculator, files]),
+            model: PaletteModel(sources: sources, runner: extensions, registry: registry),
             dispatcher: ActionDispatcher(registry: registry, effects: effects))
 
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
@@ -78,7 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The switch for extension commands in the palette. They run without any approval until the
     /// consent store lands (refactor step 5b), so they stay out of the command registry, and with it
-    /// out of the root search, keywords and `run` actions (which fail as "not found").
+    /// out of the root search, keywords and `run` actions (which fail as "not found"), and root-mode
+    /// commands get no root source. Everything else (command frames, the runner) is wired either way.
     private static let extensionCommandsInPalette = false
 
     private func registerExtensionCommands() {

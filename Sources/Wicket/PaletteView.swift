@@ -24,15 +24,32 @@ enum PaletteMetrics {
     static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
-    /// The card for `frame`. A search fits its results (rows, divider and footer) up to
-    /// `maxCardHeight`, and the action panel while it is open; 0, no card, when there are no
-    /// results. A detail is a page and takes the tallest card.
-    static func cardHeight(for frame: Frame, actionMenu: ActionMenu?) -> CGFloat {
-        guard case .search(let search) = frame.content else { return maxCardHeight }
-        let results = search.items
-        guard !results.isEmpty else { return 0 }
-        var rows = CGFloat(results.count) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
-        if ResultRow.isProminent(results[0], at: 0) { rows += answerRowHeight - rowHeight }
+    /// The card for `frame`. A list fits its rows (and the divider and footer) up to
+    /// `maxCardHeight`, and the action panel while it is open; a detail is a page and takes the
+    /// tallest card. The root search has no card without results, a command's list shows one row
+    /// saying so (unless the frame is compact). Nil, keep the card as it is, while a command frame
+    /// waits for its first content.
+    static func cardHeight(for frame: Frame, actionMenu: ActionMenu?) -> CGFloat? {
+        let results: [Item]
+        switch frame.content {
+        case .search(let search):
+            results = search.items
+            guard !results.isEmpty else { return 0 }
+        case .detail:
+            return maxCardHeight
+        case .command(let command):
+            switch command.screen {
+            case nil: return nil
+            case .detail: return maxCardHeight
+            case .answer, .list:
+                guard !frame.isCompact else { return 0 }
+                results = command.list?.items ?? []
+            }
+        }
+        var rows = CGFloat(max(results.count, 1)) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
+        if let first = results.first, ResultRow.isProminent(first, at: 0) {
+            rows += answerRowHeight - rowHeight
+        }
         let menu =
             actionMenu.map { ActionPanel.height(rows: $0.target.actions.count) + ActionPanel.clearance } ?? 0
         return min(max(rows + 1 + FooterBar.height, menu), maxCardHeight)
@@ -81,12 +98,12 @@ struct PaletteRootView: View {
                 searchField
                 if model.isExpanded {
                     VStack(spacing: 0) {
-                        switch model.top.content {
-                        case .search: ResultsView(model: model, onRun: onRun)
-                        case .detail(let detail): DetailView(detail: detail)
-                        }
+                        FrameContent(model: model, onRun: onRun)
+                            // Each frame keeps its own scroll position; one frame's content replaced
+                            // (a live list, a growing answer) updates in place.
+                            .id(model.top.id)
                         Divider()
-                        FooterBar(target: model.target)
+                        FooterBar(target: model.target, toast: model.toast)
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
@@ -122,20 +139,44 @@ struct PaletteRootView: View {
     private static var glass: Glass { .regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)) }
     private static var card: some Shape { .rect(cornerRadius: PaletteMetrics.cardRadius, style: .continuous) }
 
-    /// The pill's glyph and prompt: the mode's at the root, the page's title in a detail.
-    private var pill: (symbol: String, prompt: String) {
+    /// The pill's glyph and prompt: the mode's at the root, the page's title in a detail, and in a
+    /// command's frame its icon with its placeholder or title (a detail's title for a detail).
+    private var pill: (icon: Item.Icon, prompt: String) {
         switch model.top.content {
-        case .search: (model.mode.symbol, model.mode.prompt)
-        case .detail(let detail): ("doc.text", detail.title ?? "Details")
+        case .search: (.symbol(name: model.mode.symbol), model.mode.prompt)
+        case .detail(let detail): (.symbol(name: "doc.text"), detail.title ?? "Details")
+        case .command(let frame):
+            if case .detail(let detail) = frame.screen {
+                (frame.run.command.icon, detail.title ?? frame.run.command.title)
+            } else {
+                (frame.run.command.icon, frame.run.command.placeholder ?? frame.run.command.title)
+            }
+        }
+    }
+
+    /// A spinner while a command runs, else the pill's icon.
+    @ViewBuilder private var pillGlyph: some View {
+        if model.isBusy {
+            ProgressView().controlSize(.small)
+        } else {
+            switch pill.icon {
+            case .symbol(let name):
+                Image(systemName: name)
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(.secondary)
+            case .file:
+                Image(nsImage: IconCache.image(for: pill.icon))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 22, height: 22)
+            }
         }
     }
 
     // Return is handled here rather than by `onSubmit`, which ends editing.
     private var searchField: some View {
         HStack(spacing: 12) {
-            Image(systemName: pill.symbol)
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(.secondary)
+            pillGlyph
                 .frame(width: 24)
             TextField(pill.prompt, text: $model.query)
                 .textFieldStyle(.plain)
@@ -163,6 +204,26 @@ struct PaletteRootView: View {
     }
 }
 
+/// The top frame's content in the card: a list (the root's results, or a command's rows), or a
+/// page. A command frame waiting for its first content shows nothing yet; the pill spins.
+private struct FrameContent: View {
+    let model: PaletteModel
+    let onRun: (ActionTarget?, Int) -> Void
+
+    var body: some View {
+        switch model.top.content {
+        case .search: ResultsView(model: model, onRun: onRun)
+        case .detail(let detail): DetailView(detail: detail)
+        case .command(let frame):
+            switch frame.screen {
+            case .detail(let detail): DetailView(detail: detail)
+            case .answer, .list: ResultsView(model: model, onRun: onRun)
+            case nil: Color.clear
+            }
+        }
+    }
+}
+
 /// The result list.
 struct ResultsView: View {
     let model: PaletteModel
@@ -171,6 +232,15 @@ struct ResultsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                if model.results.isEmpty {
+                    // Only a command's list gets here: the root search has no card without results.
+                    Text(model.top.isLoading ? "" : "No Results")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: PaletteMetrics.rowHeight)
+                        .padding(PaletteMetrics.rowInset)
+                }
                 LazyVStack(spacing: PaletteMetrics.rowSpacing) {
                     ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
                         ResultRow(
@@ -208,13 +278,21 @@ struct ResultsView: View {
     }
 }
 
-/// The bar under the results or a detail: what Return does, and where the other actions are.
+/// The bar under the results or a detail: a command's message for a moment, what Return does, and
+/// where the other actions are.
 struct FooterBar: View {
     static let height: CGFloat = 34
     let target: ActionTarget?
+    var toast: String?
 
     var body: some View {
         HStack(spacing: 10) {
+            if let toast {
+                Label(toast, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
             Spacer()
             if let primary = target?.actions.first {
                 KeyHint(title: ActionPresentation(primary).title, keys: "↩")

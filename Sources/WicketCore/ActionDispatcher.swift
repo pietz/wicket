@@ -21,25 +21,14 @@ public struct ActionContext: Sendable, Hashable {
     }
 }
 
-/// What a pushed frame shows: `RunResult`'s content cases.
-public enum Screen: Sendable, Hashable {
-    /// One item, shown large.
-    case answer(Item)
-    /// Items in the producer's order.
-    case list([Item])
-    case detail(Detail)
-}
-
 /// What the palette does after an action ran.
 public enum ActionOutcome: Sendable, Hashable {
-    /// Hide the palette, then show the message briefly.
-    case close(message: String?)
-    /// Push a frame. A failure is pushed as a detail saying what went wrong.
-    case push(Screen)
-    /// Re-run the view the user is looking at, keeping its text, and show the message briefly.
-    case reload(message: String?)
-    /// Leave the palette as it is.
-    case stay
+    /// Hide the palette.
+    case close
+    /// Push a detail frame: a `detail` action, or a failure saying what went wrong.
+    case push(Detail)
+    /// Show a command in its own frame, fed by its run (`PaletteSession.open`).
+    case open(CommandRun)
 }
 
 /// The side effects actions have outside the palette, injected so the dispatcher's mapping is
@@ -53,14 +42,12 @@ public protocol ActionEffects {
     func reveal(_ url: URL)
     func openSettings()
     func quit()
-    /// Runs an extension command for an item's `run` action, which is never resent to a fresh
-    /// process. Throws for an error response or a host failure.
-    func run(_ invocation: Invocation) async throws -> RunResult
 }
 
 /// Turns an action and its context into an outcome: the one place where activating something
 /// reaches past the palette. `run` actions resolve through the command registry, so built-ins and
-/// extension commands are invoked the same way, by `CommandID`.
+/// extension commands are invoked the same way, by `CommandID`. Settings and Quit run their effect
+/// here; every other command opens its frame, whose run the palette session owns.
 @MainActor
 public struct ActionDispatcher {
     private let registry: CommandRegistry
@@ -71,7 +58,7 @@ public struct ActionDispatcher {
         self.effects = effects
     }
 
-    public func perform(_ action: Item.Action, in context: ActionContext) async -> ActionOutcome {
+    public func perform(_ action: Item.Action, in context: ActionContext) -> ActionOutcome {
         switch action {
         case .open(let url, _):
             effects.open(url)
@@ -82,59 +69,38 @@ public struct ActionDispatcher {
         case .reveal(let url, _):
             effects.reveal(url)
         case .detail(let detail):
-            return .push(.detail(detail))
+            return .push(detail)
         case .run(let id, let args, _):
-            return await run(Invocation(command: id, args: args))
+            return run(Invocation(command: id, args: args))
         }
-        return .close(message: nil)
+        return .close
     }
 
-    private func run(_ invocation: Invocation) async -> ActionOutcome {
+    private func run(_ invocation: Invocation) -> ActionOutcome {
         guard let command = registry.command(invocation.command) else {
-            return Self.failure(
-                "Command Not Found", "This command isn't installed any more.", command: invocation.command)
+            return .push(
+                .failure(
+                    "Command Not Found", "This command isn't installed any more.", command: invocation.command
+                ))
         }
-        switch command.id.owner {
-        case .builtin:
-            switch BuiltinCommand(rawValue: command.id.name) {
-            case .settings: effects.openSettings()
-            case .quit: effects.quit()
-            case nil:
-                return Self.failure(command.title, "Wicket has no such command.", command: command.id)
-            }
-            return .close(message: nil)
-        case .extension:
-            do {
-                return Self.outcome(of: try await effects.run(invocation))
-            } catch is CancellationError {
-                return .stay
-            } catch {
-                return Self.failure("\(command.title) Failed", String(describing: error), command: command.id)
-            }
+        switch command.id.owner == .builtin ? BuiltinCommand(rawValue: command.id.name) : nil {
+        case .settings:
+            effects.openSettings()
+            return .close
+        case .quit:
+            effects.quit()
+            return .close
+        case nil:
+            // Extension commands, and built-ins that show something (Ask AI): their frame runs them.
+            let kind = Self.kind(of: invocation, command)
+            return .open(CommandRun(command: command, invocation: invocation, kind: kind))
         }
     }
 
-    /// A `run` action's result: content is pushed as a new frame, `close` and `reload` act on the
-    /// palette (docs/extensions.md).
-    static func outcome(of result: RunResult) -> ActionOutcome {
-        switch result {
-        case .answer(let item): .push(.answer(item))
-        case .list(let items): .push(.list(items))
-        case .detail(let detail): .push(.detail(detail))
-        case .close(let message): .close(message: message)
-        case .reload(let message): .reload(message: message)
-        }
-    }
-
-    /// A failure the user sees, as a detail they can copy (Return) and leave (Escape).
-    static func failure(_ title: String, _ message: String, command: CommandID) -> ActionOutcome {
-        let name =
-            switch command.owner {
-            case .builtin: command.name
-            case .extension(let id): "\(id)/\(command.name)"
-            }
-        return .push(
-            .detail(Detail(title: title, markdown: message, metadata: [.init(label: "Command", value: name)]))
-        )
+    /// Opening a listed command without `args` is the same as pressing Return on its row, a query;
+    /// anything else a `run` action starts (a hidden command, or one given `args`) may change
+    /// something, so it is an action and never resent (docs/extensions.md).
+    static func kind(of invocation: Invocation, _ command: RegisteredCommand) -> RequestKind {
+        command.isListed && invocation.args == nil ? .query : .action
     }
 }

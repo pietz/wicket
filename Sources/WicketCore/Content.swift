@@ -41,3 +41,25 @@ public enum RunResult: Sendable, Hashable {
     /// Re-runs the view the user is looking at.
     case reload(message: String?)
 }
+
+/// What a pushed frame shows: `RunResult`'s content cases.
+public enum Screen: Sendable, Hashable {
+    /// One item, shown large.
+    case answer(Item)
+    /// Items in the producer's order.
+    case list([Item])
+    case detail(Detail)
+}
+
+extension Detail {
+    /// A failure the user sees, as a page they can copy (Return) and leave (Escape): what failed,
+    /// the message, and the command.
+    public static func failure(_ title: String, _ message: String, command: CommandID) -> Detail {
+        let name =
+            switch command.owner {
+            case .builtin: command.name
+            case .extension(let id): "\(id)/\(command.name)"
+            }
+        return Detail(title: title, markdown: message, metadata: [.init(label: "Command", value: name)])
+    }
+}

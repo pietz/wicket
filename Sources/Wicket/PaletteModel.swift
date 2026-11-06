@@ -54,18 +54,28 @@ final class PaletteModel {
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0
     var isExpanded: Bool { cardHeight > 0 }
+    /// A command is running for what's on screen: one an action is opening, or the top frame's run
+    /// (the root's slow sources don't count). The pill shows a spinner.
+    var isBusy: Bool {
+        if session.opening != nil { return true }
+        if case .command = top.content { return top.isLoading }
+        return false
+    }
+    /// A `reload`'s message, shown in the footer for a moment.
+    private(set) var toast: String?
+    @ObservationIgnored private var toastExpiry: Task<Void, Never>?
     @ObservationIgnored private var usage: UsageStore
     @ObservationIgnored private let usageURL: URL
 
-    init(sources: [any ResultSource]) {
+    init(sources: [any ResultSource], runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let usageURL = support.appending(path: "Wicket/usage.json")
         self.usageURL = usageURL
         usage = Self.namespaced(UsageStore.load(from: usageURL))
         weak var model: PaletteModel?
-        session = PaletteSession(sources: sources, resultLimit: Self.resultLimit) {
-            model?.frecency() ?? { _ in 0 }
-        }
+        session = PaletteSession(
+            sources: sources, resultLimit: Self.resultLimit,
+            frecency: { model?.frecency() ?? { _ in 0 } }, runner: runner, registry: registry)
         model = self
     }
 
@@ -78,6 +88,18 @@ final class PaletteModel {
         let start = ContinuousClock.now
         session.refresh()
         logQuery(since: start)
+    }
+
+    /// Shows `message` in the footer for two seconds; nil clears it at once.
+    func showToast(_ message: String?) {
+        toast = message
+        toastExpiry?.cancel()
+        guard message != nil else { return }
+        toastExpiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
     }
 
     /// Answers are computed per query, so a usage boost for them would mean nothing.

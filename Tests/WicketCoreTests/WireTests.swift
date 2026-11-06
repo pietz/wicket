@@ -37,15 +37,18 @@ private func problem(_ json: String, _ context: WireContext = WireContext()) -> 
 }
 
 @Test func answersRankAsAnswersUnlessTheySayOtherwise() throws {
-    #expect(try result(#"{"answer":{"title":"4"}}"#) == .answer(item("4", relevance: .answer)))
+    // Without actions, Return copies the answer's title.
+    #expect(
+        try result(#"{"answer":{"title":"4"}}"#)
+            == .answer(item("4", relevance: .answer, actions: [.copy(text: "4")])))
     let fallback = try result(#"{"answer":{"title":"4","relevance":"fallback"}}"#, WireContext(mode: .root))
-    #expect(fallback == .answer(item("4", relevance: .fallback)))
+    #expect(fallback == .answer(item("4", relevance: .fallback, actions: [.copy(text: "4")])))
 }
 
-private func item(_ title: String, relevance: Item.Relevance) -> Item {
+private func item(_ title: String, relevance: Item.Relevance, actions: [Item.Action] = []) -> Item {
     Item(
         id: title, title: title, icon: .symbol(name: "puzzlepiece.extension"), relevance: relevance,
-        actions: [])
+        actions: actions)
 }
 
 @Test func actionsDecodeWithTitlesAndArgs() throws {

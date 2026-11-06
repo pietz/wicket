@@ -22,15 +22,21 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     public var title: String
     public var subtitle: String?
     public var icon: Item.Icon
-    /// One word; typing it and a space enters the command (refactor step 6). Matched ignoring case.
+    /// One word; typing it and a space in the root search opens the command's frame. Matched
+    /// ignoring case, and only for listed commands.
     public var keyword: String?
     /// Whether the root search lists it. Hidden commands and root-mode extension commands are
     /// reachable by id only.
     public var isListed: Bool
+    /// How its frame runs it: `once` runs it when opened (a list is then filtered locally), `live`
+    /// runs it again for every change of the frame's text. Built-ins are `once`.
+    public var mode: Manifest.Command.Mode
+    /// The search field's hint in a live command's frame.
+    public var placeholder: String?
 
     public init(
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
-        isListed: Bool = true
+        isListed: Bool = true, mode: Manifest.Command.Mode = .once, placeholder: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -38,6 +44,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.icon = icon
         self.keyword = keyword
         self.isListed = isListed
+        self.mode = mode
+        self.placeholder = placeholder
     }
 
     /// A command from an extension's manifest; `icon` is the command's, else the extension's.
@@ -45,7 +53,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.init(
             id: .extension(extensionID, command.id), title: command.title, subtitle: command.subtitle,
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
-            isListed: !command.hidden && command.mode != .root)
+            isListed: !command.hidden && command.mode != .root, mode: command.mode,
+            placeholder: command.placeholder)
     }
 }
 
@@ -121,7 +130,8 @@ public final class CommandRegistry {
         for command in builtins + extensions where byID[command.id] == nil {
             commands.append(command)
             byID[command.id] = command
-            guard let keyword = command.keyword?.lowercased() else { continue }
+            // A hidden command is reachable by `run` actions only (docs/extensions.md).
+            guard command.isListed, let keyword = command.keyword?.lowercased() else { continue }
             if let winner = byKeyword[keyword] {
                 keywordConflicts.append(KeywordConflict(keyword: keyword, winner: winner, loser: command.id))
             } else {

@@ -79,15 +79,15 @@ Each command:
 | `title` | yes | What the user searches for, and the title of the command's view (also for `hidden` commands). |
 | `subtitle`, `icon` | no | Shown in the search result row. |
 | `mode` | no | `once` (default), `live` or `root`, below. |
-| `keyword` | no | A short word without spaces. Typing `keyword` and a space jumps straight into the command; the rest of the line becomes its `text`. Not for `root`. |
+| `keyword` | no | A short word without spaces. Typing `keyword` and a space in the main search opens the command at once (see the modes below for what the rest of the line becomes). Not for `root`; ignored for `hidden` commands. |
 | `placeholder` | no | Search field hint for a `live` command. Not for `root`. |
 | `hidden` | no | `true` keeps the command out of search; it can then only be reached by a [`run` action](#actions). Not for `root`. |
 | `pattern` | no | `root` only: a regular expression (ICU syntax, as in `NSRegularExpression`). Only queries in which it finds a match are sent to you, so you are not woken for unrelated typing. It searches the query exactly as typed: anchor it with `^` and `$`, and add `(?i)` to ignore case. |
 
 The three modes:
 
-- **`once`**: runs when the user presses Return on the command. If they typed the keyword and more (`todo buy milk`), `text` is the rest (`buy milk`); otherwise it is `""`. If you return a list, it opens with an empty search field that filters it locally; you are not asked again. Use it for answers, actions and lists that fit in memory (bookmarks, tasks, hosts).
-- **`live`**: Return on the command, or typing its keyword and a space, opens a view with its own search field. Wicket sends a `run` for every change of the text (rapid keystrokes may be coalesced), starting with the initial text (`""` or what followed the keyword). Wicket shows your items in your order and does no filtering. Use it when the search itself is your job (an API, a large index).
+- **`once`**: runs when the user presses Return on the command or types its keyword and a space. `text` is what followed the keyword at that moment: `""` when they typed it, the rest of the line when they pasted one (`todo buy milk` gives `buy milk`). If you return a list, it opens with an empty search field that filters it locally (by title, best match first); you are not asked again. Use it for answers, actions and lists that fit in memory (bookmarks, tasks, hosts). A command that needs what the user types next is `live`.
+- **`live`**: Return on the command, or typing its keyword and a space, opens a view with its own search field. Wicket sends a `run` for every change of the text (rapid keystrokes may be coalesced, and a newer text cancels the request for an older one), starting with the initial text (`""` or what followed the keyword). Wicket shows your items in your order and does no filtering. While the field is empty and your list is too, the view is just the field with your `placeholder`. Use it when the search itself is your job (an API, a large index), or to act on what the user types: answer `add buy milk` with an item whose `run` action adds it.
 - **`root`**: has no view of its own. Every query typed in Wicket's main search (non-empty, matching `pattern` if given) is sent to you, and the items you return are mixed into the main results. Return an empty list when you have nothing to add. Use it sparingly, for things like a converter that should answer anywhere. Keep it fast and keep `pattern` tight.
 
 ## The session
@@ -99,7 +99,7 @@ Wicket starts your program the first time one of its commands is needed and keep
 - **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the check. Write logs and debugging output to **stderr**: Wicket keeps the last 64 KiB for diagnostics and never shows it unless something fails.
 - **One process at a time.** Wicket never runs two processes of your extension at once, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
 - **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
-- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with queries unanswered (the search text of a root, live or once command), Wicket resends them to a fresh process; if it exits with an error, they fail. A command started by an item's `run` action is never resent, since it may already have changed something: if your program exits before answering it, it fails and the user sees the error. So a one-shot script can answer and quit, while a persistent program pays its start-up cost once and answers later keystrokes from memory.
+- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with queries unanswered (the search text of a root, live or once command), Wicket resends them to a fresh process; if it exits with an error, they fail. A command started by an item's `run` action with `args`, or a hidden one, is never resent, since it may already have changed something: if your program exits before answering it, it fails and the user sees the error. (A `run` action that just names a listed command, without `args`, is the same as pressing Return on that command.) So a one-shot script can answer and quit, while a persistent program pays its start-up cost once and answers later keystrokes from memory.
 - **Shutdown:** after about a minute without requests, or when the extension is disabled or updated, Wicket closes your stdin. Exit then (a `for line in stdin` loop ends by itself). Wicket sends SIGTERM if you are still running 2 seconds later, and SIGKILL 2 seconds after that.
 
 Environment of the process:
@@ -160,7 +160,7 @@ One [item](#items). In a `once` command Wicket shows it large; in `root` mode it
 ]}}
 ```
 
-Up to 500 items (in `root` mode Wicket shows at most 10). An empty list shows "No results".
+Up to 500 items (in `root` mode Wicket shows at most 10). An empty list shows "No Results" (in a `live` view with an empty search field, just the field).
 
 ### Level 2: a detail view
 
@@ -184,7 +184,7 @@ For commands and actions that do something rather than show something:
 {"reload":{"message":"Marked as done"}}
 ```
 
-`close` closes the palette and briefly shows the optional message. `reload` re-runs the view the user is looking at (its command, text and args, not the action's command) and keeps its search text, for example to refresh a list after an action changed an entry. In `root` mode only `answer` and `list` are allowed.
+`close` closes the palette and briefly shows the optional message where the search field was. `reload` goes back to the view the command was started from and runs it again (its command, text and args, not the action's command), keeping its search text and selection, and briefly shows the message; for example to refresh a list after an action changed an entry. A command that does something and answers `close` or `reload` never opens a view of its own. In `root` mode only `answer` and `list` are allowed.
 
 ## Items
 
@@ -217,7 +217,7 @@ Each action is an object with exactly one key. Each takes an optional `title` fo
 | copy | `{"copy":{"text":"42"}}` | Copies the text and closes the palette. |
 | paste | `{"paste":{"text":"42"}}` | Closes the palette and types the text into the app the user came from. Without Accessibility permission it copies instead and says so. |
 | detail | `{"detail":{"markdown":"…"}}` | Pushes a detail view you already have (same fields as the detail result). Escape goes back. |
-| run | `{"run":{"command":"done","args":{"id":12},"title":"Mark as Done"}}` | Sends `run` for that command of your extension, with `args` passed through and `text` set to `""`. The result is pushed as a new view (Escape goes back) or is a `close` or `reload`. If the target is a `live` command, its view searches with the same `args` on every keystroke. Use it for follow-up work (fetching details, changing state) and for drill-down. Use a `hidden` command for targets the user shouldn't search for. |
+| run | `{"run":{"command":"done","args":{"id":12},"title":"Mark as Done"}}` | Sends `run` for that command of your extension, with `args` passed through and `text` set to `""`. The result is pushed as a new view (Escape goes back) or is a `close` or `reload`; the current view stays, showing progress, until it arrives. If the target is a `live` command, its view opens at once and searches with the same `args` on every keystroke. Use it for follow-up work (fetching details, changing state) and for drill-down. Use a `hidden` command for targets the user shouldn't search for. |
 
 ## Errors
 
@@ -230,7 +230,7 @@ If you can't produce a result, answer with a JSON-RPC error:
 - `message` is shown to the user as is: one short, plain sentence. Put details (stack traces, HTTP bodies) in `data` or on stderr; both go to the diagnostics, never into the view.
 - The `code` is an integer and doesn't change how the error is shown. Use `1` for your own errors, including an unknown `command`. Codes from -32768 to -32000 are JSON-RPC's: send -32601 for a method you don't know, and if you can't parse a line, reply with `"id":null` and -32700.
 - `error` holds only `code`, `message` and `data`.
-- In a view, Wicket shows the message with the diagnostics and offers a repair. In `root` mode errors are not shown inline; they are recorded on the Extensions screen.
+- In a view, Wicket shows the message in place of the view's content (in a `live` view, until the next keystroke's answer). The diagnostics and a repair are offered on the Extensions screen. In `root` mode errors are not shown inline; they are recorded on the Extensions screen.
 
 Wicket reports these failures itself, the same way: no response within 30 seconds (the request is cancelled), an invalid response, a line over the size limit, or an exit with an error status while a request was pending.
 

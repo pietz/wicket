@@ -82,9 +82,10 @@ public final class Extensions {
     }
 
     /// Runs `invocation`'s command (its `text`, and the `args` of a `run` action with `kind`
-    /// `.action`). Cancelling the calling task cancels the request. Throws `ExtensionError` for an
-    /// error response and `HostError` otherwise, `.unknownCommand` if no installed extension has it.
-    public func run(_ invocation: Invocation, kind: RequestKind) async throws -> RunResult {
+    /// `.action`) and returns its result. Cancelling the calling task cancels the request. Throws
+    /// `ExtensionError` for an error response and `HostError` otherwise, `.unknownCommand` if no
+    /// installed extension has it.
+    public func result(of invocation: Invocation, kind: RequestKind) async throws -> RunResult {
         let command = invocation.command
         guard case .extension(let id) = command.owner, installed[id]?.manifest.command(command.name) != nil
         else { throw HostError.unknownCommand }
@@ -157,5 +158,24 @@ public final class Extensions {
             extensions: \(loaded.count, privacy: .public) loaded, \(self.problems.count, privacy: .public) \
             invalid in \(ContinuousClock.now - start, privacy: .public)
             """)
+    }
+}
+
+/// Extension commands feed their frames with one result per run.
+extension Extensions: CommandRunner {
+    /// One element, `result(of:kind:)`'s; ending the iteration cancels the request.
+    public func run(_ invocation: Invocation, kind: RequestKind) -> AsyncThrowingStream<RunResult, any Error>
+    {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    continuation.yield(try await result(of: invocation, kind: kind))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }

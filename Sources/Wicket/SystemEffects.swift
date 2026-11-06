@@ -1,16 +1,13 @@
 import AppKit
 import WicketCore
-import WicketHost
 
 /// The action dispatcher's side effects on this Mac: the one place where activating a result
 /// touches the system.
 @MainActor
 final class SystemEffects: ActionEffects {
-    private let extensions: Extensions
     private let showSettings: () -> Void
 
-    init(extensions: Extensions, showSettings: @escaping () -> Void) {
-        self.extensions = extensions
+    init(showSettings: @escaping () -> Void) {
         self.showSettings = showSettings
     }
 
@@ -44,9 +41,5 @@ final class SystemEffects: ActionEffects {
 
     func quit() {
         NSApp.terminate(nil)
-    }
-
-    func run(_ invocation: Invocation) async throws -> RunResult {
-        try await extensions.run(invocation, kind: .action)
     }
 }

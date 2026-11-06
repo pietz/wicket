@@ -62,15 +62,6 @@ public enum Shutdown: Sendable, Equatable {
     case killed
 }
 
-/// Whether a request may be resent to a fresh process when the one that had it exits cleanly.
-public enum RequestKind: Sendable, Equatable {
-    /// Search text for a root, live or once command: reading only, so resending it is safe.
-    case query
-    /// A command run by an item's `run` action. It may have changed something before the process
-    /// exited, so it is never resent.
-    case action
-}
-
 /// Failures the host reports for a request, worded for the person or agent fixing the extension.
 public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     case missingSecret(extensionID: String, name: String, title: String)

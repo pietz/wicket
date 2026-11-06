@@ -90,8 +90,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
     /// The app that was frontmost when the palette was summoned, where `paste` types.
     private var previousApp: RunningApp?
-    /// The action being performed, until its outcome is applied; at most one at a time.
-    private var running: Task<Void, Never>?
+    /// Where a `close` message shows, the palette being gone by then.
+    private let hud = MessageHUD()
 
     init(model: PaletteModel, dispatcher: ActionDispatcher) {
         self.model = model
@@ -101,6 +101,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         super.init()
         panel.delegate = self
         panel.onChord = { [weak self] in self?.handle($0) }
+        model.session.onRequest = { [weak self] in self?.handle($0) }
         let root = NSHostingView(
             rootView: PaletteRootView(
                 model: model, onRun: { [weak self] in self?.run($0, action: $1) },
@@ -145,12 +146,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
     func hide() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
-        // Reset while hidden so the next summon has nothing to redraw.
+        // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
+        // cancels every command run, including one an action is still opening.
         pendingShrink?.cancel()
-        // An action still running has nowhere to show its outcome; cancelling it cancels the request.
-        running?.cancel()
-        running = nil
         model.actionMenu = nil
+        model.showToast(nil)
         model.commandHeld = false
         model.session.reset()
         model.cardHeight = 0
@@ -163,43 +163,43 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     /// Runs the action at `position` in the target's actions (0 is the primary) and applies its
     /// outcome. Does nothing if there is no such action, so Return on a message row keeps the
-    /// palette open, or while another action is still running.
+    /// palette open, or while an action is still opening a command (one at a time).
     func run(_ target: ActionTarget?, action position: Int) {
-        guard running == nil, let target, target.actions.indices.contains(position) else { return }
+        guard model.session.opening == nil, let target, target.actions.indices.contains(position) else {
+            return
+        }
         if let item = target.item { model.recordUse(of: item) }
         perform(target.actions[position])
     }
 
     private func perform(_ action: Item.Action) {
-        guard running == nil else { return }
+        guard model.session.opening == nil else { return }
         model.actionMenu = nil
-        let context = ActionContext(previousApp: previousApp)
-        running = Task { [weak self, dispatcher] in
-            let outcome = await dispatcher.perform(action, in: context)
-            // Cancelled by `hide`, which already cleared `running`.
-            guard let self, !Task.isCancelled else { return }
-            running = nil
-            apply(outcome)
+        switch dispatcher.perform(action, in: ActionContext(previousApp: previousApp)) {
+        case .close: hide()
+        case .push(let detail): model.session.push(detail)
+        case .open(let run): model.session.open(run)
         }
     }
 
-    /// Messages aren't drawn yet: the HUD arrives with the extension palette integration (refactor
-    /// step 6), the first producer of them.
-    private func apply(_ outcome: ActionOutcome) {
-        switch outcome {
-        case .close:
+    /// What a command's run asks for. A message shows in the footer while the card is up, else in
+    /// the HUD where the pill was.
+    private func handle(_ request: PaletteSession.Request) {
+        switch request {
+        case .close(let message):
             hide()
-        case .push(.detail(let detail)):
-            model.session.push(detail)
-        case .push(.answer), .push(.list):
-            // Pushed lists and answers arrive with command frames (refactor step 6). Nothing can
-            // produce one yet: extension commands and items aren't in the palette.
-            Perf.logger.fault("a pushed list or answer reached the palette before command frames exist")
-        case .reload:
-            model.session.reload()
-        case .stay:
-            break
+            if let message { showHUD(message) }
+        case .message(let message):
+            if panel.isVisible, model.isExpanded { model.showToast(message) } else { showHUD(message) }
         }
+    }
+
+    /// The HUD centred on where the pill is (or was).
+    private func showHUD(_ message: String) {
+        let pill = NSPoint(
+            x: anchor.x + PaletteMetrics.margin + width / 2,
+            y: anchor.y - PaletteMetrics.margin - PaletteMetrics.pillHeight / 2)
+        hud.show(message, centeredAt: pill)
     }
 
     /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.
@@ -229,19 +229,21 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     // MARK: Frame
 
-    /// The card the top frame wants: its height, and what decides how fast to get there.
+    /// The card the top frame wants: its height (nil to keep the current one), and what decides how
+    /// fast to get there.
     private struct Card {
-        let height: CGFloat
+        let height: CGFloat?
         let frame: Frame.ID
         let isCompact: Bool
     }
 
     /// Grows at once; shrinks after `shrinkDelay` without a taller result, so results that drop and
     /// return within it never move the card. Clearing the query (back to the bare pill) and going
-    /// to another frame change it at once.
+    /// to another frame change it at once; a command frame still waiting for its first content
+    /// keeps the card as it is, and the content then sizes it at once.
     private func follow(_ card: Card) {
         pendingShrink?.cancel()
-        let height = card.height
+        guard let height = card.height else { return }
         defer { shownFrame = card.frame }
         if height >= model.cardHeight || card.isCompact || card.frame != shownFrame {
             setCardHeight(height)

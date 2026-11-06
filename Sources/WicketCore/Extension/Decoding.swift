@@ -120,6 +120,8 @@ extension RunResult: Decodable {
             if !(try object.nestedContainer(keyedBy: AnyKey.self, forKey: AnyKey(kind)).has("relevance")) {
                 item.relevance = .answer
             }
+            // Return runs the first action; an answer without any copies its title.
+            if item.actions.isEmpty { item.actions = [.copy(text: item.title)] }
             self = .answer(item)
         case "list":
             let list = try object.object(kind, ["items"])

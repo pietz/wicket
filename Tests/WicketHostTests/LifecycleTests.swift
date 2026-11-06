@@ -64,17 +64,17 @@ import WicketCore
     }
     extensions.load()
     let command = Invocation(command: try #require(extensions.commands.first).id)
-    #expect(try await extensions.run(command, kind: .query) == .close(message: nil))
+    #expect(try await extensions.result(of: command, kind: .query) == .close(message: nil))
 
     extensions.load(changed: [ext.folder.appending(path: "main.sh").path])
-    #expect(try await extensions.run(command, kind: .query) == .close(message: nil))
+    #expect(try await extensions.result(of: command, kind: .query) == .close(message: nil))
     let log = try String(contentsOf: data.appending(path: "log"), encoding: .utf8)
     #expect(log.split(separator: "\n") == ["start", "end", "start"])
 
     // A removed extension's commands are unknown, and its session is stopped.
     try FileManager.default.removeItem(at: ext.folder)
     extensions.load()
-    await #expect(throws: HostError.unknownCommand) { try await extensions.run(command, kind: .query) }
+    await #expect(throws: HostError.unknownCommand) { try await extensions.result(of: command, kind: .query) }
 }
 
 @Test func agentThatClosesStdoutButLivesIsKilled() async throws {
