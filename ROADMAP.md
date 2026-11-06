@@ -13,11 +13,12 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
 - ✅ Quality gate: `Scripts/check.sh` (warnings as errors, tests, swift format)
-- 🔨 Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
+- ✅ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
+- ⏭ Follow-up when the runtime lands: a real `reveal(url:)` action case and action titles in Item (Show in Finder currently travels as a command id)
 - ⏭ Empty palette: favorites and suggestions instead of an alphabetical app list
 - ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
 - ⏭ Paste-back target captured at summon, layout-aware ⌘V (the owner's Mac is German)
-- 🔨 Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
+- ✅ Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
 
 ### Features
 - ✅ Apps
