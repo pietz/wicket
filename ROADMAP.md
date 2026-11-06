@@ -23,9 +23,10 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ⏭ Quick AI answer: "Ask AI" fallback row, streams into a detail view, via Codex or Claude CLI
 
 ### Extensions
-- 🔨 Protocol spec: `docs/extensions.md` (one page, agent-facing) plus JSON schema
-- 💤 Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, list and detail views
-- 💤 `wicket` checker CLI in the bundle: validate manifest, run fixture queries, check output
+- ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
+- ⏭ Runtime: JSON-RPC stdio host, session lifecycle, idle reaping, keyword and root routing, secrets via Keychain
+- ⏭ Palette view stack: push list and detail views, Escape goes back
+- ⏭ `wicket` checker CLI in the bundle (runs `session.jsonl` fixtures): validate manifest, run fixture queries, check output
 - 💤 Two or three useful sample extensions in different languages
 - 💤 "Make a command": staging, checker gate, review before enable, rollback, "Fix with agent"
 - 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder

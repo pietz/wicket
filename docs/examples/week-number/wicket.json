@@ -1,0 +1,11 @@
+{
+  "protocol": 1,
+  "id": "week-number",
+  "name": "Week Number",
+  "description": "Shows the current ISO week number.",
+  "version": "1.0.0",
+  "run": ["/bin/sh", "week.sh"],
+  "commands": [
+    { "id": "week", "title": "Week Number", "keyword": "week" }
+  ]
+}

@@ -1,0 +1,9 @@
+{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"search","text":"","revision":1}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"run","params":{"command":"search","text":"grinning cat","revision":2}}}
+{"send":{"jsonrpc":"2.0","method":"cancel","params":{"id":2}}}
+{"send":{"jsonrpc":"2.0","id":3,"method":"run","params":{"command":"character","text":"","revision":3,"args":{"codepoint":128568}}}}
+{"send":{"jsonrpc":"2.0","id":4,"method":"run","params":{"command":"missing","text":"","revision":4}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"list":{"items":[]}}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"list":{"items":[{"id":"U+1F638","title":"Grinning Cat Face With Smiling Eyes","subtitle":"U+1F638","accessory":"😸","actions":[{"paste":{"text":"😸"}},{"copy":{"text":"😸"}},{"run":{"command":"character","args":{"codepoint":128568},"title":"Show Details"}}]}]}}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"detail":{"title":"Grinning Cat Face With Smiling Eyes","markdown":"# 😸\n\n`U+1F638` GRINNING CAT FACE WITH SMILING EYES","metadata":[{"label":"Code point","value":"U+1F638"},{"label":"Category","value":"So"},{"label":"UTF-8","value":"F0 9F 98 B8"}],"actions":[{"copy":{"text":"😸"}},{"copy":{"text":"U+1F638","title":"Copy Code Point"}}]}}}}
+{"expect":{"jsonrpc":"2.0","id":4,"error":{"code":1,"message":"Unknown command missing"}}}

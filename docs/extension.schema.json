@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wicket extension protocol 1",
+  "description": "The whole document validates wicket.json. Messages are validated against #/$defs/HostMessage (Wicket to extension, one per line on stdin) and #/$defs/ExtensionMessage (extension to Wicket, one per line on stdout). See docs/extensions.md.",
+  "$ref": "#/$defs/Manifest",
+  "$defs": {
+    "Manifest": {
+      "type": "object",
+      "required": ["protocol", "id", "name", "version", "run", "commands"],
+      "additionalProperties": false,
+      "properties": {
+        "$schema": { "type": "string" },
+        "protocol": { "const": 1, "description": "Protocol version this extension speaks." },
+        "id": { "$ref": "#/$defs/Slug", "description": "Unique, stable id; also the folder name." },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "description": "One sentence, shown on the review screen." },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "icon": { "$ref": "#/$defs/Icon" },
+        "run": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Program and arguments, started in the extension folder. A bare name is looked up on the login shell PATH."
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["network", "clipboard", "files", "shell"] },
+          "description": "What the code does beyond answering, shown on the review screen. Not enforced."
+        },
+        "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Command" } }
+      }
+    },
+    "Command": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Slug" },
+        "title": { "type": "string", "minLength": 1 },
+        "subtitle": { "type": "string" },
+        "icon": { "$ref": "#/$defs/Icon" },
+        "mode": { "enum": ["once", "live", "root"], "default": "once" },
+        "keyword": { "type": "string", "pattern": "^\\S+$" },
+        "placeholder": { "type": "string" },
+        "hidden": { "type": "boolean", "default": false },
+        "pattern": { "type": "string", "format": "regex", "description": "Root only: queries that don't match are not sent." }
+      },
+      "if": { "required": ["mode"], "properties": { "mode": { "const": "root" } } },
+      "then": {
+        "not": {
+          "anyOf": [{ "required": ["keyword"] }, { "required": ["placeholder"] }, { "required": ["hidden"] }]
+        }
+      },
+      "else": { "not": { "required": ["pattern"] } }
+    },
+    "Slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64 },
+    "Icon": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["symbol"],
+          "additionalProperties": false,
+          "properties": {
+            "symbol": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": false,
+              "properties": { "name": { "type": "string", "minLength": 1, "description": "SF Symbol name." } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "object",
+              "required": ["url"],
+              "additionalProperties": false,
+              "properties": { "url": { "$ref": "#/$defs/Location", "description": "Shows this file's Finder icon." } }
+            }
+          }
+        }
+      ]
+    },
+    "Location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A URL (https:, file:, mailto:, an app scheme) or an absolute or ~/ path."
+    },
+    "Item": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "Unique within the response; defaults to the title." },
+        "title": { "type": "string", "minLength": 1 },
+        "subtitle": { "type": "string" },
+        "icon": { "$ref": "#/$defs/Icon" },
+        "accessory": { "type": "string", "description": "Short text at the trailing edge." },
+        "relevance": { "enum": ["answer", "match", "fallback"], "description": "Root mode only." },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } }
+      }
+    },
+    "Detail": {
+      "type": "object",
+      "required": ["markdown"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "markdown": { "type": "string" },
+        "metadata": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "value"],
+            "additionalProperties": false,
+            "properties": { "label": { "type": "string" }, "value": { "type": "string" } }
+          }
+        },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } }
+      }
+    },
+    "Action": {
+      "oneOf": [
+        { "$ref": "#/$defs/OpenAction" },
+        { "$ref": "#/$defs/CopyAction" },
+        { "$ref": "#/$defs/PasteAction" },
+        { "$ref": "#/$defs/DetailAction" },
+        { "$ref": "#/$defs/RunAction" }
+      ]
+    },
+    "OpenAction": {
+      "type": "object",
+      "required": ["open"],
+      "additionalProperties": false,
+      "properties": {
+        "open": {
+          "type": "object",
+          "required": ["url"],
+          "additionalProperties": false,
+          "properties": { "url": { "$ref": "#/$defs/Location" }, "title": { "type": "string" } }
+        }
+      }
+    },
+    "CopyAction": {
+      "type": "object",
+      "required": ["copy"],
+      "additionalProperties": false,
+      "properties": {
+        "copy": {
+          "type": "object",
+          "required": ["text"],
+          "additionalProperties": false,
+          "properties": { "text": { "type": "string" }, "title": { "type": "string" } }
+        }
+      }
+    },
+    "PasteAction": {
+      "type": "object",
+      "required": ["paste"],
+      "additionalProperties": false,
+      "properties": {
+        "paste": {
+          "type": "object",
+          "required": ["text"],
+          "additionalProperties": false,
+          "properties": { "text": { "type": "string" }, "title": { "type": "string" } }
+        }
+      }
+    },
+    "DetailAction": {
+      "type": "object",
+      "required": ["detail"],
+      "additionalProperties": false,
+      "properties": { "detail": { "$ref": "#/$defs/Detail" } }
+    },
+    "RunAction": {
+      "type": "object",
+      "required": ["run"],
+      "additionalProperties": false,
+      "properties": {
+        "run": {
+          "type": "object",
+          "required": ["command"],
+          "additionalProperties": false,
+          "properties": {
+            "command": { "$ref": "#/$defs/Slug", "description": "A command id from this extension's manifest." },
+            "args": { "type": "object", "description": "Any JSON object, passed back in run params." },
+            "title": { "type": "string" }
+          }
+        }
+      }
+    },
+    "Result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["answer"],
+          "additionalProperties": false,
+          "properties": { "answer": { "$ref": "#/$defs/Item" } }
+        },
+        {
+          "type": "object",
+          "required": ["list"],
+          "additionalProperties": false,
+          "properties": {
+            "list": {
+              "type": "object",
+              "required": ["items"],
+              "additionalProperties": false,
+              "properties": { "items": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Item" } } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["detail"],
+          "additionalProperties": false,
+          "properties": { "detail": { "$ref": "#/$defs/Detail" } }
+        },
+        {
+          "type": "object",
+          "required": ["close"],
+          "additionalProperties": false,
+          "properties": { "close": { "$ref": "#/$defs/Notice" } }
+        },
+        {
+          "type": "object",
+          "required": ["reload"],
+          "additionalProperties": false,
+          "properties": { "reload": { "$ref": "#/$defs/Notice" } }
+        }
+      ]
+    },
+    "Notice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "message": { "type": "string", "description": "Shown briefly, then fades." } }
+    },
+    "RequestId": { "type": ["integer", "string"] },
+    "RunRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method", "params"],
+      "additionalProperties": false,
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "method": { "const": "run" },
+        "params": {
+          "type": "object",
+          "required": ["command", "text", "revision"],
+          "additionalProperties": false,
+          "properties": {
+            "command": { "$ref": "#/$defs/Slug" },
+            "text": { "type": "string" },
+            "revision": { "type": "integer", "minimum": 0 },
+            "args": { "type": "object" }
+          }
+        }
+      }
+    },
+    "CancelNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "additionalProperties": false,
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "cancel" },
+        "params": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/RequestId" } }
+        }
+      }
+    },
+    "ResultResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "additionalProperties": false,
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": { "$ref": "#/$defs/Result" }
+      }
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "type": ["integer", "string", "null"] },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "additionalProperties": false,
+          "properties": {
+            "code": { "type": "integer" },
+            "message": { "type": "string", "minLength": 1, "description": "One short line, shown to the user." },
+            "data": { "description": "Anything; kept with the diagnostics, never shown inline." }
+          }
+        }
+      }
+    },
+    "HostMessage": { "oneOf": [{ "$ref": "#/$defs/RunRequest" }, { "$ref": "#/$defs/CancelNotification" }] },
+    "ExtensionMessage": { "oneOf": [{ "$ref": "#/$defs/ResultResponse" }, { "$ref": "#/$defs/ErrorResponse" }] }
+  }
+}

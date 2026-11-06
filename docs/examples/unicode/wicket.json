@@ -1,0 +1,19 @@
+{
+  "protocol": 1,
+  "id": "unicode",
+  "name": "Unicode",
+  "description": "Finds Unicode characters by name and pastes them.",
+  "version": "1.0.0",
+  "icon": { "symbol": { "name": "character" } },
+  "run": ["python3", "main.py"],
+  "commands": [
+    {
+      "id": "search",
+      "title": "Search Unicode Characters",
+      "keyword": "uc",
+      "mode": "live",
+      "placeholder": "Character name, like heart or arrow"
+    },
+    { "id": "character", "title": "Character Details", "hidden": true }
+  ]
+}
