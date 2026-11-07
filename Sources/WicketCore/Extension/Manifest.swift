@@ -112,6 +112,11 @@ public struct Manifest: Sendable, Hashable, Decodable {
     public var icon: Item.Icon?
     /// Program and arguments, started in the extension's folder.
     public var run: [String]
+    /// The script a uv extension runs, relative to its folder: `run` is `["uv", "run", "--script",
+    /// script, arguments…]`, uv named alone so it is the one on the login-shell PATH, which Wicket
+    /// also uses to prepare and lock the script. Wicket gives every uv run its own storage and
+    /// settings and requires the script's lock (`<script>.lock`); nil for any other program.
+    public var uvScript: String?
     public var capabilities: [Capability]
     public var secrets: [Secret]
     public var commands: [Command]
@@ -141,6 +146,7 @@ public struct Manifest: Sendable, Hashable, Decodable {
         if run.isEmpty || run.contains(where: \.isEmpty) {
             throw object.invalid("run", "must name a program and its arguments, none of them empty")
         }
+        uvScript = try Self.uvScript(run) { object.invalid("run", $0) }
         let capabilities = try object.optional("capabilities", as: [String].self) ?? []
         self.capabilities = try capabilities.map { name in
             guard let capability = Capability(rawValue: name) else {
@@ -186,6 +192,32 @@ public struct Manifest: Sendable, Hashable, Decodable {
             && value.split(separator: "-", omittingEmptySubsequences: false).allSatisfy { part in
                 !part.isEmpty && part.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
             }
+    }
+
+    /// The script `run` names if its program is uv; throws (through `invalid`) for uvx, `uv tool`
+    /// and any uv command but `uv run --script <script>`.
+    private static func uvScript(_ run: [String], invalid: (String) -> any Error) throws -> String? {
+        let program = run[0].split(separator: "/").last.map(String.init) ?? run[0]
+        let unlocked =
+            "uvx and uv tool run fetch a tool without a lock, so Wicket doesn't run them; declare the tool as a dependency of a locked script and start it there with runpy.run_module(\"<module>\", run_name=\"__main__\")"
+        if program == "uvx" || (program == "uv" && run.dropFirst().first == "tool") {
+            throw invalid(unlocked)
+        }
+        guard program == "uv" else { return nil }
+        guard run[0] == "uv" else {
+            throw invalid(
+                "name uv alone (\"uv\"), not a path: Wicket prepares, locks and runs uv extensions with the uv on the login shell's PATH"
+            )
+        }
+        guard run.count >= 4, run[1] == "run", run[2] == "--script", !run[3].hasPrefix("-"),
+            !run[3].hasPrefix("/"),
+            !run[3].split(separator: "/").contains("..")
+        else {
+            throw invalid(
+                "a uv extension runs [\"uv\", \"run\", \"--script\", \"main.py\"] and then its own arguments, the script inside the folder; Wicket sets uv's options itself, so no others are allowed"
+            )
+        }
+        return run[3]
     }
 
     private static func firstDuplicate(_ values: [String]) -> String? {

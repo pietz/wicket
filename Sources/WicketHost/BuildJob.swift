@@ -172,6 +172,9 @@ public final class BuildJob: Identifiable {
         try Task.checkCancellation()
 
         phase = .checking
+        try await Self.lockUV(
+            work, storage: context.checkOptions.uv, timeout: context.checkOptions.prepareTimeout)
+        try Task.checkCancellation()
         let sealed = try await Self.seal(
             work, store: RevisionStore(root: folder.appending(path: "revisions")))
         let checked = await Checker.check(sealed, options: context.checkOptions)
@@ -212,6 +215,19 @@ public final class BuildJob: Identifiable {
             statuses.append(status)
         }
         throw Failure(AskAIRunner.unavailable(statuses, chosen: chosen != nil, uses: "Make a Command"))
+    }
+
+    /// Locks a uv extension's script (`uv lock --script`), which its agent couldn't, having no
+    /// network: resolution only, wheels only, so no package code runs; a current lock stays as it
+    /// is. Anything else, and a folder without a valid manifest (sealing says why), is left alone.
+    @concurrent
+    private nonisolated static func lockUV(_ work: URL, storage: UVStorage, timeout: Duration) async throws {
+        guard let script = (try? Manifest.load(from: work))?.uvScript else { return }
+        do throws(UV.Failure) {
+            try await UV.lock(script: script, in: work, storage: storage, timeout: timeout)
+        } catch {
+            throw Failure("Wicket couldn't lock the extension's Python dependencies. \(error.description)")
+        }
     }
 
     /// Strips what the agent left for itself and seals the folder (file work, off the main actor).
@@ -343,7 +359,13 @@ public enum BuildPrompt {
         - Pick a short, descriptive id. Give each command a keyword when typing one makes sense.
         - Keep it small and dependable: prefer `/bin/sh` with `jq` (both ship with macOS), or a \
         single Python 3 or Swift script using only the standard library.
-        - You have no network while you work, so you can't download packages: use what macOS ships.
+        - You have no network while you work, so you can't download packages: use what macOS ships. \
+        Only if the command really needs a package from PyPI, write a uv script as the guide's \
+        "Python with uv" section describes: the `# /// script` header with `requires-python` and \
+        `dependencies`, and `run` set to `["uv", "run", "--script", "main.py"]`. Don't write or \
+        run `uv lock`: Wicket locks the dependencies after you finish. Test the protocol handling \
+        with `python3` and canned data (import the packages only where they're used, so the rest \
+        runs without them).
         - Write only inside this folder; the extension's state goes to `WICKET_DATA_DIR` when it runs.
         - The fixture covers every command, including an error case. When a command needs the \
         network or the user's files, answer from canned data in the folder while `WICKET_CHECK` is \

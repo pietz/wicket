@@ -150,8 +150,11 @@ public struct RevisionStore: Sendable {
 
     /// Deletes what isn't needed: per extension, every revision except those in `keeping` and the
     /// most recently active other one (the previous revision, for rollback); and every staging
-    /// folder a crash left. At most `keeping` plus one revision per extension remain.
-    public func prune(keeping: Set<ExtensionRevision>) {
+    /// folder a crash left. At most `keeping` plus one revision per extension remain. Returns the
+    /// extensions that lost a revision.
+    @discardableResult
+    public func prune(keeping: Set<ExtensionRevision>) -> Set<String> {
+        var pruned: Set<String> = []
         let ids = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         for id in ids where Manifest.isSlug(id) {
             let parent = root.appending(path: id, directoryHint: .isDirectory)
@@ -170,8 +173,12 @@ public struct RevisionStore: Sendable {
                     ?? .distantPast
                 others.append((folder, date))
             }
-            for old in others.sorted(by: { $0.date > $1.date }).dropFirst() { Self.remove(old.folder) }
+            for old in others.sorted(by: { $0.date > $1.date }).dropFirst() {
+                Self.remove(old.folder)
+                pruned.insert(id)
+            }
         }
+        return pruned
     }
 
     /// Deletes the whole store, for a temporary one.

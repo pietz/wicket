@@ -23,6 +23,11 @@ struct CheckIsolation {
     let temporary: URL
     let data: URL
     let profile: URL
+    /// A uv extension's uv cache for the check: a clone of Wicket's (`UVStorage.cache`) that the
+    /// check prepares and the candidate uses, so neither can change Wicket's own.
+    let uvCache: URL
+    /// The profile `prepareUV` installs dependencies under: `profile` with the network allowed.
+    let prepareProfile: URL
 
     /// The user's home folder, with symlinks resolved; no candidate reads it.
     static var userHome: String {
@@ -53,6 +58,8 @@ struct CheckIsolation {
         temporary = scratch.appending(path: "tmp", directoryHint: .isDirectory)
         data = scratch.appending(path: "data", directoryHint: .isDirectory)
         profile = scratch.appending(path: "sandbox.sb")
+        uvCache = scratch.appending(path: "uv-cache", directoryHint: .isDirectory)
+        prepareProfile = scratch.appending(path: "prepare.sb")
         do {
             for directory in [home, temporary, data] {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -68,8 +75,9 @@ struct CheckIsolation {
     }
 
     /// The session configuration for the candidate: placeholder secrets, a minimal environment,
-    /// scratch data, and the sandbox around the process.
-    func configuration(version: String) -> SessionConfiguration {
+    /// scratch data, and the sandbox around the process. A uv extension's uv uses the check's cache
+    /// (`uvCache`) and `uv`'s Pythons, offline.
+    func configuration(version: String, uv: UVStorage? = nil) -> SessionConfiguration {
         var configuration = SessionConfiguration(dataDirectory: data, version: version) { _ in
             Self.placeholderSecret
         }
@@ -83,21 +91,96 @@ struct CheckIsolation {
         ]
         configuration.wrapper = [Self.sandboxExecutable.path, "-f", profile.path]
         configuration.idleTimeout = nil
+        if let uv {
+            configuration.uv = UVStorage(cache: uvCache, python: uv.python)
+            configuration.uvOffline = true
+        }
         return configuration
     }
 
     /// Writes the sandbox profile for running `program` (resolved from `run`, nil if it wasn't
     /// found): it may read the scratch folder, the candidate and what `program` needs
-    /// (`ProgramReads`), and none of the user's files (`privateRoots(home:)`).
-    func seal(program: URL?, userHome: String = userHome) throws(CheckIsolationError) {
+    /// (`ProgramReads`), and none of the user's files (`privateRoots(home:)`). For a uv extension
+    /// (`uv` given) it may also read Wicket's Pythons and write the check's uv cache, and
+    /// `prepareProfile` is written too: the same with the network allowed.
+    func seal(program: URL?, userHome: String = userHome, uv: UVStorage? = nil) throws(CheckIsolationError) {
         let reads = program.map { ProgramReads($0.path, home: userHome) } ?? ProgramReads()
-        let text = Self.profile(
-            writable: [home.path, temporary.path, data.path], private: Self.privateRoots(home: userHome),
-            readable: [scratch.path, candidate.path] + reads.folders, paths: reads.paths)
+        var writable = [home.path, temporary.path, data.path]
+        var readable = [scratch.path, candidate.path] + reads.folders
+        if let uv {
+            // Resolved, since the sandbox matches resolved paths; created, so it resolves.
+            try? FileManager.default.createDirectory(at: uv.python, withIntermediateDirectories: true)
+            guard let python = Self.realPath(uv.python.path) else {
+                throw .setup("could not resolve Wicket's uv Python folder")
+            }
+            readable.append(python)
+            writable.append(uvCache.path)
+        }
+        func text(network: Bool) -> String {
+            Self.profile(
+                writable: writable, private: Self.privateRoots(home: userHome), readable: readable,
+                paths: reads.paths, network: network)
+        }
         do {
-            try Data(text.utf8).write(to: profile)
+            try Data(text(network: false).utf8).write(to: profile)
+            if uv != nil { try Data(text(network: true).utf8).write(to: prepareProfile) }
         } catch {
             throw .setup("could not write the sandbox profile: \(error.localizedDescription)")
+        }
+    }
+
+    /// Readies a uv extension's check, before the candidate runs: `script`'s lock must exist;
+    /// Wicket's uv cache is cloned into `uvCache` (an APFS clone, so it costs neither time nor
+    /// space); `uv` (the login shell's, never one the extension names) installs the Python the
+    /// script asks for into Wicket's storage, outside the sandbox, since that reads only the
+    /// script's `requires-python` and runs no package; then installs the locked dependencies into
+    /// the clone inside the sandbox with the network allowed (`prepareProfile`), since uv may start
+    /// the environment's Python, which runs code its packages install (a `.pth` file). The replay
+    /// then runs offline against the clone, so neither step nor the candidate can change Wicket's
+    /// cache, and the candidate can't change its Pythons.
+    func prepareUV(
+        script: String, uv: URL, storage: UVStorage, path: String, timeout: Duration,
+        sandbox: URL = sandboxExecutable
+    ) async throws(CheckIsolationError) {
+        guard FileManager.default.fileExists(atPath: UV.lockFile(of: script, in: candidate).path) else {
+            throw .uv(UV.missingLock(script))
+        }
+        try cloneUVCache(storage.cache)
+        let environment = UV.environment(
+            ["PATH": path, "HOME": home.path, "TMPDIR": temporary.path + "/"],
+            storage: UVStorage(cache: uvCache, python: storage.python), mode: .run)
+        let python = await UV.execute(
+            uv, ["python", "find", "--script", script], in: candidate, environment: environment,
+            timeout: timeout)
+        guard python.succeeded else {
+            throw .uv(
+                "uv couldn't find or install the Python \(script) asks for (its requires-python):\n\(python.output)"
+            )
+        }
+        let sync = await UV.execute(
+            uv, ["sync", "--script", script, "--locked", "--no-build"], in: candidate,
+            environment: environment,
+            wrapper: [sandbox.path, "-f", prepareProfile.path], timeout: timeout)
+        guard sync.succeeded else { throw .uv(UV.installFailure(sync.output, script: script)) }
+    }
+
+    /// `uvCache` as a clone of `cache`, or empty if Wicket has none yet.
+    private func cloneUVCache(_ cache: URL) throws(CheckIsolationError) {
+        if FileManager.default.fileExists(atPath: cache.path) {
+            // A clone of the whole tree in one call; a plain copy where the volume can't clone.
+            if clonefile(cache.path, uvCache.path, UInt32(CLONE_NOFOLLOW)) == 0 { return }
+            try? FileManager.default.removeItem(at: uvCache)
+            do {
+                try FileManager.default.copyItem(at: cache, to: uvCache)
+                return
+            } catch {
+                throw .setup("could not copy Wicket's uv cache: \(error.localizedDescription)")
+            }
+        }
+        do {
+            try FileManager.default.createDirectory(at: uvCache, withIntermediateDirectories: true)
+        } catch {
+            throw .setup("could not create the check's uv cache: \(error.localizedDescription)")
         }
     }
 
@@ -144,7 +227,8 @@ struct CheckIsolation {
     /// no Apple events to other apps and no LaunchServices opens (which would hand a URL to the
     /// browser outside the sandbox). Later rules win, so each allow follows the deny it narrows.
     static func profile(
-        writable: [String], private: [String] = [], readable: [String] = [], paths: [String] = []
+        writable: [String], private: [String] = [], readable: [String] = [], paths: [String] = [],
+        network: Bool = false
     ) -> String {
         let folders = writable.map { "(subpath \(quoted($0)))" }.joined(separator: " ")
         let hidden = `private`.map { "(subpath \(quoted($0)))" }.joined(separator: " ")
@@ -167,7 +251,7 @@ struct CheckIsolation {
             (allow file-read* \(shown)
               (literal "/private/var/tmp") (regex #"^/private/var/tmp/sh-thd-[0-9]+$"))
             (allow file-read-metadata \(above))
-            (deny network*)
+            \(network ? "; the network is allowed (installing dependencies)" : "(deny network*)")
             (deny file-write*)
             (allow file-write* \(folders)
               (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (literal "/dev/dtracehelper")
@@ -200,10 +284,12 @@ struct CheckIsolation {
 enum CheckIsolationError: Error, CustomStringConvertible {
     case setup(String)
     case sandbox(String)
+    /// A uv extension's dependencies couldn't be prepared; uv's words and what to do.
+    case uv(String)
 
     var description: String {
         switch self {
-        case .setup(let message): message
+        case .setup(let message), .uv(let message): message
         case .sandbox(let message):
             "the check sandbox could not be applied (\(message)); nothing was run, since a check never runs code unsandboxed"
         }

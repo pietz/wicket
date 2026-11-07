@@ -25,6 +25,10 @@ public struct SessionConfiguration: Sendable {
     /// set, the process is `wrapper[0]` with the rest of `wrapper`, then the resolved program and
     /// its arguments. The wrapper must exec the program, so signals reach it.
     public var wrapper: [String] = []
+    /// Where a uv extension's uv keeps packages and Pythons (`UV.environment`).
+    public var uv = UVStorage.standard
+    /// Whether a uv extension runs offline (`UV_OFFLINE`), as the checker's replay does.
+    public var uvOffline = false
 
     public init(dataDirectory: URL, version: String, secret: @escaping @Sendable (String) -> String?) {
         self.dataDirectory = dataDirectory
@@ -472,6 +476,14 @@ public actor ExtensionSession {
             }
         }
         var environment = configuration.environment ?? ProcessInfo.processInfo.environment
+        if let script = manifest.uvScript {
+            // `uv run` without a lock only warns and resolves afresh; a run gets exactly the lock.
+            guard FileManager.default.fileExists(atPath: UV.lockFile(of: script, in: folder).path) else {
+                throw HostError.launch(UV.missingLock(script))
+            }
+            environment = UV.environment(
+                environment, storage: configuration.uv, mode: configuration.uvOffline ? .check : .run)
+        }
         environment["PATH"] = path
         environment["LANG"] = Self.lang
         environment["WICKET_PROTOCOL"] = String(Manifest.protocolVersion)

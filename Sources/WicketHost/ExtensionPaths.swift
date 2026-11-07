@@ -16,6 +16,10 @@ public enum ExtensionPaths {
     /// extension (`Approvals`), written only by Wicket's UI.
     public static var approvals: URL { support.appending(path: "approvals.json") }
 
+    /// `~/Library/Application Support/Wicket/uv`: uv's cache and Pythons for uv extensions
+    /// (`UVStorage`), Wicket's own rather than the user's.
+    public static var uv: URL { support.appending(path: "uv", directoryHint: .isDirectory) }
+
     /// An extension's `WICKET_DATA_DIR`. Outside its folder, so it survives updates.
     public static func data(for id: String) -> URL {
         support.appending(path: "ExtensionData/\(id)", directoryHint: .isDirectory)

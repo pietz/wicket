@@ -1,0 +1,8 @@
+{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"slug","text":"Ærøskøbing Straße 5","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"list":{"items":[{"id":"slug","title":"aeroskobing-strasse-5"},{"id":"snake","title":"aeroskobing_strasse_5"}]}}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"run","params":{"command":"slug","text":"Привет, мир!","revision":2}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"list":{"items":[{"title":"privet-mir"},{"title":"privet_mir"}]}}}}
+{"send":{"jsonrpc":"2.0","id":3,"method":"run","params":{"command":"slug","text":"  ","revision":3}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"list":{"items":[]}}}}
+{"send":{"jsonrpc":"2.0","id":4,"method":"run","params":{"command":"missing","text":"","revision":4}}}
+{"expect":{"jsonrpc":"2.0","id":4,"error":{"code":1,"message":"Unknown command missing"}}}

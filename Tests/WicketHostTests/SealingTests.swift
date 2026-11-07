@@ -270,7 +270,7 @@ private final class Gate: Sendable {
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
 
     // v2 is active again (a rollback): it and the most recently active other one (v4) stay.
-    store.prune(keeping: [sealed[1].revision])
+    #expect(store.prune(keeping: [sealed[1].revision]) == ["titled"])
     let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
     #expect(kept == [sealed[1].revision.sha256, sealed[3].revision.sha256])
 }

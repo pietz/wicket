@@ -33,6 +33,10 @@ public struct CheckOptions: Sendable {
     var sandboxExecutable = CheckIsolation.sandboxExecutable
     /// The home folder the candidate may not read; tests point this at a folder of their own.
     var userHome = CheckIsolation.userHome
+    /// Wicket's uv storage, which a uv extension's check clones and installs its Python into.
+    var uv = UVStorage.standard
+    /// How long each uv step preparing a check may take (it may download a Python and packages).
+    var prepareTimeout: Duration = .seconds(300)
 
     public init(version: String) {
         self.version = version
@@ -110,16 +114,26 @@ public enum Checker {
             return report
         }
         // Not found: no reads for it, and the session reports it when it launches.
-        let program = try? ExtensionSession.resolve(
-            manifest.run[0], in: isolation.candidate, path: await LoginShell.path())
-        do {
-            try isolation.seal(program: program, userHome: options.userHome)
+        let path = await LoginShell.path()
+        let program = try? ExtensionSession.resolve(manifest.run[0], in: isolation.candidate, path: path)
+        let uv = manifest.uvScript.map { _ in options.uv }
+        do throws(CheckIsolationError) {
+            try isolation.seal(program: program, userHome: options.userHome, uv: uv)
             try isolation.verifySandbox(executable: options.sandboxExecutable)
+            if let script = manifest.uvScript {
+                // `run` names uv alone, so this is the uv Wicket would prepare with.
+                guard let program else { throw .uv(UV.Failure.noUV) }
+                let start = ContinuousClock.now
+                try await isolation.prepareUV(
+                    script: script, uv: program, storage: options.uv, path: path,
+                    timeout: options.prepareTimeout, sandbox: options.sandboxExecutable)
+                report.add(.ok, "uv: installed what \(script).lock lists (\(seconds(since: start)) s)")
+            }
         } catch {
             report.add(.error, error.description)
             return report
         }
-        var configuration = isolation.configuration(version: options.version)
+        var configuration = isolation.configuration(version: options.version, uv: uv)
         configuration.requestTimeout = options.requestTimeout
         configuration.exitGrace = options.exitGrace
         for url in fixtures {
@@ -245,14 +259,18 @@ public enum Checker {
         }
         await finish(session, name: name, errorsBefore: errorsBefore, into: &report)
         if report.errors.count == errorsBefore {
-            let seconds =
-                Double((ContinuousClock.now - start).components.attoseconds) / 1e18
-                + Double((ContinuousClock.now - start).components.seconds)
             report.add(
                 .ok,
-                "\(name): \(fixture.steps.count) lines replayed, \(matched) expects matched (\(String(format: "%.2f", seconds)) s)"
+                "\(name): \(fixture.steps.count) lines replayed, \(matched) expects matched (\(seconds(since: start)) s)"
             )
         }
+    }
+
+    /// Time since `start` in seconds, two decimals.
+    private static func seconds(since start: ContinuousClock.Instant) -> String {
+        let elapsed = ContinuousClock.now - start
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        return String(format: "%.2f", seconds)
     }
 
     /// Checks the process exits once stdin closes, reports what the session noticed on the way, and

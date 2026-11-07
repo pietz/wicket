@@ -49,6 +49,7 @@ func testConfiguration(
     configuration.requestTimeout = .seconds(1)
     configuration.exitGrace = .milliseconds(300)
     configuration.idleTimeout = nil
+    configuration.uv = UVTest.storage
     configure(&configuration)
     return configuration
 }
@@ -85,6 +86,7 @@ func checkOptions(_ configure: (inout CheckOptions) -> Void = { _ in }) -> Check
     var options = CheckOptions(version: "test")
     options.requestTimeout = .seconds(1)
     options.exitGrace = .milliseconds(300)
+    options.uv = UVTest.storage
     configure(&options)
     return options
 }
