@@ -27,6 +27,9 @@ public final class PaletteSession {
     public private(set) var frames: [Frame]
     /// The command an action opened, until its first result arrives; nil otherwise.
     public private(set) var opening: CommandRun?
+    /// What the user had selected in the app they came from, once captured (`captureContext`): the
+    /// pill's chip. Nil while capturing, when nothing was selected, and once dismissed.
+    public private(set) var context: SummonContext?
     /// Asks the app to close the palette (a command answered `close`).
     @ObservationIgnored public var onClose: () -> Void = {}
     /// Where a command's `close` and `reload` messages go, after the close they come with.
@@ -36,6 +39,10 @@ public final class PaletteSession {
     @ObservationIgnored private let runner: (any CommandRunner)?
     @ObservationIgnored private let registry: CommandRegistry?
     @ObservationIgnored private let liveDebounce: Duration
+    /// The capture of this summon's context, until it is dismissed or the next summon replaces it.
+    @ObservationIgnored private var contextCapture: Task<SummonContext?, Never>?
+    /// How long a run that uses the context waits for a capture still running.
+    @ObservationIgnored private let contextWait: Duration
     /// The frame `opening` will push, not on the stack yet.
     @ObservationIgnored private var openingFrame: Frame?
     @ObservationIgnored private var work: [Frame.ID: [Task<Void, Never>]] = [:]
@@ -55,7 +62,8 @@ public final class PaletteSession {
         sources: [any ResultSource], resultLimit: Int = .max,
         frecency: @escaping () -> (String) -> Double = { { _ in 0 } },
         runner: (any CommandRunner)? = nil, registry: CommandRegistry? = nil,
-        messages: Messages = Messages(), liveDebounce: Duration = .milliseconds(50)
+        messages: Messages = Messages(), liveDebounce: Duration = .milliseconds(50),
+        contextWait: Duration = .milliseconds(300)
     ) {
         self.sources = sources
         self.messages = messages
@@ -63,6 +71,7 @@ public final class PaletteSession {
         self.runner = runner
         self.registry = registry
         self.liveDebounce = liveDebounce
+        self.contextWait = contextWait
         frames = [Frame(id: 0, content: .search(RootResults(limit: resultLimit)))]
     }
 
@@ -239,6 +248,48 @@ public final class PaletteSession {
         start(0)
     }
 
+    // MARK: Context
+
+    /// This summon's context is what `capture` finds (`ContextCapture`, started once the palette is
+    /// on screen); it replaces the last summon's, and nil clears it. The chip shows it once captured.
+    public func captureContext(_ capture: Task<SummonContext?, Never>?) {
+        context = nil
+        contextCapture = capture
+        guard let capture else { return }
+        Task { [weak self] in
+            let captured = await capture.value
+            guard let self, contextCapture == capture else { return }
+            context = captured
+        }
+    }
+
+    /// The user dismissed the chip: no run of this summon gets the context.
+    public func dismissContext() {
+        context = nil
+        contextCapture = nil
+    }
+
+    /// The context for a run starting now: what was captured, waiting for a capture still running
+    /// at most `contextWait`, so a slow app never holds a run up for longer.
+    private func summonContext() async -> SummonContext? {
+        guard let capture = contextCapture else { return nil }
+        let (first, done) = AsyncStream.makeStream(of: SummonContext?.self)
+        let waiting = Task { done.yield(await capture.value) }
+        let timer = Task { [contextWait] in
+            try? await Task.sleep(for: contextWait)
+            done.yield(nil)
+        }
+        defer {
+            waiting.cancel()
+            timer.cancel()
+        }
+        for await captured in first {
+            // Dismissed or replaced while it waited.
+            return contextCapture == capture ? captured : nil
+        }
+        return nil
+    }
+
     // MARK: Commands
 
     /// The command whose keyword starts `text`, followed by a space, and the rest of the text.
@@ -323,6 +374,7 @@ public final class PaletteSession {
         frame.pending = 1
         var invocation = run.invocation
         let retry = run.retry
+        let usesContext = run.command.usesContext
         if screen.isLive { invocation.text = frame.query }
         let ticket = Ticket(frame: frame.id, generation: frame.generation)
         let delay = debounce && screen.isLive ? liveDebounce : nil
@@ -336,6 +388,11 @@ public final class PaletteSession {
                 guard let runner else {
                     self?.fail(ticket, "Commands can't run here.")
                     return
+                }
+                var invocation = invocation
+                if usesContext {
+                    invocation.context = await self?.summonContext()
+                    guard !Task.isCancelled else { return }
                 }
                 do {
                     for try await result in runner.run(invocation, retry: retry) {

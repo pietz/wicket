@@ -16,7 +16,8 @@ extension RegisteredCommand {
         id: .quit, title: "Quit Wicket", icon: .symbol(name: "power"), input: .none)
     static let askAI = RegisteredCommand(
         id: .askAI, title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
-        input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .askAI)
+        input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .askAI,
+        usesContext: true)
 }
 
 /// The built-ins in the app's order.

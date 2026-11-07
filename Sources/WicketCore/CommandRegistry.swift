@@ -29,13 +29,16 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// An extension command's: the active revision it was registered from, which a run of it binds
     /// to when it starts (`CommandRun`). Nil for built-ins.
     public var revision: ExtensionRevision?
+    /// Whether its runs get what the user had selected at summon (`Invocation.context`): Ask AI.
+    /// Any other command never sees it.
+    public var usesContext: Bool
 
     public init(
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
         search: [String] = [], isListed: Bool = true, input: CommandInput = .immediateText,
         retry: RetryPolicy = .never,
         placeholder: String? = nil, isFallback: Bool = false, feature: Feature? = nil,
-        revision: ExtensionRevision? = nil
+        revision: ExtensionRevision? = nil, usesContext: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -50,6 +53,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.isFallback = isFallback
         self.feature = feature
         self.revision = revision
+        self.usesContext = usesContext
     }
 
     /// A command from an extension's manifest; `icon` is the command's, else the extension's;

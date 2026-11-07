@@ -70,15 +70,20 @@ public struct Invocation: Hashable, Sendable {
     /// command's active revision when the run started (`CommandRun`). The run fails, rather than
     /// run other code, if that revision is no longer active. Nil runs whatever is active.
     public var revision: ExtensionRevision?
+    /// What the user had selected when they summoned the palette, for a command that uses it
+    /// (`RegisteredCommand.usesContext`): the session stamps it when the run starts. Nil for any
+    /// other command, and when nothing was selected or the user dismissed it.
+    public var context: SummonContext?
 
     public init(
         command: CommandID, text: String = "", args: [String: JSONValue]? = nil,
-        revision: ExtensionRevision? = nil
+        revision: ExtensionRevision? = nil, context: SummonContext? = nil
     ) {
         self.command = command
         self.text = text
         self.args = args
         self.revision = revision
+        self.context = context
     }
 }
 
