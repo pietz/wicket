@@ -21,16 +21,17 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
 - ✅ Compact pill by default; a content-sized card expands only when there is something to show (owner's call); large answer row; `paletteWidth` setting (600 pt default, slider in General)
 - 💤 Empty palette: favorites and suggestions, as an option once the pill exists
-- ⏭ Fallback list for unmatched queries (Ask AI, web search), user-ordered, in the fallback tier
+- ✅ Fallback list for unmatched queries: Ask AI, then Search the Web (settings `webSearch.url`), in table order; a user order waits for a real need. An "Open apple.com" row for typed web addresses
 - ✅ Paste-back: target captured at summon, layout-aware ⌘V, Accessibility asked on first paste (on-screen check needs the owner's grant)
 - ✅ Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
 
 ### Features
 - ✅ Apps
-- ✅ Calculator: arithmetic, units, currency (ECB daily rates, rates day shown), locale-aware input
+- ✅ Root search polish: aliases of fallback commands work, keywords shown on command rows, file words match in any order
+- ✅ Calculator: arithmetic, units, currency (ECB daily rates, rates day shown), locale-aware input; exact small results (no zeroing clamps), calm rows for ÷0 and non-real results, Return copies and ⌘↩ pastes
 - ✅ Files via Spotlight (async source)
 - ✅ Agent adapters (WicketHost): Codex app-server and Claude stream-json, answer and build modes, sandboxed, status checks, `wicket agent status|ask`
-- ✅ Quick AI answer: "Ask AI" fallback row (and `ai <question>`), streams into a detail frame via Codex or Claude, verified on screen
+- ✅ Quick AI answer: "Ask AI" fallback row (and `ai <question>`), streams into a detail frame via Codex or Claude, verified on screen; no actions until text arrives, partial answers kept with Retry, setup failures link to Settings ▸ AI
 
 ### Extensions
 - ✅ Protocol spec: `docs/extensions.md` (one page, agent-facing), `docs/extension.schema.json`, two validated examples
@@ -39,11 +40,23 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Palette view stack and extension frames (once, live, root, keywords), behind the switch until the consent store lands; verified on screen with the samples
 - ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
 - ✅ Sample extensions in `Extensions/`: system-toggles, quit-apps, github-prs (sh + jq, all pass `wicket check`)
-- 🔨 "Make a command": ✅ build job (staging, agent, seal, check), ✅ review and Enable; ✅ uv for Python extensions; ⏭ "Fix with agent", rollback UI
-- 🔨 Extensions screen: ✅ palette list (review and enable, disable, reveal); 💤 edit by prompt, repair, roll back, settings pane
+- ✅ "Make a command": build job (staging, agent, seal, check), review and Enable, uv for Python extensions, newest-first progress, Stop while checking, Fix with Agent (repairs in place), the current build in Extensions, a message when an unwatched build ends
+- 🔨 Extensions screen: ✅ palette list (review and enable, disable, reveal); ✅ Return runs the first command, Disable last; ✅ Make a Command row and Open Extensions Folder; ✅ problems from diagnostics; ✅ secrets set from the palette; ✅ Use Previous Version (the previous approved revision, kept explicitly); ⏭ change by prompt; settings pane dropped (the palette list and a folder button cover it)
+
+### Palette and effects polish (2026-11-08)
+- ✅ Whole rows with an answer on top, a bounded scrolling action panel, a root No Results once searches finish, page titles as labels, footer messages by kind, button semantics for VoiceOver
+- ✅ Copy says Copied, a failed open says why, one guarded paste (cancelled if the clipboard changed), a palette hotkey another app holds keeps the old one
+
+### AI-native (thesis: the model is the compiler, not the runtime)
+- 🔨 Summon context: selected text and Finder selection as "this", a chip in the pill
+- 🔨 Search terms in manifests (agent-written words people type)
+- 🔨 Apple's on-device model as an answer provider
+- 🔨 Do (plan first, the user presses Run, writes only in one folder), then Keep as a command
+- ⏭ Prompt commands and Keep from an answer (adds a `prompt` command kind to the protocol)
+- 💤 Submit-time intent router on the on-device model (after search terms prove how much they cover)
 
 ### App shell
-- 🔨 Settings window (native SwiftUI): ✅ General (hotkey recorder, palette width, launch at login, open settings.json); ✅ AI (provider and status); ✅ Shortcuts; ✅ Features (toggle each source, live); ⏭ Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
+- ✅ Settings window (native SwiftUI): General (hotkey recorder, palette width, launch at login, settings.json and extensions folder, ignored-field warnings); AI (provider and status); Shortcuts (scrolling, filter, keywords); Features (toggle each source, live). No Extensions pane (the palette list covers it). The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
 - ✅ Per-command hotkeys and aliases for commands (settings.json `commands`, Settings ▸ Shortcuts); apps and files not yet
 - ✅ Launch at login (`SMAppService`, in Settings ▸ General)
 - ✅ Minimal main menu while the settings window is open (⌘Q, ⌘W, ⌘M, Edit menu), inert in the palette; Settings takes focus when opened from the palette
