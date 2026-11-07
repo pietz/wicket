@@ -43,9 +43,12 @@ public final class DoRunner: CommandRunner {
             {
                 return observe(current)
             }
+            let scopes = scopes(selected: invocation.context?.files ?? [])
             guard let scopeID = invocation.args?["scope"]?.string,
                 let scope = scopes.first(where: { $0.id == scopeID })
-            else { return result(.show(.list(scopeItems(sentence: sentence)))) }
+                    ?? (scopeID == "Selection"
+                        ? invocation.args?["folder"]?.string.map({ (scopeID, URL(filePath: $0)) }) : nil)
+            else { return result(.show(.list(scopeItems(scopes, sentence: sentence)))) }
             guard let resolved = CheckIsolation.realPath(scope.url.path),
                 (try? scope.url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             else { throw BuildJob.Failure("That folder is unavailable. Choose another folder.") }
@@ -63,24 +66,34 @@ public final class DoRunner: CommandRunner {
         await current?.cancel()
     }
 
-    private var scopes: [(id: String, url: URL)] {
-        ["Desktop", "Downloads", "Documents", "Home"].map {
+    /// The folders a Do may change: the folder of what was selected in Finder first (a selected
+    /// folder itself when it is the only item), then the usual ones.
+    private func scopes(selected: [URL]) -> [(id: String, url: URL)] {
+        let usual = ["Desktop", "Downloads", "Documents", "Home"].map {
             ($0, $0 == "Home" ? home : home.appending(path: $0, directoryHint: .isDirectory))
         }
+        guard let first = selected.first else { return usual }
+        let isFolder = (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        let folder = selected.count == 1 && isFolder ? first : first.deletingLastPathComponent()
+        return [("Selection", folder)] + usual
     }
 
-    private func scopeItems(sentence: String) -> [Item] {
+    private func scopeItems(_ scopes: [(id: String, url: URL)], sentence: String) -> [Item] {
         scopes.map { scope in
-            Item(
-                id: "do-scope:" + scope.id, title: scope.id,
-                subtitle: scope.id == "Home"
-                    ? "Warning: Run may change anything in your home folder" : "Plan changes in this folder",
-                icon: .symbol(name: "folder"),
-                actions: [
-                    .run(
-                        command: .doAction, text: sentence,
-                        args: ["scope": .string(scope.id), "new": .bool(true)], title: "Plan Here")
-                ])
+            let subtitle =
+                switch scope.id {
+                case "Home": "Warning: Run may change anything in your home folder"
+                case "Selection": scope.url.lastPathComponent + ", where your Finder selection is"
+                default: "Plan changes in this folder"
+                }
+            // The selection's folder travels in the action: the context is gone by the time it runs.
+            var args: [String: JSONValue] = ["scope": .string(scope.id), "new": .bool(true)]
+            if scope.id == "Selection" { args["folder"] = .string(scope.url.path) }
+            return Item(
+                id: "do-scope:" + scope.id,
+                title: scope.id == "Selection" ? scope.url.lastPathComponent : scope.id,
+                subtitle: subtitle, icon: .symbol(name: "folder"),
+                actions: [.run(command: .doAction, text: sentence, args: args, title: "Plan Here")])
         }
     }
 

@@ -338,7 +338,8 @@ extension AppRuntime {
             Builtin(
                 RegisteredCommand(
                     id: .doAction, title: "Do", icon: .symbol(name: "play.circle"), keyword: "do",
-                    input: .submitText, placeholder: "Describe what to do", isFallback: true),
+                    input: .submitText, placeholder: "Describe what to do", isFallback: true,
+                    usesContext: true),
                 runner: doRunner),
             Builtin(
                 RegisteredCommand(

@@ -298,3 +298,31 @@ private func doInvocation(_ action: Item.Action) throws -> Invocation {
     await runner.shutdown()
     await builds.shutdown()
 }
+
+@MainActor @Test func doOffersTheFinderSelectionsFolderFirstAndPlansThere() async throws {
+    let folder = try doFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let shots = folder.appending(path: "Shots", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
+    let file = shots.appending(path: "a.png")
+    try Data().write(to: file)
+    let builds = BuildJobs(
+        backend: doBackend(try planJSON("true")), staging: folder.appending(path: "staging"), guide: { "" })
+    let runner = DoRunner(builds: builds, backend: doBackend(try planJSON("true")), home: folder)
+    let context = try #require(SummonContext(app: "Finder", files: [file]))
+    let input = Invocation(command: .doAction, text: "rename them", context: context)
+    let picker = try await collectDo(runner.run(input, retry: .never))
+    guard case .show(.list(let items))? = picker.last else {
+        Issue.record("expected folder picker")
+        return
+    }
+    #expect(items.map(\.title) == ["Shots", "Desktop", "Downloads", "Documents", "Home"])
+    // The action carries the folder: the context is gone by the time it runs.
+    let select = try doInvocation(#require(items.first?.actions.first))
+    #expect(select.context == nil)
+    _ = try await collectDo(runner.run(select, retry: .never))
+    let job = try #require(runner.current)
+    #expect(job.scope.path == CheckIsolation.realPath(shots.path))
+    await runner.shutdown()
+    await builds.shutdown()
+}
