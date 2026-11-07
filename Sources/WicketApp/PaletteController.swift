@@ -158,7 +158,15 @@ final class PaletteController: NSObject, NSWindowDelegate {
         if panel.isVisible { hide() } else { show(eventTime: eventTime) }
     }
 
+    /// A summon: shows the palette, then captures where the user came from.
     func show(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        present(eventTime: eventTime)
+        // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
+        // activate Wicket, so the frontmost app is still the one the user came from.
+        capturePreviousApp()
+    }
+
+    private func present(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         pendingShow = (eventTime, ProcessInfo.processInfo.systemUptime)
         anchor = Self.anchor(width: width)
         resize(cardHeight: 0)
@@ -167,14 +175,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         model.focusToken += 1
-        // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
-        // activate Wicket, so the frontmost app is still the one the user came from.
-        capturePreviousApp()
     }
 
+    /// The app the user came from, where a paste types, and what they had selected there (the
+    /// session's context, captured off the main actor).
     private func capturePreviousApp() {
         previousApp = Self.frontmostApp()
         model.pasteTarget = previousApp?.name
+        model.session.captureContext(ContextCapture.start(from: previousApp))
     }
 
     /// The frontmost app, unless it is Wicket.
@@ -198,6 +206,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         model.showToast(nil)
         model.commandHeld = false
         model.session.reset()
+        model.session.captureContext(nil)
         model.cardHeight = 0
     }
 
@@ -237,10 +246,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private static let revealDelay = Duration.milliseconds(250)
 
     /// Shows the palette, sized for the frame already on top: the card follows the top frame only
-    /// while the panel is visible.
+    /// while the panel is visible. `run(bound:)` captured where the user came from already.
     private func reveal() {
         guard !panel.isVisible else { return }
-        show()
+        present()
         if let height = PaletteMetrics.cardHeight(
             for: model.top, actionMenu: nil, detailHeight: model.detailHeight)
         {

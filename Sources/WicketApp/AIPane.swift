@@ -1,3 +1,4 @@
+import ApplicationServices
 import SwiftUI
 import WicketCore
 import WicketHost
@@ -10,6 +11,8 @@ struct AIPane: View {
     @State private var statuses: [AgentProvider: AgentStatus] = [:]
     @State private var checking = false
     @State private var error: String?
+    @State private var textAccess = AXIsProcessTrusted()
+    @State private var finderAccess: ContextCapture.FinderAccess?
 
     var body: some View {
         Form {
@@ -48,11 +51,56 @@ struct AIPane: View {
                         .disabled(checking)
                 }
             }
+            Section {
+                LabeledContent("Selected text") {
+                    if textAccess {
+                        allowed
+                    } else {
+                        Button("Allow…") {
+                            // `kAXTrustedCheckOptionPrompt`'s value: the constant is a global var.
+                            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                            textAccess = AXIsProcessTrustedWithOptions(options)
+                        }
+                    }
+                }
+                LabeledContent("Files selected in Finder") {
+                    switch finderAccess {
+                    case .granted: allowed
+                    case .notAsked: Button("Allow…") { Task { await checkFinder(ask: true) } }
+                    case .refused:
+                        Button("Open Automation Settings") {
+                            NSWorkspace.shared.open(Self.automationSettings)
+                        }
+                    case nil: ProgressView().controlSize(.small)
+                    }
+                }
+            } header: {
+                Text("Selection")
+            } footer: {
+                Text(
+                    "Ask AI also sees what you had selected when you opened Wicket, shown at the end of "
+                        + "the bar. Press Delete in the empty field to leave it out. Selected text needs "
+                        + "Accessibility; Finder's selection needs permission to control Finder."
+                )
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .task { await check() }
+    }
+
+    private var allowed: some View {
+        Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+    }
+
+    static let automationSettings = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!
+
+    /// Off the main actor: asking blocks until the user answers macOS's prompt.
+    private func checkFinder(ask: Bool) async {
+        finderAccess = await Task.detached { ContextCapture.finderAccess(ask: ask) }.value
     }
 
     private var provider: Binding<AgentProvider?> {
@@ -71,6 +119,8 @@ struct AIPane: View {
     private func check() async {
         checking = true
         defer { checking = false }
+        textAccess = AXIsProcessTrusted()
+        await checkFinder(ask: false)
         await withTaskGroup(of: AgentStatus.self) { group in
             for provider in AgentProvider.allCases {
                 group.addTask { await Agent.status(of: provider) }

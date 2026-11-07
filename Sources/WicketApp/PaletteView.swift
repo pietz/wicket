@@ -233,6 +233,15 @@ struct PaletteRootView: View {
                 onEscape()
                 return .handled
             }
+            // Backspace in an empty field dismisses the context, as it would delete a token.
+            .onKeyPress(.delete) {
+                guard model.query.isEmpty, model.session.context != nil else { return .ignored }
+                model.session.dismissContext()
+                return .handled
+            }
+            if let context = model.session.context {
+                ContextChip(text: context.summary)
+            }
         }
         .padding(.horizontal, 18)
         .frame(height: PaletteMetrics.pillHeight)
@@ -630,5 +639,24 @@ enum IconCache {
         image.size = size
         cache.setObject(image, forKey: key as NSString)
         return image
+    }
+}
+
+/// What was captured from the app the user came from (`SummonContext.summary`), at the pill's end:
+/// "Mail · 42 words". Backspace in an empty field dismisses it.
+private struct ContextChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.quaternary, in: .capsule)
+            .fixedSize()
+            .help("Ask AI sees this selection. Press Delete in an empty field to leave it out.")
+            .accessibilityLabel("Context: \(text)")
     }
 }

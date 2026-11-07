@@ -24,5 +24,7 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Wicket reads the files selected in Finder, so Ask AI can see what you mean by "this".</string>
 </dict>
 </plist>

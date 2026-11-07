@@ -319,7 +319,7 @@ extension AppRuntime {
                 RegisteredCommand(
                     id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
-                    feature: .askAI),
+                    feature: .askAI, usesContext: true),
                 runner: AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })),
             // Ask AI's action when no provider is ready; reached by id only.
             Builtin(

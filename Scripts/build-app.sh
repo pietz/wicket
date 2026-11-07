@@ -26,5 +26,7 @@ cp docs/extensions.md "$app/Contents/Resources/extensions.md"
 identity="${WICKET_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
   | awk '/Apple Development/ {print $2; exit}')}"
 codesign --force --sign "${identity:--}" --options runtime "$app/Contents/Helpers/wicket" >/dev/null
-codesign --force --sign "${identity:--}" --options runtime "$app" >/dev/null
+# Apple events: reading Finder's selection for Ask AI (ContextCapture), once the user allows it.
+codesign --force --sign "${identity:--}" --options runtime --entitlements Resources/Wicket.entitlements \
+  "$app" >/dev/null
 echo "built $app ($config, signed: ${identity:-ad hoc})"
