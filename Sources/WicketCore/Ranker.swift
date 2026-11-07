@@ -2,12 +2,14 @@ import Foundation
 
 /// Merges results from every root source into one order.
 ///
-/// Relevance tiers come first (exact, answer, match, fallback). Within a tier three policies apply:
-/// - **User order**: in the fallback tier, items whose origin is in `fallbackOrder` come first, in
-///   that order. A fallback list is a fixed menu, so it never moves by habit.
-/// - **Host-scored**: the host's own items (apps, files, calculator, built-ins) by score plus a
-///   frecency boost (none for fallbacks), then (for a non-empty query) the shorter title, then name.
-///   An empty query therefore lists by usage, then name.
+/// Relevance tiers come first (alias, exact, answer, match, fallback). Within a tier three policies
+/// apply:
+/// - **Fixed menu**: the host's fallback rows keep the order their source gave (`FallbackSource`:
+///   registry order, so the built-ins table's, Ask AI before web search). A fallback list never
+///   moves by habit or by title.
+/// - **Host-scored**: the host's other items (apps, files, calculator, built-ins) by score plus a
+///   frecency boost, then (for a non-empty query) the shorter title, then name. An empty query
+///   therefore lists by usage, then name.
 /// - **Provider order**: extension items after the host's, one block per command (by extension
 ///   id, then command name), each in the order the command sent and never reordered by habit. The
 ///   host can judge how well its own items match the query but not an extension's, so an extension
@@ -17,16 +19,10 @@ public enum Ranker {
     /// Frecency adds at most this much, so habit breaks ties but never beats a clearly better match.
     static let maxUsageBoost = 18.0
 
-    public static func rank(
-        _ items: [Item], query: String, usage: (String) -> Double, fallbackOrder: [CommandID] = []
-    ) -> [Item] {
+    public static func rank(_ items: [Item], query: String, usage: (String) -> Double) -> [Item] {
         let typed = !Fold.query(query).isEmpty
-        let listed = Dictionary(
-            fallbackOrder.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
         struct Candidate {
             let item: Item
-            /// Position in `fallbackOrder`, for listed fallbacks.
-            let listed: Int?
             /// The extension and command of a provider-ordered item.
             let provider: (extension: String, command: String)?
             /// Position in the input, which is the provider's order.
@@ -40,13 +36,10 @@ public enum Ranker {
                 provider = (id, name)
             }
             let boost = fallback || provider != nil ? 0 : usageBoost(usage(item.id))
-            return Candidate(
-                item: item, listed: fallback ? item.origin.flatMap { listed[$0] } : nil,
-                provider: provider, position: position, score: item.score + boost)
+            return Candidate(item: item, provider: provider, position: position, score: item.score + boost)
         }
         candidates.sort { a, b in
             if a.item.relevance != b.item.relevance { return a.item.relevance < b.item.relevance }
-            if a.listed != b.listed { return (a.listed ?? .max) < (b.listed ?? .max) }
             switch (a.provider, b.provider) {
             case (nil, .some): return true
             case (.some, nil): return false
@@ -54,7 +47,7 @@ public enum Ranker {
                 if pa != pb { return pa < pb }
                 return a.position < b.position
             case (nil, nil):
-                break
+                if a.item.relevance == .fallback { return a.position < b.position }
             }
             if a.score != b.score { return a.score > b.score }
             let ta = a.item.title

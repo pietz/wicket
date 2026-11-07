@@ -2,9 +2,9 @@ import Foundation
 
 /// The root's fallback rows: for any non-empty query, one row per registered fallback command
 /// (`RegisteredCommand.isFallback`, a `submitText` command such as Ask AI) that runs it on the query.
-/// They rank in the fallback tier, so they come last and never move by habit; within it the user's
-/// fallback order applies (`Ranker`, through each row's origin), else registry order. A fallback
-/// whose feature is off isn't registered, so it isn't offered either.
+/// They rank in the fallback tier, so they come last, in the order given here (`Ranker`): registry
+/// order, which for built-ins is the app's table (Ask AI, then web search). Habit never moves them.
+/// A fallback whose feature is off isn't registered, so it isn't offered either.
 @MainActor
 public struct FallbackSource: ResultSource {
     public let id = "fallbacks"

@@ -95,7 +95,7 @@ public struct Item: Sendable, Hashable, Identifiable {
     /// The first action is the primary one, run by Return.
     public var actions: [Action]
     /// The command that produced the item, stamped by the host when decoding an extension's
-    /// response; for a fallback row, the command it runs (its place in the user's fallback order).
+    /// response; for a fallback row, the command it runs.
     /// Nil for the host's other sources (apps, files, calculator, built-in commands).
     public var origin: CommandID?
 

@@ -77,21 +77,11 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     #expect(fallbacks("paris", registry).map(\.origin) == [web.id])
 }
 
-@MainActor @Test func theRowRanksLastInTheUsersFallbackOrderAndHabitNeverMovesIt() throws {
+@MainActor @Test func theRowRanksLastAndHabitNeverMovesIt() throws {
     let safari = Item(id: "apps:Safari", title: "Safari", icon: .symbol(name: "app"), score: 10, actions: [])
     let row = try #require(fallbacks("saf").first)
     let ranked = Ranker.rank([row, safari], query: "saf", usage: { $0 == row.id ? 1000 : 0 })
     #expect(ranked.map(\.id) == ["apps:Safari", row.id])
-
-    let web = Item(
-        id: "fallback:builtin:web", title: "Search the Web", icon: .symbol(name: "globe"),
-        relevance: .fallback,
-        actions: [], origin: .builtin("web"))
-    #expect(
-        Ranker.rank(
-            [row, web], query: "saf", usage: { _ in 0 }, fallbackOrder: [.builtin("web"), CommandID.askAI]
-        )
-        .map(\.id) == [web.id, row.id])
 }
 
 @MainActor @Test func pickingTheRowRunsAskAIOnTheQueryThroughTheRouter() async throws {

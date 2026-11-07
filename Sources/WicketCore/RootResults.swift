@@ -10,12 +10,9 @@ public struct RootResults: Sendable {
     public private(set) var query = Query(text: "", generation: 0)
     public private(set) var list: ItemList
     private var bySource: [String: [Item]] = [:]
-    /// The user's order for fallback commands; see `Ranker.rank`.
-    private let fallbackOrder: [CommandID]
 
-    public init(limit: Int = .max, fallbackOrder: [CommandID] = []) {
+    public init(limit: Int = .max) {
         list = ItemList(limit: limit)
-        self.fallbackOrder = fallbackOrder
     }
 
     public var items: [Item] { list.items }
@@ -50,7 +47,7 @@ public struct RootResults: Sendable {
         // Sorted by source id, so equal-ranked items never depend on dictionary order.
         let candidates = bySource.sorted { $0.key < $1.key }.flatMap(\.value)
         list.replace(
-            with: Ranker.rank(candidates, query: query.text, usage: usage, fallbackOrder: fallbackOrder),
+            with: Ranker.rank(candidates, query: query.text, usage: usage),
             resettingSelection: resettingSelection)
     }
 }

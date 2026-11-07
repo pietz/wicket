@@ -139,8 +139,8 @@ private func host(_ title: String, relevance: Item.Relevance = .match, score: Do
         actions: [])
 }
 
-private func rank(_ items: [Item], usage: [String: Double] = [:], fallbacks: [CommandID] = []) -> [String] {
-    Ranker.rank(items, query: "x", usage: { usage[$0] ?? 0 }, fallbackOrder: fallbacks).map(\.title)
+private func rank(_ items: [Item], usage: [String: Double] = [:]) -> [String] {
+    Ranker.rank(items, query: "x", usage: { usage[$0] ?? 0 }).map(\.title)
 }
 
 @Test func extensionItemsKeepTheirOrderWithinATier() {
@@ -174,19 +174,17 @@ private func rank(_ items: [Item], usage: [String: Double] = [:], fallbacks: [Co
     #expect(rank(items + answer).first == "42")
 }
 
-@Test func fallbacksFollowTheUserOrderAndNotHabit() {
-    let web = fromExtension(["Search the web"], "web", relevance: .fallback)
-    let ai = fromExtension(["Ask AI"], "ai", relevance: .fallback)
-    let notes = host("New note", relevance: .fallback)
-    let match = host("Match")
-    let items = [notes, match] + web + ai
-    #expect(
-        rank(items, fallbacks: [.extension("ai", "search"), .extension("web", "search")]) == [
-            "Match", "Ask AI", "Search the web", "New note",
-        ])
-    // Unlisted fallbacks: host before provider, and frecency doesn't reorder them.
+// Regression: unconfigured fallbacks were sorted by title, so "Search the Web" would have
+// come before "Ask AI" against the registry order the source gives.
+@Test func fallbacksKeepTheirSourceOrderNotTitleOrHabit() {
+    let ai = host("Ask AI", relevance: .fallback)
+    let web = host("Search the Web", relevance: .fallback)
     let other = host("Another", relevance: .fallback)
-    #expect(rank([notes, other], usage: ["host:New note": 1000]) == ["Another", "New note"])
+    let ext = fromExtension(["A web search"], "web", relevance: .fallback)
+    let match = host("Match")
+    #expect(
+        rank(ext + [ai, match, web, other], usage: ["host:Another": 1000])
+            == ["Match", "Ask AI", "Search the Web", "Another", "A web search"])
 }
 
 @Test func usageStillReordersHostItems() {
