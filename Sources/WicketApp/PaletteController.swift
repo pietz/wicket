@@ -305,6 +305,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
             switch message.kind {
             case .done: "checkmark.circle.fill"
             case .copied: "doc.on.clipboard"
+            case .failed: "exclamationmark.triangle.fill"
             }
         let pill = NSPoint(
             x: anchor.x + PaletteMetrics.margin + width / 2,

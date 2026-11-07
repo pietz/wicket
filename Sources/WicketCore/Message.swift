@@ -1,14 +1,17 @@
 import Foundation
 
 /// A short sentence for the user that comes and goes by itself: a command's `close` or `reload`
-/// message, a paste that could only copy. Never query text or anything secret.
+/// message, a copy, a paste that could only copy, an open that failed. Never query text or anything
+/// secret.
 public struct Message: Sendable, Hashable {
     /// What the message reports, which picks its symbol.
     public enum Kind: Sendable, Hashable {
         /// Something was done ("Dark mode on").
         case done
-        /// The text is on the clipboard, but wasn't pasted.
+        /// The text is on the clipboard (a copy, or a paste that could only copy).
         case copied
+        /// What the user asked for didn't happen ("Couldn't open it: ...").
+        case failed
     }
 
     public var text: String
