@@ -105,6 +105,10 @@ struct PaletteRootView: View {
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
+                    // Rows inside take concentric corners from the card (macOS 26's ConcentricRectangle).
+                    .containerShape(
+                        RoundedRectangle(cornerRadius: PaletteMetrics.cardRadius, style: .continuous)
+                    )
                     .transition(.opacity)
                 }
             }
@@ -416,8 +420,9 @@ struct ActionPanel: View {
                 .frame(height: Self.fieldHeight)
         }
         .frame(width: 320)
-        .background(.regularMaterial, in: .rect(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(.regularMaterial, in: .rect(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
     }
 
@@ -452,7 +457,8 @@ private struct ActionRow: View {
         .frame(height: ActionPanel.rowHeight)
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.primary.opacity(0.1))
+                ConcentricRectangle(corners: .concentric(minimum: 6), isUniform: false)
+                    .fill(.primary.opacity(0.1))
             }
         }
     }
@@ -502,10 +508,10 @@ struct ResultRow: View {
         .frame(height: isProminent ? PaletteMetrics.answerRowHeight : PaletteMetrics.rowHeight)
         .background {
             if isSelected {
-                RoundedRectangle(
-                    cornerRadius: PaletteMetrics.cardRadius - PaletteMetrics.rowInset, style: .continuous
-                )
-                .fill(.primary.opacity(0.1))
+                // Concentric with the card where the row meets its corners, a small radius elsewhere,
+                // so a mid-list selection isn't a pill and the top row follows the card's curve.
+                ConcentricRectangle(corners: .concentric(minimum: 10), isUniform: false)
+                    .fill(.primary.opacity(0.1))
             }
         }
     }
