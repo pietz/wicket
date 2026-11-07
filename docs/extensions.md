@@ -52,16 +52,18 @@ wicket run week-number week
 ```
 week-number/          the folder name equals the manifest id
   wicket.json
-  week.sh             any other files you need (code, data, a virtualenv, node_modules)
+  week.sh             any other files you need (code, data, node_modules, vendored packages)
 ```
 
 Wicket tells you which folder to write into; if nobody did, name the folder after the id. Paths inside the folder are relative to it, and it is the working directory when your program runs.
 
-Wicket identifies the folder by a hash of its files (its revision): the user approves a revision, and a row your old code showed never runs your new code (the user sees "the extension changed; run it again"). So:
+Wicket never runs your folder itself. It seals it: copies it into its own storage, read-only, and identifies the copy by a hash of its files (its revision). The user approves a revision, `wicket check` checks one, and Wicket runs that sealed copy, so your edits take effect only once Wicket has sealed them (it watches the folder), and a row your old code showed never runs your new code (the user sees "the extension changed; run it again"; an open search simply runs again on the new code). So:
 
-- Keep everything your program runs inside the folder. A symbolic link must be relative and point inside the folder; a link out of it, an absolute link or a link to nothing makes the folder invalid.
-- `.git`, `node_modules`, `.venv`, `__pycache__`, `.claude` and `.DS_Store` are not part of the revision, at any depth. Nothing may link into them.
-- The rest of the folder holds at most 32 MiB in at most 5000 files. Keep data you download or build at run time in `WICKET_DATA_DIR`, not the folder.
+- Keep everything your program runs inside the folder, dependencies included: they are sealed with it. A symbolic link must be relative and point inside the folder; a link out of it, an absolute link or a link to nothing makes the folder invalid.
+- Node: `node_modules` in the folder works. Python: a virtualenv (`.venv`) doesn't, since it names absolute paths and can't be moved; install packages into a folder (`pip install --target vendor requests`) and put it on `sys.path` before importing (`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "vendor"))`).
+- `.git`, `__pycache__`, `.claude` and `.DS_Store` are not part of the revision and are not copied, at any depth. Nothing may link into them.
+- The rest of the folder, dependencies included, holds at most 256 MiB in at most 20,000 files.
+- The copy is read-only, and it is the working directory: write state, caches and downloads to `WICKET_DATA_DIR`, never into your folder.
 
 | Field | Required | Meaning |
 |---|---|---|
@@ -376,7 +378,7 @@ The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Hel
 
 How `check` runs your code:
 
-- **A sealed copy.** The folder is copied into a scratch folder and the copy runs; it is read-only, so write state to `WICKET_DATA_DIR`.
+- **A sealed copy.** The folder is sealed as Wicket installs it (read-only, without `.git`, `__pycache__`, `.claude` and `.DS_Store`) and the copy runs, so write state to `WICKET_DATA_DIR`. A folder that can't be sealed (a bad link, a virtualenv, too large) fails before anything runs.
 - **No real secrets.** Every declared secret is `wicket-check-placeholder`; the Keychain is never read.
 - **A minimal environment.** Only `PATH`, `LANG`, the `WICKET_` variables, the secrets, `HOME` and `TMPDIR` (both empty scratch folders), `CLANG_MODULE_CACHE_PATH` (in `TMPDIR`, so `swift` scripts compile) and `WICKET_CHECK=1`. Nothing from your shell comes through, so `FOO=bar wicket check .` doesn't set `FOO`.
 - **A fresh `WICKET_DATA_DIR`** per check, shared by its fixtures, deleted afterwards.
