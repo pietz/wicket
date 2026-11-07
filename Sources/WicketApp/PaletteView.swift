@@ -254,33 +254,43 @@ struct ResultsView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if model.results.isEmpty {
-                    // Only a command's list gets here: the root search has no card without results.
-                    Text(model.top.isLoading ? "" : "No Results")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: PaletteMetrics.rowHeight)
+                VStack(spacing: 0) {
+                    // The content's real top, above the inset: scrolling to the first row itself
+                    // would hide the inset above it.
+                    Color.clear.frame(height: 0).id(Self.top)
+                    if model.results.isEmpty {
+                        // Only a command's list gets here: the root search has no card without results.
+                        Text(model.top.isLoading ? "" : "No Results")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: PaletteMetrics.rowHeight)
+                            .padding(PaletteMetrics.rowInset)
+                    } else {
+                        LazyVStack(spacing: PaletteMetrics.rowSpacing) {
+                            ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
+                                ResultRow(
+                                    item: item, isProminent: ResultRow.isProminent(item, at: index),
+                                    isSelected: index == model.selection, hint: hint(for: index)
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { onRun(ActionTarget(item: item), 0) }
+                            }
+                        }
                         .padding(PaletteMetrics.rowInset)
-                }
-                LazyVStack(spacing: PaletteMetrics.rowSpacing) {
-                    ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
-                        ResultRow(
-                            item: item, isProminent: ResultRow.isProminent(item, at: index),
-                            isSelected: index == model.selection, hint: hint(for: index)
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { onRun(ActionTarget(item: item), 0) }
                     }
                 }
-                .padding(PaletteMetrics.rowInset)
             }
             .scrollIndicators(.never)
             // The system's soft edge where rows pass under the footer, instead of a row cut in half.
             .scrollEdgeEffectStyle(.soft, for: .bottom)
             .onChange(of: model.selection) { _, selection in
                 guard model.results.indices.contains(selection) else { return }
-                proxy.scrollTo(model.results[selection].id)
+                if selection == 0 {
+                    proxy.scrollTo(Self.top, anchor: .top)
+                } else {
+                    proxy.scrollTo(model.results[selection].id)
+                }
             }
             .onAppear {
                 // Back from a pushed frame: show the selection where it was left.
@@ -290,10 +300,16 @@ struct ResultsView: View {
             .onChange(of: model.results) {
                 // The selection follows its item across updates; at the top, show the list's start.
                 guard let item = model.top.list?.selectedItem else { return }
-                proxy.scrollTo(item.id, anchor: model.selection == 0 ? .top : nil)
+                if model.selection == 0 {
+                    proxy.scrollTo(Self.top, anchor: .top)
+                } else {
+                    proxy.scrollTo(item.id)
+                }
             }
         }
     }
+
+    private static let top = "top"
 
     /// "⌘1" to "⌘9" while ⌘ is held: the chords that run the first nine rows.
     private func hint(for index: Int) -> String? {
