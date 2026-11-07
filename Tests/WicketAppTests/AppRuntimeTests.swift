@@ -114,6 +114,7 @@ private final class Harness {
     let palette = FakePalette()
     let agent = FakeAgent()
     let askAI: AskAIRunner
+    let buildJobs: BuildJobs
     private(set) var work: [String] = []
     /// The built-ins' effects that ran.
     private(set) var effects: [String] = []
@@ -127,6 +128,8 @@ private final class Harness {
         weak var harness: Harness?
         askAI = AskAIRunner(
             backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider })
+        buildJobs = BuildJobs(
+            backend: agent.backend, staging: directory.appending(path: "staging"), guide: { "guide" })
         // The table as `live()` composes it, with effects that are only recorded.
         let builtins = [
             Builtin(
@@ -143,6 +146,11 @@ private final class Harness {
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
                     feature: .askAI),
                 runner: askAI),
+            Builtin(
+                RegisteredCommand(
+                    id: .makeCommand, title: "Make a Command", icon: .symbol(name: "hammer"), keyword: "make",
+                    input: .submitText, placeholder: "Describe the command to make"),
+                runner: MakeCommandRunner(jobs: buildJobs)),
         ]
         let apps = StaticSource("apps", items: [item("Safari")])
         let calculator = StaticSource("calculator", items: [])
@@ -159,7 +167,7 @@ private final class Harness {
             extensions: Extensions(
                 directory: directory.appending(path: "extensions"),
                 store: RevisionStore(root: directory.appending(path: "revisions")), diagnostics: diagnostics),
-            usageURL: directory.appending(path: "usage.json"), system: system.system)
+            buildJobs: buildJobs, usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
         harness = self
         try write(json)
@@ -295,6 +303,25 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     try await Task.sleep(for: .milliseconds(100))
     #expect(h.agent.started.withLock { $0 } == 1)
     #expect(h.agent.ended.withLock { $0 } == 1)
+}
+
+/// Quitting cancels a running build job, which outlives its frame, and waits for its agent.
+@MainActor @Test func shutdownCancelsARunningBuildJob() async throws {
+    let h = try Harness()
+    h.agent.exitDelay.withLock { $0 = .milliseconds(200) }
+    let command = try #require(h.runtime.registry.command(.makeCommand))
+    h.session.open(CommandRun(command, .invoked, text: "show the week number"))
+    #expect(await soon { h.agent.started.withLock { $0 } == 1 })
+    h.session.reset()  // Detached: the job keeps running.
+    let job = try #require(h.buildJobs.current)
+    #expect(job.phase.isRunning)
+
+    await h.runtime.shutdown()
+    #expect(h.agent.ended.withLock { $0 } == 1)
+    guard case .cancelled = job.phase else {
+        Issue.record("ended \(job.phase)")
+        return
+    }
 }
 
 /// A process that won't die doesn't keep the app from quitting.

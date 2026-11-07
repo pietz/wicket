@@ -29,6 +29,9 @@ public struct Diagnostic: Hashable, Sendable {
         case stderr
         /// The command's last run failed; cleared by its next answer.
         case run
+        /// The last build of the extension (Make a command) failed its check; cleared when a later
+        /// build of it passes.
+        case check
         /// A hotkey or alias from settings.json that isn't in effect.
         case binding
         /// A keyword another command has.

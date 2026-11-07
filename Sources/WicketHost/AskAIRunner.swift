@@ -186,17 +186,17 @@ public final class AskAIRunner: CommandRunner {
             ready[candidate] = nil
             statuses.append(status)
         }
-        throw Failure(Self.unavailable(statuses, chosen: chosen != nil))
+        throw Failure(Self.unavailable(statuses, chosen: chosen != nil, uses: "Ask AI"))
     }
 
-    /// What the frame says when no provider can answer.
-    static func unavailable(_ statuses: [AgentStatus], chosen: Bool) -> String {
+    /// What the frame of `feature` (Ask AI, Make a Command) says when no provider can run it.
+    static func unavailable(_ statuses: [AgentStatus], chosen: Bool, uses feature: String) -> String {
         let reasons = statuses.map(reason)
         if chosen, let reason = reasons.first {
             return reason + "\n\nYou can choose another provider in Settings ▸ AI."
         }
         let names = AgentProvider.allCases.map(\.name).joined(separator: " or ")
-        return "Ask AI uses \(names), and neither is ready:\n\n"
+        return "\(feature) uses \(names), and neither is ready:\n\n"
             + reasons.map { "- \($0)" }.joined(separator: "\n")
     }
 

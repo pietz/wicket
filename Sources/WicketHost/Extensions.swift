@@ -117,10 +117,13 @@ public final class Extensions {
     /// The active sealed revision of `id`, if it may run.
     public func activeRevision(of id: String) -> SealedRevision? { active[id]?.sealed }
 
+    /// The app's version, which extensions get as `WICKET_VERSION`; "dev" outside the bundle.
+    public nonisolated static var hostVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
     public nonisolated static func configuration(for id: String) -> SessionConfiguration {
-        let version =
-            Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        return SessionConfiguration(dataDirectory: ExtensionPaths.data(for: id), version: version) {
+        SessionConfiguration(dataDirectory: ExtensionPaths.data(for: id), version: hostVersion) {
             Keychain.secret($0, extension: id)
         }
     }
