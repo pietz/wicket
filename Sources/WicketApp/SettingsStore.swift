@@ -30,6 +30,11 @@ final class SettingsStore {
         diagnostics.entries(for: .settings).first { $0.severity == .error }?.text
     }
 
+    /// The fields the last good load ignored for their defaults, each with its reason.
+    var warnings: [String] {
+        diagnostics.entries(for: .settings).filter { $0.severity == .warning }.map(\.text)
+    }
+
     /// True when `settings.hotkey` could not be registered because another app owns it.
     var hotKeyFailed: Bool {
         diagnostics.text(for: .bindings, kind: .binding) != nil
@@ -61,5 +66,12 @@ final class SettingsStore {
     func openFile() throws {
         if !FileManager.default.fileExists(atPath: url.path) { try update { _ in } }
         if !NSWorkspace.shared.open(url) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    }
+
+    /// Opens the extensions folder in Finder, creating it first if no extension exists yet.
+    func openExtensionsFolder() throws {
+        let folder = ExtensionPaths.extensions
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 }

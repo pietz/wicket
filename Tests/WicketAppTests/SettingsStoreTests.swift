@@ -27,3 +27,20 @@ import WicketCore
     #expect(store.settings.paletteWidth == 600)
     #expect(store.loadError == nil)
 }
+
+@MainActor @Test func ignoredFieldsAreWarningsUntilFixed() throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "wicket-store-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let file = folder.appending(path: "settings.json")
+    let store = SettingsStore(directory: folder)
+
+    try Data(#"{"features": {"nope": true}}"#.utf8).write(to: file)
+    store.reload()
+    #expect(store.warnings.count == 1)
+    #expect(store.loadError == nil)
+
+    try Data(#"{}"#.utf8).write(to: file)
+    store.reload()
+    #expect(store.warnings.isEmpty)
+}

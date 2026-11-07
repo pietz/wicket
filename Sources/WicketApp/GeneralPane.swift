@@ -2,7 +2,8 @@ import ServiceManagement
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ General: the hotkey, the palette's width, launch at login and the settings file.
+/// Settings ▸ General: the hotkey, the palette's width, launch at login, the settings file and the
+/// extensions folder.
 struct GeneralPane: View {
     let store: SettingsStore
     @State private var recorder = ShortcutRecorder()
@@ -58,15 +59,21 @@ struct GeneralPane: View {
                 }
             }
             Section {
-                LabeledContent("Settings file") {
-                    Button("Open settings.json") { perform { try store.openFile() } }
+                LabeledContent("Files") {
+                    HStack {
+                        Button("Open settings.json") { perform { try store.openFile() } }
+                        Button("Open Extensions Folder") { perform { try store.openExtensionsFolder() } }
+                    }
                 }
                 if let loadError = store.loadError {
                     Label(
-                        "\(loadError). Using defaults until it's fixed.",
+                        "\(loadError). Keeping the last good settings until it's fixed.",
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .foregroundStyle(.red)
+                }
+                ForEach(store.warnings, id: \.self) { warning in
+                    Label(warning, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 }
             } footer: {
                 Text("Every setting here is stored in settings.json, which you or an agent can also edit.")
@@ -100,7 +107,8 @@ struct GeneralPane: View {
         } set: { newWidth in
             guard newWidth != (width ?? store.settings.paletteWidth) else { return }
             width = newWidth
-            perform { try store.update { $0.paletteWidth = newWidth } }
+            // A failed write never reaches the file, so the slider goes back to what is applied.
+            if !perform({ try store.update { $0.paletteWidth = newWidth } }) { width = nil }
         }
     }
 
@@ -119,12 +127,16 @@ struct GeneralPane: View {
         }
     }
 
-    private func perform(_ action: () throws -> Void) {
+    /// Runs `action`, showing its error if it throws; returns whether it succeeded.
+    @discardableResult
+    private func perform(_ action: () throws -> Void) -> Bool {
         do {
             try action()
             error = nil
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 }
