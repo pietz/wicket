@@ -2,8 +2,8 @@ import Foundation
 import WicketCore
 
 /// Calculations, unit and currency conversions as one answer row, "calculator:answer". Return
-/// copies the result, the second action copies the expression as typed; a message such as
-/// "Exchange rates unavailable" has no action.
+/// copies the result, the second action pastes it into the app the palette was summoned over; a
+/// message such as "Can't divide by zero" has no action.
 @MainActor
 final class CalculatorSource: ResultSource {
     let id = "calculator"
@@ -28,11 +28,8 @@ final class CalculatorSource: ResultSource {
             let result = Calculator.evaluate(
                 query.text, rates: rates.rates, defaultCurrency: defaultCurrency, locale: .current)
         else { return [] }
-        let expression = query.text.trimmingCharacters(in: .whitespaces)
         let actions: [Item.Action] =
-            result.copyText.map {
-                [.copy(text: $0, title: "Copy Result"), .copy(text: expression, title: "Copy Expression")]
-            } ?? []
+            result.copyText.map { [.copy(text: $0, title: "Copy Result"), .paste(text: $0)] } ?? []
         return [
             Item(
                 id: "calculator:answer", title: result.display, subtitle: result.detail,
