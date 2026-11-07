@@ -328,3 +328,24 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(agents.checks == [.apple, .apple])
     #expect(agents.runs.count == 1)
 }
+
+@MainActor @Test func whatWasSelectedFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let runner = AskAIRunner(backend: agents.backend, interval: .zero)
+    let context = try #require(SummonContext(app: "Mail", text: "Dear Anna, thanks again."))
+    var shown: [RunResult] = []
+    let stream = runner.run(
+        Invocation(command: askAI.id, text: "translate this to German", context: context), retry: .never)
+    let reading = Task {
+        for try await result in stream { shown.append(result) }
+    }
+    defer { reading.cancel() }
+    #expect(await eventually { !agents.runs.isEmpty })
+    let prompt = try #require(agents.runs.first).request.prompt
+    #expect(prompt == "translate this to German\n\n" + context.promptBlock)
+    var title: String? {
+        guard case .show(.detail(let detail)) = shown.last else { return nil }
+        return detail.title
+    }
+    #expect(await eventually { title == "translate this to German" })
+}

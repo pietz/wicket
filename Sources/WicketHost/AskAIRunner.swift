@@ -85,7 +85,8 @@ public final class AskAIRunner: CommandRunner {
         let task = Task {
             do {
                 guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
-                try await answer(prompt, command: invocation.command, continuation)
+                try await answer(
+                    prompt, context: invocation.context, command: invocation.command, continuation)
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -106,8 +107,11 @@ public final class AskAIRunner: CommandRunner {
         for task in tasks { await task.value }
     }
 
+    /// Asks `prompt`, followed by what the user had selected at summon (`context`) as a tagged block;
+    /// the frame's title, and Retry, stay the question alone.
     private func answer(
-        _ prompt: String, command: CommandID, _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
+        _ prompt: String, context: SummonContext?, command: CommandID,
+        _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         let start = ContinuousClock.now
         let provider: AgentProvider
@@ -129,7 +133,9 @@ public final class AskAIRunner: CommandRunner {
         defer { try? FileManager.default.removeItem(at: folder) }
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         defer { throttle.cancel() }
-        let request = AgentRequest(prompt: prompt, workingDirectory: folder, mode: .answer)
+        let request = AgentRequest(
+            prompt: context.map { prompt + "\n\n" + $0.promptBlock } ?? prompt, workingDirectory: folder,
+            mode: .answer)
         let run = await backend.run(provider, request)
         // However this ends (answer, failure, cancellation), it returns only once the agent's
         // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
