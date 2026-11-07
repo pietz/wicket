@@ -26,6 +26,8 @@ public final class ExtensionRootSource: ResultSource {
         let matching = extensions.rootCommands(matching: query.text)
         guard !matching.isEmpty else { return nil }
         let commands = matching.map(\.id)
+        // Bound to the revision each was registered from, like any run when it starts.
+        let revision = Dictionary(matching.map { ($0.id, $0.revision) }, uniquingKeysWith: { a, _ in a })
         // Root queries are searches, so their manifest translation makes them safe to repeat.
         let retry = Dictionary(matching.map { ($0.id, $0.retry) }, uniquingKeysWith: { a, _ in a })
         let text = query.text
@@ -38,7 +40,14 @@ public final class ExtensionRootSource: ResultSource {
                 await withTaskGroup(of: (CommandID, Result<RunResult, any Error>).self) { group in
                     for command in commands {
                         group.addTask {
-                            await (command, Self.ask(extensions, command, text, retry[command] ?? .never))
+                            await (
+                                command,
+                                Self.ask(
+                                    extensions,
+                                    Invocation(
+                                        command: command, text: text, revision: revision[command] ?? nil),
+                                    retry[command] ?? .never)
+                            )
                         }
                     }
                     for await (command, outcome) in group {
@@ -58,11 +67,10 @@ public final class ExtensionRootSource: ResultSource {
     }
 
     private static func ask(
-        _ extensions: Extensions, _ command: CommandID, _ text: String, _ retry: RetryPolicy
+        _ extensions: Extensions, _ invocation: Invocation, _ retry: RetryPolicy
     ) async -> Result<RunResult, any Error> {
         do {
-            return .success(
-                try await extensions.result(of: Invocation(command: command, text: text), retry: retry))
+            return .success(try await extensions.result(of: invocation, retry: retry))
         } catch {
             return .failure(error)
         }

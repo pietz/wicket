@@ -157,7 +157,8 @@ private final class Harness {
             sources: [apps, calculator],
             work: [.apps: work(.apps), .calculator: work(.calculator)], builtins: builtins,
             extensions: Extensions(
-                directory: directory.appending(path: "extensions"), diagnostics: diagnostics),
+                directory: directory.appending(path: "extensions"),
+                store: RevisionStore(root: directory.appending(path: "revisions")), diagnostics: diagnostics),
             usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
         harness = self

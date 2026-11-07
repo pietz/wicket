@@ -454,3 +454,91 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(!session.stopCommands { _ in true })
     #expect(session.frames.count == 2)
 }
+
+// MARK: Frames bound to a revision
+
+private func revision(_ sha: String) -> ExtensionRevision {
+    ExtensionRevision(extensionID: "x", sha256: sha)
+}
+
+@MainActor @Test func aRunBindsTheRevisionActiveWhenItStarts() {
+    var command = search
+    command.revision = revision("a")
+    #expect(CommandRun(command, .keyword, text: "heart").invocation.revision == revision("a"))
+    // A run action's own revision wins: it is what showed the row.
+    #expect(CommandRun(command, .invoked, revision: revision("old")).invocation.revision == revision("old"))
+}
+
+@MainActor @Test func aChangedRevisionRerunsASearchAndStopsAnythingElse() async {
+    var live = search
+    live.revision = revision("a")
+    var once = reviews
+    once.revision = revision("a")
+    let registry = CommandRegistry()
+    registry.setExtensionCommands([live, once])
+    let runner = FakeRunner()
+    let session = PaletteSession(sources: [], runner: runner, registry: registry, liveDebounce: .zero)
+
+    // A live search, with a detail pushed from its content.
+    session.query = "uc heart"
+    #expect(await eventually { runner.runs.count == 1 })
+    #expect(runner.runs[0].invocation.revision == revision("a"))
+    runner.runs[0].continuation.yield(.show(.list([row("Heart")])))
+    #expect(await eventually { titles(session) == ["Heart"] })
+    session.push(Detail(title: "Heart", markdown: "", actions: []))
+
+    // Unchanged: nothing happens.
+    #expect(!session.rebind { registry.command($0) })
+
+    live.revision = revision("b")
+    registry.setExtensionCommands([live, once])
+    #expect(session.rebind { registry.command($0) })
+    // The search runs again on the new revision with the same text; the detail from its old
+    // content goes, and the old run ends.
+    #expect(session.frames.count == 2)
+    #expect(await eventually { runner.runs.count == 2 })
+    #expect(runner.runs[1].invocation.revision == revision("b"))
+    #expect(runner.runs[1].invocation.text == "heart")
+    #expect(await eventually { runner.wasEnded(0) })
+
+    // A once command that may change something stops, saying why.
+    session.reset()
+    session.open(CommandRun(once, .invoked))
+    #expect(await eventually { runner.runs.count == 3 })
+    runner.runs[2].continuation.yield(.show(.list([row("PR 1")])))
+    #expect(await eventually { session.frames.count == 2 })
+    once.revision = revision("b")
+    registry.setExtensionCommands([live, once])
+    #expect(session.rebind { registry.command($0) })
+    #expect(runner.runs.count == 3)
+    guard case .detail(let failure)? = content(session)?.screen else {
+        Issue.record("no failure shown")
+        return
+    }
+    #expect(failure.markdown.contains("changed since this was opened"))
+    #expect(await eventually { runner.wasEnded(2) })
+    // A late answer of the stopped run shows nothing.
+    runner.runs[2].continuation.yield(.show(.list([row("late")])))
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(titles(session).isEmpty)
+}
+
+@MainActor @Test func aChangedRevisionStopsAnOpeningThatMayNotRepeat() async {
+    var once = reviews
+    once.revision = revision("a")
+    let registry = CommandRegistry()
+    registry.setExtensionCommands([once])
+    let runner = FakeRunner()
+    let session = PaletteSession(sources: [], runner: runner, registry: registry)
+    session.open(CommandRun(once, .invoked))
+    #expect(await eventually { runner.runs.count == 1 })
+    once.revision = revision("b")
+    registry.setExtensionCommands([once])
+    #expect(session.rebind { registry.command($0) })
+    #expect(session.opening == nil)
+    #expect(session.frames.count == 2)
+    #expect(await eventually { runner.wasEnded(0) })
+    runner.runs[0].continuation.yield(.show(.list([row("late")])))
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(titles(session).isEmpty)
+}

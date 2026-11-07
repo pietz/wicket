@@ -125,10 +125,10 @@ private func leakyExtension() throws -> TestExtension {
 @MainActor @Test func sessionsAndFailedRunsFeedTheDiagnosticsWithoutSecretsOrQueries() async throws {
     let ext = try leakyExtension()
     let secret = "s3cret-value-42"
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
         testConfiguration(secrets: ["LEAKY_TOKEN": secret])
     }
-    extensions.load()
+    await extensions.load().value
     let command = CommandID.extension("leaky", "go")
     await #expect(throws: ExtensionError.self) {
         try await extensions.result(of: Invocation(command: command, text: "private-words"), retry: .never)
@@ -149,7 +149,7 @@ private func leakyExtension() throws -> TestExtension {
 
     // A changed folder's session reports go with its old code; its manifest problem comes in.
     try Data("{".utf8).write(to: ext.folder.appending(path: "wicket.json"))
-    extensions.load(changed: [ext.folder.path])
+    await extensions.load(changed: [ext.folder.path]).value
     #expect(diagnostics.report(forExtension: "leaky").map(\.kind) == [.discovery])
     #expect(extensions.commands.isEmpty)
 }
@@ -173,9 +173,10 @@ private func actingExtension() throws -> TestExtension {
 
 @MainActor @Test func aRunFromAReplacedRevisionIsRefused() async throws {
     let ext = try actingExtension()
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in testConfiguration()
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+        testConfiguration()
     }
-    extensions.load()
+    await extensions.load().value
     let registry = CommandRegistry()
     registry.setExtensionCommands(extensions.commands)
     let dispatcher = ActionDispatcher(registry: registry, effects: NoEffects())
@@ -198,13 +199,13 @@ private func actingExtension() throws -> TestExtension {
     // Touched but not changed: the same revision, so it still runs.
     let main = ext.folder.appending(path: "main.sh")
     try Data(contentsOf: main).write(to: main)
-    extensions.load(changed: [main.path])
+    await extensions.load(changed: [main.path]).value
     #expect(extensions.revisions["acting"] == loaded)
     #expect(try await extensions.result(of: current, retry: .never) == .close(message: "acted"))
 
     // Changed: the row shown from the old code no longer runs anything.
     try Data((String(decoding: Data(contentsOf: main), as: UTF8.self) + "\n# v2\n").utf8).write(to: main)
-    extensions.load(changed: [main.path])
+    await extensions.load(changed: [main.path]).value
     #expect(extensions.revisions["acting"] != loaded)
     await #expect(throws: HostError.extensionChanged) {
         try await extensions.result(of: current, retry: .never)

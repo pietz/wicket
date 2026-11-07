@@ -2,8 +2,8 @@ import Darwin
 import Foundation
 import WicketCore
 
-/// Where `wicket check` runs candidate code: a scratch folder holding a sealed copy of the candidate,
-/// its own home, temp and data folders, and a sandbox profile that keeps the process inside them.
+/// Where `wicket check` runs candidate code: the sealed revision's read-only folder, a scratch folder
+/// with its own home, temp and data folders, and a sandbox profile that keeps the process inside them.
 ///
 /// The candidate never sees the user's secrets, environment or files: declared secrets are
 /// placeholders, the environment is built from nothing, and the process runs under `sandbox-exec`
@@ -17,7 +17,7 @@ struct CheckIsolation {
 
     /// The scratch folder, with symlinks resolved (the sandbox matches resolved paths).
     let scratch: URL
-    /// The sealed copy of the candidate, under its original folder name.
+    /// The sealed revision's folder, with symlinks resolved: read-only, readable in the sandbox.
     let candidate: URL
     let home: URL
     let temporary: URL
@@ -30,8 +30,13 @@ struct CheckIsolation {
         return realPath(home) ?? home
     }
 
-    /// Copies `folder` into a fresh scratch folder. The sandbox profile is written by `seal`.
-    init(sealing folder: URL) throws(CheckIsolationError) {
+    /// A fresh scratch folder for checking `candidate`, a sealed revision's read-only folder, in
+    /// place. The sandbox profile is written by `seal`.
+    init(candidate folder: URL) throws(CheckIsolationError) {
+        guard let candidate = Self.realPath(folder.path) else {
+            throw .setup("could not resolve the sealed folder")
+        }
+        self.candidate = URL(filePath: candidate, directoryHint: .isDirectory)
         let base = FileManager.default.temporaryDirectory.appending(
             path: "wicket-check-\(UUID().uuidString)", directoryHint: .isDirectory)
         do {
@@ -44,19 +49,17 @@ struct CheckIsolation {
             throw .setup("could not resolve the scratch folder")
         }
         scratch = URL(filePath: resolved, directoryHint: .isDirectory)
-        candidate = scratch.appending(path: "candidate/\(folder.standardizedFileURL.lastPathComponent)")
         home = scratch.appending(path: "home", directoryHint: .isDirectory)
         temporary = scratch.appending(path: "tmp", directoryHint: .isDirectory)
         data = scratch.appending(path: "data", directoryHint: .isDirectory)
         profile = scratch.appending(path: "sandbox.sb")
         do {
-            for directory in [home, temporary, data, candidate.deletingLastPathComponent()] {
+            for directory in [home, temporary, data] {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             }
-            try FileManager.default.copyItem(at: folder, to: candidate)
         } catch {
             remove()
-            throw .setup("could not copy the extension into a scratch folder: \(error.localizedDescription)")
+            throw .setup("could not create a scratch folder: \(error.localizedDescription)")
         }
     }
 
@@ -84,13 +87,13 @@ struct CheckIsolation {
     }
 
     /// Writes the sandbox profile for running `program` (resolved from `run`, nil if it wasn't
-    /// found): it may read the scratch folder and what `program` needs (`ProgramReads`), and none of
-    /// the user's files (`privateRoots(home:)`).
+    /// found): it may read the scratch folder, the candidate and what `program` needs
+    /// (`ProgramReads`), and none of the user's files (`privateRoots(home:)`).
     func seal(program: URL?, userHome: String = userHome) throws(CheckIsolationError) {
         let reads = program.map { ProgramReads($0.path, home: userHome) } ?? ProgramReads()
         let text = Self.profile(
             writable: [home.path, temporary.path, data.path], private: Self.privateRoots(home: userHome),
-            readable: [scratch.path] + reads.folders, paths: reads.paths)
+            readable: [scratch.path, candidate.path] + reads.folders, paths: reads.paths)
         do {
             try Data(text.utf8).write(to: profile)
         } catch {

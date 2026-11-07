@@ -62,12 +62,12 @@ private func link(_ path: String, to target: String, in folder: URL) throws {
     #expect(try revision(ext) != plain)
 }
 
-@Test func toolStateAndCachesAreSkipped() throws {
+@Test func toolStateAndCachesAreSkippedButDependenciesCount() throws {
     let ext = try folder([("main.py", "print(1)")])
     let clean = try revision(ext)
     for path in [
-        ".git/HEAD", "node_modules/x/index.js", ".venv/bin/python", "__pycache__/main.pyc",
-        ".claude/settings.json", ".DS_Store", "lib/__pycache__/util.pyc", "lib/.DS_Store",
+        ".git/HEAD", "__pycache__/main.pyc", ".claude/settings.json", ".DS_Store",
+        "lib/__pycache__/util.pyc", "lib/.DS_Store",
     ] {
         let url = ext.appending(path: path)
         try FileManager.default.createDirectory(
@@ -78,7 +78,17 @@ private func link(_ path: String, to target: String, in folder: URL) throws {
     #expect(try revision(ext) == clean)
     // Other hidden files are code or configuration like any other.
     try Data("KEY=1".utf8).write(to: ext.appending(path: ".env"))
-    #expect(try revision(ext) != clean)
+    let configured = try revision(ext)
+    #expect(configured != clean)
+    // Dependencies run, so they are part of the revision.
+    for path in ["node_modules/x/index.js", "vendor/requests/__init__.py"] {
+        let before = try revision(ext)
+        let url = ext.appending(path: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("code".utf8).write(to: url)
+        #expect(try revision(ext) != before)
+    }
 }
 
 @Test func linksMustBeRelativeAndStayInside() throws {
@@ -99,11 +109,11 @@ private func link(_ path: String, to target: String, in folder: URL) throws {
         ("out.py", "../outside.py", RevisionError.symlinkOutside("out.py")),
         ("abs.py", outside.path, .symlinkAbsolute("abs.py")),
         ("gone.py", "missing.py", .symlinkDangling("gone.py")),
-        ("mods", "node_modules", .symlinkOutside("mods")),
+        ("git", ".git", .symlinkOutside("git")),
     ] {
-        if name == "mods" {
+        if name == "git" {
             try FileManager.default.createDirectory(
-                at: ext.appending(path: "node_modules"), withIntermediateDirectories: true)
+                at: ext.appending(path: ".git"), withIntermediateDirectories: true)
         }
         try link(name, to: target, in: ext)
         #expect(throws: error) { try revision(ext) }
@@ -126,17 +136,18 @@ private func link(_ path: String, to target: String, in folder: URL) throws {
     #expect(throws: RevisionError.tooLarge(limit: ExtensionRevision.byteLimit)) { try revision(ext) }
     // Inside a skipped folder it costs nothing.
     try FileManager.default.createDirectory(
-        at: ext.appending(path: ".venv"), withIntermediateDirectories: true)
-    try FileManager.default.moveItem(at: big, to: ext.appending(path: ".venv/model.bin"))
+        at: ext.appending(path: ".git"), withIntermediateDirectories: true)
+    try FileManager.default.moveItem(at: big, to: ext.appending(path: ".git/model.bin"))
     #expect(throws: Never.self) { try revision(ext) }
 }
 
-@MainActor @Test func aFolderWithoutARevisionIsNotInstalled() throws {
+@MainActor @Test func aFolderWithoutARevisionIsNotInstalled() async throws {
     let ext = try TestExtension(script: answering(#"{"close":{}}"#))
     try link("escape", to: "..", in: ext.folder)
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in testConfiguration()
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+        testConfiguration()
     }
-    extensions.load()
+    await extensions.load().value
     #expect(extensions.commands.isEmpty)
     #expect(
         extensions.diagnostics.text(for: .extension("test"), kind: .discovery)

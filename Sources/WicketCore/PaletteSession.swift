@@ -133,6 +133,59 @@ public final class PaletteSession {
         return stopped
     }
 
+    /// Reconciles runs with the catalog after it changed which revision a command runs: a run whose
+    /// bound revision (`Invocation.revision`) is no longer its command's (`current`) is stale. A
+    /// stale run that is safe to repeat (a search, a repeatable read) starts again on the command
+    /// as it is now, keeping its text and args; any other stops, its frame saying the extension
+    /// changed, since running it again could change something twice. Either way the frames above
+    /// it, opened from its old content, go. A command that is gone is `stopCommands`' job. Returns
+    /// whether anything changed.
+    @discardableResult
+    public func rebind(to current: (CommandID) -> RegisteredCommand?) -> Bool {
+        func stale(_ run: CommandRun) -> RegisteredCommand? {
+            guard let revision = run.invocation.revision, let command = current(run.command.id),
+                command.revision != revision
+            else { return nil }
+            return command
+        }
+        func repeatable(_ run: CommandRun, as command: RegisteredCommand) -> Bool {
+            run.retry == .safeToRepeat && command.retry == .safeToRepeat && command.input == run.command.input
+        }
+        var changed = false
+        if let run = opening, let command = stale(run) {
+            changed = true
+            if repeatable(run, as: command) {
+                open(run.rebound(to: command))
+            } else if var frame = openingFrame {
+                cancel(frame.id)
+                frame.generation += 1
+                openingFrame = frame
+                fail(Ticket(frame: frame.id, generation: frame.generation), Self.changedMessage)
+            }
+        }
+        let index = frames.firstIndex { frame in
+            guard case .screen(let screen) = frame.content, let run = screen.run else { return false }
+            return stale(run) != nil
+        }
+        guard let index, case .screen(var screen) = frames[index].content, let run = screen.run,
+            let command = stale(run)
+        else { return changed }
+        for frame in frames[(index + 1)...] { cancel(frame.id) }
+        frames.removeSubrange((index + 1)...)
+        if repeatable(run, as: command) {
+            screen.rebind(run.rebound(to: command))
+            frames[index].content = .screen(screen)
+            start(index)
+        } else {
+            cancel(frames[index].id)
+            frames[index].generation += 1
+            fail(Ticket(frame: frames[index].id, generation: frames[index].generation), Self.changedMessage)
+        }
+        return true
+    }
+
+    static let changedMessage = "The extension changed since this was opened; run it again."
+
     public func moveSelection(by delta: Int) {
         frames[frames.count - 1].moveSelection(by: delta)
     }

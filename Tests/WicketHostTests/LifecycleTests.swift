@@ -120,10 +120,10 @@ private struct NoEffects: ActionEffects {
     let ext = try TestExtension(script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
         testConfiguration { $0.dataDirectory = data }
     }
-    extensions.load()
+    await extensions.load().value
     let command = Invocation(command: try #require(extensions.commands.first).id)
     #expect(try await extensions.result(of: command, retry: .safeToRepeat) == .close(message: nil))
     let child = try #require(pid_t(String(contentsOf: data.appending(path: "pid"), encoding: .utf8)))
@@ -150,21 +150,22 @@ private struct NoEffects: ActionEffects {
     let ext = try TestExtension(script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
         testConfiguration { $0.dataDirectory = data }
     }
-    extensions.load()
+    await extensions.load().value
     let command = Invocation(command: try #require(extensions.commands.first).id)
     #expect(try await extensions.result(of: command, retry: .safeToRepeat) == .close(message: nil))
 
-    extensions.load(changed: [ext.folder.appending(path: "main.sh").path])
+    try ext.change("main.sh")
+    await extensions.load(changed: [ext.folder.appending(path: "main.sh").path]).value
     #expect(try await extensions.result(of: command, retry: .safeToRepeat) == .close(message: nil))
     let log = try String(contentsOf: data.appending(path: "log"), encoding: .utf8)
     #expect(log.split(separator: "\n") == ["start", "end", "start"])
 
     // A removed extension's commands are unknown, and its session is stopped.
     try FileManager.default.removeItem(at: ext.folder)
-    extensions.load()
+    await extensions.load().value
     await #expect(throws: HostError.unknownCommand) {
         try await extensions.result(of: command, retry: .safeToRepeat)
     }
@@ -246,20 +247,21 @@ private struct NoEffects: ActionEffects {
     let ext = try TestExtension(script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
         testConfiguration { $0.dataDirectory = data }
     }
-    extensions.load()
+    await extensions.load().value
     let command = Invocation(command: try #require(extensions.commands.first).id)
     #expect(try await extensions.result(of: command, retry: .safeToRepeat) == .close(message: nil))
 
-    extensions.load(changed: [ext.folder.appending(path: "main.sh").path])
+    try ext.change("main.sh")
+    await extensions.load(changed: [ext.folder.appending(path: "main.sh").path]).value
     #expect(try await extensions.result(of: command, retry: .safeToRepeat) == .close(message: nil))
     let log = try String(contentsOf: data.appending(path: "log"), encoding: .utf8)
     #expect(log.split(separator: "\n") == ["start", "term", "gone", "start"])
 
     try FileManager.default.removeItem(at: ext.folder)
-    extensions.load()
+    await extensions.load().value
     await #expect(throws: HostError.unknownCommand) {
         try await extensions.result(of: command, retry: .safeToRepeat)
     }

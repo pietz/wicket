@@ -39,42 +39,67 @@ public struct CheckOptions: Sendable {
     }
 }
 
-/// Validates an extension folder by running it the way Wicket does: the manifest, then every
-/// fixture replayed against a fresh process, with every response checked against the protocol.
+/// What the checker found about one sealed revision: the revision checked is the one that runs.
+public struct CheckedRevision: Sendable {
+    public let sealed: SealedRevision
+    public let report: CheckReport
+    public var passed: Bool { report.passed }
+}
+
+/// Validates an extension by running it the way Wicket does: the manifest, then every fixture
+/// replayed against a fresh process, with every response checked against the protocol.
 ///
-/// The check is the gate before code is approved, so it is isolated (`CheckIsolation`): it runs a
-/// sealed copy of the folder in a sandbox, with placeholder secrets, a minimal environment and
-/// scratch data, never the user's own. Without a fixture nothing runs.
+/// The check is the gate before code is approved, so it checks a sealed revision (the exact,
+/// read-only bytes that would run) and is isolated (`CheckIsolation`): it runs in a sandbox, with
+/// placeholder secrets, a minimal environment and scratch data, never the user's own. Without a
+/// fixture nothing runs.
 public enum Checker {
-    public static func check(_ folder: URL, options: CheckOptions) async -> CheckReport {
+    /// Checks `sealed` in its retained folder.
+    public static func check(_ sealed: SealedRevision, options: CheckOptions) async -> CheckedRevision {
+        CheckedRevision(sealed: sealed, report: await report(sealed, options: options))
+    }
+
+    /// `wicket check <folder>`: seals the folder into a temporary store, checks that revision, and
+    /// deletes the store. A folder that can't be sealed (no valid manifest, a bad link, too large)
+    /// fails with why; a folder not named after its id only warns, since authors may work anywhere.
+    public static func check(folder: URL, options: CheckOptions) async -> CheckReport {
+        let store = RevisionStore.temporary()
+        defer { store.removeAll() }
+        let sealed: SealedRevision
+        do {
+            sealed = try store.seal(folder)
+        } catch {
+            var report = CheckReport()
+            report.add(.error, error.description)
+            return report
+        }
+        var report = await report(sealed, options: options)
+        let folderName = folder.standardizedFileURL.lastPathComponent
+        if folderName != sealed.manifest.id {
+            report.add(
+                .warning,
+                "the folder is named \(folderName) but the id is \(sealed.manifest.id); installed extensions live in a folder named after the id"
+            )
+        }
+        return report
+    }
+
+    private static func report(_ sealed: SealedRevision, options: CheckOptions) async -> CheckReport {
         var report = CheckReport()
         let isolation: CheckIsolation
         do {
-            isolation = try CheckIsolation(sealing: folder)
+            isolation = try CheckIsolation(candidate: sealed.folder)
         } catch {
             report.add(.error, error.description)
             return report
         }
         defer { isolation.remove() }
-        let manifest: Manifest
-        do {
-            manifest = try Manifest.load(from: isolation.candidate)
-        } catch {
-            report.add(.error, error.description)
-            return report
-        }
+        let manifest = sealed.manifest
         let commands = manifest.commands.count
         report.add(
             .ok,
             "\(Manifest.fileName): \(manifest.id) \(manifest.version), \(commands) command\(commands == 1 ? "" : "s")"
         )
-        let folderName = folder.standardizedFileURL.lastPathComponent
-        if folderName != manifest.id {
-            report.add(
-                .warning,
-                "the folder is named \(folderName) but the id is \(manifest.id); installed extensions live in a folder named after the id"
-            )
-        }
 
         let fixtures = fixtureFiles(in: isolation.candidate)
         guard !fixtures.isEmpty else {

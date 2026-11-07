@@ -24,11 +24,15 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     public var isFallback: Bool
     /// The feature it belongs to: while that is off, the command isn't registered.
     public var feature: Feature?
+    /// An extension command's: the active revision it was registered from, which a run of it binds
+    /// to when it starts (`CommandRun`). Nil for built-ins.
+    public var revision: ExtensionRevision?
 
     public init(
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
         isListed: Bool = true, input: CommandInput = .immediateText, retry: RetryPolicy = .never,
-        placeholder: String? = nil, isFallback: Bool = false, feature: Feature? = nil
+        placeholder: String? = nil, isFallback: Bool = false, feature: Feature? = nil,
+        revision: ExtensionRevision? = nil
     ) {
         self.id = id
         self.title = title
@@ -41,15 +45,20 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.placeholder = placeholder
         self.isFallback = isFallback
         self.feature = feature
+        self.revision = revision
     }
 
-    /// A command from an extension's manifest; `icon` is the command's, else the extension's.
-    public init(extension extensionID: String, command: Manifest.Command, icon: Item.Icon?) {
+    /// A command from an extension's manifest; `icon` is the command's, else the extension's;
+    /// `revision` the active revision whose manifest it is.
+    public init(
+        extension extensionID: String, command: Manifest.Command, icon: Item.Icon?,
+        revision: ExtensionRevision? = nil
+    ) {
         self.init(
             id: .extension(extensionID, command.id), title: command.title, subtitle: command.subtitle,
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
             isListed: !command.hidden && command.mode != .root, input: command.input, retry: command.retry,
-            placeholder: command.placeholder)
+            placeholder: command.placeholder, revision: revision)
     }
 
     /// Whether the root offers it: listed, or a fallback. Only these have keywords, and the settings

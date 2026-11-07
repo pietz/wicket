@@ -66,9 +66,9 @@ public struct Invocation: Hashable, Sendable {
     public var text: String
     /// Passed through from a `run` action.
     public var args: [String: JSONValue]?
-    /// The extension revision a `run` action came from: the run fails, rather than run other code,
-    /// if the extension is no longer at it. Nil runs whatever is installed (a row, a keyword, a
-    /// hotkey: the user named the command, not a row an old version made).
+    /// The extension revision the run is bound to: the one a `run` action came from, or the
+    /// command's active revision when the run started (`CommandRun`). The run fails, rather than
+    /// run other code, if that revision is no longer active. Nil runs whatever is active.
     public var revision: ExtensionRevision?
 
     public init(
@@ -151,6 +151,8 @@ public struct CommandRun: Sendable, Hashable {
     ///   (a keyword's rest of the line is put in the field, never run);
     /// - `liveText` shows its frame at once, searching the text.
     /// A run may be resent only if the command says so (`RegisteredCommand.retry`), however it came.
+    /// It is bound to `revision` (a `run` action's) or else the command's own: the revision active
+    /// when it starts, so a change of the extension afterwards never runs it on other code.
     public init(
         _ command: RegisteredCommand, _ trigger: CommandTrigger, text: String = "",
         args: [String: JSONValue]? = nil, revision: ExtensionRevision? = nil
@@ -177,8 +179,17 @@ public struct CommandRun: Sendable, Hashable {
         }
         self.init(
             command: command,
-            invocation: Invocation(command: command.id, text: runText, args: args, revision: revision),
+            invocation: Invocation(
+                command: command.id, text: runText, args: args, revision: revision ?? command.revision),
             retry: command.retry, query: query)
+    }
+
+    /// This run bound to `command`'s registration as it is now (its revision, title, retry), with
+    /// the same text, args and query: what a frame safe to repeat runs after its extension changed.
+    public func rebound(to command: RegisteredCommand) -> CommandRun {
+        var invocation = invocation
+        invocation.revision = command.revision
+        return CommandRun(command: command, invocation: invocation, retry: command.retry, query: query)
     }
 
     /// A submit-text command reached without text: its frame runs nothing until the text is

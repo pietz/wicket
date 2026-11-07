@@ -26,6 +26,13 @@ struct TestExtension {
 
     var manifest: Manifest { get throws { try Manifest.load(from: folder) } }
 
+    /// Appends a comment line to the file at `path`, so the folder has a new revision.
+    func change(_ path: String = "main.sh") throws {
+        let url = folder.appending(path: path)
+        try (String(contentsOf: url, encoding: .utf8) + "\n# changed \(UUID().uuidString)\n").write(
+            to: url, atomically: false, encoding: .utf8)
+    }
+
     func session(_ configure: (inout SessionConfiguration) -> Void = { _ in }) throws -> ExtensionSession {
         try ExtensionSession(manifest: manifest, folder: folder, configuration: testConfiguration(configure))
     }
@@ -60,6 +67,13 @@ func answering(_ result: String) -> String {
     """
 }
 
+/// A revision store in a fresh temporary folder, so tests never touch Application Support.
+func testStore() -> RevisionStore {
+    RevisionStore(
+        root: FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/revisions-\(UUID().uuidString)", directoryHint: .isDirectory))
+}
+
 func checkOptions(_ configure: (inout CheckOptions) -> Void = { _ in }) -> CheckOptions {
     var options = CheckOptions(version: "test")
     options.requestTimeout = .seconds(1)
@@ -69,7 +83,7 @@ func checkOptions(_ configure: (inout CheckOptions) -> Void = { _ in }) -> Check
 }
 
 func check(_ ext: TestExtension, _ configure: (inout CheckOptions) -> Void = { _ in }) async -> CheckReport {
-    await Checker.check(ext.folder, options: checkOptions(configure))
+    await Checker.check(folder: ext.folder, options: checkOptions(configure))
 }
 
 private let repository = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../..")
@@ -83,7 +97,7 @@ private let repository = URL(filePath: #filePath).deletingLastPathComponent().ap
 ])
 func samplesPass(path: String) async {
     let report = await Checker.check(
-        repository.appending(path: path), options: checkOptions { $0.requestTimeout = .seconds(30) })
+        folder: repository.appending(path: path), options: checkOptions { $0.requestTimeout = .seconds(30) })
     #expect(report.passed, "\(report.errors)")
 }
 

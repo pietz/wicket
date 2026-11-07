@@ -7,9 +7,10 @@ import WicketHost
 let usage = """
     usage: wicket check <folder>
                Validate the manifest, replay every session.jsonl fixture against the extension and
-               check each response against the protocol. Exits 1 if anything fails. Runs a sealed
-               copy in a sandbox (no network, no writes outside scratch folders) with placeholder
-               secrets, WICKET_CHECK=1 and none of your environment; without a fixture it runs nothing.
+               check each response against the protocol. Exits 1 if anything fails. Seals a
+               read-only copy, as Wicket installs it, and runs that in a sandbox (no network, no
+               writes outside scratch folders) with placeholder secrets, WICKET_CHECK=1 and none
+               of your environment; without a fixture it runs nothing.
            wicket run <folder> <command> [text] [--args <json-object>]
                Send one run request and print the response line as the extension wrote it. Runs
                the folder itself, unsandboxed, with your environment and real secrets.
@@ -51,7 +52,7 @@ func folder(_ path: String) -> URL {
 }
 
 func check(_ path: String) async -> Never {
-    let report = await Checker.check(folder(path), options: CheckOptions(version: appVersion()))
+    let report = await Checker.check(folder: folder(path), options: CheckOptions(version: appVersion()))
     for line in report.lines { print("\(line.kind.rawValue): \(line.text)") }
     let errors = report.errors.count
     print(report.passed ? "check passed" : "check failed: \(errors) error\(errors == 1 ? "" : "s")")

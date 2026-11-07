@@ -32,7 +32,7 @@ private struct Palette {
     let root: ExtensionRootSource
 
     /// `samples` are paths relative to the repository; `extra` are folders already in place.
-    init(samples: [String], extra: [TestExtension] = [], data: URL? = nil) throws {
+    init(samples: [String], extra: [TestExtension] = [], data: URL? = nil) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/palette-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -53,14 +53,14 @@ private struct Palette {
             try FileManager.default.moveItem(
                 at: ext.folder, to: directory.appending(path: ext.folder.lastPathComponent))
         }
-        extensions = Extensions(directory: directory) { _ in
+        extensions = Extensions(directory: directory, store: testStore()) { _ in
             testConfiguration(secrets: ["GITHUB_TOKEN": "unused"]) {
                 $0.requestTimeout = .seconds(30)
                 $0.idleTimeout = .seconds(2)
                 if let data { $0.dataDirectory = data }
             }
         }
-        extensions.load()
+        await extensions.load().value
         let registry = CommandRegistry()
         registry.setExtensionCommands(extensions.commands)
         root = ExtensionRootSource(extensions, debounce: .milliseconds(30))
@@ -115,7 +115,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor
 @Test func githubPullRequestsFromTheirRowAndKeyword() async throws {
-    let palette = try Palette(samples: ["Extensions/github-prs"])
+    let palette = try await Palette(samples: ["Extensions/github-prs"])
     let session = palette.session
 
     // Return on the command's row opens its frame once the list has arrived.
@@ -169,7 +169,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor
 @Test func unicodeSearchesLiveAndDrillsDown() async throws {
-    let palette = try Palette(samples: ["docs/examples/unicode"])
+    let palette = try await Palette(samples: ["docs/examples/unicode"])
     let session = palette.session
 
     session.query = "uc "
@@ -199,7 +199,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor
 @Test func weekNumberAnswersInItsFrame() async throws {
-    let palette = try Palette(samples: ["docs/examples/week-number"])
+    let palette = try await Palette(samples: ["docs/examples/week-number"])
     palette.session.query = "week "
     #expect(await eventually { palette.screen != nil })
     guard case .answer(let answer) = palette.screen else {
@@ -214,7 +214,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor
 @Test func quitAppsListsAppsAndFailsVisiblyForAGhost() async throws {
-    let palette = try Palette(samples: ["Extensions/quit-apps", "Extensions/system-toggles"])
+    let palette = try await Palette(samples: ["Extensions/quit-apps", "Extensions/system-toggles"])
     let session = palette.session
 
     // System toggles are commands like any other; running one would change this Mac, so only look.
@@ -281,7 +281,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let palette = try Palette(samples: [], extra: [ext], data: data)
+    let palette = try await Palette(samples: [], extra: [ext], data: data)
     let session = palette.session
     let log = { (try? String(contentsOf: data.appending(path: "log"), encoding: .utf8)) ?? "" }
 

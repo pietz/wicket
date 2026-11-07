@@ -1,0 +1,290 @@
+import Darwin
+import Foundation
+import Synchronization
+import Testing
+import WicketCore
+
+@testable import WicketHost
+
+// Sealed revisions and the active catalog (docs/architecture.md, "Revisions" and "Extension
+// lifecycle"): what is checked and what runs is a retained, read-only copy, never the folder an
+// agent is still writing.
+
+/// The mode bits of `path`, without following a link.
+private func mode(_ path: String) -> mode_t {
+    var info = stat()
+    lstat(path, &info)
+    return info.st_mode & 0o777
+}
+
+/// A one-shot extension: answers one request with the contents of `title.txt` as an answer's
+/// title, then exits, so every run starts a fresh process from whatever folder the session runs.
+private func titled(_ title: String, id: String = "titled") throws -> TestExtension {
+    let ext = try TestExtension(
+        id: id, commands: #"[{"id":"go","title":"Go","repeatable":true}]"#,
+        script: #"""
+            read -r line
+            id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+            printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"%s"}}}\n' "$id" "$(cat title.txt)"
+            """#)
+    try Data(title.utf8).write(to: ext.folder.appending(path: "title.txt"))
+    return ext
+}
+
+@MainActor
+private func title(_ extensions: Extensions, _ id: String = "titled") async throws -> String? {
+    let result = try await extensions.result(
+        of: Invocation(command: .extension(id, "go")), retry: .safeToRepeat)
+    guard case .show(.answer(let item)) = result else { return nil }
+    return item.title
+}
+
+@Test func sealingKeepsAReadOnlyCopyOfWhatRunsAndHashesIt() throws {
+    let ext = try titled("v1")
+    let folder = ext.folder
+    chmod(folder.appending(path: "main.sh").path, 0o755)
+    for (path, text) in [
+        ("node_modules/left-pad/index.js", "module.exports = 1"), (".git/HEAD", "ref"),
+        ("__pycache__/x.pyc", "cache"), (".claude/settings.json", "{}"),
+    ] {
+        let url = folder.appending(path: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+    try FileManager.default.createSymbolicLink(
+        atPath: folder.appending(path: "node_modules/pad.js").path, withDestinationPath: "left-pad/index.js")
+
+    let store = testStore()
+    let sealed = try store.seal(folder, id: "titled")
+    #expect(sealed.folder.path.hasPrefix(store.root.path + "/titled/"))
+    #expect(sealed.folder.lastPathComponent == sealed.revision.sha256)
+    #expect(sealed.manifest.id == "titled")
+    // The revision is the hash of the bytes kept, and the authoring folder's too.
+    #expect(try ExtensionRevision(folder: sealed.folder, id: "titled") == sealed.revision)
+    #expect(try ExtensionRevision(folder: folder, id: "titled") == sealed.revision)
+    // Dependencies are sealed; tool state and caches are not copied.
+    let kept = sealed.folder.path
+    #expect(FileManager.default.fileExists(atPath: kept + "/node_modules/left-pad/index.js"))
+    #expect(
+        try FileManager.default.destinationOfSymbolicLink(atPath: kept + "/node_modules/pad.js")
+            == "left-pad/index.js")
+    for skipped in [".git", "__pycache__", ".claude"] {
+        #expect(!FileManager.default.fileExists(atPath: kept + "/" + skipped))
+    }
+    // Read-only, the execute bit kept.
+    #expect(mode(kept) == 0o555)
+    #expect(mode(kept + "/node_modules") == 0o555)
+    #expect(mode(kept + "/main.sh") == 0o555)
+    #expect(mode(kept + "/title.txt") & 0o222 == 0)
+    #expect(!FileManager.default.isWritableFile(atPath: kept + "/title.txt"))
+
+    // The same contents again: the same retained folder. Changed contents: a second one.
+    #expect(try store.seal(folder, id: "titled") == sealed)
+    try Data("v2".utf8).write(to: folder.appending(path: "title.txt"))
+    let second = try store.seal(folder, id: "titled")
+    #expect(second.revision != sealed.revision)
+    #expect(try String(contentsOf: sealed.folder.appending(path: "title.txt"), encoding: .utf8) == "v1")
+    #expect(store.retained(sealed.revision) == sealed)
+
+    store.removeAll()
+    #expect(!FileManager.default.fileExists(atPath: store.root.path))
+}
+
+@Test func sealingRefusesWhatItCouldNotKeep() throws {
+    let store = testStore()
+    // A link out of the folder.
+    let escaping = try titled("v1")
+    try FileManager.default.createSymbolicLink(
+        atPath: escaping.folder.appending(path: "escape").path, withDestinationPath: "..")
+    #expect(throws: SealError.revision(.symlinkOutside("escape"))) { try store.seal(escaping.folder) }
+    // A virtualenv: its interpreter is an absolute link, and the message says what to do instead.
+    let venv = try titled("v1")
+    try FileManager.default.createDirectory(
+        at: venv.folder.appending(path: ".venv/bin"), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+        atPath: venv.folder.appending(path: ".venv/bin/python").path, withDestinationPath: "/usr/bin/python3")
+    #expect(throws: SealError.revision(.symlinkAbsolute(".venv/bin/python"))) { try store.seal(venv.folder) }
+    #expect(RevisionError.symlinkAbsolute(".venv/bin/python").description.contains("pip install --target"))
+    // A folder named after another id, and a folder without a manifest.
+    #expect(throws: SealError.wrongID(expected: "other", found: "titled")) {
+        try store.seal(try titled("v1").folder, id: "other")
+    }
+    let empty = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/\(UUID().uuidString)/empty")
+    try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+    #expect(throws: SealError.self) { try store.seal(empty) }
+    // Nothing was kept.
+    let kept = (try? FileManager.default.contentsOfDirectory(atPath: store.root.path)) ?? []
+    #expect(
+        kept.allSatisfy {
+            (try? FileManager.default.contentsOfDirectory(atPath: store.root.path + "/" + $0))?.isEmpty
+                ?? true
+        })
+}
+
+@MainActor @Test func whatRunsIsTheSealedRevisionNotTheAuthoringFolder() async throws {
+    let ext = try titled("v1")
+    let store = testStore()
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: store) { _ in
+        testConfiguration()
+    }
+    await extensions.load().value
+    let sealed = try #require(extensions.activeRevision(of: "titled"))
+    #expect(sealed.folder.path.hasPrefix(store.root.path))
+    #expect(try await title(extensions) == "v1")
+
+    // The agent writes again; until discovery seals it, the next process still runs v1.
+    try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
+    #expect(try await title(extensions) == "v1")
+    await extensions.load(changed: [ext.folder.appending(path: "title.txt").path]).value
+    #expect(extensions.revisions["titled"] != sealed.revision)
+    #expect(try await title(extensions) == "v2")
+}
+
+@Test func theCheckerReturnsTheRevisionItChecked() async throws {
+    let ext = try titled("v1")
+    try Data(
+        (send(1) + "\n" + #"{"expect":{"id":1,"result":{"answer":{"title":"v1"}}}}"#).utf8
+    ).write(to: ext.folder.appending(path: "session.jsonl"))
+    let store = testStore()
+    let sealed = try store.seal(ext.folder)
+    // The authoring folder changes after sealing; the check sees the sealed bytes.
+    try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
+    let checked = await Checker.check(sealed, options: checkOptions())
+    #expect(checked.sealed == sealed)
+    #expect(checked.passed, "\(checked.report.errors)")
+    // The sealed folder is still there, unchanged, for the session that will run it.
+    #expect(try ExtensionRevision(folder: sealed.folder, id: "titled") == sealed.revision)
+}
+
+@MainActor @Test func discoveryShowsEveryFolderButOnlyTheActiveCatalogRuns() async throws {
+    let good = try titled("v1", id: "good")
+    let directory = good.folder.deletingLastPathComponent()
+    let broken = directory.appending(path: "broken")
+    try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+    try Data("{".utf8).write(to: broken.appending(path: "wicket.json"))
+
+    let extensions = Extensions(directory: directory, store: testStore()) { _ in testConfiguration() }
+    await extensions.load().value
+    #expect(extensions.discovered.map(\.id) == ["broken", "good"])
+    guard case .invalid(let reason) = extensions.discovered[0].state else {
+        Issue.record("broken is not invalid")
+        return
+    }
+    #expect(extensions.diagnostics.text(for: .extension("broken"), kind: .discovery) == reason)
+    #expect(extensions.discovered[1].sealed != nil)
+    #expect(extensions.commands.map(\.id) == [.extension("good", "go")])
+    #expect(extensions.commands.first?.revision == extensions.revisions["good"])
+
+    // The activation is the one seam: one that activates nothing leaves discovery as it was and
+    // runs nothing.
+    let none = Extensions(
+        directory: directory, store: testStore(), configuration: { _ in testConfiguration() },
+        activate: { _, _ in [] })
+    await none.load().value
+    #expect(none.discovered.compactMap(\.sealed).map(\.revision.extensionID) == ["good"])
+    #expect(none.commands.isEmpty)
+    await #expect(throws: HostError.unknownCommand) { try await title(none, "good") }
+}
+
+/// Lets the test hold a discovery pass inside the activation, and see where it ran.
+private final class Gate: Sendable {
+    private let state = Mutex((holding: false, entered: false, onMain: false, released: false))
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    var entered: Bool { state.withLock { $0.entered } }
+    var ranOnMain: Bool { state.withLock { $0.onMain } }
+    var wasReleased: Bool { state.withLock { $0.released } }
+
+    /// Whether the next passes wait in the activation for `release`.
+    func hold(_ holding: Bool) { state.withLock { $0.holding = holding } }
+
+    func pass(_ discovered: [DiscoveredExtension]) -> [SealedRevision] {
+        guard state.withLock({ $0.holding }) else { return discovered.compactMap(\.sealed) }
+        state.withLock {
+            $0.entered = true
+            $0.onMain = pthread_main_np() != 0
+        }
+        let released = semaphore.wait(timeout: .now() + 5) == .success
+        state.withLock { $0.released = released }
+        return discovered.compactMap(\.sealed)
+    }
+
+    func release() { semaphore.signal() }
+}
+
+@MainActor @Test func discoveryRunsOffTheMainActorAndPublishesOneSnapshot() async throws {
+    let ext = try titled("v1")
+    let gate = Gate()
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(),
+        configuration: { _ in testConfiguration() }, activate: { discovered, _ in gate.pass(discovered) })
+    var published = 0
+    extensions.onChange = { published += 1 }
+    await extensions.load().value
+    #expect(published == 1)
+    let first = try #require(extensions.revisions["titled"])
+
+    try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
+    gate.hold(true)
+    let loading = extensions.load(changed: [ext.folder.path + "/title.txt"])
+    // A burst while it runs folds into one more pass.
+    let deadline = ContinuousClock.now + .seconds(5)
+    while !gate.entered, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(gate.entered)
+    // The main actor is free while discovery works, and still sees the whole previous snapshot.
+    #expect(extensions.revisions["titled"] == first)
+    #expect(extensions.commands.first?.revision == first)
+    #expect(published == 1)
+    gate.hold(false)
+    extensions.load(changed: [ext.folder.path + "/title.txt"])
+    gate.release()
+    await loading.value
+    #expect(gate.wasReleased)
+    #expect(!gate.ranOnMain)
+    #expect(extensions.revisions["titled"] != first)
+    #expect(extensions.commands.first?.revision == extensions.revisions["titled"])
+    #expect(published == 3)
+}
+
+@Test func pruningKeepsTheActiveAndThePreviousRevision() throws {
+    let ext = try titled("v1")
+    let store = testStore()
+    var sealed: [SealedRevision] = []
+    for version in 1...4 {
+        try Data("v\(version)".utf8).write(to: ext.folder.appending(path: "title.txt"))
+        let revision = try store.seal(ext.folder)
+        store.markActive([revision])
+        sealed.append(revision)
+        // Folder dates are the order of activation; keep them apart.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: Double(version - 10))],
+            ofItemAtPath: revision.folder.path)
+    }
+    // A crash left a staging folder.
+    let staging = store.root.appending(path: "titled/.staging-crashed")
+    try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+
+    // v2 is active again (a rollback): it and the most recently active other one (v4) stay.
+    store.prune(keeping: [sealed[1].revision])
+    let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
+    #expect(kept == [sealed[1].revision.sha256, sealed[3].revision.sha256])
+}
+
+@MainActor @Test func discoveryPrunesOldRevisions() async throws {
+    let ext = try titled("v1")
+    let store = testStore()
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: store) { _ in
+        testConfiguration()
+    }
+    var active: [ExtensionRevision] = []
+    for version in 1...4 {
+        try Data("v\(version)".utf8).write(to: ext.folder.appending(path: "title.txt"))
+        await extensions.load(changed: [ext.folder.path + "/title.txt"]).value
+        active.append(try #require(extensions.revisions["titled"]))
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
+    #expect(kept == [active[3].sha256, active[2].sha256])
+}

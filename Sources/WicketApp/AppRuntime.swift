@@ -112,12 +112,10 @@ final class AppRuntime {
         let settingsFolder = store.url.deletingLastPathComponent().path
         watch([settingsFolder], latency: 0.2) { [weak self] _ in self?.reload() }
 
+        // Discovery runs off the main actor; each published snapshot registers the catalog.
+        extensions.onChange = { [weak self] in self?.registerExtensionCommands() }
         extensions.load()
-        registerExtensionCommands()
-        watch([extensions.directory.path], latency: 0.3) { [weak self] in
-            self?.extensions.load(changed: $0)
-            self?.registerExtensionCommands()
-        }
+        watch([extensions.directory.path], latency: 0.3) { [weak self] in self?.extensions.load(changed: $0) }
     }
 
     /// Stops what runs outside the app before it quits: every command's runs, Ask AI's agents and the
@@ -172,11 +170,14 @@ final class AppRuntime {
     }
 
     /// After something that may have changed the registry: the runs of commands no longer in it
-    /// stop (Ask AI turned off mid-answer, an extension removed), and the root searches again unless
-    /// it just did, so a new alias or a command gone shows at once.
+    /// stop (Ask AI turned off mid-answer, an extension removed), runs bound to a revision their
+    /// command no longer has are reconciled (`PaletteSession.rebind`: searches run again on the new
+    /// revision, anything else stops saying the extension changed), and the root searches again
+    /// unless it just did, so a new alias or a command gone shows at once.
     private func registryChanged(since changes: Int, refreshed: Bool) {
         guard registry.changes != changes else { return }
         model.session.stopCommands { [registry] in registry.command($0) == nil }
+        model.session.rebind { [registry] in registry.command($0) }
         if !refreshed { model.refresh() }
     }
 
@@ -293,7 +294,10 @@ extension AppRuntime {
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource()], work: work, builtins: builtins,
-            extensions: Extensions(diagnostics: diagnostics), system: .live)
+            extensions: Extensions(
+                directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
+                diagnostics: diagnostics),
+            system: .live)
         weakRuntime = runtime
         apps.onChange = { [weak runtime] in runtime?.model.refresh() }
 
