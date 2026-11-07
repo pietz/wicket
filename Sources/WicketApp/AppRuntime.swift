@@ -192,10 +192,8 @@ final class AppRuntime {
         var bindings = hotKeys.problems(registry).sorted { $0.key.description < $1.key.description }.map {
             Diagnostic(.command($0.key), .binding, .warning, $0.value)
         }
-        if hotKeys.paletteFailed {
-            bindings.append(
-                Diagnostic(
-                    .bindings, .binding, .error, "\(settings.hotkey.symbols) is in use by another app."))
+        if let problem = hotKeys.paletteProblem {
+            bindings.append(Diagnostic(.bindings, .binding, .error, problem))
         }
         diagnostics.replace(.binding, with: bindings)
         let title = { [registry] (id: CommandID) in registry.command(id)?.title ?? id.description }

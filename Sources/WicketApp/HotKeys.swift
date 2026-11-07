@@ -12,7 +12,8 @@ typealias RegisterHotKey = @MainActor (Shortcut, @escaping HotKey.Handler) -> An
 /// The order of `apply` lets one change move a combination between them: commands that no longer
 /// want a hotkey let go of it first, so the palette can take it, and the rest register after the
 /// palette let go of its old one. A registration that fails (another app holds the combination) is
-/// tried again on the next `apply`.
+/// tried again on the next `apply`; meanwhile the palette keeps the hotkey it had, so a conflicting
+/// edit never leaves Wicket unsummonable.
 @MainActor
 final class HotKeys {
     /// Called with the press's event time when the palette's hotkey is pressed.
@@ -22,11 +23,15 @@ final class HotKeys {
     /// True while the settings window records a hotkey: nothing is registered, so pressing a bound
     /// combination reaches the recorder. Takes effect on the next `apply`.
     var paused = false
-    /// The palette's hotkey couldn't be registered: another app holds it.
-    private(set) var paletteFailed = false
+    /// Why the palette's hotkey from settings isn't in effect (another app holds it), naming the one
+    /// that still opens Wicket, if any; nil when it is.
+    private(set) var paletteProblem: String?
 
     private let register: RegisterHotKey
-    private var palette: (shortcut: Shortcut, registration: AnyObject)?
+    private var palette: AnyObject?
+    /// The combination `palette` holds, or last held: kept while paused or after a failure, so a
+    /// shortcut another app holds falls back to it.
+    private var paletteShortcut: Shortcut?
     private var wanted: [Shortcut: CommandID] = [:]
     private var rejected: [CommandHotkeys.Rejection] = []
     private var registered: [Shortcut: (command: CommandID, registration: AnyObject)] = [:]
@@ -81,19 +86,23 @@ final class HotKeys {
     private func applyPalette(_ shortcut: Shortcut) {
         if paused {
             palette = nil
-            paletteFailed = false
+            paletteProblem = nil
             return
         }
-        guard shortcut != palette?.shortcut else { return }
+        guard palette == nil || shortcut != paletteShortcut else { return }
         palette = nil  // Unregister first: Carbon refuses a combination this app already holds.
-        let registration = register(shortcut) { [weak self] eventTime in self?.onPalette(eventTime) }
-        palette = registration.map { (shortcut, $0) }
-        paletteFailed = registration == nil
-        if registration == nil {
-            Perf.logger.error("could not register hotkey \(shortcut, privacy: .public); another app owns it")
-        } else {
+        let onPress: HotKey.Handler = { [weak self] eventTime in self?.onPalette(eventTime) }
+        if let registration = register(shortcut, onPress) {
+            (palette, paletteShortcut, paletteProblem) = (registration, shortcut, nil)
             Perf.log("hotkey: \(shortcut)")
+            return
         }
+        Perf.logger.error("could not register hotkey \(shortcut, privacy: .public); another app owns it")
+        let problem = "\(shortcut.symbols) is in use by another app."
+        paletteProblem = problem
+        guard let previous = paletteShortcut, previous != shortcut else { return }
+        palette = register(previous, onPress)
+        if palette != nil { paletteProblem = problem + " \(previous.symbols) still opens Wicket." }
     }
 
     /// Registers every wanted command hotkey that isn't yet.

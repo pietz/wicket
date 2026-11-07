@@ -388,6 +388,37 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.store.hotKeyFailed)
 }
 
+/// The review's gap: the palette let go of its hotkey before knowing the new one would register, so
+/// a combination another app holds left Wicket unsummonable. It keeps the one it had, and says so.
+@MainActor @Test func aTakenPaletteHotkeyKeepsTheOldOne() throws {
+    let h = try Harness()
+    h.system.heldElsewhere = [shortcut("cmd+k")]
+    try h.change(#"{"hotkey": "cmd+k"}"#)
+    #expect(h.system.registered == [.default])
+    #expect(
+        h.store.diagnostics.text(for: .bindings, kind: .binding)
+            == "⌘K is in use by another app. \(Shortcut.default.symbols) still opens Wicket.")
+    h.system.press(.default)
+    #expect(h.palette.toggles == [42])
+
+    // Freed, it is taken on the next apply.
+    h.system.heldElsewhere = []
+    try h.change(#"{"hotkey": "cmd+k", "paletteWidth": 720}"#)
+    #expect(h.system.registered == [shortcut("cmd+k")])
+    #expect(!h.store.hotKeyFailed)
+}
+
+/// The same through the recorder, which pauses every hotkey while it listens.
+@MainActor @Test func aRecordedHotkeyAnotherAppHoldsKeepsTheOldOne() throws {
+    let h = try Harness()
+    h.store.pauseHotKey(true)
+    h.system.heldElsewhere = [shortcut("cmd+k")]
+    try h.write(#"{"hotkey": "cmd+k"}"#)
+    h.store.pauseHotKey(false)
+    #expect(h.system.registered == [.default])
+    #expect(h.store.hotKeyFailed)
+}
+
 @MainActor @Test func recordingAHotkeyPausesEveryHotkey() throws {
     let h = try Harness(settings: #"{"commands": {"builtin:quit": {"hotkey": "ctrl+option+q"}}}"#)
     h.store.pauseHotKey(true)

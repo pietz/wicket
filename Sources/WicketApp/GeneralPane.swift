@@ -35,9 +35,9 @@ struct GeneralPane: View {
                             : "Esc cancels."
                     )
                     .foregroundStyle(.secondary)
-                } else if store.hotKeyFailed {
+                } else if let problem = store.diagnostics.text(for: .bindings, kind: .binding) {
                     Label(
-                        "\(store.settings.hotkey.symbols) is in use by another app. Choose another shortcut.",
+                        "\(problem) Choose another shortcut.",
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .foregroundStyle(.red)
