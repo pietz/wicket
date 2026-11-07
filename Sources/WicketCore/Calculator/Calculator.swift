@@ -7,10 +7,9 @@ public struct CalculatorResult: Equatable, Sendable {
     /// What copying should put on the pasteboard: the bare number in the locale's decimal notation,
     /// without grouping or unit (`92,13`). Nil when the result is a message rather than an answer.
     public var copyText: String?
-    /// How the input was read: `100 USD = 92,13 € · ECB rates of 2026-11-05`.
+    /// How the input was read: `100 USD = 92,13 € · ECB rates of 2026-11-05`. A conversion always
+    /// names its rates' day, so old cached rates (offline, or a failed fetch) say how old they are.
     public var detail: String
-    /// The day of the exchange rates used, so the UI can flag stale rates. Nil if none were used.
-    public var ratesDate: Date?
 
     public var isAnswer: Bool { copyText != nil }
 }
@@ -122,8 +121,7 @@ private struct Format {
         if usedRates, let rates {
             detail += " · \(rates.source) rates of \(rates.dayString)"
         }
-        return CalculatorResult(
-            display: display, copyText: copy, detail: detail, ratesDate: usedRates ? rates?.date : nil)
+        return CalculatorResult(display: display, copyText: copy, detail: detail)
     }
 
     func message(for error: CalcError, echo: [Token], rates: ExchangeRates?) -> CalculatorResult {
@@ -135,10 +133,15 @@ private struct Format {
         case .noRate(let code):
             CalculatorResult(
                 display: "No exchange rate for \(code)",
-                detail: rates.map { "\($0.source) rates of \($0.dayString) don't include \(code)" } ?? "",
-                ratesDate: rates?.date)
+                detail: rates.map { "\($0.source) rates of \($0.dayString) don't include \(code)" } ?? "")
         case .incompatible(let from, let to):
             CalculatorResult(display: "Can't convert \(from) to \(to)", detail: text(echo))
+        case .divisionByZero:
+            CalculatorResult(display: "Can't divide by zero", detail: text(echo))
+        case .notReal:
+            CalculatorResult(display: "Not a real number", detail: text(echo))
+        case .tooLarge:
+            CalculatorResult(display: "Too large to calculate", detail: text(echo))
         case .notACalculation:
             CalculatorResult(display: "", detail: "")
         }

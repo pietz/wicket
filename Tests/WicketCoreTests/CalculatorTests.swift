@@ -18,7 +18,7 @@ private func calc(
 @Test(arguments: [
     "", "safari", "term", "pi", "e", "42", "3.5", "1,000", "-7", "5 km", "100f", "20%", "iphone 15",
     "macos 26", "2 3", "1,2345", "1234,567", "2,5", "5 +* 3", "(2 + 3", "sqrt", "x", "10 of 5",
-    "5 kg * 3 m", "1/0", "ln(0)", "100 cordoba", "1 hr 30", "5 km in", "10 c + 50 f", "USD 100",
+    "5 kg * 3 m", "1/0 abc", "sqrt(-1) km", "100 cordoba", "1 hr 30", "5 km in", "10 c + 50 f", "USD 100",
 ])
 func ignoresInputThatIsNotACalculation(text: String) {
     #expect(calc(text) == nil)
@@ -65,7 +65,7 @@ func ignoresInputThatIsNotACalculation(text: String) {
 func evaluatesArithmetic(text: String, display: String) throws {
     let result = try #require(calc(text))
     #expect(result.display == display)
-    #expect(result.ratesDate == nil)
+    #expect(!result.detail.contains("rates"))
 }
 
 @Test(arguments: [
@@ -152,6 +152,11 @@ func rejectsCommaDecimalsInEnglish(text: String) {
     ("1.23456789 * 2", "2.46913578"),
     ("0.000123456789 + 0", "0.000123456789"),
     ("1 / 7000", "0.000142857"),
+    // Noise is only what lies within a few ulps of the inputs; exact small results stay.
+    ("10000000000000 - 9999999999999", "1"),
+    ("sin(0.0000000000001)", "1E-13"),
+    ("sin(1 pi)", "0"),
+    ("1e-20 * 1", "1E-20"),
 ])
 func roundsForDisplay(text: String, display: String) throws {
     #expect(try #require(calc(text)).display == display)
@@ -161,6 +166,30 @@ func roundsForDisplay(text: String, display: String) throws {
     let result = try #require(calc("1/3"))
     #expect(result.display == "0.333333")
     #expect(result.copyText == "0.333333333333333")
+    #expect(try #require(calc("0.1 + 0.2")).copyText == "0.3")
+    #expect(try #require(calc("10000000000000 - 9999999999999")).copyText == "1")
+}
+
+// MARK: Domain errors
+
+@Test(arguments: [
+    ("1 / 0", "Can't divide by zero", "1 ÷ 0"),
+    ("5 km / 0", "Can't divide by zero", "5 km ÷ 0"),
+    ("50 / 0%", "Can't divide by zero", "50 ÷ 0%"),
+    ("0^-1", "Can't divide by zero", "0 ^ −1"),
+    ("1 / 0 * 0", "Can't divide by zero", "1 ÷ 0 × 0"),
+    ("sqrt(-1)", "Not a real number", "sqrt(−1)"),
+    ("ln(0)", "Not a real number", "ln(0)"),
+    ("asin(2)", "Not a real number", "asin(2)"),
+    ("(-8)^0.5", "Not a real number", "(−8) ^ 0.5"),
+    ("10^400", "Too large to calculate", "10 ^ 400"),
+    ("exp(1000)", "Too large to calculate", "exp(1,000)"),
+])
+func explainsResultsWithNoRealAnswer(text: String, display: String, detail: String) throws {
+    let result = try #require(calc(text))
+    #expect(result.display == display)
+    #expect(result.detail == detail)
+    #expect(!result.isAnswer)
 }
 
 @Test func echoesFunctionCallsWithoutASpace() throws {
@@ -258,7 +287,6 @@ func convertsCurrency(text: String, display: String) throws {
 
 @Test func currencyResultsCarryTheRatesDay() throws {
     let result = try #require(calc("100 usd in eur"))
-    #expect(result.ratesDate == rates.date)
     #expect(result.copyText == "90.91")
     #expect(result.detail == "100 USD in EUR = €90.91 · ECB rates of 2026-11-05")
 }
@@ -266,7 +294,7 @@ func convertsCurrency(text: String, display: String) throws {
 @Test func currencyWithoutConversionNeedsNoRates() throws {
     let result = try #require(calc("$10 + 5", rates: nil))
     #expect(result.display == "$15.00")
-    #expect(result.ratesDate == nil)
+    #expect(result.detail == "$10 + 5 = $15.00")
 }
 
 @Test func loneAmountConvertsToTheDefaultCurrency() throws {

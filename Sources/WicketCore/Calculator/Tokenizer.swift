@@ -7,6 +7,10 @@ enum CalcError: Error, Equatable {
     case ratesUnavailable
     case noRate(String)
     case incompatible(String, String)
+    /// The input parsed but has no real answer.
+    case divisionByZero
+    case notReal
+    case tooLarge
 }
 
 enum Token: Equatable {

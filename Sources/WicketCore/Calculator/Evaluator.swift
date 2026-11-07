@@ -65,6 +65,9 @@ struct Evaluator {
     /// Operators, functions, constants and composites applied. Zero means the input was a bare value.
     private(set) var operations = 0
     private(set) var usedRates = false
+    /// The first step outside the real numbers (`1 / 0`, `sqrt(-1)`). Parsing carries on, so it is
+    /// only reported if the whole input turns out to be a calculation.
+    private var fault: CalcError?
 
     init(_ tokens: ArraySlice<Token>, rates: ExchangeRates?) {
         self.tokens = Array(tokens)
@@ -74,7 +77,9 @@ struct Evaluator {
     mutating func evaluate() throws(CalcError) -> Quantity {
         guard !tokens.isEmpty else { throw .notACalculation }
         let result = try conversion()
-        guard pos == tokens.count, result.value.isFinite else { throw .notACalculation }
+        guard pos == tokens.count else { throw .notACalculation }
+        if let fault { throw fault }
+        guard result.value.isFinite else { throw result.value.isNaN ? .notReal : .tooLarge }
         return result
     }
 
@@ -182,6 +187,7 @@ struct Evaluator {
         let exponent = try unary().scalar
         guard case .number = base.scalar.kind, case .number = exponent.kind else { throw .notACalculation }
         operations += 1
+        if base.scalar.value == 0, exponent.value < 0 { fault = fault ?? .divisionByZero }
         return Quantity(value: pow(base.scalar.value, exponent.value), kind: .number)
     }
 
@@ -287,7 +293,14 @@ struct Evaluator {
             arguments.append(try power())
         }
         operations += 1
-        return try Math.apply(name, arguments)
+        let result = try Math.apply(name, arguments)
+        // Outside the function's domain: `sqrt(-1)`, `ln(0)`, `asin(2)`. Only exp overflows.
+        if result.value.isNaN || (result.value.isInfinite && name != "exp"),
+            arguments.allSatisfy(\.value.isFinite)
+        {
+            fault = fault ?? .notReal
+        }
+        return result
     }
 
     // MARK: Arithmetic
@@ -296,10 +309,8 @@ struct Evaluator {
     /// typed last (`5 ft + 1 m` is in metres), and a bare number takes the other side's unit.
     private mutating func add(_ a: Quantity, _ b: Quantity, negate: Bool) throws(CalcError) -> Quantity {
         let sign: Double = negate ? -1 : 1
-        // Cancellation noise is zero: `1 - 0.9 - 0.1` is 0, not -2.8e-17.
         func sum(_ x: Double, _ y: Double) -> Double {
-            let total = x + sign * y
-            return abs(total) < 1e-12 * max(abs(x), abs(y)) ? 0 : total
+            Math.denoised(x + sign * y, scale: max(abs(x), abs(y)))
         }
         switch (a.kind, b.kind) {
         case (.percent, .percent), (.number, .number):
@@ -340,17 +351,20 @@ struct Evaluator {
 
     private mutating func divide(_ a: Quantity, _ b: Quantity) throws(CalcError) -> Quantity {
         let (a, b) = (a.scalar, b.scalar)
+        let quotient: Quantity
         switch (a.kind, b.kind) {
         case (_, .number):
-            return Quantity(value: a.value / b.value, kind: a.kind)
+            quotient = Quantity(value: a.value / b.value, kind: a.kind)
         case (.unit(let u), .unit(let v)) where UnitCatalog.sameKind(u, v):
             let left = Measurement(value: a.value, unit: u).converted(to: v).value
-            return Quantity(value: left / b.value, kind: .number)
+            quotient = Quantity(value: left / b.value, kind: .number)
         case (.currency(let c), .currency(let d)):
-            return Quantity(value: try exchange(a.value, from: c, to: d) / b.value, kind: .number)
+            quotient = Quantity(value: try exchange(a.value, from: c, to: d) / b.value, kind: .number)
         default:
             throw .notACalculation
         }
+        if b.value == 0 { fault = fault ?? .divisionByZero }
+        return quotient
     }
 
     // MARK: Conversion
@@ -414,6 +428,13 @@ enum Math {
 
     static func isFunction(_ name: String) -> Bool { functions[name] != nil }
 
+    /// Rounding noise left by cancellation is zero: `1 - 0.9 - 0.1` leaves -2.8e-17 and `sin(π)`
+    /// 1.2e-16. Only a result within a few ulps of `scale`, the magnitude of the inputs, counts as
+    /// noise, so a genuinely small result (`10000000000000 - 9999999999999`, `sin(1e-13)`) stays.
+    static func denoised(_ value: Double, scale: Double) -> Double {
+        abs(value) <= 4 * scale.ulp ? 0 : value
+    }
+
     static func isNamed(_ word: String) -> Bool {
         let name = word.lowercased()
         return constants[name] != nil || functions[name] != nil
@@ -431,8 +452,8 @@ enum Math {
         switch arguments.count {
         case 1:
             var value = function(first.value)
-            // Trigonometry at multiples of π leaves rounding noise: sin(π) is 1.2e-16, not 0.
-            if trigonometric.contains(name), abs(value) < 1e-12 { value = 0 }
+            // π is rounded, so trigonometry at its multiples is off by about its ulp.
+            if trigonometric.contains(name) { value = denoised(value, scale: abs(first.value)) }
             return Quantity(value: value, kind: first.kind)
         case 2:
             let second = arguments[1].scalar
