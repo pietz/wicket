@@ -69,11 +69,12 @@ private final class FakePalette: PaletteSurface {
 }
 
 /// An agent that is always ready and answers "Hel…" without ever finishing, until its run is
-/// cancelled; its process tree then takes `exitDelay` to exit.
+/// cancelled (its process tree then takes `exitDelay` to exit) or `failure` is set (it fails with it).
 private final class FakeAgent: Sendable {
     let started = Mutex(0)
     let ended = Mutex(0)
     let exitDelay = Mutex(Duration.zero)
+    let failure = Mutex<String?>(nil)
 
     var backend: AgentBackend {
         AgentBackend(
@@ -82,7 +83,13 @@ private final class FakeAgent: Sendable {
                 AgentRun { continuation in
                     self.started.withLock { $0 += 1 }
                     continuation.yield(.text("Hel"))
-                    while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+                    while !Task.isCancelled {
+                        if let failure = self.failure.withLock({ $0 }) {
+                            continuation.yield(.error(failure))
+                            return .exited(.status(1))
+                        }
+                        try? await Task.sleep(for: .milliseconds(5))
+                    }
                     // Exiting takes its time, which cancellation doesn't cut short.
                     let delay = self.exitDelay.withLock { $0 }
                     await Task.detached { try? await Task.sleep(for: delay) }.value
@@ -439,6 +446,39 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     h.runtime.messages.present = { shown.append($0) }
     h.runtime.messages.post(Message("Copied, not pasted", kind: .copied))
     #expect(shown == [Message("Copied, not pasted", kind: .copied)])
+}
+
+/// A build that ends while its frame isn't on screen (the palette closed, another command on top)
+/// tells the user through the message channel; one whose frame is showing doesn't.
+@MainActor @Test func aBuildEndingUnwatchedPostsAMessage() async throws {
+    let h = try Harness()
+    var shown: [Message] = []
+    h.runtime.messages.present = { shown.append($0) }
+    let command = try #require(h.runtime.registry.command(.makeCommand))
+
+    // Watched: the build frame is on top when it fails.
+    h.session.open(CommandRun(command, .invoked, text: "show the week number"))
+    #expect(
+        await soon {
+            if case .screen(let frame) = h.session.top.content {
+                frame.run?.command.id == .makeCommand
+            } else {
+                false
+            }
+        })
+    let watched = try #require(h.buildJobs.current)
+    h.agent.failure.withLock { $0 = "rate limited" }
+    await watched.finished()
+    #expect(shown.isEmpty)
+
+    // Unwatched: the palette was closed.
+    h.agent.failure.withLock { $0 = nil }
+    h.session.reset()
+    let unwatched = try h.buildJobs.start("count my tabs")
+    #expect(await soon { h.agent.started.withLock { $0 } == 2 })
+    h.agent.failure.withLock { $0 = "rate limited" }
+    await unwatched.finished()
+    #expect(shown == [Message("Making the command failed: open Extensions to see why.", kind: .failed)])
 }
 
 /// settings.json's ignored fields and a file that can't be read are diagnostics; the panes read

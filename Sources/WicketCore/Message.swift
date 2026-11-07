@@ -10,7 +10,7 @@ public struct Message: Sendable, Hashable {
         case done
         /// The text is on the clipboard (a copy, or a paste that could only copy).
         case copied
-        /// What the user asked for didn't happen ("Couldn't open it: ...").
+        /// What the user asked for or started didn't happen ("Couldn't open it: ...", "Making the command failed").
         case failed
     }
 

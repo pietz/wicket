@@ -105,6 +105,25 @@ final class AppRuntime {
         hotKeys.onPalette = { [weak self] in self?.palette?.toggle(eventTime: $0) }
         hotKeys.onCommand = { [weak self] in self?.palette?.run(bound: $0) }
         store.pauseHotKey = { [weak self] in self?.pauseHotKeys($0) }
+        buildJobs.onEnded = { [weak self] in self?.buildEnded($0) }
+    }
+
+    /// Tells the user a build is ready for review or failed, unless its frame is the one on screen:
+    /// a build takes minutes, and its frame is usually closed by then.
+    private func buildEnded(_ job: BuildJob) {
+        if case .screen(let frame) = model.session.top.content,
+            let id = frame.run?.command.id, id == .makeCommand || id == .currentBuild
+        {
+            return
+        }
+        switch job.phase {
+        case .review(let checked):
+            messages.post(Message("\(checked.sealed.manifest.name) is ready: open Extensions to review it."))
+        case .failed:
+            messages.post(Message("Making the command failed: open Extensions to see why.", kind: .failed))
+        default:
+            break
+        }
     }
 
     /// Applies settings.json and keeps applying it as it changes, and loads the extensions.
