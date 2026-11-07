@@ -90,6 +90,9 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     /// The run came from what an earlier revision of the extension showed, and its folder has
     /// changed since, so it was refused rather than run on code nobody saw it from.
     case extensionChanged
+    /// The extension has no approved revision Wicket keeps, so nothing of it runs: it was never
+    /// enabled, its approval was withdrawn, or the approved revision is gone.
+    case notApproved
 
     public var description: String {
         switch self {
@@ -110,6 +113,7 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
         case .duplicateID(let id): "request id \(id) is already pending"
         case .unknownCommand: "no installed extension has this command; it may have been removed"
         case .extensionChanged: "the extension changed since this was shown; run it again"
+        case .notApproved: "this extension isn't enabled; review and enable it from Extensions"
         }
     }
 }

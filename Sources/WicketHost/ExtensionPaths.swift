@@ -12,6 +12,10 @@ public enum ExtensionPaths {
     /// the folder its agent writes and the revision sealed from it.
     public static var staging: URL { support.appending(path: "Staging", directoryHint: .isDirectory) }
 
+    /// `~/Library/Application Support/Wicket/approvals.json`: the approved revision of each
+    /// extension (`Approvals`), written only by Wicket's UI.
+    public static var approvals: URL { support.appending(path: "approvals.json") }
+
     /// An extension's `WICKET_DATA_DIR`. Outside its folder, so it survives updates.
     public static func data(for id: String) -> URL {
         support.appending(path: "ExtensionData/\(id)", directoryHint: .isDirectory)

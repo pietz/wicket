@@ -5,7 +5,8 @@ import os
 
 /// One "Make a command" build: the user's sentence goes to their agent CLI in build mode, in a
 /// staging folder of its own; once the agent's whole process tree is gone, the folder is sealed and
-/// checked, and the job ends awaiting review (or failed, or cancelled). The job belongs to
+/// checked, and the job ends awaiting review (or failed, or cancelled). Enabling it from its review
+/// (`enable(in:)`) installs the folder and approves the revision that was checked. The job belongs to
 /// `BuildJobs`, not to a palette frame: a frame only observes it (`MakeCommandRunner`), so closing
 /// the frame leaves it running and only `cancel()` (or the app quitting) stops it.
 @MainActor
@@ -18,6 +19,9 @@ public final class BuildJob: Identifiable {
         case checking
         /// Checked and passed: the sealed revision and its report, awaiting the user's review.
         case review(CheckedRevision)
+        /// Installed into the extensions folder (`folder`) and approved: the revision that runs,
+        /// which is the one that was checked.
+        case enabled(SealedRevision, folder: URL)
         /// What went wrong, for the user (a check's failures are listed).
         case failed(String)
         case cancelled
@@ -26,7 +30,15 @@ public final class BuildJob: Identifiable {
         public var isRunning: Bool {
             switch self {
             case .generating, .checking: true
-            case .review, .failed, .cancelled: false
+            case .review, .enabled, .failed, .cancelled: false
+            }
+        }
+
+        /// Whether it ended with something to show: awaiting review, or enabled.
+        var isBuilt: Bool {
+            switch self {
+            case .review, .enabled: true
+            case .generating, .checking, .failed, .cancelled: false
             }
         }
     }
@@ -45,6 +57,10 @@ public final class BuildJob: Identifiable {
     /// revision store sealed from it.
     public let folder: URL
     public var work: URL { folder.appending(path: "work", directoryHint: .isDirectory) }
+    /// What the review's Enable action carries, so only that action, on a screen Wicket drew, can
+    /// enable this job's extension: it is never written anywhere, so settings.json, a deeplink or
+    /// another process can't name it.
+    public nonisolated let reviewToken = UUID().uuidString
 
     nonisolated static let activityLimit = 200
     private static let logger = Logger(subsystem: "app.wicket", category: "build")
@@ -62,6 +78,22 @@ public final class BuildJob: Identifiable {
     public func cancel() async {
         task?.cancel()
         await task?.value
+    }
+
+    /// Installs the reviewed extension into `extensions`' folder (replacing an earlier version of
+    /// it) and approves the revision that was checked; the job then shows it `enabled`. Refused,
+    /// changing nothing, unless the job awaits review, and if the installed copy isn't exactly what
+    /// was checked (its files changed since).
+    func enable(in extensions: Extensions) async throws {
+        if case .enabled = phase { return }
+        guard case .review(let checked) = phase else {
+            throw Failure("There's nothing to enable: the command isn't ready for review.")
+        }
+        let installed = try await extensions.install(checked, from: work)
+        try await extensions.approve(installed.revision)
+        phase = .enabled(
+            installed, folder: extensions.directory.appending(path: installed.revision.extensionID))
+        Self.logger.notice("build: enabled")
     }
 
     /// Returns once the job has ended, however it ends.
@@ -255,12 +287,17 @@ public final class BuildJobs {
         self.provider = provider
     }
 
-    /// The running job if there is one, else a new job building `sentence`. Throws after
-    /// `shutdown()`, or for an empty sentence with no job running.
+    /// The running job if there is one; else the latest job if it was built (awaiting review or
+    /// enabled) and `sentence` is its own or empty, so its frame reloads after Enable and "make"
+    /// alone goes back to it; else a new job building `sentence`. Throws after `shutdown()`, or for
+    /// an empty sentence with nothing to show.
     public func start(_ sentence: String) throws -> BuildJob {
         guard !isShutDown else { throw CancellationError() }
         if let current, current.phase.isRunning { return current }
         let sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let current, current.phase.isBuilt, sentence.isEmpty || sentence == current.sentence {
+            return current
+        }
         guard !sentence.isEmpty else {
             throw BuildJob.Failure("Describe the command to make, such as \"show the week number\".")
         }

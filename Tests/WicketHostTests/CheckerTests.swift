@@ -74,6 +74,13 @@ func testStore() -> RevisionStore {
             path: "wicket-tests/revisions-\(UUID().uuidString)", directoryHint: .isDirectory))
 }
 
+/// An approvals store in a fresh temporary folder, approving nothing.
+func testApprovals() -> Approvals {
+    Approvals(
+        url: FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/approvals-\(UUID().uuidString)/approvals.json"))
+}
+
 func checkOptions(_ configure: (inout CheckOptions) -> Void = { _ in }) -> CheckOptions {
     var options = CheckOptions(version: "test")
     options.requestTimeout = .seconds(1)

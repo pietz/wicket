@@ -125,7 +125,10 @@ private func leakyExtension() throws -> TestExtension {
 @MainActor @Test func sessionsAndFailedRunsFeedTheDiagnosticsWithoutSecretsOrQueries() async throws {
     let ext = try leakyExtension()
     let secret = "s3cret-value-42"
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration(secrets: ["LEAKY_TOKEN": secret])
     }
     await extensions.load().value
@@ -173,7 +176,10 @@ private func actingExtension() throws -> TestExtension {
 
 @MainActor @Test func aRunFromAReplacedRevisionIsRefused() async throws {
     let ext = try actingExtension()
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration()
     }
     await extensions.load().value

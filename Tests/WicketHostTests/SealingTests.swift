@@ -126,7 +126,10 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
 @MainActor @Test func whatRunsIsTheSealedRevisionNotTheAuthoringFolder() async throws {
     let ext = try titled("v1")
     let store = testStore()
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: store) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: store, approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration()
     }
     await extensions.load().value
@@ -165,27 +168,27 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
     try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
     try Data("{".utf8).write(to: broken.appending(path: "wicket.json"))
 
-    let extensions = Extensions(directory: directory, store: testStore()) { _ in testConfiguration() }
+    let extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
+        testConfiguration()
+    }
     await extensions.load().value
     #expect(extensions.discovered.map(\.id) == ["broken", "good"])
-    guard case .invalid(let reason) = extensions.discovered[0].state else {
+    guard case .invalid(let reason, nil) = extensions.discovered[0].state else {
         Issue.record("broken is not invalid")
         return
     }
     #expect(extensions.diagnostics.text(for: .extension("broken"), kind: .discovery) == reason)
-    #expect(extensions.discovered[1].sealed != nil)
+    // Discovered and sealed, but nothing approved, so nothing runs.
+    let sealed = try #require(extensions.discovered[1].sealed)
+    #expect(extensions.discovered[1].state == .unapproved(sealed))
+    #expect(extensions.commands.isEmpty)
+    await #expect(throws: HostError.notApproved) { try await title(extensions, "good") }
+
+    // Approved, its revision is the active catalog.
+    try await extensions.approve(sealed.revision)
     #expect(extensions.commands.map(\.id) == [.extension("good", "go")])
     #expect(extensions.commands.first?.revision == extensions.revisions["good"])
-
-    // The activation is the one seam: one that activates nothing leaves discovery as it was and
-    // runs nothing.
-    let none = Extensions(
-        directory: directory, store: testStore(), configuration: { _ in testConfiguration() },
-        activate: { _, _ in [] })
-    await none.load().value
-    #expect(none.discovered.compactMap(\.sealed).map(\.revision.extensionID) == ["good"])
-    #expect(none.commands.isEmpty)
-    await #expect(throws: HostError.unknownCommand) { try await title(none, "good") }
+    #expect(try await title(extensions, "good") == "v1")
 }
 
 /// Lets the test hold a discovery pass inside the activation, and see where it ran.
@@ -218,8 +221,8 @@ private final class Gate: Sendable {
     let ext = try titled("v1")
     let gate = Gate()
     let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: testStore(),
-        configuration: { _ in testConfiguration() }, activate: { discovered, _ in gate.pass(discovered) })
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
+        activate: { discovered, _ in gate.pass(discovered) }, configuration: { _ in testConfiguration() })
     var published = 0
     extensions.onChange = { published += 1 }
     await extensions.load().value
@@ -275,7 +278,10 @@ private final class Gate: Sendable {
 @MainActor @Test func discoveryPrunesOldRevisions() async throws {
     let ext = try titled("v1")
     let store = testStore()
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: store) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: store, approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration()
     }
     var active: [ExtensionRevision] = []

@@ -1,15 +1,23 @@
+import Darwin
 import Foundation
 import WicketCore
 import os
 
 /// An extension folder as discovery found it: every folder in the extensions directory, valid or
-/// not. Discovery never implies permission to run; what runs is the active catalog.
+/// not, and where it stands with the user's approval. Discovery never implies permission to run;
+/// what runs is the active catalog, which holds only approved revisions.
 public struct DiscoveredExtension: Sendable, Hashable {
     public enum State: Sendable, Hashable {
-        /// The folder's current contents, sealed.
-        case ready(SealedRevision)
-        /// Not an extension, or not sealable, and why.
-        case invalid(String)
+        /// The folder's current revision is the approved one, and it runs.
+        case approved(SealedRevision)
+        /// The folder changed since the extension was approved: `current` awaits approval, while the
+        /// approved revision keeps running if the store still keeps it (nil: nothing runs).
+        case changed(approved: SealedRevision?, current: SealedRevision)
+        /// Never approved, or its approval was withdrawn: nothing runs.
+        case unapproved(SealedRevision)
+        /// Not an extension, or not sealable, and why; an approved revision the store keeps still
+        /// runs (an agent may be mid-write).
+        case invalid(String, approved: SealedRevision?)
     }
 
     /// The folder's name, which must be the manifest's id.
@@ -20,35 +28,52 @@ public struct DiscoveredExtension: Sendable, Hashable {
 
     /// The sealed revision of the folder's current contents, if it is valid.
     public var sealed: SealedRevision? {
-        if case .ready(let sealed) = state { sealed } else { nil }
+        switch state {
+        case .approved(let current), .changed(_, let current), .unapproved(let current): current
+        case .invalid: nil
+        }
+    }
+
+    /// The approved revision, if the store keeps it: the one that may run.
+    public var approved: SealedRevision? {
+        switch state {
+        case .approved(let approved): approved
+        case .changed(let approved, _), .invalid(_, let approved): approved
+        case .unapproved: nil
+        }
     }
 }
 
 /// Which revision of each extension may run, given what discovery found: the one seam that decides
 /// the active catalog. It runs off the main actor on every discovery and may return any revision
-/// the store retains (`RevisionStore.retained`), not only the folders' current ones.
-public typealias Activation =
+/// the store retains (`RevisionStore.retained`), not only the folders' current ones. The app's is
+/// always `Extensions.approvedRevisions`; tests of other mechanisms may pass their own.
+typealias Activation =
     @Sendable (_ discovered: [DiscoveredExtension], _ store: RevisionStore) -> [SealedRevision]
 
 /// Discovery and the active catalog of extensions, and their sessions.
 ///
 /// Discovery (`discovered`) is every folder in `directory`, each sealed into `store` when new or
-/// changed: a read-only copy whose hash is its revision. The **active catalog** is the revisions
-/// that may run, chosen by `activate` (today every valid folder's current revision; the consent
-/// store will choose approved ones); `commands`, root commands and sessions come from it alone, and
-/// a session runs its sealed folder, never the authoring one. Scanning, copying and hashing run off
-/// the main actor; each pass publishes one snapshot (discovery, catalog, sessions retired,
-/// diagnostics) in one main-actor step and then calls `onChange`. FSEvents bursts coalesce: a
-/// `load` while one runs is folded into one more pass.
+/// changed: a read-only copy whose hash is its revision, with its state against `approvals`. The
+/// **active catalog** is the approved revisions the store keeps, one per discovered extension (a
+/// folder changed since approval keeps running its approved revision until the new one is
+/// approved); `commands`, root commands and sessions come from it alone, a session runs its sealed
+/// folder, never the authoring one, and `result(of:)` refuses anything else before a session
+/// exists. Scanning, copying and hashing run off the main actor; each pass publishes one snapshot
+/// (discovery, catalog, sessions retired, diagnostics) in one main-actor step and then calls
+/// `onChange`. FSEvents bursts coalesce: a `load` while one runs is folded into one more pass.
+/// Approving or revoking (`approve`, `revoke`, internal to Host: only Wicket's review screens call
+/// them) writes `approvals` and runs a pass, so the catalog, the registry and open frames follow.
 ///
 /// Replacement is serialised: a new session for an extension starts only after the one it replaces
 /// has fully shut down, so two processes never share its data directory (one per extension id, not
 /// per revision). A session is replaced when its extension's active revision changes.
 ///
-/// What goes wrong goes to `diagnostics`: folders that hold no valid extension (`discovery`), each
-/// session's protocol issues, setup warnings and stderr tail (after each run, when they changed),
-/// and each command's last failed run (cleared by its next answer). A changed or removed
-/// extension's session reports go with its old revision.
+/// What goes wrong goes to `diagnostics`: folders that hold no valid extension (`discovery`), an
+/// approvals file that can't be used (`approvals`), each session's protocol issues, setup warnings
+/// and stderr tail (after each run, when they changed), and each command's last failed run
+/// (cleared by its next answer). A changed or removed extension's session reports go with its old
+/// revision.
 @MainActor
 public final class Extensions {
     private struct Active {
@@ -67,11 +92,18 @@ public final class Extensions {
 
     public let directory: URL
     public let store: RevisionStore
+    /// The approved revisions, which decide the active catalog.
+    public let approvals: Approvals
     public let diagnostics: Diagnostics
-    /// Every extension folder, by id, from the last published discovery.
+    /// Every extension folder, by id, with its state, from the last published discovery.
     public private(set) var discovered: [DiscoveredExtension] = []
     /// Called on the main actor after each published snapshot, when `commands` may have changed.
     public var onChange: (@MainActor () -> Void)?
+    /// Moves a replaced extension folder out of the way when a newer one is installed: to the Trash,
+    /// so nothing the user wrote there is lost.
+    var trash: @Sendable (URL) throws -> Void = {
+        try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+    }
     private var active: [String: Active] = [:]
     private let activate: Activation
     /// The report version each session's diagnostics were last taken at.
@@ -92,22 +124,39 @@ public final class Extensions {
 
     private static let logger = Logger(subsystem: "app.wicket", category: "extensions")
 
+    /// `approvals` decides what may run: each extension's approved revision, if the store keeps it.
     /// `configuration` makes a session's configuration from the extension id; the default uses
-    /// `ExtensionPaths`, the app version and the Keychain. `activate` decides the active catalog.
-    public init(
-        directory: URL, store: RevisionStore, diagnostics: Diagnostics = Diagnostics(),
-        configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration,
-        activate: @escaping Activation = Extensions.currentRevisions
+    /// `ExtensionPaths`, the app version and the Keychain.
+    public convenience init(
+        directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
+        configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration
+    ) {
+        self.init(
+            directory: directory, store: store, approvals: approvals, diagnostics: diagnostics,
+            activate: Extensions.approvedRevisions, configuration: configuration)
+    }
+
+    /// With another activation, for tests of mechanisms other than consent.
+    init(
+        directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
+        activate: @escaping Activation,
+        configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration
     ) {
         self.directory = directory.standardizedFileURL
         self.store = store
+        self.approvals = approvals
         self.diagnostics = diagnostics
         self.activate = activate
         self.configuration = configuration
     }
 
-    /// The activation until the consent store: every valid folder's current revision.
-    public nonisolated static let currentRevisions: Activation = { discovered, _ in
+    /// The consent gate: each extension's approved revision, if the store keeps it.
+    nonisolated static let approvedRevisions: Activation = { discovered, _ in
+        discovered.compactMap(\.approved)
+    }
+
+    /// Every valid folder's current revision, approved or not: only for tests of other mechanisms.
+    nonisolated static let currentRevisions: Activation = { discovered, _ in
         discovered.compactMap(\.sealed)
     }
 
@@ -161,14 +210,17 @@ public final class Extensions {
 
     /// Runs `invocation`'s command (its `text` and `args`), resent after a clean exit only if `retry`
     /// allows, and returns its result. Cancelling the calling task cancels the request. Throws
-    /// `ExtensionError` for an error response and `HostError` otherwise: `.unknownCommand` if no
-    /// active extension has it, `.extensionChanged` if the invocation is bound to a revision of the
-    /// extension other than the active one, which would run it.
+    /// `ExtensionError` for an error response and `HostError` otherwise, before any session starts
+    /// for what may not run: `.notApproved` if the extension is discovered but not in the active
+    /// catalog, `.unknownCommand` if no extension has it, `.extensionChanged` if the invocation is
+    /// bound to a revision of the extension other than the active one, which would run it.
     public func result(of invocation: Invocation, retry: RetryPolicy) async throws -> RunResult {
         let command = invocation.command
-        guard case .extension(let id) = command.owner, let current = active[id],
-            current.sealed.manifest.command(command.name) != nil
-        else { throw HostError.unknownCommand }
+        guard case .extension(let id) = command.owner else { throw HostError.unknownCommand }
+        guard let current = active[id] else {
+            throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
+        }
+        guard current.sealed.manifest.command(command.name) != nil else { throw HostError.unknownCommand }
         if let expected = invocation.revision, expected != current.sealed.revision {
             throw HostError.extensionChanged
         }
@@ -263,22 +315,24 @@ public final class Extensions {
             let previous = Dictionary(discovered.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             let inUse = Set(sessions.values.compactMap(\.revision)).union(retiring.keys)
             let snapshot = await Self.scan(
-                directory, store: store, touched: touched, previous: previous, inUse: inUse,
-                activate: activate)
+                directory, store: store, approvals: approvals, touched: touched, previous: previous,
+                inUse: inUse, activate: activate)
             publish(snapshot)
         }
         worker = nil
     }
 
-    /// One discovery pass, off the main actor: seal what is new or touched, choose the active
-    /// catalog, mark it active and prune the store (keeping the active, discovered and in-use
-    /// revisions, and each extension's previous one).
+    /// One discovery pass, off the main actor: seal what is new or touched, decide each folder's
+    /// state against the approvals as they are now, choose the active catalog, mark it active and
+    /// prune the store (keeping the active, discovered and in-use revisions, and each extension's
+    /// previous one).
     @concurrent
     private nonisolated static func scan(
-        _ directory: URL, store: RevisionStore, touched: Set<String>,
+        _ directory: URL, store: RevisionStore, approvals: Approvals, touched: Set<String>,
         previous: [String: DiscoveredExtension], inUse: Set<ExtensionRevision>, activate: Activation
     ) async -> Snapshot {
         let start = ContinuousClock.now
+        let approved = approvals.all
         let folders =
             (try? FileManager.default.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles))
@@ -288,18 +342,16 @@ public final class Extensions {
         for folder in folders
         where (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
             let id = folder.lastPathComponent
-            if let known = previous[id], known.sealed != nil, !touched.contains(id) {
-                discovered.append(known)
-                continue
+            let current: Result<SealedRevision, SealError>
+            if let known = previous[id]?.sealed, !touched.contains(id) {
+                current = .success(known)
+            } else {
+                current = Result { () throws(SealError) in try store.seal(folder, id: id) }
+                if case .success = current { sealed += 1 }
             }
-            do {
-                let revision = try store.seal(folder, id: id)
-                discovered.append(DiscoveredExtension(id: id, folder: folder, state: .ready(revision)))
-                sealed += 1
-            } catch {
-                discovered.append(
-                    DiscoveredExtension(id: id, folder: folder, state: .invalid(error.description)))
-            }
+            discovered.append(
+                DiscoveredExtension(
+                    id: id, folder: folder, state: state(current, approved: approved[id], store: store)))
         }
         discovered.sort { $0.id < $1.id }
         // One revision per extension: the first the activation names.
@@ -311,6 +363,21 @@ public final class Extensions {
         )
         return Snapshot(
             discovered: discovered, active: active, sealed: sealed, duration: ContinuousClock.now - start)
+    }
+
+    /// A folder's state: its current revision (or why it has none) against the approved one, which
+    /// counts only if the store still keeps it.
+    private nonisolated static func state(
+        _ current: Result<SealedRevision, SealError>, approved: ExtensionRevision?, store: RevisionStore
+    ) -> DiscoveredExtension.State {
+        switch current {
+        case .success(let current):
+            guard let approved else { return .unapproved(current) }
+            return approved == current.revision
+                ? .approved(current) : .changed(approved: store.retained(approved), current: current)
+        case .failure(let error):
+            return .invalid(error.description, approved: approved.flatMap(store.retained))
+        }
     }
 
     /// Makes `snapshot` current in one step: discovery, the active catalog, the sessions of
@@ -341,9 +408,10 @@ public final class Extensions {
         diagnostics.replace(
             .discovery,
             with: snapshot.discovered.compactMap {
-                guard case .invalid(let reason) = $0.state else { return nil }
+                guard case .invalid(let reason, _) = $0.state else { return nil }
                 return Diagnostic(.extension($0.id), .discovery, .error, reason)
             })
+        diagnostics.set(.approvals, of: .approvals, .error, approvals.problem.map { [$0] } ?? [])
         discovered = snapshot.discovered
         active = next
         Self.logger.notice(
@@ -352,6 +420,85 @@ public final class Extensions {
             active (\(snapshot.sealed, privacy: .public) sealed) in \(snapshot.duration, privacy: .public)
             """)
         onChange?()
+    }
+
+    // MARK: Consent (Wicket's review screens only)
+
+    /// Approves `revision` and returns once a discovery pass has published the catalog with it
+    /// (its folder sealed again, so a folder just installed is seen). Only Wicket's own review
+    /// screens call this, after a passing check; nothing in settings.json or the CLI reaches it.
+    func approve(_ revision: ExtensionRevision) async throws {
+        try approvals.approve(revision)
+        await load(changed: [directory.appending(path: revision.extensionID).path]).value
+    }
+
+    /// Withdraws the approval of the extension `id` and returns once the catalog no longer has it:
+    /// its commands leave the registry, its frames stop and its session is stopped.
+    func revoke(_ id: String) async throws {
+        try approvals.revoke(id)
+        await load().value
+    }
+
+    /// Installs a build's folder `work` into the extensions directory as the extension `checked`
+    /// is, and returns it sealed; approving it is the caller's next step. The copy must seal to
+    /// the revision that was checked, or nothing changes. An extension folder of the same id is
+    /// replaced (an update, which needs this approval anyway), the old one moved to the Trash; a
+    /// folder of that name that holds something else is never touched.
+    func install(_ checked: CheckedRevision, from work: URL) async throws -> SealedRevision {
+        try await Self.install(
+            checked.sealed.revision, from: work, into: directory, store: store, trash: trash)
+    }
+
+    @concurrent
+    private nonisolated static func install(
+        _ revision: ExtensionRevision, from work: URL, into directory: URL, store: RevisionStore,
+        trash: @Sendable (URL) throws -> Void
+    ) async throws -> SealedRevision {
+        let files = FileManager.default
+        let id = revision.extensionID
+        let target = directory.appending(path: id, directoryHint: .isDirectory)
+        if files.fileExists(atPath: target.path), (try? Manifest.load(from: target))?.id != id {
+            throw Refusal(
+                "The extensions folder already has a folder named \(id) that isn't this extension, so nothing was installed. Move it away and enable the extension again."
+            )
+        }
+        // Hidden while it is copied and verified, so discovery doesn't see it half done.
+        let staging = directory.appending(path: ".install-\(UUID().uuidString)", directoryHint: .isDirectory)
+        do {
+            try files.createDirectory(at: directory, withIntermediateDirectories: true)
+            try files.copyItem(at: work, to: staging)
+        } catch {
+            RevisionStore.remove(staging)
+            throw Refusal("Couldn't copy the extension into place: \(error.localizedDescription)")
+        }
+        let sealed: SealedRevision
+        do {
+            sealed = try store.seal(staging, id: id)
+        } catch {
+            RevisionStore.remove(staging)
+            throw Refusal("The installed copy couldn't be sealed: \(error.description)")
+        }
+        guard sealed.revision == revision else {
+            RevisionStore.remove(staging)
+            throw Refusal(
+                "The extension's files changed after they were checked, so it wasn't enabled. Make it again to check the new files."
+            )
+        }
+        if files.fileExists(atPath: target.path) {
+            do {
+                try trash(target)
+            } catch {
+                RevisionStore.remove(staging)
+                throw Refusal(
+                    "Couldn't move the installed version to the Trash: \(error.localizedDescription)")
+            }
+        }
+        guard rename(staging.path, target.path) == 0 else {
+            let reason = String(cString: strerror(errno))
+            RevisionStore.remove(staging)
+            throw Refusal("Couldn't move the extension into place: \(reason)")
+        }
+        return sealed
     }
 
     /// Stops `session` after any replacement before it; pruning keeps its revision until it is gone.
@@ -382,6 +529,12 @@ public final class Extensions {
             for previous in replaced { group.addTask { await previous.value } }
         }
     }
+}
+
+/// Why Wicket refused to do something for the user, in words for them.
+struct Refusal: Error, CustomStringConvertible {
+    let description: String
+    init(_ description: String) { self.description = description }
 }
 
 /// Extension commands feed their frames with one result per run.

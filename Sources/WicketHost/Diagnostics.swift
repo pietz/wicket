@@ -15,6 +15,8 @@ public struct Diagnostic: Hashable, Sendable {
         case settings
         /// Hotkeys that belong to no command: the palette's own.
         case bindings
+        /// The store of approved extension revisions (`Approvals`).
+        case approvals
     }
 
     /// Who reports it. Each kind replaces its own reports, so one producer never clears another's.
@@ -38,6 +40,8 @@ public struct Diagnostic: Hashable, Sendable {
         case conflict
         /// A field of settings.json that was ignored, or a file that couldn't be read.
         case settings
+        /// The approvals file couldn't be used, so nothing is approved.
+        case approvals
     }
 
     public enum Severity: Int, Comparable, Sendable {
@@ -66,7 +70,7 @@ public struct Diagnostic: Hashable, Sendable {
         switch subject {
         case .extension(let other): other == id
         case .command(let command): command.owner == .extension(id: id)
-        case .settings, .bindings: false
+        case .settings, .bindings, .approvals: false
         }
     }
 }

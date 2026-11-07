@@ -22,8 +22,8 @@ private final class InertEffects: ActionEffects {
     func reveal(_ url: URL) {}
 }
 
-/// A palette over copies of the named extensions, with every extension command registered (the
-/// app's `extensionCommandsInPalette` switch, on).
+/// A palette over copies of the named extensions, each approved as the user would from its review,
+/// so every extension command is registered.
 @MainActor
 private struct Palette {
     let extensions: Extensions
@@ -53,7 +53,7 @@ private struct Palette {
             try FileManager.default.moveItem(
                 at: ext.folder, to: directory.appending(path: ext.folder.lastPathComponent))
         }
-        extensions = Extensions(directory: directory, store: testStore()) { _ in
+        extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
             testConfiguration(secrets: ["GITHUB_TOKEN": "unused"]) {
                 $0.requestTimeout = .seconds(30)
                 $0.idleTimeout = .seconds(2)
@@ -61,6 +61,10 @@ private struct Palette {
             }
         }
         await extensions.load().value
+        // Nothing runs unapproved: approve what was found.
+        for found in extensions.discovered {
+            if let sealed = found.sealed { try await extensions.approve(sealed.revision) }
+        }
         let registry = CommandRegistry()
         registry.setExtensionCommands(extensions.commands)
         root = ExtensionRootSource(extensions, debounce: .milliseconds(30))

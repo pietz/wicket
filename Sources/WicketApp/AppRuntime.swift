@@ -46,12 +46,6 @@ final class AppRuntime {
         var stop: @MainActor () -> Void
     }
 
-    /// The switch for extension commands in the palette. They run without any approval until the
-    /// consent store lands (refactor step 5b), so they stay out of the command registry, and with it
-    /// out of the root search, keywords and `run` actions (which fail as "not found"), and root-mode
-    /// commands get no root source. Everything else (command frames, the runner) is wired either way.
-    static let extensionCommandsInPalette = false
-
     let store: SettingsStore
     let registry: CommandRegistry
     let model: PaletteModel
@@ -65,7 +59,9 @@ final class AppRuntime {
     /// Opens the settings window.
     var showSettings: () -> Void = {}
 
-    private let extensions: Extensions
+    /// Discovery and the active catalog: only approved revisions, whose commands the registry
+    /// takes on every published snapshot.
+    let extensions: Extensions
     /// Make a Command's jobs, which outlive the frames observing them; `shutdown` cancels them.
     let buildJobs: BuildJobs
     /// Every command's runner (built-ins and extensions), which `shutdown` stops.
@@ -82,7 +78,7 @@ final class AppRuntime {
     private(set) var applied: Settings?
 
     /// `sources` are the host's own root sources (apps, calculator, files); the runtime adds the
-    /// registry's commands, its fallback rows and, behind the switch, the extensions' root commands.
+    /// registry's commands, its fallback rows and the approved extensions' root commands.
     /// `builtins` is the table of Wicket's own commands (`live()` composes it): the registry takes
     /// their commands, the router their runners. `buildJobs` is the one the table's Make a Command
     /// runner starts jobs in.
@@ -97,8 +93,8 @@ final class AppRuntime {
         registry = CommandRegistry(builtins: builtins.map(\.command))
         self.work = work
         self.system = system
-        var sources = sources + [CommandsSource(registry), FallbackSource(registry)]
-        if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
+        let sources =
+            sources + [CommandsSource(registry), FallbackSource(registry), ExtensionRootSource(extensions)]
         allSources = sources
         let runner = CommandRouter(builtins: builtins, extensions: extensions)
         self.runner = runner
@@ -224,8 +220,10 @@ final class AppRuntime {
         }
     }
 
+    /// Registers the active catalog's commands (approved revisions only) after each published
+    /// discovery: an approval, a revoke or a folder change. Runs of commands gone stop, runs bound to
+    /// a replaced revision are reconciled, and bindings waiting for a command take effect.
     private func registerExtensionCommands() {
-        guard Self.extensionCommandsInPalette else { return }
         let changes = registry.changes
         registry.setExtensionCommands(extensions.commands)
         registryChanged(since: changes, refreshed: false)
@@ -266,6 +264,11 @@ extension AppRuntime {
         let settingsWindow = SettingsWindowController(store: store)
         weak var weakRuntime: AppRuntime?
         let buildJobs = BuildJobs(diagnostics: diagnostics, provider: { weakRuntime?.applied?.ai.provider })
+        // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
+        let extensions = Extensions(
+            directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
+            approvals: Approvals(), diagnostics: diagnostics)
+        let consent = ExtensionsRunner(extensions: extensions, jobs: buildJobs)
         let work: [Feature: Work] = [
             .apps: Work(
                 start: {
@@ -314,13 +317,32 @@ extension AppRuntime {
                     id: .stopBuild, title: "Stop Making a Command", icon: .symbol(name: "stop.circle"),
                     isListed: false, input: .none),
                 runner: StopBuildRunner(jobs: buildJobs)),
+            // Every discovered extension with its state; reviewing, enabling and disabling one are
+            // the hidden built-ins below, reached only by the actions its screens draw.
+            Builtin(
+                RegisteredCommand(
+                    id: .extensions, title: "Extensions", icon: .symbol(name: "puzzlepiece.extension"),
+                    keyword: "extensions", retry: .safeToRepeat),
+                runner: consent),
+            Builtin(
+                RegisteredCommand(
+                    id: .reviewExtension, title: "Review Extension", icon: .symbol(name: "checkmark.shield"),
+                    isListed: false, input: .none),
+                runner: consent),
+            Builtin(
+                RegisteredCommand(
+                    id: .enableExtension, title: "Enable Extension", icon: .symbol(name: "checkmark.circle"),
+                    isListed: false, input: .none),
+                runner: consent),
+            Builtin(
+                RegisteredCommand(
+                    id: .disableExtension, title: "Disable Extension", icon: .symbol(name: "xmark.circle"),
+                    isListed: false, input: .none),
+                runner: consent),
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource()], work: work, builtins: builtins,
-            extensions: Extensions(
-                directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
-                diagnostics: diagnostics),
-            buildJobs: buildJobs, system: .live)
+            extensions: extensions, buildJobs: buildJobs, system: .live)
         weakRuntime = runtime
         apps.onChange = { [weak runtime] in runtime?.model.refresh() }
 

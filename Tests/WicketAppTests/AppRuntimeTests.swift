@@ -166,7 +166,13 @@ private final class Harness {
             work: [.apps: work(.apps), .calculator: work(.calculator)], builtins: builtins,
             extensions: Extensions(
                 directory: directory.appending(path: "extensions"),
-                store: RevisionStore(root: directory.appending(path: "revisions")), diagnostics: diagnostics),
+                store: RevisionStore(root: directory.appending(path: "revisions")),
+                approvals: Approvals(url: directory.appending(path: "approvals.json")),
+                diagnostics: diagnostics
+            ) { [directory] id in
+                SessionConfiguration(dataDirectory: directory.appending(path: "data/\(id)"), version: "test")
+                { _ in nil }
+            },
             buildJobs: buildJobs, usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
         harness = self
@@ -417,4 +423,68 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.store.diagnostics.entries(for: .settings).map(\.severity) == [.error])
     try h.change("{}")
     #expect(h.store.diagnostics.all.isEmpty)
+}
+
+// MARK: Extensions and consent
+
+/// Writes an extension `hello` with one once command (keyword `hello`) that answers "Hi" and keeps
+/// running, into the harness's extensions folder, and discovers it.
+@MainActor
+private func addHello(_ h: Harness) async throws {
+    let folder = h.directory.appending(path: "extensions/hello")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try Data(
+        #"""
+        {"protocol":1,"id":"hello","name":"Hello","version":"1.0.0","run":["/bin/sh","main.sh"],
+         "commands":[{"id":"go","title":"Say Hello","keyword":"hello"}]}
+        """#.utf8
+    ).write(to: folder.appending(path: "wicket.json"))
+    try Data(
+        #"""
+        while read -r line; do
+          id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"Hi"}}}\n' "$id"
+        done
+        """#.utf8
+    ).write(to: folder.appending(path: "main.sh"))
+    await h.runtime.extensions.load(changed: [folder.path]).value
+}
+
+@MainActor @Test func settingsJSONCanGrantNothing() async throws {
+    // Everything settings.json could try: a binding, an alias, and keys that look like consent.
+    let h = try Harness(
+        settings: #"""
+            {"commands": {"ext:hello/go": {"hotkey": "ctrl+option+h", "alias": "hey"}},
+             "extensions": {"hello": {"enabled": true}}, "approvals": {"hello": "any"}}
+            """#)
+    try await addHello(h)
+    let hello = CommandID.extension("hello", "go")
+    #expect(h.runtime.extensions.discovered.map(\.id) == ["hello"])
+    #expect(h.runtime.registry.command(hello) == nil)
+    #expect(!h.system.registered.contains(shortcut("ctrl+option+h")))
+    h.session.query = "Say Hello"
+    #expect(!h.rootIDs.contains { $0.hasPrefix("ext:") || $0.contains("hello/go") })
+    #expect(!FileManager.default.fileExists(atPath: h.directory.appending(path: "approvals.json").path))
+    #expect(h.runtime.extensions.approvals.all.isEmpty)
+}
+
+@MainActor @Test func approvingAndRevokingAnExtensionUpdatesThePalette() async throws {
+    let h = try Harness(settings: #"{"commands": {"ext:hello/go": {"hotkey": "ctrl+option+h"}}}"#)
+    try await addHello(h)
+    let hello = CommandID.extension("hello", "go")
+    let sealed = try #require(h.runtime.extensions.discovered.first?.sealed)
+
+    // Approved, its command is registered, its waiting binding takes effect, and it runs.
+    try await h.runtime.extensions.approve(sealed.revision)
+    let command = try #require(h.runtime.registry.command(hello))
+    #expect(command.revision == sealed.revision)
+    #expect(h.system.registered.contains(shortcut("ctrl+option+h")))
+    h.session.open(CommandRun(command, .invoked))
+    #expect(await soon { h.session.frames.count == 2 && h.session.top.list?.items.first?.title == "Hi" })
+
+    // Revoked, it leaves the registry, its frame stops and its hotkey is released.
+    try await h.runtime.extensions.revoke("hello")
+    #expect(h.runtime.registry.command(hello) == nil)
+    #expect(h.session.frames.count == 1)
+    #expect(!h.system.registered.contains(shortcut("ctrl+option+h")))
 }

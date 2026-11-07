@@ -120,7 +120,10 @@ private struct NoEffects: ActionEffects {
     let ext = try TestExtension(script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration { $0.dataDirectory = data }
     }
     await extensions.load().value
@@ -150,7 +153,10 @@ private struct NoEffects: ActionEffects {
     let ext = try TestExtension(script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration { $0.dataDirectory = data }
     }
     await extensions.load().value
@@ -247,7 +253,10 @@ private struct NoEffects: ActionEffects {
     let ext = try TestExtension(script: script)
     let data = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/data-\(UUID().uuidString)")
-    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent(), store: testStore()) { _ in
+    let extensions = Extensions(
+        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
+        activate: Extensions.currentRevisions
+    ) { _ in
         testConfiguration { $0.dataDirectory = data }
     }
     await extensions.load().value

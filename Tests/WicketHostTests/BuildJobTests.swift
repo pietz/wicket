@@ -374,3 +374,166 @@ private struct Palette {
     }
     #expect(agent.ended)
 }
+
+// MARK: Enabling a build
+
+/// Extensions in a fresh folder with a fresh approvals store; replaced folders are recorded rather
+/// than moved to the real Trash.
+@MainActor
+private func makeExtensions(trashed: TrashBin? = nil) throws -> Extensions {
+    let directory = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/installed-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let data = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/data-\(UUID().uuidString)")
+    let extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
+        testConfiguration { $0.dataDirectory = data }
+    }
+    if let trashed { extensions.trash = { try trashed.take($0) } }
+    return extensions
+}
+
+private final class TrashBin: Sendable {
+    let folder = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/trash-\(UUID().uuidString)")
+    private let taken = Mutex<[String]>([])
+    var names: [String] { taken.withLock { $0 } }
+
+    func take(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: url, to: folder.appending(path: url.lastPathComponent))
+        taken.withLock { $0.append(url.lastPathComponent) }
+    }
+}
+
+/// A job that wrote the week-number sample and awaits review.
+@MainActor
+private func reviewedJob(_ jobs: BuildJobs) async throws -> (BuildJob, CheckedRevision) {
+    let job = try jobs.start("show the week number")
+    await job.finished()
+    guard case .review(let checked) = job.phase else { throw BuildJob.Failure("ended \(job.phase)") }
+    return (job, checked)
+}
+
+private let writesWeekNumber = backend { folder, events in
+    try? copyContents(of: weekNumber, into: folder)
+    events.yield(.answer("Type week.", usage: nil))
+    return .exited(.status(0))
+}
+
+@MainActor @Test func enablingInstallsTheFolderAndApprovesTheCheckedRevision() async throws {
+    let (job, checked) = try await reviewedJob(makeJobs(writesWeekNumber))
+    let extensions = try makeExtensions()
+    try await job.enable(in: extensions)
+
+    let installed = extensions.directory.appending(path: "week-number")
+    guard case .enabled(let sealed, let folder) = job.phase else {
+        Issue.record("ended \(job.phase)")
+        return
+    }
+    #expect(folder == installed)
+    #expect(sealed.revision == checked.sealed.revision)
+    #expect(try ExtensionRevision(folder: installed, id: "week-number") == checked.sealed.revision)
+    #expect(extensions.approvals.approved("week-number") == checked.sealed.revision)
+    #expect(extensions.discovered.first?.state == .approved(sealed))
+    #expect(extensions.commands.map(\.id) == [.extension("week-number", "week")])
+    // Enabling again changes nothing.
+    try await job.enable(in: extensions)
+    #expect(extensions.approvals.all.count == 1)
+}
+
+@MainActor @Test func filesChangedAfterTheCheckAreNeverEnabled() async throws {
+    let (job, _) = try await reviewedJob(makeJobs(writesWeekNumber))
+    try Data("# edited after the check\n".utf8).write(to: job.work.appending(path: "extra.sh"))
+    let extensions = try makeExtensions()
+    await #expect(throws: Refusal.self) { try await job.enable(in: extensions) }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: extensions.directory.path).isEmpty)
+    #expect(extensions.approvals.all.isEmpty)
+    guard case .review = job.phase else {
+        Issue.record("ended \(job.phase)")
+        return
+    }
+}
+
+@MainActor @Test func aFolderOfThatNameThatIsntTheExtensionIsNeverReplaced() async throws {
+    let (job, _) = try await reviewedJob(makeJobs(writesWeekNumber))
+    let trash = TrashBin()
+    let extensions = try makeExtensions(trashed: trash)
+    let other = extensions.directory.appending(path: "week-number")
+    try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+    try Data("mine".utf8).write(to: other.appending(path: "notes.txt"))
+
+    await #expect(throws: Refusal.self) { try await job.enable(in: extensions) }
+    #expect(try String(contentsOf: other.appending(path: "notes.txt"), encoding: .utf8) == "mine")
+    #expect(trash.names.isEmpty)
+    #expect(extensions.approvals.all.isEmpty)
+}
+
+@MainActor @Test func anEarlierVersionOfTheExtensionIsReplacedAndKeptInTheTrash() async throws {
+    let (job, checked) = try await reviewedJob(makeJobs(writesWeekNumber))
+    let trash = TrashBin()
+    let extensions = try makeExtensions(trashed: trash)
+    let earlier = extensions.directory.appending(path: "week-number")
+    try FileManager.default.copyItem(at: weekNumber, to: earlier)
+    try Data("an older version".utf8).write(to: earlier.appending(path: "notes.txt"))
+    await extensions.load().value
+    let old = try #require(extensions.discovered.first?.sealed)
+    try await extensions.approve(old.revision)
+
+    try await job.enable(in: extensions)
+    #expect(trash.names == ["week-number"])
+    #expect(
+        FileManager.default.fileExists(atPath: trash.folder.appending(path: "week-number/notes.txt").path))
+    #expect(extensions.approvals.approved("week-number") == checked.sealed.revision)
+    #expect(extensions.revisions["week-number"] == checked.sealed.revision)
+}
+
+@MainActor @Test func theReviewFramesEnableActionShowsItEnabled() async throws {
+    let jobs = makeJobs(writesWeekNumber)
+    let extensions = try makeExtensions()
+    let consent = ExtensionsRunner(extensions: extensions, jobs: jobs, checkOptions: checkOptions())
+    let enable = RegisteredCommand(
+        id: .enableExtension, title: "Enable Extension", icon: .symbol(name: "checkmark.circle"),
+        isListed: false,
+        input: .none)
+    let registry = CommandRegistry(builtins: [makeCommand, enable])
+    let session = PaletteSession(
+        sources: [],
+        runner: CommandRouter(
+            builtins: [
+                Builtin(makeCommand, runner: MakeCommandRunner(jobs: jobs)), Builtin(enable, runner: consent),
+            ],
+            extensions: extensions),
+        registry: registry)
+    let dispatcher = ActionDispatcher(registry: registry, effects: NoEffects())
+    func detail() -> Detail? {
+        if case .screen(let frame) = session.top.content, case .detail(let detail) = frame.screen {
+            detail
+        } else {
+            nil
+        }
+    }
+
+    session.open(CommandRun(makeCommand, .invoked, text: "show the week number"))
+    #expect(await eventually { detail()?.title == "Week Number" && !session.top.isLoading })
+    let action = try #require(detail()?.actions.first)
+    #expect(action.title == "Enable")
+    guard case .open(let run) = dispatcher.perform(action, in: ActionContext()) else {
+        Issue.record("Enable didn't open a run")
+        return
+    }
+    session.open(run)
+
+    // Enable reloads the review frame, which shows the job enabled; the palette stays open on it.
+    #expect(await eventually { detail()?.markdown.hasPrefix("**Enabled.**") == true })
+    #expect(session.frames.count == 2)
+    #expect(detail()?.markdown.contains("- Week Number: keyword `week` (once)") == true)
+    #expect(extensions.commands.map(\.id) == [.extension("week-number", "week")])
+}
+
+private struct NoEffects: ActionEffects {
+    func open(_ url: URL) {}
+    func copy(_ text: String) {}
+    func paste(_ text: String, into app: RunningApp?) {}
+    func reveal(_ url: URL) {}
+}

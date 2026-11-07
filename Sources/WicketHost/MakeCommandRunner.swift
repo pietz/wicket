@@ -11,8 +11,10 @@ extension CommandID {
 
 /// Runs Make a Command for its frame: the submitted sentence starts a build job (`BuildJobs`), or,
 /// while one runs, reattaches to it, and the frame shows the job's phases: a detail that grows with
-/// what the agent does, then the check report and the extension's commands for review, or why it
-/// failed. The frame only observes the job: ending its stream (Escape, closing the palette) stops
+/// what the agent does, then the check report and the extension's commands for review with an
+/// Enable action (`builtin:enable-extension` carrying the job's review token), or why it failed.
+/// Once enabled, the same frame (reloaded by Enable) shows the extension enabled with its commands.
+/// The frame only observes the job: ending its stream (Escape, closing the palette) stops
 /// observing, never the job.
 @MainActor
 public final class MakeCommandRunner: CommandRunner {
@@ -38,7 +40,7 @@ public final class MakeCommandRunner: CommandRunner {
                 switch shown.phase {
                 case .generating, .checking:
                     continuation.yield(.show(.detail(shown.detail)))
-                case .review:
+                case .review, .enabled:
                     continuation.yield(.show(.detail(shown.detail)))
                     continuation.finish()
                     return
@@ -111,6 +113,10 @@ private struct Shown: Sendable {
                 metadata: agent)
         case .review(let checked):
             return review(checked, job: job, agent: agent)
+        case .enabled(let sealed, let folder):
+            var detail = ExtensionsRunner.enabled(sealed, folder: folder)
+            detail.metadata += agent
+            return detail
         case .failed(let reason):
             return Detail(title: job.sentence, markdown: reason, metadata: agent)
         case .cancelled:
@@ -132,27 +138,18 @@ private struct Shown: Sendable {
         let manifest = checked.sealed.manifest
         var sections: [String] = []
         if let description = manifest.description { sections.append(description) }
-        sections.append(
-            "**Commands**\n\n"
-                + manifest.commands.map { command in
-                    var line = "- \(command.title)"
-                    if let keyword = command.keyword { line += ": keyword `\(keyword)`" }
-                    return line + " (\(command.mode.rawValue))"
-                }.joined(separator: "\n"))
-        sections.append(
-            "**Check**\n\n"
-                + checked.report.lines.map { "- \($0.kind.rawValue): \($0.text)" }.joined(separator: "\n"))
+        sections.append("**Commands**\n\n" + ExtensionsRunner.commands(manifest))
+        sections.append("**Check**\n\n" + ExtensionsRunner.report(checked.report))
         if let summary = job.summary, !summary.isEmpty { sections.append(summary) }
-        sections.append("_Checked and ready for review. Approving and installing extensions comes next._")
-        let capabilities = manifest.capabilities.map(\.rawValue).joined(separator: ", ")
+        sections.append(
+            "_Checked and ready for review. Enable runs it with your permissions, as any app you install._")
         return Detail(
             title: manifest.name, markdown: sections.joined(separator: "\n\n"),
-            metadata: [
-                .init(label: "Extension", value: manifest.id),
-                .init(label: "Version", value: manifest.version),
-                .init(label: "Revision", value: String(checked.sealed.revision.sha256.prefix(12))),
-                .init(label: "Capabilities", value: capabilities.isEmpty ? "none" : capabilities),
-            ] + agent,
-            actions: [.reveal(url: checked.sealed.folder, title: "Show Files")])
+            metadata: ExtensionsRunner.metadata(checked.sealed) + agent,
+            actions: [
+                .run(
+                    command: .enableExtension, args: ["review": .string(job.reviewToken)], title: "Enable"),
+                .reveal(url: checked.sealed.folder, title: "Show Files"),
+            ])
     }
 }
