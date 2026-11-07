@@ -16,13 +16,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.store = store
     }
 
-    func show() {
+    /// Shows the window, on the pane titled `pane` if given, else on the one it shows.
+    func show(pane: String? = nil) {
         // Before the window exists, so it opens on the current Space, even a full-screen one.
         NSApp.setActivationPolicy(.regular)
         if window == nil {
             let window = makeWindow()
             window.center()
             self.window = window
+        }
+        if let pane, let tabs = window?.contentViewController as? NSTabViewController,
+            let index = tabs.tabViewItems.firstIndex(where: { $0.label == pane })
+        {
+            tabs.selectedTabViewItemIndex = index
         }
         // Cooperative `activate()` is refused here: the palette is a non-activating panel, so to
         // macOS the request comes from a background app and the previous app keeps focus, leaving

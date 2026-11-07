@@ -2,6 +2,12 @@ import Foundation
 import WicketCore
 import os
 
+extension CommandID {
+    /// Opens Settings on its AI pane: the action of an Ask AI frame whose provider isn't ready.
+    /// Hidden, reached by id only; the app's table gives it its effect.
+    public static let aiSettings = CommandID.builtin("ai-settings")
+}
+
 /// What Ask AI needs from the agent CLIs: whether a provider is ready, and an answer run.
 /// `installed` uses the CLIs on the login-shell PATH; tests pass stand-ins.
 public struct AgentBackend: Sendable {
@@ -31,9 +37,11 @@ public struct AgentBackend: Sendable {
 /// Runs Ask AI (a built-in in the app's table) for its frame: the question goes to the user's agent CLI in
 /// answer mode (no tools), and the frame shows a detail that grows with the streamed text, at most
 /// about 30 times a second, replaced by the final answer at the end. Its actions copy or paste the
-/// answer. A provider that isn't ready, or a run that fails, ends the stream with an error the frame
-/// shows; ending the iteration (pop, dismiss) kills the agent's process tree. A run's task ends only
-/// once that tree is gone, and `shutdown()` (the app quitting) ends every run and waits for them.
+/// answer, once there is text. A provider that isn't ready shows why with an action opening Settings
+/// ▸ AI; a run that fails keeps the text it sent, marked incomplete, and offers Retry (the same
+/// question, asked again only when the user picks it). Ending the iteration (pop, dismiss) kills the
+/// agent's process tree. A run's task ends only once that tree is gone, and `shutdown()` (the app
+/// quitting) ends every run and waits for them.
 ///
 /// The provider is checked before each run, never at launch: the chosen one (`provider`, read from
 /// the applied settings on each run), else the first ready one in `AgentProvider.allCases` order. A provider found ready is
@@ -76,7 +84,7 @@ public final class AskAIRunner: CommandRunner {
         let task = Task {
             do {
                 guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
-                try await answer(prompt, continuation)
+                try await answer(prompt, command: invocation.command, continuation)
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -98,12 +106,20 @@ public final class AskAIRunner: CommandRunner {
     }
 
     private func answer(
-        _ prompt: String, _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
+        _ prompt: String, command: CommandID, _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         let start = ContinuousClock.now
-        let provider = try await readyProvider()
+        let provider: AgentProvider
+        do {
+            provider = try await readyProvider()
+        } catch {
+            var detail = Detail.failure("Ask AI Failed", error.description, command: command)
+            detail.actions = [.run(command: .aiSettings, title: "Open AI Settings")]
+            output.yield(.show(.detail(detail)))
+            return
+        }
         try Task.checkCancellation()
-        let draft = Draft(prompt: prompt, status: "Asking \(provider.name)…")
+        let draft = Draft(prompt: prompt, command: command, status: "Asking \(provider.name)…")
         output.yield(.show(.detail(draft.detail)))
 
         // An empty folder, so the agent's working directory holds nothing to read.
@@ -118,6 +134,13 @@ public final class AskAIRunner: CommandRunner {
         // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
         do {
             try await show(run, of: provider, in: draft, start: start, throttle: throttle, output)
+        } catch let failure as Failure {
+            throttle.cancel()
+            draft.failure = failure.description
+            output.yield(.show(.detail(draft.detail)))
+            Self.logger.notice(
+                "ask-ai: \(provider.rawValue, privacy: .public) failed after \(draft.text.count, privacy: .public) chars"
+            )
         } catch {
             await run.cancelAndWait()
             throw error
@@ -167,7 +190,7 @@ public final class AskAIRunner: CommandRunner {
     }
 
     /// The provider to ask, or an error saying why none can answer.
-    private func readyProvider() async throws -> AgentProvider {
+    private func readyProvider() async throws(Failure) -> AgentProvider {
         let chosen = provider()
         var statuses: [AgentStatus] = []
         for candidate in chosen.map({ [$0] }) ?? AgentProvider.allCases {
@@ -220,20 +243,38 @@ public final class AskAIRunner: CommandRunner {
 @MainActor
 private final class Draft {
     let prompt: String
+    /// Ask AI's id, which Retry runs again.
+    let command: CommandID
     /// Shown until the first text arrives.
     var status: String
     var text = ""
+    /// Why the run failed, once it has.
+    var failure: String?
 
-    init(prompt: String, status: String) {
+    init(prompt: String, command: CommandID, status: String) {
         self.prompt = prompt
+        self.command = command
         self.status = status
     }
 
-    /// The question is the title (the pill shows it), the answer the page.
+    /// The question is the title (the pill shows it), the answer the page. Nothing to act on until
+    /// text arrives; a failed run keeps what it sent, marked incomplete, with Retry first.
     var detail: Detail {
-        Detail(
-            title: prompt, markdown: text.isEmpty ? "_\(status)_" : text,
-            actions: [.copy(text: text, title: "Copy Answer"), .paste(text: text, title: "Paste Answer")])
+        let copy = Item.Action.copy(text: text, title: "Copy Answer")
+        guard let failure else {
+            if text.isEmpty { return Detail(title: prompt, markdown: "_\(status)_") }
+            return Detail(
+                title: prompt, markdown: text, actions: [copy, .paste(text: text, title: "Paste Answer")])
+        }
+        let retry = Item.Action.run(command: command, text: prompt, title: "Retry")
+        guard !text.isEmpty else {
+            var detail = Detail.failure("Ask AI Failed", failure, command: command)
+            detail.actions = [retry]
+            return detail
+        }
+        return Detail(
+            title: prompt, markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
+            actions: [retry, copy])
     }
 }
 

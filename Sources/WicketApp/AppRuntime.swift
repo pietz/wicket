@@ -303,6 +303,12 @@ extension AppRuntime {
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
                     feature: .askAI),
                 runner: AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })),
+            // Ask AI's action when no provider is ready; reached by id only.
+            Builtin(
+                RegisteredCommand(
+                    id: .aiSettings, title: "AI Settings", icon: .symbol(name: "sparkles"), isListed: false,
+                    input: .none),
+                effect: { settingsWindow.show(pane: "AI") }),
             // Builds an extension from a sentence with the user's agent CLI, then checks it for review.
             // The job belongs to `buildJobs`, so closing its frame leaves it running; submitting
             // again while it runs shows it.

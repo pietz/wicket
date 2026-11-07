@@ -112,6 +112,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.title == "capital of France?")
     #expect(palette.detail?.markdown == "_Asking Codex…_")
     #expect(palette.session.top.isLoading)
+    // Nothing to copy or paste yet: Return does nothing rather than clear the clipboard.
+    #expect(palette.detail?.actions == [])
+    #expect(palette.session.top.target == nil)
     let frame = palette.session.top.id
     // The status shows before the agent is asked.
     #expect(await eventually { !agents.runs.isEmpty })
@@ -143,16 +146,39 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.session.frames.count == 2)
 }
 
-@MainActor @Test func anAgentErrorBecomesTheFramesFailure() async throws {
+@MainActor @Test func aLateErrorKeepsThePartialAnswer() async throws {
     let agents = FakeAgents([.codex: .ready])
     let palette = Palette(agents.backend)
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.text("Hel"))
     agents.runs[0].continuation.yield(.error("the model is overloaded"))
+    #expect(await eventually { palette.detail?.markdown.contains("incomplete") == true })
+    #expect(await eventually { !palette.session.top.isLoading })
+    #expect(palette.detail?.title == "hello")
+    #expect(palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded")
+    // Retry asks the same question again, only when picked; Copy takes the text without the note.
+    let retry = Item.Action.run(command: askAI.id, text: "hello", title: "Retry")
+    #expect(palette.session.top.target?.actions == [retry, .copy(text: "Hel", title: "Copy Answer")])
+    #expect(agents.runs.count == 1)
+    #expect(agents.wasEnded(0))
+
+    palette.session.open(CommandRun(askAI, .invoked, text: "hello"))
+    #expect(await eventually { agents.runs.count == 2 })
+    #expect(agents.runs[1].request.prompt == "hello")
+}
+
+@MainActor @Test func anErrorBeforeAnyTextOffersRetry() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    agents.runs[0].continuation.yield(.error("the model is overloaded"))
     #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
     #expect(palette.detail?.markdown == "the model is overloaded")
-    #expect(!palette.session.top.isLoading)
+    #expect(await eventually { !palette.session.top.isLoading })
+    #expect(
+        palette.session.top.target?.actions == [.run(command: askAI.id, text: "hello", title: "Retry")])
 }
 
 @MainActor @Test func poppingOrDismissingStopsTheAgent() async throws {
@@ -190,6 +216,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         palette.detail?.markdown
             == "Codex isn't signed in: run `codex login` in Terminal to sign in.\n\n"
             + "You can choose another provider in Settings ▸ AI.")
+    #expect(
+        palette.session.top.target?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
     #expect(agents.runs.count == 1)
 
     // Neither ready (a new runner: this one found Claude ready a moment ago, and trusts that).
