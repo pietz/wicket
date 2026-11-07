@@ -39,7 +39,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Palette view stack and extension frames (once, live, root, keywords), behind the switch until the consent store lands; verified on screen with the samples
 - ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
 - ✅ Sample extensions in `Extensions/`: system-toggles, quit-apps, github-prs (sh + jq, all pass `wicket check`)
-- 🔨 "Make a command": ✅ build job (staging, agent, seal, check), ✅ review and Enable; ⏭ uv for Python extensions, "Fix with agent", rollback UI
+- 🔨 "Make a command": ✅ build job (staging, agent, seal, check), ✅ review and Enable; ✅ uv for Python extensions; ⏭ "Fix with agent", rollback UI
 - 🔨 Extensions screen: ✅ palette list (review and enable, disable, reveal); 💤 edit by prompt, repair, roll back, settings pane
 
 ### App shell
