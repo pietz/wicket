@@ -298,19 +298,13 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// where the pill is or was (a command that closed the palette, a paste that only copied).
     private func present(_ message: Message) {
         if panel.isVisible, model.isExpanded {
-            model.showToast(message.text)
+            model.showToast(message)
             return
         }
-        let symbol =
-            switch message.kind {
-            case .done: "checkmark.circle.fill"
-            case .copied: "doc.on.clipboard"
-            case .failed: "exclamationmark.triangle.fill"
-            }
         let pill = NSPoint(
             x: anchor.x + PaletteMetrics.margin + width / 2,
             y: anchor.y - PaletteMetrics.margin - PaletteMetrics.pillHeight / 2)
-        hud.show(message.text, symbol: symbol, centeredAt: pill)
+        hud.show(message, centeredAt: pill)
     }
 
     /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.

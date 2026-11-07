@@ -28,7 +28,23 @@ struct PaletteMetricsTests {
 
     @Test func emptyRootHasNoCard() {
         #expect(card(session.top) == 0)
-        #expect(card(search([])) == 0)
+    }
+
+    /// A search that found nothing says so in one row, but only once it finished: while slow sources
+    /// still run the card stays as it is (the pill on a fresh summon), so typing never flashes it.
+    @Test func rootWithNothingFoundSaysSoOnceFinished() async {
+        #expect(card(search([])) == 95)
+
+        let slow = SlowSource()
+        let session = PaletteSession(sources: [slow], liveDebounce: .zero)
+        session.query = "x"
+        #expect(session.top.isLoading)
+        #expect(card(session.top) == nil)
+        slow.answer([])
+        #expect(await eventually { !session.top.isLoading })
+        #expect(card(session.top) == 95)
+        session.query = ""
+        #expect(card(session.top) == 0)
     }
 
     /// Rows of 40 with 2 between them, 8 of inset above and below, then the divider and the footer.
@@ -45,6 +61,19 @@ struct PaletteMetricsTests {
         #expect(card(search([answer, item("b")])) == 157)  // 137 for two plain rows.
     }
 
+    /// An answer is 20 taller than a row, so a capped list with one on top is capped 20 higher: the
+    /// answer and seven whole rows, never a row cut in half.
+    @Test func cappedListWithAnswerShowsWholeRows() {
+        let answer = item("= 4", relevance: .answer)
+        let height = card(search([answer] + (0..<30).map { item("\($0)") }))!
+        let extra = PaletteMetrics.answerRowHeight - PaletteMetrics.rowHeight
+        #expect(height == PaletteMetrics.maxCardHeight + extra)
+        let rows =
+            height - 1 - FooterBar.height - 2 * PaletteMetrics.rowInset - PaletteMetrics.answerRowHeight
+        let step = PaletteMetrics.rowHeight + PaletteMetrics.rowSpacing
+        #expect(rows / step == 7)
+    }
+
     @Test func actionMenuNeedsRoom() {
         let actions: [Item.Action] = (0..<5).map { .copy(text: "\($0)") }
         let frame = search([item("a", actions: actions)])
@@ -55,6 +84,21 @@ struct PaletteMetricsTests {
         // A list taller than the panel keeps its own height.
         let tall = search((0..<7).map { item("\($0)", actions: actions) })
         #expect(card(tall, menu: menu) == card(tall))
+    }
+
+    /// A long menu shows as many whole rows as the tallest card holds and scrolls the rest, so it
+    /// never grows past the card over the pill.
+    @Test func longActionMenuFitsTheCard() {
+        let actions: [Item.Action] = (0..<40).map { .copy(text: "\($0)") }
+        let frame = search([item("a", actions: actions)])
+        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0]), pasteTarget: nil)
+        #expect(ActionPanel.maxRows > 5 && ActionPanel.maxRows < 40)
+        #expect(ActionPanel.height(rows: 40) == ActionPanel.height(rows: ActionPanel.maxRows))
+        #expect(ActionPanel.height(rows: 40) + ActionPanel.clearance <= PaletteMetrics.maxCardHeight)
+        // One more row would not fit.
+        let step = ActionPanel.rowHeight + ActionPanel.rowSpacing
+        #expect(ActionPanel.height(rows: 40) + step + ActionPanel.clearance > PaletteMetrics.maxCardHeight)
+        #expect(card(frame, menu: menu)! >= ActionPanel.height(rows: 40) + ActionPanel.clearance)
     }
 
     @Test func detailFitsItsMeasuredContent() {

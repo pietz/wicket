@@ -59,3 +59,24 @@ func command(_ name: String, input: CommandInput = .immediateText, retry: RetryP
         id: .extension("test", name), title: name.capitalized, icon: .symbol(name: "doc"), input: input,
         retry: retry)
 }
+
+/// A root source with only slow results: each query's stream stays open until the test answers it.
+@MainActor
+final class SlowSource: ResultSource {
+    let id = "slow"
+    private(set) var pending: AsyncStream<[Item]>.Continuation?
+
+    func instant(_ query: Query) -> [Item] { [] }
+
+    func updates(_ query: Query) -> AsyncStream<[Item]>? {
+        let (stream, continuation) = AsyncStream.makeStream(of: [Item].self)
+        pending = continuation
+        return stream
+    }
+
+    /// Answers the latest query with `items` and ends its search.
+    func answer(_ items: [Item]) {
+        pending?.yield(items)
+        pending?.finish()
+    }
+}

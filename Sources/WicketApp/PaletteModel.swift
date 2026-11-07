@@ -50,8 +50,14 @@ final class PaletteModel {
         if case .screen = top.content { return top.isLoading }
         return false
     }
-    /// A `reload`'s message, shown in the footer for a moment.
-    private(set) var toast: String?
+    /// What Escape does from here, for the footer when there is nothing to run: clear the text, else
+    /// go back a frame (`PaletteSession.escape`); hiding needs no hint.
+    var escapeHint: String? {
+        if !top.query.isEmpty { return "Clear" }
+        return session.frames.count > 1 ? "Back" : nil
+    }
+    /// A message (`Messages`) shown in the footer for a moment, while the card is up.
+    private(set) var toast: Message?
     @ObservationIgnored private var toastExpiry: Task<Void, Never>?
     @ObservationIgnored private var usage: UsageStore
     /// Saves usage.json off the main actor, one snapshot at a time, the newest last.
@@ -99,7 +105,7 @@ final class PaletteModel {
     }
 
     /// Shows `message` in the footer for two seconds; nil clears it at once.
-    func showToast(_ message: String?) {
+    func showToast(_ message: Message?) {
         toast = message
         toastExpiry?.cancel()
         guard message != nil else { return }

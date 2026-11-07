@@ -14,7 +14,7 @@ enum PaletteMetrics {
     static let pillHeight: CGFloat = 56
     static let gap: CGFloat = 8
     /// The tallest card: exactly eight whole rows above the divider and footer, so no row is ever
-    /// cut in half at rest.
+    /// cut in half at rest. An answer on top makes its list's cap taller by the answer's extra height.
     static let maxCardHeight: CGFloat =
         8 * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset + 1 + FooterBar.height
     static let cardRadius: CGFloat = 22
@@ -32,30 +32,34 @@ enum PaletteMetrics {
     /// The card for `frame`, up to `maxCardHeight`, and while the action panel is open at least tall
     /// enough for it. A compact frame has none. Rows fit the card (with the divider and footer),
     /// computed; a screen without rows (a page) fits its content as measured (`detailHeight`), since
-    /// markdown wraps. The root search has no card without results, a command's empty list shows one
-    /// row saying so. Nil, keep the card as it is, while a command frame waits for its first content
-    /// or a page for its first measurement.
+    /// markdown wraps. An empty list shows one row saying so. Nil, keep the card as it is, while a
+    /// command frame waits for its first content, a page for its first measurement, or the root
+    /// search for its slow sources with nothing found yet (so typing never flashes "No Results").
     static func cardHeight(for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?) -> CGFloat? {
         if frame.isCompact { return 0 }
         if frame.isMeasured { return detailHeight.map { card(content: $0, actionMenu: actionMenu) } }
         guard let results = frame.list?.items else { return nil }
-        if case .search = frame.content, results.isEmpty { return 0 }
+        if case .search = frame.content, results.isEmpty, frame.isLoading { return nil }
         var rows = CGFloat(max(results.count, 1)) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
+        var extra: CGFloat = 0
         if let first = results.first, ResultRow.isProminent(first, at: 0) {
-            rows += answerRowHeight - rowHeight
+            extra = answerRowHeight - rowHeight
+            rows += extra
         }
-        return card(content: rows, actionMenu: actionMenu)
+        return card(content: rows, actionMenu: actionMenu, cap: maxCardHeight + extra)
     }
 
     /// A detail's card before its content is laid out, when no card is up to keep: the view must be
     /// on screen to be measured, so it opens this small (under any page's height) and grows to fit.
     static let unmeasuredDetailHeight = rowHeight + 1 + FooterBar.height
 
-    /// The card for `content` above the divider and footer.
-    private static func card(content: CGFloat, actionMenu: ActionMenu?) -> CGFloat {
+    /// The card for `content` above the divider and footer, up to `cap`.
+    private static func card(content: CGFloat, actionMenu: ActionMenu?, cap: CGFloat = maxCardHeight)
+        -> CGFloat
+    {
         let menu =
             actionMenu.map { ActionPanel.height(rows: $0.target.actions.count) + ActionPanel.clearance } ?? 0
-        return min(max((content + 1 + FooterBar.height).rounded(.up), menu), maxCardHeight)
+        return min(max((content + 1 + FooterBar.height).rounded(.up), menu), cap)
     }
 
     /// The window for a card of `cardHeight` (0 for just the pill).
@@ -106,7 +110,9 @@ struct PaletteRootView: View {
                             // (a live list, a growing answer) updates in place.
                             .id(model.top.id)
                         Divider()
-                        FooterBar(target: model.target, toast: model.toast, pasteTarget: model.pasteTarget)
+                        FooterBar(
+                            target: model.target, toast: model.toast, pasteTarget: model.pasteTarget,
+                            escape: model.escapeHint)
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
@@ -133,9 +139,9 @@ struct PaletteRootView: View {
         .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
         .onAppear { focus = .search }
         .onChange(of: model.focusToken) { focus = .search }
-        // The field is new (see `searchField`), and focus already says `.search`, so setting it
-        // again would be ignored: clear it, then focus the new field once it exists.
-        .onChange(of: model.top.id) {
+        // The field is new (see `fieldID`), and focus already says `.search`, so setting it again
+        // would be ignored: clear it, then focus the new field once it exists.
+        .onChange(of: fieldID) {
             focus = nil
             Task { @MainActor in focus = .search }
         }
@@ -184,35 +190,49 @@ struct PaletteRootView: View {
         }
     }
 
-    // Return is handled here rather than by `onSubmit`, which ends editing.
+    /// The search field's identity: a new field per frame (a keyword opens a frame from inside the
+    /// field's own edit, and an editing TextField ignores a binding change made there, so it would
+    /// keep showing "week " and append the next keys to it), and per kind, field or title.
+    private var fieldID: String { "\(model.top.id)-\(model.top.isMeasured)" }
+
+    /// The search field, or on a page (which takes no text) its title as a label that still takes
+    /// the keys.
     private var searchField: some View {
         HStack(spacing: 12) {
             pillGlyph
                 .frame(width: 24)
-            TextField(pill.prompt, text: $model.query)
-                // A new field per frame: a keyword opens a frame from inside the field's own edit,
-                // and an editing TextField ignores a binding change made there, so it would keep
-                // showing "week " and append the next keys to it.
-                .id(model.top.id)
-                .textFieldStyle(.plain)
-                .font(.system(size: 21))
-                .focused($focus, equals: .search)
-                .onKeyPress(.upArrow) {
-                    model.moveSelection(by: -1)
-                    return .handled
+            Group {
+                if model.top.isMeasured {
+                    Text(pill.prompt)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .focusable(interactions: .edit)
+                        .focusEffectDisabled()
+                } else {
+                    TextField(pill.prompt, text: $model.query)
+                        .textFieldStyle(.plain)
                 }
-                .onKeyPress(.downArrow) {
-                    model.moveSelection(by: 1)
-                    return .handled
-                }
-                .onKeyPress(.return) {
-                    onRun(model.target, 0)
-                    return .handled
-                }
-                .onKeyPress(.escape) {
-                    onEscape()
-                    return .handled
-                }
+            }
+            .id(fieldID)
+            .font(.system(size: 21))
+            .focused($focus, equals: .search)
+            // Return is handled here rather than by `onSubmit`, which ends editing.
+            .onKeyPress(.upArrow) {
+                model.moveSelection(by: -1)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                model.moveSelection(by: 1)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                onRun(model.target, 0)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                onEscape()
+                return .handled
+            }
         }
         .padding(.horizontal, 18)
         .frame(height: PaletteMetrics.pillHeight)
@@ -259,7 +279,7 @@ struct ResultsView: View {
                     // would hide the inset above it.
                     Color.clear.frame(height: 0).id(Self.top)
                     if model.results.isEmpty {
-                        // Only a command's list gets here: the root search has no card without results.
+                        // Blank while the search or run still goes on, under the card kept from before.
                         Text(model.top.isLoading ? "" : "No Results")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
@@ -275,6 +295,7 @@ struct ResultsView: View {
                                 )
                                 .contentShape(Rectangle())
                                 .onTapGesture { onRun(ActionTarget(item: item), 0) }
+                                .accessibilityAction { onRun(ActionTarget(item: item), 0) }
                             }
                         }
                         .padding(PaletteMetrics.rowInset)
@@ -319,17 +340,19 @@ struct ResultsView: View {
 }
 
 /// The bar under the results or a detail: a command's message for a moment, what Return does, and
-/// where the other actions are.
+/// where the other actions are; with nothing to run, what Escape does.
 struct FooterBar: View {
     static let height: CGFloat = 34
     let target: ActionTarget?
-    var toast: String?
+    var toast: Message?
     var pasteTarget: String?
+    /// What Escape does, shown when there is no action to hint at.
+    var escape: String?
 
     var body: some View {
         HStack(spacing: 10) {
             if let toast {
-                Label(toast, systemImage: "checkmark.circle.fill")
+                Label(toast.text, systemImage: toast.kind.symbol)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .transition(.opacity)
@@ -339,6 +362,8 @@ struct FooterBar: View {
                 KeyHint(title: ActionPresentation(primary, pasteTarget: pasteTarget).title, keys: "↩")
                 Divider().frame(height: 14)
                 KeyHint(title: "Actions", keys: "⌘K")
+            } else if let escape {
+                KeyHint(title: escape, keys: "esc")
             }
         }
         .padding(.horizontal, 14)
@@ -385,11 +410,21 @@ struct ActionPanel: View {
     static let bottomPadding = FooterBar.height + 4
     /// Room the card keeps around the panel: below it, and above it so it never covers the pill.
     static let clearance = bottomPadding + 8
+    /// The most rows the panel shows at once: as many whole rows as the tallest card holds. More
+    /// scroll.
+    static let maxRows = Int(
+        (PaletteMetrics.maxCardHeight - clearance - fieldHeight - 1 - 2 * padding + rowSpacing)
+            / (rowHeight + rowSpacing))
 
-    /// The panel's height with every one of `rows` actions showing.
+    /// The height of the panel's rows (with their padding) for `rows` actions, up to `maxRows`.
+    static func listHeight(rows: Int) -> CGFloat {
+        let rows = CGFloat(min(max(rows, 1), maxRows))
+        return 2 * padding + rows * (rowHeight + rowSpacing) - rowSpacing
+    }
+
+    /// The panel's height for `rows` actions.
     static func height(rows: Int) -> CGFloat {
-        let rows = CGFloat(max(rows, 1))
-        return 2 * padding + rows * (rowHeight + rowSpacing) - rowSpacing + 1 + fieldHeight
+        listHeight(rows: rows) + 1 + fieldHeight
     }
 
     @Bindable var model: PaletteModel
@@ -401,20 +436,30 @@ struct ActionPanel: View {
         let rows = menu.rows
         let selected = menu.selectedRow?.id
         VStack(spacing: 0) {
-            VStack(spacing: Self.rowSpacing) {
-                if rows.isEmpty {
-                    Text("No Matching Actions")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(height: Self.rowHeight)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: Self.rowSpacing) {
+                        if rows.isEmpty {
+                            Text("No Matching Actions")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .frame(height: Self.rowHeight)
+                        }
+                        ForEach(rows) { row in
+                            ActionRow(row: row, isSelected: row.id == selected)
+                                .contentShape(.rect)
+                                .onTapGesture { onRun(menu.target, row.id) }
+                                .accessibilityAction { onRun(menu.target, row.id) }
+                        }
+                    }
+                    .padding(Self.padding)
                 }
-                ForEach(rows) { row in
-                    ActionRow(row: row, isSelected: row.id == selected)
-                        .contentShape(.rect)
-                        .onTapGesture { onRun(menu.target, row.id) }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: Self.listHeight(rows: rows.count))
+                .onChange(of: selected) { _, selected in
+                    if let selected { proxy.scrollTo(selected) }
                 }
             }
-            .padding(Self.padding)
             Divider()
             TextField("Search actions…", text: filter)
                 .textFieldStyle(.plain)
@@ -480,6 +525,11 @@ private struct ActionRow: View {
                     .fill(.primary.opacity(0.1))
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            [row.presentation.title, row.presentation.detail].compactMap { $0 }.joined(separator: ", ")
+        )
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -544,6 +594,14 @@ struct ResultRow: View {
                     .fill(.primary.opacity(0.1))
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.accessibilityLabel(for: item))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// What VoiceOver reads for `item`: its title, then its subtitle and accessory.
+    static func accessibilityLabel(for item: Item) -> String {
+        [item.title, item.subtitle, item.accessory].compactMap { $0 }.joined(separator: ", ")
     }
 }
 

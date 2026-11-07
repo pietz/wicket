@@ -1,9 +1,22 @@
 import AppKit
 import SwiftUI
+import WicketCore
+
+extension Message.Kind {
+    /// What leads a message, in the HUD and the footer alike, so the outcome lands before the
+    /// sentence is read.
+    var symbol: String {
+        switch self {
+        case .done: "checkmark.circle.fill"
+        case .copied: "doc.on.clipboard"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+}
 
 /// A message (`Messages`) while the card isn't up, such as a command that closed the palette ("Dark
-/// mode on"): a small glass capsule where the pill was, a checkmark leading so the outcome lands
-/// before the sentence is read, gone after two seconds (reading time). A newer message replaces it. It never takes the keyboard or the mouse.
+/// mode on"): a small glass capsule where the pill was, its kind's symbol leading, gone after two
+/// seconds (reading time). A newer message replaces it. It never takes the keyboard or the mouse.
 @MainActor
 final class MessageHUD {
     static let duration = Duration.seconds(2)
@@ -24,10 +37,9 @@ final class MessageHUD {
         panel.animationBehavior = .none
     }
 
-    /// Shows `message` centred on `center`, after `symbol` (a checkmark unless the outcome is
-    /// something else, such as a paste that only copied).
-    func show(_ message: String, symbol: String = "checkmark.circle.fill", centeredAt center: NSPoint) {
-        let content = NSHostingView(rootView: HUDView(message: message, symbol: symbol))
+    /// Shows `message` centred on `center`.
+    func show(_ message: Message, centeredAt center: NSPoint) {
+        let content = NSHostingView(rootView: HUDView(message: message))
         let size = content.fittingSize
         panel.contentView = content
         panel.setFrame(
@@ -53,11 +65,10 @@ final class MessageHUD {
 }
 
 private struct HUDView: View {
-    let message: String
-    let symbol: String
+    let message: Message
 
     var body: some View {
-        Label(message, systemImage: symbol)
+        Label(message.text, systemImage: message.kind.symbol)
             .font(.system(size: 14, weight: .medium))
             .lineLimit(1)
             .padding(.horizontal, 20)
