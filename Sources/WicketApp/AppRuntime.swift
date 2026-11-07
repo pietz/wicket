@@ -287,6 +287,10 @@ extension AppRuntime {
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
             approvals: Approvals(), diagnostics: diagnostics)
         let consent = ExtensionsRunner(extensions: extensions, jobs: buildJobs)
+        let askAI = AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })
+        let prompts = PromptCommandRunner(answers: askAI, extensions: extensions, reviews: consent)
+        extensions.promptRunner = prompts
+        askAI.saveCommand = { [weak prompts] in prompts?.offer($0) }
         let work: [Feature: Work] = [
             .apps: Work(
                 start: {
@@ -321,7 +325,12 @@ extension AppRuntime {
                     id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
                     feature: .askAI, usesContext: true),
-                runner: AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })),
+                runner: askAI),
+            Builtin(
+                RegisteredCommand(
+                    id: .savePromptCommand, title: "Save as Command", icon: .symbol(name: "bookmark"),
+                    isListed: false, input: .none),
+                runner: prompts),
             // Ask AI's action when no provider is ready; reached by id only.
             Builtin(
                 RegisteredCommand(

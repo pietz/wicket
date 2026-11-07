@@ -35,21 +35,54 @@ public struct AgentBackend: Sendable {
         })
 }
 
-/// Runs Ask AI (a built-in in the app's table) for its frame: the question goes to the user's agent CLI in
-/// answer mode (no tools), and the frame shows a detail that grows with the streamed text, at most
-/// about 30 times a second, replaced by the final answer at the end. Its actions copy or paste the
-/// answer, once there is text. A provider that isn't ready shows why with an action opening Settings
-/// ▸ AI; a run that fails keeps the text it sent, marked incomplete, and offers Retry (the same
-/// question, asked again only when the user picks it). Ending the iteration (pop, dismiss) kills the
-/// agent's process tree. A run's task ends only once that tree is gone, and `shutdown()` (the app
-/// quitting) ends every run and waits for them.
-///
-/// The provider is checked before each run, never at launch: the chosen one (`provider`, read from
-/// the applied settings on each run), else the first ready one in `AgentProvider.allCases` order. A provider found ready is
-/// trusted for `statusLifetime`, so repeated questions skip the 20 to 150 ms check; one that isn't
-/// ready is checked again every time, so signing in takes effect at once.
+/// Ask AI and prompt commands share one answer stream, provider selection and process lifetime.
 @MainActor
 public final class AskAIRunner: CommandRunner {
+    let answers: AnswerStream
+    /// Supplies the finished answer's Save as Command action in the app. No action during streaming
+    /// or after failure; the saver keeps the original invocation out of action arguments.
+    public var saveCommand: (@MainActor (Invocation) -> Item.Action?)?
+
+    public var provider: @MainActor () -> AgentProvider? {
+        get { answers.provider }
+        set { answers.provider = newValue }
+    }
+
+    public init(
+        backend: AgentBackend = .installed, interval: Duration = .milliseconds(33),
+        statusLifetime: Duration = .seconds(60), provider: @escaping @MainActor () -> AgentProvider? = { nil }
+    ) {
+        answers = AnswerStream(
+            backend: backend, interval: interval,
+            statusLifetime: statusLifetime, provider: provider)
+    }
+
+    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
+    {
+        let question = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt =
+            question.isEmpty
+            ? "" : (invocation.context.map { question + "\n\n" + $0.promptBlock } ?? question)
+        var submitted = invocation
+        submitted.text = question
+        return answers.run(submitted, prompt: prompt, title: question) { [weak self] in
+            self?.saveCommand?(invocation).map { [$0] } ?? []
+        }
+    }
+
+    public func shutdown() async { await answers.shutdown() }
+
+    static func unavailable(_ statuses: [AgentStatus], chosen: Bool, uses feature: String) -> String {
+        AnswerStream.unavailable(statuses, chosen: chosen, uses: feature)
+    }
+
+    static func reason(_ status: AgentStatus) -> String { AnswerStream.reason(status) }
+}
+
+/// The shared answer stream: a growing draft, Copy/Paste, partial failure, Retry, throttling and
+/// cancellation. Only an explicit run asks a provider. All scratch folders outlive their processes.
+@MainActor
+final class AnswerStream {
     /// The settings' `ai.provider`, read when a question is asked; nil for the first ready one.
     public var provider: @MainActor () -> AgentProvider?
     private let backend: AgentBackend
@@ -73,10 +106,11 @@ public final class AskAIRunner: CommandRunner {
         self.statusLifetime = statusLifetime
     }
 
-    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
-    {
+    func run(
+        _ invocation: Invocation, prompt: String, title: String,
+        completedActions: @escaping @MainActor () -> [Item.Action] = { [] }
+    ) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
-        let prompt = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !isShutDown else {
             continuation.finish(throwing: CancellationError())
             return stream
@@ -86,7 +120,8 @@ public final class AskAIRunner: CommandRunner {
             do {
                 guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
                 try await answer(
-                    prompt, context: invocation.context, command: invocation.command, continuation)
+                    prompt, title: title, invocation: invocation, completedActions: completedActions,
+                    continuation)
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -107,10 +142,10 @@ public final class AskAIRunner: CommandRunner {
         for task in tasks { await task.value }
     }
 
-    /// Asks `prompt`, followed by what the user had selected at summon (`context`) as a tagged block;
-    /// the frame's title, and Retry, stay the question alone.
+    /// Asks the prepared prompt; presentation and Retry retain the original invocation.
     private func answer(
-        _ prompt: String, context: SummonContext?, command: CommandID,
+        _ prompt: String, title: String, invocation: Invocation,
+        completedActions: @escaping @MainActor () -> [Item.Action],
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         let start = ContinuousClock.now
@@ -118,13 +153,15 @@ public final class AskAIRunner: CommandRunner {
         do {
             provider = try await readyProvider()
         } catch {
-            var detail = Detail.failure("Ask AI Failed", error.description, command: command)
+            var detail = Detail.failure("Ask AI Failed", error.description, command: invocation.command)
             detail.actions = [.run(command: .aiSettings, title: "Open AI Settings")]
             output.yield(.show(.detail(detail)))
             return
         }
         try Task.checkCancellation()
-        let draft = Draft(prompt: prompt, command: command, status: "Asking \(provider.name)…")
+        let draft = Draft(
+            title: title, invocation: invocation, status: "Asking \(provider.name)…",
+            completedActions: completedActions)
         output.yield(.show(.detail(draft.detail)))
 
         // An empty folder, so the agent's working directory holds nothing to read.
@@ -134,7 +171,7 @@ public final class AskAIRunner: CommandRunner {
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         defer { throttle.cancel() }
         let request = AgentRequest(
-            prompt: context.map { prompt + "\n\n" + $0.promptBlock } ?? prompt, workingDirectory: folder,
+            prompt: prompt, workingDirectory: folder,
             mode: .answer)
         let run = await backend.run(provider, request)
         // However this ends (answer, failure, cancellation), it returns only once the agent's
@@ -178,6 +215,7 @@ public final class AskAIRunner: CommandRunner {
                 // The final message alone; anything streamed before it (commentary) goes.
                 if !answer.isEmpty { draft.text = answer }
                 guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
+                draft.finishedActions = draft.completedActions()
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
@@ -252,19 +290,24 @@ public final class AskAIRunner: CommandRunner {
 /// The answer so far, as the frame shows it.
 @MainActor
 private final class Draft {
-    let prompt: String
-    /// Ask AI's id, which Retry runs again.
-    let command: CommandID
+    let title: String
+    let invocation: Invocation
+    let completedActions: @MainActor () -> [Item.Action]
+    var finishedActions: [Item.Action] = []
     /// Shown until the first text arrives.
     var status: String
     var text = ""
     /// Why the run failed, once it has.
     var failure: String?
 
-    init(prompt: String, command: CommandID, status: String) {
-        self.prompt = prompt
-        self.command = command
+    init(
+        title: String, invocation: Invocation, status: String,
+        completedActions: @escaping @MainActor () -> [Item.Action]
+    ) {
+        self.title = title
+        self.invocation = invocation
         self.status = status
+        self.completedActions = completedActions
     }
 
     /// The question is the title (the pill shows it), the answer the page. Nothing to act on until
@@ -272,18 +315,21 @@ private final class Draft {
     var detail: Detail {
         let copy = Item.Action.copy(text: text, title: "Copy Answer")
         guard let failure else {
-            if text.isEmpty { return Detail(title: prompt, markdown: "_\(status)_") }
+            if text.isEmpty { return Detail(title: title, markdown: "_\(status)_") }
             return Detail(
-                title: prompt, markdown: text, actions: [copy, .paste(text: text, title: "Paste Answer")])
+                title: title, markdown: text,
+                actions: [copy, .paste(text: text, title: "Paste Answer")] + finishedActions)
         }
-        let retry = Item.Action.run(command: command, text: prompt, title: "Retry")
+        let retry = Item.Action.run(
+            command: invocation.command, text: invocation.text,
+            args: invocation.args, title: "Retry", revision: invocation.revision)
         guard !text.isEmpty else {
-            var detail = Detail.failure("Ask AI Failed", failure, command: command)
+            var detail = Detail.failure("Ask AI Failed", failure, command: invocation.command)
             detail.actions = [retry]
             return detail
         }
         return Detail(
-            title: prompt, markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
+            title: title, markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
             actions: [retry, copy])
     }
 }

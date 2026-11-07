@@ -110,6 +110,8 @@ public final class Extensions {
     var pruneUV: @Sendable (UVStorage) async -> Void = { await UV.prune($0) }
     /// The uv prunes running or waiting, one after another; shutdown cancels them.
     private var uvPruning: Task<Void, Never>?
+    /// Composed with Ask AI by the app; prompt commands never create an extension session.
+    public weak var promptRunner: PromptCommandRunner?
     private var active: [String: Active] = [:]
     private let activate: Activation
     /// The report version each session's diagnostics were last taken at.
@@ -221,15 +223,16 @@ public final class Extensions {
     /// catalog, `.unknownCommand` if no extension has it, `.extensionChanged` if the invocation is
     /// bound to a revision of the extension other than the active one, which would run it.
     public func result(of invocation: Invocation, retry: RetryPolicy) async throws -> RunResult {
+        let (sealed, declared) = try approvedCommand(for: invocation)
+        if declared.prompt != nil {
+            guard let promptRunner else { throw Refusal("Prompt commands need the AI answer runner.") }
+            var last: RunResult?
+            for try await result in promptRunner.run(invocation, retry: retry) { last = result }
+            guard let last else { throw HostError.stopped }
+            return last
+        }
         let command = invocation.command
-        guard case .extension(let id) = command.owner else { throw HostError.unknownCommand }
-        guard let current = active[id] else {
-            throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
-        }
-        guard current.sealed.manifest.command(command.name) != nil else { throw HostError.unknownCommand }
-        if let expected = invocation.revision, expected != current.sealed.revision {
-            throw HostError.extensionChanged
-        }
+        let id = sealed.manifest.id
         let session = try await session(for: id)
         // Checked against the session, the code that would run, after any replacement finished.
         if let expected = invocation.revision, expected != session.revision {
@@ -250,6 +253,23 @@ public final class Extensions {
             await collect(session)
             throw error
         }
+    }
+
+    /// The shared approval and revision gate, checked before either execution mode starts.
+    func approvedCommand(for invocation: Invocation) throws -> (SealedRevision, Manifest.Command) {
+        let command = invocation.command
+        guard case .extension(let id) = command.owner else { throw HostError.unknownCommand }
+        guard let current = active[id] else {
+            throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
+        }
+        guard let declared = current.sealed.manifest.command(command.name) else {
+            throw HostError.unknownCommand
+        }
+        if let expected = invocation.revision, expected != current.sealed.revision {
+            throw HostError.extensionChanged
+        }
+        guard !isShutDown else { throw HostError.stopped }
+        return (current.sealed, declared)
     }
 
     /// A failed run as the diagnostics keep it: the message, and an extension error's `data` (which
@@ -569,6 +589,7 @@ public final class Extensions {
     /// replaced, are gone; requests from then on fail with `HostError.stopped`. For the app quitting.
     public func shutdown() async {
         isShutDown = true
+        await promptRunner?.shutdown()
         let pruning = uvPruning
         pruning?.cancel()
         let sessions = Array(self.sessions.values)
@@ -594,7 +615,16 @@ extension Extensions: CommandRunner {
     /// extension needs and doesn't have shows a page that offers to set it, rather than a failure.
     public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
-        AsyncThrowingStream { continuation in
+        do {
+            let (_, command) = try approvedCommand(for: invocation)
+            if command.prompt != nil {
+                guard let promptRunner else { throw Refusal("Prompt commands need the AI answer runner.") }
+                return promptRunner.run(invocation, retry: retry)
+            }
+        } catch {
+            return AsyncThrowingStream { $0.finish(throwing: error) }
+        }
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     continuation.yield(try await result(of: invocation, retry: retry))

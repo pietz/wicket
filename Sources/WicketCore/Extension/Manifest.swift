@@ -61,11 +61,17 @@ public struct Manifest: Sendable, Hashable, Decodable {
         /// Once only: running it twice does no harm, so a run its process left unanswered at a clean
         /// exit may be resent (`retry`). Live and root runs always may.
         public var repeatable: Bool
+        /// An answer template, executed by the host without an extension process.
+        public var prompt: String?
+
+        public var placeholders: [String] {
+            PromptTemplate.placeholders.filter { prompt?.contains("{\($0)}") == true }
+        }
 
         public init(from decoder: any Decoder) throws {
             let object = try decoder.object([
                 "id", "title", "subtitle", "icon", "mode", "keyword", "placeholder", "hidden", "pattern",
-                "repeatable", "search",
+                "repeatable", "search", "prompt",
             ])
             id = try object.slug("id")
             title = try object.nonEmpty("title")
@@ -76,6 +82,14 @@ public struct Manifest: Sendable, Hashable, Decodable {
                 throw object.invalid("mode", "\"\(mode)\" must be once, live or root")
             }
             self.mode = parsed
+            prompt = try object.optional("prompt")
+            if let prompt {
+                guard parsed == .once else {
+                    throw object.invalid(
+                        "prompt", "is only allowed for once commands; AI never runs while typing")
+                }
+                if let problem = PromptTemplate.problem(prompt) { throw object.invalid("prompt", problem) }
+            }
             keyword = try object.optional("keyword")
             search = object.has("search") ? try object.required("search") : []
             guard search.count <= 16 else {
@@ -125,7 +139,8 @@ public struct Manifest: Sendable, Hashable, Decodable {
     public var description: String?
     public var version: String
     public var icon: Item.Icon?
-    /// Program and arguments, started in the extension's folder.
+    /// Program and arguments, started in the extension's folder; empty only when omitted for an
+    /// extension whose commands are all prompts.
     public var run: [String]
     /// The script a uv extension runs, relative to its folder: `run` is `["uv", "run", "--script",
     /// script, arguments…]`, uv named alone so it is the one on the login-shell PATH, which Wicket
@@ -157,11 +172,11 @@ public struct Manifest: Sendable, Hashable, Decodable {
             parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) })
         else { throw object.invalid("version", "\"\(self.version)\" must be major.minor.patch, like 1.0.0") }
         icon = try object.optional("icon")
-        run = try object.required("run")
-        if run.isEmpty || run.contains(where: \.isEmpty) {
+        run = try object.optional("run") ?? []
+        if object.has("run"), run.isEmpty || run.contains(where: \.isEmpty) {
             throw object.invalid("run", "must name a program and its arguments, none of them empty")
         }
-        uvScript = try Self.uvScript(run) { object.invalid("run", $0) }
+        uvScript = try run.isEmpty ? nil : Self.uvScript(run) { object.invalid("run", $0) }
         let capabilities = try object.optional("capabilities", as: [String].self) ?? []
         self.capabilities = try capabilities.map { name in
             guard let capability = Capability(rawValue: name) else {
@@ -178,6 +193,9 @@ public struct Manifest: Sendable, Hashable, Decodable {
         }
         commands = try object.required("commands")
         if commands.isEmpty { throw object.invalid("commands", "must hold at least one command") }
+        if run.isEmpty, commands.contains(where: { $0.prompt == nil }) {
+            throw object.invalid("run", "missing required field \"run\" for program commands")
+        }
         if let id = Self.firstDuplicate(commands.map(\.id)) {
             throw object.invalid("commands", "has two commands with the id \"\(id)\"")
         }
@@ -243,4 +261,42 @@ public struct Manifest: Sendable, Hashable, Decodable {
 
 public struct ManifestError: Error, Sendable, Equatable, CustomStringConvertible {
     public let description: String
+}
+
+/// Only these four placeholders are interpreted. Replacements are never interpreted again, so a
+/// selection containing `{text}` stays literal. Braces are reserved for placeholders.
+public enum PromptTemplate {
+    public static let placeholders = ["selection", "text", "app", "files"]
+
+    public static func problem(_ template: String) -> String? {
+        guard !template.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "must not be empty"
+        }
+        var rest = template[...]
+        while let brace = rest.firstIndex(where: { $0 == "{" || $0 == "}" }) {
+            guard rest[brace] == "{", let end = rest[brace...].firstIndex(of: "}"),
+                placeholders.contains(String(rest[rest.index(after: brace)..<end]))
+            else {
+                return "use only {selection}, {text}, {app} or {files}; braces are reserved for placeholders"
+            }
+            rest = rest[rest.index(after: end)...]
+        }
+        return nil
+    }
+
+    public static func substitute(_ template: String, text: String, context: SummonContext?) -> String {
+        let values = [
+            "selection": context?.text ?? "", "text": text,
+            "app": context?.app ?? "", "files": context?.files.map(\.path).joined(separator: "\n") ?? "",
+        ]
+        var result = ""
+        var rest = template[...]
+        while let start = rest.firstIndex(of: "{"), let end = rest[start...].firstIndex(of: "}") {
+            result += rest[..<start]
+            let name = String(rest[rest.index(after: start)..<end])
+            result += values[name] ?? String(rest[start...end])
+            rest = rest[rest.index(after: end)...]
+        }
+        return result + rest
+    }
 }

@@ -67,7 +67,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
             search: command.search,
             isListed: !command.hidden && command.mode != .root, input: command.input, retry: command.retry,
-            placeholder: command.placeholder, revision: revision)
+            placeholder: command.placeholder, revision: revision, usesContext: command.prompt != nil)
     }
 
     /// Whether the root offers it: listed, or a fallback. Only these have keywords, and the settings
@@ -80,7 +80,7 @@ extension Manifest.Command {
     /// `once` (and `root`, should a `run` action name one) runs on its text when invoked; `live`
     /// searches as the user types.
     public var input: CommandInput {
-        mode == .live ? .liveText : .immediateText
+        prompt != nil ? .submitOptionalText : (mode == .live ? .liveText : .immediateText)
     }
 
     /// Live and root runs are searches, so they may be resent; a once command only if its manifest

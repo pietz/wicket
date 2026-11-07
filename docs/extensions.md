@@ -1,6 +1,6 @@
 # Writing a Wicket extension
 
-Wicket is a native macOS command palette. An extension adds commands to it. It is a folder holding a manifest (`wicket.json`) and a program in any language. Wicket starts the program, writes requests to its stdin and reads replies from its stdout, one JSON object per line ([JSON-RPC 2.0](https://www.jsonrpc.org/specification)). Your program never draws UI: it returns data and Wicket renders it natively.
+Wicket is a native macOS command palette. An extension adds commands to it. It is a folder holding a manifest (`wicket.json`) and a program in any language, or AI prompt commands with no program. Wicket starts the program, writes requests to its stdin and reads replies from its stdout, one JSON object per line ([JSON-RPC 2.0](https://www.jsonrpc.org/specification)). Your program never draws UI: it returns data and Wicket renders it natively.
 
 This page is the whole contract. The JSON Schema in [extension.schema.json](extension.schema.json) checks the structure: the document validates `wicket.json`, `#/$defs/HostMessage` validates what Wicket sends and `#/$defs/ExtensionMessage` validates what you send back. Rules that depend on the command's mode are stated here and checked by Wicket at runtime. What you send is strict: unknown fields are rejected, so a typo fails loudly instead of silently. What Wicket sends may grow: ignore fields you don't know.
 
@@ -74,7 +74,7 @@ Wicket never runs your folder itself. It seals it: copies it into its own storag
 | `description` | no | One sentence, shown when the user reviews the extension. |
 | `version` | yes | `major.minor.patch`. Bump it when you change the extension. |
 | `icon` | no | An [icon](#icons) for the extension; commands inherit it. |
-| `run` | yes | Program and arguments, for example `["python3", "main.py"]`, or `["uv", "run", "--script", "main.py"]` for [Python with packages](#python-with-uv). A bare program name is looked up on the user's login-shell `PATH`. Prefer naming the interpreter (`["/bin/sh", "x.sh"]`) over relying on the executable bit. |
+| `run` | for program commands | Program and arguments, for example `["python3", "main.py"]`, or `["uv", "run", "--script", "main.py"]` for [Python with packages](#python-with-uv). A bare program name is looked up on the user's login-shell `PATH`. Prefer naming the interpreter (`["/bin/sh", "x.sh"]`) over relying on the executable bit. |
 | `secrets` | no | Values the user stores in the Keychain, such as API tokens, passed to your program as environment variables: `[{"name": "GITHUB_TOKEN", "title": "GitHub token"}]`. `name` is uppercase letters, digits and `_`, and not `PATH`, `LANG`, `HOME`, `USER`, `SHELL`, `TMPDIR` or `WICKET_…`; `title` is what the user is asked for. Every declared secret is required: without it the run fails with a message saying how to set it. Never write secrets into your folder or your output. |
 | `capabilities` | no | What your code does beyond computing an answer, for the review screen: `network` (talks to the internet), `clipboard` (reads the clipboard; writing it through a `copy` action needs nothing), `files` (reads or writes files outside its folder and `WICKET_DATA_DIR`), `shell` (runs other programs). Declare every one that applies; it is not enforced but users rely on it. |
 | `commands` | yes | One or more commands, below. |
@@ -96,9 +96,48 @@ Each command:
 
 The three modes:
 
-- **`once`**: runs when the user presses Return on the command or types its keyword and a space. `text` is what followed the keyword at that moment: `""` when they typed it, the rest of the line when they pasted one (`todo buy milk` gives `buy milk`). If you return a list, it opens with an empty search field that filters it locally (by title, best match first); you are not asked again. Use it for answers, actions and lists that fit in memory (bookmarks, tasks, hosts). A command that needs what the user types next is `live`.
+- **`once`** (program commands; [prompts](#prompt-commands) wait for Return): runs when the user presses Return on the command or types its keyword and a space. `text` is what followed the keyword at that moment: `""` when they typed it, the rest of the line when they pasted one (`todo buy milk` gives `buy milk`). If you return a list, it opens with an empty search field that filters it locally (by title, best match first); you are not asked again. Use it for answers, actions and lists that fit in memory (bookmarks, tasks, hosts). A command that needs what the user types next is `live`.
 - **`live`**: Return on the command, or typing its keyword and a space, opens a view with its own search field. Wicket sends a `run` for every change of the text (rapid keystrokes may be coalesced, and a newer text cancels the request for an older one), starting with the initial text (`""` or what followed the keyword). Wicket shows your items in your order and does no filtering. While the field is empty and your list is too, the view is just the field with your `placeholder`. Use it when the search itself is your job (an API, a large index), or to act on what the user types: answer `add buy milk` with an item whose `run` action adds it.
 - **`root`**: has no view of its own. Every query typed in Wicket's main search (non-empty, matching `pattern` if given) is sent to you, and the items you return are mixed into the main results. Return an empty list when you have nothing to add. Use it sparingly, for things like a converter that should answer anywhere. Keep it fast and keep `pattern` tight.
+
+## Prompt commands
+
+A `once` command can declare `prompt` instead of sending requests to a program. Wicket substitutes
+its inputs, then streams an answer through the same provider, Copy Answer, Paste Answer and Retry
+as Ask AI. Nothing runs on a keystroke. For example, a complete `wicket.json` with no other files:
+
+```json
+{
+  "protocol": 1, "id": "german", "name": "German", "version": "1.0.0",
+  "commands": [{
+    "id": "translate", "title": "Translate to German", "keyword": "german",
+    "search": ["translate", "German"],
+    "prompt": "Translate this to German:\n\n{selection}"
+  }]
+}
+```
+
+The four placeholders are `{selection}` (selected text at summon), `{text}` (text supplied after
+the keyword or by an invocation), `{app}` (the captured app's display name), and `{files}` (selected
+file paths, one per line, not file contents). Missing context becomes empty text. Substitution is
+single-pass: braces in supplied text stay literal. Braces in the template are reserved for these
+placeholders; unknown or unclosed placeholders fail validation. Prompts only support `once` mode,
+so the keyword plus a space opens the frame, and Return submits the text. Selecting the command's
+row or using its hotkey runs it immediately, including when no extra text was supplied.
+
+Every revision needs the same review and Enable as program extensions. Review lists “Uses your
+AI provider” and each placeholder it reads. The chosen provider's normal privacy and availability
+rules apply. No extension process starts, and no secrets are passed to a prompt. A prompt-only
+extension may omit `run`; `wicket check` validates its manifest and templates without a fixture,
+process, sandbox or model request. A mixed extension needs `run` and fixtures for its program
+commands; a fixture cannot invoke a prompt command.
+
+A completed Ask AI answer offers **Save as Command** in its action menu. This writes a new,
+unapproved extension and opens its review. The question becomes its prompt; captured selected
+text is replaced with `{selection}`, or appended as that placeholder when the question referred
+to “this”. Selected files are represented by `{files}`. The answer is never saved. Name, keyword
+and search words are derived from the question; edit `wicket.json` to change them. Saving never
+replaces an existing folder or enables a command.
 
 ## The session
 
@@ -399,7 +438,7 @@ A session (the user types "uc grinning cat", then opens the details):
 
 The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Helpers/wicket`.
 
-- `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails, including one written while the program shuts down), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error. It is the gate before an extension is approved, so it runs your code isolated (below), and without a fixture it runs nothing and fails.
+- `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails, including one written while the program shuts down), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error. It is the gate before an extension is approved, so it runs your code isolated (below), and without a fixture it runs nothing and fails for program extensions. Prompt-only extensions are validated without a fixture or model request.
 - `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it. Unlike `check` it runs your folder itself, unsandboxed, with your environment and your real secrets: use it to try the real thing.
 - `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. For `run`, an environment variable of the same name takes precedence over the Keychain.
 

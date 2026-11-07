@@ -100,6 +100,9 @@ public enum CommandInput: Sendable, Hashable {
     /// Takes typed text and runs only when it is submitted (Return), never on a keystroke (Ask AI).
     /// Reached without text, its frame waits for it.
     case submitText
+    /// A keyword waits for Return; a row or hotkey runs even with empty text (prompt commands
+    /// acting on a selection). AI must never run just because a keyword was typed.
+    case submitOptionalText
     /// Runs again for every change of its frame's text (an extension's `live` command).
     case liveText
 }
@@ -167,7 +170,7 @@ public struct CommandRun: Sendable, Hashable {
         switch (command.input, trigger) {
         case (.none, _):
             runText = ""
-        case (.immediateText, .invoked):
+        case (.immediateText, .invoked), (.submitOptionalText, .invoked):
             break
         case (.immediateText, .keyword):
             query = ""
@@ -176,7 +179,7 @@ public struct CommandRun: Sendable, Hashable {
                 runText = ""
                 query = ""
             }
-        case (.submitText, .keyword):
+        case (.submitText, .keyword), (.submitOptionalText, .keyword):
             runText = ""
             query = text
         case (.liveText, _):
@@ -200,7 +203,8 @@ public struct CommandRun: Sendable, Hashable {
     /// A submit-text command reached without text: its frame runs nothing until the text is
     /// submitted.
     public var awaitsText: Bool {
-        command.input == .submitText && invocation.text.isEmpty
+        (command.input == .submitText && invocation.text.isEmpty)
+            || (command.input == .submitOptionalText && query != nil)
     }
 }
 
