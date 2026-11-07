@@ -31,6 +31,8 @@ public struct CheckOptions: Sendable {
     public var exitGrace: Duration = .seconds(2)
     /// Tests point this elsewhere to see the check fail closed.
     var sandboxExecutable = CheckIsolation.sandboxExecutable
+    /// The home folder the candidate may not read; tests point this at a folder of their own.
+    var userHome = CheckIsolation.userHome
 
     public init(version: String) {
         self.version = version
@@ -82,7 +84,11 @@ public enum Checker {
             )
             return report
         }
+        // Not found: no reads for it, and the session reports it when it launches.
+        let program = try? ExtensionSession.resolve(
+            manifest.run[0], in: isolation.candidate, path: await LoginShell.path())
         do {
+            try isolation.seal(program: program, userHome: options.userHome)
             try isolation.verifySandbox(executable: options.sandboxExecutable)
         } catch {
             report.add(.error, error.description)

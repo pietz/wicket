@@ -10,16 +10,17 @@ import WicketCore
 
 /// One request whose answer's title is whatever `title` (shell) prints, and a fixture expecting
 /// `expected`, so a mismatch reports both.
-private func probe(_ title: String, expecting expected: String, secrets: String = "[]") throws
-    -> TestExtension
-{
+private func probe(
+    _ title: String, expecting expected: String, secrets: String = "[]",
+    run: String = #"["/bin/sh","main.sh"]"#
+) throws -> TestExtension {
     let script = #"""
         read -r line
         title=$(\#(title))
         printf '{"jsonrpc":"2.0","id":1,"result":{"answer":{"title":"%s"}}}\n' "$title"
         """#
     let fixture = send(1) + "\n" + #"{"expect":{"id":1,"result":{"answer":{"title":"\#(expected)"}}}}"#
-    return try TestExtension(secrets: secrets, script: script, fixture: fixture)
+    return try TestExtension(secrets: secrets, run: run, script: script, fixture: fixture)
 }
 
 @Test func secretsArePlaceholdersAndTheEnvironmentIsMinimal() async throws {
@@ -27,7 +28,7 @@ private func probe(_ title: String, expecting expected: String, secrets: String 
     let ext = try probe(
         #"env | cut -d= -f1 | grep -vx -e PWD -e SHLVL -e _ | sort | tr '\n' ' '; printf '%s' "$TOKEN""#,
         expecting:
-            "HOME LANG PATH TMPDIR TOKEN WICKET_CHECK WICKET_DATA_DIR WICKET_EXTENSION_ID WICKET_PROTOCOL "
+            "CLANG_MODULE_CACHE_PATH HOME LANG PATH TMPDIR TOKEN WICKET_CHECK WICKET_DATA_DIR WICKET_EXTENSION_ID WICKET_PROTOCOL "
             + "WICKET_VERSION \(CheckIsolation.placeholderSecret)",
         secrets: #"[{"name":"TOKEN","title":"API token"}]"#)
     let report = await check(ext)
@@ -63,6 +64,73 @@ private func probe(_ title: String, expecting expected: String, secrets: String 
     #expect(report.errors.isEmpty, "\(report.errors)")
     #expect(!FileManager.default.fileExists(atPath: escaped.path))
     #expect(!FileManager.default.fileExists(atPath: ext.folder.appending(path: "written").path))
+}
+
+/// A stand-in home folder (symlinks resolved) holding a toolchain the way uv or nvm installs one:
+/// `.local/bin/tool` links to `.local/share/tools/current/bin/tool`, `current` links to `v1`, and
+/// the real `tool` is a shell script beside its `lib/data.txt`. Beside it, the user's files.
+private struct FakeHome {
+    let path: String
+
+    init() throws {
+        let base = FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        path = try #require(CheckIsolation.realPath(base.path))
+        for folder in [
+            ".local/bin", ".local/share/tools/v1/bin", ".local/share/tools/v1/lib", ".local/share/other",
+        ] {
+            try FileManager.default.createDirectory(
+                atPath: path + "/" + folder, withIntermediateDirectories: true)
+        }
+        try write("#!/bin/sh\nexec /bin/sh \"$@\"\n", to: ".local/share/tools/v1/bin/tool")
+        chmod(path + "/.local/share/tools/v1/bin/tool", 0o755)
+        try write("toolchain", to: ".local/share/tools/v1/lib/data.txt")
+        try write("private", to: "secret.txt")
+        try write("private", to: ".local/share/other/token")
+        try FileManager.default.createSymbolicLink(
+            atPath: path + "/.local/share/tools/current", withDestinationPath: "v1")
+        try FileManager.default.createSymbolicLink(
+            atPath: path + "/.local/bin/tool", withDestinationPath: "../share/tools/current/bin/tool")
+    }
+
+    private func write(_ text: String, to name: String) throws {
+        try Data(text.utf8).write(to: URL(filePath: path + "/" + name))
+    }
+}
+
+@Test func theProgramsLinksAndInstallFolderAreItsReads() throws {
+    let home = try FakeHome()
+    let reads = ProgramReads(home.path + "/.local/bin/tool", home: home.path)
+    #expect(reads.paths == [home.path + "/.local/bin/tool", home.path + "/.local/share/tools/current"])
+    #expect(reads.folders == [home.path + "/.local/share/tools/v1"])
+    // Above its bin is a generic folder: only the bin is readable, not ~/.local.
+    let loose = ProgramReads(home.path + "/.local/bin/other", home: home.path)
+    #expect(loose.folders == [home.path + "/.local/bin"])
+    #expect(loose.paths.isEmpty)
+    // Right in the home: the program alone, never the home.
+    let bare = ProgramReads(home.path + "/script", home: home.path)
+    #expect(bare.folders.isEmpty)
+    #expect(bare.paths == [home.path + "/script"])
+}
+
+@Test func theUsersFilesAreUnreadableButTheProgramsToolchainIsNot() async throws {
+    let home = try FakeHome()
+    let realHome = CheckIsolation.userHome
+    // Its toolchain, then the fake home's files, the real home's listing, and the shared temp folder.
+    let ext = try probe(
+        #"""
+        r() { if cat "$1" >/dev/null 2>&1; then printf ok; else printf no; fi; printf ' '; }
+        r '\#(home.path)/.local/share/tools/v1/lib/data.txt'; r '\#(home.path)/secret.txt'
+        r '\#(home.path)/.local/share/other/token'
+        if ls '\#(realHome)' >/dev/null 2>&1; then printf ok; else printf no; fi
+        if ls /tmp/ >/dev/null 2>&1; then printf ' ok'; else printf ' no'; fi
+        """#,
+        expecting: "ok no no no no", run: #"["\#(home.path)/.local/bin/tool","main.sh"]"#)
+    // The control: outside the sandbox the same files are readable.
+    #expect(FileManager.default.isReadableFile(atPath: home.path + "/secret.txt"))
+    let report = await check(ext) { $0.userHome = home.path }
+    #expect(report.errors.isEmpty, "\(report.errors)")
 }
 
 @Test func networkIsDenied() async throws {
@@ -105,8 +173,9 @@ private func probe(_ title: String, expecting expected: String, secrets: String 
 }
 
 @Test func theProfileEscapesPaths() {
-    let profile = CheckIsolation.profile(writable: [#"/tmp/a "b" \c"#])
+    let profile = CheckIsolation.profile(writable: [#"/tmp/a "b" \c"#], private: ["/Users"])
     #expect(profile.contains(#"(subpath "/tmp/a \"b\" \\c")"#))
+    #expect(profile.contains(#"(deny file-read* (subpath "/Users"))"#))
     #expect(profile.contains("(deny network*)"))
 }
 

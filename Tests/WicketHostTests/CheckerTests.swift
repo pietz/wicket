@@ -10,13 +10,13 @@ struct TestExtension {
 
     init(
         id: String = "test", commands: String = #"[{"id":"go","title":"Go"}]"#, secrets: String = "[]",
-        script: String, fixture: String? = nil
+        run: String = #"["/bin/sh","main.sh"]"#, script: String, fixture: String? = nil
     ) throws {
         folder = FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/\(UUID().uuidString)/\(id)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let manifest = """
-            {"protocol":1,"id":"\(id)","name":"Test","version":"1.0.0","run":["/bin/sh","main.sh"],
+            {"protocol":1,"id":"\(id)","name":"Test","version":"1.0.0","run":\(run),
              "secrets":\(secrets),"commands":\(commands)}
             """
         try Data(manifest.utf8).write(to: folder.appending(path: "wicket.json"))

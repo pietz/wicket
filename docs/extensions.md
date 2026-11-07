@@ -378,9 +378,9 @@ How `check` runs your code:
 
 - **A sealed copy.** The folder is copied into a scratch folder and the copy runs; it is read-only, so write state to `WICKET_DATA_DIR`.
 - **No real secrets.** Every declared secret is `wicket-check-placeholder`; the Keychain is never read.
-- **A minimal environment.** Only `PATH`, `LANG`, the `WICKET_` variables, the secrets, `HOME` and `TMPDIR` (both empty scratch folders) and `WICKET_CHECK=1`. Nothing from your shell comes through, so `FOO=bar wicket check .` doesn't set `FOO`.
+- **A minimal environment.** Only `PATH`, `LANG`, the `WICKET_` variables, the secrets, `HOME` and `TMPDIR` (both empty scratch folders), `CLANG_MODULE_CACHE_PATH` (in `TMPDIR`, so `swift` scripts compile) and `WICKET_CHECK=1`. Nothing from your shell comes through, so `FOO=bar wicket check .` doesn't set `FOO`.
 - **A fresh `WICKET_DATA_DIR`** per check, shared by its fixtures, deleted afterwards.
-- **A sandbox.** No network at all (not even local sockets), no writes outside `HOME`, `TMPDIR` and `WICKET_DATA_DIR`, no Keychain or clipboard, no Apple events to other apps, no opening URLs or apps. Reading files and running other programs work.
+- **A sandbox.** No network at all (not even local sockets), no writes outside `HOME`, `TMPDIR` and `WICKET_DATA_DIR`, no Keychain or clipboard, no Apple events to other apps, no opening URLs or apps. No reading the user's files: home folders, other volumes and the temp folders are off limits, except the scratch folders and the program `run` names (with its install folder, so a uv, pyenv or nvm interpreter works). System locations, /Applications, Homebrew, /usr/local and Xcode stay readable, so other tools run if they are installed there; a tool under your home folder other than `run`'s program doesn't start in the check.
 
 So when `WICKET_CHECK` is `1`, answer from canned data that ships in your folder instead of calling an API (the [github-prs sample](../Extensions/github-prs) reads `fixture/<command>.json`), and don't depend on the user's files. Fixtures then test your parsing and your responses, offline and the same on every Mac.
 

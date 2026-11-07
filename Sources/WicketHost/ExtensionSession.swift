@@ -457,7 +457,7 @@ public actor ExtensionSession {
 
     private func start() throws {
         let path = path ?? LoginShell.fallbackPath
-        let executable = try resolve(manifest.run[0], path: path)
+        let executable = try Self.resolve(manifest.run[0], in: folder, path: path)
         if executable.path == "/usr/bin/python3" {
             let warning =
                 "python3 resolves to /usr/bin/python3, the Command Line Tools stub (an old Python that may ask to "
@@ -521,8 +521,9 @@ public actor ExtensionSession {
         }
     }
 
-    /// `run[0]`: a path (relative to the folder) or a bare name looked up on the login-shell PATH.
-    private func resolve(_ program: String, path: String) throws -> URL {
+    /// `run[0]`: a path (relative to `folder`) or a bare name looked up on `path`, the login-shell
+    /// PATH.
+    static func resolve(_ program: String, in folder: URL, path: String) throws -> URL {
         if program.contains("/") {
             let url = program.hasPrefix("/") ? URL(filePath: program) : folder.appending(path: program)
             guard FileManager.default.isExecutableFile(atPath: url.path) else {
