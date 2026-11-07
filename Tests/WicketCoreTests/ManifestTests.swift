@@ -43,6 +43,31 @@ private func problem(_ old: String, _ new: String) -> String? {
     #expect(manifest.commands.map(\.mode) == [.live, .root, .once])
     #expect(manifest.command("done")?.hidden == true)
     #expect(manifest.command("prs")?.keyword == "pr")
+    #expect(manifest.commands.allSatisfy { $0.search.isEmpty })
+}
+
+@Test func decodesSearchTermsWithinTheLimits() throws {
+    let terms = Array(repeating: String(repeating: "é", count: 128), count: 16)
+    let data = try JSONEncoder().encode(terms)
+    let json = valid.replacingOccurrences(
+        of: #""title": "Done""#,
+        with: #""title": "Done", "search": \#(String(decoding: data, as: UTF8.self))"#)
+    #expect(try manifest(json).command("done")?.search == terms)
+}
+
+@Test(arguments: [
+    (#""wireless""#, "commands[0].search"),
+    ("null", "commands[0].search"),
+    (#"["wireless", 7]"#, "commands[0].search[1]"),
+    (#"[""]"#, "each search term must contain non-whitespace text"),
+    (#"["  \n\t "]"#, "each search term must contain non-whitespace text"),
+    (#"["\#(String(repeating: "a", count: 129))"]"#, "at most 128 characters"),
+    (#"["\#(String(repeating: "e\u{301}", count: 65))"]"#, "at most 128 characters"),
+    ("[" + Array(repeating: #""term""#, count: 17).joined(separator: ",") + "]", "at most 16 search terms"),
+])
+func rejectsInvalidSearchTerms(value: String, expected: String) {
+    let summary = problem(#""keyword": "pr""#, #""keyword": "pr", "search": \#(value)"#)
+    #expect(summary?.contains(expected) == true, "\(summary ?? "accepted")")
 }
 
 @Test(arguments: [

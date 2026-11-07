@@ -135,6 +135,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(request.workingDirectory == job.work)
     #expect(request.prompt.contains("<request>\ncount my open tabs\n</request>"))
     #expect(request.prompt.contains("<guide>\nTHE GUIDE\n</guide>"))
+    #expect(request.prompt.contains("`search` array with the words and phrases a person would type"))
     #expect(FileManager.default.fileExists(atPath: job.work.path))
     await job.cancel()
 }

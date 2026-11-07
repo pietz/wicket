@@ -12,6 +12,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// One word; typing it and a space in the root search opens the command's frame. Matched
     /// ignoring case, and only for commands the root offers (`isOffered`) that take text.
     public var keyword: String?
+    /// Alternate words and phrases for local search; these do not route keyword invocations.
+    public var search: [String]
     /// Whether the root search lists it. Hidden commands and root-mode extension commands are
     /// reachable by id only.
     public var isListed: Bool
@@ -30,7 +32,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
 
     public init(
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
-        isListed: Bool = true, input: CommandInput = .immediateText, retry: RetryPolicy = .never,
+        search: [String] = [], isListed: Bool = true, input: CommandInput = .immediateText,
+        retry: RetryPolicy = .never,
         placeholder: String? = nil, isFallback: Bool = false, feature: Feature? = nil,
         revision: ExtensionRevision? = nil
     ) {
@@ -39,6 +42,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.subtitle = subtitle
         self.icon = icon
         self.keyword = keyword
+        self.search = search
         self.isListed = isListed
         self.input = input
         self.retry = retry
@@ -57,6 +61,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.init(
             id: .extension(extensionID, command.id), title: command.title, subtitle: command.subtitle,
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
+            search: command.search,
             isListed: !command.hidden && command.mode != .root, input: command.input, retry: command.retry,
             placeholder: command.placeholder, revision: revision)
     }
@@ -260,7 +265,10 @@ public final class CommandRegistry {
 
         index = SearchIndex(
             commands.filter(\.isListed).map { command in
-                (item(for: command), [command.keyword, aliasOf[command.id]].compactMap { $0 })
+                (
+                    item(for: command),
+                    [command.keyword, aliasOf[command.id]].compactMap { $0 } + command.search
+                )
             })
     }
 

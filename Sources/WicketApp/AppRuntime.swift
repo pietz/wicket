@@ -305,7 +305,8 @@ extension AppRuntime {
         let builtins = [
             Builtin(
                 RegisteredCommand(
-                    id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"), input: .none),
+                    id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"),
+                    search: ["settings", "preferences"], input: .none),
                 effect: { settingsWindow.show() }),
             Builtin(
                 RegisteredCommand(

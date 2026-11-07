@@ -60,6 +60,7 @@
         "icon": { "$ref": "#/$defs/Icon" },
         "mode": { "enum": ["once", "live", "root"], "default": "once" },
         "keyword": { "type": "string", "pattern": "^\\S+$" },
+        "search": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" }, "description": "Words and phrases a person would type to find this command locally; equivalent title matches rank higher." },
         "placeholder": { "type": "string" },
         "hidden": { "type": "boolean", "default": false },
         "pattern": { "type": "string", "format": "regex", "description": "Root only: queries that don't match are not sent." },

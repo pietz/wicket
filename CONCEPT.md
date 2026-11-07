@@ -143,6 +143,8 @@ Each is the call and its reason; the mechanism is in docs/architecture.md. All d
 
 ### AI
 
+- **The model is the compiler, not the runtime (2026-11-08).** Ask answers, Do plans before the user presses Run, and Make, Fix and Keep write or repair commands; deterministic work stays local. Commands declare search phrases so the words people type find them instantly without a model.
+- **Search phrases reuse alternate-name ranking (2026-11-08).** Tinycast treats extension keywords as inclusion-only; we score phrases just below equivalent titles, using the existing matcher so precise intent can outrank a weak title hit without new ranking rules.
 - **Codex through `app-server`, not `exec --json`:** no slower for one-shot runs (about 0.2 s setup) and it gives typed items, token usage, a sandbox per turn and approvals as requests. Claude Code through `-p` stream-json.
 - **Tested against one major.minor per CLI** (Codex 0.167, Claude Code 2.1); other versions still run, with an "untested version" warning, since both interfaces change between minors.
 - **Locked-down runs:** answer runs get no tools; build runs may edit only their folder, with network off. User hooks, plugins, MCP servers and memories are switched off for both. Network stays off by default (owner, 2026-11-07); a per-build switch comes later, because it widens the exfiltration risk.

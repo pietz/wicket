@@ -422,6 +422,8 @@ public enum BuildPrompt {
             \(task)
 
             - Pick a short, descriptive id. Give each command a keyword when typing one makes sense.
+            - Give each listed command a `search` array with the words and phrases a person would type \
+            to find it.
             - Keep it small and dependable: prefer `/bin/sh` with `jq` (both ship with macOS), or a \
             single Python 3 or Swift script using only the standard library.
             - You have no network while you work, so you can't download packages: use what macOS ships. \

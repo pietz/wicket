@@ -117,6 +117,19 @@ func samplesPass(path: String) async {
     #expect(report.errors == [#"wicket.json: commands[0].keyword: is not allowed for a root command"#])
 }
 
+@Test func missingSearchTermsOnlyWarnForListedCommands() async throws {
+    let ext = try TestExtension(
+        commands:
+            #"[{"id":"go","title":"Go"},{"id":"empty","title":"Empty","search":[]},{"id":"named","title":"Named","search":["find me"]},{"id":"hidden","title":"Hidden","hidden":true},{"id":"root","title":"Root","mode":"root"}]"#,
+        script: answering(#"{"close":{}}"#), fixture: send(1))
+    let report = await check(ext)
+    #expect(report.passed, "\(report.errors)")
+    let warnings = report.lines.filter { $0.kind == .warning && $0.text.contains("has no search terms") }
+    #expect(warnings.count == 2)
+    #expect(warnings[0].text.contains("command go"))
+    #expect(warnings[1].text.contains("command empty"))
+}
+
 @Test func strayStdoutFails() async throws {
     let ext = try TestExtension(script: "echo debugging\n" + answering(#"{"close":{}}"#), fixture: send(1))
     let errors = await check(ext).errors

@@ -106,6 +106,13 @@ public enum Checker {
         )
 
         let fixtures = fixtureFiles(in: isolation.candidate)
+        for command in manifest.commands
+        where !command.hidden && command.mode != .root && command.search.isEmpty {
+            report.add(
+                .warning,
+                "wicket.json: command \(command.id) has no search terms; add search with words a person would type to find it"
+            )
+        }
         guard !fixtures.isEmpty else {
             report.add(
                 .error,

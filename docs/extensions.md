@@ -88,6 +88,7 @@ Each command:
 | `subtitle`, `icon` | no | Shown in the search result row. |
 | `mode` | no | `once` (default), `live` or `root`, below. |
 | `keyword` | no | A short word without spaces. Typing `keyword` and a space in the main search opens the command at once (see the modes below for what the rest of the line becomes). Not for `root`; ignored for `hidden` commands. |
+| `search` | no | Up to 16 words or phrases a person would type, each with non-whitespace text and at most 128 Unicode characters, e.g. `["wifi", "wireless", "turn off wifi"]`. Matched locally; equivalent title matches rank higher. A listed command without terms gets a checker warning. |
 | `placeholder` | no | Search field hint for a `live` command. Not for `root`. |
 | `hidden` | no | `true` keeps the command out of search; it can then only be reached by a [`run` action](#actions). Not for `root`. |
 | `pattern` | no | `root` only: a regular expression (ICU syntax, as in `NSRegularExpression`). Only queries in which it finds a match are sent to you, so you are not woken for unrelated typing. It searches the query exactly as typed: anchor it with `^` and `$`, and add `(?i)` to ignore case. |

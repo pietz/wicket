@@ -52,6 +52,8 @@ public struct Manifest: Sendable, Hashable, Decodable {
         public var icon: Item.Icon?
         public var mode: Mode
         public var keyword: String?
+        /// Words and phrases people would type to find this command, matched locally.
+        public var search: [String]
         public var placeholder: String?
         public var hidden: Bool
         /// Root only: an ICU regular expression a query must match to be sent.
@@ -63,7 +65,7 @@ public struct Manifest: Sendable, Hashable, Decodable {
         public init(from decoder: any Decoder) throws {
             let object = try decoder.object([
                 "id", "title", "subtitle", "icon", "mode", "keyword", "placeholder", "hidden", "pattern",
-                "repeatable",
+                "repeatable", "search",
             ])
             id = try object.slug("id")
             title = try object.nonEmpty("title")
@@ -75,6 +77,19 @@ public struct Manifest: Sendable, Hashable, Decodable {
             }
             self.mode = parsed
             keyword = try object.optional("keyword")
+            search = object.has("search") ? try object.required("search") : []
+            guard search.count <= 16 else {
+                throw object.invalid("search", "must contain at most 16 search terms")
+            }
+            guard
+                search.allSatisfy({
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && $0.unicodeScalars.count <= 128
+                })
+            else {
+                throw object.invalid(
+                    "search", "each search term must contain non-whitespace text and at most 128 characters")
+            }
             placeholder = try object.optional("placeholder")
             hidden = try object.optional("hidden") ?? false
             pattern = try object.optional("pattern")
