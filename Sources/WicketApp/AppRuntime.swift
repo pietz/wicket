@@ -66,6 +66,10 @@ final class AppRuntime {
     var showSettings: () -> Void = {}
 
     private let extensions: Extensions
+    /// Every command's runner (built-ins and extensions), which `shutdown` stops.
+    private let runner: CommandRouter
+    /// The one shutdown, once begun.
+    private var stopping: Task<Void, Never>?
     /// Every root source, before settings.json turns features off.
     private let allSources: [any ResultSource]
     private let work: [Feature: Work]
@@ -92,6 +96,7 @@ final class AppRuntime {
         if Self.extensionCommandsInPalette { sources.append(ExtensionRootSource(extensions)) }
         allSources = sources
         let runner = CommandRouter(builtins: builtins, extensions: extensions)
+        self.runner = runner
         // `apply` drops the sources of features that are off before the palette first shows.
         model = PaletteModel(
             sources: sources, runner: runner, registry: registry, messages: messages, usageURL: usageURL)
@@ -113,6 +118,22 @@ final class AppRuntime {
             self?.extensions.load(changed: $0)
             self?.registerExtensionCommands()
         }
+    }
+
+    /// Stops what runs outside the app before it quits: every command's runs, Ask AI's agents and the
+    /// extension sessions, each through its process tree. Returns once all are gone, or after `limit`
+    /// (quitting must not hang on a process that won't die). Runs once however often it's called.
+    func shutdown(within limit: Duration = .seconds(2)) async {
+        let start = ContinuousClock.now
+        let stopping =
+            stopping
+            ?? Task { [model, runner] in
+                _ = model.session.stopCommands { _ in true }
+                await runner.shutdown()
+            }
+        self.stopping = stopping
+        let done = await stopping.value(within: limit) != nil
+        Perf.log("shutdown: \(done ? "done" : "gave up") after \(Perf.ms(since: start))")
     }
 
     func showPalette() {

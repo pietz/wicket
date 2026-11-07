@@ -277,7 +277,7 @@ extension Task where Failure == Never {
     /// The task's value, or nil if it hasn't finished after `limit` or the caller is cancelled. Never
     /// waits beyond that: a task group would, since its child awaiting `value` can't be cancelled.
     /// The waiter left behind ends with the task.
-    func value(within limit: Duration) async -> Success? {
+    public func value(within limit: Duration) async -> Success? {
         let (first, continuation) = AsyncStream<Success?>.makeStream()
         let waiter = Task<Void, Never> { continuation.yield(await self.value) }
         let timer = Task<Void, Never> {

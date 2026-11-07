@@ -34,6 +34,8 @@ public final class Extensions {
     /// for it.
     private var stopping: [String: Task<Void, Never>] = [:]
     private let configuration: @Sendable (String) -> SessionConfiguration
+    /// Set by `shutdown`: no session starts again.
+    private var isShutDown = false
 
     private static let logger = Logger(subsystem: "app.wicket", category: "extensions")
 
@@ -147,7 +149,7 @@ public final class Extensions {
             // Another replacement may have been chained on meanwhile; only a finished chain counts.
             if stopping[id] == previous { stopping[id] = nil }
         }
-        guard let ext = installed[id] else { throw HostError.stopped }
+        guard let ext = installed[id], !isShutDown else { throw HostError.stopped }
         let session = ExtensionSession(
             manifest: ext.manifest, folder: ext.folder, revision: ext.revision,
             configuration: configuration(id))
@@ -220,6 +222,19 @@ public final class Extensions {
             extensions: \(loaded.count, privacy: .public) loaded (\(hashed, privacy: .public) hashed), \
             \(problems.count, privacy: .public) invalid in \(ContinuousClock.now - start, privacy: .public)
             """)
+    }
+
+    /// Stops every session and returns once their process trees, and those of sessions still being
+    /// replaced, are gone; requests from then on fail with `HostError.stopped`. For the app quitting.
+    public func shutdown() async {
+        isShutDown = true
+        let sessions = Array(self.sessions.values)
+        let replaced = Array(stopping.values)
+        self.sessions = [:]
+        await withDiscardingTaskGroup { group in
+            for session in sessions { group.addTask { await session.stop() } }
+            for previous in replaced { group.addTask { await previous.value } }
+        }
     }
 
     /// A folder that is no extension, for a reason of the host's.

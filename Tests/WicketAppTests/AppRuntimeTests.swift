@@ -68,20 +68,40 @@ private final class FakePalette: PaletteSurface {
     func run(bound id: CommandID) { bound.append(id) }
 }
 
-/// An agent that is always ready and answers "Hel…" without ever finishing, until its run ends.
+/// An agent that is always ready and answers "Hel…" without ever finishing, until its run is
+/// cancelled; its process tree then takes `exitDelay` to exit.
 private final class FakeAgent: Sendable {
+    let started = Mutex(0)
     let ended = Mutex(0)
+    let exitDelay = Mutex(Duration.zero)
 
     var backend: AgentBackend {
         AgentBackend(
             status: { AgentStatus(provider: $0, state: .ready) },
             run: { [self] _, _ in
-                AsyncStream { continuation in
-                    continuation.onTermination = { _ in self.ended.withLock { $0 += 1 } }
+                AgentRun { continuation in
+                    self.started.withLock { $0 += 1 }
                     continuation.yield(.text("Hel"))
+                    while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+                    // Exiting takes its time, which cancellation doesn't cut short.
+                    let delay = self.exitDelay.withLock { $0 }
+                    await Task.detached { try? await Task.sleep(for: delay) }.value
+                    self.ended.withLock { $0 += 1 }
+                    return .terminated
                 }
             })
     }
+}
+
+/// Waits up to 5 seconds of real time (agent runs are detached) for `condition`.
+@MainActor
+private func soon(_ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    return condition()
 }
 
 private let askAICommand = CommandID.builtin("ask-ai")
@@ -252,6 +272,42 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.system.registered == [.default])
     try h.change(#"{"commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
     #expect(h.system.registered == [.default, shortcut("ctrl+option+a")])
+}
+
+/// Quitting waits for what runs outside the app: the answer's agent is gone when `shutdown` returns.
+@MainActor @Test func shutdownWaitsForRunningAgentsOnce() async throws {
+    let h = try Harness()
+    h.agent.exitDelay.withLock { $0 = .milliseconds(200) }
+    let command = try #require(h.runtime.registry.command(askAICommand))
+    h.session.open(CommandRun(command, .invoked, text: "hello"))
+    #expect(await soon { h.agent.started.withLock { $0 } == 1 })
+
+    await h.runtime.shutdown()
+    #expect(h.agent.ended.withLock { $0 } == 1)
+    #expect(h.session.frames.count == 1)
+
+    // Once only, and nothing starts after it.
+    let start = ContinuousClock.now
+    await h.runtime.shutdown()
+    #expect(ContinuousClock.now - start < .milliseconds(100))
+    h.session.open(CommandRun(command, .invoked, text: "again"))
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(h.agent.started.withLock { $0 } == 1)
+    #expect(h.agent.ended.withLock { $0 } == 1)
+}
+
+/// A process that won't die doesn't keep the app from quitting.
+@MainActor @Test func shutdownIsBounded() async throws {
+    let h = try Harness()
+    h.agent.exitDelay.withLock { $0 = .seconds(30) }
+    let command = try #require(h.runtime.registry.command(askAICommand))
+    h.session.open(CommandRun(command, .invoked, text: "hello"))
+    #expect(await soon { h.agent.started.withLock { $0 } == 1 })
+
+    let start = ContinuousClock.now
+    await h.runtime.shutdown(within: .milliseconds(300))
+    #expect(ContinuousClock.now - start < .seconds(3))
+    #expect(h.agent.ended.withLock { $0 } == 0)
 }
 
 /// One snapshot can hand a combination from a command to the palette and back.

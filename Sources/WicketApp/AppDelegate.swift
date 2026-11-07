@@ -23,6 +23,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if !CommandLine.arguments.contains("--background") { runtime.showPalette() }
     }
 
+    /// Quitting waits for the runtime to stop what it started (agents, extension processes), at
+    /// most about 2 s, so nothing is left running or cut off mid-write.
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let runtime else { return .terminateNow }
+        Task {
+            await runtime.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     /// The main menu's Settings… item, sent up the responder chain.
     @objc func showSettings(_ sender: Any?) {
         runtime?.showSettings()

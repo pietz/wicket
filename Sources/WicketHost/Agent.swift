@@ -47,6 +47,54 @@ public enum AgentEvent: Sendable, Equatable {
     case error(String)
 }
 
+/// One agent run: its events, and the means to stop it. The events end after one `.answer` or
+/// `.error`, which comes only once the agent's whole process tree has exited (so a build run's folder
+/// is no longer being written when its answer arrives), or without either if the run was cancelled.
+/// Iterating it iterates the events (once); ending that iteration early cancels the run.
+public final class AgentRun: AsyncSequence, Sendable {
+    public typealias Element = AgentEvent
+
+    private let events: AsyncStream<AgentEvent>
+    private let task: Task<Shutdown, Never>
+
+    /// A run whose work is `body`: it yields the events and returns how the run's processes ended.
+    /// The events end when it returns; cancelling the run cancels its task.
+    public init(_ body: @escaping @Sendable (AsyncStream<AgentEvent>.Continuation) async -> Shutdown) {
+        let (events, continuation) = AsyncStream<AgentEvent>.makeStream()
+        let task = Task.detached {
+            let ended = await body(continuation)
+            continuation.finish()
+            return ended
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        self.events = events
+        self.task = task
+    }
+
+    public func makeAsyncIterator() -> AsyncStream<AgentEvent>.Iterator {
+        events.makeAsyncIterator()
+    }
+
+    /// How the run's process tree ended, once it has: `.exited` if everything exited by itself,
+    /// `.terminated` or `.killed` if something was still running when the run ended and had to be
+    /// stopped (after a final event: it outlived the grace), `.notRunning` if nothing started.
+    public var ended: Shutdown {
+        get async { await task.value }
+    }
+
+    /// Stops the run: its process tree gets SIGTERM at once, then SIGKILL after a grace.
+    public func cancel() {
+        task.cancel()
+    }
+
+    /// Stops the run and returns once its whole process tree is gone (bounded, see `ProcessTree`).
+    @discardableResult
+    public func cancelAndWait() async -> Shutdown {
+        task.cancel()
+        return await task.value
+    }
+}
+
 /// Whether a provider can run, for the UI to show.
 public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
     public enum State: Sendable, Equatable {
@@ -128,9 +176,9 @@ public struct Agent: Sendable {
         text.firstMatch(of: /\d+\.\d+\.\d+/).map { String($0.output) }
     }
 
-    /// Starts a run. The stream ends after one `.answer` or `.error`; ending the stream early (by
-    /// cancelling the consuming task) kills the agent's whole process tree.
-    public func run(_ request: AgentRequest) -> AsyncStream<AgentEvent> {
+    /// Starts a run (see `AgentRun`): its last event comes after the agent's whole process tree
+    /// has exited, and ending it early kills that tree.
+    public func run(_ request: AgentRequest) -> AgentRun {
         switch provider {
         case .codex:
             AgentProcess.run(

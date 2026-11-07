@@ -15,44 +15,33 @@ struct AgentStep {
     /// JSON lines to write to stdin, newline included.
     var send: [Data] = []
     var closeInput = false
-
-    var finished: Bool {
-        events.contains {
-            switch $0 {
-            case .answer, .error: true
-            case .text, .activity: false
-            }
-        }
-    }
 }
 
 /// Runs agent CLIs: one process per run, its stdout parsed by a transcript, its process tree stopped
-/// when the run ends or is cancelled.
+/// when the run ends or is cancelled. The final event is held until the tree is gone: a tree still
+/// running `exitGrace` after it (a child still writing) is terminated first, which the run's `ended`
+/// reports.
 enum AgentProcess {
     private static let logger = Logger(subsystem: "app.wicket", category: "agent")
 
     static func run(
         _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
         exitGrace: Duration = .seconds(2)
-    ) -> AsyncStream<AgentEvent> {
-        let (stream, continuation) = AsyncStream<AgentEvent>.makeStream()
-        let task = Task.detached {
+    ) -> AgentRun {
+        AgentRun { continuation in
             await drive(
                 executable, arguments: arguments, request: request, transcript: transcript,
                 exitGrace: exitGrace
             ) {
                 continuation.yield($0)
             }
-            continuation.finish()
         }
-        continuation.onTermination = { _ in task.cancel() }
-        return stream
     }
 
     private static func drive(
         _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
         exitGrace: Duration, emit: (AgentEvent) -> Void
-    ) async {
+    ) async -> Shutdown {
         let start = ContinuousClock.now
         let name = executable.lastPathComponent
         let process = Process()
@@ -70,20 +59,25 @@ enum AgentProcess {
             tree = try ProcessTree(launching: process)
         } catch {
             emit(.error("could not start \(executable.path): \(error.localizedDescription)"))
-            return
+            return .notRunning
         }
         let stderr = OutputTail(limit: 16 << 10)
         let stderrDrained = Task.detached { await stderr.drain(errors.fileHandleForReading) }
 
         var transcript = transcript
-        var finished = false
+        /// The answer or error, held back until the tree is gone.
+        var final: AgentEvent?
         var events = 0
         func apply(_ step: AgentStep) {
-            for event in step.events { emit(event) }
-            events += step.events.count
+            for event in step.events where final == nil {
+                switch event {
+                case .answer, .error: final = event
+                case .text, .activity: emit(event)
+                }
+                events += 1
+            }
             for line in step.send { tree.write(line) }
             if step.closeInput { tree.closeInput() }
-            finished = finished || step.finished
         }
 
         apply(transcript.start())
@@ -92,29 +86,33 @@ enum AgentProcess {
             reading: for await chunk in output.fileHandleForReading.chunks() {
                 for line in lines.split(chunk) {
                     apply(transcript.receive(line))
-                    if finished { break reading }
+                    if final != nil { break reading }
                 }
             }
         } onCancel: {
             tree.stop(after: .zero, grace: exitGrace)
         }
 
+        let finished = final != nil
         if !finished, !Task.isCancelled {
             // stdout closed without a final event: report how the process ended.
             let exitStatus = await tree.exit.value(within: exitGrace)
             // The exit can beat the last stderr chunk; wait briefly for EOF so the message has the
             // agent's own explanation (bounded: a grandchild may still hold the pipe open).
             if exitStatus != nil { _ = await stderrDrained.value(within: .milliseconds(500)) }
-            emit(.error(failure(name, exitStatus, stderr: stderr.text)))
+            final = .error(failure(name, exitStatus, stderr: stderr.text))
         }
-        // Whatever the agent left running goes with it: the stream ends once the tree is gone.
+        // Whatever the agent left running goes with it: the run is complete once the tree is gone.
         let ending = await tree.stop(after: exitGrace, grace: exitGrace).value
+        // A cancelled run ends without a final event, even if one had arrived.
+        if let final, !Task.isCancelled { emit(final) }
         logger.notice(
             """
             agent \(name, privacy: .public) run ended (\(finished ? "finished" : "stopped", privacy: .public), \
             \(events, privacy: .public) events, \(String(describing: ending), privacy: .public)) after \
             \(ContinuousClock.now - start, privacy: .public)
             """)
+        return ending
     }
 
     /// The error for a process that ended without a final event, with the end of its stderr.

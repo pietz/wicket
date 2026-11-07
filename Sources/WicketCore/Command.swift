@@ -196,6 +196,13 @@ public struct CommandRun: Sendable, Hashable {
 @MainActor
 public protocol CommandRunner: AnyObject {
     func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
+    /// Ends every run and returns once their work has stopped (processes included), for the app
+    /// quitting. Runs asked for after it fail. Nothing by default.
+    func shutdown() async
+}
+
+extension CommandRunner {
+    public func shutdown() async {}
 }
 
 /// One of Wicket's own commands: how it is registered and what runs it. The app's table of them
@@ -263,6 +270,14 @@ public final class CommandRouter: CommandRunner {
             return AsyncThrowingStream { $0.finish(throwing: Unrouted()) }
         }
         return runner.run(invocation, retry: retry)
+    }
+
+    /// Shuts every runner down at once and returns when all are done.
+    public func shutdown() async {
+        let runners = Array(builtins.values) + (extensions.map { [$0] } ?? [])
+        var stopping: [Task<Void, Never>] = []
+        for runner in runners { stopping.append(Task { await runner.shutdown() }) }
+        for task in stopping { await task.value }
     }
 
     /// A command nothing runs, such as a built-in without a runner.

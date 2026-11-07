@@ -105,6 +105,40 @@ private struct NoEffects: ActionEffects {
 }
 
 @MainActor
+@Test func shuttingDownStopsEverySessionAndWhatItLeftRunning() async throws {
+    // Answers, leaving a child in its own session that holds stdout and ignores stdin closing.
+    let script = #"""
+        /usr/bin/perl -e '
+          use POSIX;
+          POSIX::setsid();
+          open(my $f, ">", "$ENV{WICKET_DATA_DIR}/pid.new"); print $f "$$"; close $f;
+          rename("$ENV{WICKET_DATA_DIR}/pid.new", "$ENV{WICKET_DATA_DIR}/pid");
+          sleep 30;
+        ' &
+        until [ -f "$WICKET_DATA_DIR/pid" ]; do /bin/sleep 0.01; done
+        """# + "\n" + answering(#"{"close":{}}"#)
+    let ext = try TestExtension(script: script)
+    let data = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/data-\(UUID().uuidString)")
+    let extensions = Extensions(directory: ext.folder.deletingLastPathComponent()) { _ in
+        testConfiguration { $0.dataDirectory = data }
+    }
+    extensions.load()
+    let command = Invocation(command: try #require(extensions.commands.first).id)
+    #expect(try await extensions.result(of: command, retry: .safeToRepeat) == .close(message: nil))
+    let child = try #require(pid_t(String(contentsOf: data.appending(path: "pid"), encoding: .utf8)))
+
+    let start = ContinuousClock.now
+    await extensions.shutdown()
+    #expect(!isRunning(child))
+    #expect(ContinuousClock.now - start < .seconds(10))
+    // No session starts again.
+    await #expect(throws: HostError.stopped) {
+        try await extensions.result(of: command, retry: .safeToRepeat)
+    }
+}
+
+@MainActor
 @Test func replacedExtensionsShutDownBeforeTheirSuccessorStarts() async throws {
     // Logs its start, and its end 0.1 s after stdin closes (within the 0.3 s test grace).
     let script = """

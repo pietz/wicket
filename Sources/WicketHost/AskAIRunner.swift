@@ -6,11 +6,11 @@ import os
 /// `installed` uses the CLIs on the login-shell PATH; tests pass stand-ins.
 public struct AgentBackend: Sendable {
     public var status: @Sendable (AgentProvider) async -> AgentStatus
-    public var run: @Sendable (AgentProvider, AgentRequest) async -> AsyncStream<AgentEvent>
+    public var run: @Sendable (AgentProvider, AgentRequest) async -> AgentRun
 
     public init(
         status: @escaping @Sendable (AgentProvider) async -> AgentStatus,
-        run: @escaping @Sendable (AgentProvider, AgentRequest) async -> AsyncStream<AgentEvent>
+        run: @escaping @Sendable (AgentProvider, AgentRequest) async -> AgentRun
     ) {
         self.status = status
         self.run = run
@@ -21,9 +21,9 @@ public struct AgentBackend: Sendable {
         run: { provider, request in
             if let agent = await Agent.locate(provider) { return agent.run(request) }
             let status = AgentStatus(provider: provider, state: .notInstalled)
-            return AsyncStream {
+            return AgentRun {
                 $0.yield(.error(status.description))
-                $0.finish()
+                return .notRunning
             }
         })
 }
@@ -32,7 +32,8 @@ public struct AgentBackend: Sendable {
 /// answer mode (no tools), and the frame shows a detail that grows with the streamed text, at most
 /// about 30 times a second, replaced by the final answer at the end. Its actions copy or paste the
 /// answer. A provider that isn't ready, or a run that fails, ends the stream with an error the frame
-/// shows; ending the iteration (pop, dismiss) kills the agent's process tree.
+/// shows; ending the iteration (pop, dismiss) kills the agent's process tree. A run's task ends only
+/// once that tree is gone, and `shutdown()` (the app quitting) ends every run and waits for them.
 ///
 /// The provider is checked before each run, never at launch: the chosen one (`provider`, read from
 /// the applied settings on each run), else the first ready one in `AgentProvider.allCases` order. A provider found ready is
@@ -47,6 +48,9 @@ public final class AskAIRunner: CommandRunner {
     private let statusLifetime: Duration
     /// When each provider was last found ready.
     private var ready: [AgentProvider: ContinuousClock.Instant] = [:]
+    /// The runs in flight, each ending once its agent's process tree is gone.
+    private var running: [UUID: Task<Void, Never>] = [:]
+    private var isShutDown = false
     private static let logger = Logger(subsystem: "app.wicket", category: "ai")
 
     /// `interval` is the shortest time between two shown updates while the answer streams.
@@ -64,6 +68,11 @@ public final class AskAIRunner: CommandRunner {
     {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         let prompt = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isShutDown else {
+            continuation.finish(throwing: CancellationError())
+            return stream
+        }
+        let id = UUID()
         let task = Task {
             do {
                 guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
@@ -72,9 +81,20 @@ public final class AskAIRunner: CommandRunner {
             } catch {
                 continuation.finish(throwing: error)
             }
+            running[id] = nil
         }
+        running[id] = task
         continuation.onTermination = { _ in task.cancel() }
         return stream
+    }
+
+    /// Ends every run and returns once their agents' process trees are gone; runs asked for after
+    /// it fail at once.
+    public func shutdown() async {
+        isShutDown = true
+        let tasks = Array(running.values)
+        for task in tasks { task.cancel() }
+        for task in tasks { await task.value }
     }
 
     private func answer(
@@ -92,9 +112,27 @@ public final class AskAIRunner: CommandRunner {
         defer { try? FileManager.default.removeItem(at: folder) }
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         defer { throttle.cancel() }
-        var firstText: Duration?
         let request = AgentRequest(prompt: prompt, workingDirectory: folder, mode: .answer)
-        for await event in await backend.run(provider, request) {
+        let run = await backend.run(provider, request)
+        // However this ends (answer, failure, cancellation), it returns only once the agent's
+        // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
+        do {
+            try await show(run, of: provider, in: draft, start: start, throttle: throttle, output)
+        } catch {
+            await run.cancelAndWait()
+            throw error
+        }
+        await run.cancelAndWait()
+    }
+
+    /// Shows the run's events in the frame until its answer, which it returns on, or its error, which
+    /// it throws.
+    private func show(
+        _ run: AgentRun, of provider: AgentProvider, in draft: Draft, start: ContinuousClock.Instant,
+        throttle: Throttle, _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
+    ) async throws {
+        var firstText: Duration?
+        for await event in run {
             switch event {
             case .text(let delta):
                 firstText = firstText ?? ContinuousClock.now - start

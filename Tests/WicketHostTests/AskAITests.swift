@@ -38,13 +38,17 @@ private final class FakeAgents: Sendable {
                 }
             },
             run: { provider, request in
-                let (stream, continuation) = AsyncStream.makeStream(of: AgentEvent.self)
-                self.state.withLock { state in
-                    let index = state.runs.count
-                    continuation.onTermination = { _ in self.state.withLock { _ = $0.ended.insert(index) } }
-                    state.runs.append(Run(provider: provider, request: request, continuation: continuation))
+                AgentRun { continuation in
+                    let index = self.state.withLock { state in
+                        state.runs.append(
+                            Run(provider: provider, request: request, continuation: continuation))
+                        return state.runs.count - 1
+                    }
+                    // Runs until the runner ends it, which it always does (after the last event too).
+                    while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+                    self.state.withLock { _ = $0.ended.insert(index) }
+                    return .exited(.status(0))
                 }
-                return stream
             })
     }
 

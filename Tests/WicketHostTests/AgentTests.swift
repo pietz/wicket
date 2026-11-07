@@ -294,6 +294,90 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(await within10s { !started.contains(where: isRunning) })
     }
 
+    /// What a build would seal: the answer comes after the agent's child finished writing.
+    @Test func theAnswerComesAfterWhatTheAgentLeftRunningHasExited() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/written-\(UUID().uuidString)")
+        // Answers and exits while a background job (its process group, stdout closed) still writes.
+        let agent = try fakeAgent(
+            .claude,
+            """
+            ( /bin/sleep 0.3; echo written > '\(file.path)' ) >/dev/null 2>&1 &
+            echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+            """)
+        let request = AgentRequest(
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+        let run = AgentProcess.run(
+            agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request))
+        var answered = false
+        for await event in run {
+            guard case .answer = event else { continue }
+            answered = true
+            #expect(FileManager.default.fileExists(atPath: file.path))
+        }
+        #expect(answered)
+        #expect(await run.ended == .exited(.status(0)))
+    }
+
+    /// A child still running a grace after the answer is terminated before the answer comes.
+    @Test func aChildOutlivingTheGraceIsStoppedBeforeTheAnswer() async throws {
+        let pid = FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/pid-\(UUID().uuidString)")
+        let agent = try fakeAgent(
+            .claude,
+            """
+            /bin/sleep 30 >/dev/null 2>&1 &
+            echo $! > '\(pid.path)'
+            echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+            """)
+        let request = AgentRequest(
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+        let start = ContinuousClock.now
+        let run = AgentProcess.run(
+            agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request),
+            exitGrace: .milliseconds(300))
+        var answered = false
+        for await event in run {
+            guard case .answer = event else { continue }
+            answered = true
+            let child = try #require(
+                pid_t(
+                    String(contentsOf: pid, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+            #expect(!isRunning(child))
+        }
+        #expect(answered)
+        #expect(await run.ended == .terminated)
+        #expect(ContinuousClock.now - start < .seconds(10))
+    }
+
+    @Test func cancelAndWaitReturnsOnceTheTreeIsGone() async throws {
+        let pids = FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/pids-\(UUID().uuidString)")
+        // A child in its own session, as Codex runs commands.
+        let agent = try fakeAgent(
+            .claude,
+            """
+            /usr/bin/perl -e 'use POSIX; POSIX::setsid(); sleep 60' &
+            echo "$$ $!" > '\(pids.path)'
+            echo '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"working"}}}'
+            sleep 60
+            """)
+        let request = AgentRequest(
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+        let run = agent.run(request)
+        var events: [AgentEvent] = []
+        for await event in run {
+            events.append(event)
+            if case .text = event { #expect(await run.cancelAndWait() == .terminated) }
+        }
+        // No final event after a cancel, and nothing left running the moment it returned.
+        #expect(events == [.text("working")])
+        let started = try String(contentsOf: pids, encoding: .utf8).split(separator: " ")
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        #expect(started.count == 2)
+        #expect(!started.contains(where: isRunning))
+    }
+
     @Test func splitsLinesAcrossChunks() {
         var splitter = LineSplitter()
         #expect(splitter.split(Data("a\nb".utf8)) == [Data("a".utf8)])
