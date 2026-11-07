@@ -5,6 +5,8 @@ import WicketCore
 public enum AgentMode: Sendable, Equatable {
     /// Answer from the model alone: no tools, no commands, no file access.
     case answer
+    /// Inspect files and propose a script, without writes or network tools.
+    case plan
     /// Edit files inside the working directory and run commands to test them, sandboxed to that
     /// directory (and temporary folders) with no network.
     case build
@@ -12,7 +14,7 @@ public enum AgentMode: Sendable, Equatable {
 
 public struct AgentRequest: Sendable {
     public var prompt: String
-    /// The only folder a build run may write to. Answer runs get an empty folder.
+    /// The folder a build may write to or a plan inspects. Answer runs get an empty folder.
     public var workingDirectory: URL
     public var mode: AgentMode
 

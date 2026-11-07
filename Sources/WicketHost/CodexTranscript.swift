@@ -79,7 +79,7 @@ struct CodexTranscript: AgentTranscript {
             let off = JSONValue.object(["enabled": .bool(false)])
             var params: [String: JSONValue] = [
                 "cwd": .string(request.workingDirectory.path),
-                "sandbox": .string(request.mode == .answer ? "read-only" : "workspace-write"),
+                "sandbox": .string(request.mode == .build ? "workspace-write" : "read-only"),
                 "approvalPolicy": .string("never"),
                 "ephemeral": .bool(true),
                 "config": .object([
@@ -99,6 +99,10 @@ struct CodexTranscript: AgentTranscript {
             switch request.mode {
             case .answer:
                 params["effort"] = .string("low")
+            case .plan:
+                params["sandboxPolicy"] = .object([
+                    "type": .string("readOnly"), "networkAccess": .bool(false),
+                ])
             case .build:
                 params["sandboxPolicy"] = .object([
                     "type": .string("workspaceWrite"), "networkAccess": .bool(false),

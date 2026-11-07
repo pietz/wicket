@@ -49,6 +49,8 @@ public final class BuildJob: Identifiable {
     public nonisolated let id: UUID
     /// What the user asked for. Never logged.
     public let sentence: String
+    /// Optional seed from a successful Do run, retained for repairs too.
+    public let promptContext: String?
     public private(set) var phase: Phase
     /// The provider building it, once one was found ready.
     public private(set) var provider: AgentProvider?
@@ -69,9 +71,10 @@ public final class BuildJob: Identifiable {
     private static let logger = Logger(subsystem: "app.wicket", category: "build")
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    init(sentence: String, folder: URL, id: UUID) {
+    init(sentence: String, folder: URL, id: UUID, promptContext: String? = nil) {
         self.id = id
         self.sentence = sentence
+        self.promptContext = promptContext
         self.folder = folder
         phase = .generating(activity: "Starting…")
     }
@@ -165,7 +168,8 @@ public final class BuildJob: Identifiable {
         }
         phase = .generating(activity: "Asking \(provider.name)…")
         let request = AgentRequest(
-            prompt: BuildPrompt.prompt(for: sentence, guide: guide, failure: failure), workingDirectory: work,
+            prompt: BuildPrompt.prompt(for: sentence, guide: guide, failure: failure, context: promptContext),
+            workingDirectory: work,
             mode: .build)
         let run = await context.backend.run(provider, request)
         // However this ends, it goes on only once the agent's process tree is gone, so nothing is
@@ -325,11 +329,13 @@ public final class BuildJobs {
     /// The running job if there is one; else the latest job if it was built (awaiting review or
     /// enabled) and `sentence` is its own, so its frame reloads after Enable; else a new job building
     /// `sentence`. Throws after `shutdown()`, or for an empty sentence.
-    public func start(_ sentence: String) throws -> BuildJob {
+    public func start(_ sentence: String, context: String? = nil) throws -> BuildJob {
         guard !isShutDown else { throw CancellationError() }
         if let current, current.phase.isRunning { return current }
         let sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let current, current.phase.isBuilt, sentence == current.sentence {
+        if let current, current.phase.isBuilt, sentence == current.sentence,
+            context == nil || context == current.promptContext
+        {
             return current
         }
         guard !sentence.isEmpty else {
@@ -342,9 +348,9 @@ public final class BuildJobs {
         let id = UUID()
         let job = BuildJob(
             sentence: sentence, folder: staging.appending(path: id.uuidString, directoryHint: .isDirectory),
-            id: id)
+            id: id, promptContext: context)
         current = job
-        job.start(context)
+        job.start(self.context)
         return job
     }
 
@@ -382,7 +388,9 @@ public final class BuildJobs {
 /// extension guide (docs/extensions.md, bundled into the app), which is the whole contract.
 public enum BuildPrompt {
     /// The prompt for a new extension, or, with `failure`, for repairing the attempt the folder holds.
-    public static func prompt(for sentence: String, guide: String, failure: String? = nil) -> String {
+    public static func prompt(
+        for sentence: String, guide: String, failure: String? = nil, context: String? = nil
+    ) -> String {
         let task =
             if let failure {
                 """
@@ -420,6 +428,8 @@ public enum BuildPrompt {
             }
         return """
             \(task)
+
+            \(context.map { "<context>\n" + $0 + "\n</context>" } ?? "")
 
             - Pick a short, descriptive id. Give each command a keyword when typing one makes sense.
             - Give each listed command a `search` array with the words and phrases a person would type \

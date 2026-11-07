@@ -281,6 +281,7 @@ extension AppRuntime {
         let settingsWindow = SettingsWindowController(store: store)
         weak var weakRuntime: AppRuntime?
         let buildJobs = BuildJobs(diagnostics: diagnostics, provider: { weakRuntime?.applied?.ai.provider })
+        let doRunner = DoRunner(builds: buildJobs, provider: { weakRuntime?.applied?.ai.provider })
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
@@ -334,6 +335,16 @@ extension AppRuntime {
                     keyword: "web", isListed: false, input: .submitText, placeholder: "Search the web",
                     isFallback: true, feature: .webSearch),
                 runner: WebSearchRunner(template: { weakRuntime?.applied?.webSearch.url })),
+            Builtin(
+                RegisteredCommand(
+                    id: .doAction, title: "Do", icon: .symbol(name: "play.circle"), keyword: "do",
+                    input: .submitText, placeholder: "Describe what to do", isFallback: true),
+                runner: doRunner),
+            Builtin(
+                RegisteredCommand(
+                    id: .doControl, title: "Do Action", icon: .symbol(name: "play.circle"),
+                    isListed: false, input: .none),
+                runner: doRunner),
             // Builds an extension from a sentence with the user's agent CLI, then checks it for review.
             // The job belongs to `buildJobs`, so closing its frame leaves it running; submitting
             // again while it runs shows it.
