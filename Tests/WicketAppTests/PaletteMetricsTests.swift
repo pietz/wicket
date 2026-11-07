@@ -33,16 +33,16 @@ struct PaletteMetricsTests {
 
     /// Rows of 40 with 2 between them, 8 of inset above and below, then the divider and the footer.
     @Test func listFitsItsRows() {
-        #expect(card(search([item("a")])) == 91)
-        #expect(card(search([item("a"), item("b"), item("c")])) == 175)
+        #expect(card(search([item("a")])) == 95)
+        #expect(card(search([item("a"), item("b"), item("c")])) == 179)
         let many = (0..<30).map { item("\($0)") }
         #expect(card(search(many)) == PaletteMetrics.maxCardHeight)
     }
 
     @Test func answerOnTopIsTaller() {
         let answer = item("= 4", relevance: .answer)
-        #expect(card(search([item("b")])) == 91)
-        #expect(card(search([answer, item("b")])) == 153)  // 133 for two plain rows.
+        #expect(card(search([item("b")])) == 95)
+        #expect(card(search([answer, item("b")])) == 157)  // 137 for two plain rows.
     }
 
     @Test func actionMenuNeedsRoom() {
@@ -92,12 +92,12 @@ struct PaletteMetricsTests {
         #expect(await eventually { runner.count[live.id] == 2 })
         runner.runs[live.id]?.yield(.show(.list([])))
         #expect(await eventually { !session.top.isCompact && session.top.list != nil })
-        #expect(card(session.top) == 91)
+        #expect(card(session.top) == 95)
     }
 
     /// A command waiting for its text is the bare pill, even over a root that had a card.
     @Test func aFrameWaitingForItsTextIsThePill() {
-        #expect(card(search([item("a")])) == 91)
+        #expect(card(search([item("a")])) == 95)
         let ask = command("ask", input: .submitText)
         session.open(CommandRun(ask, .invoked))
         #expect(session.frames.count == 2)

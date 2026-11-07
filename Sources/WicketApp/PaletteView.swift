@@ -13,11 +13,16 @@ enum PaletteFocus: Hashable {
 enum PaletteMetrics {
     static let pillHeight: CGFloat = 56
     static let gap: CGFloat = 8
-    /// The tallest card: eight rows, with a sliver of the next one hinting that the list scrolls.
-    static let maxCardHeight: CGFloat = 384
-    static let cardRadius: CGFloat = 24
-    /// Inset of the rows from the card's edge; their highlight stays concentric with its corners.
-    static let rowInset: CGFloat = 8
+    /// The tallest card: exactly eight whole rows above the divider and footer, so no row is ever
+    /// cut in half at rest.
+    static let maxCardHeight: CGFloat =
+        8 * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset + 1 + FooterBar.height
+    static let cardRadius: CGFloat = 22
+    /// Inset of the rows from the card's edge.
+    static let rowInset: CGFloat = 10
+    /// The selection's corner radius: the card's minus the inset, so every highlight is concentric
+    /// with the card by construction and the same on every row (Apple's guidance for nested shapes).
+    static let rowRadius: CGFloat = cardRadius - rowInset
     static let rowHeight: CGFloat = 40
     /// An answer at the top, such as a calculation, shown large.
     static let answerRowHeight: CGFloat = 60
@@ -105,10 +110,6 @@ struct PaletteRootView: View {
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
-                    // Rows inside take concentric corners from the card (macOS 26's ConcentricRectangle).
-                    .containerShape(
-                        RoundedRectangle(cornerRadius: PaletteMetrics.cardRadius, style: .continuous)
-                    )
                     .transition(.opacity)
                 }
             }
@@ -275,6 +276,8 @@ struct ResultsView: View {
                 .padding(PaletteMetrics.rowInset)
             }
             .scrollIndicators(.never)
+            // The system's soft edge where rows pass under the footer, instead of a row cut in half.
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
             .onChange(of: model.selection) { _, selection in
                 guard model.results.indices.contains(selection) else { return }
                 proxy.scrollTo(model.results[selection].id)
@@ -360,6 +363,7 @@ struct ActionPanel: View {
     static let rowHeight: CGFloat = 30
     static let rowSpacing: CGFloat = 2
     static let padding: CGFloat = 6
+    static let radius: CGFloat = 16
     static let fieldHeight: CGFloat = 34
     /// It sits just above the footer.
     static let bottomPadding = FooterBar.height + 4
@@ -420,9 +424,8 @@ struct ActionPanel: View {
                 .frame(height: Self.fieldHeight)
         }
         .frame(width: 320)
-        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .background(.regularMaterial, in: .rect(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.separator))
+        .background(.regularMaterial, in: .rect(cornerRadius: Self.radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Self.radius, style: .continuous).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
     }
 
@@ -457,7 +460,7 @@ private struct ActionRow: View {
         .frame(height: ActionPanel.rowHeight)
         .background {
             if isSelected {
-                ConcentricRectangle(corners: .concentric(minimum: 6), isUniform: false)
+                RoundedRectangle(cornerRadius: ActionPanel.radius - ActionPanel.padding, style: .continuous)
                     .fill(.primary.opacity(0.1))
             }
         }
@@ -484,23 +487,36 @@ struct ResultRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 26, height: 26)
-            VStack(alignment: .leading, spacing: isProminent ? 0 : 1) {
-                Text(item.title)
-                    .font(
-                        isProminent ? .system(size: 24, weight: .medium).monospacedDigit() : .system(size: 14)
-                    )
-                    .lineLimit(1)
-                if let subtitle = item.subtitle {
-                    Text(subtitle)
-                        .font(.system(size: isProminent ? 12 : 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+            if isProminent {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(item.title)
+                        .font(.system(size: 24, weight: .medium).monospacedDigit())
+                    if let subtitle = item.subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .lineLimit(1)
+            } else {
+                // One line per row, the subtitle beside the title: every row the same height, and a
+                // long path gives way (truncated in the middle) before the title does.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.title)
+                        .layoutPriority(1)
+                    if let subtitle = item.subtitle {
+                        Text(subtitle)
+                            .foregroundStyle(.secondary)
+                            .truncationMode(.middle)
+                    }
+                }
+                .font(.system(size: 14))
+                .lineLimit(1)
             }
             Spacer(minLength: 8)
             if let accessory = hint ?? item.accessory {
                 Text(accessory)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
         }
@@ -508,9 +524,7 @@ struct ResultRow: View {
         .frame(height: isProminent ? PaletteMetrics.answerRowHeight : PaletteMetrics.rowHeight)
         .background {
             if isSelected {
-                // Concentric with the card where the row meets its corners, a small radius elsewhere,
-                // so a mid-list selection isn't a pill and the top row follows the card's curve.
-                ConcentricRectangle(corners: .concentric(minimum: 10), isUniform: false)
+                RoundedRectangle(cornerRadius: PaletteMetrics.rowRadius, style: .continuous)
                     .fill(.primary.opacity(0.1))
             }
         }
