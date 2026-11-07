@@ -231,15 +231,16 @@ private func read(_ url: URL) throws -> String {
     (#"{}"#, nil, nil),
     (#"{"ai": {"provider": "claude"}}"#, AgentProvider.claude, nil),
     (#"{"ai": {"provider": "codex", "future": 1}}"#, .codex, nil),
+    (#"{"ai": {"provider": "apple"}}"#, .apple, nil),
     (#"{"ai": {"provider": null}}"#, nil, nil),
     (#"{"ai": null}"#, nil, nil),
     (
         #"{"ai": {"provider": "gemini"}}"#, nil,
-        #"ai.provider must be "codex" or "claude"; using the first one that's ready"#
+        #"ai.provider must be "codex" or "claude" or "apple"; using the first one that's ready"#
     ),
     (
         #"{"ai": {"provider": 1}}"#, nil,
-        #"ai.provider must be "codex" or "claude"; using the first one that's ready"#
+        #"ai.provider must be "codex" or "claude" or "apple"; using the first one that's ready"#
     ),
     (#"{"ai": "codex"}"#, nil, "ai must be an object; using defaults"),
 ])

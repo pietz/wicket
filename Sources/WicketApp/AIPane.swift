@@ -2,7 +2,7 @@ import SwiftUI
 import WicketCore
 import WicketHost
 
-/// Settings ▸ AI: which agent CLI answers Ask AI and builds Make a Command, and whether each one is
+/// Settings ▸ AI: which provider answers Ask AI and builds Make a Command, and whether each one is
 /// ready. The choice is a preference in settings.json (`ai.provider`); the status is checked when the
 /// pane opens.
 struct AIPane: View {
@@ -25,12 +25,14 @@ struct AIPane: View {
                 }
             } footer: {
                 Text(
-                    "It answers questions (Ask AI) and builds commands (Make a Command), on your own "
-                        + "subscription. Automatic uses the first one that's ready, Codex first. Answers "
+                    "Codex and Claude answer questions and build commands on your own subscription. "
+                        + "Automatic uses the first provider that's ready, Codex first. Answers "
                         + "get no tools and no access to your files; a build writes only into the new "
                         + "command's own folder."
                 )
                 .foregroundStyle(.secondary)
+                Text("Apple Intelligence is a small, free, offline on-device model for quick answers only.")
+                    .foregroundStyle(.secondary)
             }
             Section {
                 ForEach(AgentProvider.allCases, id: \.self) { provider in
@@ -94,7 +96,13 @@ private struct StatusLabel: View {
                 case .loggedOut:
                     Label("Signed out", systemImage: "person.crop.circle.badge.exclamationmark")
                         .foregroundStyle(.orange)
-                    Text("Run `\(status.provider.loginCommand)` in Terminal")
+                    Text("Run `\(status.provider.loginCommand ?? "")` in Terminal")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .unavailable(let reason):
+                    Label("Unavailable", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.orange)
+                    Text(reason)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case .notInstalled:

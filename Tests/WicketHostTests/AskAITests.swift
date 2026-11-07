@@ -220,17 +220,19 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         palette.session.top.target?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
     #expect(agents.runs.count == 1)
 
-    // Neither ready (a new runner: this one found Claude ready a moment ago, and trusts that).
+    // None ready (a new runner: this one found Claude ready a moment ago, and trusts that).
     agents.set(.claude, .loggedOut)
+    agents.set(.apple, .unavailable("The on-device model is not ready."))
     let fresh = Palette(agents.backend)
     fresh.ask("hi")
     #expect(await eventually { fresh.detail?.title == "Ask AI Failed" })
     #expect(
         fresh.detail?.markdown == """
-            Ask AI uses Codex or Claude Code, and neither is ready:
+            Ask AI uses Codex or Claude Code or Apple Intelligence (on device), and none is ready:
 
             - Codex isn't signed in: run `codex login` in Terminal to sign in.
             - Claude Code isn't signed in: run `claude auth login` in Terminal to sign in.
+            - Apple Intelligence (on device) is unavailable: The on-device model is not ready.
             """)
 }
 
@@ -284,4 +286,45 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("What is the capital of France?")
     #expect(await eventually { palette.detail?.markdown == "Paris" && !palette.session.top.isLoading })
     #expect(palette.detail?.title == "What is the capital of France?")
+}
+
+@MainActor @Test func appleAnswersUseTheExistingStreamingDraft() async throws {
+    let agents = FakeAgents([.codex: .loggedOut, .claude: .loggedOut, .apple: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    let run = try #require(agents.runs.first)
+    #expect(run.provider == .apple)
+    #expect(run.request.mode == .answer)
+    #expect(agents.checks == [.codex, .claude, .apple])
+    run.continuation.yield(.text("Hello"))
+    #expect(await eventually { palette.detail?.markdown == "Hello" })
+    run.continuation.yield(.answer("Hello!", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading })
+    #expect(palette.detail?.markdown == "Hello!")
+    #expect(
+        palette.detail?.actions == [
+            .copy(text: "Hello!", title: "Copy Answer"),
+            .paste(text: "Hello!", title: "Paste Answer"),
+        ])
+}
+
+@MainActor @Test func appleAvailabilityIsRecheckedAndNeverFallsBack() async throws {
+    let agents = FakeAgents([.codex: .ready, .apple: .ready])
+    let palette = Palette(agents.backend)
+    palette.runner.provider = { .apple }
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    agents.runs[0].continuation.yield(.answer("Hello!", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading })
+    palette.session.reset()
+
+    let reason = "Enable Apple Intelligence in System Settings ▸ Apple Intelligence & Siri."
+    agents.set(.apple, .unavailable(reason))
+    palette.ask("hello again")
+    #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
+    #expect(palette.detail?.markdown.contains(reason) == true)
+    #expect(palette.detail?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
+    #expect(agents.checks == [.apple, .apple])
+    #expect(agents.runs.count == 1)
 }

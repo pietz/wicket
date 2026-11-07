@@ -200,7 +200,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         Issue.record("ended \(job.phase)")
         return
     }
-    #expect(reason.hasPrefix("Make a Command uses Codex or Claude Code, and neither is ready"))
+    #expect(
+        reason.hasPrefix(
+            "Make a Command uses Codex or Claude Code or Apple Intelligence (on device), and none is ready"))
 }
 
 /// The job seals only once the agent's tree is gone: a child still writing after the final answer

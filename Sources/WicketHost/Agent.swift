@@ -100,6 +100,7 @@ public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
     public enum State: Sendable, Equatable {
         case notInstalled
         case loggedOut
+        case unavailable(String)
         case ready
     }
 
@@ -110,8 +111,10 @@ public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
 
     /// Set when the installed version isn't the tested major.minor; the agent still runs.
     public var warning: String? {
-        guard let version, !version.hasPrefix(provider.testedVersion + ".") else { return nil }
-        return "untested version \(version) (Wicket was tested with \(provider.testedVersion).x)"
+        guard let testedVersion = provider.testedVersion, let version,
+            !version.hasPrefix(testedVersion + ".")
+        else { return nil }
+        return "untested version \(version) (Wicket was tested with \(testedVersion).x)"
     }
 
     public var description: String {
@@ -120,7 +123,8 @@ public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
             switch state {
             case .notInstalled:
                 "\(provider.name) is not installed (no `\(provider.command)` on the login shell PATH)"
-            case .loggedOut: "\(name) is not logged in; run `\(provider.loginCommand)` in Terminal"
+            case .loggedOut: "\(name) is not logged in; run `\(provider.loginCommand ?? "")` in Terminal"
+            case .unavailable(let reason): "\(name) is unavailable: \(reason)"
             case .ready: "\(name) is ready"
             }
         return warning.map { "\(text); \($0)" } ?? text
@@ -139,6 +143,7 @@ public struct Agent: Sendable {
 
     /// Finds the provider's executable on the login-shell PATH.
     public static func locate(_ provider: AgentProvider) async -> Agent? {
+        guard provider != .apple else { return nil }
         for directory in await LoginShell.path().split(separator: ":") {
             let url = URL(filePath: String(directory)).appending(path: provider.command)
             if FileManager.default.isExecutableFile(atPath: url.path) {
@@ -151,6 +156,7 @@ public struct Agent: Sendable {
     /// Installed, version and login state, without starting a model run (about 20 ms for Codex,
     /// 150 ms for Claude Code).
     public static func status(of provider: AgentProvider) async -> AgentStatus {
+        if provider == .apple { return AppleModel.status() }
         guard let agent = await locate(provider) else {
             return AgentStatus(provider: provider, state: .notInstalled)
         }
@@ -158,10 +164,12 @@ public struct Agent: Sendable {
     }
 
     public func status() async -> AgentStatus {
-        let loginArguments =
+        if provider == .apple { return AppleModel.status() }
+        let loginArguments: [String] =
             switch provider {
             case .codex: ["login", "status"]
             case .claude: ["auth", "status"]
+            case .apple: []  // The system model returned above never starts a CLI.
             }
         async let version = AgentProcess.output(of: executable, arguments: ["--version"])
         async let login = AgentProcess.output(of: executable, arguments: loginArguments)
@@ -180,6 +188,8 @@ public struct Agent: Sendable {
     /// has exited, and ending it early kills that tree.
     public func run(_ request: AgentRequest) -> AgentRun {
         switch provider {
+        case .apple:
+            AppleModel.run(request)
         case .codex:
             AgentProcess.run(
                 executable, arguments: CodexTranscript.arguments(for: request.mode), request: request,

@@ -8,8 +8,8 @@ extension CommandID {
     public static let aiSettings = CommandID.builtin("ai-settings")
 }
 
-/// What Ask AI needs from the agent CLIs: whether a provider is ready, and an answer run.
-/// `installed` uses the CLIs on the login-shell PATH; tests pass stand-ins.
+/// What Ask AI needs from its providers: whether a provider is ready, and an answer run.
+/// `installed` uses the CLIs on the login-shell PATH or Apple's model; tests pass stand-ins.
 public struct AgentBackend: Sendable {
     public var status: @Sendable (AgentProvider) async -> AgentStatus
     public var run: @Sendable (AgentProvider, AgentRequest) async -> AgentRun
@@ -25,6 +25,7 @@ public struct AgentBackend: Sendable {
     public static let installed = AgentBackend(
         status: { await Agent.status(of: $0) },
         run: { provider, request in
+            if provider == .apple { return AppleModel.run(request) }
             if let agent = await Agent.locate(provider) { return agent.run(request) }
             let status = AgentStatus(provider: provider, state: .notInstalled)
             return AgentRun {
@@ -194,7 +195,9 @@ public final class AskAIRunner: CommandRunner {
         let chosen = provider()
         var statuses: [AgentStatus] = []
         for candidate in chosen.map({ [$0] }) ?? AgentProvider.allCases {
-            if let checked = ready[candidate], ContinuousClock.now < checked + statusLifetime {
+            if candidate != .apple, let checked = ready[candidate],
+                ContinuousClock.now < checked + statusLifetime
+            {
                 return candidate
             }
             let start = ContinuousClock.now
@@ -218,8 +221,8 @@ public final class AskAIRunner: CommandRunner {
         if chosen, let reason = reasons.first {
             return reason + "\n\nYou can choose another provider in Settings ▸ AI."
         }
-        let names = AgentProvider.allCases.map(\.name).joined(separator: " or ")
-        return "\(feature) uses \(names), and neither is ready:\n\n"
+        let names = statuses.map { $0.provider.name }.joined(separator: " or ")
+        return "\(feature) uses \(names), and none is ready:\n\n"
             + reasons.map { "- \($0)" }.joined(separator: "\n")
     }
 
@@ -228,7 +231,8 @@ public final class AskAIRunner: CommandRunner {
         return switch status.state {
         case .notInstalled: "\(provider.name) isn't installed: there's no `\(provider.command)` on your PATH."
         case .loggedOut:
-            "\(provider.name) isn't signed in: run `\(provider.loginCommand)` in Terminal to sign in."
+            "\(provider.name) isn't signed in: run `\(provider.loginCommand ?? "")` in Terminal to sign in."
+        case .unavailable: status.description
         case .ready: "\(provider.name) is ready."
         }
     }
