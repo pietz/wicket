@@ -2,7 +2,7 @@
 
 The living plan: every workstream, its status and what's next. CONCEPT.md holds the why and the decisions; this file holds the what and when. [docs/feature-landscape.md](docs/feature-landscape.md) compares Alfred, Raycast, Tinycast and Monarch and is the pool of ideas this plan draws from. The lead keeps it current as work lands.
 
-Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later
+Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later · 👀 watch
 
 ## 0.0.1 alpha (first public version)
 
@@ -54,6 +54,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - 🔨 Do (plan first, the user presses Run, writes only in one folder), then Keep as a command
 - ⏭ Prompt commands and Keep from an answer (adds a `prompt` command kind to the protocol)
 - 💤 Submit-time intent router on the on-device model (after search terms prove how much they cover)
+- 👀 Watch macOS 27.3: its expected new on-device AI options (owner, 2026-11-08); re-check the Apple provider, the router and voice against them when it ships
+- 👀 On-device transcription for voice input (SpeechAnalyzer), alongside the voice item below
 
 ### App shell
 - ✅ Settings window (native SwiftUI): General (hotkey recorder, palette width, launch at login, settings.json and extensions folder, ignored-field warnings); AI (provider and status); Shortcuts (scrolling, filter, keywords); Features (toggle each source, live). No Extensions pane (the palette list covers it). The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
