@@ -18,25 +18,30 @@ extension CommandID {
 /// table, reached by `run` actions on the screens it draws):
 ///
 /// - **Extensions** (`builtin:extensions`): every discovered extension with its state (enabled,
-///   changed, not enabled, invalid). Return on one that isn't enabled reviews it; on an enabled one
-///   it shows it, with Disable and Reveal in Finder.
-/// - **Review** (`builtin:review-extension`): runs the isolated checker on the extension's current
-///   sealed revision and shows the report; only a passing check offers Enable.
-/// - **Enable** (`builtin:enable-extension`): approves exactly the revision a review screen checked
-///   (or installs and approves a build job's), then reloads the review, which shows it enabled.
+///   problem, changed, not enabled, invalid), then Make a Command. Return on one that isn't enabled
+///   reviews it; on an enabled one it shows it.
+/// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
+///   its secrets, its problems, Use Previous Version, Disable last); otherwise runs the isolated
+///   checker on the extension's current sealed revision and shows the report, and only a passing
+///   check offers Enable.
+/// - **Enable** (`builtin:enable-extension`): approves exactly the revision a screen offered (a
+///   review's checked one, or the previous approved one) and closes with a message, or installs
+///   and approves a build job's, then reloads its frame, which shows it enabled.
 /// - **Disable** (`builtin:disable-extension`): withdraws the approval; its commands leave the
 ///   palette and its frames stop.
 ///
-/// Enable acts only on a token a review screen issued in this run of Wicket: the token is never
-/// written anywhere, so a binding in settings.json, a deeplink or another process can't approve
-/// anything, and nothing is approved without a passing check the user was shown.
+/// Enable acts only on a token a screen issued in this run of Wicket: the token is never written
+/// anywhere, so a binding in settings.json, a deeplink or another process can't approve anything,
+/// and nothing is approved that the user wasn't shown (checked, or approved by them before).
 @MainActor
 public final class ExtensionsRunner: CommandRunner {
     private let extensions: Extensions
     private let jobs: BuildJobs?
     private let checkOptions: CheckOptions
-    /// Revisions that passed a check on a review screen, by the token its Enable action carries.
-    private var reviews: [String: CheckedRevision] = [:]
+    /// Revisions a screen offered to enable, by the token its action carries: one that passed a
+    /// check on a review screen, or an extension's previous approved one; with the message
+    /// enabling it closes with.
+    private var offers: [String: (sealed: SealedRevision, message: String)] = [:]
 
     private static let logger = Logger(subsystem: "app.wicket", category: "consent")
 
@@ -57,8 +62,7 @@ public final class ExtensionsRunner: CommandRunner {
             do {
                 switch invocation.command {
                 case .extensions:
-                    continuation.yield(
-                        .show(.list(Self.build(jobs?.current) + Self.items(extensions.discovered))))
+                    continuation.yield(.show(.list(items())))
                 case .reviewExtension:
                     try await review(Self.argument("id", of: invocation), continuation)
                 case .enableExtension:
@@ -90,7 +94,7 @@ public final class ExtensionsRunner: CommandRunner {
         let current: SealedRevision
         switch found.state {
         case .approved(let sealed):
-            continuation.yield(.show(.detail(Self.enabled(sealed, folder: found.folder))))
+            continuation.yield(.show(.detail(enabled(sealed, folder: found.folder))))
             return
         case .invalid(let reason, _):
             throw Refusal(reason)
@@ -123,9 +127,7 @@ public final class ExtensionsRunner: CommandRunner {
         sections.append("**Check**\n\n" + Self.report(checked.report))
         var actions: [Item.Action] = []
         if checked.passed {
-            let token = UUID().uuidString
-            reviews[token] = checked
-            actions.append(.run(command: .enableExtension, args: ["review": .string(token)], title: "Enable"))
+            actions.append(offer(checked.sealed, message: "Enabled \(manifest.name).", title: "Enable"))
             sections.append("_Enable runs it with your permissions, as any app you install._")
         } else {
             sections.append("_It can't be enabled until it passes its check._")
@@ -139,8 +141,16 @@ public final class ExtensionsRunner: CommandRunner {
                         metadata: Self.metadata(current), actions: actions))))
     }
 
-    /// Approves what the review that issued `token` checked: a build job's (installed first) or an
-    /// extension's current revision. Reloads the review, which then shows it enabled.
+    /// An action enabling `sealed`, carrying a fresh token only this run of Wicket knows.
+    private func offer(_ sealed: SealedRevision, message: String, title: String) -> Item.Action {
+        let token = UUID().uuidString
+        offers[token] = (sealed, message)
+        return .run(command: .enableExtension, args: ["review": .string(token)], title: title)
+    }
+
+    /// Approves what the screen that issued `token` offered: a build job's checked revision
+    /// (installed first; reloads its frame, which then shows it enabled), or a review's checked
+    /// revision or an extension's previous one (closes with a message).
     private func enable(_ token: String) async throws -> RunResult {
         if let job = jobs?.current, job.reviewToken == token {
             try await job.enable(in: extensions)
@@ -149,18 +159,17 @@ public final class ExtensionsRunner: CommandRunner {
             }
             return .reload(message: "Enabled \(sealed.manifest.name).")
         }
-        guard let checked = reviews[token] else {
+        guard let offer = offers[token] else {
             throw Refusal("This review is no longer current; review the extension again to enable it.")
         }
-        let revision = checked.sealed.revision
+        offers[token] = nil
+        let revision = offer.sealed.revision
         guard extensions.store.retained(revision) != nil else {
-            reviews[token] = nil
-            throw Refusal("The reviewed version is gone; review the extension again to enable it.")
+            throw Refusal("That version is gone; review the extension again to enable it.")
         }
         try await extensions.approve(revision)
-        reviews[token] = nil
         Self.logger.notice("review: enabled")
-        return .reload(message: "Enabled \(checked.sealed.manifest.name).")
+        return .close(message: offer.message)
     }
 
     /// Withdraws the approval of the extension `id`, then closes with a message.
@@ -203,37 +212,59 @@ public final class ExtensionsRunner: CommandRunner {
         ]
     }
 
-    /// The Extensions list's rows, in discovery order (by id).
-    static func items(_ discovered: [DiscoveredExtension]) -> [Item] {
+    /// The Extensions list: the current build, a damaged approvals file, then each discovered extension in
+    /// discovery order (by id), then Make a Command, which is all an empty folder shows.
+    private func items() -> [Item] {
+        var items = Self.build(jobs?.current)
+        if let problem = extensions.approvals.problem {
+            items.append(
+                Item(
+                    id: "extensions:approvals", title: "Approvals Problem", subtitle: problem,
+                    icon: .symbol(name: "exclamationmark.triangle"), accessory: "Problem",
+                    actions: [.copy(text: problem, title: "Copy Diagnostics")]))
+        }
+        items += Self.items(extensions.discovered) { self.problems(of: $0) }
+        // Opening the folder should work before anything was ever put in it.
+        try? FileManager.default.createDirectory(at: extensions.directory, withIntermediateDirectories: true)
+        items.append(
+            Item(
+                id: "extensions:make", title: "Make a Command",
+                subtitle: "Describe it in a sentence and your agent builds it", icon: .symbol(name: "hammer"),
+                actions: [
+                    .run(command: .makeCommand, title: "Make a Command"),
+                    .open(url: extensions.directory, title: "Open Extensions Folder"),
+                ]))
+        return items
+    }
+
+    /// The rows of `discovered`; an enabled one with `problems` says so.
+    static func items(_ discovered: [DiscoveredExtension], problems: (String) -> [Diagnostic]) -> [Item] {
         discovered.map { found in
             let manifest = (found.sealed ?? found.approved)?.manifest
             let name = manifest?.name ?? found.id
             let reveal = Item.Action.reveal(url: found.folder, title: "Reveal in Finder")
             let review = Item.Action.run(
                 command: .reviewExtension, args: ["id": .string(found.id)], title: "Review and Enable")
-            let state: String
+            let disable = Item.Action.run(
+                command: .disableExtension, args: ["id": .string(found.id)], title: "Disable")
+            var state: String
             var subtitle = manifest?.description
             var actions: [Item.Action]
             switch found.state {
             case .approved:
                 state = "Enabled"
+                if let problem = problems(found.id).last {
+                    state = "Problem"
+                    subtitle = firstLine(problem.text)
+                }
                 actions = [
                     .run(command: .reviewExtension, args: ["id": .string(found.id)], title: "Show Extension"),
-                    .run(command: .disableExtension, args: ["id": .string(found.id)], title: "Disable"),
-                    reveal,
+                    reveal, disable,
                 ]
             case .changed(let approved, _):
                 state = "Changed"
-                subtitle =
-                    approved == nil
-                    ? "Changed since it was enabled; review it to run it again"
-                    : "Changed since it was enabled; the enabled version runs until you review this one"
-                actions = [review, reveal]
-                if approved != nil {
-                    actions.insert(
-                        .run(command: .disableExtension, args: ["id": .string(found.id)], title: "Disable"),
-                        at: 1)
-                }
+                subtitle = "Changed; review to run the new version"
+                actions = approved == nil ? [review, reveal] : [review, reveal, disable]
             case .unapproved:
                 state = "Not Enabled"
                 actions = [review, reveal]
@@ -241,10 +272,7 @@ public final class ExtensionsRunner: CommandRunner {
                 state = "Invalid"
                 subtitle = reason
                 actions = [.detail(Detail(title: name, markdown: reason, actions: [reveal])), reveal]
-                if approved != nil {
-                    actions.append(
-                        .run(command: .disableExtension, args: ["id": .string(found.id)], title: "Disable"))
-                }
+                if approved != nil { actions.append(disable) }
             }
             return Item(
                 id: "extensions:\(found.id)", title: name, subtitle: subtitle,
@@ -253,18 +281,93 @@ public final class ExtensionsRunner: CommandRunner {
         }
     }
 
-    /// An enabled extension: its commands, with Disable and Reveal in Finder.
+    /// What is wrong with the extension `id` (warnings and errors, its commands' included, such as
+    /// a failed run or a keyword another command has), oldest first.
+    private func problems(of id: String) -> [Diagnostic] {
+        extensions.diagnostics.report(forExtension: id).filter { $0.severity >= .warning }
+    }
+
+    /// An enabled extension's page: its commands, the secrets it declares and whether each is set,
+    /// and its problems; Return runs its first command, then Reveal in Finder, setting a secret
+    /// (one not set first of all), Use Previous Version when the store keeps the one approved
+    /// before, Copy Diagnostics when there is anything to copy, and Disable last.
+    private func enabled(_ sealed: SealedRevision, folder: URL) -> Detail {
+        var detail = Self.enabled(sealed, folder: folder)
+        let id = sealed.revision.extensionID
+        var extra: [Item.Action] = []
+        var sections: [String] = []
+        let secrets = sealed.manifest.secrets.map { ($0, extensions.hasSecret($0.name, of: id)) }
+        if !secrets.isEmpty {
+            sections.append(
+                "**Secrets**\n\n"
+                    + secrets.map { "- \($0.0.title) (`\($0.0.name)`): \($0.1 ? "Set" : "Not set")" }
+                    .joined(separator: "\n"))
+            extra += secrets.map { SecretsRunner.action(extension: id, name: $0.0.name) }
+        }
+        let problems = problems(of: id)
+        if !problems.isEmpty {
+            sections.append(
+                "**Problems**\n\n" + problems.map { "- " + Self.firstLine($0.text) }.joined(separator: "\n"))
+        }
+        if let previous = extensions.approvals.previous(id), previous != sealed.revision,
+            let kept = extensions.store.retained(previous)
+        {
+            extra.append(
+                offer(
+                    kept, message: "Now using the previous version of \(kept.manifest.name).",
+                    title: "Use Previous Version"))
+        }
+        let all = extensions.diagnostics.report(forExtension: id)
+        if !all.isEmpty {
+            extra.append(.copy(text: Self.diagnosticsText(sealed, all), title: "Copy Diagnostics"))
+        }
+        detail.markdown += sections.map { "\n\n" + $0 }.joined()
+        // A secret that isn't set is what the user needs first: the command would only ask for it.
+        if let missing = secrets.firstIndex(where: { !$0.1 }) {
+            detail.actions.insert(extra.remove(at: missing), at: 0)
+        }
+        detail.actions.insert(contentsOf: extra, at: detail.actions.count - 1)
+        return detail
+    }
+
+    /// An enabled extension: its commands; Return runs the first listed one, then Reveal in Finder
+    /// and Disable last. What a build's frame shows once it is enabled.
     public static func enabled(_ sealed: SealedRevision, folder: URL) -> Detail {
-        Detail(
+        let id = sealed.revision.extensionID
+        var actions: [Item.Action] = []
+        if let first = sealed.manifest.commands.first(where: { !$0.hidden && $0.mode != .root }) {
+            actions.append(
+                .run(
+                    command: .extension(id, first.id), title: "Run \(first.title)", revision: sealed.revision)
+            )
+        }
+        actions.append(.reveal(url: folder, title: "Reveal in Finder"))
+        actions.append(.run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"))
+        return Detail(
             title: sealed.manifest.name,
             markdown: "**Enabled.** Its commands are in Wicket now:\n\n" + commands(sealed.manifest),
-            metadata: metadata(sealed),
-            actions: [
-                .run(
-                    command: .disableExtension, args: ["id": .string(sealed.revision.extensionID)],
-                    title: "Disable"),
-                .reveal(url: folder, title: "Reveal in Finder"),
-            ])
+            metadata: metadata(sealed), actions: actions)
+    }
+
+    /// Everything the diagnostics hold about an extension, as plain text to paste into a bug
+    /// report or an agent's prompt.
+    static func diagnosticsText(_ sealed: SealedRevision, _ entries: [Diagnostic]) -> String {
+        let header =
+            "Wicket diagnostics for \(sealed.manifest.name) (\(sealed.manifest.id) \(sealed.manifest.version), revision \(sealed.revision.sha256.prefix(12)))"
+        return
+            ([header]
+            + entries.map { entry in
+                let subject =
+                    switch entry.subject {
+                    case .command(let command): " \(command.name)"
+                    default: ""
+                    }
+                return "[\(entry.severity)] \(entry.kind)\(subject):\n\(entry.text)"
+            }).joined(separator: "\n\n")
+    }
+
+    private static func firstLine(_ text: String) -> String {
+        String(text.prefix { !$0.isNewline })
     }
 
     /// One line per command: its title, keyword and mode.

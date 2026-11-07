@@ -41,9 +41,6 @@ public enum SealError: Error, Sendable, Equatable, CustomStringConvertible {
 /// copy whose hash is its name. Sealing copies the folder, takes write permission away, and hashes
 /// the copy, so a revision identifies exactly the bytes kept, even if the authoring folder changed
 /// while it was copied. Synchronous file work: call it off the main actor.
-///
-/// The modification date of a revision's folder is when it was last active (`markActive`), which
-/// is how `prune` tells the previous revision from older ones.
 public struct RevisionStore: Sendable {
     public let root: URL
 
@@ -139,19 +136,9 @@ public struct RevisionStore: Sendable {
         return SealedRevision(revision: revision, folder: folder, manifest: manifest)
     }
 
-    /// Records that `revisions` are active now (their folder's modification date), so `prune`
-    /// keeps the one active before as the previous revision.
-    public func markActive(_ revisions: some Sequence<SealedRevision>) {
-        let now = Date()
-        for sealed in revisions {
-            try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: sealed.folder.path)
-        }
-    }
-
-    /// Deletes what isn't needed: per extension, every revision except those in `keeping` and the
-    /// most recently active other one (the previous revision, for rollback); and every staging
-    /// folder a crash left. At most `keeping` plus one revision per extension remain. Returns the
-    /// extensions that lost a revision.
+    /// Deletes every revision not in `keeping` (the caller names what it needs: the active, the
+    /// discovered, those still running, and each extension's approved and previous approved one),
+    /// and every staging folder a crash left. Returns the extensions that lost a revision.
     @discardableResult
     public func prune(keeping: Set<ExtensionRevision>) -> Set<String> {
         var pruned: Set<String> = []
@@ -159,23 +146,14 @@ public struct RevisionStore: Sendable {
         for id in ids where Manifest.isSlug(id) {
             let parent = root.appending(path: id, directoryHint: .isDirectory)
             let names = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
-            var others: [(folder: URL, date: Date)] = []
             for name in names {
                 let folder = parent.appending(path: name, directoryHint: .isDirectory)
                 if name.hasPrefix(".staging-") {
                     Self.remove(folder)
-                    continue
+                } else if !keeping.contains(ExtensionRevision(extensionID: id, sha256: name)) {
+                    Self.remove(folder)
+                    pruned.insert(id)
                 }
-                guard !keeping.contains(ExtensionRevision(extensionID: id, sha256: name)) else { continue }
-                let date =
-                    (try? FileManager.default.attributesOfItem(atPath: folder.path)[.modificationDate]
-                        as? Date)
-                    ?? .distantPast
-                others.append((folder, date))
-            }
-            for old in others.sorted(by: { $0.date > $1.date }).dropFirst() {
-                Self.remove(old.folder)
-                pruned.insert(id)
             }
         }
         return pruned

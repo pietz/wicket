@@ -251,28 +251,22 @@ private final class Gate: Sendable {
     #expect(published == 3)
 }
 
-@Test func pruningKeepsTheActiveAndThePreviousRevision() throws {
+@Test func pruningKeepsOnlyWhatItIsTold() throws {
     let ext = try titled("v1")
     let store = testStore()
     var sealed: [SealedRevision] = []
     for version in 1...4 {
         try Data("v\(version)".utf8).write(to: ext.folder.appending(path: "title.txt"))
-        let revision = try store.seal(ext.folder)
-        store.markActive([revision])
-        sealed.append(revision)
-        // Folder dates are the order of activation; keep them apart.
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: Double(version - 10))],
-            ofItemAtPath: revision.folder.path)
+        sealed.append(try store.seal(ext.folder))
     }
     // A crash left a staging folder.
     let staging = store.root.appending(path: "titled/.staging-crashed")
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
 
-    // v2 is active again (a rollback): it and the most recently active other one (v4) stay.
-    #expect(store.prune(keeping: [sealed[1].revision]) == ["titled"])
+    #expect(store.prune(keeping: [sealed[1].revision, sealed[3].revision]) == ["titled"])
     let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
     #expect(kept == [sealed[1].revision.sha256, sealed[3].revision.sha256])
+    #expect(store.prune(keeping: [sealed[1].revision, sealed[3].revision]).isEmpty)
 }
 
 @MainActor @Test func discoveryPrunesOldRevisions() async throws {
@@ -289,8 +283,8 @@ private final class Gate: Sendable {
         try Data("v\(version)".utf8).write(to: ext.folder.appending(path: "title.txt"))
         await extensions.load(changed: [ext.folder.path + "/title.txt"]).value
         active.append(try #require(extensions.revisions["titled"]))
-        try await Task.sleep(for: .milliseconds(10))
     }
+    // Nothing approved: only the current revision is kept.
     let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
-    #expect(kept == [active[3].sha256, active[2].sha256])
+    #expect(kept == [active[3].sha256])
 }

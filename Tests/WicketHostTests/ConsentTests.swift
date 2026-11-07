@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Synchronization
 import Testing
 import WicketCore
 
@@ -35,6 +36,8 @@ private struct Harness {
     let data: URL
     let approvals: Approvals
     let extensions: Extensions
+    /// The secrets sessions get, by extension id and name, standing in for the Keychain.
+    let secrets = Secrets()
 
     /// Extensions over `folders` (moved into one directory), gated by a fresh approvals store.
     init(_ folders: [TestExtension], approvals: Approvals = testApprovals()) throws {
@@ -49,8 +52,12 @@ private struct Harness {
                 at: ext.folder, to: directory.appending(path: ext.folder.lastPathComponent))
         }
         self.approvals = approvals
+        let secrets = secrets
         extensions = Extensions(directory: directory, store: testStore(), approvals: approvals) { id in
-            testConfiguration { $0.dataDirectory = data.appending(path: id) }
+            testConfiguration {
+                $0.dataDirectory = data.appending(path: id)
+                $0.secret = { secrets.value($0, of: id) }
+            }
         }
     }
 
@@ -79,6 +86,14 @@ private struct Harness {
     }
 }
 
+private final class Secrets: Sendable {
+    private let values = Mutex<[String: String]>([:])
+    func value(_ name: String, of id: String) -> String? { values.withLock { $0["\(id)/\(name)"] } }
+    func set(_ value: String, _ name: String, of id: String) {
+        values.withLock { $0["\(id)/\(name)"] = value }
+    }
+}
+
 @MainActor
 private func eventually(_ condition: () -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + .seconds(10)
@@ -104,6 +119,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #"{"version": 1, "approved": {"titled": "not-a-hash"}}"#,
     #"{"version": 1, "approved": {"Not A Slug": "\#(String(repeating: "a", count: 64))"}}"#,
     #"["titled"]"#,
+    #"{"version": 1, "approved": {}, "previous": {"titled": "not-a-hash"}}"#,
 ])
 func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
     let approvals = testApprovals()
@@ -279,6 +295,33 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
     return results
 }
 
+extension RunResult {
+    fileprivate var detail: Detail? {
+        if case .show(.detail(let detail)) = self { detail } else { nil }
+    }
+}
+
+@MainActor
+private func list(_ runner: ExtensionsRunner) async throws -> [Item] {
+    guard case .show(.list(let items))? = try await results(runner, .extensions).first else { return [] }
+    return items
+}
+
+@MainActor
+private func page(_ runner: ExtensionsRunner, _ id: String = "titled") async throws -> Detail? {
+    try await results(runner, .reviewExtension, args: ["id": .string(id)]).last?.detail
+}
+
+/// `ext` loaded, approved, with a runner over it.
+@MainActor
+private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsRunner) {
+    let h = try Harness([ext])
+    await h.extensions.load().value
+    let sealed = try #require(h.extensions.discovered.first?.sealed)
+    try await h.extensions.approve(sealed.revision)
+    return (h, ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions()))
+}
+
 @MainActor @Test func theExtensionsListShowsEveryStateAndWhatEachOffers() async throws {
     let h = try Harness([
         try titled("a", id: "approved"), try titled("c", id: "changed"), try titled("u", id: "unapproved"),
@@ -301,16 +344,41 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
     #expect(
         items.map(\.id) == [
             "extensions:approved", "extensions:broken", "extensions:changed", "extensions:unapproved",
+            "extensions:make",
         ])
-    #expect(items.map(\.accessory) == ["Enabled", "Invalid", "Changed", "Not Enabled"])
+    #expect(items.map(\.accessory) == ["Enabled", "Invalid", "Changed", "Not Enabled", nil])
+    // Disable is never what Return does: it comes last.
     #expect(
         items.map { $0.actions.compactMap(\.title) } == [
-            ["Show Extension", "Disable", "Reveal in Finder"],
+            ["Show Extension", "Reveal in Finder", "Disable"],
             ["broken", "Reveal in Finder"],
-            ["Review and Enable", "Disable", "Reveal in Finder"],
+            ["Review and Enable", "Reveal in Finder", "Disable"],
             ["Review and Enable", "Reveal in Finder"],
+            ["Make a Command", "Open Extensions Folder"],
         ])
-    #expect(items[2].subtitle?.contains("the enabled version runs") == true)
+    #expect(items[2].subtitle == "Changed; review to run the new version")
+}
+
+@MainActor @Test func anEmptyFolderOffersToMakeACommand() async throws {
+    let h = try Harness([])
+    try FileManager.default.removeItem(at: h.directory)
+    await h.extensions.load().value
+    let runner = ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions())
+    guard case .show(.list(let items))? = try await results(runner, .extensions).first else {
+        Issue.record("no list")
+        return
+    }
+    #expect(items.map(\.title) == ["Make a Command"])
+    #expect(items.first?.subtitle == "Describe it in a sentence and your agent builds it")
+    guard case .run(.makeCommand, "", nil, _, nil)? = items.first?.actions.first,
+        case .open(let folder, "Open Extensions Folder")? = items.first?.actions.last
+    else {
+        Issue.record("wrong actions: \(String(describing: items.first?.actions))")
+        return
+    }
+    // The folder it opens exists, even before anything was put in it.
+    #expect(folder == h.extensions.directory)
+    #expect(FileManager.default.fileExists(atPath: folder.path))
 }
 
 @MainActor @Test func reviewingChecksTheRevisionAndOnlyAPassingCheckEnablesIt() async throws {
@@ -346,10 +414,10 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
     await #expect(throws: Refusal.self) { try await results(runner, .enableExtension) }
     #expect(h.approvals.all.isEmpty)
 
-    // The screen's own action approves exactly the checked revision, and the review then shows it
-    // enabled (Enable reloads it).
+    // The screen's own action approves exactly the checked revision and closes with a message;
+    // the review then shows it enabled.
     let enabled = try await results(runner, .enableExtension, args: args)
-    #expect(enabled == [.reload(message: "Enabled Test.")])
+    #expect(enabled == [.close(message: "Enabled Test.")])
     let sealed = try #require(h.extensions.discovered.first { $0.id == "titled" }?.sealed)
     #expect(h.approvals.approved("titled") == sealed.revision)
     #expect(h.extensions.commands.map(\.id) == [.extension("titled", "go")])
@@ -359,6 +427,12 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
         ).last
     else { return }
     #expect(again.markdown.hasPrefix("**Enabled.**"))
+    // Return runs its first command, bound to the enabled revision; Disable is last.
+    #expect(again.actions.compactMap(\.title) == ["Run Go", "Reveal in Finder", "Disable"])
+    guard case .run(.extension("titled", "go"), _, _, _, sealed.revision)? = again.actions.first else {
+        Issue.record("not a run of its command: \(again.actions)")
+        return
+    }
     // A token is used once.
     await #expect(throws: Refusal.self) { try await results(runner, .enableExtension, args: args) }
 
@@ -369,4 +443,234 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
         ])
     #expect(h.extensions.commands.isEmpty)
     #expect(h.approvals.all.isEmpty)
+    // Opened again, it no longer claims to be enabled: it is reviewed afresh.
+    let reopened = try await results(runner, .reviewExtension, args: ["id": .string("titled")])
+    #expect(reopened.count == 2)
+    #expect(reopened.allSatisfy { !(($0.detail?.markdown ?? "").hasPrefix("**Enabled.**")) })
+}
+
+// MARK: Problems
+
+@MainActor @Test func anEnabledExtensionsProblemsShowOnItsRowAndPage() async throws {
+    let (h, runner) = try await enabled(try titled("v1"))
+    #expect(try await list(runner).first?.accessory == "Enabled")
+    #expect(try await page(runner)?.actions.contains { $0.title == "Copy Diagnostics" } == false)
+
+    // A keyword another command took, then a failed run.
+    let diagnostics = h.extensions.diagnostics
+    diagnostics.set(
+        .conflict, of: .command(.extension("titled", "go")), .warning,
+        ["The keyword go is taken by Other; this command has none."])
+    diagnostics.set(.run, of: .command(.extension("titled", "go")), .error, ["it broke\n{\"code\":1}"])
+    diagnostics.set(.stderr, of: .extension("titled"), .info, ["a log line"])
+
+    let row = try #require(try await list(runner).first)
+    #expect(row.accessory == "Problem")
+    #expect(row.subtitle == "it broke")
+    let detail = try #require(try await page(runner))
+    #expect(
+        detail.markdown.contains(
+            "**Problems**\n\n- The keyword go is taken by Other; this command has none.\n- it broke"))
+    #expect(!detail.markdown.contains("a log line"))
+    #expect(detail.actions.last?.title == "Disable")
+    guard
+        case .copy(let text, "Copy Diagnostics")? = detail.actions.first(where: {
+            $0.title == "Copy Diagnostics"
+        })
+    else {
+        Issue.record("no Copy Diagnostics")
+        return
+    }
+    #expect(text.hasPrefix("Wicket diagnostics for Test (titled 1.0.0, revision "))
+    #expect(text.contains("[error] run go:\nit broke\n{\"code\":1}"))
+    #expect(text.contains("[info] stderr:\na log line"))
+}
+
+@MainActor @Test func aDamagedApprovalsFileIsTheListsFirstRow() async throws {
+    let damaged = testApprovals()
+    try FileManager.default.createDirectory(
+        at: damaged.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("{".utf8).write(to: damaged.url)
+    let h = try Harness([try titled("v1")], approvals: Approvals(url: damaged.url))
+    await h.extensions.load().value
+    let runner = ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions())
+    let items = try await list(runner)
+    #expect(items.map(\.id) == ["extensions:approvals", "extensions:titled", "extensions:make"])
+    #expect(items.first?.accessory == "Problem")
+    #expect(items.first?.subtitle == h.approvals.problem)
+}
+
+// MARK: Secrets
+
+/// Answers every run with the value of its secret TOKEN.
+private func needsToken() throws -> TestExtension {
+    try TestExtension(
+        id: "titled", commands: #"[{"id":"go","title":"Go","repeatable":true}]"#,
+        secrets: #"[{"name":"TOKEN","title":"API token"}]"#,
+        script: #"""
+            while read -r line; do
+              id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+              printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"%s"}}}\n' "$id" "$TOKEN"
+            done
+            """#)
+}
+
+@MainActor @Test func anEnabledExtensionsPageSaysWhichSecretsAreSet() async throws {
+    let (h, runner) = try await enabled(try needsToken())
+    let unset = try #require(try await page(runner))
+    #expect(unset.markdown.contains("**Secrets**\n\n- API token (`TOKEN`): Not set"))
+    // A secret not set is what it needs first.
+    #expect(unset.actions.compactMap(\.title) == ["Set TOKEN…", "Run Go", "Reveal in Finder", "Disable"])
+    guard case .run(.setSecret, "", let args?, _, _)? = unset.actions.first else {
+        Issue.record("no Set action")
+        return
+    }
+    #expect(args == ["id": .string("titled"), "name": .string("TOKEN")])
+
+    h.secrets.set("s3cret", "TOKEN", of: "titled")
+    let set = try #require(try await page(runner))
+    #expect(set.markdown.contains("- API token (`TOKEN`): Set"))
+    #expect(!set.markdown.contains("s3cret"))
+    #expect(set.actions.compactMap(\.title) == ["Run Go", "Reveal in Finder", "Set TOKEN…", "Disable"])
+}
+
+@MainActor @Test func aRunMissingASecretOffersToSetIt() async throws {
+    let (h, _) = try await enabled(try needsToken())
+    var shown: [RunResult] = []
+    for try await result in h.extensions.run(
+        Invocation(command: .extension("titled", "go")), retry: .never)
+    {
+        shown.append(result)
+    }
+    let detail = try #require(shown.first?.detail)
+    #expect(detail.title == "Go Needs API token")
+    #expect(detail.actions.map(\.title) == ["Set TOKEN…"])
+}
+
+@MainActor @Test func settingASecretStoresTheSubmittedValueAndRestartsTheExtension() async throws {
+    let (k, _) = try await enabled(try needsToken())
+    k.secrets.set("first", "TOKEN", of: "titled")
+    #expect(try await k.title() == "first")
+    let secrets = k.secrets
+    let runner = SecretsRunner(extensions: k.extensions) { value, name, id in secrets.set(value, name, of: id)
+    }
+    func set(_ text: String, _ args: [String: JSONValue]?) async throws -> [RunResult] {
+        var results: [RunResult] = []
+        for try await result in runner.run(
+            Invocation(command: .setSecret, text: text, args: args), retry: .never)
+        {
+            results.append(result)
+        }
+        return results
+    }
+    let args: [String: JSONValue] = ["id": .string("titled"), "name": .string("TOKEN")]
+    #expect(try await set("  s3cret\n", args) == [.close(message: "Stored TOKEN.")])
+    #expect(secrets.value("TOKEN", of: "titled") == "s3cret")
+    // The running process had the old value; the next run gets the new one.
+    #expect(try await k.title() == "s3cret")
+
+    // Only a declared secret, of an extension that is there, with a value.
+    await #expect(throws: Refusal.self) {
+        try await set("x", ["id": .string("titled"), "name": .string("OTHER")])
+    }
+    await #expect(throws: Refusal.self) {
+        try await set("x", ["id": .string("gone"), "name": .string("TOKEN")])
+    }
+    await #expect(throws: Refusal.self) { try await set("x", nil) }
+    await #expect(throws: Refusal.self) { try await set(" ", args) }
+    #expect(secrets.value("TOKEN", of: "titled") == "s3cret")
+    #expect(secrets.value("OTHER", of: "titled") == nil)
+}
+
+// MARK: Going back
+
+@Test func approvalsRememberThePreviousApprovedRevision() throws {
+    let approvals = testApprovals()
+    let v1 = ExtensionRevision(extensionID: "titled", sha256: String(repeating: "a", count: 64))
+    let v2 = ExtensionRevision(extensionID: "titled", sha256: String(repeating: "b", count: 64))
+    try approvals.approve(v1)
+    #expect(approvals.previous("titled") == nil)
+    try approvals.approve(v2)
+    try approvals.approve(v2)
+    #expect(approvals.previous("titled") == v1)
+    #expect(Approvals(url: approvals.url).previous("titled") == v1)
+    #expect(Approvals(url: approvals.url).approved("titled") == v2)
+    // Disabling keeps it; it grants nothing by itself.
+    try approvals.revoke("titled")
+    let reread = Approvals(url: approvals.url)
+    #expect(reread.previous("titled") == v1)
+    #expect(reread.all.isEmpty)
+}
+
+@MainActor @Test func draftsNeverPushOutThePreviousApprovedRevision() async throws {
+    let h = try Harness([try titled("v1")])
+    await h.extensions.load().value
+    let v1 = try #require(h.extensions.discovered.first?.sealed)
+    try await h.extensions.approve(v1.revision)
+    try await h.write("v2")
+    let v2 = try #require(h.extensions.discovered.first?.sealed)
+    try await h.extensions.approve(v2.revision)
+
+    // An agent goes on editing: each draft replaces the last, and what the user approved stays.
+    try await h.write("v3")
+    try await h.write("v4")
+    let v4 = try #require(h.extensions.discovered.first?.sealed)
+    let kept = Set(
+        try FileManager.default.contentsOfDirectory(
+            atPath: h.extensions.store.root.appending(path: "titled").path))
+    #expect(kept == [v1.revision.sha256, v2.revision.sha256, v4.revision.sha256])
+}
+
+@MainActor @Test func usePreviousVersionGoesBackToTheRevisionApprovedBefore() async throws {
+    let (h, runner) = try await enabled(try titled("v1"))
+    let v1 = try #require(h.extensions.discovered.first?.sealed)
+    #expect(try await page(runner)?.actions.contains { $0.title == "Use Previous Version" } == false)
+
+    try await h.write("v2")
+    let v2 = try #require(h.extensions.discovered.first?.sealed)
+    try await h.extensions.approve(v2.revision)
+    let detail = try #require(try await page(runner))
+    #expect(
+        detail.actions.compactMap(\.title) == [
+            "Run Go", "Reveal in Finder", "Use Previous Version", "Disable",
+        ])
+    guard case .run(.enableExtension, _, let args?, _, _) = detail.actions[2] else {
+        Issue.record("not an Enable action")
+        return
+    }
+    #expect(
+        try await results(runner, .enableExtension, args: args) == [
+            .close(message: "Now using the previous version of Test.")
+        ])
+    #expect(h.approvals.approved("titled") == v1.revision)
+    #expect(h.state() == .changed(approved: v1, current: v2))
+    #expect(try await h.title() == "v1")
+}
+
+// MARK: Installing over an earlier version
+
+@MainActor @Test func aReplacedFolderIsRestoredWhenItCantGoToTheTrash() async throws {
+    let h = try Harness([try titled("v1")])
+    await h.extensions.load().value
+    let work = try titled("v2", fixture: true)
+    let checked = await Checker.check(
+        try h.extensions.store.seal(work.folder, id: "titled"), options: checkOptions())
+
+    h.extensions.trash = { _ in throw CocoaError(.fileWriteNoPermission) }
+    await #expect(throws: Refusal.self) { try await h.extensions.install(checked, from: work.folder) }
+    #expect(try String(contentsOf: h.folder().appending(path: "title.txt"), encoding: .utf8) == "v1")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: h.directory.path) == ["titled"])
+
+    // With a Trash that works, the old folder goes there under its own name.
+    let trash = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/trash-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    h.extensions.trash = {
+        try FileManager.default.moveItem(at: $0, to: trash.appending(path: $0.lastPathComponent))
+    }
+    let installed = try await h.extensions.install(checked, from: work.folder)
+    #expect(installed.revision == checked.sealed.revision)
+    #expect(try String(contentsOf: h.folder().appending(path: "title.txt"), encoding: .utf8) == "v2")
+    #expect(try String(contentsOf: trash.appending(path: "titled/title.txt"), encoding: .utf8) == "v1")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: h.directory.path) == ["titled"])
 }

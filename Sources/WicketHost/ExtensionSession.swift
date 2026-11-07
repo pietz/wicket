@@ -101,7 +101,7 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .missingSecret(let id, let name, let title):
-            "needs the secret \(name) (\(title)), which isn't stored; set it with: wicket secret set \(id) \(name)"
+            "needs the secret \(name) (\(title)), which isn't stored; set it from the extension's page in Wicket's Extensions, or with: wicket secret set \(id) \(name)"
         case .launch(let message): message
         case .timeout(let limit):
             "no response within \(limit.components.seconds) s; the request was cancelled"

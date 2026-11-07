@@ -375,6 +375,11 @@ extension AppRuntime {
                     id: .disableExtension, title: "Disable Extension", icon: .symbol(name: "xmark.circle"),
                     isListed: false, input: .none),
                 runner: consent),
+            Builtin(
+                RegisteredCommand(
+                    id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
+                    input: .submitText, placeholder: "Paste the value and press Return"),
+                runner: SecretsRunner(extensions: extensions)),
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,

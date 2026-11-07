@@ -328,13 +328,10 @@ private let repository = URL(filePath: #filePath).deletingLastPathComponent().ap
     }
     let pruned = Mutex<[UVStorage]>([])
     extensions.pruneUV = { storage in pruned.withLock { $0.append(storage) } }
-    for _ in 1...2 {
-        try ext.change()
-        await extensions.load(changed: [ext.folder.path + "/main.sh"]).value
-        try await Task.sleep(for: .milliseconds(10))
-    }
+    try ext.change()
+    await extensions.load(changed: [ext.folder.path + "/main.sh"]).value
     #expect(pruned.withLock { $0 }.isEmpty)
-    // A third revision: the first is pruned.
+    // A second revision: the first, never approved, is pruned.
     try ext.change()
     await extensions.load(changed: [ext.folder.path + "/main.sh"]).value
     let deadline = ContinuousClock.now + .seconds(5)

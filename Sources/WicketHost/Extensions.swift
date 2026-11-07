@@ -330,9 +330,10 @@ public final class Extensions {
     }
 
     /// One discovery pass, off the main actor: seal what is new or touched, decide each folder's
-    /// state against the approvals as they are now, choose the active catalog, mark it active and
-    /// prune the store (keeping the active, discovered and in-use revisions, and each extension's
-    /// previous one).
+    /// state against the approvals as they are now, choose the active catalog and prune the store
+    /// (keeping the active, discovered and in-use revisions, and each extension's approved and
+    /// previous approved one, so a draft an agent left never pushes out what the user can go back
+    /// to).
     @concurrent
     private nonisolated static func scan(
         _ directory: URL, store: RevisionStore, approvals: Approvals, touched: Set<String>,
@@ -364,10 +365,9 @@ public final class Extensions {
         // One revision per extension: the first the activation names.
         var seen: Set<String> = []
         let active = activate(discovered, store).filter { seen.insert($0.revision.extensionID).inserted }
-        store.markActive(active)
         let pruned = store.prune(
             keeping: Set(active.map(\.revision)).union(discovered.compactMap(\.sealed?.revision)).union(inUse)
-        )
+                .union(approved.values).union(approvals.allPrevious.values))
         return Snapshot(
             discovered: discovered, active: active, sealed: sealed, duration: ContinuousClock.now - start,
             pruned: pruned)
@@ -450,8 +450,9 @@ public final class Extensions {
     /// Installs a build's folder `work` into the extensions directory as the extension `checked`
     /// is, and returns it sealed; approving it is the caller's next step. The copy must seal to
     /// the revision that was checked, or nothing changes. An extension folder of the same id is
-    /// replaced (an update, which needs this approval anyway), the old one moved to the Trash; a
-    /// folder of that name that holds something else is never touched.
+    /// replaced (an update, which needs this approval anyway), the old one moved to the Trash; if
+    /// that fails, the old folder is put back and nothing is installed. A folder of that name that
+    /// holds something else is never touched.
     func install(_ checked: CheckedRevision, from work: URL) async throws -> SealedRevision {
         try await Self.install(
             checked.sealed.revision, from: work, into: directory, store: store, trash: trash)
@@ -470,43 +471,64 @@ public final class Extensions {
                 "The extensions folder already has a folder named \(id) that isn't this extension, so nothing was installed. Move it away and enable the extension again."
             )
         }
-        // Hidden while it is copied and verified, so discovery doesn't see it half done.
+        // Copied and verified inside a hidden folder, so discovery doesn't see it half done; the
+        // copy keeps the extension's name, so a replaced folder swapped into its place goes to the
+        // Trash under that name.
         let staging = directory.appending(path: ".install-\(UUID().uuidString)", directoryHint: .isDirectory)
+        var keepStaging = false
+        defer { if !keepStaging { RevisionStore.remove(staging) } }
+        let copy = staging.appending(path: id, directoryHint: .isDirectory)
         do {
-            try files.createDirectory(at: directory, withIntermediateDirectories: true)
-            try files.copyItem(at: work, to: staging)
+            try files.createDirectory(at: staging, withIntermediateDirectories: true)
+            try files.copyItem(at: work, to: copy)
         } catch {
-            RevisionStore.remove(staging)
             throw Refusal("Couldn't copy the extension into place: \(error.localizedDescription)")
         }
         let sealed: SealedRevision
         do {
-            sealed = try store.seal(staging, id: id)
+            sealed = try store.seal(copy, id: id)
         } catch {
-            RevisionStore.remove(staging)
             throw Refusal("The installed copy couldn't be sealed: \(error.description)")
         }
         guard sealed.revision == revision else {
-            RevisionStore.remove(staging)
             throw Refusal(
                 "The extension's files changed after they were checked, so it wasn't enabled. Make it again to check the new files."
             )
         }
-        if files.fileExists(atPath: target.path) {
-            do {
-                try trash(target)
-            } catch {
-                RevisionStore.remove(staging)
-                throw Refusal(
-                    "Couldn't move the installed version to the Trash: \(error.localizedDescription)")
-            }
+        // One atomic step either way: the new folder takes the name, and a replaced one is swapped
+        // out to where the copy was, never deleted.
+        let replacing = files.fileExists(atPath: target.path)
+        guard renamex_np(copy.path, target.path, replacing ? UInt32(RENAME_SWAP) : UInt32(RENAME_EXCL)) == 0
+        else {
+            throw Refusal("Couldn't move the extension into place: \(String(cString: strerror(errno)))")
         }
-        guard rename(staging.path, target.path) == 0 else {
-            let reason = String(cString: strerror(errno))
-            RevisionStore.remove(staging)
-            throw Refusal("Couldn't move the extension into place: \(reason)")
+        guard replacing else { return sealed }
+        do {
+            try trash(copy)
+        } catch {
+            // Put the old folder back rather than lose it: the new one wasn't installed.
+            if renamex_np(copy.path, target.path, UInt32(RENAME_SWAP)) != 0 {
+                keepStaging = true
+                throw Refusal(
+                    "Couldn't move the installed version to the Trash or back into place; it is kept in the hidden folder \(staging.lastPathComponent) in the extensions folder."
+                )
+            }
+            throw Refusal(
+                "Couldn't move the installed version to the Trash, so the new one wasn't installed: \(error.localizedDescription)"
+            )
         }
         return sealed
+    }
+
+    /// Whether the secret `name` of the extension `id` is stored (not its value).
+    func hasSecret(_ name: String, of id: String) -> Bool {
+        configuration(id).secret(name).map { !$0.isEmpty } ?? false
+    }
+
+    /// The extension `id`'s secrets changed: its process, which has the old values, is stopped,
+    /// and the next run starts one with the new ones.
+    func secretsChanged(of id: String) {
+        if let session = sessions[id] { retire(session, of: id) }
     }
 
     /// Stops `session` after any replacement before it; pruning keeps its revision until it is gone.
@@ -568,13 +590,26 @@ struct Refusal: Error, CustomStringConvertible {
 
 /// Extension commands feed their frames with one result per run.
 extension Extensions: CommandRunner {
-    /// One element, `result(of:retry:)`'s; ending the iteration cancels the request.
+    /// One element, `result(of:retry:)`'s; ending the iteration cancels the request. A secret the
+    /// extension needs and doesn't have shows a page that offers to set it, rather than a failure.
     public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     continuation.yield(try await result(of: invocation, retry: retry))
+                    continuation.finish()
+                } catch HostError.missingSecret(let id, let name, let title) {
+                    let manifest = activeRevision(of: id)?.manifest
+                    let command = manifest?.command(invocation.command.name)?.title ?? invocation.command.name
+                    continuation.yield(
+                        .show(
+                            .detail(
+                                Detail(
+                                    title: "\(command) Needs \(title)",
+                                    markdown:
+                                        "\(manifest?.name ?? id) needs your \(title) (`\(name)`) to run. Wicket keeps it in your Keychain and passes it only to this extension. Set it, then run the command again.",
+                                    actions: [SecretsRunner.action(extension: id, name: name)]))))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
