@@ -113,6 +113,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.markdown == "_Asking Codex…_")
     #expect(palette.session.top.isLoading)
     let frame = palette.session.top.id
+    // The status shows before the agent is asked.
+    #expect(await eventually { !agents.runs.isEmpty })
     let run = try #require(agents.runs.first)
     #expect(run.provider == .codex)
     #expect(run.request.mode == .answer)
