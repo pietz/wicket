@@ -307,6 +307,13 @@ extension AppRuntime {
                     id: .aiSettings, title: "AI Settings", icon: .symbol(name: "sparkles"), isListed: false,
                     input: .none),
                 effect: { settingsWindow.show(pane: "AI") }),
+            // Opens the user's search address for the text; the next fallback row after Ask AI.
+            Builtin(
+                RegisteredCommand(
+                    id: .builtin("web-search"), title: "Search the Web", icon: .symbol(name: "globe"),
+                    keyword: "web", isListed: false, input: .submitText, placeholder: "Search the web",
+                    isFallback: true, feature: .webSearch),
+                runner: WebSearchRunner(template: { weakRuntime?.applied?.webSearch.url })),
             // Builds an extension from a sentence with the user's agent CLI, then checks it for review.
             // The job belongs to `buildJobs`, so closing its frame leaves it running; submitting
             // again while it runs shows it.
@@ -345,7 +352,8 @@ extension AppRuntime {
                 runner: consent),
         ]
         let runtime = AppRuntime(
-            store: store, sources: [apps, calculator, FilesSource()], work: work, builtins: builtins,
+            store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
+            builtins: builtins,
             extensions: extensions, buildJobs: buildJobs, system: .live)
         weakRuntime = runtime
         apps.onChange = { [weak runtime] in runtime?.model.refresh() }

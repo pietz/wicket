@@ -11,6 +11,8 @@ public struct Settings: Equatable, Sendable {
     /// The palette's width in points, within `paletteWidths`.
     public var paletteWidth = defaultPaletteWidth
     public var ai = AI()
+    /// The `webSearch` object: where Search the Web goes.
+    public var webSearch = WebSearch()
     /// What the user bound to commands: a global hotkey, an alias. Keyed by `CommandID`, written in
     /// the file by its canonical spelling (`"builtin:ask-ai"`, `"ext:github/search"`). Entries for
     /// commands that aren't registered stay here (the extension may be installed later) and do
@@ -41,6 +43,16 @@ public struct Settings: Equatable, Sendable {
 
         public init(provider: AgentProvider? = nil) {
             self.provider = provider
+        }
+    }
+
+    /// The `webSearch` object.
+    public struct WebSearch: Equatable, Sendable {
+        /// The search address, `{query}` standing for the typed text (`WebQuery.searchURL`).
+        public var url: String
+
+        public init(url: String = WebQuery.defaultTemplate) {
+            self.url = url
         }
     }
 
@@ -197,7 +209,11 @@ extension Settings {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, ai, commands, features
+        case hotkey, paletteWidth, ai, webSearch, commands, features
+    }
+
+    private enum WebSearchKeys: String, CodingKey {
+        case url
     }
 
     private enum CommandKeys: String, CodingKey {
@@ -226,6 +242,9 @@ extension Settings: Codable {
         }
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
+        }
+        if container.contains(.webSearch), (try? container.decodeNil(forKey: .webSearch)) != true {
+            decodeWebSearch(try? container.nestedContainer(keyedBy: WebSearchKeys.self, forKey: .webSearch))
         }
         if container.contains(.commands), (try? container.decodeNil(forKey: .commands)) != true {
             decodeCommands(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands))
@@ -348,6 +367,24 @@ extension Settings: Codable {
         }
     }
 
+    /// Like the width, a bad search address costs only itself: Search the Web uses Google.
+    private mutating func decodeWebSearch(_ object: KeyedDecodingContainer<WebSearchKeys>?) {
+        guard let object else {
+            ignored.append("webSearch must be an object; searching with Google")
+            return
+        }
+        guard object.contains(.url), (try? object.decodeNil(forKey: .url)) == false else { return }
+        if let url = try? object.decode(String.self, forKey: .url),
+            WebQuery.searchURL(template: url, query: "test") != nil
+        {
+            webSearch.url = url
+        } else {
+            ignored.append(
+                "webSearch.url must be an http or https address with {query} in its path or query; "
+                    + "searching with Google")
+        }
+    }
+
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(hotkey, forKey: .hotkey)
@@ -356,6 +393,11 @@ extension Settings: Codable {
         if let provider = ai.provider {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
             try nested.encode(provider, forKey: .provider)
+        }
+        // Only when changed, like the provider.
+        if webSearch != WebSearch() {
+            var nested = container.nestedContainer(keyedBy: WebSearchKeys.self, forKey: .webSearch)
+            try nested.encode(webSearch.url, forKey: .url)
         }
         // Like the provider, only what is bound, so `update` removes a cleared binding (and the
         // object once nothing is left in it).
