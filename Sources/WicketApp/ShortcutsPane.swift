@@ -12,12 +12,17 @@ struct ShortcutsPane: View {
     @State private var recording: CommandID?
     /// What went wrong with the last change, per command.
     @State private var errors: [CommandID: String] = [:]
+    @State private var filter = ""
 
     var body: some View {
+        // A fixed height: the list grows with every extension, so it scrolls under a pinned filter.
         Form {
             Section {
                 ForEach(commands) { command in
                     row(command)
+                }
+                if commands.isEmpty {
+                    Text("No command matches \u{201C}\(filter)\u{201D}.").foregroundStyle(.secondary)
                 }
             } footer: {
                 Text(
@@ -28,17 +33,35 @@ struct ShortcutsPane: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            TextField("Filter", text: $filter, prompt: Text("Filter by name, keyword or alias"))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .padding([.horizontal, .top], 20)
+        }
+        .frame(width: 460, height: 480)
         .onDisappear { recorder.stop() }
         .onChange(of: recorder.isRecording) { _, isRecording in
             if !isRecording { recording = nil }
         }
     }
 
-    /// Offered commands; hidden and root-mode commands can still be bound in the file.
+    /// Offered commands that match the filter; hidden and root-mode commands can still be bound in
+    /// the file.
     private var commands: [RegisteredCommand] {
-        store.commands.filter(\.isOffered)
+        store.commands.filter {
+            $0.isOffered && Self.matches($0, alias: store.settings.commands[$0.id]?.alias, filter: filter)
+        }
+    }
+
+    /// Whether `filter` (trimmed, ignoring case and diacritics) is in the command's title, keyword or
+    /// alias. An empty filter matches every command.
+    nonisolated static func matches(_ command: RegisteredCommand, alias: String?, filter: String) -> Bool {
+        let filter = filter.trimmingCharacters(in: .whitespaces)
+        guard !filter.isEmpty else { return true }
+        return [command.title, command.keyword, alias].contains {
+            $0?.localizedStandardContains(filter) == true
+        }
     }
 
     private func row(_ command: RegisteredCommand) -> some View {
