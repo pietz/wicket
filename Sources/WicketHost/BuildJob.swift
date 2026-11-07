@@ -5,8 +5,10 @@ import os
 
 /// One "Make a command" build: the user's sentence goes to their agent CLI in build mode, in a
 /// staging folder of its own; once the agent's whole process tree is gone, the folder is sealed and
-/// checked, and the job ends awaiting review (or failed, or cancelled). Enabling it from its review
-/// (`enable(in:)`) installs the folder and approves the revision that was checked. The job belongs to
+/// checked, and the job ends awaiting review (or failed, or cancelled). A failed job can be repaired
+/// (`BuildJobs.repair`): the agent runs again in the same folder, told what went wrong, then the
+/// folder is sealed and checked as before. Enabling it from its review (`enable(in:)`) installs the
+/// folder and approves the revision that was checked. The job belongs to
 /// `BuildJobs`, not to a palette frame: a frame only observes it (`MakeCommandRunner`), so closing
 /// the frame leaves it running and only `cancel()` (or the app quitting) stops it.
 @MainActor
@@ -22,7 +24,8 @@ public final class BuildJob: Identifiable {
         /// Installed into the extensions folder (`folder`) and approved: the revision that runs,
         /// which is the one that was checked.
         case enabled(SealedRevision, folder: URL)
-        /// What went wrong, for the user (a check's failures are listed).
+        /// What went wrong, for the user (a failed check's whole report is listed); also what a
+        /// repair tells the agent.
         case failed(String)
         case cancelled
 
@@ -101,23 +104,31 @@ public final class BuildJob: Identifiable {
         await task?.value
     }
 
-    func start(_ context: BuildJobs.Context) {
-        task = Task { await perform(context) }
+    /// Starts building; with `failure`, a repair: the agent fixes what its previous attempt left in
+    /// the folder, told why it failed.
+    func start(_ context: BuildJobs.Context, repairing failure: String? = nil) {
+        if failure != nil {
+            phase = .generating(activity: "Starting…")
+            activities = []
+            summary = nil
+        }
+        task = Task { await perform(context, repairing: failure) }
     }
 
-    private func perform(_ context: BuildJobs.Context) async {
+    private func perform(_ context: BuildJobs.Context, repairing failure: String?) async {
         let start = ContinuousClock.now
         do {
-            let checked = try await build(context)
+            let checked = try await build(context, repairing: failure)
             let errors = checked.report.errors
             context.diagnostics?.set(.check, of: .extension(checked.sealed.manifest.id), .error, errors)
             if checked.passed {
                 phase = .review(checked)
             } else {
                 phase = .failed(
-                    "The extension didn't pass its check:\n\n"
-                        + errors.map { "- \($0)" }.joined(separator: "\n"))
+                    "The extension didn't pass its check.\n\n**Check**\n\n"
+                        + ExtensionsRunner.report(checked.report))
             }
+            context.ended(self)
             Self.logger.notice(
                 """
                 build: \(checked.passed ? "passed" : "failed", privacy: .public) its check \
@@ -129,6 +140,7 @@ public final class BuildJob: Identifiable {
                 await Self.remove(folder)
             } else {
                 phase = .failed(String(describing: error))
+                context.ended(self)
             }
             Self.logger.notice(
                 """
@@ -138,8 +150,10 @@ public final class BuildJob: Identifiable {
         }
     }
 
-    /// Generates the extension, then seals and checks it; throws why it couldn't.
-    private func build(_ context: BuildJobs.Context) async throws -> CheckedRevision {
+    /// Generates (or repairs) the extension, then seals and checks it; throws why it couldn't.
+    private func build(_ context: BuildJobs.Context, repairing failure: String?) async throws
+        -> CheckedRevision
+    {
         let provider = try await readyProvider(context)
         self.provider = provider
         try Task.checkCancellation()
@@ -151,7 +165,8 @@ public final class BuildJob: Identifiable {
         }
         phase = .generating(activity: "Asking \(provider.name)…")
         let request = AgentRequest(
-            prompt: BuildPrompt.prompt(for: sentence, guide: guide), workingDirectory: work, mode: .build)
+            prompt: BuildPrompt.prompt(for: sentence, guide: guide, failure: failure), workingDirectory: work,
+            mode: .build)
         let run = await context.backend.run(provider, request)
         // However this ends, it goes on only once the agent's process tree is gone, so nothing is
         // still writing the folder when it is sealed, and a cancel returns after the agent.
@@ -273,12 +288,16 @@ public final class BuildJobs {
         var guide: @Sendable () throws -> String
         var diagnostics: Diagnostics?
         var provider: @MainActor () -> AgentProvider?
+        /// Called when a job reaches review or fails (not when it is cancelled).
+        var ended: @MainActor (BuildJob) -> Void
     }
 
     /// The latest job: running, or ended until the next one starts.
     public private(set) var current: BuildJob?
     /// The settings' `ai.provider`, read when a job starts; nil for the first ready one.
     @ObservationIgnored public var provider: @MainActor () -> AgentProvider?
+    /// Called when a job reaches review or fails, so the app can tell a user who isn't watching.
+    @ObservationIgnored public var onEnded: @MainActor (BuildJob) -> Void = { _ in }
     private let staging: URL
     @ObservationIgnored private let backend: AgentBackend
     @ObservationIgnored private let checkOptions: CheckOptions
@@ -304,14 +323,13 @@ public final class BuildJobs {
     }
 
     /// The running job if there is one; else the latest job if it was built (awaiting review or
-    /// enabled) and `sentence` is its own or empty, so its frame reloads after Enable and "make"
-    /// alone goes back to it; else a new job building `sentence`. Throws after `shutdown()`, or for
-    /// an empty sentence with nothing to show.
+    /// enabled) and `sentence` is its own, so its frame reloads after Enable; else a new job building
+    /// `sentence`. Throws after `shutdown()`, or for an empty sentence.
     public func start(_ sentence: String) throws -> BuildJob {
         guard !isShutDown else { throw CancellationError() }
         if let current, current.phase.isRunning { return current }
         let sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let current, current.phase.isBuilt, sentence.isEmpty || sentence == current.sentence {
+        if let current, current.phase.isBuilt, sentence == current.sentence {
             return current
         }
         guard !sentence.isEmpty else {
@@ -326,11 +344,31 @@ public final class BuildJobs {
             sentence: sentence, folder: staging.appending(path: id.uuidString, directoryHint: .isDirectory),
             id: id)
         current = job
-        job.start(
-            Context(
-                backend: backend, checkOptions: checkOptions, guide: guide, diagnostics: diagnostics,
-                provider: provider))
+        job.start(context)
         return job
+    }
+
+    /// Repairs the current job if it is `id` and failed after its agent ran: the agent runs again in
+    /// the job's folder, which still holds its attempt, told why it failed. The job `id` as it is
+    /// otherwise (running, or the repair already awaiting review or enabled), so a repair's frame
+    /// reattaches on reload. Throws if `id` isn't the current job, or failed before any agent ran.
+    public func repair(_ id: UUID) throws -> BuildJob {
+        guard !isShutDown else { throw CancellationError() }
+        guard let job = current, job.id == id else {
+            throw BuildJob.Failure("This build is no longer the current one; make the command again.")
+        }
+        guard case .failed(let reason) = job.phase else { return job }
+        guard job.provider != nil else {
+            throw BuildJob.Failure("There's nothing to fix: no agent worked on it. \(reason)")
+        }
+        job.start(context, repairing: reason)
+        return job
+    }
+
+    private var context: Context {
+        Context(
+            backend: backend, checkOptions: checkOptions, guide: guide, diagnostics: diagnostics,
+            provider: provider, ended: { [weak self] in self?.onEnded($0) })
     }
 
     /// Cancels the running job and returns once its agent is gone; no job starts after it.
@@ -343,42 +381,69 @@ public final class BuildJobs {
 /// What the agent is told: the user's sentence, where to write, the rules a build runs under, and the
 /// extension guide (docs/extensions.md, bundled into the app), which is the whole contract.
 public enum BuildPrompt {
-    public static func prompt(for sentence: String, guide: String) -> String {
-        """
-        You are writing a Wicket extension: a new command for Wicket, a native macOS command palette. \
-        The user asked for:
+    /// The prompt for a new extension, or, with `failure`, for repairing the attempt the folder holds.
+    public static func prompt(for sentence: String, guide: String, failure: String? = nil) -> String {
+        let task =
+            if let failure {
+                """
+                You are fixing a Wicket extension: a command for Wicket, a native macOS command palette. \
+                The user asked for:
 
-        <request>
-        \(sentence)
-        </request>
+                <request>
+                \(sentence)
+                </request>
 
-        The current folder is empty and is the extension's folder: write `wicket.json` at its top, \
-        the program, and a `session.jsonl` fixture next to them. The guide below is the whole \
-        contract; follow it exactly.
+                The current folder is the extension's folder and holds your previous attempt at it, which \
+                failed:
 
-        - Pick a short, descriptive id. Give each command a keyword when typing one makes sense.
-        - Keep it small and dependable: prefer `/bin/sh` with `jq` (both ship with macOS), or a \
-        single Python 3 or Swift script using only the standard library.
-        - You have no network while you work, so you can't download packages: use what macOS ships. \
-        Only if the command really needs a package from PyPI, write a uv script as the guide's \
-        "Python with uv" section describes: the `# /// script` header with `requires-python` and \
-        `dependencies`, and `run` set to `["uv", "run", "--script", "main.py"]`. Don't write or \
-        run `uv lock`: Wicket locks the dependencies after you finish. Test the protocol handling \
-        with `python3` and canned data (import the packages only where they're used, so the rest \
-        runs without them).
-        - Write only inside this folder; the extension's state goes to `WICKET_DATA_DIR` when it runs.
-        - The fixture covers every command, including an error case. When a command needs the \
-        network or the user's files, answer from canned data in the folder while `WICKET_CHECK` is \
-        `1`, as the guide explains.
-        - Test the program yourself by piping the fixture's `send` lines into it and comparing the \
-        output with the `expect` lines. Don't run `wicket check`: Wicket checks the folder after you \
-        finish and shows the user the report before anything is installed.
-        - Finish with one or two sentences for the user: what the command does and how to use it.
+                <failure>
+                \(failure)
+                </failure>
 
-        <guide>
-        \(guide)
-        </guide>
-        """
+                Fix it in place: keep what works and change what the failure calls for, so the folder \
+                ends with `wicket.json` at its top, the program, and a `session.jsonl` fixture next to \
+                them. The guide below is the whole contract; follow it exactly.
+                """
+            } else {
+                """
+                You are writing a Wicket extension: a new command for Wicket, a native macOS command \
+                palette. The user asked for:
+
+                <request>
+                \(sentence)
+                </request>
+
+                The current folder is empty and is the extension's folder: write `wicket.json` at its \
+                top, the program, and a `session.jsonl` fixture next to them. The guide below is the \
+                whole contract; follow it exactly.
+                """
+            }
+        return """
+            \(task)
+
+            - Pick a short, descriptive id. Give each command a keyword when typing one makes sense.
+            - Keep it small and dependable: prefer `/bin/sh` with `jq` (both ship with macOS), or a \
+            single Python 3 or Swift script using only the standard library.
+            - You have no network while you work, so you can't download packages: use what macOS ships. \
+            Only if the command really needs a package from PyPI, write a uv script as the guide's \
+            "Python with uv" section describes: the `# /// script` header with `requires-python` and \
+            `dependencies`, and `run` set to `["uv", "run", "--script", "main.py"]`. Don't write or \
+            run `uv lock`: Wicket locks the dependencies after you finish. Test the protocol handling \
+            with `python3` and canned data (import the packages only where they're used, so the rest \
+            runs without them).
+            - Write only inside this folder; the extension's state goes to `WICKET_DATA_DIR` when it runs.
+            - The fixture covers every command, including an error case. When a command needs the \
+            network or the user's files, answer from canned data in the folder while `WICKET_CHECK` is \
+            `1`, as the guide explains.
+            - Test the program yourself by piping the fixture's `send` lines into it and comparing the \
+            output with the `expect` lines. Don't run `wicket check`: Wicket checks the folder after you \
+            finish and shows the user the report before anything is installed.
+            - Finish with one or two sentences for the user: what the command does and how to use it.
+
+            <guide>
+            \(guide)
+            </guide>
+            """
     }
 
     /// The guide as the app bundles it (`Contents/Resources/extensions.md`, copied there by

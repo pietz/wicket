@@ -328,6 +328,12 @@ extension AppRuntime {
                     id: .stopBuild, title: "Stop Making a Command", icon: .symbol(name: "stop.circle"),
                     isListed: false, input: .none),
                 runner: StopBuildRunner(jobs: buildJobs)),
+            // The current build's frame, from its Extensions row and its Fix with Agent action.
+            Builtin(
+                RegisteredCommand(
+                    id: .currentBuild, title: "Current Build", icon: .symbol(name: "hammer"), isListed: false,
+                    input: .none),
+                runner: MakeCommandRunner(jobs: buildJobs)),
             // Every discovered extension with its state; reviewing, enabling and disabling one are
             // the hidden built-ins below, reached only by the actions its screens draw.
             Builtin(

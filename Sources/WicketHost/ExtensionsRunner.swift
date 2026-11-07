@@ -57,7 +57,8 @@ public final class ExtensionsRunner: CommandRunner {
             do {
                 switch invocation.command {
                 case .extensions:
-                    continuation.yield(.show(.list(Self.items(extensions.discovered))))
+                    continuation.yield(
+                        .show(.list(Self.build(jobs?.current) + Self.items(extensions.discovered))))
                 case .reviewExtension:
                     try await review(Self.argument("id", of: invocation), continuation)
                 case .enableExtension:
@@ -183,6 +184,24 @@ public final class ExtensionsRunner: CommandRunner {
     }
 
     // MARK: What the screens show
+
+    /// The current Make a Command build as the list's first row while it runs, awaits review or
+    /// failed; Return shows its frame (`builtin:current-build`). Enabled, it is one of the rows below.
+    static func build(_ job: BuildJob?) -> [Item] {
+        let state: String
+        switch job?.phase {
+        case .generating, .checking: state = "Making"
+        case .review: state = "Ready for Review"
+        case .failed: state = "Failed"
+        case .enabled, .cancelled, nil: return []
+        }
+        return [
+            Item(
+                id: "extensions:build", title: job?.sentence ?? "", subtitle: "Make a Command",
+                icon: .symbol(name: "hammer"), accessory: state,
+                actions: [.run(command: .currentBuild, title: "Show Build")])
+        ]
+    }
 
     /// The Extensions list's rows, in discovery order (by id).
     static func items(_ discovered: [DiscoveredExtension]) -> [Item] {

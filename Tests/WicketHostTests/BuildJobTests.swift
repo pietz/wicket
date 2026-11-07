@@ -182,8 +182,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         Issue.record("ended \(job.phase)")
         return
     }
-    #expect(reason.hasPrefix("The extension didn't pass its check:"))
-    #expect(reason.contains("no session.jsonl"))
+    #expect(reason.hasPrefix("The extension didn't pass its check."))
+    #expect(reason.contains("- ok: wicket.json: week-number 1.0.0, 1 command"))
+    #expect(reason.contains("- error: no session.jsonl"))
     let text = try #require(diagnostics.text(for: .extension("week-number"), kind: .check))
     #expect(text.contains("no session.jsonl"))
 }
@@ -284,6 +285,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 private let makeCommand = RegisteredCommand(
     id: .makeCommand, title: "Make a Command", icon: .symbol(name: "hammer"), keyword: "make",
     input: .submitText, placeholder: "Describe the command to make")
+private let currentBuild = RegisteredCommand(
+    id: .currentBuild, title: "Current Build", icon: .symbol(name: "hammer"), isListed: false, input: .none)
 
 @MainActor
 private struct Palette {
@@ -292,14 +295,32 @@ private struct Palette {
 
     init(_ jobs: BuildJobs) {
         self.jobs = jobs
+        let runner = MakeCommandRunner(jobs: jobs)
         let router = CommandRouter(
-            builtins: [Builtin(makeCommand, runner: MakeCommandRunner(jobs: jobs))], extensions: nil)
-        let registry = CommandRegistry(builtins: [makeCommand])
+            builtins: [Builtin(makeCommand, runner: runner), Builtin(currentBuild, runner: runner)],
+            extensions: nil)
+        registry = CommandRegistry(builtins: [makeCommand, currentBuild])
         session = PaletteSession(sources: [], runner: router, registry: registry)
     }
 
+    let registry: CommandRegistry
+
     func make(_ sentence: String) {
         session.open(CommandRun(makeCommand, .invoked, text: sentence))
+    }
+
+    /// Performs the top frame's action titled `title`, as choosing it in the palette does.
+    func perform(_ title: String) {
+        guard let action = detail?.actions.first(where: { $0.title == title }) else {
+            Issue.record("no action \(title)")
+            return
+        }
+        switch ActionDispatcher(registry: registry, effects: NoEffects()).perform(action, in: ActionContext())
+        {
+        case .open(let run): session.open(run)
+        case .push(let detail): session.push(detail)
+        case .close: session.reset()
+        }
     }
 
     var detail: Detail? {
@@ -319,7 +340,7 @@ private struct Palette {
     #expect(palette.session.top.isLoading)
     #expect(await eventually { !agent.requests.isEmpty })
     agent.send(.event(.activity("Edited wicket.json")))
-    #expect(await eventually { palette.detail?.markdown.contains("- Edited wicket.json") == true })
+    #expect(await eventually { palette.detail?.markdown == "_Edited wicket.json_" })
 
     // Dismissing the palette ends the frame's stream; the job goes on.
     palette.session.reset()
@@ -331,7 +352,7 @@ private struct Palette {
 
     // Submitting again while it runs shows the same job as it is now.
     palette.make("something else")
-    #expect(await eventually { palette.detail?.markdown.contains("- Ran sh week.sh") == true })
+    #expect(await eventually { palette.detail?.markdown == "_Ran sh week.sh_\n\n- Edited wicket.json" })
     #expect(palette.detail?.title == "show the week number")
     #expect(palette.jobs.current === job)
 
@@ -347,14 +368,40 @@ private struct Palette {
     #expect(await eventually { !palette.session.top.isLoading })
 }
 
-@MainActor @Test func aFailedJobFailsItsFrame() async throws {
+/// A failed job's frame says why, with Fix with Agent, Show Files and Start Over; it isn't a generic
+/// failure screen.
+@MainActor @Test func aFailedJobShowsWhyWithWaysOn() async throws {
     let agent = DrivenAgent()
     let palette = Palette(makeJobs(agent.backend))
     palette.make("something")
     #expect(await eventually { !agent.requests.isEmpty })
     agent.send(.event(.error("rate limited")))
-    #expect(await eventually { palette.detail?.title == "Make a Command Failed" })
-    #expect(palette.detail?.markdown == "rate limited")
+    #expect(await eventually { palette.detail?.markdown.hasSuffix("rate limited") == true })
+    let detail = try #require(palette.detail)
+    #expect(detail.title == "something")
+    #expect(detail.markdown == "**Making the command failed.**\n\nrate limited")
+    #expect(detail.actions.map(\.title) == ["Fix with Agent", "Show Files", "Start Over"])
+    #expect(await eventually { !palette.session.top.isLoading })
+
+    // Start Over makes it again from scratch, in a new job.
+    let failed = try #require(palette.jobs.current)
+    palette.perform("Start Over")
+    #expect(await eventually { agent.requests.count == 2 })
+    #expect(palette.jobs.current !== failed)
+    #expect(palette.jobs.current?.sentence == "something")
+    await palette.jobs.current?.cancel()
+}
+
+/// With no agent ready there is no attempt to fix: only Start Over.
+@MainActor @Test func aJobThatFailedBeforeItsAgentRanCantBeFixed() async throws {
+    let agents = AgentBackend(
+        status: { AgentStatus(provider: $0, state: .loggedOut) },
+        run: { _, _ in AgentRun { _ in .notRunning } })
+    let palette = Palette(makeJobs(agents))
+    palette.make("something")
+    #expect(await eventually { palette.detail?.actions.map(\.title) == ["Start Over"] })
+    let job = try #require(palette.jobs.current)
+    #expect(throws: BuildJob.Failure.self) { try palette.jobs.repair(job.id) }
 }
 
 @MainActor @Test func theStopActionCancelsTheRunningJob() async throws {
@@ -366,7 +413,7 @@ private struct Palette {
     for try await result in StopBuildRunner(jobs: jobs).run(Invocation(command: .stopBuild), retry: .never) {
         results.append(result)
     }
-    #expect(results == [.close(message: "Stopped making the command.")])
+    #expect(results == [.close(message: "Stopping…")])
     await job.finished()
     guard case .cancelled = job.phase else {
         Issue.record("ended \(job.phase)")
@@ -538,9 +585,188 @@ private struct NoEffects: ActionEffects {
     func reveal(_ url: URL) {}
 }
 
-/// The build screen lists each agent step once: the current activity is usually the latest step.
-@Test func theBuildLogShowsEachStepOnce() {
+/// The build screen shows what happens now on top, then each step once, newest first: the current
+/// activity is usually the latest step.
+@Test func theBuildLogShowsTheCurrentStepFirstAndEachStepOnce() {
     #expect(Shown.log([], status: "Starting") == "_Starting_")
-    #expect(Shown.log(["Ran ls"], status: "Ran ls") == "- Ran ls")
-    #expect(Shown.log(["Ran ls"], status: "Checking") == "- Ran ls\n\n_Checking_")
+    #expect(Shown.log(["Ran ls"], status: "Ran ls") == "_Ran ls_")
+    #expect(Shown.log(["Ran ls", "Read a", "Ran ls"], status: "Ran ls") == "_Ran ls_\n\n- Read a\n- Ran ls")
+    #expect(Shown.log(["Ran ls", "Read a"], status: "Checking") == "_Checking_\n\n- Read a\n- Ran ls")
+}
+
+// MARK: Fixing, reaching and stopping a build
+
+/// A backend whose runs `attempt` performs, numbered from 1, recording each request.
+private final class Attempts: Sendable {
+    private let state = Mutex<[AgentRequest]>([])
+    let attempt: @Sendable (Int, URL, AsyncStream<AgentEvent>.Continuation) -> Void
+
+    init(_ attempt: @escaping @Sendable (Int, URL, AsyncStream<AgentEvent>.Continuation) -> Void) {
+        self.attempt = attempt
+    }
+
+    var requests: [AgentRequest] { state.withLock { $0 } }
+
+    var backend: AgentBackend {
+        AgentBackend(
+            status: { AgentStatus(provider: $0, state: .ready) },
+            run: { [self] _, request in
+                let number = state.withLock {
+                    $0.append(request)
+                    return $0.count
+                }
+                return AgentRun { events in
+                    self.attempt(number, request.workingDirectory, events)
+                    return .exited(.status(0))
+                }
+            })
+    }
+}
+
+/// Fix with Agent runs the agent again in the failed job's folder, which still holds its attempt,
+/// told why it failed; the repaired extension is sealed, checked and awaits review.
+@MainActor @Test func fixWithAgentRepairsTheAttemptInPlace() async throws {
+    let found = Mutex<[String]>([])
+    let agent = Attempts { attempt, folder, events in
+        if attempt == 1 {
+            try? copyContents(of: weekNumber, into: folder)
+            try? FileManager.default.removeItem(at: folder.appending(path: "session.jsonl"))
+        } else {
+            found.withLock {
+                $0 = (try? FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()) ?? []
+            }
+            try? FileManager.default.copyItem(
+                at: weekNumber.appending(path: "session.jsonl"), to: folder.appending(path: "session.jsonl"))
+        }
+        events.yield(.activity("Attempt \(attempt)"))
+        events.yield(.answer("Type week.", usage: nil))
+    }
+    let diagnostics = Diagnostics()
+    let jobs = makeJobs(agent.backend, diagnostics: diagnostics)
+    let ended = Mutex<[String]>([])
+    jobs.onEnded = { job in ended.withLock { $0.append("\(job.phase)") } }
+    let palette = Palette(jobs)
+    palette.make("show the week number")
+    #expect(await eventually { palette.detail?.markdown.contains("didn't pass its check") == true })
+    #expect(diagnostics.text(for: .extension("week-number"), kind: .check) != nil)
+    let job = try #require(jobs.current)
+
+    palette.perform("Fix with Agent")
+    #expect(await eventually { palette.detail?.title == "Week Number" && !palette.session.top.isLoading })
+    #expect(jobs.current === job)
+    #expect(found.withLock { $0 } == ["week.sh", "wicket.json"])
+    let repair = try #require(agent.requests.last)
+    #expect(agent.requests.count == 2)
+    #expect(repair.workingDirectory == job.work)
+    #expect(repair.prompt.contains("holds your previous attempt"))
+    #expect(repair.prompt.contains("<failure>\nThe extension didn't pass its check."))
+    #expect(repair.prompt.contains("- error: no session.jsonl"))
+    #expect(job.activities == ["Attempt 2"])
+    guard case .review = job.phase else {
+        Issue.record("ended \(job.phase)")
+        return
+    }
+    #expect(diagnostics.text(for: .extension("week-number"), kind: .check) == nil)
+    #expect(ended.withLock { $0.count } == 2)
+    #expect(palette.detail?.actions.first?.title == "Enable")
+}
+
+@MainActor @Test func onlyTheCurrentFailedJobIsRepaired() async throws {
+    let agent = DrivenAgent()
+    let jobs = makeJobs(agent.backend)
+    #expect(throws: BuildJob.Failure.self) { try jobs.repair(UUID()) }
+    let job = try jobs.start("something")
+    #expect(await eventually { !agent.requests.isEmpty })
+    // A running job is only shown.
+    #expect(try jobs.repair(job.id) === job)
+    #expect(agent.requests.count == 1)
+    await job.cancel()
+}
+
+/// Current Build shows the job whatever its phase, so the Extensions list can reach it later; with
+/// none, it says how to make one.
+@MainActor @Test func currentBuildShowsTheCurrentJob() async throws {
+    let agent = DrivenAgent()
+    let palette = Palette(makeJobs(agent.backend))
+    palette.session.open(CommandRun(currentBuild, .invoked))
+    #expect(await eventually { palette.detail?.markdown.hasPrefix("Nothing is being made.") == true })
+    palette.session.reset()
+
+    let job = try palette.jobs.start("show the week number")
+    #expect(await eventually { !agent.requests.isEmpty })
+    agent.send(.event(.activity("Edited wicket.json")))
+    palette.session.open(CommandRun(currentBuild, .invoked))
+    #expect(await eventually { palette.detail?.markdown == "_Edited wicket.json_" })
+    #expect(palette.detail?.title == "show the week number")
+    #expect(palette.detail?.actions.map(\.title) == ["Show Files", "Stop Making It"])
+    await job.cancel()
+    #expect(await eventually { palette.detail?.markdown == "Stopped." })
+    #expect(palette.detail?.actions.map(\.title) == ["Start Over"])
+}
+
+/// The ended callback (the app's notification) fires for review and failure, never for a stop.
+@MainActor @Test func theEndedCallbackFiresForReviewAndFailureOnly() async throws {
+    let ended = Mutex<[String]>([])
+    let agent = DrivenAgent()
+    let jobs = makeJobs(agent.backend)
+    jobs.onEnded = { job in ended.withLock { $0.append(job.sentence) } }
+    let stopped = try jobs.start("stopped")
+    #expect(await eventually { !agent.requests.isEmpty })
+    await stopped.cancel()
+    let failed = try jobs.start("failed")
+    #expect(await eventually { agent.requests.count == 2 })
+    agent.send(.event(.error("rate limited")))
+    await failed.finished()
+    #expect(ended.withLock { $0 } == ["failed"])
+
+    let reviewed = makeJobs(writesWeekNumber)
+    reviewed.onEnded = { job in ended.withLock { $0.append(job.sentence) } }
+    _ = try await reviewedJob(reviewed)
+    #expect(ended.withLock { $0 } == ["failed", "show the week number"])
+}
+
+/// Stop is offered while the extension is checked too (preparing dependencies can take minutes),
+/// and stopping then ends the job cancelled with its folder gone.
+@MainActor @Test func aJobCanBeStoppedWhileItIsChecked() async throws {
+    let slow = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/slow-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: slow, withIntermediateDirectories: true)
+    try copyContents(of: weekNumber, into: slow)
+    let script = slow.appending(path: "week.sh")
+    try ("sleep 1\n" + String(contentsOf: script, encoding: .utf8)).write(
+        to: script, atomically: true, encoding: .utf8)
+    let agent = backend { folder, events in
+        try? copyContents(of: slow, into: folder)
+        events.yield(.answer("Done.", usage: nil))
+        return .exited(.status(0))
+    }
+    let jobs = makeJobs(agent)
+    let job = try jobs.start("show the week number")
+    #expect(await eventually { if case .checking = job.phase { true } else { false } })
+    #expect(Shown(job).detail.actions.map(\.title) == ["Show Files", "Stop Making It"])
+    var results: [RunResult] = []
+    for try await result in StopBuildRunner(jobs: jobs).run(Invocation(command: .stopBuild), retry: .never) {
+        results.append(result)
+    }
+    #expect(results == [.close(message: "Stopping…")])
+    await job.finished()
+    guard case .cancelled = job.phase else {
+        Issue.record("ended \(job.phase)")
+        return
+    }
+    #expect(!FileManager.default.fileExists(atPath: job.folder.path))
+}
+
+/// The Extensions list leads with the current build while it runs, awaits review or failed.
+@MainActor @Test func theExtensionsListLeadsWithTheCurrentBuild() async throws {
+    #expect(ExtensionsRunner.build(nil).isEmpty)
+    let agent = DrivenAgent()
+    let jobs = makeJobs(agent.backend)
+    let job = try jobs.start("show the week number")
+    let row = try #require(ExtensionsRunner.build(job).first)
+    #expect(row.title == "show the week number")
+    #expect(row.accessory == "Making")
+    #expect(row.actions == [.run(command: .currentBuild, title: "Show Build")])
+    await job.cancel()
+    #expect(ExtensionsRunner.build(job).isEmpty)
 }
