@@ -12,8 +12,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Architecture checkpoint: independent reviews (Fable, Astra), merged into [docs/architecture.md](docs/architecture.md)
 - ✅ Architecture refactor (docs/architecture.md): value model, root versus list, frames, registry and dispatcher, process lifecycle, stream-fed command frames
 - ✅ Phase 2 refactor from the second architecture review (docs/architecture.md): ✅ A testable app runtime; ✅ F isolated checker; ✅ D process ownership; ✅ B invocation policy; ✅ C one content model; ✅ E diagnostics and revisions
-- 🔨 Phase 3 from the third architecture review (docs/architecture.md): ✅ H built-ins as data; ✅ G contract holes; ✅ J1 process completion; ✅ I sealed revisions and an active catalog; ✅ J2 build jobs; ⏭ the consent store
-- ⏭ Consent store (refactor 5b), then flip `extensionCommandsInPalette` on: owner decision pending on approval
+- ✅ Phase 3 from the third architecture review (docs/architecture.md): ✅ H built-ins as data; ✅ G contract holes; ✅ J1 process completion; ✅ I sealed revisions and an active catalog; ✅ J2 build jobs; ✅ the consent store
+- ✅ Consent store: each extension revision approved once in Wicket's UI; extension commands appear exactly when approved
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
 - ✅ Settings file (`~/.config/wicket/settings.json`), live reload, configurable hotkey
@@ -39,8 +39,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Palette view stack and extension frames (once, live, root, keywords), behind the switch until the consent store lands; verified on screen with the samples
 - ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
 - ✅ Sample extensions in `Extensions/`: system-toggles, quit-apps, github-prs (sh + jq, all pass `wicket check`)
-- 💤 "Make a command": staging, checker gate, review before enable, rollback, "Fix with agent"
-- 💤 Extensions screen: enable, disable, edit by prompt, repair, roll back, reveal in Finder
+- 🔨 "Make a command": ✅ build job (staging, agent, seal, check), ✅ review and Enable; ⏭ uv for Python extensions, "Fix with agent", rollback UI
+- 🔨 Extensions screen: ✅ palette list (review and enable, disable, reveal); 💤 edit by prompt, repair, roll back, settings pane
 
 ### App shell
 - 🔨 Settings window (native SwiftUI): ✅ General (hotkey recorder, palette width, launch at login, open settings.json); ✅ AI (provider and status); ✅ Shortcuts; ✅ Features (toggle each source, live); ⏭ Extensions. The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
