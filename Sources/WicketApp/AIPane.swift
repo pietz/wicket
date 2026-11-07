@@ -2,8 +2,9 @@ import SwiftUI
 import WicketCore
 import WicketHost
 
-/// Settings ▸ AI: which agent CLI answers Ask AI, and whether each one is ready. The choice is a
-/// preference in settings.json (`ai.provider`); the status is checked when the pane opens.
+/// Settings ▸ AI: which agent CLI answers Ask AI and builds Make a Command, and whether each one is
+/// ready. The choice is a preference in settings.json (`ai.provider`); the status is checked when the
+/// pane opens.
 struct AIPane: View {
     let store: SettingsStore
     @State private var statuses: [AgentProvider: AgentStatus] = [:]
@@ -16,7 +17,7 @@ struct AIPane: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
             Section {
-                Picker("Ask AI with", selection: provider) {
+                Picker("AI provider", selection: provider) {
                     Text("Automatic").tag(AgentProvider?.none)
                     ForEach(AgentProvider.allCases, id: \.self) { provider in
                         Text(provider.name).tag(AgentProvider?.some(provider))
@@ -24,8 +25,10 @@ struct AIPane: View {
                 }
             } footer: {
                 Text(
-                    "Automatic uses the first one that's ready, Codex first. Answers run on your own "
-                        + "subscription, with no tools and no access to your files."
+                    "It answers questions (Ask AI) and builds commands (Make a Command), on your own "
+                        + "subscription. Automatic uses the first one that's ready, Codex first. Answers "
+                        + "get no tools and no access to your files; a build writes only into the new "
+                        + "command's own folder."
                 )
                 .foregroundStyle(.secondary)
             }
