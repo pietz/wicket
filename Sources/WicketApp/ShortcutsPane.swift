@@ -96,6 +96,11 @@ struct ShortcutsPane: View {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(command.title)
+                    if let keyword = command.keyword {
+                        Text("Keyword: \(keyword)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if let note {
                         Text(note)
                             .font(.caption)

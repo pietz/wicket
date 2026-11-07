@@ -185,13 +185,20 @@ public final class CommandRegistry {
 
     /// The listed commands matching `text` as root items (all of them for an empty text). A keyword
     /// or an alias matches as an alternate name, and the text being exactly an alias puts its command
-    /// in the `alias` tier.
+    /// in the `alias` tier: any command the root offers, so an alias of an unlisted fallback (Ask AI)
+    /// lists it too, and Return opens it waiting for its text.
     public func search(_ text: String) -> [Item] {
         var items = index.search(text)
         let word = text.trimmingCharacters(in: .whitespaces)
-        if !word.isEmpty, let id = byAlias[word.lowercased()] {
-            let itemID = Self.itemID(for: id)
-            if let index = items.firstIndex(where: { $0.id == itemID }) { items[index].relevance = .alias }
+        guard !word.isEmpty, let id = byAlias[word.lowercased()], let command = byID[id], command.isOffered
+        else { return items }
+        let itemID = Self.itemID(for: id)
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            items[index].relevance = .alias
+        } else {
+            var item = item(for: command)
+            item.relevance = .alias
+            items.append(item)
         }
         return items
     }
@@ -253,12 +260,17 @@ public final class CommandRegistry {
 
         index = SearchIndex(
             commands.filter(\.isListed).map { command in
-                let item = Item(
-                    id: Self.itemID(for: command.id), title: command.title, subtitle: command.subtitle,
-                    icon: command.icon, accessory: "Command", actions: [.run(command: command.id)])
-                let alternates = [command.keyword, aliasOf[command.id]].compactMap { $0 }
-                return (item, alternates)
+                (item(for: command), [command.keyword, aliasOf[command.id]].compactMap { $0 })
             })
+    }
+
+    /// A command's root row. Its accessory is its keyword when it has one in effect, so the row
+    /// teaches it.
+    private func item(for command: RegisteredCommand) -> Item {
+        let keyword = command.keyword.flatMap { byKeyword[$0.lowercased()] == command.id ? $0 : nil }
+        return Item(
+            id: Self.itemID(for: command.id), title: command.title, subtitle: command.subtitle,
+            icon: command.icon, accessory: keyword ?? "Command", actions: [.run(command: command.id)])
     }
 }
 

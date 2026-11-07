@@ -200,6 +200,32 @@ private func makeRegistry(_ aliases: [CommandID: String]) -> CommandRegistry {
     #expect(registry.alias(of: CommandID.settings) == "Prefs")
 }
 
+// Regression: an alias of an unlisted fallback (Ask AI) did nothing, and its fallback row then
+// asked the alias word itself.
+@MainActor @Test func anAliasOfAnUnlistedFallbackListsItsCommandWaitingForItsText() throws {
+    let registry = makeRegistry([CommandID.askAI: "ask"])
+    let hit = try #require(registry.search("Ask").first)
+    #expect(hit.id == "commands:ask-ai")
+    #expect(hit.relevance == .alias)
+    #expect(hit.accessory == "ai")
+    #expect(hit.actions == [.run(command: CommandID.askAI)])
+    // Return runs it with no text, which opens its frame waiting for the question.
+    #expect(CommandRun(try #require(registry.command(CommandID.askAI)), .invoked).awaitsText)
+    // Unlisted, it still isn't a match for anything else.
+    #expect(registry.search("as").isEmpty)
+    // A hidden command's alias still only names it.
+    #expect(makeRegistry([hidden.id: "done"]).search("done").isEmpty)
+}
+
+@MainActor @Test func aCommandRowShowsItsKeywordInEffect() {
+    let registry = makeRegistry([:])
+    #expect(registry.search("Search GitHub").first?.accessory == "gh")
+    #expect(registry.search("Wicket Settings").first?.accessory == "Command")
+    // A keyword the command lost isn't shown.
+    let lost = makeRegistry([unicode.id: "gh"])
+    #expect(lost.search("Search GitHub").first?.accessory == "Command")
+}
+
 @MainActor @Test func theAliasTierBeatsAnAppOfThatNameAndOtherExactMatches() throws {
     let registry = makeRegistry([CommandID.quit: "safari"])
     let quit = try #require(registry.search("safari").first)
