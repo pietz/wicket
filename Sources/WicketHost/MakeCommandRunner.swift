@@ -88,7 +88,7 @@ public final class StopBuildRunner: CommandRunner {
 
 /// The job as its frame shows it: read inside the observation, so every change of what the detail
 /// shows (the phase, the activities) is observed.
-private struct Shown: Sendable {
+struct Shown: Sendable {
     let phase: BuildJob.Phase
     let detail: Detail
 
@@ -124,11 +124,12 @@ private struct Shown: Sendable {
         }
     }
 
-    /// What the agent did so far, then what is happening now.
-    private static func log(_ activities: [String], status: String) -> String {
-        let status = "_\(status)_"
-        return activities.isEmpty
-            ? status : activities.map { "- \($0)" }.joined(separator: "\n") + "\n\n" + status
+    /// What the agent did so far, then what is happening now, unless that is the last step already
+    /// listed (the agent's current activity is also its latest one).
+    static func log(_ activities: [String], status: String) -> String {
+        let steps = activities.map { "- \($0)" }.joined(separator: "\n")
+        if activities.isEmpty { return "_\(status)_" }
+        return activities.last == status ? steps : steps + "\n\n_\(status)_"
     }
 
     /// The extension as built: what it is, its commands, the check report and the agent's summary.

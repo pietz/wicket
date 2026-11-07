@@ -537,3 +537,10 @@ private struct NoEffects: ActionEffects {
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
 }
+
+/// The build screen lists each agent step once: the current activity is usually the latest step.
+@Test func theBuildLogShowsEachStepOnce() {
+    #expect(Shown.log([], status: "Starting") == "_Starting_")
+    #expect(Shown.log(["Ran ls"], status: "Ran ls") == "- Ran ls")
+    #expect(Shown.log(["Ran ls"], status: "Checking") == "- Ran ls\n\n_Checking_")
+}
