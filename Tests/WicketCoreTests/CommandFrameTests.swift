@@ -306,15 +306,28 @@ private func titles(_ session: PaletteSession) -> [String] {
     for word in ["Paris", " is", " the", " capital."] {
         markdown += word
         runner.runs[0].continuation.yield(.show(.detail(Detail(title: "Answer", markdown: markdown))))
-        #expect(await eventually { session.top.target?.actions == [.copy(text: markdown)] })
+        #expect(await eventually { content(session)?.screen?.target?.actions == [.copy(text: markdown)] })
         frame = frame ?? session.top.id
         #expect(session.top.id == frame)
         #expect(session.top.isLoading)
+        // Return does nothing until the page is done: a detail's own copy would take half of it.
+        #expect(session.top.target == nil)
     }
     #expect(session.frames.count == 2)
     #expect(session.top.generation == 1)
     runner.runs[0].continuation.finish()
     #expect(await eventually { !session.top.isLoading })
+    #expect(session.top.target?.actions == [.copy(text: markdown)])
+}
+
+@MainActor @Test func aLoadingPageKeepsItsOwnActions() async {
+    let (session, runner, _) = session()
+    session.open(CommandRun(reviews, .invoked))
+    #expect(await eventually { runner.runs.count == 1 })
+    let stop = Item.Action.run(command: .builtin("stop-build"), title: "Stop")
+    runner.runs[0].continuation.yield(.show(.detail(Detail(markdown: "Building…", actions: [stop]))))
+    #expect(await eventually { session.top.target?.actions == [stop] })
+    #expect(session.top.isLoading)
 }
 
 @MainActor @Test func runsEndWithTheirFrame() async {

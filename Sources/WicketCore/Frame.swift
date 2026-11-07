@@ -36,11 +36,14 @@ public struct Frame: Identifiable, Sendable {
         }
     }
 
-    /// What Return, ⌘↩ and ⌘K act on in this frame.
+    /// What Return, ⌘↩ and ⌘K act on in this frame. A page still loading without actions of its own
+    /// has none: the copy a finished one gets would take a status, such as "Asking…", or half a page.
     public var target: ActionTarget? {
         switch content {
-        case .search(let results): results.selectedItem.map(ActionTarget.init(item:))
-        case .screen(let screen): screen.target(query: query)
+        case .search(let results): return results.selectedItem.map(ActionTarget.init(item:))
+        case .screen(let screen):
+            if isLoading, case .detail(let detail) = screen.screen, detail.actions.isEmpty { return nil }
+            return screen.target(query: query)
         }
     }
 
