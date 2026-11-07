@@ -145,6 +145,7 @@ Each is the call and its reason; the mechanism is in docs/architecture.md. All d
 - **Tested against one major.minor per CLI** (Codex 0.167, Claude Code 2.1); other versions still run, with an "untested version" warning, since both interfaces change between minors.
 - **Locked-down runs:** answer runs get no tools; build runs may edit only their folder, with network off. User hooks, plugins, MCP servers and memories are switched off for both. Network stays off by default (owner, 2026-11-07); a per-build switch comes later, because it widens the exfiltration risk.
 - **Status checked before each run, not at launch:** a logged-out Codex otherwise retries for about 17 s. A chosen provider that isn't ready is reported, never swapped for another (Tinycast's rule too).
+- **"Do" runs plan first; the user presses Run (owner, 2026-11-08).** A one-off agent action on the user's Mac first drafts its exact steps without touching anything; Wicket shows them and nothing runs until the user presses Run. Reason: the same consent rule as extensions (nothing acts with the user's permissions unapproved), applied per run.
 - **Answers keep their scroll position at the top as they stream.** Tinycast pins a streaming reply to its end, which suits a chat transcript more than a short answer. No "Continue in Codex": answer runs are ephemeral.
 
 ### OS integration
