@@ -88,3 +88,19 @@ func exclusion(path: String, excluded: Bool) {
     #expect(FileSearch.displayFolder(of: "/Volumes/Backup/a.zip", home: home) == "/Volumes/Backup")
     #expect(FileSearch.displayFolder(of: home + "2/a.txt", home: home) == home + "2")
 }
+
+// Regression: Spotlight found every word as a word prefix, but the matcher then required the whole
+// query in order, so "report annual" dropped "Annual Report.pdf".
+@Test func wordsMatchInAnyOrderAndInOrderStillRanksFirst() {
+    let annual = home + "/Documents/Annual Report.pdf"
+    let reportAnnual = home + "/Documents/Report Annual.pdf"
+    #expect(items([annual], "report annual").map(\.title) == ["Annual Report.pdf"])
+    #expect(items([annual], "rep ann").map(\.title) == ["Annual Report.pdf"])
+    // The name in the query's order keeps the whole-name bonus.
+    #expect(
+        items([annual, reportAnnual], "report annual").map(\.title) == [
+            "Report Annual.pdf", "Annual Report.pdf",
+        ])
+    // Every word must match.
+    #expect(items([annual], "annual budget").isEmpty)
+}

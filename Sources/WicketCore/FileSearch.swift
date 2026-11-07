@@ -49,17 +49,18 @@ public enum FileSearch {
         }
     }
 
-    /// The best `limit` hits as items: noise dropped, scored by the shared fuzzy matcher on the file
-    /// name minus `penalty`, so they rank fairly against other `.match` items.
+    /// The best `limit` hits as items: noise dropped, scored on the file name (`score`) minus
+    /// `penalty`, so they rank fairly against other `.match` items.
     public static func items(_ hits: [Hit], query: String, scopes: [String], home: String) -> [Item] {
         let folded = Fold.query(query)
+        let words = query.split(whereSeparator: \.isWhitespace).map { Fold.query(String($0)) }
         var scored: [(hit: Hit, name: String, score: Int)] = []
         for hit in hits {
             guard let scope = scopes.first(where: { hit.path.hasPrefix($0 + "/") }),
                 !isExcluded(hit.path.dropFirst(scope.count))
             else { continue }
             let name = (hit.path as NSString).lastPathComponent
-            guard let score = FuzzyMatcher.score(folded, SearchKey(name)) else { continue }
+            guard let score = score(folded, words: words, name: SearchKey(name)) else { continue }
             scored.append((hit, name, score))
         }
         scored.sort { a, b in
@@ -74,6 +75,22 @@ public enum FileSearch {
                 icon: .file(url: url), accessory: hit.isFolder ? "Folder" : "File",
                 score: Double(score) - penalty, actions: Item.Action.forFile(url))
         }
+    }
+
+    /// The shared fuzzy matcher's score for the whole query, which keeps its whole-name bonuses (the
+    /// name starts with or is the query); for a query whose words the name has in another order
+    /// ("report annual" for "Annual Report.pdf", which Spotlight found by every word), the sum of
+    /// each word's own score less one prefix bonus, so a name in the query's order ranks first. Nil
+    /// if the name doesn't match.
+    static func score(_ query: [UInt32], words: [[UInt32]], name: SearchKey) -> Int? {
+        if let score = FuzzyMatcher.score(query, name) { return score }
+        guard words.count > 1 else { return nil }
+        var total = -FuzzyMatcher.Weight.prefix
+        for word in words {
+            guard let score = FuzzyMatcher.score(word, name) else { return nil }
+            total += score
+        }
+        return total
     }
 
     /// The folder shown under a file's name: "~/Documents/Taxes", "iCloud Drive/Notes", "/Volumes/Disk".
