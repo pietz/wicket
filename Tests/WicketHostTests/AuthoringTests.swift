@@ -117,13 +117,14 @@ private func finalDetail(
     let made = try plain("weather")
     let requests = Requests()
     let runner = AgentRunner(
-        backend: agent(requests) {
-            try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
-            let script = directory.appending(path: "edited/main.sh")
-            try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
-                to: script, atomically: false, encoding: .utf8)
-        }, interval: .zero, provider: { .codex })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+        answers: AnswerStream(
+            backend: agent(requests) {
+                try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
+                let script = directory.appending(path: "edited/main.sh")
+                try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
+                    to: script, atomically: false, encoding: .utf8)
+            }, interval: .zero, provider: { .codex }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
 
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
@@ -146,15 +147,17 @@ private func finalDetail(
 @MainActor @Test func anAnswerThatChangedNoExtensionOffersSaveAsBefore() async throws {
     let extensions = try await extensions([try plain("enabled")], approved: ["enabled"])
     let requests = Requests()
-    let runner = AgentRunner(backend: agent(requests) {}, interval: .zero, provider: { .codex })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    let runner = AgentRunner(
+        answers: AnswerStream(backend: agent(requests) {}, interval: .zero, provider: { .codex }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
     let detail = try #require(try await finalDetail(runner, "what can you do?"))
     #expect(detail.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
 
     // A provider that only answers gets no Wicket instructions.
-    let apple = AgentRunner(backend: agent(requests) {}, interval: .zero, provider: { .apple })
-    apple.authoring = runner.authoring
+    let apple = AgentRunner(
+        answers: AnswerStream(backend: agent(requests) {}, interval: .zero, provider: { .apple }))
+    apple.answers.authoring = runner.answers.authoring
     _ = try await finalDetail(apple, "what can you do?")
     let last = try #require(requests.last)
     #expect(last.mode == .answer)
@@ -166,21 +169,23 @@ private func finalDetail(
     let directory = extensions.directory
     let made = try plain("weather")
     let runner = AgentRunner(
-        backend: agent(Requests(), events: [.text("Writing it"), .error("Claude Code was interrupted")]) {
-            try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
-        }, interval: .zero, provider: { .claude })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+        answers: AnswerStream(
+            backend: agent(Requests(), events: [.text("Writing it"), .error("Claude Code was interrupted")]) {
+                try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
+            }, interval: .zero, provider: { .claude }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
     #expect(detail.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry", "Copy Answer"])
 
     // With nothing streamed, the failure page offers it too.
     let silent = AgentRunner(
-        backend: agent(Requests(), events: [.error("stopped")]) {
-            let script = directory.appending(path: "weather/main.sh")
-            try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
-                to: script, atomically: false, encoding: .utf8)
-        }, interval: .zero, provider: { .claude })
-    silent.authoring = runner.authoring
+        answers: AnswerStream(
+            backend: agent(Requests(), events: [.error("stopped")]) {
+                let script = directory.appending(path: "weather/main.sh")
+                try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
+                    to: script, atomically: false, encoding: .utf8)
+            }, interval: .zero, provider: { .claude }))
+    silent.answers.authoring = runner.answers.authoring
     let failure = try #require(try await finalDetail(silent, "change it"))
     #expect(failure.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry"])
 }
@@ -188,26 +193,30 @@ private func finalDetail(
 @MainActor @Test func onlyAPureAnswerOffersSaveAsCommand() async throws {
     let extensions = try await extensions([])
     let runner = AgentRunner(
-        backend: agent(
-            Requests(), events: [.activity("Ran ls"), .acted, .answer("Three files.", usage: nil)]
-        ) {}, interval: .zero, provider: { .claude })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+        answers: AnswerStream(
+            backend: agent(
+                Requests(), events: [.activity("Ran ls"), .acted, .answer("Three files.", usage: nil)]
+            ) {}, interval: .zero, provider: { .claude }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
     let acted = try #require(try await finalDetail(runner, "how many files are here?"))
     #expect(acted.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer"])
 
     // Reading isn't acting.
     let reader = AgentRunner(
-        backend: agent(Requests(), events: [.activity("Read a.txt"), .answer("It says hi.", usage: nil)]) {},
-        interval: .zero, provider: { .claude })
-    reader.authoring = runner.authoring
+        answers: AnswerStream(
+            backend: agent(Requests(), events: [.activity("Read a.txt"), .answer("It says hi.", usage: nil)])
+            {},
+            interval: .zero, provider: { .claude }))
+    reader.answers.authoring = runner.answers.authoring
     reader.saveCommand = runner.saveCommand
     let read = try #require(try await finalDetail(reader, "what does a.txt say?"))
     #expect(read.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
 }
 
 @MainActor @Test func aRunCanNameItsFrame() async throws {
-    let runner = AgentRunner(backend: agent(Requests()) {}, interval: .zero, provider: { .claude })
+    let runner = AgentRunner(
+        answers: AnswerStream(backend: agent(Requests()) {}, interval: .zero, provider: { .claude }))
     let detail = try #require(
         try await finalDetail(
             runner, "Fix my Wicket extension Test in /tmp/x.\n\nIt failed Wicket's check: a long report",
@@ -258,8 +267,8 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
         path: "../../docs/extensions.md"
     )
     .standardizedFileURL
-    let runner = AgentRunner(provider: { .codex })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
+    let runner = AgentRunner(answers: AnswerStream(provider: { .codex }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
     var last: Detail?
     for try await result in runner.run(
         Invocation(
@@ -306,8 +315,8 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
         path: "../../docs/extensions.md"
     )
     .standardizedFileURL
-    let runner = AgentRunner(provider: { .claude })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
+    let runner = AgentRunner(answers: AnswerStream(provider: { .claude }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
     var last: Detail?
     for try await result in runner.run(
         Invocation(
@@ -341,12 +350,13 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     let extensions = try await extensions([broken])
     let directory = extensions.directory
     let runner = AgentRunner(
-        backend: agent(Requests()) {
-            // Still no manifest, so the same error; but the folder changed.
-            try "echo v2".write(
-                to: directory.appending(path: "broken/main.sh"), atomically: false, encoding: .utf8)
-        }, interval: .zero, provider: { .codex })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+        answers: AnswerStream(
+            backend: agent(Requests()) {
+                // Still no manifest, so the same error; but the folder changed.
+                try "echo v2".write(
+                    to: directory.appending(path: "broken/main.sh"), atomically: false, encoding: .utf8)
+            }, interval: .zero, provider: { .codex }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
     let detail = try #require(try await finalDetail(runner, "fix it"))
     #expect(detail.actions.first?.title == "Review and Enable broken")
 }
@@ -356,8 +366,9 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     // Written before the run, before any watcher event arrives.
     try FileManager.default.copyItem(
         at: try plain("earlier").folder, to: extensions.directory.appending(path: "earlier"))
-    let runner = AgentRunner(backend: agent(Requests()) {}, interval: .zero, provider: { .codex })
-    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    let runner = AgentRunner(
+        answers: AnswerStream(backend: agent(Requests()) {}, interval: .zero, provider: { .codex }))
+    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
     let detail = try #require(try await finalDetail(runner, "what's the time?"))
     #expect(!detail.actions.contains { $0.title?.hasPrefix("Review") == true })
 }

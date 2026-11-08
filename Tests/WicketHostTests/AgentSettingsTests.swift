@@ -176,8 +176,8 @@ func aDamagedFileForcesNoLevel(contents: String) throws {
                 return .exited(.status(0))
             }
         })
-    let runner = AgentRunner(backend: backend, interval: .zero, provider: { .codex })
-    runner.configuration = { _ in
+    let runner = AgentRunner(answers: AnswerStream(backend: backend, interval: .zero, provider: { .codex }))
+    runner.answers.configuration = { _ in
         AgentConfiguration(options: AgentOptions(effort: "max"), permission: .supervised)
     }
     var details: [Detail] = []

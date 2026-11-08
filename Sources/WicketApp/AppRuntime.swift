@@ -272,18 +272,20 @@ extension AppRuntime {
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
             approvals: Approvals(), diagnostics: diagnostics)
         let consent = ExtensionsRunner(extensions: extensions)
-        let runAgent = AgentRunner(provider: { weakRuntime?.applied?.ai.provider })
+        // Every AI answer, Run Agent's and prompt commands'; Run Agent's runner owns its shutdown.
+        let answers = AnswerStream(provider: { weakRuntime?.applied?.ai.provider })
         // Acting runs know Wicket's commands and write extensions into its folder for review.
-        runAgent.authoring = ExtensionAuthoring(
+        answers.authoring = ExtensionAuthoring(
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] })
-        let prompts = PromptCommandRunner(answers: runAgent, extensions: extensions, reviews: consent)
-        extensions.promptRunner = prompts
-        runAgent.saveCommand = { [weak prompts] in prompts?.offer($0) }
-        runAgent.configuration = { provider in
+        answers.configuration = { provider in
             AgentConfiguration(
                 options: weakRuntime?.applied?.ai[provider] ?? AgentOptions(),
                 permission: permissions.level(for: provider))
         }
+        extensions.answers = answers
+        let runAgent = AgentRunner(answers: answers)
+        let savePrompt = SavePromptRunner(extensions: extensions, reviews: consent)
+        runAgent.saveCommand = { [weak savePrompt] in savePrompt?.offer($0) }
         let work: [Feature: Work] = [
             .apps: Work(
                 start: {
@@ -325,7 +327,7 @@ extension AppRuntime {
                 RegisteredCommand(
                     id: .savePromptCommand, title: "Save as Command", icon: .symbol(name: "bookmark"),
                     isListed: false, input: .none),
-                runner: prompts),
+                runner: savePrompt),
             // Answers an acting agent's approval shown in a Run Agent frame; reached by id only.
             Builtin(
                 RegisteredCommand(

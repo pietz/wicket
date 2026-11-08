@@ -79,7 +79,7 @@ private struct Palette {
     let runner: AgentRunner
 
     init(_ backend: AgentBackend, interval: Duration = .zero) {
-        runner = AgentRunner(backend: backend, interval: interval)
+        runner = AgentRunner(answers: AnswerStream(backend: backend, interval: interval))
         let router = CommandRouter(
             builtins: [Builtin(runAgent, runner: runner), Builtin(aiApproval, runner: runner)],
             extensions: nil)
@@ -233,7 +233,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
     // Chosen in settings: that one or nothing, never another.
     agents.set(.codex, .loggedOut)
-    palette.runner.provider = { .codex }
+    palette.runner.answers.provider = { .codex }
     palette.ask("hi")
     #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(
@@ -244,7 +244,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         palette.session.top.target?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
     #expect(agents.runs.count == 1)
 
-    // None ready (a new runner: this one found Claude ready a moment ago, and trusts that).
+    // None ready.
     agents.set(.claude, .loggedOut)
     agents.set(.apple, .unavailable("The on-device model is not ready."))
     let fresh = Palette(agents.backend)
@@ -260,32 +260,33 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
             """)
 }
 
-@MainActor @Test func aReadyProviderIsTrustedForAWhile() async throws {
+/// Status is checked before every run, never cached: a provider that signs out is reported on the
+/// next question, and one that signs in again answers the one after.
+@MainActor @Test func readinessIsCheckedBeforeEveryRun() async throws {
     let agents = FakeAgents([.codex: .ready])
     let palette = Palette(agents.backend)
-    for count in 1...3 {
-        palette.ask("q\(count)")
-        #expect(await eventually { agents.runs.count == count })
-        agents.runs[count - 1].continuation.yield(.answer("a", usage: nil))
-        #expect(await eventually { !palette.session.top.isLoading })
-        palette.session.reset()
-    }
-    #expect(agents.checks == [.codex])
-
-    // A failed run checks again next time.
-    palette.ask("q4")
-    #expect(await eventually { agents.runs.count == 4 })
-    agents.runs[3].continuation.yield(.error("logged out"))
-    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
+    palette.runner.answers.provider = { .codex }
+    palette.ask("q1")
+    #expect(await eventually { agents.runs.count == 1 })
+    agents.runs[0].continuation.yield(.answer("a", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading })
     palette.session.reset()
-    palette.ask("q5")
-    #expect(await eventually { agents.runs.count == 5 })
-    #expect(agents.checks == [.codex, .codex])
+
+    agents.set(.codex, .loggedOut)
+    palette.ask("q2")
+    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
+    #expect(agents.runs.count == 1)
+    palette.session.reset()
+
+    agents.set(.codex, .ready)
+    palette.ask("q3")
+    #expect(await eventually { agents.runs.count == 2 })
+    #expect(agents.checks == [.codex, .codex, .codex])
 }
 
 @MainActor @Test func frequentDeltasAreCoalesced() async throws {
     let agents = FakeAgents([.codex: .ready])
-    let runner = AgentRunner(backend: agents.backend, interval: .seconds(60))
+    let runner = AgentRunner(answers: AnswerStream(backend: agents.backend, interval: .seconds(60)))
     let stream = runner.run(
         Invocation(command: runAgent.id, text: "count"), retry: .never)
     let events: [AgentEvent] = [.text("1"), .text(" 2"), .text(" 3"), .answer("1 2 3", usage: nil)]
@@ -336,7 +337,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 @MainActor @Test func appleAvailabilityIsRecheckedAndNeverFallsBack() async throws {
     let agents = FakeAgents([.codex: .ready, .apple: .ready])
     let palette = Palette(agents.backend)
-    palette.runner.provider = { .apple }
+    palette.runner.answers.provider = { .apple }
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.answer("Hello!", usage: nil))
@@ -355,7 +356,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor @Test func whatWasSelectedFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
     let agents = FakeAgents([.codex: .ready])
-    let runner = AgentRunner(backend: agents.backend, interval: .zero)
+    let runner = AgentRunner(answers: AnswerStream(backend: agents.backend, interval: .zero))
     let context = try #require(SummonContext(app: "Mail", text: "Dear Anna, thanks again."))
     var shown: [RunResult] = []
     let stream = runner.run(

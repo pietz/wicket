@@ -5,19 +5,18 @@ extension CommandID {
     public static let savePromptCommand = CommandID.builtin("save-prompt-command")
 }
 
-/// Approved prompt commands use the same answer stream as Run Agent. The hidden Save action holds
-/// only a token: the original question and selection stay in memory until explicitly saved.
+/// Save as Command: turns a finished Run Agent question into a prompt command and opens its review.
+/// The hidden action holds only a token: the original question and selection stay in memory until
+/// explicitly saved. Running prompt commands is `Extensions`'.
 @MainActor
-public final class PromptCommandRunner: CommandRunner {
-    private let answers: AnswerStream
+public final class SavePromptRunner: CommandRunner {
     private let extensions: Extensions
     private let reviews: ExtensionsRunner
     private var offers: [(token: String, invocation: Invocation)] = []
     private var saving: [UUID: Task<Void, Never>] = [:]
     private var isShutDown = false
 
-    public init(answers: AgentRunner, extensions: Extensions, reviews: ExtensionsRunner) {
-        self.answers = answers.answers
+    public init(extensions: Extensions, reviews: ExtensionsRunner) {
         self.extensions = extensions
         self.reviews = reviews
     }
@@ -34,19 +33,6 @@ public final class PromptCommandRunner: CommandRunner {
         guard !isShutDown else {
             return AsyncThrowingStream { $0.finish(throwing: CancellationError()) }
         }
-        if invocation.command == .savePromptCommand { return save(invocation) }
-        do {
-            let (_, command) = try extensions.approvedCommand(for: invocation)
-            guard let template = command.prompt else { throw HostError.unknownCommand }
-            let prompt = PromptTemplate.substitute(
-                template, text: invocation.text, context: invocation.context)
-            return answers.run(invocation, prompt: prompt, title: command.title)
-        } catch {
-            return AsyncThrowingStream { $0.finish(throwing: error) }
-        }
-    }
-
-    private func save(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         let id = UUID()
         let task = Task {
@@ -131,7 +117,6 @@ public final class PromptCommandRunner: CommandRunner {
         isShutDown = true
         let tasks = Array(saving.values)
         for task in tasks { task.cancel() }
-        await answers.shutdown()
         for task in tasks { await task.value }
         offers = []
     }

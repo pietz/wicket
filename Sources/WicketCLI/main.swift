@@ -17,8 +17,8 @@ let usage = """
            wicket secret set <extension-id> <NAME>
                Store a secret declared in wicket.json in the Keychain; the value is read from stdin.
            wicket agent status
-               Show whether Codex and Claude Code are installed, logged in and a tested version.
-           wicket agent ask <prompt> [--provider codex|claude]
+               Show whether Codex, Claude Code and Apple Intelligence are ready to answer.
+           wicket agent ask <prompt> [--provider codex|claude|apple]
                Stream a quick answer (no tools, no file access) to stdout; tool activity and token
                usage go to stderr. Uses the first ready provider unless one is named.
 
@@ -141,19 +141,20 @@ func ask(_ arguments: [String]) async -> Never {
     var provider: AgentProvider?
     if let index = arguments.firstIndex(of: "--provider") {
         guard index + 1 < arguments.count, let named = AgentProvider(rawValue: arguments[index + 1]) else {
-            fail("--provider needs codex or claude", status: 2)
+            fail("--provider needs codex, claude or apple", status: 2)
         }
         provider = named
         arguments.removeSubrange(index...index + 1)
     }
     guard arguments.count == 1 else { fail(usage, status: 2) }
-    var statuses: [AgentStatus] = []
-    for candidate in provider.map({ [$0] }) ?? AgentProvider.allCases {
-        statuses.append(await Agent.status(of: candidate))
-        if statuses.last?.state == .ready { break }
+    // The same choice as Run Agent's: the named provider or nothing, else the first ready one.
+    let backend = AgentBackend.installed
+    let status: AgentStatus
+    do {
+        status = try await backend.ready(provider)
+    } catch {
+        fail(error.statuses.map { "error: \($0)" }.joined(separator: "\n"))
     }
-    guard let status = statuses.last, status.state == .ready, let agent = await Agent.locate(status.provider)
-    else { fail(statuses.map { "error: \($0)" }.joined(separator: "\n")) }
     if let warning = status.warning { warn("warning: \(warning)") }
 
     // An empty folder, so the agent's working directory holds nothing to read.
@@ -161,8 +162,8 @@ func ask(_ arguments: [String]) async -> Never {
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
     var streamed = false
-    for await event in agent.run(AgentRequest(prompt: arguments[0], workingDirectory: folder, mode: .answer))
-    {
+    let request = AgentRequest(prompt: arguments[0], workingDirectory: folder, mode: .answer)
+    for await event in await backend.run(status.provider, request) {
         switch event {
         case .text(let text):
             streamed = true

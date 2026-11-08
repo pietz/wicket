@@ -141,7 +141,8 @@ private final class Harness {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         weak var harness: Harness?
         runAgent = AgentRunner(
-            backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider })
+            answers: AnswerStream(
+                backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider }))
         // The table as `live()` composes it, with effects that are only recorded.
         let builtins = [
             Builtin(
@@ -213,7 +214,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
              "commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a", "alias": "ask"}}}
             """#)
     #expect(h.palette.width == 720)
-    #expect(h.runAgent.provider() == .claude)
+    #expect(h.runAgent.answers.provider() == .claude)
     #expect(h.work == ["start apps"])
     #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+a")])
     #expect(h.runtime.registry.alias(of: runAgentCommand) == "ask")

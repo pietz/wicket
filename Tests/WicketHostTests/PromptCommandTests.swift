@@ -43,14 +43,15 @@ private struct Prompts {
     let extensions: Extensions
     let reviews: ExtensionsRunner
     let ask: AgentRunner
-    let runner: PromptCommandRunner
+    let runner: SavePromptRunner
 
     init() {
         extensions = Extensions(directory: folder, store: testStore(), approvals: testApprovals())
         reviews = ExtensionsRunner(extensions: extensions)
-        ask = AgentRunner(backend: backend.backend, interval: .zero, provider: { .codex })
-        runner = PromptCommandRunner(answers: ask, extensions: extensions, reviews: reviews)
-        extensions.promptRunner = runner
+        ask = AgentRunner(
+            answers: AnswerStream(backend: backend.backend, interval: .zero, provider: { .codex }))
+        runner = SavePromptRunner(extensions: extensions, reviews: reviews)
+        extensions.answers = ask.answers
         ask.saveCommand = { [weak runner] in runner?.offer($0) }
     }
 
@@ -63,7 +64,7 @@ private struct Prompts {
 
 @MainActor @Test func promptCheckerNeedsNoFixtureSandboxOrProgram() async throws {
     let h = Prompts()
-    let folder = try PromptCommandRunner.write(
+    let folder = try SavePromptRunner.write(
         Invocation(command: .builtin("run-agent"), text: "Hello"), into: h.folder)
     // Even a declared executable must never start when every command is a prompt.
     let manifestURL = folder.appending(path: Manifest.fileName)
@@ -119,7 +120,7 @@ private struct Prompts {
 @MainActor @Test func approvedPromptsStreamThroughExtensionsAndRefuseStaleOrUnapprovedRuns() async throws {
     let h = Prompts()
     let firstContext = try #require(SummonContext(app: "Mail", text: "old selection"))
-    let folder = try PromptCommandRunner.write(
+    let folder = try SavePromptRunner.write(
         Invocation(command: .builtin("run-agent"), text: "Translate this to German", context: firstContext),
         into: h.folder)
     await h.extensions.load().value
@@ -165,8 +166,8 @@ private struct Prompts {
     let h = Prompts()
     let context = try #require(SummonContext(app: "Mail", text: "sensitive"))
     let invocation = Invocation(command: .builtin("run-agent"), text: "Fix grammar in this", context: context)
-    let first = try PromptCommandRunner.write(invocation, into: h.folder)
-    let second = try PromptCommandRunner.write(invocation, into: h.folder)
+    let first = try SavePromptRunner.write(invocation, into: h.folder)
+    let second = try SavePromptRunner.write(invocation, into: h.folder)
     #expect(first != second)
     #expect(try Manifest.load(from: first).commands.first?.prompt == "Fix grammar in this\n\n{selection}")
     #expect(try Manifest.load(from: second).commands.first?.prompt == "Fix grammar in this\n\n{selection}")
@@ -195,22 +196,23 @@ private struct Prompts {
 @MainActor @Test func failedAnswersNeverOfferSaveAndPromptRetryKeepsItsInvocation() async throws {
     let h = Prompts()
     let backend = PromptBackend(events: [.text("Half"), .error("offline")])
-    let ask = AgentRunner(backend: backend.backend, interval: .zero, provider: { .codex })
+    let ask = AgentRunner(
+        answers: AnswerStream(backend: backend.backend, interval: .zero, provider: { .codex }))
     ask.saveCommand = { h.runner.offer($0) }
     let shown = try await details(ask, Invocation(command: .builtin("run-agent"), text: "  question  "))
     #expect(shown.allSatisfy { !$0.actions.contains { $0.title == "Save as Command" } })
     #expect(
         shown.last?.actions.first == .run(command: .builtin("run-agent"), text: "question", title: "Retry"))
-    let folder = try PromptCommandRunner.write(
+    let folder = try SavePromptRunner.write(
         Invocation(command: .builtin("run-agent"), text: "Hello {text}"), into: h.folder)
     await h.extensions.load().value
     let sealed = try #require(h.extensions.discovered.first?.sealed)
     try await h.extensions.approve(sealed.revision)
-    let prompts = PromptCommandRunner(answers: ask, extensions: h.extensions, reviews: h.reviews)
+    h.extensions.answers = ask.answers
     let invocation = Invocation(
         command: .extension(folder.lastPathComponent, "ask"), text: "typed", args: ["extra": .bool(true)],
         revision: sealed.revision)
-    let failed = try await details(prompts, invocation)
+    let failed = try await details(h.extensions, invocation)
     #expect(failed.last?.markdown.contains("incomplete") == true)
     #expect(
         failed.last?.actions == [
@@ -218,9 +220,12 @@ private struct Prompts {
                 command: invocation.command, text: "typed", args: invocation.args, title: "Retry",
                 revision: sealed.revision), .copy(text: "Half", title: "Copy Answer"),
         ])
-    await prompts.shutdown()
+    // Run Agent's runner owns the shared stream: once it is shut down, prompt commands fail too.
+    await ask.shutdown()
+    await #expect(throws: CancellationError.self) { try await details(h.extensions, invocation) }
+    await h.runner.shutdown()
     await #expect(throws: CancellationError.self) {
-        try await details(prompts, Invocation(command: .savePromptCommand))
+        try await details(h.runner, Invocation(command: .savePromptCommand))
     }
     await h.clean()
 }
@@ -228,7 +233,7 @@ private struct Prompts {
 @MainActor @Test func promptKeywordTypingDoesNotAskTheProvider() async throws {
     let h = Prompts()
     let context = try #require(SummonContext(app: "Notes", text: "Selected"))
-    _ = try PromptCommandRunner.write(
+    _ = try SavePromptRunner.write(
         Invocation(command: .builtin("run-agent"), text: "Translate this to German", context: context),
         into: h.folder)
     await h.extensions.load().value
