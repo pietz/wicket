@@ -3,6 +3,8 @@ import Darwin
 import Foundation
 import WicketCore
 
+// Hashes and validates extension folder contents, including links, executable bits and size limits.
+
 /// Why an extension folder has no revision. Paths are relative to the folder.
 public enum RevisionError: Error, Sendable, Equatable, CustomStringConvertible {
     case symlinkAbsolute(String)

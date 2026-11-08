@@ -34,9 +34,7 @@ The arrows select what has a target, in reading order: the answer, rows, and car
 
 In a list's summary nothing is selectable, since the arrows belong to the rows: tags that always select (rows, the answer) show as text there, and a card's or event's target is dropped.
 
-## Adding a component
-
-A component is one file in `Sources/WicketCore/Markup/Components/` conforming to `Component`: its tags and attributes, an example with its Copy Answer text, how it is built from a parsed element, its text and its targets. Registered in `Markup.components`, it appears in the agent's instructions, in this reference, in `wicket run`'s lint and in the tests without another change. Its view is one file in the app, registered by type.
+Implementation and catalog maintenance: [architecture guide](architecture.md#how-to-add-a-feature).
 
 ## Reference
 

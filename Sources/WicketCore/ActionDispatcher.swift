@@ -1,5 +1,7 @@
 import Foundation
 
+// Resolves data actions under their authority and maps them to injected effects or navigation.
+
 /// A running app, as captured when the palette was summoned.
 public struct RunningApp: Sendable, Hashable {
     public var processID: Int32

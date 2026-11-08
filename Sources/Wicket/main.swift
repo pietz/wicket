@@ -1,4 +1,4 @@
 import WicketApp
 
-// Everything lives in the WicketApp library, so tests can `@testable import` it.
+// App entry point: starts the AppKit lifecycle in WicketApp, a library its tests can import.
 MainActor.assumeIsolated { AppDelegate.run() }

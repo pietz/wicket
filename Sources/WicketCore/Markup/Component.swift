@@ -2,7 +2,7 @@ import Foundation
 
 /// One native component of Wicket's markup, self-contained: its tags, how it is built from them,
 /// its text for Copy Answer and what the arrows can select in it. Its value is the document node
-/// the view draws; the view is one file too, registered by type (M2).
+/// the view draws; the view is one file too, registered by type in `ComponentViews`.
 ///
 /// A component is registered in `Markup.components`, and everything else (parsing, validation,
 /// limits, grouping, the agent's reference, docs/markup.md, the lint, the tests) reads it from there.

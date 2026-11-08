@@ -2,6 +2,8 @@ import Foundation
 import WicketCore
 import os
 
+// The palette's extension management commands: discover, review, enable, disable and move to Trash.
+
 extension CommandID {
     /// The Extensions list: every discovered extension with its state.
     public static let extensions = CommandID.builtin("extensions")

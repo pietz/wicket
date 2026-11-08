@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import os
 
+// Line-based agent transport over ProcessTree, with transcript adapters and asynchronous replies.
+
 /// Turns an agent CLI's stdout lines into events and the lines to write back. Kept free of process
 /// handling so recorded streams can test it.
 protocol AgentTranscript: Sendable {

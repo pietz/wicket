@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import WicketCore
 
+// The palette's SwiftUI shell, shared sizing metrics, result rows, footer and action panel.
+
 /// Which field has the keyboard: the search field (the one with this `fieldID`), or the action
 /// panel's filter while it is open.
 enum PaletteFocus: Hashable {

@@ -1,5 +1,7 @@
 import Foundation
 
+// First-pass markup scanning: block-position tags, opaque code and recoverable syntax issues.
+
 extension Markup {
     /// A problem in markup, by line. An agent's reply renders anyway and only the counts are logged;
     /// `wicket run` reports each one of an extension's as an error.

@@ -2,6 +2,8 @@ import Foundation
 import WicketCore
 import os
 
+// The palette command that accepts a declared extension secret and stores it in the Keychain.
+
 extension CommandID {
     /// Stores the submitted text as an extension's secret (args: `id`, `name`). Hidden: reached by
     /// the Set action of an extension's page or of a run that needed the secret.

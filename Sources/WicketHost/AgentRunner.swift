@@ -2,6 +2,8 @@ import Foundation
 import WicketCore
 import os
 
+// Bridges agent runs to command frames, including approvals, follow-ups and extension review offers.
+
 extension CommandID {
     /// Run Agent: answers a question or does what it asks, the one AI entry.
     public static let runAgent = CommandID.builtin("run-agent")

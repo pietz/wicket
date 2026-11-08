@@ -1,5 +1,7 @@
 import Foundation
 
+// File and URL subjects, with the row fields and actions Wicket derives from them.
+
 extension Item {
     /// What a row is about, sent as an identifier so Wicket derives what it can (docs/extensions.md,
     /// "Subjects"): fields the producer sent win, and derived actions follow the producer's.

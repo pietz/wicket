@@ -9,7 +9,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1")
     ],
     targets: [
-        // Pure, Foundation-only logic (matching, ranking, usage). Unit-tested.
+        // Shared values and deterministic policy: commands, content, matching, ranking and markup.
         .target(name: "WicketCore"),
         // Runs extensions and agents: processes, revisions, approvals, the checker. Shared by the
         // app and the CLI.
@@ -19,6 +19,7 @@ let package = Package(
         .target(
             name: "WicketApp",
             dependencies: ["WicketCore", "WicketHost", .product(name: "Sparkle", package: "Sparkle")]),
+        // App entry point only; AppKit and SwiftUI live in the testable WicketApp library.
         .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
         // The `wicket` command-line tool, bundled at Wicket.app/Contents/Helpers/wicket.
         .executableTarget(name: "WicketCLI", dependencies: ["WicketCore", "WicketHost"]),

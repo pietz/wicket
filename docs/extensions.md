@@ -139,7 +139,7 @@ A result is an object with exactly one key, which says what it is.
 
 The [gallery sample](../Extensions/gallery) shows what pages can be: weather (a card with columns, stats and a sparkline), a comparison of two cards, a repo's changes (toned stats, a timeline, file rows), a person with a portrait from the web, a calendar, and one plain list in sections under a summary, each a plain JSON file in its `screens/` folder. To see it in Wicket, copy the `gallery` folder into the extensions folder (`~/Library/Application Support/Wicket/Extensions`), run the Extensions command, pick Gallery and Review and Enable it; then type `gallery`.
 
-### Level 1: an answer
+### An answer
 
 ```json
 {"answer":{"title":"Week 45","subtitle":"ISO week number"}}
@@ -147,7 +147,7 @@ The [gallery sample](../Extensions/gallery) shows what pages can be: weather (a 
 
 One [item](#items). Wicket shows it large. Return runs its first action; with no actions, Return copies the title.
 
-### Level 2: a list
+### A list
 
 ```json
 {"list":{"items":[
@@ -179,7 +179,7 @@ Since 0.0.6 a list can also say something about its rows and group them:
 
 The rows are always whole: the card shows up to eight (with the section titles above them) under the summary, and scrolls the rest. (`facts`, a strip of labelled values in 0.0.6, is gone: put `<stat>`s or `<facts>` in the summary.)
 
-### Level 2: a detail view
+### A detail view
 
 ```json
 {"detail":{

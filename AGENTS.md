@@ -15,6 +15,7 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 
 ## Commands
 
+- Full [script and opt-in check reference](docs/architecture.md#developer-commands-and-opt-in-checks), including off-screen snapshots, live agent evaluations and benchmarks.
 - Once per clone: `git config core.hooksPath Scripts/hooks`, so every commit runs `Scripts/check.sh`.
 - Land a builder's branch with `Scripts/land.sh <commits>`: it cherry-picks, then runs the full check, since parallel branches can each pass and still break together.
 

@@ -1,7 +1,7 @@
 import Foundation
 
 // Strict decoding of what extensions send (docs/extensions.md). Unknown fields are rejected and
-// every rule failure is a `DecodingError` with the path to the offending value, so `describe`
+// every rule failure is a `DecodingError` with the path to the offending value, so diagnostics
 // can tell an agent exactly what to fix.
 
 /// What the host knows while decoding a response: the rules that depend on the command.

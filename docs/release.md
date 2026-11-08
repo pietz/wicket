@@ -22,11 +22,13 @@ Wicket ships as a notarized DMG on GitHub Releases, updates itself with Sparkle,
    .build/artifacts/sparkle/Sparkle/bin/generate_keys --account wicket
    ```
 
-   Back the private key up (`generate_keys --account wicket -x wicket-sparkle.key`, then into a password manager). Losing it means installed copies can never update again.
+   Back the private key up into the owner's password manager as a secure attachment named **Wicket Sparkle EdDSA private key**, with the account `wicket` and public key noted beside it. Export with `generate_keys --account wicket -x <private path outside the checkout>`, using a private folder with restricted permissions. Never commit the export or put it in a release asset. Keep any existing export until the owner confirms the backup, then remove the loose copy. The signing copy stays in the login keychain; `release.sh` reads it with `sign_update --account wicket`. Losing it means installed copies can never update again.
 
 3. **Repositories.** The source repo `pietz/wicket` must be public: the DMG is a release asset and the appcast is read from `main`. Create the tap `pietz/homebrew-wicket` with one folder, `Casks/`, and check it out next to this repo (`../homebrew-wicket`).
 
 ## Cutting a release
+
+Run `Scripts/check.sh` first. Signing and notarization need the owner's unlocked macOS login session and accessible login keychain; do not start a release while the session is locked or from an unattended locked-session run. Unlock and retry from that session if Keychain access stalls. `WICKET_SIGN_IDENTITY` can override the identity used by `build-app.sh`; `release.sh` still selects the team's Developer ID identity to sign the DMG.
 
 ```sh
 Scripts/release.sh 0.0.2

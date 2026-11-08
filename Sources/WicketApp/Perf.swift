@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Performance logging. Read with:
-/// `log stream --predicate 'subsystem == "app.wicket" && category == "perf"'`
+/// `/usr/bin/log stream --predicate 'subsystem == "app.wicket" && category == "perf"'`
 enum Perf {
     static let logger = Logger(subsystem: "app.wicket", category: "perf")
 

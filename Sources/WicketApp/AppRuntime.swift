@@ -2,6 +2,8 @@ import AppKit
 import WicketCore
 import WicketHost
 
+// Composes the app, applies settings snapshots and keeps commands, windows and OS services in sync.
+
 /// What the runtime drives in the palette window: `PaletteController`, a fake in tests.
 @MainActor
 protocol PaletteSurface: AnyObject {

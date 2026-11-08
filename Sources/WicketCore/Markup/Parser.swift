@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+// The tolerant markup entry point: scan tags, build catalog components and report issues for lint.
+
 extension Markup {
     /// What a parse needs to know besides the text.
     public struct Context: Sendable {
@@ -35,7 +37,7 @@ extension Markup {
     }
 
     /// Parses markup into a document. Never fails: what isn't valid shows as text. Keep one parser
-    /// for a text that grows (a streaming answer), so a re-parse reuses the markdown it already parsed
+    /// for a reply that grows by whole messages, so a re-parse reuses the markdown it already parsed
     /// and costs only what changed.
     public struct Parser: Sendable {
         public var context: Context

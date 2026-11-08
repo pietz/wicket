@@ -1,5 +1,7 @@
 import Foundation
 
+// Derived file/link actions and safe link following for content supplied by agents or extensions.
+
 extension Item.Action {
     /// The usual actions for something on disk: open it, show it in Finder, copy its path.
     public static func forFile(_ url: URL) -> [Item.Action] {

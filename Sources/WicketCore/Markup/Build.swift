@@ -1,5 +1,7 @@
 import Foundation
 
+// The validated construction context shared by markup components when building document nodes.
+
 extension Markup {
     /// What a component's `make` gets: the element being built, its validated attributes, and the
     /// shared machinery for its content and its rows. Only attributes its tag declares can be read.
