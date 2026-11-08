@@ -1,4 +1,3 @@
-import ApplicationServices
 import SwiftUI
 import WicketCore
 import WicketHost
@@ -18,7 +17,6 @@ struct AIPane: View {
     @State private var levels: [AgentProvider: AgentPermission] = [:]
     @State private var checking = false
     @State private var error: String?
-    @State private var textAccess = AXIsProcessTrusted()
     @State private var finderAccess: ContextCapture.FinderAccess?
 
     var body: some View {
@@ -50,17 +48,6 @@ struct AIPane: View {
                 .foregroundStyle(.secondary)
             }
             Section {
-                LabeledContent("Selected text") {
-                    if textAccess {
-                        allowed
-                    } else {
-                        Button("Allow…") {
-                            // `kAXTrustedCheckOptionPrompt`'s value: the constant is a global var.
-                            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                            textAccess = AXIsProcessTrustedWithOptions(options)
-                        }
-                    }
-                }
                 LabeledContent("Files selected in Finder") {
                     switch finderAccess {
                     case .granted: allowed
@@ -73,12 +60,12 @@ struct AIPane: View {
                     }
                 }
             } header: {
-                Text("Selection")
+                Text("Finder")
             } footer: {
                 Text(
-                    "Run Agent also sees what you had selected when you opened Wicket, shown at the end of "
-                        + "the bar. Press Delete in the empty field to leave it out. Selected text needs "
-                        + "Accessibility; Finder's selection needs permission to control Finder."
+                    "Opened from Finder, Run Agent works in the folder of the files you had selected and "
+                        + "knows which they are, shown at the end of the bar. Press Delete in the empty "
+                        + "field to leave them out. This needs permission to control Finder."
                 )
                 .foregroundStyle(.secondary)
             }
@@ -303,7 +290,6 @@ struct AIPane: View {
     private func check() async {
         checking = true
         defer { checking = false }
-        textAccess = AXIsProcessTrusted()
         await checkFinder(ask: false)
         await withTaskGroup(of: AgentStatus.self) { group in
             for provider in AgentProvider.allCases {

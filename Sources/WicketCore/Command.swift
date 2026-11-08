@@ -70,7 +70,7 @@ public struct Invocation: Hashable, Sendable {
     /// command's active revision when the run started (`CommandRun`). The run fails, rather than
     /// run other code, if that revision is no longer active. Nil runs whatever is active.
     public var revision: ExtensionRevision?
-    /// What the user had selected when they summoned the palette, for a command that uses it
+    /// The files selected in Finder when the user summoned the palette, for a command that uses it
     /// (`RegisteredCommand.usesContext`): the session stamps it when the run starts. Nil for any
     /// other command, and when nothing was selected or the user dismissed it.
     public var context: SummonContext?

@@ -3,44 +3,30 @@ import Testing
 
 @testable import WicketCore
 
-// What the user had selected at summon: the value, and how the session hands it to the commands
-// that use it (Run Agent) and to no other.
+// The Finder selection at summon: the value, and how the session hands it to the commands that use
+// it (Run Agent) and to no other.
 
 @Test func nothingSelectedIsNoContext() {
-    #expect(SummonContext(app: "Mail") == nil)
-    #expect(SummonContext(app: "Mail", text: " \n\t ") == nil)
-    #expect(SummonContext(app: "Mail", text: "", files: []) == nil)
+    #expect(SummonContext(files: []) == nil)
 }
 
-@Test func theSummarySaysWhereFromAndHowMuch() throws {
-    #expect(
-        try #require(SummonContext(app: "Mail", text: "Dear Anna,\nthanks  again")).summary
-            == "Mail · 4 words")
-    #expect(try #require(SummonContext(app: "Notes", text: "hello")).summary == "Notes · 1 word")
+@Test func theSummarySaysHowMany() throws {
     let files = ["a.pdf", "b.png", "c"].map { URL(filePath: "/tmp/\($0)") }
-    #expect(try #require(SummonContext(app: "Finder", files: files)).summary == "Finder · 3 items")
-    #expect(try #require(SummonContext(app: "Finder", files: [files[0]])).summary == "Finder · 1 item")
+    #expect(try #require(SummonContext(files: files)).summary == "Finder · 3 items")
+    #expect(try #require(SummonContext(files: [files[0]])).summary == "Finder · 1 item")
 }
 
-@Test func aLongSelectionIsCut() throws {
-    let context = try #require(SummonContext(app: "Safari", text: String(repeating: "a", count: 50_000)))
-    #expect(context.text?.count == SummonContext.textLimit)
-}
-
-@Test func thePromptBlockIsTaggedAndHoldsTheSelection() throws {
-    let text = try #require(SummonContext(app: "Mail", text: "Guten Tag"))
+@Test func thePromptBlockIsTaggedAndHoldsTheFiles() throws {
+    let files = try #require(SummonContext(files: [URL(filePath: "/Users/me/a b.pdf")]))
     #expect(
-        text.promptBlock == """
+        files.promptBlock == """
             <context>
-            The user asked this from Mail, with this selected:
-            <selected_text>
-            Guten Tag
-            </selected_text>
+            The user asked this from Finder, with these selected:
+            <selected_files>
+            /Users/me/a b.pdf
+            </selected_files>
             </context>
             """)
-    let files = try #require(SummonContext(app: "Finder", files: [URL(filePath: "/Users/me/a b.pdf")]))
-    #expect(files.promptBlock.contains("<selected_files>\n/Users/me/a b.pdf\n</selected_files>"))
-    #expect(!files.promptBlock.contains("selected_text"))
 }
 
 /// Records each run and never answers.
@@ -64,7 +50,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     return condition()
 }
 
-private let mail = SummonContext(app: "Mail", bundleID: "com.apple.mail", text: "Dear Anna")!
+private let mail = SummonContext(files: [URL(filePath: "/Users/me/Letters/anna.txt")])!
 private let echo = RegisteredCommand(id: .extension("echo", "say"), title: "Say", icon: .symbol(name: "text"))
 
 @MainActor

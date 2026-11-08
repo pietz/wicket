@@ -197,7 +197,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         model.focusToken += 1
     }
 
-    /// The app the user came from, where a paste types, and what they had selected there (the
+    /// The app the user came from, where a paste types, and the files selected there in Finder (the
     /// session's context, captured off the main actor).
     private func capturePreviousApp() {
         previousApp = Self.frontmostApp()

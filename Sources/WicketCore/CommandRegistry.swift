@@ -30,7 +30,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// An extension command's: the active revision it was registered from, which a run of it binds
     /// to when it starts (`CommandRun`). Nil for built-ins.
     public var revision: ExtensionRevision?
-    /// Whether its runs get what the user had selected at summon (`Invocation.context`): Run Agent.
+    /// Whether its runs get the Finder selection at summon (`Invocation.context`): Run Agent.
     /// Any other command never sees it.
     public var usesContext: Bool
 

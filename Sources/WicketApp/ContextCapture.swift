@@ -1,64 +1,28 @@
 import AppKit
-import ApplicationServices
 import WicketCore
 
-/// Captures what the user had selected in the app they summoned Wicket from (`SummonContext`): the
-/// files selected in Finder, else the text selected in the app's focused element. It starts once the
-/// palette is on screen, so it costs hotkey-to-visible nothing, and runs off the main actor.
+/// Captures the files the user had selected in Finder when they summoned Wicket (`SummonContext`),
+/// for Run Agent's folder. It starts once the palette is on screen, so it costs hotkey-to-visible
+/// nothing, and runs off the main actor.
 ///
-/// It never asks for a permission: selected text needs Accessibility, read only if Wicket is already
-/// trusted (Paste asks for it, or Settings ▸ AI); Finder's selection needs Automation of Finder, sent
-/// only if already granted (Settings ▸ AI asks). Each call to the other app is bounded by
-/// `timeout`, and the session waits for the whole capture at most 300 ms anyway. The clipboard is
-/// never read: macOS alerts the user when an app does. Nothing captured is logged, only timings.
+/// It never asks for a permission: Finder's selection needs Automation of Finder, and the Apple event
+/// is sent so that it fails rather than prompts unless that was granted (Settings ▸ AI asks). The
+/// event is bounded by `timeout`, and the session waits for the capture at most 300 ms anyway.
+/// Nothing captured is logged, only timings.
 enum ContextCapture {
-    /// How long one Accessibility or Apple event call may take before it is given up.
+    /// How long the Apple event may take before it is given up.
     static let timeout: Float = 0.15
 
-    /// Starts capturing from `app`, the app frontmost at summon; nil when there is none.
+    /// Starts capturing from `app`, the app frontmost at summon; nil unless it is Finder.
     static func start(from app: RunningApp?) -> Task<SummonContext?, Never>? {
-        guard let app else { return nil }
+        guard app?.bundleID == finderID else { return nil }
         return Task.detached {
             let start = ContinuousClock.now
-            let context = capture(from: app)
+            let context = SummonContext(files: finderSelection())
             Perf.log(
                 "context captured in \(Perf.ms(since: start)): \(context == nil ? "nothing" : "something")")
             return context
         }
-    }
-
-    private static func capture(from app: RunningApp) -> SummonContext? {
-        let name = app.name ?? "the app"
-        if app.bundleID == finderID {
-            return SummonContext(app: name, bundleID: app.bundleID, files: finderSelection())
-        }
-        guard AXIsProcessTrusted() else { return nil }
-        return SummonContext(app: name, bundleID: app.bundleID, text: selectedText(in: app.processID))
-    }
-
-    // MARK: Selected text
-
-    /// The text selected in the focused element of the app with `pid`; nil if it has none, or the
-    /// app doesn't answer within the timeout.
-    private static func selectedText(in pid: Int32) -> String? {
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, timeout)
-        // Chromium and Electron apps (Slack, VS Code, T3 Code) expose their text only once a client
-        // asks for it; native apps ignore the attribute. The first summon in such an app may still
-        // find nothing while it builds its tree.
-        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-        guard let focused = attribute(kAXFocusedUIElementAttribute, of: app),
-            CFGetTypeID(focused) == AXUIElementGetTypeID()
-        else { return nil }
-        let element = focused as! AXUIElement  // checked by the type id above
-        AXUIElementSetMessagingTimeout(element, timeout)
-        return attribute(kAXSelectedTextAttribute, of: element) as? String
-    }
-
-    private static func attribute(_ name: String, of element: AXUIElement) -> CFTypeRef? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-        return value
     }
 
     // MARK: Finder

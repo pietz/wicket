@@ -343,10 +343,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(agents.runs.count == 1)
 }
 
-@MainActor @Test func whatWasSelectedFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
+@MainActor @Test func theFinderSelectionFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
     let agents = FakeAgents([.codex: .ready])
     let runner = AgentRunner(answers: AnswerStream(backend: agents.backend, interval: .zero))
-    let context = try #require(SummonContext(app: "Mail", text: "Dear Anna, thanks again."))
+    let context = try #require(SummonContext(files: [URL(filePath: "/Users/me/Letters/anna.txt")]))
     var shown: [RunResult] = []
     let stream = runner.run(
         Invocation(command: runAgent.id, text: "translate this to German", context: context), retry: .never)
@@ -441,12 +441,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let file = folder.appending(path: "a.txt")
     try Data().write(to: file)
     #expect(
-        AgentRunner.folder(for: SummonContext(app: "Finder", files: [file]))
+        AgentRunner.folder(for: SummonContext(files: [file]))
             == file.deletingLastPathComponent())
-    #expect(AgentRunner.folder(for: SummonContext(app: "Finder", files: [folder])) == folder)
-    #expect(
-        AgentRunner.folder(for: SummonContext(app: "Mail", text: "hi"))
-            == FileManager.default.homeDirectoryForCurrentUser)
+    #expect(AgentRunner.folder(for: SummonContext(files: [folder])) == folder)
+    #expect(AgentRunner.folder(for: nil) == FileManager.default.homeDirectoryForCurrentUser)
 
     let agents = FakeAgents([.codex: .loggedOut, .claude: .ready])
     let palette = Palette(agents.backend)

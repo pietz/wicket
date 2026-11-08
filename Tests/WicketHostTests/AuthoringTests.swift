@@ -280,7 +280,7 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
     for try await result in runner.run(
         Invocation(
             command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
-            context: SummonContext(app: "Finder", files: [root])), retry: .never)
+            context: SummonContext(files: [root])), retry: .never)
     {
         if case .show(.detail(let detail), _) = result { last = detail }
     }
@@ -324,7 +324,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     for try await result in runner.run(
         Invocation(
             command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
-            context: SummonContext(app: "Finder", files: [root])), retry: .never)
+            context: SummonContext(files: [root])), retry: .never)
     {
         if case .show(.detail(let detail), _) = result { last = detail }
     }

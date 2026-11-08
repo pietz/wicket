@@ -782,8 +782,8 @@ private struct MicButton: View {
     }
 }
 
-/// What was captured from the app the user came from (`SummonContext.summary`), at the pill's end:
-/// "Mail · 42 words". Backspace in an empty field dismisses it.
+/// The Finder selection Run Agent will get (`SummonContext.summary`), at the pill's end:
+/// "Finder · 3 items". Backspace in an empty field dismisses it.
 private struct ContextChip: View {
     let text: String
 
@@ -796,7 +796,7 @@ private struct ContextChip: View {
             .padding(.vertical, 3)
             .background(.quaternary, in: .capsule)
             .fixedSize()
-            .help("The agent sees this selection. Press Delete in an empty field to leave it out.")
+            .help("The agent works in these files' folder. Press Delete in an empty field to leave them out.")
             .accessibilityLabel("Context: \(text)")
     }
 }

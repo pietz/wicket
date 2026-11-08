@@ -29,7 +29,7 @@ public final class PaletteSession {
     public var opening: CommandRun? {
         if case .screen(let screen) = openingFrame?.content { screen.run } else { nil }
     }
-    /// What the user had selected in the app they came from, once captured (`captureContext`): the
+    /// The files selected in Finder when the user came from it, once captured (`captureContext`): the
     /// pill's chip. Nil while capturing, when nothing was selected, and once dismissed.
     public private(set) var context: SummonContext?
     /// Asks the app to close the palette (a command answered `close`).
