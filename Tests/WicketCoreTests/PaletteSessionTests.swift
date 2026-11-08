@@ -94,7 +94,7 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
 @MainActor @Test func backPopsAFrameWhateverItsText() {
     let session = PaletteSession(sources: [FakeSource("apps", instant: ["a": [item("A")]])])
     session.query = "a"
-    session.push(page)
+    session.push(page, from: .host)
     session.query = "typed"
     #expect(session.back())
     // The root search comes back as it was.
@@ -107,7 +107,7 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
 
 @MainActor @Test func aPushedFrameIsNeverCompact() {
     let session = PaletteSession(sources: [])
-    session.push(page)
+    session.push(page, from: .host)
     #expect(session.query.isEmpty)
     #expect(!session.top.isCompact)
     #expect(session.top.list == nil)
@@ -117,7 +117,7 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     let files = FakeSource("files", slow: true)
     let session = PaletteSession(sources: [files])
     session.query = "a"
-    session.push(page)
+    session.push(page, from: .host)
     files.streams["a"]?.yield([item("File")])
     #expect(await eventually { session.frames[0].list?.items.map(\.title) == ["File"] })
     #expect(!files.wasTerminated("a"))
@@ -127,7 +127,7 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     let files = FakeSource("files", slow: true)
     let session = PaletteSession(sources: [files])
     session.query = "a"
-    session.push(page)
+    session.push(page, from: .host)
     session.reset()
     #expect(session.frames.count == 1)
     #expect(session.query.isEmpty)
@@ -145,7 +145,7 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     ])
     session.query = "a"
     session.moveSelection(by: 1)
-    session.push(page)
+    session.push(page, from: .host)
     session.moveSelection(by: -1)
     session.back()
     #expect(session.top.list?.selectedItem?.title == "B")
@@ -162,8 +162,20 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
 }
 
 @Test func detailsActOnTheirOwnActions() {
-    #expect(ActionTarget(detail: page).actions == [.copy(text: "x")])
-    #expect(ActionTarget(detail: page).item == nil)
+    #expect(ActionTarget(detail: page, in: .host).actions == [.copy(text: "x")])
+    #expect(ActionTarget(detail: page, in: .host).item == nil)
     // Without actions, Return copies the markdown.
-    #expect(ActionTarget(detail: Detail(markdown: "# Hi")).actions == [.copy(text: "# Hi")])
+    #expect(ActionTarget(detail: Detail(markdown: "# Hi"), in: .host).actions == [.copy(text: "# Hi")])
+}
+
+/// ⌘↩ is the screen's first action when it has any, else the second action as before.
+@Test func theSecondaryChordPrefersTheScreensAction() {
+    let row = Item(
+        id: "a", title: "A", icon: .symbol(name: "doc"), actions: [.copy(text: "1"), .copy(text: "2")])
+    #expect(ActionTarget(item: row, in: .host).secondary == .action(1))
+    let followUp = Item.Action.copy(text: "follow", title: "Follow Up")
+    let target = ActionTarget(item: row, in: ScreenContext(authority: .agent, actions: [followUp]))
+    #expect(target.secondary == .screen(0))
+    #expect(target.action(at: .screen(0))! == (followUp, .host))
+    #expect(target.action(at: .action(1))! == (.copy(text: "2"), .agent))
 }

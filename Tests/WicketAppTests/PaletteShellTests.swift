@@ -32,7 +32,7 @@ struct PaletteShellTests {
         #expect(model.target == nil)
         #expect(!model.canGoBack)
         model.query = ""
-        model.session.push(Detail(title: "Page", markdown: "Text"))
+        model.session.push(Detail(title: "Page", markdown: "Text"), from: .host)
         #expect(model.canGoBack)
     }
 

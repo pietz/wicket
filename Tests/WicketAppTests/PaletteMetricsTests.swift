@@ -77,7 +77,7 @@ struct PaletteMetricsTests {
     @Test func actionMenuNeedsRoom() {
         let actions: [Item.Action] = (0..<5).map { .copy(text: "\($0)") }
         let frame = search([item("a", actions: actions)])
-        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0]), pasteTarget: nil)
+        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host), pasteTarget: nil)
         let panel = ActionPanel.height(rows: 5) + ActionPanel.clearance
         #expect(card(frame, menu: menu) == panel.rounded(.up))
         #expect(card(frame, menu: menu)! > card(frame)!)
@@ -91,7 +91,7 @@ struct PaletteMetricsTests {
     @Test func longActionMenuFitsTheCard() {
         let actions: [Item.Action] = (0..<40).map { .copy(text: "\($0)") }
         let frame = search([item("a", actions: actions)])
-        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0]), pasteTarget: nil)
+        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host), pasteTarget: nil)
         #expect(ActionPanel.maxRows > 5 && ActionPanel.maxRows < 40)
         #expect(ActionPanel.height(rows: 40) == ActionPanel.height(rows: ActionPanel.maxRows))
         #expect(ActionPanel.height(rows: 40) + ActionPanel.clearance <= PaletteMetrics.maxCardHeight)
@@ -102,7 +102,7 @@ struct PaletteMetricsTests {
     }
 
     @Test func detailFitsItsMeasuredContent() {
-        session.push(Detail(title: "Page", markdown: "# Page", actions: []))
+        session.push(Detail(title: "Page", markdown: "# Page", actions: []), from: .host)
         #expect(card(session.top) == nil)  // Not laid out yet: keep the card.
         #expect(card(session.top, detail: 200) == 235)
         #expect(card(session.top, detail: 2000) == PaletteMetrics.maxCardHeight)

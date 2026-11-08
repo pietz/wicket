@@ -84,7 +84,7 @@ private func finalDetail(
     for try await result in runner.run(
         Invocation(command: .runAgent, text: question, args: args), retry: .never)
     {
-        if case .show(.detail(let detail)) = result { last = detail }
+        if case .show(.detail(let detail), _) = result { last = detail }
     }
     return last
 }
@@ -278,7 +278,7 @@ private func finalDetail(
     for try await result in runner.run(
         Invocation(command: .reviewExtension, args: ["id": .string("broken")]), retry: .never)
     {
-        if case .show(.detail(let detail)) = result { last = detail }
+        if case .show(.detail(let detail), _) = result { last = detail }
     }
     let detail = try #require(last)
     #expect(!detail.actions.contains { $0.title == "Enable" })
@@ -317,7 +317,7 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
             command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
             context: SummonContext(app: "Finder", files: [root])), retry: .never)
     {
-        if case .show(.detail(let detail)) = result { last = detail }
+        if case .show(.detail(let detail), _) = result { last = detail }
     }
     let detail = try #require(last)
     print("ANSWER:\n\(detail.markdown)\nACTIONS: \(detail.actions.compactMap(\.title))")
@@ -332,7 +332,7 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
     for try await result in consent.run(
         Invocation(command: .reviewExtension, args: ["id": .string(id)]), retry: .never)
     {
-        if case .show(.detail(let detail)) = result { page = detail }
+        if case .show(.detail(let detail), _) = result { page = detail }
     }
     print("REVIEW:\n\(page?.markdown ?? "-")\nACTIONS: \(page?.actions.compactMap(\.title) ?? [])")
     #expect(page?.actions.first?.title == "Enable")
@@ -361,7 +361,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
             command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
             context: SummonContext(app: "Finder", files: [root])), retry: .never)
     {
-        if case .show(.detail(let detail)) = result { last = detail }
+        if case .show(.detail(let detail), _) = result { last = detail }
     }
     let detail = try #require(last)
     print("ANSWER:\n\(detail.markdown)\nACTIONS: \(detail.actions.compactMap(\.title))")
@@ -376,7 +376,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     for try await result in consent.run(
         Invocation(command: .reviewExtension, args: ["id": .string(id)]), retry: .never)
     {
-        if case .show(.detail(let detail)) = result { page = detail }
+        if case .show(.detail(let detail), _) = result { page = detail }
     }
     print("REVIEW:\n\(page?.markdown ?? "-")\nACTIONS: \(page?.actions.compactMap(\.title) ?? [])")
     #expect(page?.actions.first?.title == "Enable")

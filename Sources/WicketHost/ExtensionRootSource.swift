@@ -79,7 +79,7 @@ public final class ExtensionRootSource: ResultSource {
     /// What a root command adds: its answer, or the first `itemLimit` items of its list. Decoding
     /// already refused any other result for a root command.
     static func items(of result: RunResult) -> [Item] {
-        guard case .show(let screen) = result, let items = screen.items else { return [] }
+        guard case .show(let screen, _) = result, let items = screen.items else { return [] }
         return Array(items.prefix(itemLimit))
     }
 }

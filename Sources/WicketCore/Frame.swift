@@ -40,10 +40,19 @@ public struct Frame: Identifiable, Sendable {
     /// has none: the copy a finished one gets would take a status, such as "Asking…", or half a page.
     public var target: ActionTarget? {
         switch content {
-        case .search(let results): return results.selectedItem.map(ActionTarget.init(item:))
+        case .search(let results): return results.selectedItem.map { target(for: $0) }
         case .screen(let screen):
             if isLoading, case .detail(let detail) = screen.screen, detail.actions.isEmpty { return nil }
             return screen.target(query: query)
+        }
+    }
+
+    /// What clicking `item` (or ⌘1 to ⌘9 on it) acts on: its actions under the frame's authority,
+    /// with the screen's own actions beside them.
+    public func target(for item: Item) -> ActionTarget {
+        switch content {
+        case .search: ActionTarget(item: item, in: .host)
+        case .screen(let screen): ActionTarget(item: item, in: screen.context)
         }
     }
 
@@ -98,6 +107,9 @@ public struct ScreenFrame: Sendable {
     public private(set) var run: CommandRun?
     /// The latest content; nil until a command's first arrives.
     public private(set) var screen: Screen?
+    /// Who made `screen` and the host's actions for it; a pushed page has the authority of the
+    /// screen that pushed it.
+    public private(set) var context = ScreenContext.host
     /// The screen's rows (a list's filtered, for a once command) with the selection.
     public private(set) var list: ItemList?
     /// A once command's list as sent and its search index, for filtering.
@@ -112,9 +124,9 @@ public struct ScreenFrame: Sendable {
     }
 
     /// A pushed page, with no run behind it.
-    init(showing screen: Screen) {
+    init(showing screen: Screen, _ context: ScreenContext) {
         run = nil
-        show(screen, text: "")
+        show(screen, context, text: "")
     }
 
     var isLive: Bool { run?.command.input == .liveText }
@@ -139,14 +151,16 @@ public struct ScreenFrame: Sendable {
                     revision: invocation.revision)
             ])
         }
-        return screen?.target ?? list?.selectedItem.map(ActionTarget.init(item:))
+        if case .detail(let detail) = screen { return ActionTarget(detail: detail, in: context) }
+        return list?.selectedItem.map { ActionTarget(item: $0, in: context) }
     }
 
     /// Replaces the content with `screen`, which answers `text` (the frame's query when it arrived).
     /// Only a list is filtered and keeps its selection by the text; any other rows replace the
     /// list's, following the selected item.
-    mutating func show(_ screen: Screen, text: String) {
+    mutating func show(_ screen: Screen, _ context: ScreenContext, text: String) {
         self.screen = screen
+        self.context = context
         guard let rows = screen.items else {
             list = nil
             return
@@ -194,27 +208,53 @@ public struct ScreenFrame: Sendable {
     }
 }
 
-/// What Return, ⌘↩ and ⌘K act on: the selected item's actions, or a detail's own.
+/// What Return, ⌘↩ and ⌘K act on: the selected item's actions, or a detail's own, under the
+/// authority of the screen they're on, and the screen's own actions (the host's, for the whole
+/// screen: Follow Up, Copy Answer), which run as the host.
 public struct ActionTarget: Sendable, Hashable {
     /// The first is the primary one, run by Return.
     public var actions: [Item.Action]
     /// The item the actions belong to, whose use is recorded; nil for a detail's actions.
     public var item: Item?
+    /// Who sent `actions`, which decides what activating one does (`ActionPolicy`).
+    public var authority: Authority
+    /// The screen's own actions, the host's; the action panel shows them as a group of their own.
+    public var screen: [Item.Action]
 
-    public init(item: Item) {
-        actions = item.actions
+    /// An action of the target: one of its `actions`, or one of the screen's.
+    public enum Position: Sendable, Hashable {
+        case action(Int)
+        case screen(Int)
+    }
+
+    public init(item: Item, in context: ScreenContext) {
+        self.init(actions: item.actions, in: context)
         self.item = item
     }
 
     /// Actions that belong to no item, such as submitting a frame's text.
-    public init(actions: [Item.Action]) {
+    public init(actions: [Item.Action], in context: ScreenContext = .host) {
         self.actions = actions
         item = nil
+        authority = context.authority
+        screen = context.actions
     }
 
     /// A detail's actions; without any, Return copies the markdown (docs/extensions.md).
-    public init(detail: Detail) {
-        actions = detail.actions.isEmpty ? [.copy(text: detail.markdown)] : detail.actions
-        item = nil
+    public init(detail: Detail, in context: ScreenContext) {
+        self.init(
+            actions: detail.actions.isEmpty ? [.copy(text: detail.markdown)] : detail.actions, in: context)
+    }
+
+    /// What ⌘↩ runs: the screen's first action when it has any (Follow Up, on an agent's screen),
+    /// else the second action, as on every other screen.
+    public var secondary: Position { screen.isEmpty ? .action(1) : .screen(0) }
+
+    /// The action at `position` and the authority it runs under; nil if there is none.
+    public func action(at position: Position) -> (action: Item.Action, authority: Authority)? {
+        switch position {
+        case .action(let index): actions.indices.contains(index) ? (actions[index], authority) : nil
+        case .screen(let index): screen.indices.contains(index) ? (screen[index], .host) : nil
+        }
     }
 }

@@ -344,8 +344,8 @@ struct ResultsView: View {
                                     isSelected: index == model.selection, hint: hint(for: index)
                                 )
                                 .contentShape(Rectangle())
-                                .onTapGesture { onRun(ActionTarget(item: item), 0) }
-                                .accessibilityAction { onRun(ActionTarget(item: item), 0) }
+                                .onTapGesture { onRun(model.top.target(for: item), 0) }
+                                .accessibilityAction { onRun(model.top.target(for: item), 0) }
                             }
                         }
                         .padding(PaletteMetrics.rowInset)

@@ -202,7 +202,7 @@ func aDamagedFileMeansAuto(contents: String) throws {
     }
     var details: [Detail] = []
     for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt"), retry: .never) {
-        guard case .show(.detail(let detail)) = result else { continue }
+        guard case .show(.detail(let detail), _) = result else { continue }
         details.append(detail)
         if !detail.actions.isEmpty { break }
     }

@@ -83,3 +83,15 @@ public enum JSONValue: Codable, Sendable, Hashable {
         return "\(path.isEmpty ? "(top level)" : path): expected \(json), got \(actual.json)"
     }
 }
+
+/// Literals, for schemas and fixtures written in Swift.
+extension JSONValue: ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, ExpressibleByArrayLiteral,
+    ExpressibleByDictionaryLiteral
+{
+    public init(stringLiteral value: String) { self = .string(value) }
+    public init(booleanLiteral value: Bool) { self = .bool(value) }
+    public init(arrayLiteral elements: JSONValue...) { self = .array(elements) }
+    public init(dictionaryLiteral elements: (String, JSONValue)...) {
+        self = .object(Dictionary(elements, uniquingKeysWith: { _, last in last }))
+    }
+}

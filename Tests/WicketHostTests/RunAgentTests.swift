@@ -307,7 +307,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     }
     var shown: [String] = []
     for try await result in stream {
-        if case .show(.detail(let detail)) = result { shown.append(detail.markdown) }
+        if case .show(.detail(let detail), _) = result { shown.append(detail.markdown) }
     }
     try await feed.value
     // The status, the first text at once, then nothing until the interval is up: the answer ended it.
@@ -358,7 +358,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let prompt = try #require(agents.runs.first).request.prompt
     #expect(prompt == "translate this to German\n\n" + context.promptBlock)
     var title: String? {
-        guard case .show(.detail(let detail)) = shown.last else { return nil }
+        guard case .show(.detail(let detail), _) = shown.last else { return nil }
         return detail.title
     }
     #expect(await eventually { title == "translate this to German" })

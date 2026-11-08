@@ -20,6 +20,7 @@ private final class InertEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }
 
 /// A palette over copies of the named extensions, each approved as the user would from its review,
@@ -90,9 +91,10 @@ private struct Palette {
     }
 
     func perform(_ action: Item.Action) {
-        switch dispatcher.perform(action, in: ActionContext()) {
+        switch dispatcher.perform(action, as: .host, in: ActionContext()) {
         case .close: Issue.record("an action closed the palette")
-        case .push(let detail): session.push(detail)
+        case .push(let detail, let authority): session.push(detail, from: authority)
+        case .refused(let reason): Issue.record("refused: \(reason)")
         case .open(let run): session.open(run)
         }
     }

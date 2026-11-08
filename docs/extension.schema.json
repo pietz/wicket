@@ -133,17 +133,54 @@
     },
     "Item": {
       "type": "object",
-      "required": ["title"],
       "additionalProperties": false,
+      "anyOf": [{ "required": ["title"] }, { "required": ["file"] }, { "required": ["url"] }],
+      "not": { "required": ["file", "url"] },
       "properties": {
-        "id": { "type": "string", "minLength": 1, "description": "Unique within the response; defaults to the title." },
-        "title": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "description": "Unique within the response; defaults to the subject (a file's path, a link), else the title." },
+        "title": { "type": "string", "minLength": 1, "description": "Main text. Required unless the item has a subject (file or url), which names it otherwise." },
         "subtitle": { "type": "string" },
         "icon": { "$ref": "#/$defs/Icon" },
         "accessory": { "type": "string", "description": "Short text at the trailing edge." },
         "relevance": { "enum": ["answer", "match", "fallback"], "description": "Root mode only." },
-        "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } }
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The file or folder this row is: an absolute or ~/ path, or a file: URL. Wicket adds its name, folder, icon and actions (Open, Reveal in Finder, Copy Path). Not with url."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The link this row is (https:, mailto:, an app scheme). Wicket adds its host, path, icon and actions (Open, Copy Link). Not with file."
+        }
       }
+    },
+    "List": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [{ "required": ["items"] }, { "required": ["sections"] }],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "description": "Markdown shown above the rows: a sentence or two of context." },
+        "facts": { "type": "array", "items": { "$ref": "#/$defs/Fact" }, "description": "Labelled values shown under the summary, up to four beside the rows." },
+        "items": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Item" } },
+        "sections": { "type": "array", "items": { "$ref": "#/$defs/Section" }, "description": "Titled groups of rows, instead of items; up to 500 rows in all." }
+      }
+    },
+    "Section": {
+      "type": "object",
+      "required": ["title", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/Item" } }
+      }
+    },
+    "Fact": {
+      "type": "object",
+      "required": ["label", "value"],
+      "additionalProperties": false,
+      "properties": { "label": { "type": "string" }, "value": { "type": "string" } }
     },
     "Detail": {
       "type": "object",
@@ -152,15 +189,7 @@
       "properties": {
         "title": { "type": "string" },
         "markdown": { "type": "string" },
-        "metadata": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["label", "value"],
-            "additionalProperties": false,
-            "properties": { "label": { "type": "string" }, "value": { "type": "string" } }
-          }
-        },
+        "metadata": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
         "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } }
       }
     },
@@ -247,14 +276,7 @@
           "type": "object",
           "required": ["list"],
           "additionalProperties": false,
-          "properties": {
-            "list": {
-              "type": "object",
-              "required": ["items"],
-              "additionalProperties": false,
-              "properties": { "items": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Item" } } }
-            }
-          }
+          "properties": { "list": { "$ref": "#/$defs/List" } }
         },
         {
           "type": "object",

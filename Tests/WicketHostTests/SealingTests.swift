@@ -35,7 +35,7 @@ private func titled(_ title: String, id: String = "titled") throws -> TestExtens
 private func title(_ extensions: Extensions, _ id: String = "titled") async throws -> String? {
     let result = try await extensions.result(
         of: Invocation(command: .extension(id, "go")), retry: .safeToRepeat)
-    guard case .show(.answer(let item)) = result else { return nil }
+    guard case .show(.answer(let item), _) = result else { return nil }
     return item.title
 }
 

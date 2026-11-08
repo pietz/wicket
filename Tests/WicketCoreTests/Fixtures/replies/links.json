@@ -1,0 +1,16 @@
+{"reply": {"list": {
+  "summary": null,
+  "facts": null,
+  "items": [
+    {"title": null, "subtitle": null, "accessory": "2h", "file": null, "url": "https://github.com/acme/web/pull/12", "actions": null},
+    {"title": "Write to Sam", "subtitle": null, "accessory": null, "file": null, "url": "mailto:sam@example.com", "actions": null},
+    {"title": "Release notes", "subtitle": "Draft", "accessory": null, "file": null, "url": null, "actions": [
+      {"detail": {"title": "Release notes", "markdown": "## 0.0.6\n\n- Lists with sections", "metadata": null, "actions": [
+        {"copy": {"text": "0.0.6", "title": "Copy Version"}},
+        {"detail": {"title": "Older", "markdown": "## 0.0.5", "metadata": [{"label": "Date", "value": "Nov 8"}], "actions": null}}
+      ]}},
+      {"copy": {"text": "Lists with sections", "title": null}}
+    ]}
+  ],
+  "sections": null
+}}}

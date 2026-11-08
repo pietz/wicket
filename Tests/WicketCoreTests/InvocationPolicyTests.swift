@@ -26,6 +26,7 @@ private final class Effects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }
 
 @MainActor
@@ -79,7 +80,7 @@ private struct Palette {
     /// Return on the command's root row: the action its row carries.
     func row(_ id: CommandID) throws -> ActionOutcome {
         let item = try #require(registry.search("").first { $0.id == CommandRegistry.itemID(for: id) })
-        return dispatcher.perform(item.actions[0], in: ActionContext())
+        return dispatcher.perform(item.actions[0], as: .host, in: ActionContext())
     }
 
     /// A hotkey: `CommandHotkeys` resolves it to the command's id, which the controller dispatches
@@ -90,7 +91,7 @@ private struct Palette {
             [id: CommandBinding(hotkey: key)], palette: .default,
             isRegistered: { registry.command($0) != nil })
         let bound = try #require(resolved.hotkeys[key])
-        return dispatcher.perform(.run(command: bound), in: ActionContext())
+        return dispatcher.perform(.run(command: bound), as: .host, in: ActionContext())
     }
 
     /// `wicket run <folder> <command> [text]`: the CLI resolves the manifest command the same way.
@@ -214,7 +215,8 @@ private let find = CommandID.extension("todo", "find")
     let target = try #require(palette.session.top.target)
     #expect(target.actions == [asking("why is the sky blue?")])
     #expect(target.item == nil)
-    guard case .open(let run) = palette.dispatcher.perform(target.actions[0], in: ActionContext()) else {
+    guard case .open(let run) = palette.dispatcher.perform(target.actions[0], as: .host, in: ActionContext())
+    else {
         Issue.record("submitting didn't open a run")
         return
     }

@@ -70,7 +70,7 @@ private struct Harness {
     func title(_ id: String = "titled", bound revision: ExtensionRevision? = nil) async throws -> String? {
         let result = try await extensions.result(
             of: Invocation(command: .extension(id, "go"), revision: revision), retry: .safeToRepeat)
-        guard case .show(.answer(let item)) = result else { return nil }
+        guard case .show(.answer(let item), _) = result else { return nil }
         return item.title
     }
 
@@ -297,13 +297,14 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
 
 extension RunResult {
     fileprivate var detail: Detail? {
-        if case .show(.detail(let detail)) = self { detail } else { nil }
+        if case .show(.detail(let detail), _) = self { detail } else { nil }
     }
 }
 
 @MainActor
 private func list(_ runner: ExtensionsRunner) async throws -> [Item] {
-    guard case .show(.list(let items))? = try await results(runner, .extensions).first else { return [] }
+    guard case .show(.list(let listing), _)? = try await results(runner, .extensions).first else { return [] }
+    let items = listing.items
     return items
 }
 
@@ -337,10 +338,11 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     try await h.write("c2", "changed")
 
     let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
-    guard case .show(.list(let items))? = try await results(runner, .extensions).first else {
+    guard case .show(.list(let listing), _)? = try await results(runner, .extensions).first else {
         Issue.record("no list")
         return
     }
+    let items = listing.items
     #expect(
         items.map(\.id) == [
             "extensions:approved", "extensions:broken", "extensions:changed", "extensions:unapproved",
@@ -364,10 +366,11 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     try FileManager.default.removeItem(at: h.directory)
     await h.extensions.load().value
     let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
-    guard case .show(.list(let items))? = try await results(runner, .extensions).first else {
+    guard case .show(.list(let listing), _)? = try await results(runner, .extensions).first else {
         Issue.record("no list")
         return
     }
+    let items = listing.items
     #expect(items.map(\.title) == ["Open Extensions Folder"])
     #expect(items.first?.subtitle == "Or ask the AI for the command you want")
     guard case .open(let folder, "Open Extensions Folder")? = items.first?.actions.first else {
@@ -387,7 +390,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
 
     // No fixture: the check fails, and nothing offers Enable.
     let failing = try await results(runner, .reviewExtension, args: ["id": .string("failing")])
-    guard case .show(.detail(let failed))? = failing.last else {
+    guard case .show(.detail(let failed), _)? = failing.last else {
         Issue.record("no review")
         return
     }
@@ -396,7 +399,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
 
     let shown = try await results(runner, .reviewExtension, args: ["id": .string("titled")])
     #expect(shown.count == 2)  // "Checking…", then the report.
-    guard case .show(.detail(let review))? = shown.last,
+    guard case .show(.detail(let review), _)? = shown.last,
         case .run(.enableExtension, _, let args?, "Enable", _)? = review.actions.first
     else {
         Issue.record("no Enable action: \(shown)")
@@ -420,7 +423,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(h.approvals.approved("titled") == sealed.revision)
     #expect(h.extensions.commands.map(\.id) == [.extension("titled", "go")])
     guard
-        case .show(.detail(let again))? = try await results(
+        case .show(.detail(let again), _)? = try await results(
             runner, .reviewExtension, args: ["id": .string("titled")]
         ).last
     else { return }

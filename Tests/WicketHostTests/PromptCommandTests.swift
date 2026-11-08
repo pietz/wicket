@@ -30,7 +30,7 @@ private final class PromptBackend: Sendable {
 private func details(_ runner: any CommandRunner, _ invocation: Invocation) async throws -> [Detail] {
     var details: [Detail] = []
     for try await result in runner.run(invocation, retry: .never) {
-        if case .show(.detail(let detail)) = result { details.append(detail) }
+        if case .show(.detail(let detail), _) = result { details.append(detail) }
     }
     return details
 }

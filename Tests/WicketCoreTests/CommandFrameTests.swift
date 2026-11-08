@@ -305,7 +305,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     for word in ["Paris", " is", " the", " capital."] {
         markdown += word
         runner.runs[0].continuation.yield(.show(.detail(Detail(title: "Answer", markdown: markdown))))
-        #expect(await eventually { content(session)?.screen?.target?.actions == [.copy(text: markdown)] })
+        #expect(await eventually { content(session)?.target(query: "")?.actions == [.copy(text: markdown)] })
         frame = frame ?? session.top.id
         #expect(session.top.id == frame)
         #expect(session.top.isLoading)
@@ -383,7 +383,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.show(.list([row("PR 1", actions: [.copy(text: "1")])])))
     #expect(await eventually { session.top.list?.items.count == 1 })
-    session.push(Detail(title: "PR 1", markdown: "", actions: []))
+    session.push(Detail(title: "PR 1", markdown: "", actions: []), from: .host)
     #expect(session.frames.count == 3)
 
     #expect(!session.stopCommands { $0 == search.id })
@@ -415,7 +415,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 @MainActor @Test func aPushedPageAndACommandsPageAreTheSameScreen() async {
     let (session, runner, _) = session()
     let page = Detail(title: "PR 1", markdown: "Fix login", actions: [.copy(text: "1")])
-    session.push(page)
+    session.push(page, from: .host)
     let pushed = content(session)
     #expect(pushed?.run == nil)
     #expect(pushed?.screen == .detail(page))
@@ -447,7 +447,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     var (session, runner, requests) = session()
     session.messages.present = { requests.append("\($0.kind): \($0.text)") }
     let page = Detail(title: "PR 1", markdown: "Fix login")
-    session.push(page)
+    session.push(page, from: .host)
     let id = session.top.id
     let generation = session.top.generation
 
@@ -467,7 +467,7 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func stoppingCommandsLeavesAPushedPage() {
     let (session, _, _) = session()
-    session.push(Detail(markdown: "Not found"))
+    session.push(Detail(markdown: "Not found"), from: .host)
     #expect(!session.stopCommands { _ in true })
     #expect(session.frames.count == 2)
 }
@@ -502,7 +502,7 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(runner.runs[0].invocation.revision == revision("a"))
     runner.runs[0].continuation.yield(.show(.list([row("Heart")])))
     #expect(await eventually { titles(session) == ["Heart"] })
-    session.push(Detail(title: "Heart", markdown: "", actions: []))
+    session.push(Detail(title: "Heart", markdown: "", actions: []), from: .host)
 
     // Unchanged: nothing happens.
     #expect(!session.rebind { registry.command($0) })
@@ -579,4 +579,30 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(session.setSpokenQuery("what is uc heart"))
     #expect(session.query == "what is uc heart")
     #expect(session.frames.count == 3)
+}
+
+/// An agent's screen keeps its authority in its frame and passes it to the page it pushes, with
+/// the screen's own actions, so ⌘↩ is still Follow Up there.
+@MainActor
+@Test func aPushedPageKeepsAgentAuthority() async {
+    let (session, runner, _) = session()
+    let followUp = Item.Action.copy(text: "follow", title: "Follow Up")
+    let agent = ScreenContext(authority: .agent, actions: [followUp])
+    let row = Item(
+        id: "a", title: "A", icon: .symbol(name: "doc"), actions: [.open(url: URL(filePath: "/a.app"))])
+    session.open(CommandRun(reviews, .invoked))
+    #expect(await eventually { runner.runs.count == 1 })
+    runner.runs[0].continuation.yield(.show(.list([row]), agent))
+    #expect(await eventually { session.frames.count == 2 })
+    #expect(session.top.target?.authority == .agent)
+    #expect(session.top.target?.screen == [followUp])
+    #expect(session.top.target(for: row).authority == .agent)
+
+    session.push(Detail(markdown: "page"), from: .agent)
+    #expect(session.top.target?.authority == .agent)
+    #expect(session.top.target?.screen == [followUp])
+    #expect(session.top.target?.secondary == .screen(0))
+    // The root's rows are the host's.
+    session.reset()
+    #expect(session.top.target(for: row).authority == .host)
 }

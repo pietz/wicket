@@ -398,6 +398,7 @@ private final class Effects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }
 
 /// A hotkey resolves to a `CommandID`, which runs through the dispatcher like its row: every command
@@ -413,12 +414,12 @@ private final class Effects: ActionEffects {
         ], palette: .default, isRegistered: { registry.command($0) != nil })
     let settings = try #require(hotkeys[shortcut("ctrl+opt+,")])
     #expect(
-        dispatcher.perform(.run(command: settings), in: ActionContext())
+        dispatcher.perform(.run(command: settings), as: .host, in: ActionContext())
             == .open(CommandRun(.settings, .invoked)))
     #expect(effects.calls.isEmpty)
 
     let search = try #require(hotkeys[shortcut("ctrl+opt+g")])
-    let outcome = dispatcher.perform(.run(command: search), in: ActionContext())
+    let outcome = dispatcher.perform(.run(command: search), as: .host, in: ActionContext())
     #expect(
         outcome
             == .open(CommandRun(github, .invoked)))

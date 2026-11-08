@@ -48,6 +48,7 @@ private struct NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }
 
 /// The review's gap: Return on a listed command's row, without args, was classed as a query and
@@ -72,7 +73,7 @@ private struct NoEffects: ActionEffects {
     func row(_ name: String) throws -> CommandRun {
         let id = CommandID.extension(manifest.id, name)
         let item = try #require(registry.search("").first { $0.id == CommandRegistry.itemID(for: id) })
-        guard case .open(let run) = dispatcher.perform(item.actions[0], in: ActionContext()) else {
+        guard case .open(let run) = dispatcher.perform(item.actions[0], as: .host, in: ActionContext()) else {
             throw HostError.unknownCommand
         }
         return run

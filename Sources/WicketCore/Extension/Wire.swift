@@ -1,6 +1,6 @@
 import Foundation
 
-// Strict decoding of what extensions send (docs/extensions.md). Unknown fields are rejected and
+// Strict decoding of what extensions and agents send (docs/extensions.md, AgentOutput.swift). Unknown fields are rejected and
 // every rule failure is a `DecodingError` with the path to the offending value, so `describe`
 // can tell an agent exactly what to fix.
 
@@ -15,8 +15,11 @@ public struct WireContext: Sendable {
     /// The command the response answers: stamped on its items, namespacing their ids, and the
     /// extension `run` actions resolve against. Nil decodes items as sent and rejects `run`.
     public var origin: CommandID?
-    /// The revision of the extension that sent the response, stamped on its `run` actions.
-    public var revision: ExtensionRevision?
+    /// Who sent the response, which decides the results and actions it may hold (`ActionPolicy`);
+    /// an extension's revision is stamped on its `run` actions.
+    public var authority: Authority
+    /// Where `~/` paths lead.
+    public var home = FileManager.default.homeDirectoryForCurrentUser
 
     public init(
         mode: Manifest.Command.Mode? = nil, icon: Item.Icon? = nil, commands: Set<String>? = nil,
@@ -26,7 +29,18 @@ public struct WireContext: Sendable {
         self.icon = icon
         self.commands = commands
         self.origin = origin
-        self.revision = revision
+        authority = .extension(revision)
+    }
+
+    /// An agent's reply, its items stamped with `origin`.
+    public static func agent(origin: CommandID) -> WireContext {
+        var context = WireContext(origin: origin)
+        context.authority = .agent
+        return context
+    }
+
+    var revision: ExtensionRevision? {
+        if case .extension(let revision) = authority { revision } else { nil }
     }
 
     public init(command id: String, in manifest: Manifest, revision: ExtensionRevision? = nil) {

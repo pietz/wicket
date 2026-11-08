@@ -192,8 +192,8 @@ private func actingExtension() throws -> TestExtension {
     func act() async throws -> Invocation {
         let list = try await extensions.result(
             of: Invocation(command: .extension("acting", "go")), retry: .never)
-        guard case .show(.list(let items)) = list, let action = items.first?.actions.first,
-            case .open(let run) = dispatcher.perform(action, in: ActionContext())
+        guard case .show(.list(let listing), _) = list, let action = listing.items.first?.actions.first,
+            case .open(let run) = dispatcher.perform(action, as: .host, in: ActionContext())
         else { throw HostError.unknownCommand }
         return run.invocation
     }
@@ -229,4 +229,5 @@ private final class NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }

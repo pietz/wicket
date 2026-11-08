@@ -42,6 +42,22 @@ public struct Item: Sendable, Hashable, Identifiable {
             command: CommandID, text: String = "", args: [String: JSONValue]? = nil, title: String? = nil,
             revision: ExtensionRevision? = nil)
 
+        /// What an action does, without its data: the vocabulary `ActionPolicy` speaks.
+        public enum Kind: String, Sendable, Hashable, CaseIterable {
+            case open, copy, paste, reveal, detail, run
+        }
+
+        public var kind: Kind {
+            switch self {
+            case .open: .open
+            case .copy: .copy
+            case .paste: .paste
+            case .reveal: .reveal
+            case .detail: .detail
+            case .run: .run
+            }
+        }
+
         /// The title the source gave, if any.
         public var title: String? {
             switch self {
@@ -98,10 +114,14 @@ public struct Item: Sendable, Hashable, Identifiable {
     /// response; for a fallback row, the command it runs.
     /// Nil for the host's other sources (apps, files, calculator, built-in commands).
     public var origin: CommandID?
+    /// The thing the row is about, from which the host derived what the producer left out (title,
+    /// subtitle, icon, id, actions) and derives the rest when drawing it (a file's date, Quick Look).
+    public var subject: Subject?
 
     public init(
         id: String, title: String, subtitle: String? = nil, icon: Icon, accessory: String? = nil,
-        relevance: Relevance = .match, score: Double = 0, actions: [Action], origin: CommandID? = nil
+        relevance: Relevance = .match, score: Double = 0, actions: [Action], origin: CommandID? = nil,
+        subject: Subject? = nil
     ) {
         self.id = id
         self.title = title
@@ -112,5 +132,6 @@ public struct Item: Sendable, Hashable, Identifiable {
         self.score = score
         self.actions = actions
         self.origin = origin
+        self.subject = subject
     }
 }

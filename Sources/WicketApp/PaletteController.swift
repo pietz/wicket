@@ -256,10 +256,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
         } else {
             capturePreviousApp()
         }
-        switch dispatcher.perform(.run(command: id), in: ActionContext(previousApp: previousApp)) {
+        switch dispatcher.perform(.run(command: id), as: .host, in: ActionContext(previousApp: previousApp)) {
         case .close: hide()
-        case .push(let detail):
-            model.session.push(detail)
+        case .refused(let reason): model.session.messages.post(Message(reason, kind: .failed))
+        case .push(let detail, let authority):
+            model.session.push(detail, from: authority)
             reveal()
         case .open(let run):
             model.session.open(run)
@@ -312,32 +313,34 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// outcome. Does nothing if there is no such action, so Return on a message row keeps the
     /// palette open, or while an action is still opening a command (one at a time).
     func run(_ target: ActionTarget?, action position: Int) {
-        guard model.session.opening == nil, let target, target.actions.indices.contains(position) else {
-            return
-        }
-        if let item = target.item { model.recordUse(of: item) }
-        perform(target.actions[position])
+        run(target, at: .action(position))
     }
 
-    /// A link clicked in a page (an answer, an extension's detail) becomes an Open or Reveal action
-    /// (`Item.Action.following`) and runs like one, so it closes the palette and reports a missing
-    /// file; any other link isn't followed.
+    func run(_ target: ActionTarget?, at position: ActionTarget.Position) {
+        guard model.session.opening == nil, let target, let (action, authority) = target.action(at: position)
+        else { return }
+        // An agent's rows are one reply's, so they don't teach the root search the user's habits.
+        if case .action = position, target.authority != .agent, let item = target.item {
+            model.recordUse(of: item)
+        }
+        perform(action, as: authority)
+    }
+
+    /// A link clicked in a page runs as an agent's Open (`ActionPolicy`), whoever drew the page: a
+    /// page's text is untrusted, so web, mail and file links open, what would run is revealed, any
+    /// other link isn't followed; it closes the palette and reports a missing file like a row's.
     func open(link url: URL) {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        guard let action = Item.Action.following(url, home: home, inspect: SystemEffects.inspect) else {
-            model.session.messages.post(Message("Wicket opens only web, mail and file links", kind: .failed))
-            return
-        }
-        perform(action)
+        perform(.open(url: url), as: .agent)
     }
 
-    private func perform(_ action: Item.Action) {
+    private func perform(_ action: Item.Action, as authority: Authority) {
         guard model.session.opening == nil else { return }
         model.actionMenu = nil
         model.voice?.stop()
-        switch dispatcher.perform(action, in: ActionContext(previousApp: previousApp)) {
+        switch dispatcher.perform(action, as: authority, in: ActionContext(previousApp: previousApp)) {
         case .close: hide()
-        case .push(let detail): model.session.push(detail)
+        case .refused(let reason): model.session.messages.post(Message(reason, kind: .failed))
+        case .push(let detail, let authority): model.session.push(detail, from: authority)
         case .open(let run):
             model.session.open(run)
             // A frame waiting for its text (a follow-up, Run Agent's question) is an input like the
@@ -392,12 +395,13 @@ final class PaletteController: NSObject, NSWindowDelegate {
                 model.actionMenu = ActionMenu(target: target, pasteTarget: model.pasteTarget)
             }
         case .runSecondary:
-            run(model.actionMenu?.target ?? model.target, action: 1)
+            let target = model.actionMenu?.target ?? model.target
+            run(target, at: target?.secondary ?? .action(1))
         case .runRow(let row):
             guard model.actionMenu == nil, model.results.indices.contains(row) else { break }
-            run(ActionTarget(item: model.results[row]), action: 0)
+            run(model.top.target(for: model.results[row]), action: 0)
         case .openSettings:
-            perform(.run(command: .settings))
+            perform(.run(command: .settings), as: .host)
         case .listen:
             listen()
         case .back:

@@ -196,8 +196,9 @@ final class SystemEffects: ActionEffects {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// What a page's file link reaches (`Item.Action.following`), nil if nothing is there.
-    nonisolated static func inspect(_ file: URL) -> LinkedFile? {
+    /// What a file reaches once symlinks are resolved, and whether opening it would run something
+    /// (`ActionPolicy`); nil if nothing is there.
+    nonisolated func inspect(_ file: URL) -> LinkedFile? {
         let target = file.resolvingSymlinksInPath()
         guard
             let values = try? target.resourceValues(forKeys: [

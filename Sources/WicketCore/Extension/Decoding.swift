@@ -1,25 +1,60 @@
 import Foundation
+import os
 
-// Decoding of items and content from what extensions send (docs/extensions.md), with the host's
-// stamps: the item's origin, its namespaced id and `run` actions resolved to a `CommandID`.
+// Decoding of items and content from what extensions and agents send (docs/extensions.md), with
+// the host's stamps: the item's origin, its namespaced id, what its subject derives and `run`
+// actions resolved to a `CommandID`. What the sender may send is `ActionPolicy`'s, by its authority.
 
 /// The fallback when neither the item, its command nor its extension names an icon.
 private let extensionIcon = Item.Icon.symbol(name: "puzzlepiece.extension")
 
 extension Item: Decodable {
-    /// Decodes an extension's item. A missing id is the title, a missing icon the one in the
-    /// decoder's `WireContext`, a missing relevance `match` (answers set their own). With an origin
-    /// in the context, the item carries it and its id is namespaced by it.
+    /// Decodes an extension's or agent's item. Its subject (`file` or `url`, at most one) gives
+    /// what the producer leaves out: title, subtitle, icon, id, and actions after the producer's.
+    /// Without one, a missing id is the title, a missing icon the one in the decoder's `WireContext`.
+    /// A missing relevance is `match` (answers set their own). With an origin in the context, the
+    /// item carries it and its id is namespaced by it.
     public init(from decoder: any Decoder) throws {
         let object = try decoder.object([
-            "id", "title", "subtitle", "icon", "accessory", "relevance", "actions",
+            "id", "title", "subtitle", "icon", "accessory", "relevance", "actions", "file", "url",
         ])
-        title = try object.nonEmpty("title")
-        let id = try object.optionalNonEmpty("id") ?? title
+        let home = decoder.wire.home
+        if object.has("file"), object.has("url") {
+            throw object.invalid("url", "an item has one subject, file or url, not both")
+        }
+        if object.has("file") {
+            let value = try object.nonEmpty("file")
+            guard let subject = Subject.file(parsing: value, home: home) else {
+                throw object.invalid("file", "\"\(value)\" must be an absolute or ~/ path, or a file: URL")
+            }
+            self.subject = subject
+        } else if object.has("url") {
+            let value = try object.nonEmpty("url")
+            guard let subject = Subject.url(parsing: value) else {
+                throw object.invalid(
+                    "url", "\"\(value)\" must be a URL with a scheme (https:, mailto:, ...); a file is a file"
+                )
+            }
+            self.subject = subject
+        } else {
+            subject = nil
+        }
+        if let subject {
+            title = try object.optionalNonEmpty("title") ?? subject.title
+        } else {
+            title = try object.nonEmpty("title")
+        }
+        let id = try object.optionalNonEmpty("id") ?? subject?.id ?? title
         origin = decoder.wire.origin
         self.id = origin.map { Item.namespaced(id, by: $0) } ?? id
-        subtitle = try object.optional("subtitle")
-        icon = try object.optional("icon") ?? decoder.wire.icon ?? extensionIcon
+        let exists: Bool
+        if case .file(let url) = subject {
+            exists = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+        } else {
+            exists = true
+        }
+        subtitle = try object.optional("subtitle") ?? subject?.subtitle(home: home, exists: exists)
+        icon = try object.optional("icon") ?? subject?.icon ?? decoder.wire.icon ?? extensionIcon
         accessory = try object.optional("accessory")
         relevance = .match
         if object.has("relevance") {
@@ -34,7 +69,7 @@ extension Item: Decodable {
             self.relevance = relevance
         }
         score = 0
-        actions = try object.optional("actions") ?? []
+        actions = Action.merged(try object.optional("actions") ?? [], subject?.actions ?? [])
     }
 
     /// The host id of an item `origin` sent with `id`: "ext:<extension>/<command>:<id>". Extension
@@ -56,9 +91,15 @@ extension Item.Icon: Decodable {
 }
 
 extension Item.Action: Decodable {
-    /// `reveal` is host only, so it is not among the kinds; `run` can only name the sender's commands.
+    /// How deep an agent's pages may nest: a `detail` action on a page a `detail` action pushed, no
+    /// further. The schema can't bound its recursion, so the decoder does.
+    static let agentDepth = 2
+
+    /// The kinds are the sender's (`ActionPolicy`): `reveal` is host only, so no one sends it; an
+    /// agent sends no `paste` or `run`, at any depth. `run` can only name the sender's commands.
     public init(from decoder: any Decoder) throws {
-        let (kind, object) = try decoder.oneOf(["open", "copy", "paste", "detail", "run"], what: "an action")
+        let kinds = ActionPolicy.actions(from: decoder.wire.authority).filter { $0 != .reveal }
+        let (kind, object) = try decoder.oneOf(kinds.map(\.rawValue), what: "an action")
         switch kind {
         case "open":
             let open = try object.object(kind, ["url", "title"])
@@ -69,6 +110,11 @@ extension Item.Action: Decodable {
             let title: String? = try fields.optional("title")
             self = kind == "copy" ? .copy(text: text, title: title) : .paste(text: text, title: title)
         case "detail":
+            if decoder.wire.authority == .agent,
+                decoder.codingPath.count(where: { $0.stringValue == "actions" }) > Self.agentDepth
+            {
+                throw object.invalid(kind, "nests pages deeper than \(Self.agentDepth) levels")
+            }
             self = .detail(try object.required(kind))
         default:
             let run = try object.object(kind, ["command", "args", "title"])
@@ -108,13 +154,16 @@ extension Detail.Metadata: Decodable {
 extension RunResult: Decodable {
     public static let itemLimit = 500
 
-    /// The wire has no `show`: a screen's kind (`answer`, `list`, `detail`) is the result's.
+    /// The wire has no `show`: a screen's kind (`answer`, `list`, `detail`) is the result's. The
+    /// kinds are the sender's (`ActionPolicy`); the screen is stamped with its authority.
     public init(from decoder: any Decoder) throws {
-        let kinds = ["answer", "list", "detail", "close", "reload"]
+        let wire = decoder.wire
+        let kinds = ActionPolicy.screens(from: wire.authority).map(\.rawValue)
         let (kind, object) = try decoder.oneOf(kinds, what: "a result")
-        if decoder.wire.mode == .root, kind != "answer", kind != "list" {
+        if wire.mode == .root, kind != "answer", kind != "list" {
             throw object.invalid(kind, "is not allowed for a root command; return answer or list")
         }
+        let context = ScreenContext(authority: wire.authority)
         switch kind {
         case "answer":
             var item: Item = try object.required(kind)
@@ -123,27 +172,71 @@ extension RunResult: Decodable {
             }
             // Return runs the first action; an answer without any copies its title.
             if item.actions.isEmpty { item.actions = [.copy(text: item.title)] }
-            self = .show(.answer(item))
+            self = .show(.answer(item), context)
         case "list":
-            let list = try object.object(kind, ["items"])
-            let items: [Item] = try list.required("items")
-            if items.count > Self.itemLimit {
-                throw list.invalid("items", "has \(items.count) items; the limit is \(Self.itemLimit)")
-            }
-            var ids = Set<String>()
-            let prefix = decoder.wire.origin.map { Item.namespaced("", by: $0).count } ?? 0
-            for item in items where !ids.insert(item.id).inserted {
-                throw list.invalid(
-                    "items",
-                    "item id \"\(item.id.dropFirst(prefix))\" appears twice; ids (which default to the title) "
-                        + "must be unique")
-            }
-            self = .show(.list(items))
+            self = .show(
+                .list(try Listing(object.object(kind, ["summary", "facts", "items", "sections"]), wire)),
+                context)
         case "detail":
-            self = .show(.detail(try object.required(kind)))
+            self = .show(.detail(try object.required(kind)), context)
         default:
             let message: String? = try object.object(kind, ["message"]).optional("message")
             self = kind == "close" ? .close(message: message) : .reload(message: message)
         }
+    }
+}
+
+extension Listing {
+    /// A list's fields: `items` or `sections`, never both; a summary and facts. A root command's
+    /// list is mixed into the main results, so it holds items only. Duplicate ids are an extension's
+    /// error; in an agent's reply, which can't be told so, the later ones get an ordinal suffix.
+    fileprivate init(_ list: WireObject, _ wire: WireContext) throws {
+        if list.has("items") == list.has("sections") {
+            throw list.invalid(
+                list.has("items") ? "sections" : "items", "a list has items or sections, not both")
+        }
+        if wire.mode == .root, let key = ["summary", "facts", "sections"].first(where: list.has) {
+            throw list.invalid(key, "is not allowed for a root command; send items only")
+        }
+        if list.has("items") {
+            self.init(try list.required("items") as [Item])
+        } else {
+            self.init(sections: try list.required("sections") as [Section])
+        }
+        summary = try list.optionalNonEmpty("summary")
+        facts = try list.optional("facts") ?? []
+        let key = list.has("items") ? "items" : "sections"
+        let count = items.count
+        if count > RunResult.itemLimit {
+            throw list.invalid(key, "has \(count) items; the limit is \(RunResult.itemLimit)")
+        }
+        var ids = Set<String>()
+        var renamed = 0
+        for (s, section) in sections.enumerated() {
+            for (i, item) in section.items.enumerated() where !ids.insert(item.id).inserted {
+                guard wire.authority == .agent else {
+                    let prefix = wire.origin.map { Item.namespaced("", by: $0).count } ?? 0
+                    throw list.invalid(
+                        key,
+                        "item id \"\(item.id.dropFirst(prefix))\" appears twice; ids (which default to the "
+                            + "title, or a file's path or a link) must be unique")
+                }
+                var ordinal = 2
+                while ids.contains("\(item.id)#\(ordinal)") { ordinal += 1 }
+                sections[s].items[i].id = "\(item.id)#\(ordinal)"
+                ids.insert(sections[s].items[i].id)
+                renamed += 1
+            }
+        }
+        if renamed > 0 { Self.logger.info("reply: \(renamed, privacy: .public) duplicate ids suffixed") }
+    }
+
+    private static let logger = Logger(subsystem: "app.wicket", category: "reply")
+}
+
+extension Listing.Section: Decodable {
+    public init(from decoder: any Decoder) throws {
+        let object = try decoder.object(["title", "items"])
+        self.init(title: try object.nonEmpty("title"), items: try object.required("items"))
     }
 }

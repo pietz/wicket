@@ -25,10 +25,12 @@ private func problem(_ json: String, _ context: WireContext = WireContext()) -> 
 
 @Test func itemDefaults() throws {
     let context = WireContext(icon: .symbol(name: "star"))
-    guard case .show(.list(let items)) = try result(#"{"list":{"items":[{"title":"A"}]}}"#, context) else {
+    guard case .show(.list(let listing), _) = try result(#"{"list":{"items":[{"title":"A"}]}}"#, context)
+    else {
         Issue.record("not a list")
         return
     }
+    let items = listing.items
     #expect(items[0].id == "A")
     #expect(items[0].icon == .symbol(name: "star"))
     #expect(items[0].relevance == .match)
@@ -36,13 +38,18 @@ private func problem(_ json: String, _ context: WireContext = WireContext()) -> 
     #expect(items[0].score == 0)
 }
 
+/// What an extension's screens are stamped with when the context knows no revision.
+private let fromExtension = ScreenContext(authority: .extension(nil))
+
 @Test func answersRankAsAnswersUnlessTheySayOtherwise() throws {
     // Without actions, Return copies the answer's title.
     #expect(
         try result(#"{"answer":{"title":"4"}}"#)
-            == .show(.answer(item("4", relevance: .answer, actions: [.copy(text: "4")]))))
+            == .show(.answer(item("4", relevance: .answer, actions: [.copy(text: "4")])), fromExtension))
     let fallback = try result(#"{"answer":{"title":"4","relevance":"fallback"}}"#, WireContext(mode: .root))
-    #expect(fallback == .show(.answer(item("4", relevance: .fallback, actions: [.copy(text: "4")]))))
+    #expect(
+        fallback
+            == .show(.answer(item("4", relevance: .fallback, actions: [.copy(text: "4")])), fromExtension))
 }
 
 private func item(_ title: String, relevance: Item.Relevance, actions: [Item.Action] = []) -> Item {
@@ -64,7 +71,7 @@ private func item(_ title: String, relevance: Item.Relevance, actions: [Item.Act
         ]}}
         """#
     let context = WireContext(commands: ["done"], origin: .extension("todo", "search"))
-    guard case .show(.answer(let item)) = try result(json, context) else { return }
+    guard case .show(.answer(let item), _) = try result(json, context) else { return }
     let home = FileManager.default.homeDirectoryForCurrentUser
     #expect(item.actions[0] == .open(url: home.appending(path: "Documents"), title: "Open Folder"))
     #expect(item.actions[1] == .open(url: URL(filePath: "/Applications/Safari.app")))
@@ -154,12 +161,13 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
     let json = #"{"list":{"items":[{"id":"1","title":"Fix login"},{"title":"Fix login"}]}}"#
     let github = WireContext(command: "search", in: try manifest("github", commands: ["search"]))
     let linear = WireContext(command: "search", in: try manifest("linear", commands: ["search"]))
-    guard case .show(.list(let a)) = try result(json, github),
-        case .show(.list(let b)) = try result(json, linear)
+    guard case .show(.list(let listA), _) = try result(json, github),
+        case .show(.list(let listB), _) = try result(json, linear)
     else {
         Issue.record("not lists")
         return
     }
+    let (a, b) = (listA.items, listB.items)
     #expect(a.map(\.id) == ["ext:github/search:1", "ext:github/search:Fix login"])
     #expect(a.allSatisfy { $0.origin == .extension("github", "search") })
     #expect(b[0].origin == .extension("linear", "search"))
@@ -176,7 +184,7 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
         """#
     let context = WireContext(
         command: "search", in: try manifest("unicode", commands: ["search", "character"]))
-    guard case .show(.detail(let detail)) = try result(json, context) else {
+    guard case .show(.detail(let detail), _) = try result(json, context) else {
         Issue.record("not a detail")
         return
     }
@@ -190,7 +198,8 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
 
 @Test func listsKeepTheirOrder() throws {
     let json = #"{"list":{"items":[{"title":"b"},{"title":"a"},{"title":"c"}]}}"#
-    guard case .show(.list(let items)) = try result(json) else { return }
+    guard case .show(.list(let listing), _) = try result(json) else { return }
+    let items = listing.items
     #expect(items.map(\.title) == ["b", "a", "c"])
     #expect(items.allSatisfy { $0.score == 0 })
 }
@@ -283,12 +292,13 @@ private func manifest(_ id: String, commands: [String]) throws -> Manifest {
         ]}]}}
         """#
     let context = WireContext(commands: ["done"], origin: .extension("todo", "search"), revision: revision)
-    guard case .show(.list(let items)) = try result(json, context),
-        case .detail(let detail) = items[0].actions[1]
+    guard case .show(.list(let listing), _) = try result(json, context),
+        case .detail(let detail) = listing.items[0].actions[1]
     else {
         Issue.record("not a list with a detail")
         return
     }
+    let items = listing.items
     let done = Item.Action.run(command: .extension("todo", "done"), revision: revision)
     #expect(items[0].actions[0] == done)
     #expect(detail.actions == [done])

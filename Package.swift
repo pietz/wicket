@@ -21,7 +21,8 @@ let package = Package(
         .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
         // The `wicket` command-line tool, bundled at Wicket.app/Contents/Helpers/wicket.
         .executableTarget(name: "WicketCLI", dependencies: ["WicketCore", "WicketHost"]),
-        .testTarget(name: "WicketCoreTests", dependencies: ["WicketCore"]),
+        // Fixtures holds agent replies as providers send them, which must validate and decode.
+        .testTarget(name: "WicketCoreTests", dependencies: ["WicketCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "WicketAppTests", dependencies: ["WicketApp"]),
         // Fixtures holds recorded agent streams, replayed by a fake agent executable.
         .testTarget(name: "WicketHostTests", dependencies: ["WicketHost"], resources: [.copy("Fixtures")]),

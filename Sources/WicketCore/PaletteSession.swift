@@ -209,9 +209,14 @@ public final class PaletteSession {
         return true
     }
 
-    public func push(_ detail: Detail) {
+    /// Pushes a page with `authority`, the one of the action that pushed it (an agent's page stays
+    /// the agent's), keeping the screen actions of the frame beneath, so Follow Up still answers ⌘↩
+    /// on a page an agent's row opened.
+    public func push(_ detail: Detail, from authority: Authority) {
+        var context = ScreenContext(authority: authority)
+        if case .screen(let below) = top.content { context.actions = below.context.actions }
         lastID += 1
-        frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail)))))
+        frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail), context))))
     }
 
     /// Shows `run` in a command frame: at once with its `query` if it has one (a live command, a
@@ -415,7 +420,7 @@ public final class PaletteSession {
     /// One result of a command's run, which searched `text` if the command is live.
     private func receive(_ result: RunResult, _ ticket: Ticket, text: String) {
         switch result {
-        case .show(let screen): show(screen, ticket, text: text)
+        case .show(let screen, let context): show(screen, context, ticket, text: text)
         case .close(let message):
             guard isCurrent(ticket) else { return }
             drop(ticket.frame)
@@ -433,10 +438,10 @@ public final class PaletteSession {
     }
 
     /// Replaces a command frame's content; the frame being opened is pushed with its first.
-    private func show(_ screen: Screen, _ ticket: Ticket, text: String) {
+    private func show(_ screen: Screen, _ context: ScreenContext, _ ticket: Ticket, text: String) {
         let update = { (frame: inout Frame) in
             guard case .screen(var shown) = frame.content else { return }
-            shown.show(screen, text: shown.isLive ? text : frame.query)
+            shown.show(screen, context, text: shown.isLive ? text : frame.query)
             frame.content = .screen(shown)
         }
         if var frame = openingFrame, frame.id == ticket.frame, frame.generation == ticket.generation {
@@ -453,7 +458,9 @@ public final class PaletteSession {
         guard isCurrent(ticket), case .screen(let screen) = frame(ticket.frame)?.content,
             let command = screen.run?.command
         else { return }
-        show(.detail(.failure("\(command.title) Failed", message, command: command.id)), ticket, text: "")
+        show(
+            .detail(.failure("\(command.title) Failed", message, command: command.id)), .host, ticket,
+            text: "")
         apply(ticket) { $0.pending = 0 }
     }
 

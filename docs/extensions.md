@@ -213,6 +213,28 @@ One [item](#items). In a `once` command Wicket shows it large; in `root` mode it
 
 Up to 500 items (in `root` mode Wicket shows at most 10). An empty list shows "No Results" (in a `live` view with an empty search field, just the field).
 
+Since 0.0.6 a list can also say something about its rows and group them:
+
+```json
+{"list":{
+  "summary":"Three invoices, **one overdue**.",
+  "facts":[{"label":"Total","value":"€420"},{"label":"Overdue","value":"1"}],
+  "sections":[
+    {"title":"Overdue","items":[{"file":"~/Documents/Invoices/Hetzner 2026-10.pdf","accessory":"since Nov 3"}]},
+    {"title":"Due","items":[{"file":"~/Documents/Invoices/Telekom.pdf","accessory":"€180 · Nov 14"}]}
+  ]
+}}
+```
+
+| Field | Since | Meaning |
+|---|---|---|
+| `items` | | The rows. A list has `items` or `sections`, never both. |
+| `sections` | 0.0.6 | Titled groups of rows (`title`, `items`), instead of `items`; the arrow keys skip the titles. Up to 500 rows in all, and ids are unique across sections. |
+| `summary` | 0.0.6 | Markdown pinned above the rows, not selectable: a sentence or two of context. A long one shows its first lines, and Read Summary in the action panel shows it whole. |
+| `facts` | 0.0.6 | Labelled values (`label`, `value`) shown under the summary; up to four show beside the rows, all of them with the whole summary. |
+
+In `root` mode a list holds `items` only, since its rows are mixed into the main results.
+
 ### Level 2: a detail view
 
 ```json
@@ -239,15 +261,28 @@ For commands and actions that do something rather than show something:
 
 ## Items
 
-| Field | Required | Meaning |
-|---|---|---|
-| `title` | yes | Main text. |
-| `id` | no | A string, stable and unique within the response; defaults to the title. Wicket keeps the selection and learns the user's favourites by it, so use a real key (a URL, a path, a database id). Ids are yours alone: Wicket keeps them apart from other extensions' and other commands'. |
-| `subtitle` | no | Secondary text. |
-| `icon` | no | Defaults to the command's icon. |
-| `accessory` | no | Short text on the right, such as a count, a date or a shortcut. |
-| `relevance` | no | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Define …"). Wicket ranks by relevance first; within it, your order is kept (the user's habits never reorder your items), after Wicket's own matches such as apps and files. |
-| `actions` | no | What the user can do; the first runs on Return, the others are in the action panel (⌘K). |
+| Field | Required | Since | Meaning |
+|---|---|---|---|
+| `title` | yes, unless the item has a subject | | Main text; a subject's name by default. |
+| `id` | no | | A string, stable and unique within the response; defaults to the subject (see below), else the title. Wicket keeps the selection and learns the user's favourites by it, so use a real key (a URL, a path, a database id). Ids are yours alone: Wicket keeps them apart from other extensions' and other commands'. |
+| `subtitle` | no | | Secondary text. |
+| `icon` | no | | Defaults to the subject's, else the command's icon. |
+| `accessory` | no | | Short text on the right, such as a count, a date or a shortcut. |
+| `relevance` | no | | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Define …"). Wicket ranks by relevance first; within it, your order is kept (the user's habits never reorder your items), after Wicket's own matches such as apps and files. |
+| `actions` | no | | What the user can do; the first runs on Return, the others are in the action panel (⌘K). |
+| `file` | no | 0.0.6 | The file or folder the row is: an absolute or `~/` path, or a `file:` URL. See Subjects. |
+| `url` | no | 0.0.6 | The link the row is (`https:`, `mailto:`, an app scheme). See Subjects. |
+
+### Subjects
+
+When a row is a file or a link, say which with `file` or `url` (one of them) and Wicket fills in the rest:
+
+| Subject | Title | Subtitle | Icon | Actions |
+|---|---|---|---|---|
+| `file` | its name | its folder, from `~` ("Not found" if it isn't there) | its Finder icon | Open, Reveal in Finder, Copy Path |
+| `url` | its host, else the link | its path | a globe, an envelope for `mailto:` | Open, Copy Link |
+
+What you send wins: your title, subtitle, icon and id replace the derived ones, and your actions come first, followed by the derived ones that don't repeat one of yours (same kind and target). Without actions of your own, Return opens the subject. A `file` row's id defaults to its path with symlinks resolved and a `url` row's to the link, so fourteen files named `.DS_Store` are fourteen rows. A file that is missing still shows; opening it says it's gone, and Reveal in Finder shows its folder.
 
 ### Icons
 
@@ -290,7 +325,7 @@ Wicket reports these failures itself, the same way: no response within 30 second
 | Limit | Value |
 |---|---|
 | One message (one line) | 1 MiB |
-| Items in a list | 500; in `root` mode at most 10 are shown |
+| Items in a list | 500, across all its sections; in `root` mode at most 10 are shown |
 | Time to answer a request | 30 seconds, measured from when it was sent (including start-up) |
 | Idle time before stdin is closed | about 60 seconds |
 | Exit after stdin closes (you and what you started) | 2 seconds, then SIGTERM, then SIGKILL after 2 more |

@@ -4,7 +4,8 @@
 public enum PaletteChord: Equatable, Sendable {
     /// ⌘K: open or close the action panel.
     case toggleActions
-    /// ⌘↩: run the selected item's second action.
+    /// ⌘↩: run the screen's first action (Follow Up on an agent's screen), else the selected item's
+    /// second action (`ActionTarget.secondary`).
     case runSecondary
     /// ⌘1 to ⌘9: run the primary action of that row, zero-based.
     case runRow(Int)

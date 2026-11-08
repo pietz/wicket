@@ -1,0 +1,15 @@
+{"reply": {"list": {
+  "summary": "Three invoices, **one overdue**.",
+  "facts": [{"label": "Total", "value": "€420"}, {"label": "Overdue", "value": "1"}],
+  "items": null,
+  "sections": [
+    {"title": "Overdue", "items": [
+      {"title": null, "subtitle": null, "accessory": "since Nov 3", "file": "~/Documents/Invoices/Hetzner 2026-10.pdf", "url": null, "actions": null}
+    ]},
+    {"title": "Due", "items": [
+      {"title": "Telekom", "subtitle": "Mobile, October", "accessory": "€180 · Nov 14", "file": "/private/tmp/Telekom.pdf", "url": null,
+       "actions": [{"open": {"url": "/private/tmp/Telekom.pdf", "title": "Open in Preview"}}]},
+      {"title": null, "subtitle": null, "accessory": null, "file": "/tmp/Telekom.pdf", "url": null, "actions": null}
+    ]}
+  ]
+}}}

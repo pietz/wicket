@@ -28,10 +28,13 @@ public struct ActionContext: Sendable, Hashable {
 public enum ActionOutcome: Sendable, Hashable {
     /// Hide the palette.
     case close
-    /// Push a detail frame: a `detail` action, or a failure saying what went wrong.
-    case push(Detail)
+    /// Push a detail frame: a `detail` action, with the authority of the screen it came from, or a
+    /// failure saying what went wrong (the host's).
+    case push(Detail, Authority)
     /// Show a command in its own frame, fed by its run (`PaletteSession.open`).
     case open(CommandRun)
+    /// Nothing ran, since the action's authority doesn't allow it (`ActionPolicy`); the text says why.
+    case refused(String)
 }
 
 /// The side effects actions have outside the palette, injected so the dispatcher's mapping is
@@ -44,6 +47,8 @@ public protocol ActionEffects {
     /// when it can't, the text is copied and a message says why.
     func paste(_ text: String, into app: RunningApp?)
     func reveal(_ url: URL)
+    /// What a file is, with symlinks resolved; nil if nothing is there. `ActionPolicy` asks it.
+    func inspect(_ file: URL) -> LinkedFile?
 }
 
 /// Turns an action and its context into an outcome: the one place where activating something
@@ -52,19 +57,41 @@ public protocol ActionEffects {
 /// text and whether a run may be resent come from the one invocation policy (`CommandRun`). Every
 /// command opens its frame, whose run the palette session owns; one that just does something (Settings,
 /// Quit) answers `close` before a frame shows. What the host does for the user is a built-in reached
-/// by `run`, so `Item.Action` gains no cases for it.
+/// by `run`, so `Item.Action` gains no cases for it. Every action runs under an authority, and
+/// `ActionPolicy` decides what it may do first, so an agent's reply never runs anything whatever
+/// reached the screen.
 @MainActor
 public struct ActionDispatcher {
     private let registry: CommandRegistry
     private let effects: any ActionEffects
+    /// Where `~` links lead.
+    private let home: URL
 
-    public init(registry: CommandRegistry, effects: any ActionEffects) {
+    public init(
+        registry: CommandRegistry, effects: any ActionEffects,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
         self.registry = registry
         self.effects = effects
+        self.home = home
     }
 
-    public func perform(_ action: Item.Action, in context: ActionContext) -> ActionOutcome {
-        switch action {
+    /// Runs the target's action at `position` under its authority; nil if there is no such action.
+    public func perform(
+        _ target: ActionTarget, at position: ActionTarget.Position, in context: ActionContext
+    ) -> ActionOutcome? {
+        target.action(at: position).map { perform($0.action, as: $0.authority, in: context) }
+    }
+
+    public func perform(_ action: Item.Action, as authority: Authority, in context: ActionContext)
+        -> ActionOutcome
+    {
+        let resolved: Item.Action
+        switch ActionPolicy.resolve(action, as: authority, home: home, inspect: effects.inspect) {
+        case .perform(let action): resolved = action
+        case .refuse(let reason): return .refused(reason)
+        }
+        switch resolved {
         case .open(let url, _):
             effects.open(url)
         case .copy(let text, _):
@@ -74,7 +101,7 @@ public struct ActionDispatcher {
         case .reveal(let url, _):
             effects.reveal(url)
         case .detail(let detail):
-            return .push(detail)
+            return .push(detail, authority)
         case .run(let id, let text, let args, _, let revision):
             return run(id, text: text, args: args, revision: revision)
         }
@@ -86,7 +113,7 @@ public struct ActionDispatcher {
     ) -> ActionOutcome {
         guard let command = registry.command(id) else {
             return .push(
-                .failure("Command Not Found", "This command isn't installed any more.", command: id))
+                .failure("Command Not Found", "This command isn't installed any more.", command: id), .host)
         }
         return .open(CommandRun(command, .invoked, text: text, args: args, revision: revision))
     }

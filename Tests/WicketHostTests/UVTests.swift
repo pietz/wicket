@@ -131,7 +131,7 @@ private let uvVariables = [
     }
     let result = try await session.run("go", text: "", retry: .never)
     await session.stop()
-    guard case .show(.answer(let item)) = result else {
+    guard case .show(.answer(let item), _) = result else {
         Issue.record("expected an answer, got \(result)")
         return
     }

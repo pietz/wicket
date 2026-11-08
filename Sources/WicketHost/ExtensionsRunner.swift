@@ -63,7 +63,7 @@ public final class ExtensionsRunner: CommandRunner {
             do {
                 switch invocation.command {
                 case .extensions:
-                    continuation.yield(.show(.list(items())))
+                    continuation.yield(.show(.list(Listing(items()))))
                 case .reviewExtension:
                     try await review(Self.argument("id", of: invocation), continuation)
                 case .enableExtension:

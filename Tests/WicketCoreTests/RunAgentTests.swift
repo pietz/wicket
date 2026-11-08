@@ -24,6 +24,7 @@ private struct NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }
 
 /// Lets the session's tasks run until `condition` holds, for up to two seconds.
@@ -99,7 +100,7 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     session.query = "capital of peru"
     let target = try #require(session.top.target)
     let outcome = ActionDispatcher(registry: registry, effects: NoEffects()).perform(
-        target.actions[0], in: ActionContext())
+        target.actions[0], as: .host, in: ActionContext())
     guard case .open(let run) = outcome else {
         Issue.record("expected Run Agent to open its frame, got \(outcome)")
         return

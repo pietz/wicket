@@ -163,6 +163,7 @@ private struct NoEffects: ActionEffects {
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}
     func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
 }
 
 @MainActor @Test func aQuestionTypedAfterItsKeywordGetsTheContext() async throws {
@@ -175,7 +176,7 @@ private struct NoEffects: ActionEffects {
     session.query = "ai "
     session.query = "summarise this"
     let action = try #require(session.top.target?.actions.first)
-    guard case .open(let run) = dispatcher.perform(action, in: ActionContext()) else {
+    guard case .open(let run) = dispatcher.perform(action, as: .host, in: ActionContext()) else {
         Issue.record("expected Run Agent to open")
         return
     }
