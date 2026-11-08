@@ -58,8 +58,8 @@ protocol Transcriber: Sendable {
 
 /// The palette's voice input: listens, writes what is said into the search field as it comes, and
 /// keeps listening through pauses until a key (Return included), Escape, ⌘L or the palette hiding
-/// stops it; a minute without a new word turns the microphone off. Nothing runs by itself: the text is in the field and Return runs the top row, as
-/// if it had been typed.
+/// stops it; a minute without a new word turns the microphone off. Nothing runs by itself: the text
+/// is in the field and Return runs the top row, as if it had been typed.
 @MainActor
 @Observable
 final class VoiceInput {
@@ -174,8 +174,8 @@ final class VoiceInput {
 
     /// A key pressed in the palette stops the microphone, and typing takes over: the key goes on to
     /// the field. Armed, nothing was heard, so nothing is left behind and Escape does what it always
-    /// does. Listening, Escape is consumed, so it only stops (what was said stays; a second Escape
-    /// closes the palette). Returns whether the key was consumed.
+    /// does. Listening, Escape is consumed, so it only stops: what was said stays, and the next
+    /// Escape goes back as usual (clearing the field first). Returns whether the key was consumed.
     func keyPressed(isEscape: Bool) -> Bool {
         guard state != .idle else { return false }
         let consumed = isListening && isEscape

@@ -434,7 +434,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(results == [.stay])
 }
 
-@MainActor @Test func agentCLIsWorkInTheFinderSelectionsFolderAndAppleOnlyAnswers() async throws {
+@MainActor @Test func agentsWorkInTheFinderSelectionsFolder() async throws {
     let folder = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/sel-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -5,7 +5,6 @@ import os
 /// `log stream --predicate 'subsystem == "app.wicket" && category == "perf"'`
 enum Perf {
     static let logger = Logger(subsystem: "app.wicket", category: "perf")
-    static let signposter = OSSignposter(subsystem: "app.wicket", category: "perf")
 
     static func log(_ message: String) {
         logger.notice("\(message, privacy: .public)")

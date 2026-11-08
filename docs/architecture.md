@@ -8,7 +8,7 @@ How Wicket is built and how to add to it. Every builder reads this before touchi
 |---|---|---|
 | `WicketCore` | Values and deterministic policy: `Item`, actions and their dispatcher, content (`Screen`, `RunResult`), commands, their ids and the registry, ranking, search, the navigation stack's logic, calculator, wire decoding | Processes, AppKit, SwiftUI |
 | `WicketHost` | Everything that talks to another process or to OS services shared with the CLI: `ExtensionSession`, `Extensions` (discovery, the active catalog and session lifecycle), `RevisionStore` (sealed revisions), `Agent`, Keychain, login shell, checker | Windows, views |
-| `WicketApp` | AppKit and SwiftUI: the panel, views, hotkeys, OS integrations (Spotlight, apps, settings window), composition and settings reconciliation (`AppRuntime`). A library so `WicketAppTests` can `@testable import` it | Policy that could be tested in Core |
+| `WicketApp` | AppKit and SwiftUI: the panel, views, the palette hotkey, OS integrations (Spotlight, apps, settings window), composition and settings reconciliation (`AppRuntime`). A library so `WicketAppTests` can `@testable import` it | Policy that could be tested in Core |
 | `Wicket` | The executable: only `main.swift`, which starts `WicketApp` | Anything else |
 | `WicketCLI` | The `wicket` tool: a thin client over Host | Its own copies of Host logic |
 

@@ -10,8 +10,6 @@ public struct CalculatorResult: Equatable, Sendable {
     /// How the input was read: `100 USD = 92,13 € · ECB rates of 2026-11-05`. A conversion always
     /// names its rates' day, so old cached rates (offline, or a failed fetch) say how old they are.
     public var detail: String
-
-    public var isAnswer: Bool { copyText != nil }
 }
 
 /// Evaluates palette input as arithmetic, a unit conversion or a currency conversion.

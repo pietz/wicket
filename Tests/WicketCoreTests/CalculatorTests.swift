@@ -192,7 +192,7 @@ func explainsResultsWithNoRealAnswer(text: String, display: String, detail: Stri
     let result = try #require(calc(text))
     #expect(result.display == display)
     #expect(result.detail == detail)
-    #expect(!result.isAnswer)
+    #expect(result.copyText == nil)
 }
 
 @Test func echoesFunctionCallsWithoutASpace() throws {
@@ -263,7 +263,6 @@ func explainsIncompatibleUnits(text: String, display: String) throws {
     let result = try #require(calc(text))
     #expect(result.display == display)
     #expect(result.copyText == nil)
-    #expect(!result.isAnswer)
 }
 
 // MARK: Currency

@@ -97,8 +97,11 @@ struct GeneralPane: View {
                     Label(warning, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 }
             } footer: {
-                Text("Every setting here is stored in settings.json, which you or an agent can also edit.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "The hotkey, width, text size and menu bar icon are stored in settings.json, which you "
+                        + "or an agent can also edit. Launch at login and updates are kept by macOS and the updater."
+                )
+                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
