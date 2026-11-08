@@ -285,7 +285,6 @@ extension AppRuntime {
         let settingsWindow = SettingsWindowController(store: store)
         weak var weakRuntime: AppRuntime?
         let buildJobs = BuildJobs(diagnostics: diagnostics, provider: { weakRuntime?.applied?.ai.provider })
-        let doRunner = DoRunner(builds: buildJobs, provider: { weakRuntime?.applied?.ai.provider })
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
@@ -321,7 +320,7 @@ extension AppRuntime {
                 RegisteredCommand(
                     id: .builtin("quit"), title: "Quit Wicket", icon: .symbol(name: "power"), input: .none),
                 effect: { NSApp.terminate(nil) }),
-            // Answers a question with the user's agent CLI. Its keyword `ai` (a built-in keeps it
+            // Answers a question or does what it asks with the user's agent CLI. Its keyword `ai` (a built-in keeps it
             // against extensions), alias or hotkey open its frame waiting for the question; the root
             // offers it as a fallback row for whatever was typed.
             Builtin(
@@ -335,6 +334,12 @@ extension AppRuntime {
                     id: .savePromptCommand, title: "Save as Command", icon: .symbol(name: "bookmark"),
                     isListed: false, input: .none),
                 runner: prompts),
+            // Answers an acting agent's approval shown in an Ask AI frame; reached by id only.
+            Builtin(
+                RegisteredCommand(
+                    id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"),
+                    isListed: false, input: .none),
+                runner: askAI),
             // Ask AI's action when no provider is ready; reached by id only.
             Builtin(
                 RegisteredCommand(
@@ -348,17 +353,6 @@ extension AppRuntime {
                     keyword: "web", isListed: false, input: .submitText, placeholder: "Search the web",
                     isFallback: true, feature: .webSearch),
                 runner: WebSearchRunner(template: { weakRuntime?.applied?.webSearch.url })),
-            Builtin(
-                RegisteredCommand(
-                    id: .doAction, title: "Do", icon: .symbol(name: "play.circle"), keyword: "do",
-                    input: .submitText, placeholder: "Describe what to do", isFallback: true,
-                    feature: .askAI, usesContext: true),
-                runner: doRunner),
-            Builtin(
-                RegisteredCommand(
-                    id: .doControl, title: "Do Action", icon: .symbol(name: "play.circle"),
-                    isListed: false, input: .none),
-                runner: doRunner),
             // Builds an extension from a sentence with the user's agent CLI, then checks it for review.
             // The job belongs to `buildJobs`, so closing its frame leaves it running; submitting
             // again while it runs shows it.

@@ -5,8 +5,9 @@ import WicketCore
 public enum AgentMode: Sendable, Equatable {
     /// Answer from the model alone: no tools, no commands, no file access.
     case answer
-    /// Inspect files and propose a script, without writes or network tools.
-    case plan
+    /// Answer or do what the user asks with the agent's own tools, under the approval policy and
+    /// sandbox the user set in that agent (Codex only for now); requests it sends are approvals.
+    case act
     /// Edit files inside the working directory and run commands to test them, sandboxed to that
     /// directory (and temporary folders) with no network.
     case build
@@ -14,7 +15,7 @@ public enum AgentMode: Sendable, Equatable {
 
 public struct AgentRequest: Sendable {
     public var prompt: String
-    /// The folder a build may write to or a plan inspects. Answer runs get an empty folder.
+    /// The folder a build may write to or an acting run works in. Answer runs get an empty folder.
     public var workingDirectory: URL
     public var mode: AgentMode
 
@@ -47,6 +48,42 @@ public enum AgentEvent: Sendable, Equatable {
     case answer(String, usage: AgentUsage?)
     /// The run failed; this is the last event.
     case error(String)
+    /// The agent's questions still waiting for an answer, oldest first, whenever they change (an
+    /// empty list once the last one is resolved). Answered with `AgentRun.reply`.
+    case approvals([AgentApproval])
+}
+
+/// Something an acting agent asks permission for: a command to run or files to change.
+public struct AgentApproval: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable {
+        case command
+        case fileChange
+    }
+
+    /// The agent's own request id, echoed in the reply (a JSON-RPC id keeps its type).
+    public var id: JSONValue
+    public var kind: Kind
+    /// The command, or the changes as "add notes.md, update main.swift".
+    public var subject: String
+    /// Why the agent asks, when it says.
+    public var reason: String?
+
+    public init(id: JSONValue, kind: Kind, subject: String, reason: String? = nil) {
+        self.id = id
+        self.kind = kind
+        self.subject = subject
+        self.reason = reason
+    }
+}
+
+/// The user's answer to an `AgentApproval`.
+public enum AgentDecision: String, Sendable, CaseIterable {
+    case accept
+    /// Accept, and don't ask again for the same kind of thing in this run.
+    case acceptForSession
+    case decline
+    /// Decline and end the turn.
+    case cancel
 }
 
 /// One agent run: its events, and the means to stop it. The events end after one `.answer` or
@@ -57,23 +94,34 @@ public final class AgentRun: AsyncSequence, Sendable {
     public typealias Element = AgentEvent
 
     private let events: AsyncStream<AgentEvent>
+    private let replies: AsyncStream<AgentReply>.Continuation
     private let task: Task<Shutdown, Never>
 
     /// A run whose work is `body`: it yields the events and returns how the run's processes ended.
     /// The events end when it returns; cancelling the run cancels its task.
-    /// Bounded buffering is only for replaceable snapshots, such as DoScript's output, never deltas.
-    public init(
-        bufferingPolicy: AsyncStream<AgentEvent>.Continuation.BufferingPolicy = .unbounded,
+    public convenience init(
         _ body: @escaping @Sendable (AsyncStream<AgentEvent>.Continuation) async -> Shutdown
     ) {
-        let (events, continuation) = AsyncStream<AgentEvent>.makeStream(bufferingPolicy: bufferingPolicy)
+        self.init { continuation, _ in await body(continuation) }
+    }
+
+    /// A run that also takes the user's replies to its approvals, in the order they were given.
+    public init(
+        _ body:
+            @escaping @Sendable (AsyncStream<AgentEvent>.Continuation, AsyncStream<AgentReply>) async ->
+            Shutdown
+    ) {
+        let (events, continuation) = AsyncStream<AgentEvent>.makeStream()
+        let (replies, replying) = AsyncStream<AgentReply>.makeStream()
         let task = Task.detached {
-            let ended = await body(continuation)
+            let ended = await body(continuation, replies)
             continuation.finish()
+            replying.finish()
             return ended
         }
         continuation.onTermination = { _ in task.cancel() }
         self.events = events
+        self.replies = replying
         self.task = task
     }
 
@@ -88,6 +136,11 @@ public final class AgentRun: AsyncSequence, Sendable {
         get async { await task.value }
     }
 
+    /// Answers one of the agent's approvals; never waits. Ignored once the run has ended.
+    public func reply(to approval: AgentApproval, _ decision: AgentDecision) {
+        replies.yield(AgentReply(approval: approval, decision: decision))
+    }
+
     /// Stops the run: its process tree gets SIGTERM at once, then SIGKILL after a grace.
     public func cancel() {
         task.cancel()
@@ -99,6 +152,17 @@ public final class AgentRun: AsyncSequence, Sendable {
         task.cancel()
         return await task.value
     }
+}
+
+public struct AgentReply: Sendable, Hashable {
+    public var approval: AgentApproval
+    public var decision: AgentDecision
+}
+
+extension AgentProvider {
+    /// Whether Ask AI runs this provider as an acting agent (`AgentMode.act`) rather than answer-only:
+    /// Codex, whose app-server sends approvals; Claude Code's permission bridge comes next.
+    public var acts: Bool { self == .codex }
 }
 
 /// Whether a provider can run, for the UI to show.
@@ -214,4 +278,13 @@ public struct Agent: Sendable {
         + "no preamble, no restating the question, no closing offers. Be brief and direct; the reply "
         + "renders as Markdown, so use it when it helps (lists, code, tables). You have no tools and "
         + "no access to the user's files."
+
+    /// Added to the agent's own instructions for acting runs, which keep its coding-agent prompt
+    /// (it is what teaches the tools).
+    static let actInstructions =
+        "The user is asking from Wicket, a macOS command palette, not a terminal or editor. Answer "
+        + "questions directly; when they ask you to do something, do it with your tools, in the "
+        + "working directory unless they say otherwise (it is the folder of their Finder selection, "
+        + "or their home folder). Your final reply shows in a small panel and renders as Markdown: "
+        + "start with the answer or with what you did, be brief, no closing offers."
 }

@@ -3,10 +3,12 @@ import WicketCore
 
 /// Codex through `codex app-server`: JSON-RPC over stdio (lines without the "jsonrpc" field).
 ///
-/// The run is initialize, config/read (to learn the user's MCP servers), thread/start (ephemeral,
-/// sandboxed, with those servers disabled), turn/start, then notifications until turn/completed.
-/// Approvals never reach Wicket (the approval policy is "never"); any request the server still sends
-/// is refused.
+/// Locked-down runs (answer, build) are initialize, config/read (to learn the user's MCP servers),
+/// thread/start (ephemeral, sandboxed, approval policy "never", those servers disabled), turn/start,
+/// then notifications until turn/completed; any request the server still sends is refused. Acting
+/// runs skip config/read and leave approval policy, sandbox, features and MCP servers to the user's
+/// own Codex configuration; their command and file-change approvals become `AgentEvent.approvals`,
+/// answered through `reply(_:)`.
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
@@ -14,6 +16,10 @@ struct CodexTranscript: AgentTranscript {
     private var turnError: String?
     private var messages = Set<String>()
     private var streamed = false
+    /// Approvals waiting for the user, oldest first.
+    private var pending: [AgentApproval] = []
+    /// File changes by item id, as "add notes.md": a file-change approval names only its item.
+    private var changes: [String: String] = [:]
 
     init(request: AgentRequest) {
         self.request = request
@@ -24,9 +30,9 @@ struct CodexTranscript: AgentTranscript {
         case readConfig, startThread, startTurn
     }
 
-    /// Features switched off for every run: anything that reaches outside the sandbox or brings the
-    /// user's own setup along (hooks, plugins, apps, browser and computer use, sub-agents, memories).
-    /// As `-c` overrides, because `--disable` rejects names a later version drops.
+    /// Features switched off for locked-down runs: anything that reaches outside the sandbox or
+    /// brings the user's own setup along (hooks, plugins, apps, browser and computer use, sub-agents,
+    /// memories). As `-c` overrides, because `--disable` rejects names a later version drops.
     private static let disabled = [
         "apps", "plugins", "browser_use", "computer_use", "in_app_browser", "image_generation", "hooks",
         "multi_agent", "goals", "memories", "tool_suggest", "skill_search", "default_mode_request_user_input",
@@ -36,7 +42,9 @@ struct CodexTranscript: AgentTranscript {
         "shell_tool", "unified_exec", "code_mode_host", "js_repl", "view_image", "sleep_tool",
     ]
 
+    /// Acting runs override nothing: the user's own Codex configuration is the policy.
     static func arguments(for mode: AgentMode) -> [String] {
+        guard mode != .act else { return ["app-server"] }
         let features = disabled + (mode == .answer ? answerDisabled : [])
         let overrides =
             features.map { "features.\($0)=false" } + [
@@ -52,7 +60,17 @@ struct CodexTranscript: AgentTranscript {
                 .initialize, "initialize",
                 ["clientInfo": .object(["name": .string("wicket"), "version": .string("1")])]),
             Self.line(["method": .string("initialized")]),
-            Self.request(.readConfig, "config/read", ["cwd": .string(request.workingDirectory.path)]),
+            request.mode == .act
+                ? startThread(disabling: [])
+                : Self.request(.readConfig, "config/read", ["cwd": .string(request.workingDirectory.path)]),
+        ])
+    }
+
+    /// The reply to an approval: the decision, under the request's own id.
+    static func reply(_ reply: AgentReply) -> Data? {
+        line([
+            "id": reply.approval.id,
+            "result": .object(["decision": .string(reply.decision.rawValue)]),
         ])
     }
 
@@ -61,7 +79,7 @@ struct CodexTranscript: AgentTranscript {
             return AgentStep()
         }
         if let method = message["method"]?.string {
-            if let id = message["id"] { return Self.refuse(id, method) }
+            if let id = message["id"] { return serverRequest(id, method, message["params"] ?? .null) }
             return notification(method, message["params"] ?? .null)
         }
         guard let id = message["id"]?.integer.flatMap(ID.init(rawValue:)) else { return AgentStep() }
@@ -76,18 +94,7 @@ struct CodexTranscript: AgentTranscript {
         case .readConfig:
             // The user's MCP servers stay off: nothing from their setup runs outside the sandbox.
             let servers = result["config"]?["mcp_servers"]?.object?.keys.sorted() ?? []
-            let off = JSONValue.object(["enabled": .bool(false)])
-            var params: [String: JSONValue] = [
-                "cwd": .string(request.workingDirectory.path),
-                "sandbox": .string(request.mode == .build ? "workspace-write" : "read-only"),
-                "approvalPolicy": .string("never"),
-                "ephemeral": .bool(true),
-                "config": .object([
-                    "mcp_servers": .object(Dictionary(uniqueKeysWithValues: servers.map { ($0, off) }))
-                ]),
-            ]
-            if request.mode == .answer { params["baseInstructions"] = .string(Agent.answerInstructions) }
-            return AgentStep(send: [Self.request(.startThread, "thread/start", params)])
+            return AgentStep(send: [startThread(disabling: servers)])
         case .startThread:
             guard let thread = result["thread"]?["id"] else {
                 return AgentStep(events: [.error("Codex started no thread")])
@@ -99,10 +106,8 @@ struct CodexTranscript: AgentTranscript {
             switch request.mode {
             case .answer:
                 params["effort"] = .string("low")
-            case .plan:
-                params["sandboxPolicy"] = .object([
-                    "type": .string("readOnly"), "networkAccess": .bool(false),
-                ])
+            case .act:
+                break
             case .build:
                 params["sandboxPolicy"] = .object([
                     "type": .string("workspaceWrite"), "networkAccess": .bool(false),
@@ -115,8 +120,56 @@ struct CodexTranscript: AgentTranscript {
         }
     }
 
+    /// thread/start: an ephemeral thread in the working directory. Locked-down runs set their sandbox,
+    /// approval policy "never" and `servers` disabled; acting runs set none of it, so Codex applies the
+    /// user's configuration (verified with 0.167: omitted, both come from config.toml).
+    private func startThread(disabling servers: [String]) -> Data {
+        var params: [String: JSONValue] = [
+            "cwd": .string(request.workingDirectory.path),
+            "ephemeral": .bool(true),
+        ]
+        switch request.mode {
+        case .act:
+            params["developerInstructions"] = .string(Agent.actInstructions)
+        case .answer, .build:
+            let off = JSONValue.object(["enabled": .bool(false)])
+            params["sandbox"] = .string(request.mode == .build ? "workspace-write" : "read-only")
+            params["approvalPolicy"] = .string("never")
+            params["config"] = .object([
+                "mcp_servers": .object(Dictionary(uniqueKeysWithValues: servers.map { ($0, off) }))
+            ])
+            if request.mode == .answer { params["baseInstructions"] = .string(Agent.answerInstructions) }
+        }
+        return Self.request(.startThread, "thread/start", params)
+    }
+
+    /// A request from the server: in an acting run, a command or file-change approval waits for the
+    /// user; anything else is refused.
+    private mutating func serverRequest(_ id: JSONValue, _ method: String, _ params: JSONValue) -> AgentStep {
+        let approval: AgentApproval
+        switch (request.mode, method) {
+        case (.act, "item/commandExecution/requestApproval"):
+            approval = AgentApproval(
+                id: id, kind: .command, subject: Self.fullCommand(params) ?? "a command",
+                reason: params["reason"]?.string)
+        case (.act, "item/fileChange/requestApproval"):
+            approval = AgentApproval(
+                id: id, kind: .fileChange,
+                subject: params["itemId"]?.string.flatMap { changes[$0] } ?? "files",
+                reason: params["reason"]?.string)
+        default:
+            return Self.refuse(id, method)
+        }
+        pending.append(approval)
+        return AgentStep(events: [.approvals(pending)])
+    }
+
     private mutating func notification(_ method: String, _ params: JSONValue) -> AgentStep {
         switch method {
+        case "serverRequest/resolved":
+            let count = pending.count
+            pending.removeAll { $0.id == params["requestId"] }
+            if pending.count != count { return AgentStep(events: [.approvals(pending)]) }
         case "item/agentMessage/delta":
             guard let delta = params["delta"]?.string, let item = params["itemId"]?.string else { break }
             var text = delta
@@ -124,6 +177,9 @@ struct CodexTranscript: AgentTranscript {
             streamed = true
             return AgentStep(events: [.text(text)])
         case "item/started":
+            if let item = params["item"], item["type"]?.string == "fileChange", let id = item["id"]?.string {
+                changes[id] = Self.changes(item)
+            }
             if let activity = params["item"].flatMap(Self.activity(started:)) {
                 return AgentStep(events: [.activity(activity)])
             }
@@ -173,11 +229,6 @@ struct CodexTranscript: AgentTranscript {
     /// A summary for tool calls worth showing when they start.
     private static func activity(started item: JSONValue) -> String? {
         switch item["type"]?.string {
-        case "commandExecution":
-            // commandActions holds the command without the `zsh -lc` wrapper.
-            let command =
-                item["commandActions"]?.array?.first?["command"]?.string ?? item["command"]?.string ?? ""
-            return "Ran " + summarized(command)
         case "webSearch": return "Searched the web"
         case "mcpToolCall":
             return "Used \(item["server"]?.string ?? "?").\(item["tool"]?.string ?? "?")"
@@ -185,13 +236,44 @@ struct CodexTranscript: AgentTranscript {
         }
     }
 
-    /// A summary for tool calls worth showing once they are done.
+    /// A summary for commands and file changes once done: only then is it known whether they ran.
     private static func activity(completed item: JSONValue) -> String? {
-        guard item["type"]?.string == "fileChange", item["status"]?.string == "completed",
-            let changes = item["changes"]?.array
-        else { return nil }
-        let names = changes.compactMap { $0["path"]?.string }.map { URL(filePath: $0).lastPathComponent }
-        return names.isEmpty ? nil : "Edited " + names.joined(separator: ", ")
+        let declined = item["status"]?.string == "declined"
+        switch item["type"]?.string {
+        case "commandExecution":
+            let command = summarized(command(item) ?? "")
+            return declined ? "Declined " + command : "Ran " + command
+        case "fileChange":
+            let names = (item["changes"]?.array ?? []).compactMap { $0["path"]?.string }
+                .map { URL(filePath: $0).lastPathComponent }
+            guard !names.isEmpty, declined || item["status"]?.string == "completed" else { return nil }
+            return (declined ? "Declined changes to " : "Edited ") + names.joined(separator: ", ")
+        default: return nil
+        }
+    }
+
+    /// A command item's or approval's command, without the `zsh -lc` wrapper `commandActions` drops.
+    private static func command(_ value: JSONValue) -> String? {
+        value["commandActions"]?.array?.first?["command"]?.string ?? value["command"]?.string
+    }
+
+    /// An approval's whole command, as it will run: `commandActions` can hold only its first part.
+    /// Unwrapped from `zsh -lc '…'` when what it wraps has no quote of its own.
+    private static func fullCommand(_ params: JSONValue) -> String? {
+        guard let command = params["command"]?.string else { return nil }
+        if let wrapped = command.wholeMatch(of: #/\/bin\/(?:z|ba)?sh -lc '([^']*)'/#) {
+            return String(wrapped.output.1)
+        }
+        return command
+    }
+
+    /// A file-change item's changes, such as "add notes.md, update main.swift".
+    private static func changes(_ item: JSONValue) -> String {
+        let changes = (item["changes"]?.array ?? []).compactMap { change -> String? in
+            guard let path = change["path"]?.string else { return nil }
+            return (change["kind"]?["type"]?.string ?? "change") + " " + URL(filePath: path).lastPathComponent
+        }
+        return changes.isEmpty ? "files" : changes.joined(separator: ", ")
     }
 
     private static func request(_ id: ID, _ method: String, _ params: [String: JSONValue]) -> Data {

@@ -11,8 +11,8 @@ import Observation
 /// dismissed. An empty root query asks no source: the palette opens as the bare pill.
 ///
 /// A command's frame is fed by its run (`CommandRunner`): every result replaces what the frame
-/// shows, `close` asks the app to close the palette, and `reload` drops the frame and runs the one
-/// beneath it again; their messages go to `messages`. A live command runs again for every change of the frame's text (rapid
+/// shows, `close` asks the app to close the palette, `reload` drops the frame and runs the one
+/// beneath it again, and `stay` only drops the frame; their messages go to `messages`. A live command runs again for every change of the frame's text (rapid
 /// keystrokes coalesced by `liveDebounce`); a once command runs when opened and filters a list
 /// locally; a command waiting for its text (`CommandRun.awaitsText`) runs nothing until the text is
 /// submitted, which runs it in a frame of its own. How a command opens is the invocation policy's
@@ -423,6 +423,9 @@ public final class PaletteSession {
             drop(ticket.frame)
             start(frames.count - 1)
             if let message { messages.post(Message(message)) }
+        case .stay:
+            guard isCurrent(ticket) else { return }
+            drop(ticket.frame)
         }
     }
 

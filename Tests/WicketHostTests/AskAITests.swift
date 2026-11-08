@@ -14,6 +14,7 @@ private final class FakeAgents: Sendable {
         let provider: AgentProvider
         let request: AgentRequest
         let continuation: AsyncStream<AgentEvent>.Continuation
+        let replies: AsyncStream<AgentReply>
     }
 
     private struct State {
@@ -38,10 +39,12 @@ private final class FakeAgents: Sendable {
                 }
             },
             run: { provider, request in
-                AgentRun { continuation in
+                AgentRun { continuation, replies in
                     let index = self.state.withLock { state in
                         state.runs.append(
-                            Run(provider: provider, request: request, continuation: continuation))
+                            Run(
+                                provider: provider, request: request, continuation: continuation,
+                                replies: replies))
                         return state.runs.count - 1
                     }
                     // Runs until the runner ends it, which it always does (after the last event too).
@@ -65,6 +68,9 @@ private final class FakeAgents: Sendable {
 private let askAI = RegisteredCommand(
     id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
     input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .askAI)
+private let aiApproval = RegisteredCommand(
+    id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"), isListed: false, input: .none
+)
 
 @MainActor
 private struct Palette {
@@ -73,8 +79,9 @@ private struct Palette {
 
     init(_ backend: AgentBackend, interval: Duration = .zero) {
         runner = AskAIRunner(backend: backend, interval: interval)
-        let router = CommandRouter(builtins: [Builtin(askAI, runner: runner)], extensions: nil)
-        let registry = CommandRegistry(builtins: [askAI])
+        let router = CommandRouter(
+            builtins: [Builtin(askAI, runner: runner), Builtin(aiApproval, runner: runner)], extensions: nil)
+        let registry = CommandRegistry(builtins: [askAI, aiApproval])
         session = PaletteSession(sources: [FallbackSource(registry)], runner: router, registry: registry)
     }
 
@@ -82,6 +89,18 @@ private struct Palette {
     func ask(_ question: String) {
         session.query = question
         session.open(CommandRun(askAI, .invoked, text: question))
+    }
+
+    /// Picks one of the top frame's actions by title, as the action menu would: a `run` opens its
+    /// command, the rest are ignored here.
+    func pick(_ title: String) throws {
+        let action = try #require(session.top.target?.actions.first { $0.title == title })
+        guard case .run(let command, let text, let args, _, _) = action else { return }
+        #expect(command == aiApproval.id)
+        session.open(
+            CommandRun(
+                command: aiApproval, invocation: Invocation(command: command, text: text, args: args),
+                retry: .never))
     }
 
     var detail: Detail? {
@@ -120,23 +139,26 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { !agents.runs.isEmpty })
     let run = try #require(agents.runs.first)
     #expect(run.provider == .codex)
-    #expect(run.request.mode == .answer)
+    // Codex acts, in the home folder when nothing was selected in Finder.
+    #expect(run.request.mode == .act)
+    #expect(run.request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
     #expect(run.request.prompt == "capital of France?")
 
-    run.continuation.yield(.activity("Thinking"))
-    #expect(await eventually { palette.detail?.markdown == "_Thinking_" })
+    // What the agent does shows as progress above the answer, escaped.
+    run.continuation.yield(.activity("Ran ls *.md"))
+    #expect(await eventually { palette.detail?.markdown == "- Ran ls \\*\\.md\n\n_Asking Codex…_" })
     var text = ""
     for delta in ["**Paris**", " is the", " capital."] {
         text += delta
         run.continuation.yield(.text(delta))
-        #expect(await eventually { palette.detail?.markdown == text })
+        #expect(await eventually { palette.detail?.markdown == "- Ran ls \\*\\.md\n\n" + text })
         #expect(palette.session.top.id == frame)
         #expect(palette.session.top.target?.actions.first == .copy(text: text, title: "Copy Answer"))
     }
     // The final message alone replaces whatever streamed before it.
     run.continuation.yield(.answer("**Paris**.", usage: nil))
     #expect(await eventually { !palette.session.top.isLoading })
-    #expect(palette.detail?.markdown == "**Paris**.")
+    #expect(palette.detail?.markdown == "- Ran ls \\*\\.md\n\n**Paris**.")
     #expect(
         palette.session.top.target?.actions == [
             .copy(text: "**Paris**.", title: "Copy Answer"),
@@ -348,4 +370,93 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         return detail.title
     }
     #expect(await eventually { title == "translate this to German" })
+}
+
+@MainActor @Test func approvalsAreAnsweredInTheAnswerAndTheFrameStays() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("make hello.txt")
+    #expect(await eventually { agents.runs.count == 1 })
+    let run = agents.runs[0]
+    let frame = palette.session.top.id
+    let command = AgentApproval(
+        id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create it?")
+    let files = AgentApproval(id: .string("r2"), kind: .fileChange, subject: "add notes.md")
+    run.continuation.yield(.approvals([command, files]))
+    #expect(await eventually { palette.detail?.actions.count == 3 })
+    #expect(palette.detail?.actions.map(\.title) == ["Allow", "Allow for Session", "Deny"])
+    #expect(
+        palette.detail?.markdown
+            == "**The agent asks to run a command.**\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_1 more waiting_\n\n_Asking Codex…_"
+    )
+
+    // Allow goes to the agent; its frame goes and the answer's frame keeps running.
+    var replies = run.replies.makeAsyncIterator()
+    try palette.pick("Allow")
+    #expect(await replies.next() == AgentReply(approval: command, decision: .accept))
+    #expect(await eventually { palette.session.opening == nil })
+    #expect(palette.session.top.id == frame)
+    #expect(palette.session.frames.count == 2)
+    // The next one shows at once, even before the agent confirms the first resolved.
+    #expect(
+        await eventually {
+            palette.detail?.markdown.hasPrefix("**The agent asks to change files:** add notes\\.md") == true
+        })
+    run.continuation.yield(.approvals([command, files]))
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(palette.detail?.markdown.hasPrefix("**The agent asks to change files:**") == true)
+
+    try palette.pick("Deny")
+    #expect(await replies.next() == AgentReply(approval: files, decision: .decline))
+    #expect(await eventually { palette.detail?.actions.isEmpty == true })
+    run.continuation.yield(.approvals([]))
+    run.continuation.yield(.answer("Created hello.txt.", usage: nil))
+    #expect(await eventually { palette.detail?.markdown == "Created hello.txt." })
+    #expect(palette.detail?.actions.first == .copy(text: "Created hello.txt.", title: "Copy Answer"))
+}
+
+@MainActor @Test func escapeWhileAnApprovalWaitsStopsTheAgentAndTheActionExpires() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("delete the logs")
+    #expect(await eventually { agents.runs.count == 1 })
+    agents.runs[0].continuation.yield(
+        .approvals([AgentApproval(id: .integer(0), kind: .command, subject: "rm *.log")]))
+    #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
+    let allow = try #require(palette.detail?.actions.first)
+    #expect(palette.session.escape() == .popped)
+    #expect(await eventually { agents.wasEnded(0) })
+    await palette.runner.shutdown()  // Returns once the run has ended and cleaned up.
+
+    guard case .run(_, _, let args, _, _) = allow else { return }
+    var thrown: (any Error)?
+    do {
+        for try await _ in palette.runner.run(Invocation(command: .aiApproval, args: args), retry: .never) {}
+    } catch { thrown = error }
+    #expect(
+        String(describing: thrown ?? CancellationError())
+            == "This question was already answered or has ended.")
+}
+
+@MainActor @Test func codexWorksInTheFinderSelectionsFolderAndOtherProvidersOnlyAnswer() async throws {
+    let folder = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/sel-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let file = folder.appending(path: "a.txt")
+    try Data().write(to: file)
+    #expect(
+        AskAIRunner.folder(for: SummonContext(app: "Finder", files: [file]))
+            == file.deletingLastPathComponent())
+    #expect(AskAIRunner.folder(for: SummonContext(app: "Finder", files: [folder])) == folder)
+    #expect(
+        AskAIRunner.folder(for: SummonContext(app: "Mail", text: "hi"))
+            == FileManager.default.homeDirectoryForCurrentUser)
+
+    let agents = FakeAgents([.codex: .loggedOut, .claude: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    #expect(agents.runs[0].provider == .claude)
+    #expect(agents.runs[0].request.mode == .answer)
+    #expect(agents.runs[0].request.workingDirectory.lastPathComponent.hasPrefix("wicket-ask-"))
 }

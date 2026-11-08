@@ -25,12 +25,9 @@ struct ClaudeTranscript: AgentTranscript {
             "--no-session-persistence", "--safe-mode", "--strict-mcp-config", "--permission-prompts", "none",
         ]
         switch mode {
-        case .answer:
+        // Acting runs stay answer-only until the permission bridge lands.
+        case .answer, .act:
             return common + ["--tools", "", "--effort", "low", "--system-prompt", Agent.answerInstructions]
-        case .plan:
-            return common + [
-                "--restricted", "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep",
-            ]
         case .build:
             // --restricted confines the file tools to the working directory and ignores settings
             // files other than --settings.

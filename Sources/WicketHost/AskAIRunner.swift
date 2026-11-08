@@ -6,6 +6,9 @@ extension CommandID {
     /// Opens Settings on its AI pane: the action of an Ask AI frame whose provider isn't ready.
     /// Hidden, reached by id only; the app's table gives it its effect.
     public static let aiSettings = CommandID.builtin("ai-settings")
+    /// Answers an acting agent's approval shown in an Ask AI frame (`token` and `decision` args).
+    /// Hidden, reached by id only.
+    public static let aiApproval = CommandID.builtin("ai-approval")
 }
 
 /// What Ask AI needs from its providers: whether a provider is ready, and an answer run.
@@ -36,6 +39,8 @@ public struct AgentBackend: Sendable {
 }
 
 /// Ask AI and prompt commands share one answer stream, provider selection and process lifetime.
+/// Ask AI acts with a provider that can (`AgentProvider.acts`), in the folder of the Finder
+/// selection or the home folder; its approvals are answered through `builtin:ai-approval`.
 @MainActor
 public final class AskAIRunner: CommandRunner {
     let answers: AnswerStream
@@ -59,15 +64,28 @@ public final class AskAIRunner: CommandRunner {
 
     public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
+        if invocation.command == .aiApproval { return answers.reply(invocation) }
         let question = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt =
             question.isEmpty
             ? "" : (invocation.context.map { question + "\n\n" + $0.promptBlock } ?? question)
         var submitted = invocation
         submitted.text = question
-        return answers.run(submitted, prompt: prompt, title: question) { [weak self] in
+        return answers.run(
+            submitted, prompt: prompt, title: question, actingIn: Self.folder(for: invocation.context)
+        ) { [weak self] in
             self?.saveCommand?(invocation).map { [$0] } ?? []
         }
+    }
+
+    /// Where an acting run works: the folder of the Finder selection (a selected folder itself when it
+    /// is the only item), else the home folder.
+    static func folder(for context: SummonContext?) -> URL {
+        guard let files = context?.files, let first = files.first else {
+            return FileManager.default.homeDirectoryForCurrentUser
+        }
+        let isFolder = (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        return files.count == 1 && isFolder ? first : first.deletingLastPathComponent()
     }
 
     public func shutdown() async { await answers.shutdown() }
@@ -92,6 +110,8 @@ final class AnswerStream {
     private var ready: [AgentProvider: ContinuousClock.Instant] = [:]
     /// The runs in flight, each ending once its agent's process tree is gone.
     private var running: [UUID: Task<Void, Never>] = [:]
+    /// The approvals shown in frames, by the token their actions carry, until answered or their run ends.
+    private var waiting: [String: (run: AgentRun, approval: AgentApproval, draft: Draft)] = [:]
     private var isShutDown = false
     private static let logger = Logger(subsystem: "app.wicket", category: "ai")
 
@@ -106,8 +126,10 @@ final class AnswerStream {
         self.statusLifetime = statusLifetime
     }
 
+    /// With `actingIn`, a provider that acts works in that folder (`AgentMode.act`); otherwise, and
+    /// for every other provider, the run only answers, in an empty folder.
     func run(
-        _ invocation: Invocation, prompt: String, title: String,
+        _ invocation: Invocation, prompt: String, title: String, actingIn folder: URL? = nil,
         completedActions: @escaping @MainActor () -> [Item.Action] = { [] }
     ) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
@@ -120,8 +142,8 @@ final class AnswerStream {
             do {
                 guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
                 try await answer(
-                    prompt, title: title, invocation: invocation, completedActions: completedActions,
-                    continuation)
+                    prompt, title: title, invocation: invocation, actingIn: folder,
+                    completedActions: completedActions, continuation)
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -131,6 +153,25 @@ final class AnswerStream {
         running[id] = task
         continuation.onTermination = { _ in task.cancel() }
         return stream
+    }
+
+    /// Answers the approval an `aiApproval` action names, then leaves its frame as it is (`stay`):
+    /// the run's own stream shows what happens next.
+    func reply(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
+        AsyncThrowingStream { continuation in
+            guard case .string(let token)? = invocation.args?["token"],
+                case .string(let name)? = invocation.args?["decision"],
+                let decision = AgentDecision(rawValue: name),
+                let (run, approval, draft) = waiting.removeValue(forKey: token)
+            else {
+                continuation.finish(throwing: Failure("This question was already answered or has ended."))
+                return
+            }
+            run.reply(to: approval, decision)
+            draft.answer(token, approval)
+            continuation.yield(.stay)
+            continuation.finish()
+        }
     }
 
     /// Ends every run and returns once their agents' process trees are gone; runs asked for after
@@ -144,7 +185,7 @@ final class AnswerStream {
 
     /// Asks the prepared prompt; presentation and Retry retain the original invocation.
     private func answer(
-        _ prompt: String, title: String, invocation: Invocation,
+        _ prompt: String, title: String, invocation: Invocation, actingIn acting: URL?,
         completedActions: @escaping @MainActor () -> [Item.Action],
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
@@ -164,16 +205,27 @@ final class AnswerStream {
             completedActions: completedActions)
         output.yield(.show(.detail(draft.detail)))
 
-        // An empty folder, so the agent's working directory holds nothing to read.
-        let folder = FileManager.default.temporaryDirectory.appending(path: "wicket-ask-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        let request: AgentRequest
+        if let acting, provider.acts {
+            request = AgentRequest(prompt: prompt, workingDirectory: acting, mode: .act)
+        } else {
+            // An empty folder, so the agent's working directory holds nothing to read.
+            let folder = FileManager.default.temporaryDirectory.appending(
+                path: "wicket-ask-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            request = AgentRequest(prompt: prompt, workingDirectory: folder, mode: .answer)
+        }
+        defer {
+            if request.mode == .answer { try? FileManager.default.removeItem(at: request.workingDirectory) }
+        }
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
-        defer { throttle.cancel() }
-        let request = AgentRequest(
-            prompt: prompt, workingDirectory: folder,
-            mode: .answer)
+        draft.redraw = { throttle.submit() }
+        defer {
+            throttle.cancel()
+            draft.redraw = {}  // The throttle's action holds the draft.
+        }
         let run = await backend.run(provider, request)
+        defer { waiting = waiting.filter { $0.value.draft !== draft } }
         // However this ends (answer, failure, cancellation), it returns only once the agent's
         // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
         do {
@@ -206,15 +258,19 @@ final class AnswerStream {
                 draft.text += delta
                 throttle.submit()
             case .activity(let activity):
-                // A status until the answer starts; the answer is what matters after that.
-                guard draft.text.isEmpty else { continue }
-                draft.status = activity
+                draft.progress.append(activity)
+                throttle.submit()
+            case .approvals(let approvals):
+                for (token, _) in draft.approvals { waiting[token] = nil }
+                draft.show(approvals)
+                for (token, approval) in draft.approvals { waiting[token] = (run, approval, draft) }
                 throttle.submit()
             case .answer(let answer, _):
                 throttle.cancel()
                 // The final message alone; anything streamed before it (commentary) goes.
                 if !answer.isEmpty { draft.text = answer }
                 guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
+                draft.approvals = []
                 draft.finishedActions = draft.completedActions()
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
@@ -295,10 +351,18 @@ private final class Draft {
     let completedActions: @MainActor () -> [Item.Action]
     var finishedActions: [Item.Action] = []
     /// Shown until the first text arrives.
-    var status: String
+    let status: String
     var text = ""
+    /// What the agent did, one line each ("Ran ls", "Edited notes.md").
+    var progress: [String] = []
+    /// The agent's questions waiting for the user, oldest first, each with its action token.
+    var approvals: [(token: String, approval: AgentApproval)] = []
+    /// Approvals the user answered, kept out until the agent confirms them resolved.
+    private var answered: Set<JSONValue> = []
     /// Why the run failed, once it has.
     var failure: String?
+    /// Shows the latest state; set by the run.
+    var redraw: () -> Void = {}
 
     init(
         title: String, invocation: Invocation, status: String,
@@ -310,14 +374,40 @@ private final class Draft {
         self.completedActions = completedActions
     }
 
-    /// The question is the title (the pill shows it), the answer the page. Nothing to act on until
-    /// text arrives; a failed run keeps what it sent, marked incomplete, with Retry first.
+    /// The agent's waiting approvals, keeping the tokens of those already shown.
+    func show(_ waiting: [AgentApproval]) {
+        answered.formIntersection(waiting.map(\.id))
+        approvals = waiting.filter { !answered.contains($0.id) }.map { approval in
+            (approvals.first { $0.approval == approval }?.token ?? UUID().uuidString, approval)
+        }
+    }
+
+    func answer(_ token: String, _ approval: AgentApproval) {
+        answered.insert(approval.id)
+        approvals.removeAll { $0.token == token }
+        redraw()
+    }
+
+    /// The question is the title (the pill shows it), the answer the page, after what the agent did
+    /// and, first, the question it is waiting on, whose answers are then the actions. Nothing to act
+    /// on until text arrives; a failed run keeps what it sent, marked incomplete, with Retry first.
     var detail: Detail {
         let copy = Item.Action.copy(text: text, title: "Copy Answer")
         guard let failure else {
-            if text.isEmpty { return Detail(title: title, markdown: "_\(status)_") }
+            let body = text.isEmpty ? "_\(status)_" : text
+            if let (token, approval) = approvals.first {
+                return Detail(
+                    title: title, markdown: ([ask(approval)] + steps + [body]).joined(separator: "\n\n"),
+                    actions: [
+                        decide(token, .accept, "Allow"),
+                        decide(token, .acceptForSession, "Allow for Session"),
+                        decide(token, .decline, "Deny"),
+                    ])
+            }
+            let markdown = (steps + [body]).joined(separator: "\n\n")
+            if text.isEmpty { return Detail(title: title, markdown: markdown) }
             return Detail(
-                title: title, markdown: text,
+                title: title, markdown: markdown,
                 actions: [copy, .paste(text: text, title: "Paste Answer")] + finishedActions)
         }
         let retry = Item.Action.run(
@@ -329,8 +419,50 @@ private final class Draft {
             return detail
         }
         return Detail(
-            title: title, markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
+            title: title,
+            markdown: (steps + [text + "\n\n---\n\n**The answer is incomplete.** " + failure])
+                .joined(separator: "\n\n"),
             actions: [retry, copy])
+    }
+
+    /// The progress as a list: the latest steps, and how many came before them.
+    private var steps: [String] {
+        guard !progress.isEmpty else { return [] }
+        let shown = progress.suffix(12)
+        let earlier = progress.count - shown.count
+        let lines =
+            (earlier > 0 ? ["- _\(earlier) earlier steps_"] : []) + shown.map { "- " + Self.escaped($0) }
+        return [lines.joined(separator: "\n")]
+    }
+
+    private func ask(_ approval: AgentApproval) -> String {
+        var parts =
+            switch approval.kind {
+            case .command: ["**The agent asks to run a command.**"]
+            case .fileChange: ["**The agent asks to change files:** " + Self.escaped(approval.subject)]
+            }
+        if let reason = approval.reason, !reason.isEmpty { parts.append(Self.escaped(reason)) }
+        if approval.kind == .command { parts.append(Self.fenced(approval.subject)) }
+        if approvals.count > 1 { parts.append("_\(approvals.count - 1) more waiting_") }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func decide(_ token: String, _ decision: AgentDecision, _ title: String) -> Item.Action {
+        .run(
+            command: .aiApproval, args: ["token": .string(token), "decision": .string(decision.rawValue)],
+            title: title)
+    }
+
+    /// Text shown as is: Markdown's punctuation escaped.
+    static func escaped(_ text: String) -> String {
+        text.map { "\\`*_{}[]<>()#+-.!|~&".contains($0) ? "\\" + String($0) : String($0) }.joined()
+    }
+
+    /// A code block that no backtick run inside `code` can close.
+    static func fenced(_ code: String) -> String {
+        let longest = code.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        return fence + "\n" + code + "\n" + fence
     }
 }
 

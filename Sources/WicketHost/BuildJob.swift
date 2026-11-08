@@ -205,8 +205,9 @@ public final class BuildJob: Identifiable {
     private func generate(_ run: AgentRun, _ provider: AgentProvider) async throws {
         for await event in run {
             switch event {
-            case .text:
+            case .text, .approvals:
                 // Commentary between steps; the activities and the closing message say what matters.
+                // Build runs ask nothing (approval policy "never").
                 continue
             case .activity(let activity):
                 activities.append(activity)

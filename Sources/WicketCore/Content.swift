@@ -37,6 +37,9 @@ public enum RunResult: Sendable, Hashable {
     case close(message: String?)
     /// Re-runs the view the user is looking at.
     case reload(message: String?)
+    /// Leaves the palette as it was: the command's own frame goes, and the frame beneath keeps
+    /// running. For an action that answers the screen it was chosen on, such as an agent's approval.
+    case stay
 }
 
 /// What a frame above the root shows: a command's latest content, or a page pushed by a `detail`

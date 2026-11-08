@@ -8,6 +8,12 @@ protocol AgentTranscript: Sendable {
     /// What to write when the process starts.
     mutating func start() -> AgentStep
     mutating func receive(_ line: Data) -> AgentStep
+    /// The line answering one of the agent's approvals; nil for agents that send none.
+    static func reply(_ reply: AgentReply) -> Data?
+}
+
+extension AgentTranscript {
+    static func reply(_ reply: AgentReply) -> Data? { nil }
 }
 
 struct AgentStep {
@@ -28,19 +34,19 @@ enum AgentProcess {
         _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
         exitGrace: Duration = .seconds(2)
     ) -> AgentRun {
-        AgentRun { continuation in
+        AgentRun { continuation, replies in
             await drive(
                 executable, arguments: arguments, request: request, transcript: transcript,
-                exitGrace: exitGrace
+                replies: replies, exitGrace: exitGrace
             ) {
                 continuation.yield($0)
             }
         }
     }
 
-    private static func drive(
-        _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
-        exitGrace: Duration, emit: (AgentEvent) -> Void
+    private static func drive<Transcript: AgentTranscript>(
+        _ executable: URL, arguments: [String], request: AgentRequest, transcript: Transcript,
+        replies: AsyncStream<AgentReply>, exitGrace: Duration, emit: (AgentEvent) -> Void
     ) async -> Shutdown {
         let start = ContinuousClock.now
         let name = executable.lastPathComponent
@@ -63,6 +69,13 @@ enum AgentProcess {
         }
         let stderr = OutputTail(limit: 16 << 10)
         let stderrDrained = Task.detached { await stderr.drain(errors.fileHandleForReading) }
+        // The user's answers go out as they come, never holding up the reading of stdout.
+        let replying = Task.detached {
+            for await reply in replies {
+                if let line = Transcript.reply(reply) { tree.write(line) }
+            }
+        }
+        defer { replying.cancel() }
 
         var transcript = transcript
         /// The answer or error, held back until the tree is gone.
@@ -72,7 +85,7 @@ enum AgentProcess {
             for event in step.events where final == nil {
                 switch event {
                 case .answer, .error: final = event
-                case .text, .activity: emit(event)
+                case .text, .activity, .approvals: emit(event)
                 }
                 events += 1
             }

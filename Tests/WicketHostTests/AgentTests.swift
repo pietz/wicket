@@ -119,7 +119,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(thread["params"]?["baseInstructions"] == .string(Agent.answerInstructions))
     }
 
-    @Test func refusesServerRequests() throws {
+    @Test func lockedDownRunsRefuseServerRequests() throws {
         var transcript = CodexTranscript(
             request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .build))
         let step = transcript.receive(
@@ -132,11 +132,139 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(reply["error"]?["code"] == .integer(-32601))
     }
 
+    @Test func actingRunsLeaveApprovalsSandboxAndServersToTheUsersConfig() throws {
+        #expect(CodexTranscript.arguments(for: .act) == ["app-server"])
+        var transcript = CodexTranscript(
+            request: AgentRequest(prompt: "Tidy up", workingDirectory: URL(filePath: "/tmp/work"), mode: .act)
+        )
+        let start = transcript.start()
+        #expect(try methods(start) == ["initialize", "initialized", "thread/start"])
+        let thread = try decoded(start.send[2])["params"]
+        #expect(thread?["cwd"] == .string("/tmp/work"))
+        #expect(thread?["ephemeral"] == .bool(true))
+        #expect(thread?["developerInstructions"] == .string(Agent.actInstructions))
+        for omitted in ["approvalPolicy", "sandbox", "config", "baseInstructions"] {
+            #expect(thread?[omitted] == nil)
+        }
+        let turn = try sent(transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#)))
+        #expect(turn["method"] == .string("turn/start"))
+        #expect(turn["params"]?["effort"] == nil)
+        #expect(turn["params"]?["sandboxPolicy"] == nil)
+    }
+
+    @Test func approvalsWaitForTheUserUntilResolved() throws {
+        var transcript = CodexTranscript(
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .act))
+        _ = transcript.start()
+        let command = AgentApproval(
+            id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create hello.txt?")
+        let first = transcript.receive(
+            line(
+                #"{"method":"item/commandExecution/requestApproval","id":0,"params":{"itemId":"c1","reason":"Create hello.txt?","command":"/bin/zsh -lc 'echo hi > hello.txt'","commandActions":[{"type":"unknown","command":"echo hi"}]}}"#
+            ))
+        #expect(first.events == [.approvals([command])])
+        #expect(first.send.isEmpty)
+
+        // A file-change approval names its item; the item said what changes.
+        _ = transcript.receive(
+            line(
+                #"{"method":"item/started","params":{"item":{"type":"fileChange","id":"f1","status":"inProgress","changes":[{"path":"/tmp/work/notes.md","kind":{"type":"add"},"diff":"hi"},{"path":"/tmp/work/a.swift","kind":{"type":"update","move_path":null},"diff":""}]}}}"#
+            ))
+        let files = AgentApproval(
+            id: .string("r2"), kind: .fileChange, subject: "add notes.md, update a.swift")
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/fileChange/requestApproval","id":"r2","params":{"itemId":"f1","reason":null}}"#
+                )
+            ).events == [.approvals([command, files])])
+
+        // Replies keep the request id's type.
+        let accepted = try decoded(
+            try #require(CodexTranscript.reply(AgentReply(approval: command, decision: .acceptForSession))))
+        #expect(
+            accepted
+                == .object(["id": .integer(0), "result": .object(["decision": .string("acceptForSession")])]))
+        let declined = try decoded(
+            try #require(CodexTranscript.reply(AgentReply(approval: files, decision: .decline))))
+        #expect(declined["id"] == .string("r2"))
+
+        #expect(
+            transcript.receive(
+                line(#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":0}}"#)
+            )
+            .events == [.approvals([files])])
+        #expect(
+            transcript.receive(
+                line(#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":"r2"}}"#)
+            ).events == [.approvals([])])
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/completed","params":{"item":{"type":"fileChange","id":"f1","status":"declined","changes":[{"path":"/tmp/work/notes.md","kind":{"type":"add"},"diff":"hi"}]}}}"#
+                )
+            ).events == [.activity("Declined changes to notes.md")])
+    }
+
+    @Test func actingRunsStillRefuseOtherRequests() throws {
+        var transcript = CodexTranscript(
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .act))
+        let step = transcript.receive(
+            line(#"{"id":5,"method":"item/tool/requestUserInput","params":{"questions":[]}}"#))
+        #expect(step.events == [.activity("Declined item/tool/requestUserInput")])
+        #expect(try sent(step)["error"]?["code"] == .integer(-32601))
+    }
+
+    @Test func aRecordedApprovalRoundTrip() async throws {
+        // Recorded from Codex 0.167 with a temporary config (on-request, read-only), the command
+        // accepted; the replay ignores what it is sent.
+        let events = await events(try replaying(.codex, "codex-act-approval"), .act)
+        let approval = AgentApproval(
+            id: .integer(0), kind: .command, subject: "echo hi > hello.txt",
+            reason: "Allow creating hello.txt with the requested content?")
+        #expect(
+            events.filter { if case .approvals = $0 { true } else { false } } == [
+                .approvals([approval]), .approvals([]),
+            ])
+        #expect(activities(events) == ["Ran echo hi > hello.txt"])
+        guard case .answer(let answer, _)? = events.last else {
+            Issue.record("no answer: \(events)")
+            return
+        }
+        #expect(answer == "done")
+    }
+
     @Test func aRequestErrorEndsTheRun() {
         var transcript = CodexTranscript(
             request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .answer))
         let step = transcript.receive(line(#"{"id":3,"error":{"code":-32600,"message":"bad cwd"}}"#))
         #expect(step.events == [.error("bad cwd")])
+    }
+
+    @Test func aReplyReachesTheAgentWhileItWaits() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/reply-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let replyFile = folder.appending(path: "reply")
+        let agent = try fakeAgent(
+            .codex,
+            """
+            echo '{"method":"item/commandExecution/requestApproval","id":"a","params":{"command":"ls"}}'
+            while read -r line; do case "$line" in *decision*) printf '%s' "$line" > '\(replyFile.path)'; break;; esac; done
+            echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m","text":"ok"}}}'
+            echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+            """)
+        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .act))
+        var last: AgentEvent?
+        for await event in run {
+            if case .approvals(let approvals) = event, let first = approvals.first {
+                run.reply(to: first, .accept)
+            }
+            last = event
+        }
+        #expect(last == .answer("ok", usage: nil))
+        let reply = try decoded(try Data(contentsOf: replyFile))
+        #expect(reply == .object(["id": .string("a"), "result": .object(["decision": .string("accept")])]))
     }
 
     private func line(_ text: String) -> Data { Data(text.utf8) }
