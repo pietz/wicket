@@ -22,7 +22,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Action panel: secondary actions per item (⌘K or ⌘↩): reveal in Finder, copy path, open with
 - ✅ Compact pill by default; a content-sized card expands only when there is something to show (owner's call); large answer row; `paletteWidth` setting (600 pt default, slider in General)
 - 💤 Empty palette: favorites and suggestions, as an option once the pill exists
-- ✅ Fallback list for unmatched queries: Ask AI, then Search the Web (settings `webSearch.url`), in table order; a user order waits for a real need. An "Open apple.com" row for typed web addresses
+- ✅ Fallback for unmatched queries: Run Agent is the only built-in one (Search the Web removed 2026-11-08; extensions can add fallbacks). An "Open apple.com" row for typed web addresses (the Links feature)
+- ✅ Answer text size setting (Small to Larger, default Medium, one step above the old look)
 - ✅ Paste-back: target captured at summon, layout-aware ⌘V, Accessibility asked on first paste (on-screen check needs the owner's grant)
 - ✅ Keyboard model: Tab and ⌘K conventions, ⌘1 to ⌘9 quick picks, consistent across sources
 
@@ -65,7 +66,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ✅ Follow Up (⌘↩ on an answer): the next question, typed or spoken, resumes the agent's own session (Claude `--resume`, Codex `thread/resume`)
 - ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
 - ⏭ Dismissible runs: Escape hides a running agent; the next summon shows it as a row (running, needs approval, ready)
-- ⏭ Feature switches for every built-in (calculator, files, links, web search, agent), so the user turns off what they don't want
+- ⏭ Feature switches for every built-in (calculator, files, links, agent), so the user turns off what they don't want
 - ⏭ Tour manual rewritten for the current product
 - 💤 Selection as operand with Replace in the source app (all three researchers' top idea; resumes when the owner wants it)
 - 💤 A successful run becomes a command ("Keep this"), saved instructions first, code only when needed

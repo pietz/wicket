@@ -34,5 +34,5 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Richer agent replies using Wicket components** instead of text only (later).
 - **Settings ▸ AI much simpler:** one provider dropdown (Claude, ChatGPT), only ready ones selectable, one set of fields; real defaults (Claude sonnet, ChatGPT gpt-6.1-terra, effort medium, speed regular, permissions Auto); four permission levels, no "default"; Apple Intelligence out of the picker (done, 0.0.2).
 - ~~**Continue a conversation:** a short button under an answer ("Follow Up") returns to the normal input (type or speak), keeping the first question and answer so the agent has the context.~~ Done (CONCEPT, AI).
-- **Answer text size as a setting:** today's size is close to the smallest; default bigger (in progress).
-- **Remove Search the Web:** with an agent that answers, a native web search row isn't wanted; keep opening typed links (in progress).
+- **Answer text size as a setting:** today's size is close to the smallest; default bigger (done: Settings ▸ General, default Medium).
+- **Remove Search the Web:** with an agent that answers, a native web search row isn't wanted; keep opening typed links (done: removed; typed addresses are the Links feature).
