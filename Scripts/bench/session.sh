@@ -2,7 +2,8 @@
 # One benchmark session: latency, memory and a typing smoke test for Wicket (and any variants), then
 # Tinycast. Takes over the keyboard and screen for ~3 minutes: only run when the Mac is free.
 #   Scripts/bench/session.sh <Tinycast.app path> <output dir>
-# Everything uses ⌃⌥Space so a ChatGPT-style ⌥Space binding cannot interfere.
+# Everything uses ⌃⌥Space so a ChatGPT-style ⌥Space binding cannot interfere. It measures Wicket Dev
+# (Scripts/build-app.sh), so the installed Wicket keeps running.
 set -uo pipefail
 cd "${0:A:h}/../.."
 tinycast="$1"; out="$2"; runs="${RUNS:-30}"
@@ -12,7 +13,7 @@ echo '{"hotkey": "ctrl+option+space"}' > "$config/settings.json"
 swiftc -O Scripts/bench/hotkey-latency.swift -o build/hotkey-latency
 swiftc -O Scripts/bench/keys.swift -o build/keys
 Scripts/build-app.sh >/dev/null
-pkill -x Wicket; pkill -x Tinycast; sleep 1
+pkill -f "Wicket Dev.app/"; pkill -x Tinycast; sleep 1
 
 smoke() {  # $1 label, $2 process: open, type "term", move down, screenshot, close
   build/keys ctrl-opt-space "await:$2" t e r m down || return
@@ -23,13 +24,13 @@ smoke() {  # $1 label, $2 process: open, type "term", move down, screenshot, clo
 
 variant() {  # $1 label, rest: env assignments
   local label=$1; shift
-  env "$@" WICKET_CONFIG_DIR="$config" build/Wicket.app/Contents/MacOS/Wicket --background >/dev/null 2>&1 &
+  env "$@" WICKET_CONFIG_DIR="$config" "build/Wicket Dev.app/Contents/MacOS/Wicket" --background >/dev/null 2>&1 &
   sleep 4
   echo "== $label"
-  build/hotkey-latency Wicket "$runs" --ctrl || echo "latency run aborted"
-  sleep 3; footprint -p "$(pgrep -x Wicket)" | grep 'phys_footprint:'
-  smoke "$label" Wicket
-  pkill -x Wicket; sleep 1
+  build/hotkey-latency "Wicket Dev" "$runs" --ctrl || echo "latency run aborted"
+  sleep 3; footprint -p "$(pgrep -f "Wicket Dev.app/")" | grep 'phys_footprint:'
+  smoke "$label" "Wicket Dev"
+  pkill -f "Wicket Dev.app/"; sleep 1
 }
 
 # Add `variant <label> VAR=value ...` lines to A/B an experiment switch.

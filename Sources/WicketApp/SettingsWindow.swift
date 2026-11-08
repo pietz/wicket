@@ -13,10 +13,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: SettingsStore
     private let voice: VoiceConsent
     private let permissions: AgentPermissions
+    private let updater: Updater?
     private var window: NSWindow?
 
-    init(store: SettingsStore, voice: VoiceConsent, permissions: AgentPermissions) {
+    init(store: SettingsStore, voice: VoiceConsent, permissions: AgentPermissions, updater: Updater?) {
         self.store = store
+        self.updater = updater
         self.voice = voice
         self.permissions = permissions
     }
@@ -46,7 +48,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func makeWindow() -> NSWindow {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
-        tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store)))
+        tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store, updater: updater)))
         tabs.addTabViewItem(pane("Features", symbol: "square.grid.2x2", FeaturesPane(store: store)))
         tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store, permissions: permissions)))
         tabs.addTabViewItem(pane("Voice", symbol: "waveform", VoicePane(consent: voice)))

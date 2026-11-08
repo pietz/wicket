@@ -312,3 +312,14 @@ func showInMenuBarFallsBackAlone(json: String, show: Bool, ignored: Bool) throws
     try Settings.update(at: url) { $0.showInMenuBar = true }
     #expect(try read(url) == "{\n  \"hotkey\" : \"cmd+k\"\n}\n")
 }
+
+@Test func editionFollowsTheBundleIdentifier() {
+    #expect(Edition(bundleIdentifier: "app.wicket.Wicket") == .release)
+    #expect(Edition(bundleIdentifier: "app.wicket.Wicket.dev") == .dev)
+    #expect(Edition(bundleIdentifier: nil) == .release)
+    // Wicket Dev never shares the released app's hotkey or folders.
+    #expect(Edition.dev.defaultHotkey != Edition.release.defaultHotkey)
+    #expect(Edition.dev.configFolder != Edition.release.configFolder)
+    #expect(Edition.dev.supportDirectory != Edition.release.supportDirectory)
+    #expect(Edition.release.defaultHotkey.description == "option+space")
+}

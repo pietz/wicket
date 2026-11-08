@@ -89,12 +89,12 @@ public struct Settings: Equatable, Sendable {
         public var errorDescription: String? { "settings.json is invalid: \(description)" }
     }
 
-    /// `$WICKET_CONFIG_DIR`, else `~/.config/wicket`.
+    /// `$WICKET_CONFIG_DIR`, else `~/.config/wicket` (`~/.config/wicket-dev` for Wicket Dev).
     public static func directory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let dir = environment["WICKET_CONFIG_DIR"], !dir.isEmpty {
             return URL(filePath: dir, directoryHint: .isDirectory)
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/wicket")
+        return FileManager.default.homeDirectoryForCurrentUser.appending(path: Edition.current.configFolder)
     }
 
     /// Defaults if the file does not exist; throws `InvalidFile` if it exists but is not valid.

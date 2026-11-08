@@ -10,7 +10,7 @@ protocol MenuBarSurface: AnyObject {
 }
 
 /// Wicket's menu bar icon, so a running Wicket can be seen and reached without its hotkey: Open
-/// Wicket, Settings… and Quit Wicket. Its items call the same paths as the hotkey and ⌘, (the
+/// Wicket, Settings…, Check for Updates… (the released app only) and Quit Wicket. Its items call the same paths as the hotkey and ⌘, (the
 /// runtime's `showPalette` and `showSettings`), so it holds no state of its own.
 ///
 /// The status item is created the first time it is shown and only hidden after that, so nothing
@@ -19,12 +19,14 @@ protocol MenuBarSurface: AnyObject {
 final class MenuBarItem: NSObject, MenuBarSurface {
     private let onOpen: () -> Void
     private let onSettings: () -> Void
+    private let updater: Updater?
     private var statusItem: NSStatusItem?
     private let openItem = NSMenuItem(title: "Open Wicket", action: #selector(open), keyEquivalent: "")
 
-    init(onOpen: @escaping () -> Void, onSettings: @escaping () -> Void) {
+    init(onOpen: @escaping () -> Void, onSettings: @escaping () -> Void, updater: Updater?) {
         self.onOpen = onOpen
         self.onSettings = onSettings
+        self.updater = updater
     }
 
     func update(visible: Bool, hotkey: Shortcut?) {
@@ -44,8 +46,15 @@ final class MenuBarItem: NSObject, MenuBarSurface {
         openItem.target = self
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
-        menu.items = [
-            openItem, settings, .separator(),
+        menu.items = [openItem, settings]
+        if updater != nil {
+            let check = NSMenuItem(
+                title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            check.target = self
+            menu.items.append(check)
+        }
+        menu.items += [
+            .separator(),
             NSMenuItem(
                 title: "Quit Wicket", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ]
@@ -55,6 +64,7 @@ final class MenuBarItem: NSObject, MenuBarSurface {
 
     @objc private func open() { onOpen() }
     @objc private func showSettings() { onSettings() }
+    @objc private func checkForUpdates() { updater?.checkForUpdates() }
 }
 
 extension Shortcut {

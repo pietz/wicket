@@ -1,0 +1,53 @@
+# Releasing Wicket
+
+Wicket ships as a notarized DMG on GitHub Releases, updates itself with Sparkle, and installs with Homebrew from the `pietz/homebrew-wicket` tap. `Scripts/release.sh` does everything up to publishing and prints the publishing commands; nothing goes out until you run them.
+
+## Editions
+
+- **Wicket** (`app.wicket.Wicket`): the released app. `Scripts/build-app.sh --release` builds it, signed with the Developer ID Application certificate of team 34MWWCL4H2, hardened runtime and secure timestamps. Only `release.sh` should need it.
+- **Wicket Dev** (`app.wicket.Wicket.dev`): every local build, `Scripts/build-app.sh` (or `debug`), into `build/Wicket Dev.app`. It has a DEV badge on its icon, ⌃⌥Space as its default hotkey, `~/.config/wicket-dev` and `~/Library/Application Support/Wicket Dev` as its folders, and no updater, so it runs next to an installed Wicket without touching it.
+
+## One-time setup
+
+1. **Notarization credentials.** Create an app-specific password at account.apple.com, then store it in the keychain under the profile the script uses:
+
+   ```sh
+   xcrun notarytool store-credentials wicket-notary --apple-id <apple id> --team-id 34MWWCL4H2
+   ```
+
+2. **Sparkle signing key.** Generate Wicket's own EdDSA key (kept in the login keychain under the account `wicket`, separate from any other app's), then put the public key it prints into `SUPublicEDKey` in `Resources/Info.plist`, replacing `REPLACE_WITH_SPARKLE_PUBLIC_KEY`, and commit that:
+
+   ```sh
+   swift package resolve
+   .build/artifacts/sparkle/Sparkle/bin/generate_keys --account wicket
+   ```
+
+   Back the private key up (`generate_keys --account wicket -x wicket-sparkle.key`, then into a password manager). Losing it means installed copies can never update again.
+
+3. **Repositories.** The source repo `pietz/wicket` must be public: the DMG is a release asset and the appcast is read from `main`. Create the tap `pietz/homebrew-wicket` with one folder, `Casks/`, and check it out next to this repo (`../homebrew-wicket`).
+
+## Cutting a release
+
+```sh
+Scripts/release.sh 0.0.2
+```
+
+It:
+
+1. sets `CFBundleShortVersionString` to the version and `CFBundleVersion` to one past the newest build in `appcast.xml` (1 for the first release) in `Resources/Info.plist`;
+2. builds and signs Wicket (`build-app.sh --release`);
+3. makes `build/Wicket-<version>.dmg` (the app and an Applications link) and signs it;
+4. notarizes it with `notarytool` (profile `wicket-notary`, a few minutes) and staples the ticket;
+5. signs it for Sparkle with the `wicket` key and adds an item to `appcast.xml`;
+6. writes the version and checksum into `Casks/wicket.rb`;
+7. prints the publishing commands: commit, tag, push the tag, `gh release create` with the DMG, push `main` (the appcast goes live last, once the DMG exists), and copy the cask to the tap.
+
+If notarization fails, the script stops before touching the appcast or cask; `git checkout Resources/Info.plist` undoes the version bump. Release notes are GitHub's (`--generate-notes`); edit them on the release page. Sparkle shows the release page from its update window.
+
+## Installing
+
+```sh
+brew install --cask pietz/wicket/wicket
+```
+
+or download the DMG from the latest release and drag Wicket to Applications. The cask declares `auto_updates`, so Homebrew leaves updates to Sparkle.

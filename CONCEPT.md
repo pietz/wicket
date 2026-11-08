@@ -169,6 +169,13 @@ Each is the call and its reason; the mechanism is in docs/architecture.md. All d
 
 - **Paste-back types ⌘V into the app frontmost at summon.** The key comes from the current keyboard layout, so Dvorak, AZERTY and QWERTZ paste; Tinycast posts the ANSI key code. Accessibility is asked on a paste, never at launch, at most once per session (Tinycast asks every paste). Activation is awaited rather than a fixed delay, and if the target doesn't come front we only copy, rather than type into the wrong app. **The clipboard is not restored:** reading it triggers macOS's pasteboard access alert and a restore races the target's read; revisit if `NSPasteboard.accessBehavior` allows it.
 
+### Release (2026-11-08)
+
+- **A notarized DMG on GitHub Releases, a Homebrew cask, Sparkle for updates.** Installing should be like any Mac app. Sparkle is the first third-party dependency: in-app updates are a concrete need, it is the standard, and writing a signed updater ourselves would be more code than the core feature it serves. It costs about 0.4 MB of idle memory while running (21.3 versus 21.0 MB, `vmmap`) and nothing on the palette path. Automatic checks are on by default (`SUEnableAutomaticChecks`, so no consent prompt): a check is one GET of a public file, no system profile.
+- **The appcast is `appcast.xml` on `main`, read raw from GitHub.** One file in the repo, its history in git, no Pages site or extra branch; the release script adds the item and it goes live with the push after the DMG is uploaded, so the feed never points at a missing file. A latest-release asset would need the whole feed regenerated each time.
+- **Wicket Dev beside the released app.** Local builds are Wicket Dev (`app.wicket.Wicket.dev`, a DEV badge, ⌃⌥Space, its own config and Application Support folders, no updater), so the owner can run the installed Wicket and work on the next one at once. One `Edition` read from the bundle id, not a compile flag: the same binary is tested either way and the bundled `wicket` tool follows its app.
+- **Versions start at 0.0.1; the build number is one past the newest in the appcast,** which is what Sparkle compares, so it can never go backwards. The cask lives in the repo as the source for the `pietz/homebrew-wicket` tap, with `auto_updates` so Homebrew leaves updates to Sparkle.
+
 ## Measurements
 
 MacBook on macOS 27.2, release builds, 2026-11-06. Idle Mac, 30 summons each, ⌃⌥Space for both apps.
@@ -194,5 +201,4 @@ MacBook on macOS 27.2, release builds, 2026-11-06. Idle Mac, 30 summons each, �
 ## Open decisions
 
 - **Licence:** MIT versus GPL/AGPL; leaning MIT for adoption.
-- **Distribution:** Developer ID signing, notarisation, Homebrew cask, auto-update.
 - **Name:** Apache Wicket is a minor clash; wicket.app is for sale and the plain GitHub org is taken (`wicket-app` or `getwicket`). Trademark check before going public.

@@ -29,7 +29,8 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
         }
     }
 
-    public static let `default` = Shortcut(key: "space", modifiers: .option)
+    /// The palette's hotkey when settings.json names none: the edition's (`Edition.defaultHotkey`).
+    public static let `default` = Edition.current.defaultHotkey
 
     /// Canonical key name, a key of `keyCodes`.
     public let key: String
@@ -38,7 +39,7 @@ public struct Shortcut: Hashable, Sendable, CustomStringConvertible {
     /// Carbon virtual key code (`kVK_*`) of `key`.
     public var keyCode: Int { Self.keyCodes[key]! }
 
-    private init(key: String, modifiers: Modifiers) {
+    init(key: String, modifiers: Modifiers) {
         self.key = key
         self.modifiers = modifiers
     }

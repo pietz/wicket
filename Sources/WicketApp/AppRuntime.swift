@@ -261,8 +261,10 @@ extension AppRuntime {
         let voice = VoiceInput(consent: voiceConsent) { AppleTranscriber() }
         // The agents' permission levels: a host file only Settings ▸ AI writes, never settings.json.
         let permissions = AgentPermissions()
+        // Sparkle, for the released app only (nil in Wicket Dev).
+        let updater = Updater()
         let settingsWindow = SettingsWindowController(
-            store: store, voice: voiceConsent, permissions: permissions)
+            store: store, voice: voiceConsent, permissions: permissions, updater: updater)
         weak var weakRuntime: AppRuntime?
         weak var weakPalette: PaletteController?
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
@@ -394,7 +396,7 @@ extension AppRuntime {
         runtime.showSettings = { settingsWindow.show() }
         runtime.menuBar = MenuBarItem(
             onOpen: { [weak runtime] in runtime?.showPalette() },
-            onSettings: { [weak runtime] in runtime?.showSettings() })
+            onSettings: { [weak runtime] in runtime?.showSettings() }, updater: updater)
         return runtime
     }
 }

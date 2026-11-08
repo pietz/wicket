@@ -67,8 +67,7 @@ final class PaletteModel {
 
     /// Where usage is kept: Application Support/Wicket/usage.json.
     nonisolated static var defaultUsageURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Wicket/usage.json")
+        Edition.current.supportDirectory.appending(path: "usage.json")
     }
 
     init(

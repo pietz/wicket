@@ -1,6 +1,8 @@
 import Foundation
+import WicketCore
 
-/// Where Wicket's own files live: extensions, their data and the host-owned stores.
+/// Where Wicket's own files live: extensions, their data and the host-owned stores, in the edition's
+/// Application Support folder, `Wicket` (shown below) or `Wicket Dev` (`Edition`).
 public enum ExtensionPaths {
     /// `~/Library/Application Support/Wicket/Extensions`: one folder per extension, named by its id.
     public static var extensions: URL { support.appending(path: "Extensions", directoryHint: .isDirectory) }
@@ -25,8 +27,5 @@ public enum ExtensionPaths {
         support.appending(path: "ExtensionData/\(id)", directoryHint: .isDirectory)
     }
 
-    private static var support: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(
-            path: "Wicket")
-    }
+    private static var support: URL { Edition.current.supportDirectory }
 }

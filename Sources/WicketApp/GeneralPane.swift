@@ -2,13 +2,17 @@ import ServiceManagement
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ General: the hotkey, the palette's width, launch at login, the menu bar icon, the
+/// Settings ▸ General: the hotkey, the palette's width, launch at login, the menu bar icon, updates, the
 /// settings file and the extensions folder.
 struct GeneralPane: View {
     let store: SettingsStore
+    /// Sparkle, for the released app; nil in Wicket Dev, which hides the Updates section.
+    let updater: Updater?
     @State private var recorder = ShortcutRecorder()
     /// Launch at login lives in the system (SMAppService), not in settings.json.
     @State private var loginStatus = SMAppService.mainApp.status
+    /// Sparkle keeps this in its own defaults; read once when the pane opens.
+    @State private var checksAutomatically: Bool?
     @State private var error: String?
     /// The width last written, until settings.json is reloaded with it, so the slider doesn't jump
     /// back while the file catches up.
@@ -60,6 +64,14 @@ struct GeneralPane: View {
                 Toggle(isOn: showInMenuBar) {
                     Text("Show in menu bar")
                     Text("When it's hidden, open Wicket with its shortcut or by opening the app again.")
+                }
+            }
+            if let updater {
+                Section {
+                    Toggle("Check for updates automatically", isOn: automaticChecks(updater))
+                    LabeledContent("Version \(Self.version)") {
+                        Button("Check for Updates…") { updater.checkForUpdates() }
+                    }
                 }
             }
             Section {
@@ -121,6 +133,19 @@ struct GeneralPane: View {
             store.settings.showInMenuBar
         } set: { show in
             perform { try store.update { $0.showInMenuBar = show } }
+        }
+    }
+
+    private static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    private func automaticChecks(_ updater: Updater) -> Binding<Bool> {
+        Binding {
+            checksAutomatically ?? updater.automaticallyChecks
+        } set: { enabled in
+            updater.automaticallyChecks = enabled
+            checksAutomatically = enabled
         }
     }
 

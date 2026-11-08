@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wicket's Sparkle feed (SUFeedURL), served raw from main. Scripts/release.sh adds each release on top. -->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Wicket</title>
+    <link>https://github.com/pietz/wicket</link>
+    <!-- releases -->
+  </channel>
+</rss>

@@ -20,8 +20,8 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 
 - Check (definition of done): `Scripts/check.sh` builds with warnings as errors, runs the tests and lints formatting against `.swift-format`. It must pass before a commit. Fix formatting with `swift format format --in-place --recursive Sources Tests Package.swift`.
 - Test: `swift test` (pure logic in `Sources/WicketCore`).
-- Build and bundle: `Scripts/build-app.sh` (release) or `Scripts/build-app.sh debug`, producing `build/Wicket.app`.
-- Settings: `~/.config/wicket/settings.json`, reloaded live; point `WICKET_CONFIG_DIR` at another folder to test without touching the real one.
+- Build and bundle: `Scripts/build-app.sh` (release config) or `Scripts/build-app.sh debug`, producing `build/Wicket Dev.app`: Wicket Dev runs beside an installed Wicket with ⌃⌥Space, `~/.config/wicket-dev` and its own Application Support folder. The released app comes only from `Scripts/release.sh` (docs/release.md).
+- Settings: `~/.config/wicket/settings.json` (`~/.config/wicket-dev` for Wicket Dev), reloaded live; point `WICKET_CONFIG_DIR` at another folder to test without touching the real one.
 - Perf log: `/usr/bin/log stream --predicate 'subsystem == "app.wicket"'` (zsh has a `log` builtin, so use the full path).
 - On-screen checks with synthetic keys (`Scripts/bench/keys.swift`) can be swallowed by another app's keyboard event tap (Raycast's, seen 2026-11-06): if a chord never arrives even at a minimal Carbon test program, the cause is outside Wicket; list taps with `CGGetEventTapList` and never type plain keys unless the palette is confirmed key, or they land in the front app.
 - Latency benchmark: `Scripts/bench/hotkey-latency.swift`. It posts real keystrokes and takes over the screen, so only run it when the user says the Mac is free.

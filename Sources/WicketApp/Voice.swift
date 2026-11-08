@@ -23,8 +23,7 @@ final class VoiceConsent {
 
     /// Application Support/Wicket/voice.json.
     nonisolated static var defaultURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Wicket/voice.json")
+        Edition.current.supportDirectory.appending(path: "voice.json")
     }
 
     init(url: URL = defaultURL) {
