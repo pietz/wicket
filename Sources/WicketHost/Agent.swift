@@ -11,7 +11,7 @@ public enum AgentMode: Sendable, Equatable {
 }
 
 /// How an acting run is set up beyond its prompt: the user's choices for that agent.
-public struct AgentConfiguration: Sendable, Equatable {
+public struct AgentConfiguration: Sendable, Equatable, Codable {
     public var options: AgentOptions
     public var permission: AgentPermission
 

@@ -55,7 +55,7 @@ public enum AgentProvider: String, CaseIterable, Sendable, Codable {
 
 /// How one agent CLI runs for Run Agent (settings.json `ai.claude`, `ai.codex`). Preferences only:
 /// what the agent may do without asking is a permission (`AgentPermission`), never here.
-public struct AgentOptions: Equatable, Sendable {
+public struct AgentOptions: Equatable, Sendable, Codable {
     /// A model id the CLI accepts, such as "gpt-6-astra" or "opus".
     public var model: String
     /// A reasoning effort the model supports, such as "high".
@@ -75,7 +75,7 @@ public struct AgentOptions: Equatable, Sendable {
 }
 
 /// How fast the agent's model serves: faster uses more of the user's plan.
-public enum AgentSpeed: String, CaseIterable, Sendable {
+public enum AgentSpeed: String, CaseIterable, Sendable, Codable {
     case regular
     /// Claude Code's fast mode; Codex's priority service tier.
     case fast

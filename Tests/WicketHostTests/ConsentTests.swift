@@ -429,7 +429,10 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     else { return }
     #expect(again.markdown.hasPrefix("**Enabled.**"))
     // Return runs its first command, bound to the enabled revision; Disable, then Move to Trash, last.
-    #expect(again.actions.compactMap(\.title) == ["Run Go", "Reveal in Finder", "Disable", "Move to Trash"])
+    #expect(
+        again.actions.compactMap(\.title) == [
+            "Run Go", "Reveal in Finder", "Change with Agent", "Disable", "Move to Trash",
+        ])
     guard case .run(.extension("titled", "go"), _, _, _, sealed.revision)? = again.actions.first else {
         Issue.record("not a run of its command: \(again.actions)")
         return
@@ -523,7 +526,7 @@ private func needsToken() throws -> TestExtension {
     // A secret not set is what it needs first.
     #expect(
         unset.actions.compactMap(\.title) == [
-            "Set TOKEN…", "Run Go", "Reveal in Finder", "Disable", "Move to Trash",
+            "Set TOKEN…", "Run Go", "Reveal in Finder", "Change with Agent", "Disable", "Move to Trash",
         ])
     guard case .run(.setSecret, "", let args?, _, _)? = unset.actions.first else {
         Issue.record("no Set action")
@@ -537,7 +540,7 @@ private func needsToken() throws -> TestExtension {
     #expect(!set.markdown.contains("s3cret"))
     #expect(
         set.actions.compactMap(\.title) == [
-            "Run Go", "Reveal in Finder", "Set TOKEN…", "Disable", "Move to Trash",
+            "Run Go", "Reveal in Finder", "Change with Agent", "Set TOKEN…", "Disable", "Move to Trash",
         ])
 }
 
@@ -639,9 +642,10 @@ private func needsToken() throws -> TestExtension {
     let detail = try #require(try await page(runner))
     #expect(
         detail.actions.compactMap(\.title) == [
-            "Run Go", "Reveal in Finder", "Use Previous Version", "Disable", "Move to Trash",
+            "Run Go", "Reveal in Finder", "Change with Agent", "Use Previous Version", "Disable",
+            "Move to Trash",
         ])
-    guard case .run(.enableExtension, _, let args?, _, _) = detail.actions[2] else {
+    guard case .run(.enableExtension, _, let args?, _, _) = detail.actions[3] else {
         Issue.record("not an Enable action")
         return
     }

@@ -18,9 +18,9 @@ private func extensions(_ folders: [TestExtension], approved: Set<String> = []) 
         try FileManager.default.moveItem(
             at: ext.folder, to: directory.appending(path: ext.folder.lastPathComponent))
     }
-    let extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
-        testConfiguration()
-    }
+    let extensions = Extensions(
+        directory: directory, store: testStore(), approvals: testApprovals(), history: testHistory()
+    ) { _ in testConfiguration() }
     await extensions.load().value
     for found in extensions.discovered where approved.contains(found.id) {
         try await extensions.approve(try #require(found.sealed).revision)
@@ -52,10 +52,11 @@ private func plain(_ id: String) throws -> TestExtension {
 
 /// The requests an agent was sent.
 private final class Requests: Sendable {
-    private let all = Mutex<[AgentRequest]>([])
-    func append(_ request: AgentRequest) { all.withLock { $0.append(request) } }
-    var first: AgentRequest? { all.withLock { $0.first } }
-    var last: AgentRequest? { all.withLock { $0.last } }
+    private let requests = Mutex<[AgentRequest]>([])
+    func append(_ request: AgentRequest) { requests.withLock { $0.append(request) } }
+    var first: AgentRequest? { requests.withLock { $0.first } }
+    var last: AgentRequest? { requests.withLock { $0.last } }
+    var all: [AgentRequest] { requests.withLock { $0 } }
 }
 
 /// An agent that runs `body` (writing files, say) and then sends `events`, by default an answer.
@@ -287,10 +288,10 @@ private func finalDetail(
         Issue.record("not a Run Agent run: \(fix)")
         return
     }
-    // The frame is titled by the extension; the whole failure goes to the agent.
-    #expect(args == ["title": .string("Fix Test")])
-    #expect(text.hasPrefix("Fix my Wicket extension Test in /"))
-    #expect(text.contains("/broken.\n\nIt failed Wicket's check:"))
+    // The frame is titled by the extension; the whole failure goes to the agent, in a run about the
+    // extension, which says which one it is.
+    #expect(args == ["title": .string("Fix Test"), "extension": .string("broken")])
+    #expect(text.hasPrefix("Find out why it fails and fix it.\n\nIt failed Wicket's check:"))
 }
 
 /// The real thing, on the user's Codex subscription: a headless `codex app-server` asked for a
@@ -420,4 +421,120 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     let authoring = testAuthoring(extensions, commands: commands)
     _ = authoring.instructions()
     #expect(try String(contentsOf: authoring.commandList, encoding: .utf8).count < 1500)
+}
+
+// MARK: The build conversation
+
+/// An agent that records its requests and answers each; one asked to resume a session fails at once
+/// when `resumes` is false, as a CLI does for a session it no longer has.
+private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentBackend {
+    AgentBackend(
+        status: { AgentStatus(provider: $0, state: .ready) },
+        run: { _, request in
+            requests.append(request)
+            return AgentRun { events in
+                if request.resume != nil, !resumes {
+                    events.yield(.error("No conversation found with that session ID"))
+                } else {
+                    events.yield(.session(request.resume ?? "new-session"))
+                    events.yield(.answer("Fixed it.", usage: nil))
+                }
+                return .exited(.status(0))
+            }
+        })
+}
+
+@MainActor @Test func aRunThatBuildsAnExtensionIsRememberedAsItsConversation() async throws {
+    let extensions = try await extensions([])
+    let directory = extensions.directory
+    let made = try plain("weather")
+    let runner = AgentRunner(
+        answers: AnswerStream(
+            backend: agent(Requests(), events: [.session("s9"), .answer("Made it.", usage: nil)]) {
+                try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
+            }, interval: .zero, provider: { .claude }))
+    runner.answers.authoring = testAuthoring(extensions)
+    _ = try await finalDetail(runner, "build a weather command")
+    let history = try #require(extensions.history)
+    let remembered = try #require(await history.conversation(of: "weather"))
+    #expect(remembered.session == "s9" && remembered.provider == .claude)
+    // Never in the extension's own folder, which is sealed.
+    #expect(
+        !FileManager.default.fileExists(atPath: directory.appending(path: "weather/conversation.json").path))
+}
+
+@MainActor @Test func fixWithAgentResumesTheConversationThatBuiltTheExtension() async throws {
+    let extensions = try await extensions([try plain("weather")], approved: ["weather"])
+    let history = try #require(extensions.history)
+    let built = URL(filePath: "/tmp/where-it-was-built")
+    await history.remember(
+        AnswerStream.Conversation(
+            provider: .codex, folder: built,
+            configuration: AgentConfiguration(options: AgentOptions(model: "gpt-x"), permission: .fullAccess),
+            session: "thread-1"),
+        for: "weather")
+    let requests = Requests()
+    let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(requests), interval: .zero))
+    runner.answers.authoring = testAuthoring(extensions)
+    // The permission level is the one chosen now, not the one the build ran with.
+    runner.answers.configuration = { AgentConfiguration(options: $0.defaultOptions, permission: .supervised) }
+    let fix = ExtensionAuthoring.fix(
+        "Test", id: "weather", failure: "It fails when Wicket runs it: no network")
+    guard case .run(.runAgent, let text, let args, _, _) = fix else {
+        Issue.record("not a Run Agent run")
+        return
+    }
+    let detail = try #require(try await finalDetail(runner, text, args: args))
+    #expect(detail.title == "Fix Test")
+    let request = try #require(requests.last)
+    #expect(request.resume == "thread-1")
+    #expect(request.workingDirectory == built)
+    #expect(
+        request.configuration
+            == AgentConfiguration(options: AgentOptions(model: "gpt-x"), permission: .supervised))
+    #expect(
+        request.prompt.hasPrefix(
+            "About my Wicket extension Test (`weather`, in \(try #require(extensions.discovered.first).folder.path)):"
+                + "\n\nFind out why it fails and fix it.\n\nIt fails when Wicket runs it: no network"))
+}
+
+@MainActor @Test func fixWithAgentStartsAnewWithoutAConversationOrWhenItCantBeResumed() async throws {
+    let extensions = try await extensions([try plain("weather")], approved: ["weather"])
+    let fix = ExtensionAuthoring.fix("Test", id: "weather", failure: "It fails.")
+    guard case .run(.runAgent, let text, let args, _, _) = fix else { return }
+
+    // None remembered: a new conversation, in the usual folder.
+    let fresh = Requests()
+    let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(fresh), interval: .zero))
+    runner.answers.authoring = testAuthoring(extensions)
+    _ = try await finalDetail(runner, text, args: args)
+    #expect(fresh.all.count == 1 && fresh.last?.resume == nil)
+    #expect(fresh.last?.prompt.hasPrefix("About my Wicket extension Test") == true)
+
+    // Remembered but gone: the resume fails before the agent does anything, so it starts anew.
+    let history = try #require(extensions.history)
+    await history.remember(
+        AnswerStream.Conversation(
+            provider: .claude, folder: URL(filePath: "/tmp"),
+            configuration: AgentConfiguration(
+                options: AgentProvider.claude.defaultOptions, permission: .auto),
+            session: "gone"),
+        for: "weather")
+    let retried = Requests()
+    let again = AgentRunner(
+        answers: AnswerStream(backend: resumingAgent(retried, resumes: false), interval: .zero))
+    again.answers.authoring = runner.answers.authoring
+    let detail = try #require(try await finalDetail(again, text, args: args))
+    #expect(retried.all.map(\.resume) == ["gone", nil])
+    #expect(detail.markdown == "Fixed it.")
+}
+
+@MainActor @Test func changeWithAgentWaitsForTheRequest() async throws {
+    let change = ExtensionAuthoring.change(id: "weather")
+    // No text: Run Agent's frame waits for what to change, and keeps the extension for the run.
+    guard case .run(.runAgent, "", ["extension": .string("weather")], "Change with Agent", nil) = change
+    else {
+        Issue.record("not a waiting Run Agent run: \(change)")
+        return
+    }
 }

@@ -14,6 +14,10 @@ let usage = """
            wicket run <folder> <command> [text] [--args <json-object>]
                Send one run request and print the response line as the extension wrote it. Runs
                the folder itself, unsandboxed, with your environment and real secrets.
+           wicket log <extension-id>
+               Print the extension's recent runs in Wicket, oldest first: time, command, outcome
+               (ok, error, rejected, refused, crashed, timeout), duration and revision, and for a
+               failed run its message, the text and args it was sent and the end of its stderr.
            wicket secret set <extension-id> <NAME>
                Store a secret declared in wicket.json in the Keychain; the value is read from stdin.
            wicket agent status
@@ -115,6 +119,20 @@ func run(_ arguments: [String]) async -> Never {
     }
 }
 
+func log(_ id: String) async -> Never {
+    let history = ExtensionHistory(root: ExtensionPaths.history)
+    guard let folder = history.folder(of: id) else {
+        fail("error: \"\(id)\" is not an extension id", status: 2)
+    }
+    let runs = await history.runs(of: id)
+    guard !runs.isEmpty else {
+        print("no runs of \(id) recorded in \(folder.path)")
+        exit(0)
+    }
+    print(ExtensionHistory.text(runs))
+    exit(0)
+}
+
 func setSecret(id: String, name: String) -> Never {
     guard Manifest.isSlug(id) else { fail("error: \"\(id)\" is not an extension id", status: 2) }
     var value = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
@@ -200,6 +218,7 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "check" where arguments.count == 2: await check(arguments[1])
 case "run": await run(Array(arguments.dropFirst()))
+case "log" where arguments.count == 2: await log(arguments[1])
 case "secret" where arguments.count == 4 && arguments[1] == "set":
     setSecret(id: arguments[2], name: arguments[3])
 case "agent" where arguments.count == 2 && arguments[1] == "status": await agentStatus()

@@ -19,5 +19,9 @@ Commands come from extensions: one folder per extension, named by its id, in Wic
 1. Read the authoring guide first: it is the whole contract (manifest, protocol, the `session.jsonl` fixture the check replays, canned data under `WICKET_CHECK`). The JSON Schema next to it validates `wicket.json` and every message. Start from the sample closest to what you are building.
 2. Write the extension with a `session.jsonl` fixture covering each command, including an error case.
 3. Run `wicket check <folder>`. When it reports an error, fix it and run the check again; repeat until it passes.
-4. To try it for real (network, the user's files and secrets), run `wicket run <folder> <command> [text]`.
-5. End by saying what you made and what the check tested. Wicket runs nothing new or changed until the user reviews and enables it, which it offers under your reply, so say it is ready to review and enable.
+4. The check runs on canned data (`WICKET_CHECK`, no network, placeholder secrets), so it proves only that path. When the extension uses the network, the user's files or secrets, you must also run each command for real with `wicket run <folder> <command> [text]`, and fix it until the real answer is right. If it caches in its data folder, make sure a first run, with nothing cached yet, works too. A secret that isn't stored makes the run fail with what to set; say so instead of faking it.
+5. End by saying what you made, what the check tested and what you ran for real. Wicket runs nothing new or changed until the user reviews and enables it, which it offers under your reply, so say it is ready to review and enable.
+
+## When a command fails
+
+Wicket records each extension's recent runs as the user ran them: `wicket log <id>` prints them, each with its outcome (`error` is the extension's own error answer, `rejected` an answer Wicket refused as invalid, `crashed`, `timeout`, `refused` when Wicket didn't run it), the message, the text a failed run was sent and the end of its stderr. When asked to fix or change an extension, read its log first, reproduce the failure with `wicket run` on the same text, fix it, then check and run it again.

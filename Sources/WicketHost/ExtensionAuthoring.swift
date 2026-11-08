@@ -106,6 +106,9 @@ public final class ExtensionAuthoring {
         if let tool {
             lines.append(
                 "- `wicket` tool: \(tool.path) (so `wicket check <folder>` is `\(tool.path) check <folder>`)")
+            lines.append(
+                "- An extension's recent runs in Wicket (outcome, error, input of failed runs, stderr): "
+                    + "`\(tool.path) log <id>`")
         }
         if writeCommandList() {
             lines.append("- Command list: \(commandList.path)")
@@ -194,6 +197,35 @@ public final class ExtensionAuthoring {
             if case .approved = found.state { return false }
             return before.fingerprints[found.id] != Self.fingerprint(found)
         }
+    }
+
+    /// Fix with Agent: a Run Agent run about the extension `id` (`about`), told why it fails, in a
+    /// frame titled by the extension (the failure is too long for a title). It continues the
+    /// conversation that built the extension when Wicket remembers one, and its answer offers the
+    /// review again.
+    static func fix(_ name: String, id: String, failure: String) -> Item.Action {
+        .run(
+            command: .runAgent, text: "Find out why it fails and fix it.\n\n\(failure)",
+            args: ["title": .string("Fix \(name)"), "extension": .string(id)], title: "Fix with Agent")
+    }
+
+    /// Change with Agent: a Run Agent frame waiting for what to change in the extension `id`, typed
+    /// or spoken, then a run like Fix with Agent's.
+    static func change(id: String) -> Item.Action {
+        .run(command: .runAgent, args: ["extension": .string(id)], title: "Change with Agent")
+    }
+
+    /// What a run about the extension `id` (Fix or Change with Agent) is told before the request:
+    /// which extension, where it is and how to read its runs, so a new conversation knows as much
+    /// as the one that built it.
+    func about(_ id: String) -> String {
+        guard let found = extensions.discovered.first(where: { $0.id == id }) else {
+            return "About my Wicket extension `\(id)`:"
+        }
+        let name = (found.sealed ?? found.approved)?.manifest.name ?? id
+        var line = "About my Wicket extension \(name) (`\(id)`, in \(found.folder.path))"
+        if let tool { line += "; its recent runs in Wicket: `\(tool.path) log \(id)`" }
+        return line + ":"
     }
 
     /// One review action per extension, each opening its review screen (`builtin:review-extension`).

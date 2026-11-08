@@ -22,6 +22,12 @@ public enum ExtensionPaths {
     /// run to read on demand (`ExtensionAuthoring`).
     public static var commandList: URL { support.appending(path: "commands.md") }
 
+    /// `~/Library/Application Support/Wicket/ExtensionHistory`: each extension's recent runs and the
+    /// agent conversation that last built it (`ExtensionHistory`), deleted with it on Move to Trash.
+    public static var history: URL {
+        support.appending(path: "ExtensionHistory", directoryHint: .isDirectory)
+    }
+
     /// `~/Library/Application Support/Wicket/uv`: uv's cache and Pythons for uv extensions
     /// (`UVStorage`), Wicket's own rather than the user's.
     public static var uv: URL { support.appending(path: "uv", directoryHint: .isDirectory) }

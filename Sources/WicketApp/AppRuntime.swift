@@ -271,7 +271,8 @@ extension AppRuntime {
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
-            approvals: Approvals(), diagnostics: diagnostics)
+            approvals: Approvals(), diagnostics: diagnostics,
+            history: ExtensionHistory(root: ExtensionPaths.history))
         let consent = ExtensionsRunner(extensions: extensions)
         // Every AI answer, Run Agent's and prompt commands'; Run Agent's runner owns its shutdown.
         let answers = AnswerStream(provider: { weakRuntime?.applied?.ai.provider })

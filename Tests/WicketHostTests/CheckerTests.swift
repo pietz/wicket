@@ -76,6 +76,13 @@ func testStore() -> RevisionStore {
             path: "wicket-tests/revisions-\(UUID().uuidString)", directoryHint: .isDirectory))
 }
 
+/// Extension histories in a fresh temporary folder.
+func testHistory() -> ExtensionHistory {
+    ExtensionHistory(
+        root: FileManager.default.temporaryDirectory.appending(
+            path: "wicket-tests/history-\(UUID().uuidString)", directoryHint: .isDirectory))
+}
+
 /// An approvals store in a fresh temporary folder, approving nothing.
 func testApprovals() -> Approvals {
     Approvals(

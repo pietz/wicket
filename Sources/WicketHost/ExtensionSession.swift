@@ -418,8 +418,10 @@ public actor ExtensionSession {
             let response = try Response.decode(
                 data, context: WireContext(command: request.command, in: manifest, revision: revision))
             finish(id, .success(Reply(line: line, outcome: response.outcome)))
+            // "with an error": the extension's own error response, which fails the run.
+            let kind = if case .failure = response.outcome { "answered with an error" } else { "answered" }
             Self.logger.notice(
-                "extension \(self.manifest.id) answered in \(Self.ms(since: request.start), privacy: .public)"
+                "extension \(self.manifest.id) \(kind, privacy: .public) in \(Self.ms(since: request.start), privacy: .public)"
             )
         } catch let error as DecodingError {
             finish(id, .failure(HostError.invalidResponse(error.summary)))

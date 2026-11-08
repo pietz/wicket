@@ -98,6 +98,8 @@ public final class Extensions {
     /// The approved revisions, which decide the active catalog.
     public let approvals: Approvals
     public let diagnostics: Diagnostics
+    /// Each extension's recent runs and build conversation; nil keeps none (tests that don't ask).
+    public let history: ExtensionHistory?
     /// Every extension folder, by id, with its state, from the last published discovery.
     public private(set) var discovered: [DiscoveredExtension] = []
     /// Called on the main actor after each published snapshot, when `commands` may have changed.
@@ -138,23 +140,25 @@ public final class Extensions {
     /// `ExtensionPaths`, the app version and the Keychain.
     public convenience init(
         directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
+        history: ExtensionHistory? = nil,
         configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration
     ) {
         self.init(
             directory: directory, store: store, approvals: approvals, diagnostics: diagnostics,
-            activate: Extensions.approvedRevisions, configuration: configuration)
+            history: history, activate: Extensions.approvedRevisions, configuration: configuration)
     }
 
     /// With another activation, for tests of mechanisms other than consent.
     init(
         directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
-        activate: @escaping Activation,
+        history: ExtensionHistory? = nil, activate: @escaping Activation,
         configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration
     ) {
         self.directory = directory.standardizedFileURL
         self.store = store
         self.approvals = approvals
         self.diagnostics = diagnostics
+        self.history = history
         self.activate = activate
         self.configuration = configuration
     }
@@ -222,31 +226,69 @@ public final class Extensions {
     /// `ExtensionError` for an error response and `HostError` otherwise, before any session starts
     /// for what may not run: `.notApproved` if the extension is discovered but not in the active
     /// catalog, `.unknownCommand` if no extension has it, `.extensionChanged` if the invocation is
-    /// bound to a revision of the extension other than the active one, which would run it.
+    /// bound to a revision of the extension other than the active one, which would run it. Every
+    /// run of a discovered extension, however it ends but cancelled, goes into its `history`.
     public func result(of invocation: Invocation, retry: RetryPolicy) async throws -> RunResult {
-        let (sealed, _) = try approvedCommand(for: invocation)
+        let start = ContinuousClock.now
         let command = invocation.command
-        let id = sealed.manifest.id
-        let session = try await session(for: id)
-        // Checked against the session, the code that would run, after any replacement finished.
-        if let expected = invocation.revision, expected != session.revision {
-            throw HostError.extensionChanged
-        }
+        var session: ExtensionSession?
         do {
-            let result = try await session.run(
+            let (sealed, _) = try approvedCommand(for: invocation)
+            let id = sealed.manifest.id
+            let running = try await self.session(for: id)
+            session = running
+            // Checked against the session, the code that would run, after any replacement finished.
+            if let expected = invocation.revision, expected != running.revision {
+                throw HostError.extensionChanged
+            }
+            let result = try await running.run(
                 command.name, text: invocation.text, args: invocation.args, retry: retry)
             diagnostics.set(.run, of: .command(command), .error, [])
-            await collect(session)
+            await collect(running)
+            await record(invocation, .ok, since: start, revision: running.revision)
             return result
+        } catch is CancellationError {
+            if let session { await collect(session) }
+            throw CancellationError()
         } catch {
-            if !(error is CancellationError) {
-                let text = await session.redact(Self.diagnostic(for: error))
-                if sessions[id] === session { diagnostics.set(.run, of: .command(command), .error, [text]) }
-                Self.logger.error("command \(command, privacy: .public) failed")
+            let outcome = ExtensionHistory.Outcome(error)
+            var text = Self.diagnostic(for: error)
+            if let session {
+                text = await session.redact(text)
+                if sessions[session.manifest.id] === session {
+                    diagnostics.set(.run, of: .command(command), .error, [text])
+                }
+                await collect(session)
             }
-            await collect(session)
+            Self.logger.error(
+                "command \(command, privacy: .public) failed: \(outcome.rawValue, privacy: .public)")
+            await record(
+                invocation, outcome, since: start, revision: session?.revision ?? invocation.revision,
+                message: text, stderr: await session?.report(stderrBytes: ExtensionHistory.stderrLimit).stderr
+            )
             throw error
         }
+    }
+
+    /// Adds a run of `invocation` to its extension's history, if the extension is discovered (a
+    /// command of none has nowhere to go).
+    private func record(
+        _ invocation: Invocation, _ outcome: ExtensionHistory.Outcome, since start: ContinuousClock.Instant,
+        revision: ExtensionRevision?, message: String? = nil, stderr: String? = nil
+    ) async {
+        guard let history, case .extension(let id) = invocation.command.owner,
+            discovered.contains(where: { $0.id == id })
+        else { return }
+        let elapsed = ContinuousClock.now - start
+        await history.record(
+            ExtensionHistory.Run(
+                revision: revision.map { String($0.sha256.prefix(12)) }, command: invocation.command.name,
+                outcome: outcome,
+                milliseconds: Int(
+                    elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
+                ),
+                message: message, text: invocation.text, args: invocation.args, stderr: stderr),
+            of: id)
     }
 
     /// The shared approval and revision gate, checked before either execution mode starts.
@@ -471,7 +513,7 @@ public final class Extensions {
     }
 
     /// Moves the folder of the discovered extension `id` to the Trash and forgets its approvals
-    /// (so restoring it means enabling it again), then returns once the catalog no longer has it,
+    /// (so restoring it means enabling it again) and its history (runs and build conversation), then returns once the catalog no longer has it,
     /// its session has stopped and the store has dropped its revisions. Its data directory and
     /// Keychain secrets stay, so a folder put back from the Trash works as before. Refuses an id
     /// that isn't a folder in `directory`.
@@ -481,6 +523,7 @@ public final class Extensions {
         else { throw Refusal("There's no extension \(id) in the extensions folder.") }
         try approvals.forget(id)
         try trashItem(found.folder)
+        await history?.forget(id)
         await load().value
         // Pruning keeps a revision while its session stops; the next pass drops it.
         await stopping[id]?.value
@@ -589,11 +632,44 @@ extension Extensions: CommandRunner {
                                         "\(manifest?.name ?? id) needs your \(title) (`\(name)`) to run. Wicket keeps it in your Keychain and passes it only to this extension. Set it, then run the command again.",
                                     actions: [SecretsRunner.action(extension: id, name: name)]))))
                     continuation.finish()
+                } catch let error where ExtensionHistory.Outcome(error).isFixable {
+                    continuation.yield(await failure(error, of: invocation))
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// A run that went wrong in the extension's own code: the failure page a frame shows for any
+    /// failed command (Return copies it), plus Fix with Agent as its screen action (⌘↩).
+    private func failure(_ error: any Error, of invocation: Invocation) async -> RunResult {
+        let command = invocation.command
+        let message = String(describing: error)
+        guard case .extension(let id) = command.owner, let found = discovered.first(where: { $0.id == id })
+        else { return .show(.detail(.failure("\(command.name) Failed", message, command: command))) }
+        let title =
+            (activeRevision(of: id) ?? found.approved)?.manifest.command(command.name)?.title ?? command.name
+        let fix = await fixAction(for: id, failure: message)
+        return .show(
+            .detail(.failure("\(title) Failed", message, command: command)),
+            ScreenContext(authority: .host, actions: fix.map { [$0] } ?? []))
+    }
+
+    /// Fix with Agent for the discovered extension `id`, handing over its latest failed runs from
+    /// the history, else `failure`; nil with neither.
+    func fixAction(for id: String, failure: String? = nil) async -> Item.Action? {
+        guard let found = discovered.first(where: { $0.id == id }) else { return nil }
+        let failures = await history?.recentFailures(of: id).suffix(3) ?? []
+        let report =
+            failures.isEmpty
+            ? failure.map { "It fails when Wicket runs it:\n\n" + $0 }
+            : "It fails when Wicket runs it. Its latest failed runs, oldest first:\n\n"
+                + ExtensionHistory.text(Array(failures))
+        guard let report else { return nil }
+        let name = (found.sealed ?? found.approved)?.manifest.name ?? id
+        return ExtensionAuthoring.fix(name, id: id, failure: report)
     }
 }

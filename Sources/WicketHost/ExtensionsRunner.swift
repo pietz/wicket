@@ -99,12 +99,12 @@ public final class ExtensionsRunner: CommandRunner {
         let current: SealedRevision
         switch found.state {
         case .approved(let sealed):
-            continuation.yield(.show(.detail(enabled(sealed, folder: found.folder))))
+            continuation.yield(.show(.detail(await enabled(sealed, folder: found.folder))))
             return
         case .invalid(let reason, let approved):
             let name = approved?.manifest.name ?? id
             var actions: [Item.Action] = [
-                Self.fix(name, folder: found.folder, failure: reason),
+                ExtensionAuthoring.fix(name, id: id, failure: reason),
                 .reveal(url: found.folder, title: "Reveal in Finder"),
             ]
             if let previous = previous(id) { actions.insert(previous, at: 0) }
@@ -151,8 +151,8 @@ public final class ExtensionsRunner: CommandRunner {
         } else {
             sections.append("_It can't be enabled until it passes its check._")
             actions.append(
-                Self.fix(
-                    manifest.name, folder: found.folder,
+                ExtensionAuthoring.fix(
+                    manifest.name, id: id,
                     failure: "It failed Wicket's check:\n\n" + Self.report(checked.report)))
         }
         if let previous = previous(id) { actions.append(previous) }
@@ -263,16 +263,6 @@ public final class ExtensionsRunner: CommandRunner {
         return items
     }
 
-    /// Fix with Agent: a Run Agent run asking to fix the extension in `folder`, told why it fails, in
-    /// a frame titled by the extension (the failure is too long for a title).
-    /// An acting agent fixes it in place, and its answer offers the review again.
-    static func fix(_ name: String, folder: URL, failure: String) -> Item.Action {
-        .run(
-            command: .runAgent,
-            text: "Fix my Wicket extension \(name) in \(folder.path).\n\n\(failure)",
-            args: ["title": .string("Fix \(name)")], title: "Fix with Agent")
-    }
-
     /// The rows of `discovered`; an enabled one with `problems` says so.
     static func items(
         _ discovered: [DiscoveredExtension], previous: (String) -> Item.Action? = { _ in nil },
@@ -334,13 +324,18 @@ public final class ExtensionsRunner: CommandRunner {
     }
 
     /// An enabled extension's page: its commands, the secrets it declares and whether each is set,
-    /// and its problems; Return runs its first command, then Reveal in Finder, setting a secret
-    /// (one not set first of all), Use Previous Version when the store keeps the one approved
-    /// before, Copy Diagnostics when there is anything to copy, Disable, and Move to Trash last.
-    private func enabled(_ sealed: SealedRevision, folder: URL) -> Detail {
+    /// and its problems; Return runs its first command, then Fix with Agent when a recent run
+    /// failed, Reveal in Finder, Change with Agent, setting a secret (one not set first of all), Use
+    /// Previous Version when the store keeps the one approved before, Copy Diagnostics when there
+    /// is anything to copy (its run history included), Disable, and Move to Trash last.
+    private func enabled(_ sealed: SealedRevision, folder: URL) async -> Detail {
         var detail = Self.enabled(sealed, folder: folder)
         let id = sealed.revision.extensionID
-        var extra: [Item.Action] = []
+        let runs = await extensions.history?.runs(of: id) ?? []
+        if let fix = await extensions.fixAction(for: id) {
+            detail.actions.insert(fix, at: detail.actions.count - 2)
+        }
+        var extra: [Item.Action] = [ExtensionAuthoring.change(id: id)]
         var sections: [String] = []
         let secrets = sealed.manifest.secrets.map { ($0, extensions.hasSecret($0.name, of: id)) }
         if !secrets.isEmpty {
@@ -355,15 +350,26 @@ public final class ExtensionsRunner: CommandRunner {
             sections.append(
                 "**Problems**\n\n" + problems.map { "- " + Self.firstLine($0.text) }.joined(separator: "\n"))
         }
+        // From the history, so they outlive a restart (Problems is this run of Wicket's).
+        let failures = runs.suffix(10).filter(\.outcome.isFixable).suffix(3)
+        if !failures.isEmpty {
+            sections.append(
+                "**Recent failures**\n\n"
+                    + failures.map { run in
+                        "- \(run.time.formatted(date: .abbreviated, time: .shortened)), \(run.command): "
+                            + (run.message.map(Self.firstLine) ?? run.outcome.rawValue)
+                    }.joined(separator: "\n"))
+        }
         if let previous = previous(id) { extra.append(previous) }
         let all = extensions.diagnostics.report(forExtension: id)
-        if !all.isEmpty {
-            extra.append(.copy(text: Self.diagnosticsText(sealed, all), title: "Copy Diagnostics"))
+        if !all.isEmpty || !runs.isEmpty {
+            extra.append(
+                .copy(text: Self.diagnosticsText(sealed, all, runs: runs), title: "Copy Diagnostics"))
         }
         detail.markdown += sections.map { "\n\n" + $0 }.joined()
         // A secret that isn't set is what the user needs first: the command would only ask for it.
         if let missing = secrets.firstIndex(where: { !$0.1 }) {
-            detail.actions.insert(extra.remove(at: missing), at: 0)
+            detail.actions.insert(extra.remove(at: missing + 1), at: 0)
         }
         detail.actions.insert(contentsOf: extra, at: detail.actions.count - 1)
         detail.actions.append(Self.trash(id))
@@ -389,9 +395,11 @@ public final class ExtensionsRunner: CommandRunner {
             metadata: metadata(sealed), actions: actions)
     }
 
-    /// Everything the diagnostics hold about an extension, as plain text to paste into a bug
-    /// report or an agent's prompt.
-    static func diagnosticsText(_ sealed: SealedRevision, _ entries: [Diagnostic]) -> String {
+    /// Everything the diagnostics hold about an extension, then its recorded runs, as plain text to
+    /// paste into a bug report or an agent's prompt.
+    static func diagnosticsText(
+        _ sealed: SealedRevision, _ entries: [Diagnostic], runs: [ExtensionHistory.Run] = []
+    ) -> String {
         let header =
             "Wicket diagnostics for \(sealed.manifest.name) (\(sealed.manifest.id) \(sealed.manifest.version), revision \(sealed.revision.sha256.prefix(12)))"
         return
@@ -403,7 +411,9 @@ public final class ExtensionsRunner: CommandRunner {
                     default: ""
                     }
                 return "[\(entry.severity)] \(entry.kind)\(subject):\n\(entry.text)"
-            }).joined(separator: "\n\n")
+            }
+            + (runs.isEmpty ? [] : ["Recent runs, oldest first:\n" + ExtensionHistory.text(runs)]))
+            .joined(separator: "\n\n")
     }
 
     private static func firstLine(_ text: String) -> String {

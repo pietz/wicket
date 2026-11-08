@@ -48,10 +48,12 @@ public final class AgentRunner: CommandRunner {
                 submitted, prompt: question, title: question,
                 continuing: invocation.args?["conversation"]?.string ?? "")
         }
-        // A run started for the user, such as Fix with Agent, can name its frame; else the question does.
+        // A run started for the user, such as Fix with Agent, can name its frame; else the question
+        // does. One about an extension (Fix and Change with Agent) continues the conversation that
+        // built it.
         return answers.run(
             submitted, prompt: prompt, title: invocation.args?["title"]?.string ?? question,
-            actingIn: Self.folder(for: invocation.context)
+            actingIn: Self.folder(for: invocation.context), about: invocation.args?["extension"]?.string
         ) { [weak self] in
             self?.saveCommand?(invocation).map { [$0] } ?? []
         }

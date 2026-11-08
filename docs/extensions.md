@@ -316,7 +316,7 @@ If you can't produce a result, answer with a JSON-RPC error:
 - `message` is shown to the user as is: one short, plain sentence. Put details (stack traces, HTTP bodies) in `data` or on stderr; both go to the diagnostics, never into the view.
 - The `code` is an integer and doesn't change how the error is shown. Use `1` for your own errors, including an unknown `command`. Codes from -32768 to -32000 are JSON-RPC's: send -32601 for a method you don't know, and if you can't parse a line, reply with `"id":null` and -32700.
 - `error` holds only `code`, `message` and `data`.
-- In a view, Wicket shows the message in place of the view's content (in a `live` view, until the next keystroke's answer). The diagnostics and a repair are offered on the Extensions screen. In `root` mode errors are not shown inline; they are recorded on the Extensions screen.
+- In a view, Wicket shows the message in place of the view's content (in a `live` view, until the next keystroke's answer), with Fix with Agent (⌘↩). In `root` mode errors are not shown inline. Either way the run is recorded in the extension's history (see Debugging), and the extension's page in Extensions lists recent failures with Fix with Agent.
 
 Wicket reports these failures itself, the same way: no response within 30 seconds (the request is cancelled), an invalid response, a line over the size limit, or an exit with an error status while a request was pending.
 
@@ -476,6 +476,9 @@ The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Hel
 - `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails, including one written while the program shuts down), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error. It is the gate before an extension is approved, so it runs your code isolated (below), and without a fixture it runs nothing and fails for program extensions. Prompt-only extensions are validated without a fixture or model request.
 - `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it. Unlike `check` it runs your folder itself, unsandboxed, with your environment and your real secrets: use it to try the real thing.
 - `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. For `run`, an environment variable of the same name takes precedence over the Keychain.
+- `wicket log <extension-id>` prints the extension's recent runs in Wicket (see Debugging).
+
+`check` proves only the canned path. If your extension uses the network, the user's files or secrets, also run every command with `wicket run` against the real thing, and make sure a first run, with nothing cached in `WICKET_DATA_DIR` yet, works too.
 
 How `check` runs your code:
 
@@ -500,6 +503,34 @@ Every `run` must get a valid response, expected or not. A request cancelled with
 {"expect":{"jsonrpc":"2.0","id":1,"result":{"answer":{"subtitle":"ISO week number"}}}}
 ```
 
+## Debugging
+
+Wicket keeps each extension's recent runs on the user's Mac (Application Support, outside your folder; Move to Trash deletes them), and `wicket log <extension-id>` prints them, oldest first:
+
+```
+2026-11-08 09:14:02+0100 weather error in 160 ms, revision 1a2b3c4d5e6f
+  message: Couldn't reach the weather service
+  text: "Berlin"
+  stderr:
+    urllib.error.URLError: <urlopen error timed out>
+2026-11-08 09:15:40+0100 weather ok in 85 ms (3 runs in a row), revision 1a2b3c4d5e6f
+```
+
+Each run says how it ended:
+
+| Outcome | Meaning |
+|---|---|
+| `ok` | It answered. Successful runs in a row of one command and revision are one line. |
+| `error` | Your program answered with a JSON-RPC error; `message` is yours, with `data` after it. |
+| `rejected` | Your program answered, but Wicket refused the answer: not valid by this page (`message` names the field) or over the size limit. |
+| `crashed` | It couldn't start, or exited before answering. |
+| `timeout` | No answer within 30 seconds. |
+| `refused` | Wicket didn't run it: not enabled, a secret not set, or changed since the row was shown. |
+
+A failed run also has the text and args it was sent (to reproduce it with `wicket run`) and the end of what you wrote to stderr, with secret values and recent queries removed. The newest 50 entries are kept, at most 128 KiB.
+
+When the user asks Wicket's agent to fix or change an extension (Fix with Agent, Change with Agent), it continues the conversation that built the extension when Wicket remembers it, and is told the log command. So write enough to stderr that a failure explains itself: the URL you called and the status you got, not just "failed".
+
 ## Checklist
 
 - `wicket.json` validates against the schema, and every command id you handle is declared in it.
@@ -511,3 +542,4 @@ Every `run` must get a valid response, expected or not. A request cancelled with
 - Capabilities list everything the code does beyond computing an answer.
 - A uv script ships its current lock (`uv lock --script` after every dependency change), and every package has a wheel.
 - A `session.jsonl` covers each command, including an error case, and `wicket check` passes (offline: with `WICKET_CHECK=1`, answer from canned data).
+- Every command that uses the network, the user's files or secrets answers right with `wicket run`, on a first run too.
