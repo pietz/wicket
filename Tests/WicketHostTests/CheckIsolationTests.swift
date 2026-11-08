@@ -129,7 +129,11 @@ private struct FakeHome {
         expecting: "ok no no no no", run: #"["\#(home.path)/.local/bin/tool","main.sh"]"#)
     // The control: outside the sandbox the same files are readable.
     #expect(FileManager.default.isReadableFile(atPath: home.path + "/secret.txt"))
-    let report = await check(ext) { $0.userHome = home.path }
+    // Generous: under a loaded test run the sandboxed probe can take over the default second.
+    let report = await check(ext) {
+        $0.userHome = home.path
+        $0.requestTimeout = .seconds(10)
+    }
     #expect(report.errors.isEmpty, "\(report.errors)")
 }
 
