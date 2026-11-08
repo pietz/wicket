@@ -113,11 +113,13 @@ public final class PaletteSession {
         frames[index].generation += 1
         frames[index].pending = 0
         let invocation = run.invocation
+        // A live command searched the frame's text, not the text it opened with.
+        let text = run.command.input == .liveText ? frames[index].query : invocation.text
         var changed = Detail.failure(
             "\(run.command.title) Changed", Self.changedMessage, command: run.command.id)
         changed.actions = [
             .run(
-                command: invocation.command, text: invocation.text, args: invocation.args, title: "Run Again")
+                command: invocation.command, text: text, args: invocation.args, title: "Run Again")
         ]
         let ticket = Ticket(frame: frames[index].id, generation: frames[index].generation)
         show(.detail(changed), .host, ticket, text: "")

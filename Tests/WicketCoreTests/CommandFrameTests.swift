@@ -493,6 +493,10 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(runner.runs[0].invocation.revision == revision("a"))
     runner.runs[0].continuation.yield(.show(.list([row("Heart")])))
     #expect(await eventually { titles(session) == ["Heart"] })
+    session.query = "red heart"
+    #expect(await eventually { runner.runs.count == 2 })
+    runner.runs[1].continuation.yield(.show(.list([row("Red Heart")])))
+    #expect(await eventually { titles(session) == ["Red Heart"] })
     session.push(Detail(title: "Heart", markdown: "", actions: []), from: .host)
 
     // Unchanged: nothing happens.
@@ -504,34 +508,34 @@ private func revision(_ sha: String) -> ExtensionRevision {
     // Even a search isn't run again by itself: the detail from its old content goes, the old run
     // ends, and its frame says why; the next keystroke runs the new code.
     #expect(session.frames.count == 2)
-    #expect(await eventually { runner.wasEnded(0) })
-    #expect(runner.runs.count == 1)
+    #expect(await eventually { runner.wasEnded(1) })
+    #expect(runner.runs.count == 2)
     guard case .detail(let changed)? = content(session)?.screen else {
         Issue.record("no failure shown")
         return
     }
     #expect(changed.markdown.contains("changed since this was opened"))
     // Run Again runs the same command on whichever revision is current then.
-    #expect(changed.actions == [.run(command: live.id, text: "heart", title: "Run Again")])
+    #expect(changed.actions == [.run(command: live.id, text: "red heart", title: "Run Again")])
 
     // So does a once command.
     session.reset()
     session.open(CommandRun(once, .invoked))
-    #expect(await eventually { runner.runs.count == 2 })
-    runner.runs[1].continuation.yield(.show(.list([row("PR 1")])))
+    #expect(await eventually { runner.runs.count == 3 })
+    runner.runs[2].continuation.yield(.show(.list([row("PR 1")])))
     #expect(await eventually { titles(session) == ["PR 1"] })
     once.revision = revision("b")
     registry.setExtensionCommands([live, once])
     #expect(session.rebind { registry.command($0) })
-    #expect(runner.runs.count == 2)
+    #expect(runner.runs.count == 3)
     guard case .detail(let failure)? = content(session)?.screen else {
         Issue.record("no failure shown")
         return
     }
     #expect(failure.markdown.contains("changed since this was opened"))
-    #expect(await eventually { runner.wasEnded(1) })
+    #expect(await eventually { runner.wasEnded(2) })
     // A late answer of the stopped run shows nothing.
-    runner.runs[1].continuation.yield(.show(.list([row("late")])))
+    runner.runs[2].continuation.yield(.show(.list([row("late")])))
     try? await Task.sleep(for: .milliseconds(20))
     #expect(titles(session).isEmpty)
 }
