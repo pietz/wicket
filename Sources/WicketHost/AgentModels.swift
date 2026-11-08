@@ -10,13 +10,6 @@ public struct AgentModel: Sendable, Hashable, Identifiable {
     public var efforts: [String]
     /// Whether it has a fast speed (Claude Code's fast mode, Codex's priority tier).
     public var fast: Bool
-
-    public init(id: String, name: String, efforts: [String], fast: Bool) {
-        self.id = id
-        self.name = name
-        self.efforts = efforts
-        self.fast = fast
-    }
 }
 
 extension Agent {
@@ -163,9 +156,5 @@ struct ModelListing: AgentTranscript {
                     fast: model["supportsFastMode"] == .bool(true))
             }
         }
-    }
-
-    private static func line(_ object: [String: JSONValue]) -> Data {
-        Data((JSONValue.object(object).json + "\n").utf8)
     }
 }

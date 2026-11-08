@@ -51,15 +51,15 @@ public final class SecretsRunner: CommandRunner {
     private func set(_ invocation: Invocation) throws -> RunResult {
         guard case .string(let id)? = invocation.args?["id"],
             case .string(let name)? = invocation.args?["name"]
-        else { throw Refusal("Open the extension in Extensions to set its secrets.") }
+        else { throw UserError("Open the extension in Extensions to set its secrets.") }
         let found = extensions.discovered.first { $0.id == id }
         let declared = [found?.approved, found?.sealed].compactMap { $0 }.flatMap(\.manifest.secrets)
         guard declared.contains(where: { $0.name == name }) else {
-            throw Refusal("The extension \(id) doesn't declare the secret \(name).")
+            throw UserError("The extension \(id) doesn't declare the secret \(name).")
         }
         // A pasted value often brings a line break along.
         let value = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { throw Refusal("Paste the value of \(name), then press Return.") }
+        guard !value.isEmpty else { throw UserError("Paste the value of \(name), then press Return.") }
         try store(value, name, id)
         Self.logger.notice("secret stored")
         return .close(message: "Stored \(name).")

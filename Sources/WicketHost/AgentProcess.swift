@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import WicketCore
 import os
 
 // Line-based agent transport over ProcessTree, with transcript adapters and asynchronous replies.
@@ -16,6 +17,11 @@ protocol AgentTranscript: Sendable {
 
 extension AgentTranscript {
     static func reply(_ reply: AgentReply) -> Data? { nil }
+
+    /// `object` as one JSON line, newline included.
+    static func line(_ object: [String: JSONValue]) -> Data {
+        Data((JSONValue.object(object).json + "\n").utf8)
+    }
 }
 
 struct AgentStep {

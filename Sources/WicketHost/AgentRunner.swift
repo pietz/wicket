@@ -102,13 +102,13 @@ public final class AgentRunner: CommandRunner {
         let id = UUID()
         let task = Task {
             do {
-                guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
+                guard !prompt.isEmpty else { throw UserError("There's no question to ask.") }
                 var prompt = prompt
                 var continued: Conversation?
                 if let token {
                     continued = conversations.last { $0.token == token }?.conversation
                     guard continued != nil else {
-                        throw Failure("This conversation has ended. Ask again to start a new one.")
+                        throw UserError("This conversation has ended. Ask again to start a new one.")
                     }
                 }
                 var startFresh: Item.Action?
@@ -223,7 +223,7 @@ public final class AgentRunner: CommandRunner {
             // command, with this conversation remembered for Fix and Change with Agent.
             await run.cancelAndWait()
             draft.reviews = await reviews(since: before, conversation: session.flatMap(conversation))
-            guard let failure = error as? Failure else { throw error }
+            guard let failure = error as? UserError else { throw error }
             draft.failure = failure.description
             output.yield(draft.result)
             Self.logger.notice(
@@ -266,7 +266,7 @@ public final class AgentRunner: CommandRunner {
                         draft.text = answer
                     }
                 }
-                guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
+                guard !draft.text.isEmpty else { throw UserError("\(provider.name) sent an empty answer.") }
                 draft.approvals = []
                 // The answer comes once the agent's tree is gone, so what it wrote is complete.
                 let conversation = session.flatMap(conversation)
@@ -282,12 +282,12 @@ public final class AgentRunner: CommandRunner {
                     """)
                 return
             case .error(let message):
-                throw Failure(message)
+                throw UserError(message)
             }
         }
         // The agent's stream only ends without a last event when this run was cancelled.
         try Task.checkCancellation()
-        throw Failure("\(provider.name) stopped without an answer.")
+        throw UserError("\(provider.name) stopped without an answer.")
     }
 
     /// Keeps `conversation` under `token` (replacing what it held, dropping the oldest beyond
@@ -321,10 +321,5 @@ public final class AgentRunner: CommandRunner {
         var folder: URL
         var options: AgentOptions
         var session: String
-    }
-
-    struct Failure: Error, CustomStringConvertible {
-        let description: String
-        init(_ description: String) { self.description = description }
     }
 }

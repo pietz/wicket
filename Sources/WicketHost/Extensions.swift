@@ -395,12 +395,8 @@ public final class Extensions {
     /// longer active (stopped) and the diagnostics; prunes the store; then tells `onChange`.
     private func publish(_ snapshot: Snapshot) {
         let next = Dictionary(snapshot.active.map { ($0.revision.extensionID, $0) }) { a, _ in a }
-        // Runs and reports of the old code go with it: a changed revision's, and a removed one's.
-        let replaced = Set(active.keys).filter { next[$0]?.revision != active[$0]?.revision }
-        for id in replaced { stop(id) }
-        diagnostics.remove { diagnostic in
-            replaced.contains { diagnostic.concerns(extension: $0) } && diagnostic.kind != .discovery
-        }
+        // Runs of the old code go with it: a changed revision's, and a removed one's.
+        for id in Set(active.keys) where next[id]?.revision != active[id]?.revision { stop(id) }
         diagnostics.replace(
             .discovery,
             with: snapshot.discovered.compactMap {
@@ -454,7 +450,7 @@ public final class Extensions {
     func trash(_ id: String) async throws {
         guard let found = discovered.first(where: { $0.id == id }),
             found.folder.deletingLastPathComponent().standardizedFileURL.path == directory.path
-        else { throw Refusal("There's no extension \(id) in the extensions folder.") }
+        else { throw UserError("There's no extension \(id) in the extensions folder.") }
         try approvals.revoke(id)
         try trashItem(found.folder)
         await history?.forget(id)
@@ -478,8 +474,8 @@ public final class Extensions {
     }
 }
 
-/// Why Wicket refused to do something for the user, in words for them.
-struct Refusal: Error, CustomStringConvertible {
+/// Why Wicket refused or failed to do something for the user, in words for them.
+struct UserError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
 }

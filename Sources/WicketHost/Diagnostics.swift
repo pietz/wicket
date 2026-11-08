@@ -116,11 +116,6 @@ public final class Diagnostics {
         update(removing: { $0.kind == kind }, adding: diagnostics)
     }
 
-    /// Drops every report `shouldRemove` names, such as an extension's when it is removed.
-    public func remove(where shouldRemove: (Diagnostic) -> Bool) {
-        update(removing: shouldRemove, adding: [])
-    }
-
     /// One change. A report made again keeps its time (and so its place, `all` being ordered by
     /// time), and `all` is assigned only if something changed, so a producer repeating itself
     /// causes no churn.

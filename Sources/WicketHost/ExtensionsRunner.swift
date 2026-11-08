@@ -68,7 +68,7 @@ public final class ExtensionsRunner: CommandRunner {
                 case .trashExtension:
                     continuation.yield(try await trash(Self.argument("id", of: invocation)))
                 default:
-                    throw Refusal("Nothing runs this command.")
+                    throw UserError("Nothing runs this command.")
                 }
                 continuation.finish()
             } catch {
@@ -158,12 +158,12 @@ public final class ExtensionsRunner: CommandRunner {
     /// message.
     private func enable(_ token: String) async throws -> RunResult {
         guard let offer = offers[token] else {
-            throw Refusal("This review is no longer current; review the extension again to enable it.")
+            throw UserError("This review is no longer current; review the extension again to enable it.")
         }
         offers[token] = nil
         let revision = offer.revision
         guard extensions.store.retained(revision) != nil else {
-            throw Refusal("That version is gone; review the extension again to enable it.")
+            throw UserError("That version is gone; review the extension again to enable it.")
         }
         try await extensions.approve(revision)
         Self.logger.notice("review: enabled")
@@ -204,7 +204,7 @@ public final class ExtensionsRunner: CommandRunner {
 
     private static func argument(_ name: String, of invocation: Invocation) throws -> String {
         guard case .string(let value)? = invocation.args?[name], !value.isEmpty else {
-            throw Refusal("Open Extensions to review, enable or disable an extension.")
+            throw UserError("Open Extensions to review, enable or disable an extension.")
         }
         return value
     }

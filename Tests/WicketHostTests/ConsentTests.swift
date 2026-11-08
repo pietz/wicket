@@ -384,10 +384,10 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(h.extensions.commands.isEmpty)
 
     // A token the screen didn't issue enables nothing.
-    await #expect(throws: Refusal.self) {
+    await #expect(throws: UserError.self) {
         try await results(runner, .enableExtension, args: ["review": .string("forged")])
     }
-    await #expect(throws: Refusal.self) { try await results(runner, .enableExtension) }
+    await #expect(throws: UserError.self) { try await results(runner, .enableExtension) }
     #expect(h.approvals.all.isEmpty)
 
     // The screen's own action approves exactly the checked revision and closes with a message;
@@ -413,7 +413,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
         return
     }
     // A token is used once.
-    await #expect(throws: Refusal.self) { try await results(runner, .enableExtension, args: args) }
+    await #expect(throws: UserError.self) { try await results(runner, .enableExtension, args: args) }
 
     // Disable withdraws it.
     #expect(
@@ -560,14 +560,14 @@ private func needsToken() throws -> TestExtension {
     #expect(try await k.title() == "s3cret")
 
     // Only a declared secret, of an extension that is there, with a value.
-    await #expect(throws: Refusal.self) {
+    await #expect(throws: UserError.self) {
         try await set("x", ["id": .string("titled"), "name": .string("OTHER")])
     }
-    await #expect(throws: Refusal.self) {
+    await #expect(throws: UserError.self) {
         try await set("x", ["id": .string("gone"), "name": .string("TOKEN")])
     }
-    await #expect(throws: Refusal.self) { try await set("x", nil) }
-    await #expect(throws: Refusal.self) { try await set(" ", args) }
+    await #expect(throws: UserError.self) { try await set("x", nil) }
+    await #expect(throws: UserError.self) { try await set(" ", args) }
     #expect(secrets.value("TOKEN", of: "titled") == "s3cret")
     #expect(secrets.value("OTHER", of: "titled") == nil)
 }
@@ -645,11 +645,11 @@ private func needsToken() throws -> TestExtension {
     let (h, runner) = try await enabled(try titled("v1"))
     h.extensions.trashItem = { url in Issue.record("trashed \(url)") }
     for forged in ["..", "../\(h.directory.lastPathComponent)", "/tmp", "missing"] {
-        await #expect(throws: Refusal.self) {
+        await #expect(throws: UserError.self) {
             try await results(runner, .trashExtension, args: ["id": .string(forged)])
         }
     }
-    await #expect(throws: Refusal.self) { try await results(runner, .trashExtension) }
+    await #expect(throws: UserError.self) { try await results(runner, .trashExtension) }
     #expect(h.extensions.commands.map(\.id) == [.extension("titled", "go")])
     #expect(h.approvals.approved("titled") != nil)
 }

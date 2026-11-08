@@ -16,17 +16,6 @@ public struct AgentRequest: Sendable {
     /// session id, Codex's thread id. Nil starts a new one.
     public var resume: String?
 
-    public init(
-        prompt: String, workingDirectory: URL, options: AgentOptions, instructions: String? = nil,
-        resume: String? = nil
-    ) {
-        self.prompt = prompt
-        self.workingDirectory = workingDirectory
-        self.options = options
-        self.instructions = instructions
-        self.resume = resume
-    }
-
     /// A path as the user can tell it apart: relative to the run's folder when inside it, else
     /// absolute (a base name alone could be any file of that name).
     func shown(_ path: String) -> String {
@@ -82,19 +71,6 @@ public struct AgentApproval: Sendable, Hashable {
     public var grantRoot: String?
     /// For a tool, its input in brief, one `key: value` per line.
     public var input: String?
-
-    public init(
-        id: JSONValue, kind: Kind, subject: String, reason: String? = nil, workingDirectory: String? = nil,
-        grantRoot: String? = nil, input: String? = nil
-    ) {
-        self.id = id
-        self.kind = kind
-        self.subject = subject
-        self.reason = reason
-        self.workingDirectory = workingDirectory
-        self.grantRoot = grantRoot
-        self.input = input
-    }
 }
 
 /// The user's answer to an `AgentApproval`: this once, or not.
@@ -213,11 +189,6 @@ public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
 public struct Agent: Sendable {
     public var provider: AgentProvider
     public var executable: URL
-
-    public init(provider: AgentProvider, executable: URL) {
-        self.provider = provider
-        self.executable = executable
-    }
 
     /// Finds the provider's executable on the login-shell PATH.
     public static func locate(_ provider: AgentProvider) async -> Agent? {

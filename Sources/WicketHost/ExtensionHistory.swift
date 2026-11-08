@@ -49,7 +49,7 @@ public actor ExtensionHistory {
     /// One run, or several successful ones in a row (`count`).
     public struct Run: Codable, Sendable, Equatable {
         /// When it ended (the last of a folded run).
-        public var time: Date
+        public var time: Date = .now
         /// The revision that ran, its first 12 hex digits; nil if none was bound.
         public var revision: String?
         public var command: String
@@ -64,22 +64,6 @@ public actor ExtensionHistory {
         public var args: [String: JSONValue]?
         /// The end of what the extension wrote to stderr when it failed, redacted.
         public var stderr: String?
-
-        public init(
-            time: Date = .now, revision: String?, command: String, outcome: Outcome, milliseconds: Int,
-            message: String? = nil, text: String? = nil, args: [String: JSONValue]? = nil,
-            stderr: String? = nil
-        ) {
-            self.time = time
-            self.revision = revision
-            self.command = command
-            self.outcome = outcome
-            self.milliseconds = milliseconds
-            self.message = message
-            self.text = text
-            self.args = args
-            self.stderr = stderr
-        }
     }
 
     public nonisolated static let runLimit = 50

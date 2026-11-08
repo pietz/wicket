@@ -178,10 +178,6 @@ struct ClaudeTranscript: AgentTranscript {
             "response": .object(["subtype": .string("error"), "request_id": id, "error": .string(error)]),
         ])
     }
-
-    private static func line(_ object: [String: JSONValue]) -> Data {
-        Data((JSONValue.object(object).json + "\n").utf8)
-    }
 }
 
 /// A command shortened to one line of about 80 characters.

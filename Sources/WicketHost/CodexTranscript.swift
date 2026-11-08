@@ -205,10 +205,6 @@ struct CodexTranscript: AgentTranscript {
         ])
         return AgentStep(send: [line(["id": id, "error": error])])
     }
-
-    private static func line(_ object: [String: JSONValue]) -> Data {
-        Data((JSONValue.object(object).json + "\n").utf8)
-    }
 }
 
 extension JSONValue {
