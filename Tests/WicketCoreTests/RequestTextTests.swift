@@ -124,7 +124,7 @@ private func files(_ names: [String], _ query: String) -> [Item] {
     results.update(
         "files", items: files(["How to cook pasta.pdf"], query.text), generation: 1, usage: { _ in 0 })
     #expect(results.selectedItem?.title == "How to cook pasta.pdf")
-    #expect(results.items.map(\.title) == ["How to cook pasta.pdf", "Run Agent"])
+    #expect(results.list.items.map(\.title) == ["How to cook pasta.pdf", "Run Agent"])
     // A weak late result leaves Run Agent on top; a chosen row stays chosen.
     var weak = RootResults()
     weak.start(query, results: ["fallbacks": [runAgent]], usage: { _ in 0 })

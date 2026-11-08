@@ -404,10 +404,6 @@ final class MarkupBuilder {
     func issue(_ element: Markup.Element, _ kind: Markup.Issue.Kind, _ message: String) {
         issues.append(.init(line: element.line, kind: kind, message: message))
     }
-
-    func issue(line: Int, _ kind: Markup.Issue.Kind, _ message: String) {
-        issues.append(.init(line: line, kind: kind, message: message))
-    }
 }
 
 extension Document.Block {

@@ -15,7 +15,7 @@ private func noUsage(_ id: String) -> Double { 0 }
         Query(text: "a", generation: 1),
         results: ["one": [item("B", score: 5)], "two": [item("A", score: 9)]],
         usage: noUsage)
-    #expect(results.items.map(\.title) == ["A", "B"])
+    #expect(results.list.items.map(\.title) == ["A", "B"])
 }
 
 @Test func staleUpdatesAreDropped() {
@@ -24,9 +24,9 @@ private func noUsage(_ id: String) -> Double { 0 }
     results.start(Query(text: "ab", generation: 2), results: ["fast": [item("A")]], usage: noUsage)
     let applied = results.update("slow", items: [item("Late")], generation: 1, usage: noUsage)
     #expect(!applied)
-    #expect(results.items.map(\.title) == ["A"])
+    #expect(results.list.items.map(\.title) == ["A"])
     results.update("slow", items: [item("Fresh")], generation: 2, usage: noUsage)
-    #expect(results.items.map(\.title) == ["A", "Fresh"])
+    #expect(results.list.items.map(\.title) == ["A", "Fresh"])
 }
 
 @Test func lateResultsKeepAChosenItem() {
@@ -42,11 +42,11 @@ private func noUsage(_ id: String) -> Double { 0 }
     results.moveSelection(by: 2)
     #expect(results.selectedItem?.title == "B")
     results.update("slow", items: [item("Best", score: 60)], generation: 1, usage: noUsage)
-    #expect(results.items.first?.title == "Best")
+    #expect(results.list.items.first?.title == "Best")
     #expect(results.selectedItem?.title == "B")
     // An update replaces what the source sent before.
     results.update("slow", items: [item("Other", score: 1)], generation: 1, usage: noUsage)
-    #expect(results.items.map(\.title) == ["A", "B", "Other"])
+    #expect(results.list.items.map(\.title) == ["A", "B", "Other"])
 }
 
 @Test func selectionResetsOnlyWhenTheTextChanges() {
@@ -58,7 +58,7 @@ private func noUsage(_ id: String) -> Double { 0 }
     results.start(Query(text: "x", generation: 2), results: sources, usage: noUsage)
     #expect(results.selectedItem?.title == "B")
     results.start(Query(text: "xy", generation: 3), results: sources, usage: noUsage)
-    #expect(results.selection == 0)
+    #expect(results.list.selection == 0)
 }
 
 @Test func sameTextRefreshWithoutTheSelectedItemKeepsTheRow() {
@@ -82,7 +82,7 @@ private func noUsage(_ id: String) -> Double { 0 }
         usage: noUsage)
     results.moveSelection(by: 2)
     results.update("slow", items: [item("D", score: 9), item("E", score: 8)], generation: 1, usage: noUsage)
-    #expect(results.items.map(\.title) == ["D", "E", "C"])
+    #expect(results.list.items.map(\.title) == ["D", "E", "C"])
     #expect(results.selectedItem?.title == "C")
 }
 

@@ -15,8 +15,6 @@ public struct RootResults: Sendable {
         list = ItemList(limit: limit)
     }
 
-    public var items: [Item] { list.items }
-    public var selection: Int { list.selection }
     public var selectedItem: Item? { list.selectedItem }
 
     /// Starts `query` with each source's instant results, keyed by source id.

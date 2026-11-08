@@ -131,17 +131,6 @@ public enum Screen: Sendable, Hashable {
     case list(Listing)
     case detail(Detail)
 
-    /// The rows the screen shows, which the selection moves through: an answer's one, a list's
-    /// items. Nil for a screen whose view lays out its own content (a page): it takes no text, and
-    /// its card is sized by measuring that view.
-    public var items: [Item]? {
-        switch self {
-        case .answer(let item): [item]
-        case .list(let list): list.items
-        case .detail: nil
-        }
-    }
-
     /// The screen's own title, which the pill shows: a page's.
     public var title: String? {
         switch self {

@@ -30,9 +30,6 @@ public struct SearchKey: Sendable, Hashable {
         self.compact = scalars.filter { !(Unicode.Scalar($0)?.properties.isWhitespace ?? false) }
     }
 
-    public var isEmpty: Bool { scalars.isEmpty }
-    public var count: Int { scalars.count }
-
     private static func boundaryFlag(
         _ character: Character, previous: Character?, next: Character?, isFirst: Bool
     ) -> UInt8 {

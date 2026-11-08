@@ -15,8 +15,6 @@ extension Markup {
 
         /// The tag being built, for a component with several.
         public var name: String { tag.name }
-        /// Where `~/` paths lead.
-        public var home: URL { builder.context.home }
         /// Where the markup is drawn.
         public var placement: Context.Placement { builder.context.placement }
 

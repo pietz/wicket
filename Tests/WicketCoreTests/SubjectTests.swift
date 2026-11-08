@@ -10,10 +10,13 @@ private func items(_ json: String, _ context: WireContext = WireContext()) throw
     context.home = home
     let decoder = JSONDecoder()
     decoder.userInfo[WireContext.key] = context
-    guard case .show(let screen, _) = try decoder.decode(RunResult.self, from: Data(json.utf8)),
-        let items = screen.items
+    guard case .show(let screen, _) = try decoder.decode(RunResult.self, from: Data(json.utf8))
     else { throw CocoaError(.coderInvalidValue) }
-    return items
+    switch screen {
+    case .answer(let item): return [item]
+    case .list(let list): return list.items
+    case .detail: throw CocoaError(.coderInvalidValue)
+    }
 }
 
 private func problem(_ json: String) -> String? {
