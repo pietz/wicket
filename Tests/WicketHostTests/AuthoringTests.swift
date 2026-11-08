@@ -43,7 +43,7 @@ private func testAuthoring(
     return ExtensionAuthoring(
         extensions: extensions, commands: { commands }, instructionsFile: host.appending(path: "agent.md"),
         commandList: host.appending(path: "commands.md"),
-        defaultInstructions: repository.appending(path: "Resources/agent.md"), kit: kit, tool: tool)
+        rules: repository.appending(path: "Resources/agent.md"), kit: kit, tool: tool)
 }
 
 private func plain(_ id: String) throws -> TestExtension {
@@ -140,31 +140,32 @@ private func finalDetail(
     #expect(thread["params"]?["developerInstructions"] == .string(text))
 }
 
-/// The user's agent.md replaces the default and is read again for every run; deleting it restores the
-/// default, and opening it from Settings writes the default there first.
-@MainActor @Test func theUsersInstructionsFileReplacesTheDefault() async throws {
+/// Wicket's rules always come first and current; the user's agent.md adds their own instructions
+/// after them, read again for every run. Opened from Settings it starts as a one-line comment, which
+/// adds nothing; an old full copy of the rules is ignored.
+@MainActor @Test func theUsersInstructionsFollowTheRules() async throws {
     let extensions = try await extensions([])
     let authoring = testAuthoring(extensions)
-    let file = authoring.instructionsFile
-    #expect(authoring.instructions().hasPrefix("<!-- Wicket's instructions"))
+    let rules = try String(contentsOf: try #require(authoring.rules), encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let bare = authoring.instructions()
+    #expect(bare.hasPrefix(rules + "\n\n## This Wicket"))
 
-    #expect(
-        try ExtensionAuthoring.editableInstructions(file: file, default: authoring.defaultInstructions)
-            == file)
-    let written = try String(contentsOf: file, encoding: .utf8)
-    #expect(written == (try String(contentsOf: try #require(authoring.defaultInstructions), encoding: .utf8)))
+    let file = try ExtensionAuthoring.editableInstructions(file: authoring.instructionsFile)
+    #expect(try String(contentsOf: file, encoding: .utf8).hasPrefix("<!-- Your own instructions"))
+    #expect(authoring.instructions() == bare)
 
     try "Always answer in French.".write(to: file, atomically: true, encoding: .utf8)
-    #expect(authoring.instructions().hasPrefix("Always answer in French.\n\n## This Wicket"))
+    #expect(
+        authoring.instructions().hasPrefix(
+            rules + "\n\n## The user's own instructions\n\nAlways answer in French.\n\n## This Wicket"))
     // An existing file is opened as it is, never overwritten.
-    _ = try ExtensionAuthoring.editableInstructions(file: file, default: authoring.defaultInstructions)
+    _ = try ExtensionAuthoring.editableInstructions(file: file)
     #expect(try String(contentsOf: file, encoding: .utf8) == "Always answer in French.")
 
-    try "".write(to: file, atomically: true, encoding: .utf8)
-    #expect(authoring.instructions().hasPrefix("## This Wicket"))
-
-    try FileManager.default.removeItem(at: file)
-    #expect(authoring.instructions().hasPrefix("<!-- Wicket's instructions"))
+    try "<!-- Wicket's instructions for your agent. Edit it freely. -->\n\n# Wicket\n\nOld rules.".write(
+        to: file, atomically: true, encoding: .utf8)
+    #expect(authoring.instructions() == bare)
 }
 
 @MainActor @Test func anActingRunOffersToReviewTheExtensionsItWrote() async throws {

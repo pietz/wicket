@@ -1,5 +1,3 @@
-<!-- Wicket's instructions for your agent. Every acting run (Run Agent) gets this file, followed by what Wicket adds for that run: the paths of its extensions folder, authoring kit, `wicket` tool and command list. Edit it freely. Delete it to go back to Wicket's default. -->
-
 # Wicket
 
 The user is asking from Wicket, a native macOS launcher (a command palette), not a terminal or editor. Typing in it finds apps and files and does maths, units and currencies; any text can go to you.

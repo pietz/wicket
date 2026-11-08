@@ -1,9 +1,9 @@
 import Foundation
 import WicketCore
 
-/// How Wicket extends itself through the user's agent. An acting run is told Wicket's agent
-/// instructions (`agent.md`, the user's copy or the bundled default) followed by what only this run
-/// can know: where the extensions folder, the authoring kit and the `wicket` tool are, and a list of
+/// How Wicket extends itself through the user's agent. A run is told Wicket's built-in rules (the
+/// bundled agent.md), then the user's own instructions (agent.md in the settings folder), then what
+/// only this run can know: where the extensions folder, the authoring kit and the `wicket` tool are, and a list of
 /// Wicket's commands written for it to read on demand. Once the run has ended, the extensions it
 /// added or changed are offered for review: the same review, check and Enable as any other, so
 /// nothing it wrote runs before the user enables it.
@@ -12,27 +12,27 @@ public final class ExtensionAuthoring {
     let extensions: Extensions
     /// The commands Wicket has now (the registry's).
     let commands: @MainActor () -> [RegisteredCommand]
-    /// The user's agent instructions; while it doesn't exist, `defaultInstructions` apply.
+    /// The user's own instructions, added after the rules.
     let instructionsFile: URL
-    /// The instructions Wicket ships; nil when this build doesn't bundle them.
-    let defaultInstructions: URL?
+    /// Wicket's rules, as it ships them; nil when this build doesn't bundle them.
+    let rules: URL?
     /// The authoring kit (guide, schema, samples); nil when this build doesn't bundle it.
     let kit: URL?
     /// The `wicket` tool, whose `check` the agent can run on its work; nil outside the app.
     let tool: URL?
-    /// Where each acting run's command list is written.
+    /// Where each run's command list is written.
     let commandList: URL
 
     public init(
         extensions: Extensions, commands: @escaping @MainActor () -> [RegisteredCommand],
         instructionsFile: URL, commandList: URL,
-        defaultInstructions: URL? = ExtensionAuthoring.bundledInstructions,
+        rules: URL? = ExtensionAuthoring.bundledRules,
         kit: URL? = ExtensionAuthoring.bundledKit, tool: URL? = ExtensionAuthoring.bundledTool
     ) {
         self.extensions = extensions
         self.commands = commands
         self.instructionsFile = instructionsFile
-        self.defaultInstructions = defaultInstructions
+        self.rules = rules
         self.kit = kit
         self.tool = tool
         self.commandList = commandList
@@ -42,7 +42,7 @@ public final class ExtensionAuthoring {
     public static var instructionsFile: URL { Settings.directory().appending(path: "agent.md") }
 
     /// Resources/agent.md as `Scripts/build-app.sh` bundles it (`Contents/Resources/agent.md`).
-    public static var bundledInstructions: URL? {
+    public static var bundledRules: URL? {
         Bundle.main.url(forResource: "agent", withExtension: "md")
     }
 
@@ -58,16 +58,14 @@ public final class ExtensionAuthoring {
         return FileManager.default.isExecutableFile(atPath: tool.path) ? tool : nil
     }
 
-    /// The user's instructions file, written from the default first if it doesn't exist, for
-    /// Settings ▸ AI to open. Deleting it goes back to the default.
-    public static func editableInstructions(
-        file: URL = instructionsFile, default bundled: URL? = bundledInstructions
-    ) throws -> URL {
+    /// The user's instructions file for Settings ▸ AI to open, created with a one-line comment if it
+    /// doesn't exist.
+    public static func editableInstructions(file: URL = instructionsFile) throws -> URL {
         guard !FileManager.default.fileExists(atPath: file.path) else { return file }
         try FileManager.default.createDirectory(
             at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let text = try bundled.map { try String(contentsOf: $0, encoding: .utf8) } ?? ""
-        try text.write(to: file, atomically: true, encoding: .utf8)
+        try "<!-- Your own instructions for Wicket's agent, added after Wicket's built-in rules. -->\n"
+            .write(to: file, atomically: true, encoding: .utf8)
         return file
     }
 
@@ -76,18 +74,22 @@ public final class ExtensionAuthoring {
     /// The longest title, keyword or subtitle listed, so one odd manifest can't inflate the list.
     static let fieldLimit = 80
 
-    /// What an acting run is told, read again for every run so an edit applies to the next one: the
-    /// user's instructions (an empty file means none), else the default, then the live part. Writes
-    /// the run's command list.
+    /// What a run is told, read again for every run so an edit applies to the next one: the rules,
+    /// the user's instructions (without HTML comments), then the live part. Writes the run's
+    /// command list. A user file holding a full copy of the rules, as builds before 2026-11-08
+    /// wrote it, is ignored rather than repeating rules that may be stale.
     func instructions() -> String {
-        let text =
-            (try? String(contentsOf: instructionsFile, encoding: .utf8))
-            ?? defaultInstructions.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-        return [text.trimmingCharacters(in: .whitespacesAndNewlines), live()].filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
+        let rules = self.rules.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        var own = (try? String(contentsOf: instructionsFile, encoding: .utf8)) ?? ""
+        if own.hasPrefix("<!-- Wicket's instructions for your agent.") { own = "" }
+        own = own.replacing(/<!--[\s\S]*?-->/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return [
+            rules.trimmingCharacters(in: .whitespacesAndNewlines),
+            own.isEmpty ? "" : "## The user's own instructions\n\n" + own, live(),
+        ].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
-    /// The paths an acting run needs, absolute, since they differ per Mac and edition.
+    /// The paths a run needs, absolute, since they differ per Mac and edition.
     private func live() -> String {
         var lines = ["## This Wicket", "", "- Extensions folder: \(extensions.directory.path)"]
         if let kit {
