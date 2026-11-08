@@ -11,6 +11,7 @@ Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later · 👀 watch
 2. AI simplification plus markup in the adapters (M3), with agent.md split into built-in rules and the user's own instructions.
 3. Extension refactor: per-run processes, a static check, no root mode, no rollback.
 4. Palette simplification.
+Advisors along the way (owner): an Astra or Fable check of each refactor's result before it lands, and a big-picture review (product, code, docs) before release, so the codebase, CONCEPT and docs are current and spotless.
 5. Evaluate on both CLIs, do an on-screen check of Wicket Dev (authorized), rewrite CONCEPT.md short and current, release 0.0.11 even if the evaluation falls short, listing the gaps. Keep the Sparkle key file until the owner confirms a backup.
 
 ## 0.0.1 alpha (first public version)
