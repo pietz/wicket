@@ -82,9 +82,9 @@ public final class DoRunner: CommandRunner {
         scopes.map { scope in
             let subtitle =
                 switch scope.id {
-                case "Home": "Warning: Run may change anything in your home folder"
-                case "Selection": scope.url.lastPathComponent + ", where your Finder selection is"
-                default: "Plan changes in this folder"
+                case "Home": "Warning: “\(sentence)” may change anything in your home folder"
+                case "Selection": "Plan “\(sentence)” where your Finder selection is"
+                default: "Plan “\(sentence)” in this folder"
                 }
             // The selection's folder travels in the action: the context is gone by the time it runs.
             var args: [String: JSONValue] = ["scope": .string(scope.id), "new": .bool(true)]
