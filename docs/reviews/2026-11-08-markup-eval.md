@@ -62,3 +62,68 @@ Notable failures and caveats:
 - Callouts are the most common extra: Claude Code adds one for caveats (price sources, conversion rates) in about half the structured replies. They read well, but a long one is a paragraph in a box.
 - Codex still opens replies with its working message ("I'll check tomorrow's forecast for Hamburg."), as before.
 - One sample per prompt per round: the rates are tendencies.
+
+## Rules or a picture: an A/B comparison (later the same day)
+
+The owner prefers an intuitive brief to a list of "when X, use Y" rules, so the two were compared on the 18 prompts above, in the same conditions on the same evening: two rounds per variant per CLI, default models (Claude Code `sonnet`, Codex `gpt-6.1-terra`), rounds run A, B, A, B. `WICKET_EVAL_GUIDANCE=<file>` swaps the guidance part of the reference (`Markup.guidance`: everything before "Syntax:"); the syntax rules, the tag table with its "Use when" column, the limits and the comparison example are the same in both. Prompt bytes are the whole generated reference.
+
+| Variant | Round | CLI | Zero strict problems | Structured with a fitting component | Plain with tags | Median time | Prompt bytes |
+|---|---|---|---|---|---|---|---|
+| A, rules | 1 | Claude Code | 18/18 | 9/10 | 0/8 | 6.3 s | 4497 |
+| A, rules | 1 | Codex | 18/18 | 8/10 | 0/8 | 8.3 s | 4497 |
+| A, rules | 2 | Claude Code | 18/18 | 10/10 | 0/8 | 6.1 s | 4497 |
+| A, rules | 2 | Codex | 18/18 | 6/10 | 0/8 | 7.8 s | 4497 |
+| B, picture | 1 | Claude Code | 18/18 | 8/10 | 0/8 | 6.2 s | 4044 |
+| B, picture | 1 | Codex | 18/18 | 8/10 | 0/8 | 7.0 s | 4044 |
+| B, picture | 2 | Claude Code | 18/18 | 10/10 | 0/8 | 6.1 s | 4044 |
+| B, picture | 2 | Codex | 18/18 | 7/10 | 0/8 | 6.6 s | 4044 |
+
+Totals: A 72/72 clean, 33/40 fitting (83%), 0/32 plain with tags; B 72/72 clean, 33/40 fitting (83%), 0/32 plain with tags. Both variants answered the same three short questions with `<answer>` in every run.
+
+Per structured prompt, the components each reply used (✓ fitting, ✗ not; `<answer>` left out):
+
+| Prompt | CLI | A round 1 | A round 2 | B round 1 | B round 2 |
+|---|---|---|---|---|---|
+| phones | Claude Code | ✓ columns | ✓ columns, callout, rows | ✓ columns | ✓ callout, columns, rows |
+| eu-population | Claude Code | ✓ stats | ✓ facts | ✓ chart | ✓ chart |
+| funnel | Claude Code | ✓ stats, facts, callout | ✓ stats, facts, callout | ✓ stats, callout | ✓ columns, stats, facts, callout |
+| revenue | Claude Code | ✓ stats, chart | ✓ chart, stats | ✓ stats, chart | ✓ stats, chart |
+| calendar | Claude Code | ✗ prose | ✓ callout | ✗ prose | ✓ callout |
+| repo | Claude Code | ✓ timeline | ✓ timeline | ✓ rows | ✓ rows |
+| disk | Claude Code | ✓ progress, stats | ✓ progress, stats | ✗ columns, callout | ✓ progress, stats |
+| weather | Claude Code | ✓ facts | ✓ stats | ✓ stats | ✓ columns |
+| downloads | Claude Code | ✓ rows | ✓ rows | ✓ rows | ✓ rows |
+| apollo | Claude Code | ✓ timeline | ✓ timeline | ✓ timeline | ✓ timeline |
+| phones | Codex | ✓ columns, rows | ✓ columns, rows | ✓ columns, rows | ✓ columns |
+| eu-population | Codex | ✓ facts, rows | ✓ facts, rows | ✓ facts | ✓ facts, rows |
+| funnel | Codex | ✓ stats | ✗ columns | ✓ stats | ✓ stats |
+| revenue | Codex | ✓ chart | ✓ chart, stats | ✓ chart | ✓ chart |
+| calendar | Codex | ✗ prose | ✗ prose | ✗ prose | ✗ prose |
+| repo | Codex | ✗ prose | ✗ prose | ✗ prose | ✗ prose |
+| disk | Codex | ✓ stats | ✓ stats | ✓ stats | ✓ stats |
+| weather | Codex | ✓ stats | ✗ `<answer>` only | ✓ stats | ✗ `<answer>` only |
+| downloads | Codex | ✓ rows | ✓ rows | ✓ rows | ✓ rows |
+| apollo | Codex | ✓ timeline | ✓ timeline, rows | ✓ timeline, rows | ✓ timeline, rows |
+
+The misses are the same kind under both: the empty Sunday calendar answered in a sentence or `<answer>`, Codex summarizing the repository's commits in prose, Codex's weather as one `<answer>` "Cloudy, 4–8°C". B's two differences are mild: Claude Code listed the commits as `<item>` rows rather than a timeline (it still fits), and once answered disk usage with two cards of folder sizes as stats and facts instead of `<progress>`. Downloads came as `<file>` rows under both, and no placeholder escaped into prose, so no rule from A was worth adding back (no variant C).
+
+**Decision: B.** It ties A on every metric with 453 fewer bytes (about 110 tokens), and the owner prefers the intuitive brief. The tag table's "Use when" column stays as it is: it is shared with docs/markup.md and carries the per-tag facts the brief leaves out.
+
+Variant A, the rules (before the shared example):
+
+```markdown
+Wicket draws the tags below natively, and they beat Markdown wherever content has structure, so turn structure into tags:
+
+- Key numbers: `<stat>`s, with `tone` for good or bad.
+- Two or three things compared: a `<card>` each in `<columns>`, with stats or facts inside. A Markdown table only for many rows or attributes.
+- Facts about one subject (specs, settings, a forecast): `<fact>`s.
+- Files and folders: `<file>` rows with absolute paths, never paths in prose. Sources and pages: `<url>` rows. Other things to open or pick: `<item>` rows.
+- What changed (commits, edits), a day's events, history: a `<timeline>` of `<event>`s with times. A series of numbers: a `<chart>`. Status: `<badge>`s. How full or far along: `<progress>`. A warning or tip: a `<callout>`.
+- Plain Markdown stays for an explanation, a how-to with code and a conversational reply. A question whose answer is one value (a name, a number, a time) gets `<answer>` alone.
+```
+
+Variant B, the picture (adopted; before the shared example):
+
+```markdown
+Wicket draws your reply as a native page in a small launcher panel, so shape it the way a well-designed card or dashboard would: wherever the content has a shape, write the tag that draws it instead of Markdown. Numbers then read at a glance, things compared sit side by side, events line up in time, and files and pages become rows the user can open. Where there is no shape (a single value, an explanation, a how-to, a thank-you), the reply stays prose; a single value is `<answer>` alone.
+```

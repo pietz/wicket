@@ -19,12 +19,15 @@ public final class ExtensionAuthoring {
     let tool: URL?
     /// Where each run's command list is written.
     let commandList: URL
+    /// The markup reference that completes the rules' "Your reply"; an evaluation swaps its guidance.
+    let reference: String
 
     public init(
         extensions: Extensions, commands: @escaping @MainActor () -> [RegisteredCommand],
         instructionsFile: URL, commandList: URL,
         rules: URL? = ExtensionAuthoring.bundledRules,
-        kit: URL? = ExtensionAuthoring.bundledKit, tool: URL? = ExtensionAuthoring.bundledTool
+        kit: URL? = ExtensionAuthoring.bundledKit, tool: URL? = ExtensionAuthoring.bundledTool,
+        reference: String = Markup.agentReference()
     ) {
         self.extensions = extensions
         self.commands = commands
@@ -33,6 +36,7 @@ public final class ExtensionAuthoring {
         self.kit = kit
         self.tool = tool
         self.commandList = commandList
+        self.reference = reference
     }
 
     /// `agent.md` in the settings folder (`~/.config/wicket`, or Wicket Dev's), next to settings.json.
@@ -81,7 +85,7 @@ public final class ExtensionAuthoring {
             .replacing(/<!--[\s\S]*?-->/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         return [
             rules.trimmingCharacters(in: .whitespacesAndNewlines),
-            Markup.agentReference().trimmingCharacters(in: .whitespacesAndNewlines),
+            reference.trimmingCharacters(in: .whitespacesAndNewlines),
             own.isEmpty ? "" : "## The user's own instructions\n\n" + own, live(),
         ].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }

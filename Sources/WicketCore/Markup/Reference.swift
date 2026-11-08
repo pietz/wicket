@@ -5,45 +5,45 @@ import Foundation
 // test keeps equal to `reference()`.
 
 extension Markup {
-    /// The markup the agent may write, as Markdown for its instructions: the syntax rules, every tag
-    /// with its attributes (required ones in bold) and when to use it, and the limits. Aliases are
-    /// never listed, so the agent learns one spelling.
-    public static func agentReference() -> String {
+    /// How the agent should shape its reply: the picture and the goal in prose, not a rule per tag
+    /// (docs/reviews/2026-11-08-markup-eval.md), then a short example. An evaluation can swap it
+    /// (Tests/WicketHostTests/MarkupEvalTests.swift).
+    public static let guidance = """
+        Wicket draws your reply as a native page in a small launcher panel, so shape it the way a \
+        well-designed card or dashboard would: wherever the content has a shape, write the tag that draws \
+        it instead of Markdown. Numbers then read at a glance, things compared sit side by side, events \
+        line up in time, and files and pages become rows the user can open. Where there is no shape (a \
+        single value, an explanation, a how-to, a thank-you), the reply stays prose; a single value is \
+        `<answer>` alone.
+
+        For example:
+
+        ```
+        <answer value="Pixel 11" detail="Cheaper, longer battery"/>
+        <columns>
+        <card title="iPhone 17">
+        <stat value="$799" label="From"/>
+        <fact label="Battery" value="22 h video"/>
+        </card>
+        <card title="Pixel 11">
+        <stat value="$749" label="From" tone="positive"/>
+        <fact label="Battery" value="26 h video"/>
+        </card>
+        </columns>
+        ```
+        """
+
+    /// The markup the agent may write, as Markdown for its instructions: the guidance, the syntax
+    /// rules, every tag with its attributes (required ones in bold) and when to use it, and the
+    /// limits. Aliases are never listed, so the agent learns one spelling.
+    public static func agentReference(guidance: String = guidance) -> String {
         let wrappers = catalog.filter { $0.role == .wrapper }.map { "`<\($0.name)>`" }
         var groups: [String] = []
         for grouping in catalog.compactMap(\.grouping) where !groups.contains(grouping) {
             groups.append(grouping)
         }
         var lines: [String] = [
-            "Wicket draws the tags below natively, and they beat Markdown wherever content has structure, so "
-                + "turn structure into tags:",
-            "",
-            "- Key numbers: `<stat>`s, with `tone` for good or bad.",
-            "- Two or three things compared: a `<card>` each in `<columns>`, with stats or facts inside. A "
-                + "Markdown table only for many rows or attributes.",
-            "- Facts about one subject (specs, settings, a forecast): `<fact>`s.",
-            "- Files and folders: `<file>` rows with absolute paths, never paths in prose. Sources and pages: `<url>` "
-                + "rows. Other things to open or pick: `<item>` rows.",
-            "- What changed (commits, edits), a day's events, history: a `<timeline>` of `<event>`s with times. A series of numbers: a `<chart>`. "
-                + "Status: `<badge>`s. How full or far along: `<progress>`. A warning or tip: a `<callout>`.",
-            "- Plain Markdown stays for an explanation, a how-to with code and a conversational reply. A "
-                + "question whose answer is one value (a name, a number, a time) gets `<answer>` alone.",
-            "",
-            "For example:",
-            "",
-            "```",
-            "<answer value=\"Pixel 11\" detail=\"Cheaper, longer battery\"/>",
-            "<columns>",
-            "<card title=\"iPhone 17\">",
-            "<stat value=\"$799\" label=\"From\"/>",
-            "<fact label=\"Battery\" value=\"22 h video\"/>",
-            "</card>",
-            "<card title=\"Pixel 11\">",
-            "<stat value=\"$749\" label=\"From\" tone=\"positive\"/>",
-            "<fact label=\"Battery\" value=\"26 h video\"/>",
-            "</card>",
-            "</columns>",
-            "```",
+            guidance,
             "",
             "Syntax:",
             "",

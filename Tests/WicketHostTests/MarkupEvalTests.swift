@@ -11,7 +11,8 @@ import WicketCore
 // prompts only read), and writes one JSON line per reply to `WICKET_EVAL_OUT` (a file) if set.
 // Results: docs/reviews/2026-11-08-markup-eval.md. It reports, per CLI, the replies with no strict
 // problem (target all), the structured prompts answered with a fitting component (target 80%) and
-// the plain prompts answered with tags (target at most 1 in 10).
+// the plain prompts answered with tags (target at most 1 in 10). To compare wordings, point
+// `WICKET_EVAL_GUIDANCE` at a file holding another `Markup.guidance`; the review keeps each variant.
 
 /// A prompt and the components that fit a good reply to it, by type name; none means plain Markdown
 /// (no tags but `<answer>`). `repo` runs in a fresh git repository with commits from today.
@@ -71,6 +72,11 @@ private struct Outcome: Codable {
     let providers = AgentProvider.allCases.filter { wanted.contains(Substring($0.rawValue)) }
     guard !providers.isEmpty else { return }
     let out = ProcessInfo.processInfo.environment["WICKET_EVAL_OUT"].map { URL(filePath: $0) }
+    let guidance = try ProcessInfo.processInfo.environment["WICKET_EVAL_GUIDANCE"].map {
+        try String(contentsOfFile: $0, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    let reference = Markup.agentReference(guidance: guidance ?? Markup.guidance)
+    print("EVAL reference \(reference.utf8.count) B")
 
     let root = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/eval-\(UUID().uuidString)")
@@ -86,7 +92,8 @@ private struct Outcome: Codable {
     let authoring = ExtensionAuthoring(
         extensions: extensions, commands: { [] }, instructionsFile: root.appending(path: "agent.md"),
         commandList: root.appending(path: "commands.md"),
-        rules: repository.appending(path: "Resources/agent.md"), kit: repository, tool: nil)
+        rules: repository.appending(path: "Resources/agent.md"), kit: repository, tool: nil,
+        reference: reference)
 
     // The providers side by side, each a few prompts at a time: every prompt is a CLI process.
     let runs = providers.map { provider in
