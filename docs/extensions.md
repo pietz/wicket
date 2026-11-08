@@ -208,7 +208,7 @@ For commands and actions that do something rather than show something:
 | Field | Required | Since | Meaning |
 |---|---|---|---|
 | `title` | yes, unless the item has a subject | | Main text; a subject's name by default. |
-| `id` | no | | A string, stable and unique within the response; defaults to the subject (see below), else the title. Wicket keeps the selection and learns the user's favourites by it, so use a real key (a URL, a path, a database id). Ids are yours alone: Wicket keeps them apart from other extensions' and other commands'. |
+| `id` | no | | A string, stable and unique within the response; defaults to the subject (see below), else the title. Wicket keeps the selection on it across updates, so use a real key (a URL, a path, a database id). Ids are yours alone: Wicket keeps them apart from other extensions' and other commands'. |
 | `subtitle` | no | | Secondary text. |
 | `icon` | no | | Defaults to the subject's, else the command's icon. |
 | `accessory` | no | | Short text on the right, such as a count, a date or a shortcut. |

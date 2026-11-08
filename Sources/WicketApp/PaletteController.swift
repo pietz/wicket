@@ -244,8 +244,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     func run(_ target: ActionTarget?, at position: ActionTarget.Position) {
         guard !model.top.isStarting, let target, let (action, authority) = target.action(at: position)
         else { return }
-        // An agent's rows are one reply's, so they don't teach the root search the user's habits.
-        if case .action = position, target.authority != .agent, let item = target.item {
+        // Usage only ranks the root search, so only its rows are recorded.
+        if case .action = position, case .search = model.top.content, let item = target.item {
             model.recordUse(of: item)
         }
         perform(action, as: authority)

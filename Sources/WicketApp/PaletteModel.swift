@@ -99,7 +99,7 @@ final class PaletteModel {
         messages: Messages = Messages(), usageURL: URL = defaultUsageURL
     ) {
         usageWriter = LatestWriter { try? $0.save(to: usageURL) }
-        usage = Self.namespaced(UsageStore.load(from: usageURL))
+        usage = UsageStore.load(from: usageURL)
         weak var model: PaletteModel?
         session = PaletteSession(
             sources: sources, resultLimit: Self.resultLimit,
@@ -221,15 +221,5 @@ final class PaletteModel {
         let usage = self.usage
         let now = Date()
         return { usage.frecency($0, now: now) }
-    }
-
-    /// usage.json from before result sources keyed apps by bare path and Quit as "wicket.quit".
-    private static func namespaced(_ store: UsageStore) -> UsageStore {
-        let entries = store.entries.map { id, entry in
-            let renamed =
-                id == "wicket.quit" ? "commands:quit" : id.hasPrefix("/") ? "apps:" + id : id
-            return (renamed, entry)
-        }
-        return UsageStore(entries: Dictionary(entries, uniquingKeysWith: { first, _ in first }))
     }
 }
