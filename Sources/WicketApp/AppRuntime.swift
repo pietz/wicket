@@ -348,7 +348,7 @@ extension AppRuntime {
                 RegisteredCommand(
                     id: .doAction, title: "Do", icon: .symbol(name: "play.circle"), keyword: "do",
                     input: .submitText, placeholder: "Describe what to do", isFallback: true,
-                    usesContext: true),
+                    feature: .askAI, usesContext: true),
                 runner: doRunner),
             Builtin(
                 RegisteredCommand(
@@ -361,7 +361,7 @@ extension AppRuntime {
             Builtin(
                 RegisteredCommand(
                     id: .makeCommand, title: "Make a Command", icon: .symbol(name: "hammer"), keyword: "make",
-                    input: .submitText, placeholder: "Describe the command to make"),
+                    input: .submitText, placeholder: "Describe the command to make", feature: .askAI),
                 runner: MakeCommandRunner(jobs: buildJobs)),
             // The build frame's Stop action; reached by id only.
             Builtin(

@@ -47,7 +47,12 @@ public final class DoRunner: CommandRunner {
                 invocation.context?.files.map(\.path)
                 ?? invocation.args?["selected"]?.array?.compactMap(\.string) ?? []
             let scopes = scopes(selected: selected.map { URL(filePath: $0) })
-            guard let scopeID = invocation.args?["scope"]?.string,
+            // A fresh request with a Finder selection plans where the selection is, without asking;
+            // the plan offers Change Folder, which comes back here without the context.
+            let scopeID =
+                invocation.args?["scope"]?.string
+                ?? (invocation.context?.files.isEmpty == false ? scopes.first?.id : nil)
+            guard let scopeID,
                 let scope =
                     (scopeID == "Selection"
                         ? invocation.args?["folder"]?.string.map({ (scopeID, URL(filePath: $0)) }) : nil)
@@ -166,10 +171,14 @@ public final class DoRunner: CommandRunner {
                 command: .doControl, args: ["token": .string(job.token), "action": .string(action)],
                 title: title)
         }
-        let again = Item.Action.run(
-            command: .doAction, text: job.sentence,
-            args: ["new": .bool(true), "selected": .array(job.selected.map(JSONValue.string))],
-            title: "Plan Again")
+        // A fresh plan from the folder list (no summon context comes with it).
+        func replan(_ title: String) -> Item.Action {
+            .run(
+                command: .doAction, text: job.sentence,
+                args: ["new": .bool(true), "selected": .array(job.selected.map(JSONValue.string))],
+                title: title)
+        }
+        let again = replan("Plan Again")
         let metadata = [Detail.Metadata(label: "Folder", value: job.scope.path)]
         var sections: [String] = []
         var actions: [Item.Action] = []
@@ -211,7 +220,10 @@ public final class DoRunner: CommandRunner {
                 "**Script (\(plan.shell))**\n\n" + DoPlan.code(plan.script, language: plan.shell),
             ]
             if job.phase == .ready {
-                actions += [.copy(text: plan.script, title: "Copy Script"), action("stop", "Cancel")]
+                actions += [
+                    .copy(text: plan.script, title: "Copy Script"), replan("Change Folder"),
+                    action("stop", "Cancel"),
+                ]
             }
         }
         if !job.output.isEmpty {

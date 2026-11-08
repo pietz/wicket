@@ -98,7 +98,7 @@ private func doInvocation(_ action: Item.Action) throws -> Invocation {
     #expect(job.phase == .ready)
     #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "received").path))
     let detail = DoRunner.detail(job)
-    #expect(detail.actions.map(\.title) == ["Run", "Copy Script", "Cancel"])
+    #expect(detail.actions.map(\.title) == ["Run", "Copy Script", "Change Folder", "Cancel"])
     #expect(detail.actions.contains(.copy(text: script, title: "Copy Script")))
     #expect(MarkdownBlock.parse(detail.markdown).contains(.code(script)))
     #expect(throws: (any Error).self) { try job.execute(token: "forged") }
@@ -324,23 +324,29 @@ private func doInvocation(_ action: Item.Action) throws -> Invocation {
     try Data().write(to: second)
     let selected = [file, second]
     let context = try #require(SummonContext(app: "Finder", files: selected))
+    // With a Finder selection, Do plans where it is without asking.
     let input = Invocation(command: .doAction, text: "rename them", context: context)
-    let picker = try await collectDo(runner.run(input, retry: .never))
-    guard case .show(.list(let items))? = picker.last else {
-        Issue.record("expected folder picker")
-        return
-    }
-    #expect(items.map(\.title) == ["Shots", "Desktop", "Downloads", "Documents", "Home"])
-    // The action carries the folder: the context is gone by the time it runs.
-    let select = try doInvocation(#require(items.first?.actions.first))
-    #expect(select.context == nil)
-    _ = try await collectDo(runner.run(select, retry: .never))
+    _ = try await collectDo(runner.run(input, retry: .never))
     let job = try #require(runner.current)
     #expect(job.scope.path == CheckIsolation.realPath(shots.path))
     #expect(job.selected == selected.map(\.path))
     let request = try #require(requests.withLock { $0.first })
     #expect(request.prompt.contains("The user selected these items"))
     #expect(request.prompt.contains(JSONValue.array(selected.map { .string($0.path) }).json))
+    // Change Folder comes back without the context, so it lists the folders, the selection's first;
+    // the action carries the folder, since the context is gone by the time it runs.
+    let change = try doInvocation(
+        #require(
+            DoRunner.detail(job).actions.first {
+                if case .run(_, _, _, "Change Folder", _) = $0 { true } else { false }
+            }))
+    let picker = try await collectDo(runner.run(change, retry: .never))
+    guard case .show(.list(let items))? = picker.last else {
+        Issue.record("expected folder picker")
+        return
+    }
+    #expect(items.map(\.title) == ["Shots", "Desktop", "Downloads", "Documents", "Home"])
+    #expect(try doInvocation(#require(items.first?.actions.first)).context == nil)
     await runner.shutdown()
     await builds.shutdown()
 }
