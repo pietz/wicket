@@ -63,8 +63,7 @@ struct VoicePane: View {
                 + "turns off. " : ""
         return "To start listening, click the microphone in the search field or press ⌘L. " + onOpen
             + "Your words appear in the search field as you say them, transcribed on this Mac; Return "
-            + "runs the top row, nothing runs by itself. Typing or Esc stops listening. To open Wicket "
-            + "listening, give Start Listening a hotkey in Shortcuts."
+            + "runs the top row, nothing runs by itself. Typing or Esc stops listening."
     }
 
     @ViewBuilder private var microphoneStatus: some View {

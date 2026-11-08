@@ -5,7 +5,7 @@ import WicketCore
 /// When Wicket listens. Off until the user turns it on in Settings ▸ Voice.
 enum VoiceMode: String, Codable, CaseIterable, Sendable {
     case off
-    /// Only when the user asks: the mic button, ⌘L, or Start Listening (its hotkey, or its row).
+    /// Only when the user asks: the mic button or ⌘L.
     case onCommand
     /// Armed quietly every time the palette opens, as well as when the user asks.
     case onOpen
@@ -183,7 +183,7 @@ final class VoiceInput {
         return consumed
     }
 
-    /// The mic button, ⌘L and Start Listening: listens (in the open, if it was armed), or stops if it
+    /// The mic button and ⌘L: listens (in the open, if it was armed), or stops if it
     /// is listening already. Off, it says where to turn voice on rather than asking for the
     /// microphone from the palette.
     func toggle() {
@@ -230,31 +230,6 @@ enum VoiceError: Error, Equatable, CustomStringConvertible {
         case .noMicrophone: "No microphone is available."
         case .noLanguage: "None of your languages can be transcribed on this Mac."
         case .modelMissing: "The speech model isn't downloaded yet. Get it in Settings ▸ Voice."
-        }
-    }
-}
-
-extension CommandID {
-    /// Start Listening, a built-in in `AppRuntime.live()`'s table. Its hotkey is the "press to talk"
-    /// trigger: a binding in settings.json like any command's, which does nothing while voice is off.
-    static let listen = CommandID.builtin("listen")
-}
-
-/// Start Listening's runner: listens (through the palette, which shows itself if needed) and leaves
-/// the palette as it was, so no frame opens.
-@MainActor
-final class ListenRunner: CommandRunner {
-    private let listen: @MainActor () -> Void
-
-    init(_ listen: @escaping @MainActor () -> Void) {
-        self.listen = listen
-    }
-
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
-        listen()
-        return AsyncThrowingStream {
-            $0.yield(.stay)
-            $0.finish()
         }
     }
 }

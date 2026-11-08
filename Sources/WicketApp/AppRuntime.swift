@@ -9,8 +9,6 @@ protocol PaletteSurface: AnyObject {
     var width: CGFloat { get set }
     func show(eventTime: TimeInterval)
     func toggle(eventTime: TimeInterval)
-    /// Runs a command bound to a global hotkey.
-    func run(bound: CommandID)
 }
 
 extension PaletteController: PaletteSurface {}
@@ -18,11 +16,10 @@ extension PaletteController: PaletteSurface {}
 /// The running app: its parts composed, and settings.json applied to them.
 ///
 /// Settings are applied as one snapshot (`apply`), in the order that keeps everything that depends
-/// on them coherent: first the registry (which built-ins exist, which aliases name what), then the
-/// runs of commands that left it stop, then the root's sources, then one fresh root search if
-/// either changed (so what is on screen shows the new aliases and features at once), then the work
-/// behind features starts or stops, then the hotkeys, resolved against the new registry, and last
-/// the menu bar icon, which shows the hotkey that is in effect. The
+/// on them coherent: first the registry (which built-ins exist), then the runs of commands that left
+/// it stop, then the root's sources, then one fresh root search if either changed (so what is on
+/// screen shows the features at once), then the work behind features starts or stops, then the
+/// hotkey, and last the menu bar icon, which shows the hotkey that is in effect. The
 /// palette's width and the AI provider are read on use (next summon, next answer).
 ///
 /// What touches the system (hotkey registration, file watching, the work behind features) comes in
@@ -72,7 +69,7 @@ final class AppRuntime {
     /// Every root source, before settings.json turns features off.
     private let allSources: [any ResultSource]
     private let work: [Feature: Work]
-    private let hotKeys: HotKeys
+    private let hotKey: PaletteHotKey
     private let system: System
     private var watchers: [AnyObject] = []
     /// The settings last applied; nil before the first `apply`.
@@ -99,10 +96,9 @@ final class AppRuntime {
         // `apply` drops the sources of features that are off before the palette first shows.
         model = PaletteModel(
             sources: sources, runner: runner, registry: registry, messages: messages, usageURL: usageURL)
-        hotKeys = HotKeys(register: system.registerHotKey)
-        hotKeys.onPalette = { [weak self] in self?.palette?.toggle(eventTime: $0) }
-        hotKeys.onCommand = { [weak self] in self?.palette?.run(bound: $0) }
-        store.pauseHotKey = { [weak self] in self?.pauseHotKeys($0) }
+        hotKey = PaletteHotKey(register: system.registerHotKey)
+        hotKey.onPress = { [weak self] in self?.palette?.toggle(eventTime: $0) }
+        store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
     }
 
     /// Applies settings.json and keeps applying it as it changes, and loads the extensions.
@@ -153,7 +149,6 @@ final class AppRuntime {
 
         let changes = registry.changes
         registry.setDisabledFeatures(settings.disabledFeatures)
-        registry.setAliases(settings.commands.compactMapValues(\.alias))
         let refreshed = model.session.setSources(Feature.enabled(allSources, in: settings))
         registryChanged(since: changes, refreshed: refreshed)
 
@@ -167,33 +162,19 @@ final class AppRuntime {
         if previous?.disabledFeatures != settings.disabledFeatures {
             Perf.log("features off: \(settings.disabledFeatures.map(\.rawValue).sorted())")
         }
-        applyHotKeys(settings)
-        menuBar?.update(visible: settings.showInMenuBar, hotkey: hotKeys.paletteHotKey)
+        applyHotKey(settings.hotkey)
+        menuBar?.update(visible: settings.showInMenuBar, hotkey: hotKey.inEffect)
     }
 
     /// After something that may have changed the registry: the runs of commands no longer in it
     /// stop (Run Agent turned off mid-answer, an extension removed), runs bound to a revision their
     /// command no longer has are reconciled (`PaletteSession.rebind`: searches run again on the new
-    /// revision, anything else stops saying the extension changed), and the root searches again
-    /// unless it just did, so a new alias or a command gone shows at once.
+    /// revision, anything else stops saying the extension changed), keyword conflicts are reported,
+    /// and the root searches again unless it just did, so a command gone shows at once.
     private func registryChanged(since changes: Int, refreshed: Bool) {
         guard registry.changes != changes else { return }
         model.session.stopCommands { [registry] in registry.command($0) == nil }
         model.session.rebind { [registry] in registry.command($0) }
-        if !refreshed { model.refresh() }
-    }
-
-    /// Registers the hotkeys for `settings` against the current registry, and reports what isn't in
-    /// effect (bindings, keyword conflicts) to the diagnostics the panes read.
-    private func applyHotKeys(_ settings: Settings) {
-        hotKeys.apply(settings, registry: registry)
-        var bindings = hotKeys.problems(registry).sorted { $0.key.description < $1.key.description }.map {
-            Diagnostic(.command($0.key), .binding, .warning, $0.value)
-        }
-        if let problem = hotKeys.paletteProblem {
-            bindings.append(Diagnostic(.bindings, .binding, .error, problem))
-        }
-        diagnostics.replace(.binding, with: bindings)
         let title = { [registry] (id: CommandID) in registry.command(id)?.title ?? id.description }
         diagnostics.replace(
             .conflict,
@@ -202,28 +183,35 @@ final class AppRuntime {
                     .command($0.loser), .conflict, .warning,
                     "The keyword \($0.keyword) is already \(title($0.winner))'s.")
             })
-        store.commands = registry.commands
+        if !refreshed { model.refresh() }
     }
 
-    /// Stops every global hotkey while the settings window records one; when it is done, settings
-    /// are reloaded, so a hotkey it just wrote is registered at once.
-    private func pauseHotKeys(_ paused: Bool) {
-        hotKeys.paused = paused
+    /// Registers the palette's hotkey and reports it to the diagnostics the General pane reads when
+    /// it isn't in effect.
+    private func applyHotKey(_ shortcut: Shortcut) {
+        hotKey.apply(shortcut)
+        diagnostics.replace(
+            .hotkey, with: hotKey.problem.map { [Diagnostic(.hotkey, .hotkey, .error, $0)] } ?? [])
+    }
+
+    /// Releases the hotkey while the settings window records one; when it is done, settings are
+    /// reloaded, so a hotkey it just wrote is registered at once.
+    private func pauseHotKey(_ paused: Bool) {
+        hotKey.paused = paused
         if paused {
-            applyHotKeys(applied ?? store.settings)
+            applyHotKey((applied ?? store.settings).hotkey)
         } else {
             reload()
         }
     }
 
     /// Registers the active catalog's commands (approved revisions only) after each published
-    /// discovery: an approval, a revoke or a folder change. Runs of commands gone stop, runs bound to
-    /// a replaced revision are reconciled, and bindings waiting for a command take effect.
+    /// discovery: an approval, a revoke or a folder change. Runs of commands gone stop and runs bound
+    /// to a replaced revision are reconciled.
     private func registerExtensionCommands() {
         let changes = registry.changes
         registry.setExtensionCommands(extensions.commands)
         registryChanged(since: changes, refreshed: false)
-        applyHotKeys(applied ?? store.settings)  // A binding waiting for one of them takes effect.
     }
 
     private func watch(
@@ -267,7 +255,6 @@ extension AppRuntime {
         let settingsWindow = SettingsWindowController(
             store: store, voice: voiceConsent, permissions: permissions, updater: updater)
         weak var weakRuntime: AppRuntime?
-        weak var weakPalette: PaletteController?
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
@@ -301,8 +288,8 @@ extension AppRuntime {
             .calculator: Work(
                 start: { calculator.start { weakRuntime?.model.refresh() } }, stop: calculator.stop),
         ]
-        // Wicket's own commands: each is one entry, its registration and its runner. Search, keywords,
-        // aliases, hotkeys and its frame come from the registry and the invocation policy.
+        // Wicket's own commands: each is one entry, its registration and its runner. Search, keywords
+        // and its frame come from the registry and the invocation policy.
         let builtins = [
             Builtin(
                 RegisteredCommand(
@@ -315,8 +302,8 @@ extension AppRuntime {
                 effect: { NSApp.terminate(nil) }),
             // Answers a question or does what it asks with the user's agent CLI, building or changing
             // Wicket's own commands included. Its keyword `ai` (a built-in keeps it against
-            // extensions), alias or hotkey open its frame waiting for the question; the root offers it
-            // as a fallback row for whatever was typed.
+            // extensions) opens its frame waiting for the question; the root offers it as a fallback
+            // row for whatever was typed.
             Builtin(
                 RegisteredCommand(
                     id: .runAgent, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
@@ -374,12 +361,6 @@ extension AppRuntime {
                     id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
                     input: .submitText, placeholder: "Paste the value and press Return"),
                 runner: SecretsRunner(extensions: extensions)),
-            // Listens for a query (Settings ▸ Voice); its hotkey opens Wicket listening.
-            Builtin(
-                RegisteredCommand(
-                    id: .listen, title: "Start Listening", icon: .symbol(name: "waveform"),
-                    search: ["voice", "dictate", "speak", "microphone"], input: .none),
-                runner: ListenRunner { weakPalette?.listen() }),
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
@@ -391,7 +372,6 @@ extension AppRuntime {
         let palette = PaletteController(
             model: runtime.model, dispatcher: ActionDispatcher(registry: runtime.registry, effects: effects))
         runtime.palette = palette
-        weakPalette = palette
         runtime.model.voice = voice
         voice.write = { [weak runtime] in runtime?.model.session.setSpokenQuery($0) ?? false }
         voice.fail = { [weak runtime] in runtime?.messages.post(Message($0, kind: .failed)) }

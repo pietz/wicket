@@ -111,31 +111,26 @@ private let terra = AgentOptions(model: "gpt-6.1-terra", effort: "medium", speed
 
 // MARK: Ask AI became Run Agent
 
-@Test func askAIsBindingAndFeatureCarryOverToRunAgent() throws {
-    let settings = try load(
-        #"{"commands": {"builtin:ask-ai": {"alias": "ask"}}, "features": {"ask-ai": false}}"#)
-    #expect(settings.commands == [.builtin("run-agent"): CommandBinding(alias: "ask")])
+@Test func askAIsFeatureCarriesOverToRunAgent() throws {
+    let settings = try load(#"{"features": {"ask-ai": false}}"#)
     #expect(settings.disabledFeatures == [.ai])
     #expect(settings.ignored.isEmpty)
 }
 
 @Test func theNewNameWinsOverTheOld() throws {
-    let settings = try load(
-        #"{"commands": {"builtin:ask-ai": {"alias": "old"}, "builtin:run-agent": {"alias": "new"}}}"#)
-    #expect(settings.commands == [.builtin("run-agent"): CommandBinding(alias: "new")])
+    let settings = try load(#"{"features": {"ask-ai": true, "ai": false}}"#)
+    #expect(settings.disabledFeatures == [.ai])
 }
 
-/// The next change from Settings writes the new names, so clearing a binding can't bring the old one
-/// back.
+/// The next change from Settings writes the new names. A `commands` object older builds wrote
+/// (hotkeys and aliases) is an unknown key now: ignored without a warning and kept as written.
 @Test func updateRewritesTheOldNames() throws {
     let url = temporarySettingsURL()
     try write(
-        #"{"commands": {"builtin:ask-ai": {"alias": "ask", "hotkey": "ctrl+option+a"}}, "features": {"ask-ai": false}}"#,
-        to: url)
-    try Settings.update(at: url) { $0.commands[.builtin("run-agent")]?.alias = nil }
+        #"{"commands": {"builtin:ask-ai": {"alias": "ask"}}, "features": {"ask-ai": false}}"#, to: url)
+    #expect(try Settings.load(from: url).ignored.isEmpty)
+    try Settings.update(at: url) { $0.paletteWidth = 700 }
     let file = try object(url)
-    #expect(
-        file["commands"] as? [String: [String: String]] == ["builtin:run-agent": ["hotkey": "ctrl+option+a"]])
     #expect(file["features"] as? [String: Bool] == ["ai": false])
-    #expect(try Settings.load(from: url).commands[.builtin("run-agent")]?.alias == nil)
+    #expect(file["commands"] as? [String: [String: String]] == ["builtin:ask-ai": ["alias": "ask"]])
 }

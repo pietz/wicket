@@ -3,8 +3,8 @@ import Testing
 
 @testable import WicketCore
 
-// The one invocation policy: a command does the same whether it is reached from its row, a hotkey,
-// `wicket run`, its keyword or an alias, for each way it takes text; a run is resent only if its
+// The one invocation policy: a command does the same whether it is reached from its row, a `run`
+// action, `wicket run` or its keyword, for each way it takes text; a run is resent only if its
 // command says it may be.
 
 @MainActor
@@ -54,7 +54,7 @@ private func manifestCommands() throws -> [RegisteredCommand] {
     return manifest.commands.map { RegisteredCommand(extension: manifest.id, command: $0, icon: nil) }
 }
 
-/// One palette over the built-ins and the manifest's commands, with an alias for each kind.
+/// One palette over the built-ins and the manifest's commands.
 @MainActor
 private struct Palette {
     let registry = CommandRegistry(builtins: builtins)
@@ -65,10 +65,6 @@ private struct Palette {
 
     init() throws {
         registry.setExtensionCommands(try manifestCommands())
-        registry.setAliases([
-            CommandID.settings: "prefs", .extension("todo", "toggle"): "dm",
-            .extension("todo", "find"): "f", CommandID.runAgent: "ask",
-        ])
         session = PaletteSession(
             sources: [CommandsSource(registry), FallbackSource(registry)], runner: runner, registry: registry,
             liveDebounce: .zero)
@@ -83,15 +79,9 @@ private struct Palette {
         return dispatcher.perform(item.actions[0], as: .host, in: ActionContext())
     }
 
-    /// A hotkey: `CommandHotkeys` resolves it to the command's id, which the controller dispatches
-    /// as `.run(command:)`.
-    func hotkey(_ id: CommandID) throws -> ActionOutcome {
-        let key = try Shortcut("ctrl+option+k")
-        let resolved = CommandHotkeys.resolve(
-            [id: CommandBinding(hotkey: key)], palette: .default,
-            isRegistered: { registry.command($0) != nil })
-        let bound = try #require(resolved.hotkeys[key])
-        return dispatcher.perform(.run(command: bound), as: .host, in: ActionContext())
+    /// A `run` action naming the command, without text.
+    func runAction(_ id: CommandID) -> ActionOutcome {
+        dispatcher.perform(.run(command: id), as: .host, in: ActionContext())
     }
 
     /// `wicket run <folder> <command> [text]`: the CLI resolves the manifest command the same way.
@@ -125,18 +115,12 @@ private let find = CommandID.extension("todo", "find")
     #expect(throws: DecodingError.self) { try JSONDecoder().decode(Manifest.self, from: Data(live.utf8)) }
 }
 
-@MainActor @Test func aCommandWithoutTextRunsTheSameFromItsRowAndItsHotkeyAndItsAliasOnlyNamesIt()
-    throws
-{
+@MainActor @Test func aCommandWithoutTextRunsTheSameFromItsRowAndARunAction() throws {
     let palette = try Palette()
     // It opens like any command; its runner does the effect and closes before a frame shows.
     let opened = ActionOutcome.open(CommandRun(.settings, .invoked))
     #expect(try palette.row(CommandID.settings) == opened)
-    #expect(try palette.hotkey(CommandID.settings) == opened)
-    // A space after its alias opens nothing: it stays a root search.
-    palette.session.query = "prefs "
-    #expect(palette.session.frames.count == 1)
-    #expect(palette.registry.command(keyword: "prefs") == nil)
+    #expect(palette.runAction(CommandID.settings) == opened)
 }
 
 @MainActor @Test func anImmediateCommandRunsNowFromEveryWayIn() async throws {
@@ -144,22 +128,19 @@ private let find = CommandID.extension("todo", "find")
     let expected = CommandRun(
         command: try palette.command(toggle), invocation: Invocation(command: toggle), retry: .never)
     #expect(try palette.row(toggle) == .open(expected))
-    #expect(try palette.hotkey(toggle) == .open(expected))
+    #expect(palette.runAction(toggle) == .open(expected))
     #expect(try palette.cli(toggle) == expected)
     // Its frame shows once the first content arrives, so a toggle answering `close` never flashes one.
     #expect(expected.query == nil)
 
-    // From its keyword or alias: the rest of the line is its text, and the frame shows at once so
-    // further typing filters it. The run is the same, never resent.
-    for typed in ["dark now", "dm now"] {
-        palette.session.reset()
-        palette.session.query = typed
-        #expect(palette.session.frames.count == 2)
-        #expect(palette.commandFrame?.run?.invocation == Invocation(command: toggle, text: "now"))
-        #expect(palette.session.query == "")
-        #expect(await settle { palette.runner.runs.last == Invocation(command: toggle, text: "now") })
-        #expect(palette.runner.retries.last == .never)
-    }
+    // From its keyword: the rest of the line is its text, and the frame shows at once so further
+    // typing filters it. The run is the same, never resent.
+    palette.session.query = "dark now"
+    #expect(palette.session.frames.count == 2)
+    #expect(palette.commandFrame?.run?.invocation == Invocation(command: toggle, text: "now"))
+    #expect(palette.session.query == "")
+    #expect(await settle { palette.runner.runs.last == Invocation(command: toggle, text: "now") })
+    #expect(palette.runner.retries.last == .never)
 }
 
 @MainActor @Test func aLiveCommandShowsItsFrameAtOnceFromEveryWayIn() async throws {
@@ -168,17 +149,14 @@ private let find = CommandID.extension("todo", "find")
         command: try palette.command(find), invocation: Invocation(command: find), retry: .safeToRepeat,
         query: "")
     #expect(try palette.row(find) == .open(expected))
-    #expect(try palette.hotkey(find) == .open(expected))
+    #expect(palette.runAction(find) == .open(expected))
     #expect(try palette.cli(find, text: "milk").invocation.text == "milk")
 
-    for typed in ["find milk", "f milk"] {
-        palette.session.reset()
-        palette.session.query = typed
-        #expect(palette.commandFrame?.run?.command.id == find)
-        #expect(palette.session.query == "milk")
-        #expect(await settle { palette.runner.runs.last?.text == "milk" })
-        #expect(palette.runner.retries.last == .safeToRepeat)
-    }
+    palette.session.query = "find milk"
+    #expect(palette.commandFrame?.run?.command.id == find)
+    #expect(palette.session.query == "milk")
+    #expect(await settle { palette.runner.runs.last?.text == "milk" })
+    #expect(palette.runner.retries.last == .safeToRepeat)
 }
 
 @MainActor @Test func aSubmitTextCommandWaitsForItsTextUnlessItWasSubmitted() async throws {
@@ -186,8 +164,8 @@ private let find = CommandID.extension("todo", "find")
     let ask = try palette.command(CommandID.runAgent)
     let waiting = CommandRun(
         command: ask, invocation: Invocation(command: CommandID.runAgent), retry: .never, query: "")
-    // A hotkey or `run` without text opens its frame waiting for the text; nothing runs.
-    #expect(try palette.hotkey(CommandID.runAgent) == .open(waiting))
+    // A `run` without text opens its frame waiting for the text; nothing runs.
+    #expect(palette.runAction(CommandID.runAgent) == .open(waiting))
     #expect(waiting.awaitsText)
     #expect(CommandRun(ask, .invoked, text: "  ") == waiting)
     // Submitted text (its fallback row, a `run` with text) runs now.
@@ -197,16 +175,13 @@ private let find = CommandID.extension("todo", "find")
                 command: ask, invocation: Invocation(command: CommandID.runAgent, text: "why"), retry: .never)
     )
 
-    // Its keyword and its alias put what followed them in the waiting frame's field; never run it.
-    for typed in ["ai why is the sky blue", "ask why is the sky blue"] {
-        palette.session.reset()
-        palette.session.query = typed
-        #expect(palette.commandFrame?.run?.invocation == waiting.invocation)
-        #expect(palette.commandFrame?.run?.awaitsText == true)
-        #expect(palette.session.query == "why is the sky blue")
-        #expect(palette.session.top.isCompact)
-        #expect(!palette.session.top.isLoading)
-    }
+    // Its keyword puts what followed it in the waiting frame's field; never runs it.
+    palette.session.query = "ai why is the sky blue"
+    #expect(palette.commandFrame?.run?.invocation == waiting.invocation)
+    #expect(palette.commandFrame?.run?.awaitsText == true)
+    #expect(palette.session.query == "why is the sky blue")
+    #expect(palette.session.top.isCompact)
+    #expect(!palette.session.top.isLoading)
     palette.session.query = "why is the sky blue?"
     try? await Task.sleep(for: .milliseconds(20))
     #expect(palette.runner.runs.isEmpty)
@@ -255,10 +230,6 @@ private let find = CommandID.extension("todo", "find")
 
     // With Run Agent off, the extension has the word.
     registry.setDisabledFeatures([.ai])
-    #expect(registry.command(keyword: "ai")?.id == rival.id)
-    // The user's alias beats even a built-in's keyword.
-    registry.setDisabledFeatures([])
-    registry.setAliases([rival.id: "ai"])
     #expect(registry.command(keyword: "ai")?.id == rival.id)
 }
 

@@ -16,8 +16,8 @@ import Observation
 /// keystrokes coalesced by `liveDebounce`); a once command runs when opened and filters a list
 /// locally; a command waiting for its text (`CommandRun.awaitsText`) runs nothing until the text is
 /// submitted, which runs it in a frame of its own. How a command opens is the invocation policy's
-/// (`CommandRun`): typing its keyword and a space in the root search, like a `run` action, a row or a
-/// hotkey, resolves through it. A run with a `query` shows its frame at once; any other only when
+/// (`CommandRun`): typing its keyword and a space in the root search, like a `run` action or a row,
+/// resolves through it. A run with a `query` shows its frame at once; any other only when
 /// its first content arrives, so a command that just does something and closes never flashes a
 /// frame; until then the session is `opening` it.
 @MainActor

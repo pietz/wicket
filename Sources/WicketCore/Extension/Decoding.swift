@@ -33,7 +33,7 @@ extension Item: Decodable {
                 throw object.invalid("relevance", "is only for root commands; this is a \(mode) command")
             }
             let value = try object.required("relevance", as: String.self)
-            // Exact and alias say what the user typed, which only the host knows.
+            // Exact says what the user typed, which only the host knows.
             guard let relevance = Relevance(rawValue: value), relevance > .exact else {
                 throw object.invalid("relevance", "\"\(value)\" must be answer, match or fallback")
             }

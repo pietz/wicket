@@ -52,7 +52,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tabs.addTabViewItem(pane("Features", symbol: "square.grid.2x2", FeaturesPane(store: store)))
         tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store, permissions: permissions)))
         tabs.addTabViewItem(pane("Voice", symbol: "waveform", VoicePane(consent: voice)))
-        tabs.addTabViewItem(pane("Shortcuts", symbol: "command", ShortcutsPane(store: store)))
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.toolbarStyle = .preference

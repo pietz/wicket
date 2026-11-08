@@ -63,10 +63,8 @@ private final class Registration {
 private final class FakePalette: PaletteSurface {
     var width: CGFloat = 0
     private(set) var toggles: [TimeInterval] = []
-    private(set) var bound: [CommandID] = []
     func show(eventTime: TimeInterval) {}
     func toggle(eventTime: TimeInterval) { toggles.append(eventTime) }
-    func run(bound id: CommandID) { bound.append(id) }
 }
 
 @MainActor
@@ -201,11 +199,16 @@ private final class Harness {
 
     var rootIDs: [String] { session.frames[0].list?.items.map(\.id) ?? [] }
 
+    /// Why the palette's hotkey isn't in effect, as the General pane shows it.
+    var hotkeyProblem: String? { store.diagnostics.text(for: .hotkey, kind: .hotkey) }
+
     deinit { try? FileManager.default.removeItem(at: directory) }
 }
 
 private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) }
 
+/// A `commands` object older builds wrote (per-command hotkeys and aliases) binds nothing and,
+/// like any unknown key, warns about nothing.
 @MainActor @Test func startingAppliesEverySetting() throws {
     let h = try Harness(
         settings: #"""
@@ -216,15 +219,11 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.palette.width == 720)
     #expect(h.runAgent.answers.provider() == .claude)
     #expect(h.work == ["start apps"])
-    #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+a")])
-    #expect(h.runtime.registry.alias(of: runAgentCommand) == "ask")
-    #expect(h.store.commands.map(\.id) == h.runtime.registry.commands.map(\.id))
+    #expect(h.system.registered == [shortcut("cmd+k")])
     #expect(h.store.diagnostics.all.isEmpty)
 
     h.system.press(shortcut("cmd+k"))
-    h.system.press(shortcut("ctrl+option+a"))
     #expect(h.palette.toggles == [42])
-    #expect(h.palette.bound == [runAgentCommand])
 }
 
 @MainActor @Test func featureWorkFollowsItsFeatureOnly() throws {
@@ -236,20 +235,6 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.work == ["start apps", "start calculator", "stop apps"])
     try h.change("{}")
     #expect(h.work.last == "start apps")
-}
-
-/// The review's gap: a new alias didn't reach the results already on screen.
-@MainActor @Test func anAliasChangeRefreshesTheResultsOnScreen() throws {
-    let h = try Harness()
-    h.session.query = "bye"
-    #expect(!h.rootIDs.contains("commands:quit"))
-
-    try h.change(#"{"commands": {"builtin:quit": {"alias": "bye"}}}"#)
-    #expect(h.rootIDs.first == "commands:quit")
-    #expect(h.session.frames[0].list?.items.first?.relevance == .alias)
-
-    try h.change("{}")
-    #expect(!h.rootIDs.contains("commands:quit"))
 }
 
 /// Settings and Quit are table entries like Run Agent: their rows run through the router, their effect
@@ -282,20 +267,15 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
 
 /// The review's gap: turning Run Agent off left a running answer streaming.
 @MainActor @Test func turningRunAgentOffStopsARunningAnswer() async throws {
-    let h = try Harness(settings: #"{"commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
+    let h = try Harness()
     let command = try #require(h.runtime.registry.command(runAgentCommand))
     h.session.open(CommandRun(command, .invoked, text: "hello"))
     #expect(await eventually { h.session.frames.count == 2 })
     #expect(h.session.top.isLoading)
 
-    try h.change(
-        #"{"features": {"ai": false}, "commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
+    try h.change(#"{"features": {"ai": false}}"#)
     #expect(h.session.frames.count == 1)
     #expect(await eventually { h.agent.ended.withLock { $0 } == 1 })
-    // Its hotkey goes inert with it, and comes back when the feature does.
-    #expect(h.system.registered == [.default])
-    try h.change(#"{"commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
-    #expect(h.system.registered == [.default, shortcut("ctrl+option+a")])
 }
 
 /// Quitting waits for what runs outside the app: the answer's agent is gone when `shutdown` returns.
@@ -334,49 +314,14 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.agent.ended.withLock { $0 } == 0)
 }
 
-/// One snapshot can hand a combination from a command to the palette and back.
-@MainActor @Test func hotkeysCanSwapInOneChange() throws {
-    let h = try Harness(settings: #"{"commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
-    try h.change(
-        #"{"hotkey": "ctrl+option+a", "commands": {"builtin:run-agent": {"hotkey": "option+space"}}}"#)
-    #expect(h.system.registered == [shortcut("ctrl+option+a"), .default])
-    h.system.press(shortcut("ctrl+option+a"))
-    h.system.press(.default)
-    #expect(h.palette.toggles == [42])
-    #expect(h.palette.bound == [runAgentCommand])
-    #expect(!h.store.hotKeyFailed)
-}
-
-/// The review's gap: a bad main hotkey made the whole file invalid, while a bad binding cost only
-/// itself. Now it is ignored on its own and the default summons Wicket.
+/// The review's gap: a bad main hotkey made the whole file invalid. Now it is ignored on its own and
+/// the default summons Wicket.
 @MainActor @Test func aBadHotkeyCostsOnlyItself() throws {
-    let h = try Harness(settings: #"{"hotkey": "shift+k", "commands": {"builtin:quit": {"alias": "bye"}}}"#)
+    let h = try Harness(settings: #"{"hotkey": "shift+k", "paletteWidth": 720}"#)
     #expect(h.store.loadError == nil)
     #expect(h.store.settings.ignored.count == 1)
     #expect(h.system.registered == [.default])
-    #expect(h.runtime.registry.alias(of: quitCommand) == "bye")
-}
-
-@MainActor @Test func aHotkeyAnotherAppHoldsIsRetried() throws {
-    let h = try Harness()
-    h.system.heldElsewhere = [.default, shortcut("ctrl+option+a")]
-    try h.change(#"{"commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)
-    // The palette keeps the default it holds; Quit's is in use elsewhere.
-    #expect(h.system.registered == [.default])
-    #expect(
-        h.store.diagnostics.text(for: .command(quitCommand), kind: .binding)
-            == "⌃⌥A is in use by another app.")
-
-    try h.change(#"{"hotkey": "cmd+k", "commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)
-    h.system.heldElsewhere = []
-    try h.change(#"{"hotkey": "option+space", "commands": {"builtin:quit": {"hotkey": "ctrl+option+a"}}}"#)
-    #expect(h.system.registered == [.default, shortcut("ctrl+option+a")])
-    #expect(h.store.diagnostics.all.isEmpty)
-    #expect(!h.store.hotKeyFailed)
-
-    h.system.heldElsewhere = [shortcut("cmd+k")]
-    try h.change(#"{"hotkey": "cmd+k"}"#)
-    #expect(h.store.hotKeyFailed)
+    #expect(h.palette.width == 720)
 }
 
 /// The review's gap: the palette let go of its hotkey before knowing the new one would register, so
@@ -386,9 +331,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     h.system.heldElsewhere = [shortcut("cmd+k")]
     try h.change(#"{"hotkey": "cmd+k"}"#)
     #expect(h.system.registered == [.default])
-    #expect(
-        h.store.diagnostics.text(for: .bindings, kind: .binding)
-            == "⌘K is in use by another app. \(Shortcut.default.symbols) still opens Wicket.")
+    #expect(h.hotkeyProblem == "⌘K is in use by another app. \(Shortcut.default.symbols) still opens Wicket.")
     h.system.press(.default)
     #expect(h.palette.toggles == [42])
 
@@ -396,10 +339,10 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     h.system.heldElsewhere = []
     try h.change(#"{"hotkey": "cmd+k", "paletteWidth": 720}"#)
     #expect(h.system.registered == [shortcut("cmd+k")])
-    #expect(!h.store.hotKeyFailed)
+    #expect(h.hotkeyProblem == nil)
 }
 
-/// The same through the recorder, which pauses every hotkey while it listens.
+/// The same through the recorder, which releases the hotkey while it listens.
 @MainActor @Test func aRecordedHotkeyAnotherAppHoldsKeepsTheOldOne() throws {
     let h = try Harness()
     h.store.pauseHotKey(true)
@@ -407,18 +350,18 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     try h.write(#"{"hotkey": "cmd+k"}"#)
     h.store.pauseHotKey(false)
     #expect(h.system.registered == [.default])
-    #expect(h.store.hotKeyFailed)
+    #expect(h.hotkeyProblem != nil)
 }
 
-@MainActor @Test func recordingAHotkeyPausesEveryHotkey() throws {
-    let h = try Harness(settings: #"{"commands": {"builtin:quit": {"hotkey": "ctrl+option+q"}}}"#)
+@MainActor @Test func recordingAHotkeyReleasesIt() throws {
+    let h = try Harness()
     h.store.pauseHotKey(true)
     #expect(h.system.registered.isEmpty)
-    #expect(!h.store.hotKeyFailed)
+    #expect(h.hotkeyProblem == nil)
     // The recorder writes the new hotkey, then ends; it is registered at once.
-    try h.write(#"{"hotkey": "cmd+k", "commands": {"builtin:quit": {"hotkey": "ctrl+option+q"}}}"#)
+    try h.write(#"{"hotkey": "cmd+k"}"#)
     h.store.pauseHotKey(false)
-    #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+q")])
+    #expect(h.system.registered == [shortcut("cmd+k")])
 }
 
 /// One message channel: the session's command messages and the paste effect's (given
@@ -473,17 +416,13 @@ private func addHello(_ h: Harness) async throws {
 }
 
 @MainActor @Test func settingsJSONCanGrantNothing() async throws {
-    // Everything settings.json could try: a binding, an alias, and keys that look like consent.
+    // Keys that look like consent.
     let h = try Harness(
-        settings: #"""
-            {"commands": {"ext:hello/go": {"hotkey": "ctrl+option+h", "alias": "hey"}},
-             "extensions": {"hello": {"enabled": true}}, "approvals": {"hello": "any"}}
-            """#)
+        settings: #"{"extensions": {"hello": {"enabled": true}}, "approvals": {"hello": "any"}}"#)
     try await addHello(h)
     let hello = CommandID.extension("hello", "go")
     #expect(h.runtime.extensions.discovered.map(\.id) == ["hello"])
     #expect(h.runtime.registry.command(hello) == nil)
-    #expect(!h.system.registered.contains(shortcut("ctrl+option+h")))
     h.session.query = "Say Hello"
     #expect(!h.rootIDs.contains { $0.hasPrefix("ext:") || $0.contains("hello/go") })
     #expect(!FileManager.default.fileExists(atPath: h.directory.appending(path: "approvals.json").path))
@@ -491,24 +430,22 @@ private func addHello(_ h: Harness) async throws {
 }
 
 @MainActor @Test func approvingAndRevokingAnExtensionUpdatesThePalette() async throws {
-    let h = try Harness(settings: #"{"commands": {"ext:hello/go": {"hotkey": "ctrl+option+h"}}}"#)
+    let h = try Harness()
     try await addHello(h)
     let hello = CommandID.extension("hello", "go")
     let sealed = try #require(h.runtime.extensions.discovered.first?.sealed)
 
-    // Approved, its command is registered, its waiting binding takes effect, and it runs.
+    // Approved, its command is registered and it runs.
     try await h.runtime.extensions.approve(sealed.revision)
     let command = try #require(h.runtime.registry.command(hello))
     #expect(command.revision == sealed.revision)
-    #expect(h.system.registered.contains(shortcut("ctrl+option+h")))
     h.session.open(CommandRun(command, .invoked))
     #expect(await soon { h.session.frames.count == 2 && h.session.top.list?.items.first?.title == "Hi" })
 
-    // Revoked, it leaves the registry, its frame stops and its hotkey is released.
+    // Revoked, it leaves the registry and its frame stops.
     try await h.runtime.extensions.revoke("hello")
     #expect(h.runtime.registry.command(hello) == nil)
     #expect(h.session.frames.count == 1)
-    #expect(!h.system.registered.contains(shortcut("ctrl+option+h")))
 }
 
 /// The icon follows settings.json live and shows the hotkey that opens Wicket, the previous one

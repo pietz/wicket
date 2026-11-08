@@ -38,13 +38,13 @@ import WicketCore
 
 @MainActor @Test func aRepeatedReportKeepsItsTimeAndCausesNoChange() {
     let diagnostics = Diagnostics()
-    let first = Diagnostic(.command(.builtin("quit")), .binding, .warning, "⌃⌥A is in use by another app.")
-    diagnostics.replace(.binding, with: [first])
+    let first = Diagnostic(.hotkey, .hotkey, .error, "⌃⌥A is in use by another app.")
+    diagnostics.replace(.hotkey, with: [first])
     let before = diagnostics.all
     diagnostics.replace(
-        .binding, with: [Diagnostic(first.subject, .binding, .warning, first.text, at: .now + 60)])
+        .hotkey, with: [Diagnostic(first.subject, .hotkey, .error, first.text, at: .now + 60)])
     #expect(diagnostics.all == before)
-    diagnostics.replace(.binding, with: [])
+    diagnostics.replace(.hotkey, with: [])
     #expect(diagnostics.all.isEmpty)
 }
 

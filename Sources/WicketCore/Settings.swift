@@ -32,11 +32,6 @@ public struct Settings: Equatable, Sendable {
     /// How large a page's text is: a detail, Run Agent's answer.
     public var textSize = TextSize.medium
     public var ai = AI()
-    /// What the user bound to commands: a global hotkey, an alias. Keyed by `CommandID`, written in
-    /// the file by its canonical spelling (`"builtin:run-agent"`, `"ext:github/search"`). Entries for
-    /// commands that aren't registered stay here (the extension may be installed later) and do
-    /// nothing until they are.
-    public var commands: [CommandID: CommandBinding] = [:]
     /// The built-in features turned off. The file says `"features": {"files": false}`; a feature it
     /// doesn't mention, or sets to true, is on.
     public var disabledFeatures: Set<Feature> = []
@@ -138,11 +133,10 @@ public struct Settings: Equatable, Sendable {
     }
 
     /// Keys an older Wicket used, by the object holding them, and what they are called now, so a
-    /// file keeps working after a rename (Ask AI became Run Agent, 2026-11-08; Web Search became
+    /// file keeps working after a rename (Ask AI's feature became Run Agent's, 2026-11-08; Web Search became
     /// Links when Search the Web was removed, 2026-11-08). The file is rewritten
     /// with the new name the next time Settings changes something.
     static let renamed: [(object: String, old: String, new: String)] = [
-        ("commands", "builtin:ask-ai", "builtin:run-agent"),
         ("features", "ask-ai", "ai"),
         ("features", "web-search", "links"),
     ]
@@ -219,65 +213,9 @@ public struct Settings: Equatable, Sendable {
     }
 }
 
-/// What settings.json binds to one command. A preference, never consent (CONCEPT principle 6):
-/// binding a hotkey or an alias to an extension's command doesn't enable or approve the extension.
-public struct CommandBinding: Hashable, Sendable {
-    /// Runs the command from anywhere, without the root search first.
-    public var hotkey: Shortcut?
-    /// One word typed in the root search: alone it lists the command first; followed by a space it
-    /// works as the command's keyword (`CommandRegistry`). Matched ignoring case.
-    public var alias: String?
-
-    public init(hotkey: Shortcut? = nil, alias: String? = nil) {
-        self.hotkey = hotkey
-        self.alias = alias
-    }
-
-    public var isEmpty: Bool { hotkey == nil && alias == nil }
-
-    /// One word: not empty, no spaces, at most 32 characters.
-    public static func isValidAlias(_ alias: String) -> Bool {
-        !alias.isEmpty && alias.count <= 32 && !alias.contains(where: \.isWhitespace)
-    }
-}
-
-extension Settings {
-    /// Who already has `hotkey` if `command` took it: the palette, or the first other registered
-    /// command (in canonical id order) settings.json binds it to. A binding of a command that isn't
-    /// registered is inert (`CommandHotkeys`) and takes nothing, so it is no conflict. For the
-    /// Shortcuts pane, which refuses to create a collision rather than leave it to `CommandHotkeys`.
-    public func hotkeyConflict(
-        _ hotkey: Shortcut, for command: CommandID, isRegistered: (CommandID) -> Bool
-    ) -> CommandHotkeys.Rejection.Reason? {
-        if hotkey == self.hotkey { return .palette }
-        return bindingOwner(except: command, isRegistered: isRegistered) { $0.hotkey == hotkey }
-            .map { .taken(by: $0) }
-    }
-
-    /// The first other registered command (in canonical id order) that settings.json gives `alias`,
-    /// ignoring case. Like a hotkey, an alias of a command that isn't registered takes nothing.
-    public func aliasConflict(
-        _ alias: String, for command: CommandID, isRegistered: (CommandID) -> Bool
-    ) -> CommandID? {
-        let word = alias.lowercased()
-        return bindingOwner(except: command, isRegistered: isRegistered) { $0.alias?.lowercased() == word }
-    }
-
-    private func bindingOwner(
-        except command: CommandID, isRegistered: (CommandID) -> Bool, where matches: (CommandBinding) -> Bool
-    ) -> CommandID? {
-        commands.filter { $0.key != command && isRegistered($0.key) && matches($0.value) }
-            .map(\.key).min { $0.description < $1.description }
-    }
-}
-
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, showInMenuBar, textSize, ai, commands, features
-    }
-
-    private enum CommandKeys: String, CodingKey {
-        case hotkey, alias
+        case hotkey, paletteWidth, showInMenuBar, textSize, ai, features
     }
 
     private enum AIKeys: String, CodingKey {
@@ -323,17 +261,14 @@ extension Settings: Codable {
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
         }
-        if container.contains(.commands), (try? container.decodeNil(forKey: .commands)) != true {
-            decodeCommands(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands))
-        }
         if container.contains(.features), (try? container.decodeNil(forKey: .features)) != true {
             decodeFeatures(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .features))
         }
     }
 
     /// Like the width, a bad hotkey costs only itself: it is ignored with its reason and the palette
-    /// keeps the default, so Wicket can still be summoned. It must leave typing alone, like a
-    /// command's (`Shortcut.leavesTypingAlone`).
+    /// keeps the default, so Wicket can still be summoned. It must leave typing alone
+    /// (`Shortcut.leavesTypingAlone`).
     private mutating func decodeHotkey(_ container: KeyedDecodingContainer<CodingKeys>) {
         do {
             let hotkey = try container.decode(Shortcut.self, forKey: .hotkey)
@@ -347,7 +282,7 @@ extension Settings: Codable {
         }
     }
 
-    /// Each entry stands alone, like the bindings: an unknown feature or a value that isn't a
+    /// Each entry stands alone: an unknown feature or a value that isn't a
     /// boolean is ignored with its reason, and that feature stays on.
     private mutating func decodeFeatures(_ object: KeyedDecodingContainer<AnyKey>?) {
         guard let object else {
@@ -366,53 +301,6 @@ extension Settings: Codable {
                 continue
             }
             setEnabled(feature, enabled)
-        }
-    }
-
-    /// Each binding stands alone: a bad key, hotkey or alias is ignored with its reason and costs
-    /// nothing else, like the width.
-    private mutating func decodeCommands(_ object: KeyedDecodingContainer<AnyKey>?) {
-        guard let object else {
-            ignored.append("commands must be an object; no command has a hotkey or alias")
-            return
-        }
-        for key in object.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
-            guard let id = CommandID(key.stringValue) else {
-                ignored.append(
-                    "commands: \"\(key.stringValue)\" is not a command id (builtin:<name> or "
-                        + "ext:<extension>/<command>); ignoring it")
-                continue
-            }
-            if (try? object.decodeNil(forKey: key)) == true { continue }
-            guard let fields = try? object.nestedContainer(keyedBy: CommandKeys.self, forKey: key) else {
-                ignored.append("commands.\(id) must be an object; ignoring it")
-                continue
-            }
-            var binding = CommandBinding()
-            if fields.contains(.hotkey), (try? fields.decodeNil(forKey: .hotkey)) == false {
-                do {
-                    let hotkey = try fields.decode(Shortcut.self, forKey: .hotkey)
-                    if hotkey.leavesTypingAlone {
-                        binding.hotkey = hotkey
-                    } else {
-                        ignored.append(
-                            "commands.\(id).hotkey needs cmd, ctrl or option (or an F-key); ignoring it")
-                    }
-                } catch {
-                    ignored.append("commands.\(id).hotkey: \(Self.reason(error)); ignoring it")
-                }
-            }
-            if fields.contains(.alias), (try? fields.decodeNil(forKey: .alias)) == false {
-                if let alias = try? fields.decode(String.self, forKey: .alias),
-                    CommandBinding.isValidAlias(alias)
-                {
-                    binding.alias = alias
-                } else {
-                    ignored.append(
-                        "commands.\(id).alias must be one word of at most 32 characters; ignoring it")
-                }
-            }
-            if !binding.isEmpty { commands[id] = binding }
         }
     }
 
@@ -524,17 +412,6 @@ extension Settings: Codable {
                 if options.speed != defaults.speed {
                     try fields.encode(options.speed.rawValue, forKey: .speed)
                 }
-            }
-        }
-        // Like the provider, only what is bound, so `update` removes a cleared binding (and the
-        // object once nothing is left in it).
-        let bound = commands.filter { !$0.value.isEmpty }
-        if !bound.isEmpty {
-            var object = container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands)
-            for (id, binding) in bound {
-                var fields = object.nestedContainer(keyedBy: CommandKeys.self, forKey: AnyKey(id.description))
-                try fields.encodeIfPresent(binding.hotkey, forKey: .hotkey)
-                try fields.encodeIfPresent(binding.alias, forKey: .alias)
             }
         }
         // Only the features turned off, so `update` removes one turned back on.

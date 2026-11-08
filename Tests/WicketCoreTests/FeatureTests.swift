@@ -95,27 +95,15 @@ private struct StubSource: ResultSource {
 
 // MARK: Commands
 
-@MainActor @Test func runAgentOffUnregistersItsCommandAndItsBindingsGoInert() throws {
+@MainActor @Test func runAgentOffUnregistersItsCommand() throws {
     let registry = CommandRegistry(builtins: builtins)
-    registry.setAliases([CommandID.runAgent: "ask"])
-    let hotkey = try Shortcut("ctrl+option+a")
-    let bindings = [CommandID.runAgent: CommandBinding(hotkey: hotkey, alias: "ask")]
-    let resolve = {
-        CommandHotkeys.resolve(bindings, palette: .default, isRegistered: { registry.command($0) != nil })
-    }
-    #expect(resolve().hotkeys == [hotkey: CommandID.runAgent])
-
     registry.setDisabledFeatures([.ai])
     #expect(registry.command(CommandID.runAgent) == nil)
-    #expect(registry.command(alias: "ask") == nil)
-    #expect(registry.alias(of: CommandID.runAgent) == nil)
-    #expect(resolve().hotkeys.isEmpty)
-    #expect(resolve().rejected.isEmpty)
+    #expect(registry.command(keyword: "ai") == nil)
     #expect(registry.command(CommandID.settings) != nil)
 
     registry.setDisabledFeatures([])
-    #expect(registry.alias(of: CommandID.runAgent) == "ask")
-    #expect(resolve().hotkeys == [hotkey: CommandID.runAgent])
+    #expect(registry.command(keyword: "ai")?.id == CommandID.runAgent)
 }
 
 // MARK: Live changes

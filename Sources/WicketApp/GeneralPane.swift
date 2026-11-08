@@ -39,7 +39,7 @@ struct GeneralPane: View {
                             : "Esc cancels."
                     )
                     .foregroundStyle(.secondary)
-                } else if let problem = store.diagnostics.text(for: .bindings, kind: .binding) {
+                } else if let problem = store.diagnostics.text(for: .hotkey, kind: .hotkey) {
                     Label(
                         "\(problem) Choose another shortcut.",
                         systemImage: "exclamationmark.triangle.fill"

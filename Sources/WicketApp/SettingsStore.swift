@@ -10,14 +10,11 @@ import WicketHost
 final class SettingsStore {
     let url: URL
     /// The app's diagnostics: the panes read their problem lines here. `reload` reports settings.json
-    /// (`.settings`), the runtime the hotkeys and aliases (`.binding`) and keyword conflicts.
+    /// (`.settings`), the runtime the hotkey (`.hotkey`) and keyword conflicts.
     let diagnostics: Diagnostics
     private(set) var settings = Settings()
-    /// The registered commands, for the Shortcuts pane. Set by the runtime.
-    var commands: [RegisteredCommand] = []
-    /// Stops the global hotkeys (the palette's and the commands') while the settings window records
-    /// a new one, so pressing a current combination reaches the recorder instead of running what it
-    /// is bound to. Set by the app delegate.
+    /// Releases the hotkey while the settings window records a new one, so pressing the current
+    /// combination reaches the recorder instead of closing the palette. Set by the runtime.
     @ObservationIgnored var pauseHotKey: (Bool) -> Void = { _ in }
 
     init(directory: URL, diagnostics: Diagnostics = Diagnostics()) {
@@ -33,11 +30,6 @@ final class SettingsStore {
     /// The fields the last good load ignored for their defaults, each with its reason.
     var warnings: [String] {
         diagnostics.entries(for: .settings).filter { $0.severity == .warning }.map(\.text)
-    }
-
-    /// True when `settings.hotkey` could not be registered because another app owns it.
-    var hotKeyFailed: Bool {
-        diagnostics.text(for: .bindings, kind: .binding) != nil
     }
 
     /// Loads settings.json: defaults if it is missing; if it is invalid (often an agent or editor

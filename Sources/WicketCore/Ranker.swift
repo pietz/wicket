@@ -2,7 +2,7 @@ import Foundation
 
 /// Merges results from every root source into one order.
 ///
-/// Relevance tiers come first (alias, exact, answer, match, fallback). Within a tier three policies
+/// Relevance tiers come first (exact, answer, match, fallback). Within a tier three policies
 /// apply:
 /// - **Fixed menu**: the host's fallback rows (`FallbackSource`: Run Agent) keep the order their
 ///   source gave, never moved by habit or by title.
@@ -78,11 +78,11 @@ public enum Ranker {
         return ranked
     }
 
-    /// Alias, exact and answer rows always are. A match is when the host scored it well; an
+    /// Exact and answer rows always are. A match is when the host scored it well; an
     /// extension's match can't be judged (a sure extension answers in the `answer` tier).
     static func isStrong(_ item: Item, queryLength: Int) -> Bool {
         switch item.relevance {
-        case .alias, .exact, .answer: return true
+        case .exact, .answer: return true
         case .fallback: return false
         case .match:
             if case .extension = item.origin?.owner { return false }

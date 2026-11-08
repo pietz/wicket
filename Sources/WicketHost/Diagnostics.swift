@@ -13,8 +13,8 @@ public struct Diagnostic: Hashable, Sendable {
         case command(CommandID)
         /// settings.json as a whole, or one of its fields.
         case settings
-        /// Hotkeys that belong to no command: the palette's own.
-        case bindings
+        /// The hotkey that opens Wicket.
+        case hotkey
         /// The store of approved extension revisions (`Approvals`).
         case approvals
     }
@@ -31,8 +31,8 @@ public struct Diagnostic: Hashable, Sendable {
         case stderr
         /// The command's last run failed; cleared by its next answer.
         case run
-        /// A hotkey or alias from settings.json that isn't in effect.
-        case binding
+        /// The hotkey from settings.json isn't in effect.
+        case hotkey
         /// A keyword another command has.
         case conflict
         /// A field of settings.json that was ignored, or a file that couldn't be read.
@@ -67,14 +67,14 @@ public struct Diagnostic: Hashable, Sendable {
         switch subject {
         case .extension(let other): other == id
         case .command(let command): command.owner == .extension(id: id)
-        case .settings, .bindings, .approvals: false
+        case .settings, .hotkey, .approvals: false
         }
     }
 }
 
 /// Every diagnostic Wicket holds, from every producer: extension discovery, sessions (protocol
 /// issues, setup warnings, the stderr tail), failed runs (root searches and command frames alike),
-/// hotkey and alias bindings, keyword conflicts, and settings.json. Producers replace their own
+/// the hotkey, keyword conflicts, and settings.json. Producers replace their own
 /// reports (`set`, `replace`); readers ask by subject (`entries(for:)`, `text(for:kind:)`) or for one
 /// extension's whole picture (`report(forExtension:)`).
 ///

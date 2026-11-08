@@ -20,9 +20,6 @@ private func wifiCommand(_ fields: String = "") throws -> RegisteredCommand {
     }
     #expect(registry.search("wireless").first?.relevance == .exact)
     #expect(registry.search("").count == 1)
-    registry.setAliases([.extension("system", "wifi"): "radio"])
-    #expect(registry.search("radio").first?.relevance == .alias)
-    #expect(registry.search("wireless").first?.relevance == .exact)
 }
 
 @MainActor @Test func equivalentTitlesOutrankSearchPhrases() throws {

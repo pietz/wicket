@@ -129,8 +129,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private var previousApp: RunningApp?
     /// Where a message shows while the card is not up.
     private let hud = MessageHUD()
-    /// Shows the palette once a command a hotkey ran (while it was hidden) has something to show.
-    private var pendingReveal: Task<Void, Never>?
 
     init(model: PaletteModel, dispatcher: ActionDispatcher) {
         self.model = model
@@ -224,87 +222,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
         // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
         // cancels every command run, including one an action is still opening.
         pendingShrink?.cancel()
-        pendingReveal?.cancel()
         model.actionMenu = nil
         model.showToast(nil)
         model.commandHeld = false
         model.session.reset()
         model.session.captureContext(nil)
         model.cardHeight = 0
-    }
-
-    // MARK: Bound commands
-
-    /// Runs a command bound to a global hotkey (settings.json `commands`) without the root search
-    /// first, through the same dispatcher as its row. One that shows something summons the palette
-    /// straight into its frame (a command that takes typed text, like Run Agent, into its frame waiting
-    /// for the text); one that just does something (Quit, a toggle answering `close`) shows nothing
-    /// but its close message, since a hidden palette is revealed only when the command has content
-    /// (or is still running after `revealDelay`). Pressing a command's hotkey while its frame is on
-    /// top closes the palette, as the palette's own hotkey does.
-    func run(bound id: CommandID) {
-        if panel.isVisible, case .screen(let frame) = model.top.content, frame.run?.command.id == id {
-            hide()
-            return
-        }
-        // Start Listening's hotkey while listening stops it and keeps what was said, rather than
-        // resetting the palette first like any other command's hotkey.
-        if id == .listen, let voice = model.voice, voice.isListening {
-            voice.stop()
-            return
-        }
-        pendingReveal?.cancel()
-        if panel.isVisible {
-            model.actionMenu = nil
-            model.session.reset()
-        } else {
-            capturePreviousApp()
-        }
-        switch dispatcher.perform(.run(command: id), as: .host, in: ActionContext(previousApp: previousApp)) {
-        case .close: hide()
-        case .refused(let reason): model.session.messages.post(Message(reason, kind: .failed))
-        case .push(let detail, let authority):
-            model.session.push(detail, from: authority)
-            reveal()
-        case .open(let run):
-            model.session.open(run)
-            if model.session.opening == nil { reveal() } else if !panel.isVisible { revealWhenOpened() }
-        }
-    }
-
-    /// How long a command a hotkey ran may work unseen before the palette shows it running.
-    private static let revealDelay = Duration.milliseconds(250)
-
-    /// Shows the palette, sized for the frame already on top: the card follows the top frame only
-    /// while the panel is visible. `run(bound:)` captured where the user came from already.
-    private func reveal() {
-        guard !panel.isVisible else { return }
-        present()
-        if let height = PaletteMetrics.cardHeight(
-            for: model.top, actionMenu: nil, detailHeight: model.detailHeight, listTop: model.listTopHeight)
-        {
-            setCardHeight(height)
-        }
-    }
-
-    /// Reveals the palette when the command being opened pushes its frame, or after `revealDelay`
-    /// if it is still running; not if it closed or reloaded without one.
-    private func revealWhenOpened() {
-        let session = model.session
-        pendingReveal = Task { [weak self] in
-            let delay = Task {
-                try? await Task.sleep(for: Self.revealDelay)
-                guard !Task.isCancelled, session.opening != nil else { return }
-                self?.reveal()
-            }
-            defer { delay.cancel() }
-            for await (opening, pushed) in Observations({ (session.opening != nil, session.frames.count > 1) }
-            ) {
-                guard !Task.isCancelled else { return }
-                if pushed { self?.reveal() }
-                if pushed || !opening { return }
-            }
-        }
     }
 
     /// Escape in the search field goes back one layer (`PaletteSession.back`), so repeated presses
@@ -352,15 +275,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     // MARK: Voice
 
-    /// The mic button, ⌘L and Start Listening (its row or hotkey): shows the palette if a hotkey ran
-    /// it while hidden (`run(bound:)` captured where the user came from already), then listens or
-    /// stops, or says how to turn voice on. Not in a frame that takes no text, where words would
-    /// have nowhere to go.
+    /// The mic button and ⌘L: listens or stops, or says how to turn voice on. Not in a frame that
+    /// takes no text, where words would have nowhere to go.
     func listen() {
-        if !panel.isVisible { present() }
         guard let voice = model.voice, model.takesSpeech else { return }
         voice.toggle()
-        // From its row, the field still says "listen"; the words replace it.
+        // Listening starts on an empty field; the words replace what was typed.
         if voice.isListening { model.session.setSpokenQuery("") }
     }
 

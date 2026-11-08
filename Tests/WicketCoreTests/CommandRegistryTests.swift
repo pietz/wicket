@@ -99,6 +99,9 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
     ])
     #expect(registry.command(keyword: "go")?.id == .extension("alpha", "go"))
     #expect(registry.keywordConflicts.map(\.loser) == [.extension("beta", "go")])
+    // A row shows its keyword only while it is in effect.
+    #expect(registry.search("alpha go").first?.accessory == "go")
+    #expect(registry.search("beta go").first?.accessory == "Command")
 }
 
 @MainActor
@@ -114,12 +117,10 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 @MainActor @Test func changesCountChangesOnly() {
     let registry = CommandRegistry(builtins: builtins)
     let start = registry.changes
-    registry.setAliases([:])
     registry.setDisabledFeatures([])
     #expect(registry.changes == start)
-    registry.setAliases([CommandID.quit: "bye"])
-    #expect(registry.changes == start + 1)
-    registry.setAliases([CommandID.quit: "bye"])
     registry.setDisabledFeatures([.ai])
-    #expect(registry.changes == start + 2)
+    #expect(registry.changes == start + 1)
+    registry.setDisabledFeatures([.ai])
+    #expect(registry.changes == start + 1)
 }

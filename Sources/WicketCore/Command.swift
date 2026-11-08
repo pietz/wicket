@@ -57,8 +57,8 @@ extension CommandID: LosslessStringConvertible {
     }
 }
 
-/// A command with what to run it on: the shape persistent bindings (hotkeys, aliases, deeplinks)
-/// store, and what a `run` action becomes.
+/// A command with what to run it on: what a `run` action becomes, and the shape later ways in
+/// (deeplinks, MCP) will store.
 public struct Invocation: Hashable, Sendable {
     public var command: CommandID
     /// The text it runs on: what followed its keyword, what was submitted to it; `""` for a plain
@@ -91,10 +91,9 @@ public struct Invocation: Hashable, Sendable {
 /// extension commands translated from their manifest's mode), and `CommandRun(_:_:text:args:)` turns it into
 /// what each way of reaching the command does.
 public enum CommandInput: Sendable, Hashable {
-    /// Takes no text and runs when invoked (Settings, Quit). A keyword or alias and a space doesn't
-    /// open it, so its alias only names it.
+    /// Takes no text and runs when invoked (Settings, Quit). A keyword and a space doesn't open it.
     case none
-    /// Runs when invoked, on the text that came with it: `""` from its row or a hotkey, the rest of
+    /// Runs when invoked, on the text that came with it: `""` from its row, the rest of
     /// the line after its keyword (an extension's `once` command).
     case immediateText
     /// Takes typed text and runs only when it is submitted (Return), never on a keystroke (Run Agent).
@@ -118,10 +117,10 @@ public enum RetryPolicy: Sendable, Hashable {
 /// How a command was reached, which decides whether text that came with it was submitted or only
 /// typed.
 public enum CommandTrigger: Sendable, Hashable {
-    /// Named directly: Return on its row or fallback row, a `run` action, a hotkey, `wicket run` (and
+    /// Named directly: Return on its row or fallback row, a `run` action, `wicket run` (and
     /// later a deeplink or an MCP call). Text that comes with it is submitted.
     case invoked
-    /// Its keyword or alias and a space in the root search: the rest of the line was typed, not
+    /// Its keyword and a space in the root search: the rest of the line was typed, not
     /// submitted.
     case keyword
 }
@@ -148,7 +147,7 @@ public struct CommandRun: Sendable, Hashable {
     }
 
     /// The one invocation policy: what reaching `command` by `trigger`, with `text` and `args`,
-    /// does. Rows, keywords, aliases, hotkeys and `wicket run` all come through here, so a command
+    /// does. Rows, keywords and `wicket run` all come through here, so a command
     /// behaves the same whichever way it is reached:
     /// - `none` and `immediateText` run now on the text (a keyword's rest of the line, whose frame
     ///   shows at once so further typing filters it);
@@ -224,7 +223,7 @@ extension CommandRunner {
 
 /// One of Wicket's own commands: how it is registered and what runs it. The app's table of them
 /// (`AppRuntime.live()`) is the only place a built-in is declared: the registry takes the commands,
-/// the router the runners, so a built-in gets search, keywords, aliases, hotkeys and its frame from
+/// the router the runners, so a built-in gets search, keywords and its frame from
 /// one entry. Everything the host does for the user is a built-in reached by a `run` action, never
 /// a new `Item.Action` case.
 @MainActor

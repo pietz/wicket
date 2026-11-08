@@ -44,13 +44,3 @@ import WicketCore
     store.reload()
     #expect(store.warnings.isEmpty)
 }
-
-@Test func shortcutsFilterMatchesTitleKeywordOrAlias() {
-    let command = RegisteredCommand(
-        id: .builtin("clipboard"), title: "Clipboard History", icon: .symbol(name: "doc"), keyword: "clip")
-    #expect(ShortcutsPane.matches(command, alias: nil, filter: ""))
-    #expect(ShortcutsPane.matches(command, alias: nil, filter: " history "))
-    #expect(ShortcutsPane.matches(command, alias: nil, filter: "CLIP"))
-    #expect(ShortcutsPane.matches(command, alias: "cb", filter: "cb"))
-    #expect(!ShortcutsPane.matches(command, alias: nil, filter: "cb"))
-}
