@@ -45,8 +45,9 @@ final class PaletteModel {
     private var blockedImages: (frame: Frame.ID, count: Int)?
     /// Whether the top frame's page loads its web images.
     var loadsOnlineContent: Bool { showsOnlineContent || imagesLoaded.contains(top.id) }
-    /// The latest press of the arrows that moved no selection on a page, which scrolls it instead.
-    private(set) var scrollRequest: ScrollRequest?
+    /// The latest press of the arrows, for the list or page to bring into view what it selected or,
+    /// when it selected nothing new, to scroll.
+    private(set) var navigation: Navigation?
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
     /// The action panel (⌘K), when open. One optional, so at most one panel exists.
@@ -143,7 +144,7 @@ final class PaletteModel {
     func forgetPages() {
         imagesLoaded = []
         blockedImages = nil
-        scrollRequest = nil
+        navigation = nil
     }
 
     /// `action` named as it runs under `authority`.
@@ -179,13 +180,14 @@ final class PaletteModel {
         return "Page"
     }
 
-    /// The arrows: move the selection; on a page where they select nothing (no targets, or above
-    /// the first with none selected), scroll it instead.
+    /// The arrows: move the selection, and say so (`navigation`), whether it moved or not: a list
+    /// reveals its selected row, and a page whose selection stayed (no targets, or past the last)
+    /// scrolls its prose instead.
     func moveSelection(by delta: Int) {
-        let before = top.list?.selectedItem?.id
+        let before = top.list?.hasSelection == true ? top.list?.selectedItem?.id : nil
         session.moveSelection(by: delta)
-        guard top.isMeasured, top.list?.selectedItem == nil, before == nil else { return }
-        scrollRequest = ScrollRequest(serial: (scrollRequest?.serial ?? 0) + 1, lines: delta)
+        let after = top.list?.hasSelection == true ? top.list?.selectedItem?.id : nil
+        navigation = Navigation(serial: (navigation?.serial ?? 0) + 1, delta: delta, moved: before != after)
     }
 
     /// Runs the root search again, for when a source's data changed.

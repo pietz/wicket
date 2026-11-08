@@ -179,7 +179,7 @@ struct MarkupViewTests {
         let document = parser.parse(markup).document
         let parse = ContinuousClock.now - parseStart
         let view = DocumentView(
-            document: document, metadata: [], textSize: .medium, scroll: nil, onMeasure: { _ in })
+            document: document, metadata: [], textSize: .medium, navigation: nil, onMeasure: { _ in })
         let start = ContinuousClock.now
         let host = NSHostingView(rootView: view.frame(width: 600))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)

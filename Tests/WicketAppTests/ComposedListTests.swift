@@ -90,6 +90,54 @@ struct ComposedListTests {
         #expect(model.target?.screen.isEmpty == true)
     }
 
+    /// A model showing `screen`, as a command's run would.
+    private func model(showing screen: Screen) async -> PaletteModel {
+        let model = PaletteModel(sources: [], runner: runner, usageURL: scratchUsage())
+        let once = command("show-\(runner.count.count)")
+        model.session.open(CommandRun(once, .invoked))
+        #expect(await eventually { runner.count[once.id] == 1 })
+        runner.runs[once.id]?.yield(.show(screen))
+        runner.runs[once.id]?.finish()
+        #expect(await eventually { model.session.frames.count == 2 && !model.top.isLoading })
+        return model
+    }
+
+    /// Navigation reveals a list's selected row, never the summary over it: Down on the only row,
+    /// under a summary taller than the card, brings that row into view; going back up to the first
+    /// row reveals it too; only Up on the first row shows the summary.
+    @Test func arrowsRevealTheRowUnderATallSummary() async {
+        let one = await model(showing: .list(Listing([item("only")], summary: "Long.")))
+        one.moveSelection(by: 1)
+        #expect(one.navigation?.moved == false && one.navigation?.showsListTop == false)
+        one.moveSelection(by: -1)
+        #expect(one.navigation?.showsListTop == true)
+
+        let three = await model(showing: .list(Listing(rows(3), summary: "Long.")))
+        three.moveSelection(by: 1)
+        #expect(three.navigation?.moved == true)
+        three.moveSelection(by: -1)
+        #expect(three.navigation?.moved == true && three.navigation?.showsListTop == false)
+        #expect(three.selection == 0)
+    }
+
+    /// On a page, an arrow that moves no selection scrolls the prose: Down past the last target
+    /// with text below it, and Down on a page without targets.
+    @Test func arrowsPastTheLastTargetScrollThePage() async {
+        let page = await model(
+            showing: .detail(Detail(markdown: "<url href=\"https://a.example\" title=\"A\"/>\n\nLong prose."))
+        )
+        page.moveSelection(by: 1)
+        #expect(page.top.list?.selectedItem?.title == "A")
+        #expect(page.navigation?.moved == true)
+        page.moveSelection(by: 1)
+        #expect(page.top.list?.selectedItem?.title == "A")
+        #expect(page.navigation?.moved == false && page.navigation?.delta == 1)
+
+        let prose = await model(showing: .detail(Detail(markdown: "Only prose.")))
+        prose.moveSelection(by: 1)
+        #expect(prose.navigation?.moved == false && prose.navigation?.delta == 1)
+    }
+
     /// The panel lists the row's actions, then the screen's under its title; ⌘↩ marks the
     /// secondary, which is the screen's first when it came with any.
     @Test func actionPanelGroupsTheScreensActions() {

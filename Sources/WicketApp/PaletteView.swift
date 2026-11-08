@@ -354,7 +354,7 @@ private struct FrameContent: View {
         {
             DocumentView(
                 document: document, metadata: detail.metadata, textSize: model.textSize,
-                scroll: model.scrollRequest, onMeasure: measure
+                navigation: model.navigation, onMeasure: measure
             )
             .environment(\.documentFocus, focus)
             .environment(\.loadsOnlineContent, model.loadsOnlineContent)
@@ -439,12 +439,14 @@ struct ResultsView: View {
             .scrollIndicators(.never)
             // The system's soft edge where rows pass under the footer, instead of a row cut in half.
             .scrollEdgeEffectStyle(.soft, for: .bottom)
-            .onChange(of: model.selection) { _, selection in
-                guard model.results.indices.contains(selection) else { return }
-                if selection == 0 {
+            // Navigation reveals the selected row, however far below the summary; only Up on the
+            // first row goes back to the top.
+            .onChange(of: model.navigation) { _, navigation in
+                guard let navigation, model.results.indices.contains(model.selection) else { return }
+                if navigation.showsListTop {
                     proxy.scrollTo(Self.top, anchor: .top)
                 } else {
-                    proxy.scrollTo(model.results[selection].id)
+                    proxy.scrollTo(model.results[model.selection].id)
                 }
             }
             .onAppear {

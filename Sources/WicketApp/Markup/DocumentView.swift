@@ -23,8 +23,8 @@ struct DocumentView: View {
     let document: WicketCore.Document
     let metadata: [Detail.Metadata]
     let textSize: TextSize
-    /// A press of the arrows that moved no selection: scroll by this many lines.
-    let scroll: ScrollRequest?
+    /// The latest press of the arrows; one that moved no selection scrolls a line per step.
+    let navigation: Navigation?
     let onMeasure: (CGFloat) -> Void
     @Environment(\.documentFocus) private var focus
     /// The page's content as drawn: the document, and the table under it when there is one.
@@ -112,11 +112,11 @@ struct DocumentView: View {
                     if let selected { proxy.scrollTo(selected) } else { position.scrollTo(edge: .top) }
                 }
             }
-            .onChange(of: scroll) { _, scroll in
-                guard let scroll else { return }
+            .onChange(of: navigation) { _, navigation in
+                guard let navigation, !navigation.moved else { return }
                 let line = textSize.points(13) * 3
                 withAnimation(.snappy(duration: 0.2)) {
-                    position.scrollTo(y: max(0, offset + CGFloat(scroll.lines) * line))
+                    position.scrollTo(y: max(0, offset + CGFloat(navigation.delta) * line))
                 }
             }
         }
@@ -140,11 +140,17 @@ struct DocumentView: View {
     }
 }
 
-/// A press of the arrows the page scrolls by, since nothing moved the selection. `serial` makes
-/// each press a change.
-struct ScrollRequest: Equatable {
+/// A press of the arrows: by how much, and whether it moved the selection. `serial` makes each
+/// press a change. Initial positioning (a new list at its top) is not navigation.
+struct Navigation: Equatable {
     var serial: Int
-    var lines: Int
+    var delta: Int
+    var moved: Bool
+
+    /// Where a list goes after this press: its top (the summary above the rows) when Up stayed on
+    /// the first row; else its selected row, revealed, so a row below a tall summary is clamped to
+    /// the bottom rather than left under it.
+    var showsListTop: Bool { !moved && delta < 0 }
 }
 
 /// Blocks in reading order: prose, text shown as written, and each component as its registered
