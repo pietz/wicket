@@ -104,7 +104,7 @@ Wicket starts your program the first time one of its commands is needed and keep
 
 - **Wicket to you, on stdin:** `run` requests and `cancel` notifications.
 - **You to Wicket, on stdout:** exactly one response per request. You never send requests or notifications.
-- **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the check. Write logs and debugging output to **stderr**: Wicket keeps the end of it for diagnostics and never shows it unless something fails.
+- **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the response. Write logs and debugging output to **stderr**: Wicket keeps the end of it for diagnostics and never shows it unless something fails.
 - **One process at a time.** Wicket never runs two processes of your extension at once, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
 - **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
 - **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with requests unanswered, Wicket resends the ones that are safe to repeat to a fresh process: every run of a `live` command, and runs of a `once` command marked `repeatable`. Every other run (any `once` command not marked, however it was started: Return on its row, its keyword, a hotkey or a `run` action, with or without `args`) fails instead, since your program may have read it and changed something before exiting, and the user sees the error. If your program exits with an error, every unanswered request fails. So a one-shot script can answer and quit, provided its `once` commands only read and say `repeatable` (a request written while it was exiting goes to the next process), while a persistent program pays its start-up cost once and answers later keystrokes from memory.
@@ -121,8 +121,7 @@ Environment of the process:
 | `WICKET_EXTENSION_ID` | Your manifest id. |
 | `WICKET_DATA_DIR` | A folder that exists and is yours to keep state, caches and settings in. It survives updates; your extension folder may be replaced. |
 | `PATH` | The user's login-shell `PATH`, so `python3`, `node` and Homebrew tools resolve as in Terminal. |
-| each secret's `name` | The value the user stored for it. Under `wicket check`, the placeholder `wicket-check-placeholder`. |
-| `WICKET_CHECK` | `1` only under `wicket check`: answer from canned data instead of the network or the user's files (see [Testing](#testing)). Unset otherwise. |
+| each secret's `name` | The value the user stored for it. |
 
 ### `run` (request)
 
@@ -208,7 +207,7 @@ The rows are always whole: the card shows up to eight (with the section titles a
 }}
 ```
 
-`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket check` reports every tag it can't read, with the response's line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown.
+`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket run` reports every tag it can't read, with its line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown.
 
 ### Done: close or reload
 
@@ -434,35 +433,12 @@ A session (the user types "uc grinning cat", then opens the details):
 
 The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Helpers/wicket`.
 
-- `wicket check <folder>` validates `wicket.json`, replays every fixture in the folder against a fresh process, checks each response against this page (strictly: a stray stdout line fails, including one written while the program shuts down), and checks that the program exits when stdin closes. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error. It is the gate before an extension is approved, so it runs your code isolated (below), and without a fixture it runs nothing and fails.
-- `wicket run <folder> <command> [text] [--args '<json object>']` sends one `run` and prints the response line as your program wrote it. Unlike `check` it runs your folder itself, unsandboxed, with your environment and your real secrets: use it to try the real thing.
+- `wicket check <folder>` reviews the extension the way Wicket does before the user enables it: it seals the folder (so a bad link or a virtualenv fails here), validates `wicket.json` and finds the program `run` names. It runs none of your code. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error.
+- `wicket run <folder> <command> [text] [--args '<json object>']` runs one command exactly as Wicket does and prints the response line as your program wrote it. It exits 1 unless the response is a valid result by this page, its [markup](markup.md) included (Wicket itself draws imperfect markup as best it can; `wicket run` is strict), and on an error response. It runs your folder itself, with your environment and your real secrets.
 - `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. For `run`, an environment variable of the same name takes precedence over the Keychain.
 - `wicket log <extension-id>` prints the extension's recent runs in Wicket (see Debugging).
 
-`check` proves only the canned path. If your extension uses the network, the user's files or secrets, also run every command with `wicket run` against the real thing, and make sure a first run, with nothing cached in `WICKET_DATA_DIR` yet, works too.
-
-How `check` runs your code:
-
-- **A sealed copy.** The folder is sealed as Wicket installs it (read-only, without `.git`, `__pycache__`, `.claude` and `.DS_Store`) and the copy runs, so write state to `WICKET_DATA_DIR`. A folder that can't be sealed (a bad link, a virtualenv, too large) fails before anything runs.
-- **No real secrets.** Every declared secret is `wicket-check-placeholder`; the Keychain is never read.
-- **A minimal environment.** Only `PATH`, `LANG`, the `WICKET_` variables, the secrets, `HOME` and `TMPDIR` (both empty scratch folders), `CLANG_MODULE_CACHE_PATH` (in `TMPDIR`, so `swift` scripts compile) and `WICKET_CHECK=1`. Nothing from your shell comes through, so `FOO=bar wicket check .` doesn't set `FOO`.
-- **A fresh `WICKET_DATA_DIR`** per check, shared by its fixtures, deleted afterwards.
-- **A uv extension's packages installed first.** Wicket's uv installs the Python and the packages your lock lists into a throwaway copy of its uv cache, with the network but still sandboxed; the fixtures then run offline against that copy. A missing or stale lock, or a package without a wheel, fails here with what to do.
-- **A sandbox.** No network at all (not even local sockets), no writes outside `HOME`, `TMPDIR` and `WICKET_DATA_DIR`, no Keychain or clipboard, no Apple events to other apps, no opening URLs or apps. No reading the user's files: home folders, other volumes and the temp folders are off limits, except the scratch folders and the program `run` names (with its install folder, so a uv, pyenv or nvm interpreter works) and Wicket's uv Pythons. System locations, /Applications, Homebrew, /usr/local and Xcode stay readable, so other tools run if they are installed there; a tool under your home folder other than `run`'s program doesn't start in the check.
-
-So when `WICKET_CHECK` is `1`, answer from canned data that ships in your folder instead of calling an API (the [github-prs sample](../Extensions/github-prs) reads `fixture/<command>.json`), and don't depend on the user's files. Fixtures then test your parsing and your responses, offline and the same on every Mac.
-
-A fixture is `session.jsonl` (or any `*.session.jsonl`) in the extension folder, one JSON object per line, blank lines ignored:
-
-- `{"send": message}` writes a `run` request or `cancel` notification, exactly as Wicket would send it today: only the fields documented above, so don't add made-up params to test that you ignore unknown ones (the checker rejects them). Sends go out in file order without waiting.
-- `{"expect": response}` waits for the response with that `id` and compares it as a pattern: every field in the expectation must be present with an equal value (numbers compare by value); fields it leaves out are not checked; arrays must have the same length. Leave out values that change, like a date: `{"list":{}}` accepts any list, and `{}` in an array accepts any element there.
-
-Every `run` must get a valid response, expected or not. A request cancelled with no later `expect` may go unanswered. A fixture must send at least one `run` that gets a response: an empty fixture, or one whose runs are all cancelled unanswered, fails, since it checks nothing. For example:
-
-```jsonl
-{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}}
-{"expect":{"jsonrpc":"2.0","id":1,"result":{"answer":{"subtitle":"ISO week number"}}}}
-```
+`check` proves nothing about behaviour, so test for real: run every command with `wicket run`, including its error cases and a `run` action's `args`, and make sure a first run, with nothing cached in `WICKET_DATA_DIR` yet, works too.
 
 ## Debugging
 
@@ -502,5 +478,5 @@ When the user asks Wicket's agent to fix or change an extension (Fix with Agent,
 - `once` commands that only read are `repeatable`; ones that change something are not.
 - Capabilities list everything the code does beyond computing an answer.
 - A uv script ships its current lock (`uv lock --script` after every dependency change), and every package has a wheel.
-- A `session.jsonl` covers each command, including an error case, and `wicket check` passes (offline: with `WICKET_CHECK=1`, answer from canned data).
-- Every command that uses the network, the user's files or secrets answers right with `wicket run`, on a first run too.
+- `wicket check` passes.
+- Every command answers right with `wicket run`, its error cases too, and on a first run.

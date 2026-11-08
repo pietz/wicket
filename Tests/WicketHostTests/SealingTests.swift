@@ -145,22 +145,6 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
     #expect(try await title(extensions) == "v2")
 }
 
-@Test func theCheckerReturnsTheRevisionItChecked() async throws {
-    let ext = try titled("v1")
-    try Data(
-        (send(1) + "\n" + #"{"expect":{"id":1,"result":{"answer":{"title":"v1"}}}}"#).utf8
-    ).write(to: ext.folder.appending(path: "session.jsonl"))
-    let store = testStore()
-    let sealed = try store.seal(ext.folder)
-    // The authoring folder changes after sealing; the check sees the sealed bytes.
-    try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
-    let checked = await Checker.check(sealed, options: checkOptions())
-    #expect(checked.sealed == sealed)
-    #expect(checked.passed, "\(checked.report.errors)")
-    // The sealed folder is still there, unchanged, for the session that will run it.
-    #expect(try ExtensionRevision(folder: sealed.folder, id: "titled") == sealed.revision)
-}
-
 @MainActor @Test func discoveryShowsEveryFolderButOnlyTheActiveCatalogRuns() async throws {
     let good = try titled("v1", id: "good")
     let directory = good.folder.deletingLastPathComponent()

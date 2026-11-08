@@ -235,39 +235,6 @@ private func manifest(_ id: String, commands: [String]) throws -> Manifest {
     #expect(String(decoding: cancel.line, as: UTF8.self).contains(#""params":{"id":"x"}"#))
 }
 
-@Test func patternsMatchAsSubsets() {
-    let actual: JSONValue = .object([
-        "id": .integer(1),
-        "result": .object(["answer": .object(["title": .string("Week 45"), "subtitle": .string("ISO")])]),
-    ])
-    #expect(
-        JSONValue.object(["result": .object(["answer": .object(["subtitle": .string("ISO")])])]).mismatch(
-            in: actual) == nil)
-    #expect(JSONValue.object(["id": .number(1)]).mismatch(in: actual) == nil)
-    #expect(
-        JSONValue.object(["result": .object(["answer": .object(["title": .string("Week 46")])])]).mismatch(
-            in: actual)
-            == #"result.answer.title: expected "Week 46", got "Week 45""#)
-    #expect(
-        JSONValue.object(["result": .object(["list": .null])]).mismatch(in: actual) == "result.list: missing")
-    #expect(JSONValue.array([.integer(1)]).mismatch(in: .array([.integer(1), .integer(2)])) != nil)
-}
-
-@Test func fixturesParseWithLineNumbers() throws {
-    let fixture = try Fixture(
-        """
-        {"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"a","text":"","revision":1}}}
-
-        {"send":{"jsonrpc":"2.0","method":"cancel","params":{"id":1}}}
-        {"expect":{"id":1,"result":{"list":{"items":[]}}}}
-        """)
-    #expect(fixture.steps.map(\.line) == [1, 3, 4])
-    #expect(throws: FixtureError(line: 1, message: "not valid JSON")) { try Fixture("{") }
-    #expect(throws: FixtureError.self) { try Fixture(#"{"expect":{"result":{}}}"#) }
-    let wrongMethod = #"{"send":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}}"#
-    #expect(throws: FixtureError.self) { try Fixture(wrongMethod) }
-}
-
 /// Every `run` action an extension sends carries the revision it came from, a detail's too, so a
 /// stale one can be refused; the host's own actions carry none.
 @Test func runActionsCarryTheirRevision() throws {

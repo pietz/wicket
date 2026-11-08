@@ -70,10 +70,10 @@ enum UVTest {
 /// `answer(params)`), depending on `tiny`, a wheel in its folder; locked with `uv lock --script`
 /// (wheels only, as every uv run here) unless `lock` is false.
 private func uvExtension(
-    _ body: String, fixture: String? = nil, dependencies: String = #"["tiny"]"#,
+    _ body: String, dependencies: String = #"["tiny"]"#,
     sources: String = #"tiny = { path = "wheels/tiny-1.0-py3-none-any.whl" }"#, lock: Bool = true
 ) async throws -> TestExtension {
-    let ext = try TestExtension(run: #"["uv", "run", "--script", "main.py"]"#, script: "", fixture: fixture)
+    let ext = try TestExtension(run: #"["uv", "run", "--script", "main.py"]"#, script: "")
     let wheels = ext.folder.appending(path: "wheels")
     try FileManager.default.createDirectory(at: wheels, withIntermediateDirectories: true)
     try FileManager.default.copyItem(
@@ -103,13 +103,6 @@ private func uvExtension(
     return ext
 }
 
-/// A fixture line sending `text` (any string) to the command `go`.
-private func sendText(_ id: Int, _ text: String) throws -> String {
-    let quoted = String(decoding: try JSONEncoder().encode(text), as: UTF8.self)
-    return
-        #"{"send":{"jsonrpc":"2.0","id":\#(id),"method":"run","params":{"command":"go","text":\#(quoted),"revision":\#(id)}}}"#
-}
-
 private let uvVariables = [
     "UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR", "UV_LOCKED", "UV_NO_BUILD", "UV_NO_CONFIG", "UV_MANAGED_PYTHON",
     "UV_OFFLINE", "UV_FROZEN",
@@ -124,9 +117,7 @@ private let uvVariables = [
         values = {name: os.environ.get(name) for name in [\(names)]}
         return {"answer": {"title": tiny.greet("uv"), "subtitle": json.dumps(values)}}
         """)
-    // A uv setting of the user's never reaches the run.
     let session = try ext.session {
-        $0.environment = ["UV_FROZEN": "1", "HOME": NSHomeDirectory()]
         $0.requestTimeout = .seconds(30)
     }
     let result = try await session.run("go", text: "", retry: .never)
@@ -146,57 +137,9 @@ private let uvVariables = [
         ])
 }
 
-/// The check installs into a clone of Wicket's cache and replays offline against it; the candidate
-/// can write neither Wicket's cache nor its Pythons.
-@Test func aUVCheckRunsOfflineOnAClonedCacheItCantEscape() async throws {
+@Test func aMissingLockFailsTheRun() async throws {
     try await UVTest.require()
-    let storage = UVTest.storage
-    let targets = [storage.cache.path, storage.python.path]
-    let request = String(
-        decoding: try JSONEncoder().encode([
-            "python": storage.python.path, "targets": targets.joined(separator: "\n"),
-        ]),
-        as: UTF8.self)
-    let ext = try await uvExtension(
-        """
-        import tiny
-        request = json.loads(params["text"])
-        expected = {
-            "UV_CACHE_DIR": os.path.join(os.path.dirname(os.environ["HOME"]), "uv-cache"),
-            "UV_PYTHON_INSTALL_DIR": request["python"], "UV_OFFLINE": "1", "UV_LOCKED": "1",
-            "UV_NO_BUILD": "1", "UV_NO_CONFIG": "1", "UV_MANAGED_PYTHON": "1",
-        }
-        wrong = sorted(name for name, value in expected.items() if os.environ.get(name) != value)
-        writes = []
-        for target in request["targets"].split("\\n"):
-            try:
-                with open(os.path.join(target, "intruder"), "w") as file:
-                    file.write("x")
-                writes.append("written")
-            except OSError:
-                writes.append("denied")
-        return {"answer": {"title": ", ".join(wrong) or tiny.greet("check"), "subtitle": ",".join(writes)}}
-        """,
-        fixture: try sendText(1, request) + "\n"
-            + #"{"expect":{"jsonrpc":"2.0","id":1,"result":{"answer":{"title":"hello check","subtitle":"denied,denied"}}}}"#
-    )
-    let report = await check(ext) { $0.requestTimeout = .seconds(30) }
-    #expect(report.passed, "\(report.errors)")
-    #expect(
-        report.lines.contains { $0.kind == .ok && $0.text.hasPrefix("uv: installed what main.py.lock lists") }
-    )
-    for target in targets {
-        #expect(!FileManager.default.fileExists(atPath: target + "/intruder"))
-    }
-}
-
-@Test func aMissingLockFailsTheCheckAndTheRun() async throws {
-    try await UVTest.require()
-    let ext = try await uvExtension(#"return {"close": {}}"#, fixture: send(1), lock: false)
-    let errors = await check(ext).errors
-    #expect(errors.count == 1)
-    #expect(
-        errors.first?.contains("main.py.lock is missing: run uv lock --script main.py") == true, "\(errors)")
+    let ext = try await uvExtension(#"return {"close": {}}"#, lock: false)
 
     let session = try ext.session()
     await #expect(throws: HostError.launch(UV.missingLock("main.py"))) {
@@ -204,54 +147,8 @@ private let uvVariables = [
     }
 }
 
-@Test func aStaleLockFailsTheCheckWithAHint() async throws {
-    try await UVTest.require()
-    let ext = try await uvExtension(#"return {"close": {}}"#, fixture: send(1))
-    // The dependencies changed after locking.
-    let main = ext.folder.appending(path: "main.py")
-    let script = try String(contentsOf: main, encoding: .utf8)
-    try Data(script.replacingOccurrences(of: #"">=3.12""#, with: #"">=3.13""#).utf8).write(to: main)
-    let errors = await check(ext).errors
-    #expect(errors.count == 1)
-    #expect(errors.first?.contains("doesn't match the script's dependencies") == true, "\(errors)")
-    #expect(errors.first?.contains("run uv lock --script main.py") == true)
-}
-
-/// A lock naming only a source distribution fails: installing it would build it, running its code.
-@Test func aDependencyWithoutAWheelFailsTheCheck() async throws {
-    try await UVTest.require()
-    let ext = try await uvExtension(
-        #"return {"close": {}}"#, fixture: send(1), dependencies: #"["tinysdist"]"#,
-        sources: #"tinysdist = { path = "pkgs/tinysdist-1.0.tar.gz" }"#, lock: false)
-    // `uv lock` with builds off refuses it too, so the lock is written as one made with builds on.
-    let sdist = Data("an sdist Wicket must never build".utf8)
-    try FileManager.default.createDirectory(
-        at: ext.folder.appending(path: "pkgs"), withIntermediateDirectories: true)
-    try sdist.write(to: ext.folder.appending(path: "pkgs/tinysdist-1.0.tar.gz"))
-    let hash = SHA256.hash(data: sdist).map { String(format: "%02x", $0) }.joined()
-    let lock = """
-        version = 1
-        revision = 3
-        requires-python = ">=3.12"
-
-        [manifest]
-        requirements = [{ name = "tinysdist", path = "pkgs/tinysdist-1.0.tar.gz" }]
-
-        [[package]]
-        name = "tinysdist"
-        version = "1.0"
-        source = { path = "pkgs/tinysdist-1.0.tar.gz" }
-        sdist = { hash = "sha256:\(hash)" }
-
-        """
-    try Data(lock.utf8).write(to: ext.folder.appending(path: "main.py.lock"))
-    let errors = await check(ext).errors
-    #expect(errors.count == 1)
-    #expect(errors.first?.contains("Wicket installs wheels only") == true, "\(errors)")
-}
-
 @Test func uvxIsRefusedBeforeAnythingRuns() async throws {
-    let ext = try TestExtension(run: #"["uvx", "ruff"]"#, script: "", fixture: send(1))
+    let ext = try TestExtension(run: #"["uvx", "ruff"]"#, script: "")
     let errors = await check(ext).errors
     #expect(errors.count == 1)
     #expect(errors.first?.contains("uvx and uv tool run fetch a tool without a lock") == true, "\(errors)")
@@ -259,21 +156,6 @@ private let uvVariables = [
 
 private let repository = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../..")
     .standardizedFileURL
-
-/// The uv sample passes its check as it is, once its packages are in the storage.
-@Test func theUVSamplePasses() async throws {
-    try await UVTest.require()
-    let sample = repository.appending(path: "Extensions/slugify")
-    // As a first run would: the sample's packages from PyPI into the storage, which the check clones.
-    let uv = try await UV.program()
-    let fetched = await UV.execute(
-        uv, ["sync", "--script", "main.py", "--locked"], in: sample, environment: await UVTest.environment(),
-        timeout: .seconds(120))
-    if !fetched.succeeded { try Test.cancel("couldn't fetch the sample's packages (offline?)") }
-    let report = await Checker.check(
-        folder: sample, options: checkOptions { $0.requestTimeout = .seconds(30) })
-    #expect(report.passed, "\(report.errors)")
-}
 
 @Test func pruningRemovesUVsScriptEnvironments() async throws {
     try await UVTest.require()

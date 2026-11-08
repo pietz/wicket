@@ -1,2 +1,0 @@
-{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"lights-off","text":"","revision":1}}}
-{"expect":{"jsonrpc":"2.0","id":1,"error":{"code":1,"message":"Unknown command lights-off"}}}

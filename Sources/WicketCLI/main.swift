@@ -6,14 +6,13 @@ import WicketHost
 
 let usage = """
     usage: wicket check <folder>
-               Validate the manifest, replay every session.jsonl fixture against the extension and
-               check each response against the protocol. Exits 1 if anything fails. Seals a
-               read-only copy, as Wicket installs it, and runs that in a sandbox (no network, no
-               writes outside scratch folders) with placeholder secrets, WICKET_CHECK=1 and none
-               of your environment; without a fixture it runs nothing.
+               Review the extension as Wicket does before enabling it, without running it: seal
+               the folder, validate the manifest and find the program it runs. Exits 1 if anything
+               fails.
            wicket run <folder> <command> [text] [--args <json-object>]
-               Send one run request and print the response line as the extension wrote it. Runs
-               the folder itself, unsandboxed, with your environment and real secrets.
+               Run one command as Wicket does and print the response as the extension wrote it.
+               Exits 1 unless it is a valid result, markup included. Runs the folder itself, with
+               your environment and real secrets.
            wicket log <extension-id>
                Print the extension's recent runs in Wicket, oldest first: time, command, outcome
                (ok, error, rejected, refused, crashed, timeout), duration and revision, and for a
@@ -53,7 +52,7 @@ func folder(_ path: String) -> URL {
 }
 
 func check(_ path: String) async -> Never {
-    let report = await Checker.check(folder: folder(path), options: CheckOptions(version: appVersion()))
+    let report = await Checker.check(folder: folder(path))
     for line in report.lines { print("\(line.kind.rawValue): \(line.text)") }
     let errors = report.errors.count
     print(report.passed ? "check passed" : "check failed: \(errors) error\(errors == 1 ? "" : "s")")
@@ -107,8 +106,14 @@ func run(_ arguments: [String]) async -> Never {
     switch result {
     case .success(let reply):
         print(reply.line)
-        guard case .failure(let error) = reply.outcome else { exit(0) }
-        fail("error: the extension answered with an error: \(error.message)")
+        switch reply.outcome {
+        case .success(let result):
+            let problems = result.markupProblems
+            guard !problems.isEmpty else { exit(0) }
+            fail(problems.map { "error: \($0)" }.joined(separator: "\n"))
+        case .failure(let error):
+            fail("error: the extension answered with an error: \(error.message)")
+        }
     case .failure(let error):
         let stderr = session.stderrTail.split(separator: "\n").suffix(20)
         let tail =

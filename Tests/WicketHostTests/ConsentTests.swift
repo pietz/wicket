@@ -10,8 +10,8 @@ import WicketCore
 // closed, and decide the active catalog, so nothing unapproved runs however it is asked for.
 
 /// A persistent extension answering every run with the contents of `title.txt`; each process it
-/// starts appends its pid to `pids` in its data folder. `fixture` adds a passing `session.jsonl`.
-private func titled(_ title: String, id: String = "titled", fixture: Bool = false) throws -> TestExtension {
+/// starts appends its pid to `pids` in its data folder.
+private func titled(_ title: String, id: String = "titled") throws -> TestExtension {
     let ext = try TestExtension(
         id: id, commands: #"[{"id":"go","title":"Go","repeatable":true}]"#,
         script: #"""
@@ -22,11 +22,6 @@ private func titled(_ title: String, id: String = "titled", fixture: Bool = fals
             done
             """#)
     try Data(title.utf8).write(to: ext.folder.appending(path: "title.txt"))
-    if fixture {
-        try Data(
-            (send(1) + "\n" + #"{"expect":{"id":1,"result":{"answer":{"title":"\#(title)"}}}}"#).utf8
-        ).write(to: ext.folder.appending(path: "session.jsonl"))
-    }
     return ext
 }
 
@@ -319,7 +314,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     await h.extensions.load().value
     let sealed = try #require(h.extensions.discovered.first?.sealed)
     try await h.extensions.approve(sealed.revision)
-    return (h, ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions()))
+    return (h, ExtensionsRunner(extensions: h.extensions))
 }
 
 @MainActor @Test func theExtensionsListShowsEveryStateAndWhatEachOffers() async throws {
@@ -336,7 +331,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     }
     try await h.write("c2", "changed")
 
-    let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: h.extensions)
     guard case .show(.list(let listing), _)? = try await results(runner, .extensions).first else {
         Issue.record("no list")
         return
@@ -364,7 +359,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     let h = try Harness([])
     try FileManager.default.removeItem(at: h.directory)
     await h.extensions.load().value
-    let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: h.extensions)
     guard case .show(.list(let listing), _)? = try await results(runner, .extensions).first else {
         Issue.record("no list")
         return
@@ -382,12 +377,13 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
 }
 
 @MainActor @Test func reviewingChecksTheRevisionAndOnlyAPassingCheckEnablesIt() async throws {
-    let h = try Harness([try titled("v1", fixture: true), try titled("v1", id: "failing")])
+    let h = try Harness([
+        try titled("v1"), try TestExtension(id: "failing", run: #"["no-such-program-wicket"]"#, script: ""),
+    ])
     await h.extensions.load().value
-    let runner = ExtensionsRunner(
-        extensions: h.extensions, checkOptions: checkOptions { $0.requestTimeout = .seconds(30) })
+    let runner = ExtensionsRunner(extensions: h.extensions)
 
-    // No fixture: the check fails, and nothing offers Enable.
+    // Its program isn't there: the check fails, and nothing offers Enable.
     let failing = try await results(runner, .reviewExtension, args: ["id": .string("failing")])
     guard case .show(.detail(let failed), _)? = failing.last else {
         Issue.record("no review")
@@ -397,7 +393,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(h.pids("failing").isEmpty)
 
     let shown = try await results(runner, .reviewExtension, args: ["id": .string("titled")])
-    #expect(shown.count == 2)  // "Checking…", then the report.
+    #expect(shown.count == 1)
     guard case .show(.detail(let review), _)? = shown.last,
         case .run(.enableExtension, _, let args?, "Enable", _)? = review.actions.first
     else {
@@ -448,7 +444,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(h.approvals.all.isEmpty)
     // Opened again, it no longer claims to be enabled: it is reviewed afresh.
     let reopened = try await results(runner, .reviewExtension, args: ["id": .string("titled")])
-    #expect(reopened.count == 2)
+    #expect(reopened.count == 1)
     #expect(reopened.allSatisfy { !(($0.detail?.markdown ?? "").hasPrefix("**Enabled.**")) })
 }
 
@@ -496,7 +492,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     try Data("{".utf8).write(to: damaged.url)
     let h = try Harness([try titled("v1")], approvals: Approvals(url: damaged.url))
     await h.extensions.load().value
-    let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: h.extensions)
     let items = try await list(runner)
     #expect(items.map(\.id) == ["extensions:approvals", "extensions:titled", "extensions:folder"])
     #expect(items.first?.accessory == "Problem")
@@ -659,7 +655,7 @@ private func needsToken() throws -> TestExtension {
 
 @MainActor @Test(arguments: [false, true])
 func rollbackSurvivesChangedAndInvalidAuthoringFolders(invalid: Bool) async throws {
-    let (h, runner) = try await enabled(try titled("v1", fixture: true))
+    let (h, runner) = try await enabled(try titled("v1"))
     let v1 = try #require(h.extensions.discovered.first?.sealed)
     try await h.write("v2")
     let v2 = try #require(h.extensions.discovered.first?.sealed)

@@ -235,9 +235,10 @@ private func finalDetail(
 }
 
 @MainActor @Test func aFailedCheckOffersToFixItWithTheAgent() async throws {
-    // No fixture, so the check fails.
-    let extensions = try await extensions([try plain("broken")])
-    let runner = ExtensionsRunner(extensions: extensions, checkOptions: checkOptions())
+    // Its program isn't there, so the check fails.
+    let broken = try TestExtension(id: "broken", run: #"["no-such-program-wicket"]"#, script: "")
+    let extensions = try await extensions([broken])
+    let runner = ExtensionsRunner(extensions: extensions)
     var last: Detail?
     for try await result in runner.run(
         Invocation(command: .reviewExtension, args: ["id": .string("broken")]), retry: .never)
@@ -295,8 +296,7 @@ func theAgentBuildsACommandThatWicketOffersForReview(provider: AgentProvider) as
         Issue.record("no review offered: \(detail.actions)")
         return
     }
-    let consent = ExtensionsRunner(
-        extensions: extensions, checkOptions: checkOptions { $0.requestTimeout = .seconds(30) })
+    let consent = ExtensionsRunner(extensions: extensions)
     var page: Detail?
     for try await result in consent.run(
         Invocation(command: .reviewExtension, args: ["id": .string(id)]), retry: .never)

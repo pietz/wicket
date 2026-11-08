@@ -53,35 +53,6 @@ public enum JSONValue: Codable, Sendable, Hashable {
     public subscript(key: String) -> JSONValue? {
         if case .object(let object) = self { object[key] } else { nil }
     }
-
-    /// Where `actual` differs from this value used as a pattern, or nil if it matches. Objects match
-    /// when every key of the pattern matches (extra keys in `actual` are fine); arrays need the same
-    /// length and matching elements; numbers compare by value.
-    public func mismatch(in actual: JSONValue, at path: String = "") -> String? {
-        switch (self, actual) {
-        case (.object(let pattern), .object(let object)):
-            for key in pattern.keys.sorted() {
-                let keyPath = path.isEmpty ? key : path + "." + key
-                guard let value = object[key] else { return "\(keyPath): missing" }
-                if let mismatch = pattern[key]!.mismatch(in: value, at: keyPath) { return mismatch }
-            }
-            return nil
-        case (.array(let pattern), .array(let array)):
-            guard pattern.count == array.count else {
-                return
-                    "\(path.isEmpty ? "(top level)" : path): expected \(pattern.count) elements, got \(array.count)"
-            }
-            for (index, (expected, value)) in zip(pattern, array).enumerated() {
-                if let mismatch = expected.mismatch(in: value, at: "\(path)[\(index)]") { return mismatch }
-            }
-            return nil
-        case (.integer(let a), .number(let b)), (.number(let b), .integer(let a)):
-            if Double(a) == b { return nil }
-        default:
-            if self == actual { return nil }
-        }
-        return "\(path.isEmpty ? "(top level)" : path): expected \(json), got \(actual.json)"
-    }
 }
 
 /// Literals, for schemas and fixtures written in Swift.

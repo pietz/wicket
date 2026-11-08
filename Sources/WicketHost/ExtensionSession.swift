@@ -18,17 +18,8 @@ public struct SessionConfiguration: Sendable {
     public var version: String
     /// The value of a declared secret by name, or nil if the user hasn't stored it.
     public var secret: @Sendable (String) -> String?
-    /// The variables the process starts from, before PATH, LANG, the `WICKET_` variables and the
-    /// secrets are set; nil inherits Wicket's own environment. The checker passes a minimal one.
-    public var environment: [String: String]?
-    /// A command the process runs inside, such as the checker's `sandbox-exec -f <profile>`: when
-    /// set, the process is `wrapper[0]` with the rest of `wrapper`, then the resolved program and
-    /// its arguments. The wrapper must exec the program, so signals reach it.
-    public var wrapper: [String] = []
     /// Where a uv extension's uv keeps packages and Pythons (`UV.environment`).
     public var uv = UVStorage.standard
-    /// Whether a uv extension runs offline (`UV_OFFLINE`), as the checker's replay does.
-    public var uvOffline = false
 
     public init(dataDirectory: URL, version: String, secret: @escaping @Sendable (String) -> String?) {
         self.dataDirectory = dataDirectory
@@ -291,11 +282,6 @@ public actor ExtensionSession {
         }
     }
 
-    /// Sends a `cancel` notification but keeps waiting for the reply, for fixtures that expect one.
-    public func notifyCancel(_ id: RequestID) {
-        running?.write(HostMessage.cancel(id: id).line)
-    }
-
     /// Closes stdin and waits until the process and everything it started have exited, escalating
     /// to SIGTERM and SIGKILL.
     public func shutdown() async -> Shutdown {
@@ -478,14 +464,14 @@ public actor ExtensionSession {
                 noted += 1
             }
         }
-        var environment = configuration.environment ?? ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment
         if let script = manifest.uvScript {
             // `uv run` without a lock only warns and resolves afresh; a run gets exactly the lock.
             guard FileManager.default.fileExists(atPath: UV.lockFile(of: script, in: folder).path) else {
                 throw HostError.launch(UV.missingLock(script))
             }
             environment = UV.environment(
-                environment, storage: configuration.uv, mode: configuration.uvOffline ? .check : .run)
+                environment, storage: configuration.uv, mode: .run)
         }
         environment["PATH"] = path
         environment["LANG"] = Self.lang
@@ -505,14 +491,8 @@ public actor ExtensionSession {
             at: configuration.dataDirectory, withIntermediateDirectories: true)
 
         let process = Process()
-        if let wrapper = configuration.wrapper.first {
-            process.executableURL = URL(filePath: wrapper)
-            process.arguments =
-                configuration.wrapper.dropFirst() + [executable.path] + manifest.run.dropFirst()
-        } else {
-            process.executableURL = executable
-            process.arguments = Array(manifest.run.dropFirst())
-        }
+        process.executableURL = executable
+        process.arguments = Array(manifest.run.dropFirst())
         process.currentDirectoryURL = folder
         process.environment = environment
         let output = Pipe()

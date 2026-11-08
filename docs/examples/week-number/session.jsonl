@@ -1,2 +1,0 @@
-{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}}
-{"expect":{"jsonrpc":"2.0","id":1,"result":{"answer":{"subtitle":"ISO week number"}}}}

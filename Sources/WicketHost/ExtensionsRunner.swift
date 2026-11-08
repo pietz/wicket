@@ -23,8 +23,8 @@ extension CommandID {
 ///   problem, changed, not enabled, invalid), then Open Extensions Folder. Return on one that isn't
 ///   enabled reviews it; on an enabled one it shows it.
 /// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
-///   its secrets, its problems, Use Previous Version, Disable, Move to Trash last); otherwise runs
-///   the isolated checker on the extension's current sealed revision and shows the report, and only
+///   its secrets, its problems, Use Previous Version, Disable, Move to Trash last); otherwise checks
+///   the extension's current sealed revision (statically, `Checker`) and shows the report, and only
 ///   a passing check offers Enable; a failing one offers Fix with Agent, a Run Agent run with the
 ///   report. Every page ends with Move to Trash. An extension that is gone reloads the screen
 ///   beneath (the Extensions list), which is how a page goes away after Move to Trash.
@@ -41,7 +41,6 @@ extension CommandID {
 @MainActor
 public final class ExtensionsRunner: CommandRunner {
     private let extensions: Extensions
-    private let checkOptions: CheckOptions
     /// Revisions a screen offered to enable, by the token its action carries: one that passed a
     /// check on a review screen, or an extension's previous approved one; with the message
     /// enabling it closes with.
@@ -49,11 +48,8 @@ public final class ExtensionsRunner: CommandRunner {
 
     private static let logger = Logger(subsystem: "app.wicket", category: "consent")
 
-    public init(
-        extensions: Extensions, checkOptions: CheckOptions = CheckOptions(version: Extensions.hostVersion)
-    ) {
+    public init(extensions: Extensions) {
         self.extensions = extensions
-        self.checkOptions = checkOptions
     }
 
     public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
@@ -118,17 +114,8 @@ public final class ExtensionsRunner: CommandRunner {
             current = sealed
         }
         let manifest = current.manifest
-        continuation.yield(
-            .show(
-                .detail(
-                    Detail(
-                        title: manifest.name, markdown: "_Checking the extension…_",
-                        metadata: Self.metadata(current), actions: previous(id).map { [$0] } ?? []))))
-        let checked = await Checker.check(current, options: checkOptions)
+        let report = await Checker.check(current)
         try Task.checkCancellation()
-        Self.logger.notice(
-            "review: check \(checked.passed ? "passed" : "failed", privacy: .public), \(checked.report.errors.count, privacy: .public) errors"
-        )
 
         var sections: [String] = []
         if case .changed(let approved, _) = found.state {
@@ -140,17 +127,17 @@ public final class ExtensionsRunner: CommandRunner {
         }
         if let description = manifest.description { sections.append(description) }
         sections.append("**Commands**\n\n" + Self.commands(manifest))
-        sections.append("**Check**\n\n" + Self.report(checked.report))
+        sections.append("**Check**\n\n" + Self.report(report))
         var actions: [Item.Action] = []
-        if checked.passed {
-            actions.append(offer(checked.sealed, message: "Enabled \(manifest.name).", title: "Enable"))
+        if report.passed {
+            actions.append(offer(current, message: "Enabled \(manifest.name).", title: "Enable"))
             sections.append("_Enable runs it with your permissions, as any app you install._")
         } else {
             sections.append("_It can't be enabled until it passes its check._")
             actions.append(
                 ExtensionAuthoring.fix(
                     manifest.name, id: id,
-                    failure: "It failed Wicket's check:\n\n" + Self.report(checked.report)))
+                    failure: "It failed Wicket's check:\n\n" + Self.report(report)))
         }
         if let previous = previous(id) { actions.append(previous) }
         actions.append(.reveal(url: found.folder, title: "Reveal in Finder"))

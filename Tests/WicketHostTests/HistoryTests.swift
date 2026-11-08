@@ -196,7 +196,7 @@ func everyWayARunEndsIsRecordedWithItsReason(
     ) { _ in testConfiguration() }
     await extensions.load().value
     try await extensions.approve(try #require(extensions.discovered.first?.sealed).revision)
-    let runner = ExtensionsRunner(extensions: extensions, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: extensions)
     func page() async throws -> Detail? {
         var last: Detail?
         for try await result in runner.run(

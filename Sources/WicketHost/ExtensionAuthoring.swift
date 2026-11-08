@@ -98,7 +98,7 @@ public final class ExtensionAuthoring {
                 Self.folders)
             if !samples.isEmpty {
                 lines.append(
-                    "- Samples, each with its fixture: " + samples.map(\.path).joined(separator: ", "))
+                    "- Samples: " + samples.map(\.path).joined(separator: ", "))
             }
         } else {
             lines.append("- Authoring guide: none in this build; follow an existing extension.")
