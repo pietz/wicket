@@ -11,9 +11,9 @@ Legend: ✅ done · 🚧 in progress · ⏭ next · 💤 later, frozen until the
 3. ✅ Extension refactor: protocol 2 (one process per run), a static check, real testing with `wicket run`, no root mode, rollback or capabilities.
 4. ✅ Markup: M1 parser and catalog, M2 native views and the document keyboard, M3 the agent told the catalog; evaluation 84 of 84 clean on both CLIs ([eval](docs/reviews/2026-11-08-markup-eval.md)).
 5. ✅ Big-picture review ([review](docs/reviews/2026-11-08-big-picture.md)); its release fixes: calculator zeroing, home entries in file search, the watcher's root events, private error logs, docs.
-6. 🚧 Palette simplification; agent content under agent authority; a stopped run keeps its review offer.
-7. 🚧 CONCEPT.md rewritten short and current.
-8. ⏭ On-screen check of Wicket Dev (authorized), then release 0.0.11. Keep the Sparkle key file until the owner confirms a backup.
+6. ✅ Palette simplification; agent content under agent authority (tested end to end); a stopped run keeps what it wrote for review; AgentRunner absorbed AnswerStream.
+7. ✅ CONCEPT.md rewritten short and current.
+8. 🚧 Final review fixes (Load Images, Run Again, page height), off-screen snapshot check (the screen was locked), then release 0.0.11. Keep the Sparkle key file until the owner confirms a backup.
 
 ## The core (owner, 2026-11-08)
 

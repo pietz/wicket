@@ -201,7 +201,7 @@ For commands and actions that do something rather than show something:
 {"reload":{"message":"Marked as done"}}
 ```
 
-`close` closes the palette and briefly shows the optional message where the search field was. `reload` goes back to the view the command was started from and runs it again (its command, text and args, not the action's command), keeping its search text and selection, and briefly shows the message; for example to refresh a list after an action changed an entry. A command that does something and answers `close` or `reload` never opens a view of its own.
+`close` closes the palette and briefly shows the optional message where the search field was. `reload` goes back to the view the command was started from and runs it again (its command, text and args, not the action's command), keeping its search text and selection, and briefly shows the message; for example to refresh a list after an action changed an entry. A command that does something and answers `close` or `reload` shows only a brief loading state in the meantime.
 
 ## Items
 
@@ -246,7 +246,7 @@ Each action is an object with exactly one key. Each takes an optional `title` fo
 | copy | `{"copy":{"text":"42"}}` | Copies the text and closes the palette. |
 | paste | `{"paste":{"text":"42"}}` | Closes the palette and types the text into the app the user came from. Without Accessibility permission it copies instead and says so. |
 | detail | `{"detail":{"markdown":"…"}}` | Pushes a detail view you already have (same fields as the detail result). Escape goes back. |
-| run | `{"run":{"command":"done","args":{"id":12},"title":"Mark as Done"}}` | Sends `run` for that command of your extension, with `args` passed through and `text` set to `""`. The result is pushed as a new view (Escape goes back) or is a `close` or `reload`; the current view stays, showing progress, until it arrives. If the target is a `live` command, its view opens at once and searches with the same `args` on every keystroke. Use it for follow-up work (fetching details, changing state) and for drill-down. Use a `hidden` command for targets the user shouldn't search for. |
+| run | `{"run":{"command":"done","args":{"id":12},"title":"Mark as Done"}}` | Sends `run` for that command of your extension, with `args` passed through and `text` set to `""`. The result is pushed as a new view (Escape goes back) or is a `close` or `reload`; its view opens at once and shows progress until it arrives. If the target is a `live` command, its view opens at once and searches with the same `args` on every keystroke. Use it for follow-up work (fetching details, changing state) and for drill-down. Use a `hidden` command for targets the user shouldn't search for. |
 
 ## Errors
 

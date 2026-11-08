@@ -58,7 +58,10 @@ extension Markup {
         for limit in limits() {
             lines.append("| \(limit.what.prefix(1).uppercased())\(limit.what.dropFirst()) | \(limit.value) |")
         }
-        lines += ["", "Past a limit the rest shows as text; the reply never fails."]
+        lines += [
+            "",
+            "Past a count limit the rest shows as text, and past the size limit the page stops (Copy keeps everything); the reply never fails.",
+        ]
         return lines.joined(separator: "\n") + "\n"
     }
 

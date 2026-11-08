@@ -37,7 +37,7 @@ Monarch data is thinner than the others. Its manual and changelog pages did not 
 | File navigation (browse folders, Tab into them) | ✓ PP (`/`, `~`, ⌘↓) | partial | ✗ (explicitly not planned) | ? | |
 | File buffer (collect several files, act on all) | ✓ PP | ✗ | ✗ | ✗ | |
 | Learned ranking / frecency | ✓ | ? (not documented) | ✓ | partial | ✓ |
-| Aliases / keywords per item | ✓ | ✓ | ✓ | ✓ | 0.0.1 |
+| Keywords per command | ✓ | ✓ | ✓ | ✓ | 0.0.1 (aliases removed) |
 | Favorites / pinned items on empty query | ✗ | ✓ | ✓ (⌘1–9 on favorites only) | ? | |
 | Running apps, quit app, quit all | ✓ | ✓ | ✓ | ✓ | |
 | Restart app | ✗ | ✓ (2.9) | ✓ | ✗ | |
@@ -122,7 +122,7 @@ Monarch data is thinner than the others. Its manual and changelog pages did not 
 | Local models | partial (community Ollama) | ✓ Pro (Ollama) | ✓ any localhost endpoint | ✗ | |
 | Apple Foundation Models | ✗ | ? | ✓ default route for Quick Actions | ✗ | later (small jobs only) |
 | Extensions can call the host's AI | ✗ | ✓ AI extensions, `@` mentions | ✗ (not planned) | ✗ | |
-| AI writes extensions for you | ✗ | ✗ | ✗ | ✗ | 0.0.1 ("make a command") |
+| AI writes extensions for you | ✗ | ✗ | ✗ | ✗ | 0.0.1 (ask Run Agent to build one) |
 | AI off by default | n/a | ✗ (free tier has none) | ✓ (off means fully off) | n/a | |
 
 ## Extensions and workflows

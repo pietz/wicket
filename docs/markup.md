@@ -381,6 +381,6 @@ Free 11:00 to 15:00 · 4 events
 | `<image>` per document | 20 |
 | `<chart>` per document | 10 |
 
-Past a limit the rest shows as text; the reply never fails.
+Past a count limit the rest shows as text, and past the size limit the page stops (Copy keeps everything); the reply never fails.
 
 <!-- end of reference -->
