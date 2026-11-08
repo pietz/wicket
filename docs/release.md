@@ -15,7 +15,7 @@ Wicket ships as a notarized DMG on GitHub Releases, updates itself with Sparkle,
    xcrun notarytool store-credentials wicket-notary --apple-id <apple id> --team-id 34MWWCL4H2
    ```
 
-2. **Sparkle signing key.** Generate Wicket's own EdDSA key (kept in the login keychain under the account `wicket`, separate from any other app's), then put the public key it prints into `SUPublicEDKey` in `Resources/Info.plist`, replacing `REPLACE_WITH_SPARKLE_PUBLIC_KEY`, and commit that:
+2. **Sparkle signing key.** Generate Wicket's own EdDSA key (kept in the login keychain under the account `wicket`, separate from any other app's), then put the public key it prints into `SUPublicEDKey` in `Resources/Info.plist`, and commit that (done 2026-11-08):
 
    ```sh
    swift package resolve
