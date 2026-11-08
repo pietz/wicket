@@ -511,3 +511,84 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(texts.count == 2)
     #expect(texts.allSatisfy { $0.hasSuffix(line + "SENTINEL") && !$0.contains("<stat") })
 }
+
+/// What activating an action did outside the palette.
+@MainActor
+private final class RecordedEffects: ActionEffects {
+    enum Call: Equatable {
+        case open(URL)
+        case copy(String)
+        case paste(String)
+        case reveal(URL)
+    }
+
+    var calls: [Call] = []
+    func open(_ url: URL) { calls.append(.open(url)) }
+    func copy(_ text: String) { calls.append(.copy(text)) }
+    func paste(_ text: String, into app: RunningApp?) { calls.append(.paste(text)) }
+    func reveal(_ url: URL) { calls.append(.reveal(url)) }
+    func inspect(_ file: URL) -> LinkedFile? { LinkedFile(target: file, isRunnable: false) }
+}
+
+/// An agent's reply is the agent's from the run to the click: its rows and links of an app or a
+/// script only reveal them, while Wicket's own actions on the reply (Copy Answer, Follow Up) run as
+/// the host's.
+@MainActor @Test func anAgentsReplyActsUnderTheAgentsAuthority() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("what's installed?")
+    #expect(await eventually { agents.runs.count == 1 })
+    let app = URL(filePath: "/Applications/Evil.app")
+    let script = URL(filePath: "/tmp/run.sh")
+    agents.runs[0].continuation.yield(.session("t1"))
+    agents.runs[0].continuation.yield(
+        .answer(
+            """
+            Two things, and [this one](file:///Applications/Evil.app):
+
+            <file path="\(app.path)"/>
+            <file path="\(script.path)"/>
+            """))
+    #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.count == 3 })
+    guard case .screen(let frame) = palette.session.top.content else {
+        Issue.record("no answer frame")
+        return
+    }
+    #expect(frame.context.authority == .agent)
+
+    let effects = RecordedEffects()
+    let dispatcher = ActionDispatcher(
+        registry: CommandRegistry(builtins: [runAgent, followUp, aiApproval]), effects: effects)
+    // Each row's Open reveals instead; nothing it offers runs or pastes.
+    for _ in 0..<2 {
+        palette.session.moveSelection(by: 1)
+        let row = try #require(palette.session.top.target)
+        #expect(row.authority == .agent)
+        for index in row.actions.indices {
+            _ = dispatcher.perform(row, at: .action(index), in: ActionContext())
+        }
+    }
+    #expect(effects.calls.contains(.reveal(app)) && effects.calls.contains(.reveal(script)))
+    #expect(!effects.calls.contains { if case .open = $0 { true } else { false } })
+    #expect(!effects.calls.contains { if case .paste = $0 { true } else { false } })
+    // A link in the page is followed the same way.
+    effects.calls = []
+    let link = Item.Action.open(url: try #require(URL(string: "file:///Applications/Evil.app")))
+    #expect(dispatcher.perform(link, as: frame.context.authority, in: ActionContext()) == .close)
+    #expect(effects.calls == [.reveal(app)])
+
+    // Wicket's own actions on the reply still run as the host's.
+    effects.calls = []
+    let target = try #require(palette.session.top.target)
+    #expect(target.screen.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
+    #expect(dispatcher.perform(target, at: .screen(0), in: ActionContext()) == .close)
+    guard case .copy = effects.calls.first else {
+        Issue.record("Copy Answer didn't copy")
+        return
+    }
+    guard case .open(let run)? = dispatcher.perform(target, at: target.secondary, in: ActionContext()) else {
+        Issue.record("Follow Up didn't open its frame")
+        return
+    }
+    #expect(run.command.id == .followUp)
+}
