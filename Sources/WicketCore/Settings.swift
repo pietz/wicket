@@ -50,13 +50,9 @@ public struct Settings: Equatable, Sendable {
         public var claude = AgentProvider.claude.defaultOptions
         /// How Codex runs (`ai.codex`).
         public var codex = AgentProvider.codex.defaultOptions
-        /// Whether an answer is drawn as its text arrives (`ai.streamAnswers`). Off by default: the
-        /// page shows the agent working, each message once it is whole, then the answer at once.
-        public var streamAnswers = false
 
-        public init(provider: AgentProvider? = nil, streamAnswers: Bool = false) {
+        public init(provider: AgentProvider? = nil) {
             self.provider = provider
-            self.streamAnswers = streamAnswers
         }
 
         public subscript(provider: AgentProvider) -> AgentOptions {
@@ -110,8 +106,7 @@ public struct Settings: Equatable, Sendable {
         let object: [String: Any]
         if let data {  // `decode` accepted it, so it holds a JSON object.
             let file = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            object =
-                merge(migrated(file), old: try old.fields(), new: try new.fields()) as? [String: Any] ?? [:]
+            object = merge(file, old: try old.fields(), new: try new.fields()) as? [String: Any] ?? [:]
             guard !NSDictionary(dictionary: object).isEqual(to: file) else { return }
         } else {
             object = try new.fields()
@@ -121,28 +116,6 @@ public struct Settings: Equatable, Sendable {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try (json + Data("\n".utf8)).write(to: url, options: .atomic)
-    }
-
-    /// `file` as this build reads it. Older builds had a switch per feature (`"features": {"ai":
-    /// false}`, Ask AI's `ask-ai` before that); the AI switch moves to `ai.enabled` (a value already
-    /// there wins), and the other switches (apps, files, calculator, links) are left as unknown keys,
-    /// since what they turned off is always on now (2026-11-08). The file is rewritten this way the
-    /// next time Settings changes something, so the old switch can't turn AI off again.
-    static func migrated(_ file: [String: Any]) -> [String: Any] {
-        guard var features = file["features"] as? [String: Any] else { return file }
-        let current = features.removeValue(forKey: "ai")
-        let older = features.removeValue(forKey: "ask-ai")
-        guard current != nil || older != nil, file["ai"] == nil || file["ai"] is [String: Any] else {
-            return file
-        }
-        var file = file
-        file["features"] = features.isEmpty ? nil : features
-        if (current ?? older) as? Bool == false {
-            var ai = file["ai"] as? [String: Any] ?? [:]
-            if ai["enabled"] == nil { ai["enabled"] = false }
-            file["ai"] = ai
-        }
-        return file
     }
 
     /// The file's bytes, or nil if it does not exist.
@@ -155,13 +128,6 @@ public struct Settings: Equatable, Sendable {
     }
 
     private static func decode(_ data: Data) throws -> Settings {
-        var data = data
-        if let file = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            case let current = migrated(file), !NSDictionary(dictionary: current).isEqual(to: file),
-            let rewritten = try? JSONSerialization.data(withJSONObject: current)
-        {
-            data = rewritten
-        }
         do {
             return try JSONDecoder().decode(Settings.self, from: data)
         } catch let error as DecodingError {
@@ -210,7 +176,7 @@ extension Settings: Codable {
     }
 
     private enum AIKeys: String, CodingKey {
-        case enabled, provider, codex, claude, streamAnswers
+        case enabled, provider, codex, claude
     }
 
     private enum AgentKeys: String, CodingKey {
@@ -281,8 +247,6 @@ extension Settings: Codable {
     }
 
     /// Like the width, a wrong provider is ignored on its own: Run Agent then uses the first ready one.
-    /// "apple", a provider older builds offered, quietly means none chosen, so the first ready one
-    /// (Claude, else ChatGPT) takes over.
     private mutating func decodeAI(_ ai: KeyedDecodingContainer<AIKeys>?) {
         guard let ai else {
             ignored.append("ai must be an object; using defaults")
@@ -296,21 +260,12 @@ extension Settings: Codable {
             }
         }
         // Null, like a missing field, means none chosen.
-        if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false,
-            (try? ai.decode(String.self, forKey: .provider)) != "apple"
-        {
+        if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false {
             if let provider = try? ai.decode(AgentProvider.self, forKey: .provider) {
                 self.ai.provider = provider
             } else {
                 let names = AgentProvider.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
                 ignored.append("ai.provider must be \(names); using the first one that's ready")
-            }
-        }
-        if ai.contains(.streamAnswers), (try? ai.decodeNil(forKey: .streamAnswers)) != true {
-            if let stream = try? ai.decode(Bool.self, forKey: .streamAnswers) {
-                self.ai.streamAnswers = stream
-            } else {
-                ignored.append("ai.streamAnswers must be true or false; not streaming answers")
             }
         }
         for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)]
@@ -320,8 +275,7 @@ extension Settings: Codable {
         }
     }
 
-    /// One agent's options; each field fails alone and leaves the provider's default. A model of
-    /// "default", which older builds wrote for the agent's own, is the provider's default too.
+    /// One agent's options; each field fails alone and leaves the provider's default.
     private mutating func decodeAgent(
         _ object: KeyedDecodingContainer<AgentKeys>?, _ provider: AgentProvider, _ key: String
     ) {
@@ -337,11 +291,7 @@ extension Settings: Codable {
                     "ai.\(key).\(field.stringValue) must be one word; using the default")
                 continue
             }
-            if field == .model {
-                if value != "default" { ai[provider].model = value }
-            } else {
-                ai[provider].effort = value
-            }
+            if field == .model { ai[provider].model = value } else { ai[provider].effort = value }
         }
         if object.contains(.speed), (try? object.decodeNil(forKey: .speed)) == false {
             if let name = try? object.decode(String.self, forKey: .speed),
@@ -367,7 +317,6 @@ extension Settings: Codable {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
             if !ai.enabled { try nested.encode(false, forKey: .enabled) }
             try nested.encodeIfPresent(ai.provider, forKey: .provider)
-            if ai.streamAnswers { try nested.encode(true, forKey: .streamAnswers) }
             for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)] {
                 let options = ai[provider]
                 let defaults = provider.defaultOptions

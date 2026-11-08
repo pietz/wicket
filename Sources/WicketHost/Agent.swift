@@ -39,36 +39,16 @@ public struct AgentRequest: Sendable {
     }
 }
 
-public struct AgentUsage: Sendable, Equatable {
-    /// All input tokens, cached ones included.
-    public var inputTokens: Int
-    public var cachedInputTokens: Int
-    public var outputTokens: Int
-
-    public init(inputTokens: Int, cachedInputTokens: Int, outputTokens: Int) {
-        self.inputTokens = inputTokens
-        self.cachedInputTokens = cachedInputTokens
-        self.outputTokens = outputTokens
-    }
-}
-
 public enum AgentEvent: Sendable, Equatable {
-    /// Assistant text as it streams in; separate messages are joined by a blank line.
-    case text(String)
-    /// The message the text was streaming is whole; later text starts a new one.
-    case messageEnd
-    /// A one-line summary of a tool call, such as "Ran swift build" or "Edited main.py".
-    case activity(String)
+    /// A whole message the agent wrote along the way (its final answer comes as `answer` too).
+    case message(String)
     /// The run succeeded; this is the last event. `answer` is the final message alone.
-    case answer(String, usage: AgentUsage?)
+    case answer(String)
     /// The run failed; this is the last event.
     case error(String)
     /// The agent's questions still waiting for an answer, oldest first, whenever they change (an
     /// empty list once the last one is resolved). Answered with `AgentRun.reply`.
     case approvals([AgentApproval])
-    /// The agent ran a command or changed a file (after the activity saying which); can come more
-    /// than once. Actions approved without asking come too, never reaching `approvals`.
-    case acted
     /// The run's session, which the agent keeps in its own history, so a later run can continue it
     /// (`AgentRequest.resume`); comes before the answer.
     case session(String)

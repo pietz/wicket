@@ -16,10 +16,6 @@ final class AnswerDraft {
     /// Everything the agent wrote, in order: its messages along the way, then its final answer.
     /// Tools it used and its thinking aren't shown.
     var text = ""
-    /// Whether text shows as it comes; if not, each message shows once it is whole.
-    let streams: Bool
-    /// The message being written, while it is kept out of the page (not streaming).
-    private var unfinished = ""
     /// The final answer alone, once it has come: what Copy and Paste take.
     var answer: String?
     /// Offered after Retry when the run continued a remembered conversation and failed.
@@ -33,26 +29,15 @@ final class AnswerDraft {
     /// Shows the latest state; set by the run.
     var redraw: () -> Void = {}
 
-    init(
-        title: String, invocation: Invocation, status: String, streams: Bool
-    ) {
+    init(title: String, invocation: Invocation, status: String) {
         self.title = title
         self.invocation = invocation
         self.status = status
-        self.streams = streams
     }
 
-    /// Adds what the agent wrote and returns whether the page changed: streaming, at once; else it
-    /// waits for the message to end.
-    func write(_ delta: String) -> Bool {
-        if streams { text += delta } else { unfinished += delta }
-        return streams
-    }
-
-    /// The message being written is whole (or the run ended): it joins the page.
-    func endMessage() {
-        text += unfinished
-        unfinished = ""
+    /// A whole message the agent wrote, set apart from the last by a blank line.
+    func add(_ message: String) {
+        text += text.isEmpty ? message : "\n\n" + message
     }
 
     /// The agent's waiting approvals, keeping the tokens of those already shown.

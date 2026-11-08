@@ -85,7 +85,7 @@ enum AgentProcess {
             for event in step.events where final == nil {
                 switch event {
                 case .answer, .error: final = event
-                case .text, .messageEnd, .activity, .approvals, .acted, .session: emit(event)
+                case .message, .approvals, .session: emit(event)
                 }
                 events += 1
             }

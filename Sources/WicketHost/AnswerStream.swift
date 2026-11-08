@@ -2,8 +2,8 @@ import Foundation
 import WicketCore
 import os
 
-/// Every AI answer in a frame: provider selection, a growing draft, approvals, Copy/Paste, partial
-/// failure, Retry, throttling and cancellation. The app makes one (`AppRuntime.live()`) and hands it
+/// Every AI answer in a frame: provider selection, the messages so far, approvals, Copy/Paste,
+/// partial failure, Retry and cancellation. The app makes one (`AppRuntime.live()`) and hands it
 /// to Run Agent's runner, which shuts it down. Only an explicit run asks a provider.
 @MainActor
 public final class AnswerStream {
@@ -14,11 +14,7 @@ public final class AnswerStream {
     /// A provider's model, effort and speed from settings.json, read when a question is asked; set by
     /// the app. The defaults until it is.
     public var options: @MainActor (AgentProvider) -> AgentOptions = { $0.defaultOptions }
-    /// The settings' `ai.streamAnswers`, read when a question is asked: whether text is drawn as it
-    /// comes, or each message only once it is whole.
-    public var streamsAnswers: @MainActor () -> Bool = { false }
     private let backend: AgentBackend
-    private let interval: Duration
     /// The runs in flight, each ending once its agent's process tree is gone.
     private var running: [UUID: Task<Void, Never>] = [:]
     /// The approvals shown in frames, by the token their actions carry, until answered or their run ends.
@@ -29,14 +25,11 @@ public final class AnswerStream {
     private var isShutDown = false
     private static let logger = Logger(subsystem: "app.wicket", category: "ai")
 
-    /// `interval` is the shortest time between two shown updates while the answer streams.
     public init(
-        backend: AgentBackend = .installed, interval: Duration = .milliseconds(33),
-        provider: @escaping @MainActor () -> AgentProvider? = { nil }
+        backend: AgentBackend = .installed, provider: @escaping @MainActor () -> AgentProvider? = { nil }
     ) {
         self.provider = provider
         self.backend = backend
-        self.interval = interval
     }
 
     /// The provider acts in `folder`. With `continuing`, the token of a Follow Up action, it
@@ -150,8 +143,7 @@ public final class AnswerStream {
         let acting = continued?.folder ?? folder ?? FileManager.default.homeDirectoryForCurrentUser
         let options = continued?.options ?? options(provider)
         let draft = AnswerDraft(
-            title: title, invocation: invocation, status: "Asking \(provider.name)…",
-            streams: streamsAnswers())
+            title: title, invocation: invocation, status: "Asking \(provider.name)…")
         draft.startFresh = startFresh
         output.yield(.show(.detail(draft.detail)))
 
@@ -160,12 +152,8 @@ public final class AnswerStream {
         let request = AgentRequest(
             prompt: prompt, workingDirectory: acting, options: options,
             instructions: authoring?.instructions(), resume: continued?.session)
-        let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
-        draft.redraw = { throttle.submit() }
-        defer {
-            throttle.cancel()
-            draft.redraw = {}  // The throttle's action holds the draft.
-        }
+        draft.redraw = { output.yield(.show(.detail(draft.detail))) }
+        defer { draft.redraw = {} }  // It holds the draft.
         let run = await backend.run(provider, request)
         defer { waiting = waiting.filter { $0.value.draft !== draft } }
         // This run's conversation, once its agent named its session.
@@ -177,15 +165,13 @@ public final class AnswerStream {
         // process tree is gone, so `shutdown` can wait for it.
         do {
             try await show(
-                run, of: provider, in: draft, start: start, throttle: throttle, extensionsBefore: before,
+                run, of: provider, in: draft, start: start, extensionsBefore: before,
                 session: &session, conversation: conversation, token: token, output)
         } catch let failure as Failure {
-            throttle.cancel()
             // What a failed or stopped run wrote is offered for review too, once its tree is gone.
             await run.cancelAndWait()
             draft.reviews = await reviews(since: before, conversation: session.flatMap(conversation))
             try Task.checkCancellation()
-            draft.endMessage()
             draft.failure = failure.description
             output.yield(.show(.detail(draft.detail)))
             Self.logger.notice(
@@ -202,35 +188,27 @@ public final class AnswerStream {
     /// it throws.
     private func show(
         _ run: AgentRun, of provider: AgentProvider, in draft: AnswerDraft, start: ContinuousClock.Instant,
-        throttle: Throttle, extensionsBefore: ExtensionAuthoring.Snapshot?, session: inout String?,
+        extensionsBefore: ExtensionAuthoring.Snapshot?, session: inout String?,
         conversation: (String) -> Conversation?, token: String?,
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
-        var firstText: Duration?
+        var firstMessage: Duration?
         for await event in run {
             switch event {
             case .session(let id):
                 session = id
-            case .text(let delta):
-                firstText = firstText ?? ContinuousClock.now - start
-                if draft.write(delta) { throttle.submit() }
-            case .messageEnd:
-                draft.endMessage()
-                throttle.submit()
-            case .activity:
-                break  // Tool use isn't shown; only what the agent writes.
-            case .acted:
-                break
+            case .message(let text):
+                firstMessage = firstMessage ?? ContinuousClock.now - start
+                draft.add(text)
+                draft.redraw()
             case .approvals(let approvals):
                 for (token, _) in draft.approvals { waiting[token] = nil }
                 draft.show(approvals)
                 for (token, approval) in draft.approvals { waiting[token] = (run, approval, draft) }
-                throttle.submit()
-            case .answer(let answer, _):
-                throttle.cancel()
-                draft.endMessage()
-                // What streamed stays when it ends with this answer (messages along the way, then the
-                // answer); otherwise the answer alone, so the final text is always exactly the answer.
+                draft.redraw()
+            case .answer(let answer):
+                // The messages stay when they end with this answer; otherwise the answer alone, so
+                // the final text is always exactly the answer.
                 if !answer.isEmpty {
                     draft.answer = answer
                     if !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(
@@ -250,8 +228,8 @@ public final class AnswerStream {
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
-                    agent: \(provider.rawValue, privacy: .public) first text after \
-                    \(firstText.map { "\($0)" } ?? "-", privacy: .public), answer after \
+                    agent: \(provider.rawValue, privacy: .public) first message after \
+                    \(firstMessage.map { "\($0)" } ?? "-", privacy: .public), answer after \
                     \(ContinuousClock.now - start, privacy: .public), \(draft.text.count, privacy: .public) chars
                     """)
                 return
@@ -301,45 +279,5 @@ public final class AnswerStream {
     struct Failure: Error, CustomStringConvertible {
         let description: String
         init(_ description: String) { self.description = description }
-    }
-}
-
-/// Runs `action` at most once per `interval`: at once if the last run is that long ago, else once
-/// when the interval is up (however many submits came in between, since it shows the latest state).
-@MainActor
-private final class Throttle {
-    private let interval: Duration
-    private let action: @MainActor () -> Void
-    private var last: ContinuousClock.Instant?
-    private var pending: Task<Void, Never>?
-
-    init(interval: Duration, action: @escaping @MainActor () -> Void) {
-        self.interval = interval
-        self.action = action
-    }
-
-    func submit() {
-        guard pending == nil else { return }
-        guard let last, ContinuousClock.now < last + interval else {
-            fire()
-            return
-        }
-        let due = last + interval
-        pending = Task { [weak self] in
-            try? await Task.sleep(until: due, clock: .continuous)
-            guard let self, !Task.isCancelled else { return }
-            fire()
-        }
-    }
-
-    func cancel() {
-        pending?.cancel()
-        pending = nil
-    }
-
-    private func fire() {
-        pending = nil
-        last = .now
-        action()
     }
 }

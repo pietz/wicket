@@ -50,18 +50,6 @@ private let terra = AgentOptions(model: "gpt-6.1-terra", effort: "medium", speed
     #expect(settings.ignored.isEmpty)
 }
 
-/// Older builds wrote "default" for the agent's own model, and "apple" for Apple Intelligence; both
-/// now mean the defaults, quietly.
-@Test func oldDefaultsMigrate() throws {
-    let settings = try load(
-        #"{"ai": {"provider": "apple", "claude": {"model": "default"}, "codex": {"model": "default", "effort": "high"}}}"#
-    )
-    #expect(settings.ai.provider == nil)
-    #expect(settings.ai.claude == sonnet)
-    #expect(settings.ai.codex == AgentOptions(model: "gpt-6.1-terra", effort: "high"))
-    #expect(settings.ignored.isEmpty)
-}
-
 @Test func aBadFieldCostsOnlyItself() throws {
     let settings = try load(
         #"{"ai": {"codex": {"model": "gpt 6", "effort": 3, "speed": "ludicrous"}, "claude": "fast"}}"#)
@@ -114,36 +102,4 @@ private let terra = AgentOptions(model: "gpt-6.1-terra", effort: "medium", speed
     #expect(try object(url)["ai"] as? [String: Bool] == ["enabled": false])
     try Settings.update(at: url) { $0.ai.enabled = true }
     #expect(try object(url)["ai"] == nil)
-}
-
-/// Older builds had a switch per feature; the AI one (`ai`, Ask AI's `ask-ai` before it) carries
-/// over to `ai.enabled`, the others are ignored silently.
-@Test(arguments: [#"{"features": {"ai": false}}"#, #"{"features": {"ask-ai": false}}"#])
-func theOldAIFeatureSwitchCarriesOver(json: String) throws {
-    let settings = try load(json)
-    #expect(!settings.ai.enabled)
-    #expect(settings.ignored.isEmpty)
-}
-
-@Test func theNewerOldNameAndTheNewKeyWin() throws {
-    #expect(try !load(#"{"features": {"ask-ai": true, "ai": false}}"#).ai.enabled)
-    #expect(try load(#"{"features": {"ai": false}, "ai": {"enabled": true}}"#).ai.enabled)
-    let others = try load(#"{"features": {"files": false, "apps": false, "links": false}}"#)
-    #expect(others == Settings())
-    #expect(others.ignored.isEmpty)
-}
-
-/// The next change from Settings moves the switch. Other feature switches and a `commands` object
-/// older builds wrote (hotkeys and aliases) are unknown keys now: ignored and kept as written.
-@Test func updateMovesTheOldSwitch() throws {
-    let url = temporarySettingsURL()
-    try write(
-        #"{"commands": {"builtin:ask-ai": {"alias": "ask"}}, "features": {"ask-ai": false, "files": false}}"#,
-        to: url)
-    #expect(try Settings.load(from: url).ignored.isEmpty)
-    try Settings.update(at: url) { $0.paletteWidth = 700 }
-    let file = try object(url)
-    #expect(file["features"] as? [String: Bool] == ["files": false])
-    #expect(file["ai"] as? [String: Bool] == ["enabled": false])
-    #expect(file["commands"] as? [String: [String: String]] == ["builtin:ask-ai": ["alias": "ask"]])
 }

@@ -87,7 +87,7 @@ private final class FakeAgent: Sendable {
             run: { [self] _, _ in
                 AgentRun { continuation in
                     self.started.withLock { $0 += 1 }
-                    continuation.yield(.text("Hel"))
+                    continuation.yield(.message("Hel"))
                     while !Task.isCancelled {
                         if let failure = self.failure.withLock({ $0 }) {
                             continuation.yield(.error(failure))
@@ -140,7 +140,7 @@ private final class Harness {
         weak var harness: Harness?
         runAgent = AgentRunner(
             answers: AnswerStream(
-                backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider }))
+                backend: agent.backend, provider: { harness?.runtime.applied?.ai.provider }))
         // The table as `live()` composes it, with effects that are only recorded.
         let builtins = [
             Builtin(

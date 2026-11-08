@@ -37,7 +37,7 @@ extension Agent {
         }
         defer { deadline.cancel() }
         for await event in run {
-            if case .answer(let json, _) = event,
+            if case .answer(let json) = event,
                 let value = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
             {
                 return ModelListing.models(provider, from: value)
@@ -102,7 +102,7 @@ struct ModelListing: AgentTranscript {
             default: nil
             }
         guard let result else { return AgentStep() }
-        return AgentStep(events: [.answer(result.json, usage: nil)], closeInput: true)
+        return AgentStep(events: [.answer(result.json)], closeInput: true)
     }
 
     /// The models in a `model/list` result or an `initialize` response, in the CLI's order. Claude

@@ -47,15 +47,6 @@ struct AIPane: View {
         providerSection(current)
         optionsSection(current)
         Section {
-            Toggle("Stream answers", isOn: aiSetting(\.streamAnswers))
-        } footer: {
-            Text(
-                "Show an answer as it's written. When off, each message the agent sends shows once "
-                    + "it's complete."
-            )
-            .foregroundStyle(.secondary)
-        }
-        Section {
             Button("Edit Agent Instructions…") { editInstructions() }
         } footer: {
             Text(

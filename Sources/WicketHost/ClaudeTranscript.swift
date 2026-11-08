@@ -10,12 +10,8 @@ import WicketCore
 /// now, not the one the session started with (verified with 2.1.319).
 struct ClaudeTranscript: AgentTranscript {
     let request: AgentRequest
-    private var newMessage = false
-    private var streamed = false
     /// Approvals waiting for the user, oldest first, with the tool call each is for.
     private var pending: [(call: String?, approval: AgentApproval)] = []
-    /// The main agent's tool calls by id, until their results say how they went.
-    private var calls: [String: JSONValue] = [:]
 
     init(request: AgentRequest) {
         self.request = request
@@ -24,9 +20,8 @@ struct ClaudeTranscript: AgentTranscript {
     /// What would prompt comes to Wicket over stdio.
     static func arguments(for request: AgentRequest) -> [String] {
         [
-            "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-            "--input-format",
-            "stream-json", "--permission-prompt-tool", "stdio",
+            "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
+            "--permission-prompt-tool", "stdio",
         ] + (request.instructions.map { ["--append-system-prompt", $0] } ?? []) + settings(request.options)
             + (request.resume.map { ["--resume", $0] } ?? [])
     }
@@ -86,44 +81,24 @@ struct ClaudeTranscript: AgentTranscript {
         case "control_cancel_request":
             return resolve { $0.approval.id["request_id"] == message["request_id"] }
         case "user":
-            return results(message["message"]?["content"]?.array ?? [], meta: message["tool_result_meta"])
-        case "assistant":
-            // Every agent's calls, sub-agents' included, so what they did counts as acting.
-            for call in message["message"]?["content"]?.array ?? [] where call["type"]?.string == "tool_use" {
-                if let id = call["id"]?.string { calls[id] = call }
+            // A tool's result settles its call's approval, if one waits.
+            let results = (message["message"]?["content"]?.array ?? []).compactMap {
+                $0["type"]?.string == "tool_result" ? $0["tool_use_id"]?.string : nil
             }
-        default:
-            break
-        }
+            return resolve { $0.call.map(results.contains) ?? false }
         // Sub-agents' messages carry their parent tool call; only the main agent's are shown.
-        guard message["parent_tool_use_id"] ?? .null == .null else { return AgentStep() }
-        switch message["type"]?.string {
-        case "stream_event":
-            let event = message["event"] ?? .null
-            switch event["type"]?.string {
-            case "message_start":
-                newMessage = true
-            case "content_block_delta":
-                guard event["delta"]?["type"]?.string == "text_delta",
-                    let delta = event["delta"]?["text"]?.string
-                else { break }
-                let text = newMessage && streamed ? "\n\n" + delta : delta
-                newMessage = false
-                streamed = true
-                return AgentStep(events: [.text(text)])
-            case "message_stop" where streamed && !newMessage:
-                return AgentStep(events: [.messageEnd])
-            default:
-                break
-            }
+        case "assistant" where message["parent_tool_use_id"] ?? .null == .null:
+            let text = (message["message"]?["content"]?.array ?? []).compactMap {
+                $0["type"]?.string == "text" ? $0["text"]?.string : nil
+            }.joined()
+            return text.isEmpty ? AgentStep() : AgentStep(events: [.message(text)])
         case "result":
             // With stream-json input the CLI waits for more until stdin closes.
             let session = message["session_id"]?.string.map { [AgentEvent.session($0)] } ?? []
             return AgentStep(events: session + [Self.result(message)], closeInput: true)
         default:
-            break
+            return AgentStep()
         }
-        return AgentStep()
     }
 
     /// A request from the CLI: a permission prompt waits for the user; anything else is refused
@@ -139,8 +114,7 @@ struct ClaudeTranscript: AgentTranscript {
         let input = body["input"] ?? .object([:])
         // Questions need a form Wicket doesn't have; the agent can ask in its reply instead.
         if tool == "AskUserQuestion" {
-            return AgentStep(
-                events: [.activity("Declined a question")], send: [Self.response(id, Self.deny)])
+            return AgentStep(send: [Self.response(id, Self.deny)])
         }
         let approvalID = JSONValue.object(["request_id": id, "input": input])
         let name = body["display_name"]?.string ?? tool
@@ -167,52 +141,11 @@ struct ClaudeTranscript: AgentTranscript {
         return AgentStep(events: [.approvals(pending.map(\.approval))])
     }
 
-    /// Tool results: each settles its call's approval, if one waits, and says what the call did.
-    private mutating func results(_ content: [JSONValue], meta: JSONValue?) -> AgentStep {
-        var step = AgentStep()
-        let count = pending.count
-        for result in content where result["type"]?.string == "tool_result" {
-            guard let id = result["tool_use_id"]?.string else { continue }
-            pending.removeAll { $0.call == id }
-            guard let call = calls.removeValue(forKey: id) else { continue }
-            let rejected =
-                meta?.array?.contains {
-                    $0["id"]?.string == id && $0["permission_decision"]?["decision"]?.string == "reject"
-                } ?? false
-            step.events.append(.activity(activity(call, declined: rejected)))
-            if !rejected, !Self.readOnly.contains(call["name"]?.string ?? "") {
-                step.events.append(.acted)
-            }
-        }
-        if pending.count != count { step.events.insert(.approvals(pending.map(\.approval)), at: 0) }
-        return step
-    }
-
-    /// Tools known not to change anything; any other call (MCP tools included) counts as acting.
-    static let readOnly: Set<String> = [
-        "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite", "Task", "Agent", "ToolSearch",
-        "AskUserQuestion", "ExitPlanMode", "BashOutput",
-    ]
-
     private mutating func resolve(_ matches: ((call: String?, approval: AgentApproval)) -> Bool) -> AgentStep
     {
         let count = pending.count
         pending.removeAll(where: matches)
         return pending.count == count ? AgentStep() : AgentStep(events: [.approvals(pending.map(\.approval))])
-    }
-
-    private func activity(_ call: JSONValue, declined: Bool) -> String {
-        let name = call["name"]?.string ?? "a tool"
-        let input = call["input"] ?? .null
-        let file = (input["file_path"] ?? input["notebook_path"])?.string.map(request.shown) ?? ""
-        switch name {
-        case "Bash": return (declined ? "Declined " : "Ran ") + summarized(input["command"]?.string ?? "")
-        case "Edit", "MultiEdit", "Write", "NotebookEdit":
-            return declined ? "Declined changes to \(file)" : "Edited \(file)"
-        case "Read": return "Read \(file)"
-        case "Glob", "Grep": return "Searched files"
-        default: return (declined ? "Declined " : "Used ") + name
-        }
     }
 
     /// A tool's input as at most six `key: value` lines, each value on one line of about 80
@@ -236,15 +169,7 @@ struct ClaudeTranscript: AgentTranscript {
                     ? "Claude Code failed (\(message["subtype"]?.string ?? "no result"))"
                     : reason.joined(separator: " "))
         }
-        let usage = message["usage"].map { usage in
-            let fresh = usage["input_tokens"]?.integer ?? 0
-            let written = usage["cache_creation_input_tokens"]?.integer ?? 0
-            let cached = usage["cache_read_input_tokens"]?.integer ?? 0
-            return AgentUsage(
-                inputTokens: fresh + written + cached, cachedInputTokens: cached,
-                outputTokens: usage["output_tokens"]?.integer ?? 0)
-        }
-        return .answer(text, usage: usage)
+        return .answer(text)
     }
 
     private static func refusal(_ id: JSONValue, _ error: String) -> Data {
@@ -257,4 +182,10 @@ struct ClaudeTranscript: AgentTranscript {
     private static func line(_ object: [String: JSONValue]) -> Data {
         Data((JSONValue.object(object).json + "\n").utf8)
     }
+}
+
+/// A command shortened to one line of about 80 characters.
+private func summarized(_ command: String) -> String {
+    let line = command.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+    return line.count > 80 ? line.prefix(79) + "…" : line
 }

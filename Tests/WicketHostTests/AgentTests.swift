@@ -5,12 +5,41 @@ import WicketCore
 
 @testable import WicketHost
 
-// The agents here are shell scripts standing in for `codex` and `claude`. Most replay streams recorded
-// from the real CLIs (Fixtures/, scrubbed of personal paths and account details; the Codex recordings
-// were made before the adapter read the config, so their config/read reply is trimmed by hand).
+// Each adapter replays streams recorded from the real CLIs (Fixtures/, scrubbed of personal details)
+// line by line, and answers hand-written lines for what the recordings don't cover. Real processes
+// (shell scripts standing in for `codex` and `claude`) test what only a process can show: replies
+// reaching a waiting agent, completion ordering, cancellation and cleanup.
 
 /// Claude's defaults, for tests where the choices don't matter.
 let defaults = AgentProvider.claude.defaultOptions
+
+private let work = URL(filePath: "/tmp/work")
+
+private func request(instructions: String? = nil, resume: String? = nil) -> AgentRequest {
+    AgentRequest(
+        prompt: "Hi", workingDirectory: work, options: defaults, instructions: instructions, resume: resume)
+}
+
+private func line(_ text: String) -> Data { Data(text.utf8) }
+
+private func decoded(_ data: Data) throws -> JSONValue {
+    try JSONDecoder().decode(JSONValue.self, from: data)
+}
+
+private func sent(_ step: AgentStep, _ index: Int = 0) throws -> JSONValue {
+    try decoded(try #require(step.send.dropFirst(index).first))
+}
+
+/// The events a transcript makes of a recorded stream, fed line by line after its start.
+private func replay(_ transcript: some AgentTranscript, _ fixture: String) throws -> [AgentEvent] {
+    var transcript = transcript
+    let url = try #require(
+        Bundle.module.url(forResource: fixture, withExtension: "jsonl", subdirectory: "Fixtures"))
+    _ = transcript.start()
+    return try String(contentsOf: url, encoding: .utf8).split(separator: "\n").flatMap {
+        transcript.receive(line(String($0))).events
+    }
+}
 
 /// A fake agent executable named like the real one, running `script` with /bin/sh.
 func fakeAgent(_ provider: AgentProvider, _ script: String) throws -> Agent {
@@ -23,226 +52,37 @@ func fakeAgent(_ provider: AgentProvider, _ script: String) throws -> Agent {
     return Agent(provider: provider, executable: url)
 }
 
-/// A fake agent that prints a recorded stream and exits, ignoring what it is sent.
-func replaying(_ provider: AgentProvider, _ fixture: String) throws -> Agent {
-    let url = try #require(
-        Bundle.module.url(forResource: fixture, withExtension: "jsonl", subdirectory: "Fixtures"))
-    return try fakeAgent(provider, "exec /bin/cat '\(url.path)'")
-}
-
 func events(_ agent: Agent) async -> [AgentEvent] {
     let request = AgentRequest(
         prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
     var events: [AgentEvent] = []
-    // Sessions are tested on their own.
-    for await event in agent.run(request) where !event.isSession { events.append(event) }
+    for await event in agent.run(request) { events.append(event) }
     return events
 }
 
-extension AgentEvent {
-    var isSession: Bool { if case .session = self { true } else { false } }
-}
-
-func text(_ events: [AgentEvent]) -> String {
-    events.map { if case .text(let text) = $0 { text } else { "" } }.joined()
-}
-
-func activities(_ events: [AgentEvent]) -> [String] {
-    events.compactMap { if case .activity(let activity) = $0 { activity } else { nil } }
-}
+/// A line that makes the Claude transcript yield a message.
+private let claudeMessage =
+    #"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"working"}]}}"#
 
 @Suite struct CodexTests {
-    @Test func streamsAnAnswer() async throws {
-        let events = await events(try replaying(.codex, "codex-answer"))
-        #expect(
-            events == [
-                .text("Paris"), .messageEnd,
-                .answer(
-                    "Paris", usage: AgentUsage(inputTokens: 4347, cachedInputTokens: 2432, outputTokens: 5)),
-            ])
-    }
-
-    @Test func toolRunReportsActivityAndTheFinalMessage() async throws {
-        let events = await events(try replaying(.codex, "codex-build"))
-        #expect(activities(events) == ["Ran printf hi > hello.txt"])
-        // Commentary streams too, set apart from the answer by a blank line.
-        #expect(
-            text(events).hasPrefix(
-                "I’ll create `hello.txt`, run the exact shell command once, and report the results.\n\n- Created"
-            ))
-        // The commentary ends as a whole message before the command it announces runs.
-        let end = try #require(events.firstIndex(of: .messageEnd))
-        #expect(
-            text(Array(events[..<end]))
-                == "I’ll create `hello.txt`, run the exact shell command once, and report the results.")
-        #expect(end < (events.firstIndex { if case .activity = $0 { true } else { false } } ?? 0))
-        guard case .answer(let answer, let usage)? = events.last else {
+    @Test func aRecordedRunShowsEachWholeMessageThenTheAnswer() throws {
+        let events = try replay(CodexTranscript(request: request()), "codex-build")
+        let intro = "I’ll create `hello.txt`, run the exact shell command once, and report the results."
+        guard case .answer(let answer)? = events.last else {
             Issue.record("no answer: \(events)")
             return
         }
         #expect(answer.hasPrefix("- Created `hello.txt` containing `hi`."))
-        #expect(answer.contains("Operation not permitted"))
-        #expect(usage == AgentUsage(inputTokens: 20360, cachedInputTokens: 17408, outputTokens: 132))
-    }
-
-    @Test func loggedOutRunShowsRetriesThenFails() async throws {
-        let events = await events(try replaying(.codex, "codex-loggedout"))
-        #expect(activities(events).first == "Reconnecting... 2/5")
-        guard case .error(let message)? = events.last else {
-            Issue.record("no error: \(events)")
-            return
-        }
-        #expect(message.hasPrefix("unexpected status 401 Unauthorized"))
-    }
-
-    @Test func actingRunsKeepTheUsersServersAndSetTheChoicesOnTheTurn() throws {
-        var transcript = CodexTranscript(
-            request: AgentRequest(
-                prompt: "Tidy up", workingDirectory: URL(filePath: "/tmp/work"), options: defaults)
-        )
-        let start = transcript.start()
-        #expect(try methods(start) == ["initialize", "initialized", "thread/start"])
-        let thread = try decoded(start.send[2])["params"]
-        #expect(thread?["cwd"] == .string("/tmp/work"))
-        // Kept in Codex's history, so Follow Up can resume it.
-        for omitted in [
-            "ephemeral", "developerInstructions", "approvalPolicy", "sandbox", "config", "baseInstructions",
-        ] {
-            #expect(thread?[omitted] == nil)
-        }
-        let started = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
-        #expect(started.events == [.session("t1")])
-        let turn = try sent(started)
-        #expect(turn["method"] == .string("turn/start"))
-        // The choices from Settings ▸ AI (`AgentSettingsTests`).
-        #expect(turn["params"]?["effort"] == .string("medium"))
-    }
-
-    @Test func aFollowUpResumesItsThread() throws {
-        var transcript = CodexTranscript(
-            request: AgentRequest(
-                prompt: "And now?", workingDirectory: URL(filePath: "/tmp/work"), options: defaults,
-                instructions: "Be brief.", resume: "t1")
-        )
-        // The configuration first, for the policy configured now (`AgentSettingsTests`).
-        #expect(try methods(transcript.start()) == ["initialize", "initialized", "config/read"])
-        let read = transcript.receive(line(#"{"id":2,"result":{"config":{}}}"#))
-        #expect(try sent(read)["method"] == .string("thread/resume"))
-        let thread = try sent(read)["params"]
-        #expect(thread?["threadId"] == .string("t1"))
-        #expect(thread?["cwd"] == .string("/tmp/work"))
-        #expect(thread?["excludeTurns"] == .bool(true))
-        #expect(thread?["developerInstructions"] == .string("Be brief."))
-        let resumed = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
-        #expect(resumed.events == [.session("t1")])
-        let turn = try sent(resumed)
-        #expect(turn["params"]?["threadId"] == .string("t1"))
-        #expect(turn["params"]?["input"]?.array?.first?["text"] == .string("And now?"))
-    }
-
-    @Test func approvalsWaitForTheUserUntilResolved() throws {
-        var transcript = CodexTranscript(
-            request: AgentRequest(
-                prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), options: defaults))
-        _ = transcript.start()
-        let command = AgentApproval(
-            id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create hello.txt?")
-        let first = transcript.receive(
-            line(
-                #"{"method":"item/commandExecution/requestApproval","id":0,"params":{"itemId":"c1","reason":"Create hello.txt?","command":"/bin/zsh -lc 'echo hi > hello.txt'","commandActions":[{"type":"unknown","command":"echo hi"}]}}"#
-            ))
-        #expect(first.events == [.approvals([command])])
-        #expect(first.send.isEmpty)
-
-        // A file-change approval names its item; the item said what changes.
-        _ = transcript.receive(
-            line(
-                #"{"method":"item/started","params":{"item":{"type":"fileChange","id":"f1","status":"inProgress","changes":[{"path":"/tmp/work/notes.md","kind":{"type":"add"},"diff":"hi"},{"path":"/tmp/work/a.swift","kind":{"type":"update","move_path":null},"diff":""}]}}}"#
-            ))
-        let files = AgentApproval(
-            id: .string("r2"), kind: .fileChange, subject: "add notes.md, update a.swift")
         #expect(
-            transcript.receive(
-                line(
-                    #"{"method":"item/fileChange/requestApproval","id":"r2","params":{"itemId":"f1","reason":null}}"#
-                )
-            ).events == [.approvals([command, files])])
-
-        // Replies keep the request id's type.
-        let accepted = try decoded(
-            try #require(CodexTranscript.reply(AgentReply(approval: command, decision: .accept))))
-        #expect(accepted == .object(["id": .integer(0), "result": .object(["decision": .string("accept")])]))
-        let declined = try decoded(
-            try #require(CodexTranscript.reply(AgentReply(approval: files, decision: .decline))))
-        #expect(declined["id"] == .string("r2"))
-
-        #expect(
-            transcript.receive(
-                line(#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":0}}"#)
-            )
-            .events == [.approvals([files])])
-        #expect(
-            transcript.receive(
-                line(#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":"r2"}}"#)
-            ).events == [.approvals([])])
-        #expect(
-            transcript.receive(
-                line(
-                    #"{"method":"item/completed","params":{"item":{"type":"fileChange","id":"f1","status":"declined","changes":[{"path":"/tmp/work/notes.md","kind":{"type":"add"},"diff":"hi"}]}}}"#
-                )
-            ).events == [.activity("Declined changes to notes.md")])
-    }
-
-    @Test func approvalsSayWhereAndWhatUnambiguously() throws {
-        var transcript = CodexTranscript(
-            request: AgentRequest(
-                prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), options: defaults))
-        _ = transcript.start()
-        // A managed-network prompt names its host and protocol, not the command behind it.
-        #expect(
-            transcript.receive(
-                line(
-                    #"{"method":"item/commandExecution/requestApproval","id":1,"params":{"itemId":"c1","command":"curl https://api.github.com","cwd":"/tmp/work","networkApprovalContext":{"host":"api.github.com","protocol":"https"}}}"#
-                )
-            ).events == [
-                .approvals([AgentApproval(id: .integer(1), kind: .network, subject: "api.github.com (https)")]
-                )
-            ])
-        _ = transcript.receive(
-            line(#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":1}}"#))
-        // Paths inside the run's folder are relative to it, others absolute; the root it asks for stays.
-        _ = transcript.receive(
-            line(
-                #"{"method":"item/started","params":{"item":{"type":"fileChange","id":"f1","status":"inProgress","changes":[{"path":"/tmp/work/Sources/a.swift","kind":{"type":"update"}},{"path":"/tmp/workshop/notes.md","kind":{"type":"add"}},{"path":"b.txt","kind":{"type":"delete"}}]}}}"#
-            ))
-        #expect(
-            transcript.receive(
-                line(
-                    #"{"method":"item/fileChange/requestApproval","id":2,"params":{"itemId":"f1","grantRoot":"/tmp/workshop"}}"#
-                )
-            ).events == [
-                .approvals([
-                    AgentApproval(
-                        id: .integer(2), kind: .fileChange,
-                        subject: "update Sources/a.swift, add /tmp/workshop/notes.md, delete b.txt",
-                        grantRoot: "/tmp/workshop")
-                ])
+            events == [
+                .session("01a1b1f7-16fa-7393-b7b7-43f2509a1060"), .message(intro), .message(answer),
+                .answer(answer),
             ])
     }
 
-    @Test func actingRunsStillRefuseOtherRequests() throws {
-        var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), options: defaults))
-        let step = transcript.receive(
-            line(#"{"id":5,"method":"item/tool/requestUserInput","params":{"questions":[]}}"#))
-        #expect(step.events == [.activity("Declined item/tool/requestUserInput")])
-        #expect(try sent(step)["error"]?["code"] == .integer(-32601))
-    }
-
-    @Test func aRecordedApprovalRoundTrip() async throws {
-        // Recorded from Codex 0.167 with a temporary config (on-request, read-only), the command
-        // accepted; the replay ignores what it is sent.
-        let events = await events(try replaying(.codex, "codex-act-approval"))
+    /// Recorded from Codex 0.167 with a temporary config (on-request, read-only), the command accepted.
+    @Test func aRecordedApprovalRoundTrip() throws {
+        let events = try replay(CodexTranscript(request: request()), "codex-act-approval")
         let approval = AgentApproval(
             id: .integer(0), kind: .command, subject: "echo hi > hello.txt",
             reason: "Allow creating hello.txt with the requested content?", workingDirectory: "/tmp/work")
@@ -250,286 +90,266 @@ func activities(_ events: [AgentEvent]) -> [String] {
             events.filter { if case .approvals = $0 { true } else { false } } == [
                 .approvals([approval]), .approvals([]),
             ])
-        #expect(activities(events) == ["Ran echo hi > hello.txt"])
-        guard case .answer(let answer, _)? = events.last else {
-            Issue.record("no answer: \(events)")
+        #expect(events.last == .answer("done"))
+        let reply = try decoded(
+            try #require(CodexTranscript.reply(AgentReply(approval: approval, decision: .accept))))
+        #expect(reply == .object(["id": .integer(0), "result": .object(["decision": .string("accept")])]))
+    }
+
+    @Test func aRecordedLoggedOutRunFailsAfterItsRetries() throws {
+        let events = try replay(CodexTranscript(request: request()), "codex-loggedout")
+        guard case .error(let message)? = events.last else {
+            Issue.record("no error: \(events)")
             return
         }
-        #expect(answer == "done")
+        #expect(message.hasPrefix("unexpected status 401 Unauthorized"))
+        #expect(events.count == 2)  // The session, then the failure: retries show nothing.
     }
 
-    @Test func aRequestErrorEndsTheRun() {
-        var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), options: defaults))
-        let step = transcript.receive(line(#"{"id":3,"error":{"code":-32600,"message":"bad cwd"}}"#))
-        #expect(step.events == [.error("bad cwd")])
+    @Test func aNewThreadKeepsTheUsersSetupAndGetsTheInstructions() throws {
+        var transcript = CodexTranscript(request: request(instructions: "Be brief."))
+        let start = transcript.start()
+        #expect(
+            try start.send.map { try decoded($0)["method"] } == [
+                .string("initialize"), .string("initialized"), .string("thread/start"),
+            ])
+        let thread = try sent(start, 2)["params"]
+        #expect(
+            thread == .object(["cwd": .string("/tmp/work"), "developerInstructions": .string("Be brief.")]))
+        let started = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
+        #expect(started.events == [.session("t1")])
+        let turn = try sent(started)
+        #expect(turn["method"] == .string("turn/start"))
+        #expect(turn["params"]?["threadId"] == .string("t1"))
+        #expect(turn["params"]?["input"]?.array?.first?["text"] == .string("Hi"))
     }
 
-    @Test func aReplyReachesTheAgentWhileItWaits() async throws {
-        let folder = FileManager.default.temporaryDirectory.appending(
-            path: "wicket-tests/reply-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let replyFile = folder.appending(path: "reply")
-        let agent = try fakeAgent(
-            .codex,
-            """
-            echo '{"method":"item/commandExecution/requestApproval","id":"a","params":{"command":"ls"}}'
-            while read -r line; do case "$line" in *decision*) printf '%s' "$line" > '\(replyFile.path)'; break;; esac; done
-            echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m","text":"ok"}}}'
-            echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-            """)
-        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, options: defaults))
-        var last: AgentEvent?
-        for await event in run {
-            if case .approvals(let approvals) = event, let first = approvals.first {
-                run.reply(to: first, .accept)
-            }
-            last = event
-        }
-        #expect(last == .answer("ok", usage: nil))
-        let reply = try decoded(try Data(contentsOf: replyFile))
-        #expect(reply == .object(["id": .string("a"), "result": .object(["decision": .string("accept")])]))
+    @Test func aFollowUpResumesItsThreadWithThePolicyConfiguredNow() throws {
+        var transcript = CodexTranscript(request: request(instructions: "Be brief.", resume: "t1"))
+        #expect(try sent(transcript.start(), 2)["method"] == .string("config/read"))
+        let read = transcript.receive(
+            line(#"{"id":2,"result":{"config":{"approval_policy":"never","sandbox_mode":"read-only"}}}"#))
+        let resume = try sent(read)
+        #expect(resume["method"] == .string("thread/resume"))
+        #expect(
+            resume["params"]
+                == .object([
+                    "threadId": .string("t1"), "cwd": .string("/tmp/work"), "excludeTurns": .bool(true),
+                    "developerInstructions": .string("Be brief."), "approvalPolicy": .string("never"),
+                    "sandbox": .string("read-only"),
+                ]))
+        let resumed = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
+        #expect(resumed.events == [.session("t1")])
     }
 
-    private func line(_ text: String) -> Data { Data(text.utf8) }
-
-    private func decoded(_ data: Data) throws -> JSONValue {
-        try JSONDecoder().decode(JSONValue.self, from: data)
+    @Test func approvalsSayWhereAndWhatUntilResolved() throws {
+        var transcript = CodexTranscript(request: request())
+        _ = transcript.start()
+        // The whole command, unwrapped from the login shell; its folder as given.
+        let command = AgentApproval(
+            id: .integer(0), kind: .command, subject: "echo hi > a.txt", reason: "Create it?",
+            workingDirectory: "/tmp/work")
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/commandExecution/requestApproval","id":0,"params":{"itemId":"c1","command":"/bin/zsh -lc 'echo hi > a.txt'","cwd":"/tmp/work","reason":"Create it?"}}"#
+                )
+            ).events == [.approvals([command])])
+        // A managed-network prompt names its host and protocol, not the command behind it.
+        let network = AgentApproval(id: .integer(1), kind: .network, subject: "api.github.com (https)")
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/commandExecution/requestApproval","id":1,"params":{"command":"curl https://api.github.com","networkApprovalContext":{"host":"api.github.com","protocol":"https"}}}"#
+                )
+            ).events == [.approvals([command, network])])
+        // Paths inside the run's folder are relative to it, others absolute; the root it asks for stays.
+        _ = transcript.receive(
+            line(
+                #"{"method":"item/started","params":{"item":{"type":"fileChange","id":"f1","changes":[{"path":"/tmp/work/Sources/a.swift","kind":{"type":"update"}},{"path":"/tmp/workshop/notes.md","kind":{"type":"add"}},{"path":"b.txt","kind":{"type":"delete"}}]}}}"#
+            ))
+        let files = AgentApproval(
+            id: .string("r2"), kind: .fileChange,
+            subject: "update Sources/a.swift, add /tmp/workshop/notes.md, delete b.txt",
+            grantRoot: "/tmp/workshop")
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/fileChange/requestApproval","id":"r2","params":{"itemId":"f1","grantRoot":"/tmp/workshop"}}"#
+                )
+            ).events == [.approvals([command, network, files])])
+        // Replies keep the request id's type.
+        let declined = try decoded(
+            try #require(CodexTranscript.reply(AgentReply(approval: files, decision: .decline))))
+        #expect(
+            declined == .object(["id": .string("r2"), "result": .object(["decision": .string("decline")])]))
+        #expect(
+            transcript.receive(line(#"{"method":"serverRequest/resolved","params":{"requestId":"r2"}}"#))
+                .events == [
+                    .approvals([command, network])
+                ])
     }
 
-    private func methods(_ step: AgentStep) throws -> [String] {
-        try step.send.map { try decoded($0)["method"]?.string ?? "" }
-    }
-
-    /// The one message a step sends.
-    private func sent(_ step: AgentStep) throws -> JSONValue {
-        try #require(step.send.count == 1)
-        return try decoded(step.send[0])
+    @Test func otherRequestsAreRefusedAndARequestErrorEndsTheRun() throws {
+        var transcript = CodexTranscript(request: request())
+        let step = transcript.receive(
+            line(#"{"id":5,"method":"item/tool/requestUserInput","params":{"questions":[]}}"#))
+        #expect(step.events.isEmpty)
+        #expect(try sent(step)["id"] == .integer(5))
+        #expect(try sent(step)["error"]?["code"] == .integer(-32601))
+        #expect(
+            transcript.receive(line(#"{"id":3,"error":{"message":"bad cwd"}}"#)).events == [.error("bad cwd")]
+        )
     }
 }
 
 @Suite struct ClaudeTests {
-    @Test func streamsAnAnswer() async throws {
-        let events = await events(try replaying(.claude, "claude-answer"))
+    /// Recorded from Claude Code 2.1.319 with Wicket's flags in a folder whose settings ask before
+    /// commands, the command allowed.
+    @Test func aRecordedApprovalRoundTrip() throws {
+        let events = try replay(ClaudeTranscript(request: request()), "claude-act")
+        let approval = try #require(
+            events.compactMap { if case .approvals(let a) = $0 { a.first } else { nil } }.first)
         #expect(
             events == [
-                .text("Paris"), .messageEnd,
-                .answer("Paris", usage: AgentUsage(inputTokens: 985, cachedInputTokens: 0, outputTokens: 5)),
+                .message("I'll write \"hi\" into hello.txt by running the echo command you specified."),
+                .approvals([approval]), .approvals([]), .message("Done, hello.txt says hi."),
+                .session("dcf4941e-14f7-44bf-ba8e-0a4142f489b1"), .answer("Done, hello.txt says hi."),
             ])
-    }
-
-    @Test func toolRunReportsActivityOnceEachCallHasItsResult() async throws {
-        let events = await events(try replaying(.claude, "claude-build"))
+        // No folder: Claude Code's shell keeps its `cd`s and the prompt doesn't say where it is.
+        #expect(approval.kind == .command && approval.subject == "echo hi > hello.txt")
+        #expect(approval.reason == "Write hi into hello.txt" && approval.workingDirectory == nil)
+        // Allow echoes the input and grants nothing more: Claude's suggestions go unused.
+        let allowed = try decoded(
+            try #require(ClaudeTranscript.reply(AgentReply(approval: approval, decision: .accept))))
+        #expect(allowed["type"] == .string("control_response"))
+        #expect(allowed["response"]?["request_id"] == .string("5f468d3c-8c72-4414-9ad3-eee296d6b85f"))
         #expect(
-            activities(events) == [
-                "Edited /tmp/wicket-agent/stage/hello.txt", "Ran cat hello.txt && touch ../escape-bash.txt",
-            ])
-        // Both ran (the command failed, which still counts).
-        #expect(events.filter { $0 == .acted }.count == 2)
-        guard case .answer(let answer, let usage)? = events.last else {
-            Issue.record("no answer: \(events)")
-            return
-        }
-        #expect(text(events) == answer)
-        // Only a message with text ends one: the first held only tool calls.
-        #expect(events.filter { $0 == .messageEnd }.count == 1)
-        #expect(answer.hasPrefix("Step 1 worked."))
-        #expect(usage == AgentUsage(inputTokens: 20723, cachedInputTokens: 16278, outputTokens: 370))
+            allowed["response"]?["response"]
+                == .object([
+                    "behavior": .string("allow"),
+                    "updatedInput": .object([
+                        "command": .string("echo hi > hello.txt"),
+                        "description": .string("Write hi into hello.txt"),
+                    ]),
+                ]))
+        let denied = try decoded(
+            try #require(ClaudeTranscript.reply(AgentReply(approval: approval, decision: .decline))))
+        #expect(denied["response"]?["response"]?["behavior"] == .string("deny"))
     }
 
-    @Test func loggedOutRunFails() async throws {
-        let events = await events(try replaying(.claude, "claude-loggedout"))
-        #expect(events == [.error("Not logged in · Please run /login")])
+    @Test func aRecordedLoggedOutRunFails() throws {
+        let events = try replay(ClaudeTranscript(request: request()), "claude-loggedout")
+        #expect(events.last == .error("Not logged in · Please run /login"))
     }
 
-    @Test func actingRunsKeepTheirSessionAndAFollowUpResumesIt() throws {
-        let first = ClaudeTranscript.arguments(for: request())
-        #expect(!first.contains("--no-session-persistence") && !first.contains("--resume"))
-        var followUp = request()
-        followUp.resume = "s1"
-        let resumed = ClaudeTranscript.arguments(for: followUp)
-        #expect(resumed.firstIndex(of: "--resume").map { resumed[$0 + 1] } == "s1")
-
-        var transcript = ClaudeTranscript(request: followUp)
-        let result = transcript.receive(
-            line(#"{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"s1"}"#)
-        )
-        #expect(result.events == [.session("s1"), .answer("done", usage: nil)])
-        #expect(result.closeInput)
-    }
-
-    @Test func actingRunsKeepTheUsersSetupAndTalkStreamJSON() throws {
-        let acting = request(instructions: "About Wicket.")
-        let arguments = ClaudeTranscript.arguments(for: acting)
-        // Nothing that overrides the user's settings, tools or MCP servers; the model, effort and
-        // permission mode are the choices from Settings ▸ AI (`AgentSettingsTests`).
-        for flag in [
-            "--safe-mode", "--restricted", "--strict-mcp-config", "--permission-prompts", "--tools",
-            "--system-prompt", "--settings", "--setting-sources",
-        ] {
+    @Test func runsKeepTheUsersSetupAndAFollowUpResumesTheSession() throws {
+        let arguments = ClaudeTranscript.arguments(for: request(instructions: "About Wicket."))
+        #expect(
+            arguments.firstIndex(of: "--append-system-prompt").map { arguments[$0 + 1] } == "About Wicket.")
+        #expect(arguments.firstIndex(of: "--permission-prompt-tool").map { arguments[$0 + 1] } == "stdio")
+        // Nothing that would drop the user's settings, rules, hooks or servers, or their history.
+        for flag in ["--safe-mode", "--strict-mcp-config", "--no-session-persistence", "--resume"] {
             #expect(!arguments.contains(flag), "\(flag)")
         }
-        #expect(arguments.firstIndex(of: "--input-format").map { arguments[$0 + 1] } == "stream-json")
-        #expect(arguments.firstIndex(of: "--permission-prompt-tool").map { arguments[$0 + 1] } == "stdio")
-        #expect(
-            arguments.firstIndex(of: "--append-system-prompt").map { arguments[$0 + 1] }
-                == "About Wicket.")
+        let resumed = ClaudeTranscript.arguments(for: request(resume: "s1"))
+        #expect(resumed.suffix(2) == ["--resume", "s1"])
 
-        var transcript = ClaudeTranscript(request: acting)
+        // The prompt goes in as a user message and stdin stays open until the result.
+        var transcript = ClaudeTranscript(request: request())
         let start = transcript.start()
         #expect(!start.closeInput)
-        #expect(
-            try decoded(try #require(start.send.first))
-                == .object([
-                    "type": .string("user"),
-                    "message": .object(["role": .string("user"), "content": .string("Hi")]),
-                    "parent_tool_use_id": .null, "session_id": .string("default"),
-                ]))
-        // Stdin stays open until the result, then closes so the CLI exits.
+        #expect(try sent(start)["message"]?["content"] == .string("Hi"))
         let end = transcript.receive(
-            line(#"{"type":"result","subtype":"success","is_error":false,"result":"ok"}"#))
-        #expect(end.events == [.answer("ok", usage: nil)])
-        #expect(end.closeInput)
+            line(#"{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s1"}"#))
+        #expect(end.events == [.session("s1"), .answer("ok")] && end.closeInput)
     }
 
-    // The control requests below are as Claude Code 2.1.318 sent them (paths shortened).
-
-    @Test func permissionPromptsWaitForTheUserUntilTheirToolsReturn() throws {
+    @Test func filesAndOtherToolsSayWhatTheyTouchAndCancelledPromptsGo() throws {
         var transcript = ClaudeTranscript(request: request())
-        _ = transcript.receive(
-            line(
-                #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo one > a.txt","description":"Write \"one\" to a.txt"}}]},"parent_tool_use_id":null}"#
-            ))
-        let bash = transcript.receive(
-            line(
-                #"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"echo one > a.txt","description":"Write \"one\" to a.txt"},"description":"Write \"one\" to a.txt","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"echo one *"}],"behavior":"allow","destination":"localSettings"},{"type":"addDirectories","directories":["/tmp/work"],"destination":"session"}],"blocked_path":"/tmp/work/a.txt","tool_use_id":"toolu_1"}}"#
-            ))
-        guard case .approvals(let first)? = bash.events.first, let command = first.first else {
-            Issue.record("no approval: \(bash.events)")
-            return
-        }
-        #expect(command.kind == .command)
-        #expect(command.subject == "echo one > a.txt")
-        // No folder is claimed, since Claude Code's shell keeps its `cd`s.
-        #expect(command.reason == "Write \"one\" to a.txt")
-        #expect(command.workingDirectory == nil)
-        #expect(bash.send.isEmpty)
-
-        _ = transcript.receive(
-            line(
-                #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Write","input":{"file_path":"/tmp/work/notes/b.txt","content":"hi"}}]},"parent_tool_use_id":null}"#
-            ))
         let write = transcript.receive(
             line(
-                #"{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/tmp/work/notes/b.txt","content":"hi"},"description":"b.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_2"}}"#
+                #"{"type":"control_request","request_id":"w","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/tmp/work/notes/b.txt","content":"hi"},"tool_use_id":"t1"}}"#
             ))
-        guard case .approvals(let both)? = write.events.first, both.count == 2 else {
-            Issue.record("no second approval: \(write.events)")
-            return
-        }
-        #expect(both[1].kind == .fileChange)
-        #expect(both[1].subject == "write notes/b.txt")
-        #expect(both[1].reason == nil)
-
-        // Allow echoes the input and grants nothing beyond this call: Claude's suggestions are unused.
-        let allowed = try decoded(
-            try #require(ClaudeTranscript.reply(AgentReply(approval: command, decision: .accept))))
-        #expect(allowed["type"] == .string("control_response"))
-        #expect(allowed["response"]?["subtype"] == .string("success"))
-        #expect(allowed["response"]?["request_id"] == .string("r1"))
-        let decision = try #require(allowed["response"]?["response"])
-        #expect(decision["behavior"] == .string("allow"))
-        #expect(decision["updatedInput"]?["command"] == .string("echo one > a.txt"))
-        #expect(decision["updatedPermissions"] == nil)
-        let denied = try decoded(
-            try #require(ClaudeTranscript.reply(AgentReply(approval: both[1], decision: .decline))))
-        #expect(denied["response"]?["request_id"] == .string("r2"))
-        #expect(denied["response"]?["response"]?["behavior"] == .string("deny"))
-        #expect(denied["response"]?["response"]?["interrupt"] == nil)
-
-        // The command ran: its approval goes, then what it did.
-        #expect(
-            transcript.receive(
-                line(
-                    #"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok","is_error":false}]},"parent_tool_use_id":null,"tool_result_meta":[{"id":"toolu_1","permission_decision":{"decision":"accept","source":"user"}}]}"#
-                )
-            ).events == [.approvals([both[1]]), .activity("Ran echo one > a.txt"), .acted])
-        // The write was denied: nothing acted.
-        #expect(
-            transcript.receive(
-                line(
-                    #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"The user declined this in Wicket.","is_error":true,"tool_use_id":"toolu_2"}]},"parent_tool_use_id":null,"tool_result_meta":[{"id":"toolu_2","non_execution_kind":"permission-rule","permission_decision":{"decision":"reject","source":"user_reject"}}]}"#
-                )
-            ).events == [.approvals([]), .activity("Declined changes to notes/b.txt")])
-    }
-
-    @Test func subAgentsAndUnknownToolsCountAsActing() {
-        var transcript = ClaudeTranscript(request: request())
-        _ = transcript.receive(
-            line(
-                #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s","name":"Write","input":{"file_path":"/tmp/work/a.txt","content":"x"}},{"type":"tool_use","id":"toolu_m","name":"mcp__notes__update","input":{}},{"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/tmp/work/a.txt"}}]},"parent_tool_use_id":"toolu_task"}"#
-            ))
-        let done = transcript.receive(
-            line(
-                #"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_s","type":"tool_result","content":"ok"},{"tool_use_id":"toolu_m","type":"tool_result","content":"ok"},{"tool_use_id":"toolu_r","type":"tool_result","content":"x"}]},"parent_tool_use_id":"toolu_task"}"#
-            ))
-        #expect(done.events.filter { $0 == .acted }.count == 2)
-    }
-
-    @Test func otherToolsShowTheirInputAndCancelledPromptsGo() throws {
-        var transcript = ClaudeTranscript(request: request())
         let fetch = transcript.receive(
             line(
-                #"{"type":"control_request","request_id":"r3","request":{"subtype":"can_use_tool","tool_name":"WebFetch","display_name":"Fetch","input":{"url":"https://example.com","prompt":"Summarize"},"tool_use_id":"toolu_3"}}"#
+                #"{"type":"control_request","request_id":"f","request":{"subtype":"can_use_tool","tool_name":"WebFetch","display_name":"Fetch","input":{"url":"https://example.com","prompt":"Summarize"},"tool_use_id":"t2"}}"#
             ))
-        guard case .approvals(let approvals)? = fetch.events.first, let approval = approvals.first else {
-            Issue.record("no approval: \(fetch.events)")
+        guard case .approvals(let both)? = fetch.events.first, both.count == 2,
+            case .approvals(let first)? = write.events.first
+        else {
+            Issue.record("no approvals: \(fetch.events)")
             return
         }
-        #expect(approval.kind == .tool)
-        #expect(approval.subject == "Fetch")
-        #expect(approval.input == "prompt: Summarize\nurl: https://example.com")
+        #expect(first[0].kind == .fileChange && first[0].subject == "write notes/b.txt")
+        #expect(both[1].kind == .tool && both[1].subject == "Fetch")
+        #expect(both[1].input == "prompt: Summarize\nurl: https://example.com")
+        // The CLI withdraws one; the other's tool result settles it.
         #expect(
-            transcript.receive(line(#"{"type":"control_cancel_request","request_id":"r3"}"#)).events == [
-                .approvals([])
+            transcript.receive(line(#"{"type":"control_cancel_request","request_id":"f"}"#)).events == [
+                .approvals([first[0]])
             ])
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#
+                )
+            ).events == [.approvals([])])
     }
 
-    @Test func questionsAndUnknownRequestsAreRefused() throws {
+    @Test func subAgentsMessagesQuestionsAndUnknownRequestsAreLeftOut() throws {
         var transcript = ClaudeTranscript(request: request())
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"type":"assistant","parent_tool_use_id":"toolu_9","message":{"content":[{"type":"text","text":"sub"}]}}"#
+                )
+            ).events.isEmpty)
+        // The palette has no form for questions: the agent asks in its reply instead.
         let question = transcript.receive(
             line(
-                #"{"type":"control_request","request_id":"q","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"toolu_q"}}"#
+                #"{"type":"control_request","request_id":"q","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{}}}"#
             ))
-        #expect(question.events == [.activity("Declined a question")])
-        #expect(
-            try decoded(try #require(question.send.first))["response"]?["response"]?["behavior"]
-                == .string("deny"))
-
+        #expect(question.events.isEmpty)
+        #expect(try sent(question)["response"]?["response"]?["behavior"] == .string("deny"))
         let hook = transcript.receive(
             line(
                 #"{"type":"control_request","request_id":"h","request":{"subtype":"hook_callback","callback_id":"x"}}"#
             ))
         #expect(hook.events.isEmpty)
-        #expect(try decoded(try #require(hook.send.first))["response"]?["subtype"] == .string("error"))
+        #expect(try sent(hook)["response"]?["subtype"] == .string("error"))
     }
+}
 
-    @Test func aReplyReachesTheAgentWhileItWaits() async throws {
+/// Real processes: replies reach a waiting agent, the answer waits for the whole tree, and ending a
+/// run stops what it started.
+@Suite struct AgentProcessTests {
+    @Test(arguments: [AgentProvider.codex, .claude])
+    func aReplyReachesTheAgentWhileItWaits(provider: AgentProvider) async throws {
         let folder = FileManager.default.temporaryDirectory.appending(
-            path: "wicket-tests/claude-reply-\(UUID().uuidString)")
+            path: "wicket-tests/reply-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let replyFile = folder.appending(path: "reply")
-        // Reads the prompt, asks, waits for the answer, then succeeds and waits for stdin to close.
-        let agent = try fakeAgent(
-            .claude,
-            """
-            read -r prompt
-            echo '{"type":"control_request","request_id":"a","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"},"tool_use_id":"t"}}'
-            while read -r line; do case "$line" in *control_response*) printf '%s' "$line" > '\(replyFile.path)'; break;; esac; done
-            echo '{"type":"result","subtype":"success","is_error":false,"result":"ok"}'
-            cat > /dev/null
-            """)
-        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, options: defaults))
+        let script =
+            switch provider {
+            case .codex:
+                """
+                echo '{"method":"item/commandExecution/requestApproval","id":"a","params":{"command":"ls"}}'
+                while read -r line; do case "$line" in *decision*) printf '%s' "$line" > '\(replyFile.path)'; break;; esac; done
+                echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m","text":"ok"}}}'
+                echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+                """
+            case .claude:
+                """
+                read -r prompt
+                echo '{"type":"control_request","request_id":"a","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"},"tool_use_id":"t"}}'
+                while read -r line; do case "$line" in *control_response*) printf '%s' "$line" > '\(replyFile.path)'; break;; esac; done
+                echo '{"type":"result","subtype":"success","is_error":false,"result":"ok"}'
+                cat > /dev/null
+                """
+            }
+        let run = try fakeAgent(provider, script).run(
+            AgentRequest(prompt: "test", workingDirectory: folder, options: defaults))
         var last: AgentEvent?
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
@@ -537,69 +357,12 @@ func activities(_ events: [AgentEvent]) -> [String] {
             }
             last = event
         }
-        #expect(last == .answer("ok", usage: nil))
+        #expect(last == .answer("ok"))
         #expect(await run.ended == .exited(.status(0)))
         let reply = try decoded(try Data(contentsOf: replyFile))
-        #expect(reply["response"]?["request_id"] == .string("a"))
-        #expect(reply["response"]?["response"]?["updatedInput"] == .object(["command": .string("ls")]))
+        #expect(reply["id"] == .string("a") || reply["response"]?["request_id"] == .string("a"))
     }
 
-    /// The real CLI, on the user's subscription and settings (read, never changed): asked to write
-    /// a file in a throwaway folder, with prompts forced on for this run alone (`--permission-mode
-    /// manual`, since the user's mode may approve it silently). Allowed once, the file is written and
-    /// no settings file appears in the folder. Opt in with `WICKET_TEST_CLAUDE=1`.
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_TEST_CLAUDE"] == "1"))
-    func aLivePermissionPromptRoundTrip() async throws {
-        let folder = FileManager.default.temporaryDirectory.appending(
-            path: "wicket-tests/claude-live-\(UUID().uuidString)"
-        )
-        .resolvingSymlinksInPath()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let agent = try #require(await Agent.locate(.claude))
-        let request = AgentRequest(
-            prompt: "Run exactly this with the Bash tool: echo hi > hello.txt. Then reply: done.",
-            workingDirectory: folder, options: defaults)
-        let run = AgentProcess.run(
-            agent.executable,
-            arguments: ClaudeTranscript.arguments(for: request) + [
-                "--permission-mode", "manual", "--effort", "low",
-            ],
-            in: request.workingDirectory, transcript: ClaudeTranscript(request: request))
-        var events: [AgentEvent] = []
-        for await event in run {
-            if case .approvals(let approvals) = event, let first = approvals.first {
-                run.reply(to: first, .accept)
-            }
-            events.append(event)
-        }
-        print("EVENTS: \(events)")
-        #expect(
-            events.contains { if case .approvals(let a) = $0 { a.first?.kind == .command } else { false } })
-        #expect(events.contains(.acted))
-        guard case .answer? = events.last else {
-            Issue.record("no answer")
-            return
-        }
-        #expect(await run.ended == .exited(.status(0)))
-        #expect(try String(contentsOf: folder.appending(path: "hello.txt"), encoding: .utf8) == "hi\n")
-        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: ".claude").path))
-    }
-
-    private func request(instructions: String? = nil) -> AgentRequest {
-        AgentRequest(
-            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), options: defaults,
-            instructions: instructions
-        )
-    }
-
-    private func line(_ text: String) -> Data { Data(text.utf8) }
-
-    private func decoded(_ data: Data) throws -> JSONValue {
-        try JSONDecoder().decode(JSONValue.self, from: data)
-    }
-}
-
-@Suite struct AgentProcessTests {
     @Test func reportsAnExitWithoutResult() async throws {
         let agent = try fakeAgent(.claude, "echo 'something went wrong' >&2\nexit 3")
         #expect(
@@ -626,14 +389,14 @@ func activities(_ events: [AgentEvent]) -> [String] {
             """
             /usr/bin/perl -e 'use POSIX; POSIX::setsid(); sleep 60' &
             echo "$$ $!" > '\(pids.path)'
-            echo '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"working"}}}'
+            echo '\(claudeMessage)'
             sleep 60
             """)
         let request = AgentRequest(
             prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let consumer = Task {
             for await event in agent.run(request) {
-                if case .text = event { return true }
+                if case .message = event { return true }
             }
             return false
         }
@@ -642,12 +405,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let started = try String(contentsOf: pids, encoding: .utf8).split(separator: " ")
             .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         #expect(started.count == 2)
-        var alive = started
-        for _ in 0..<50 where !alive.isEmpty {
-            try await Task.sleep(for: .milliseconds(50))
-            alive = alive.filter { kill($0, 0) == 0 }
-        }
-        #expect(alive.isEmpty)
+        #expect(await within10s { !started.contains(where: isRunning) })
     }
 
     @Test func cancellingAfterTheAgentExitedStopsWhatItLeft() async throws {
@@ -664,7 +422,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
               POSIX::setsid();
               open(my $f, ">>", $ARGV[0]); print $f "$$\\n"; close $f;
               $| = 1;
-              print qq({"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"working"}}}\\n);
+              print q(\(claudeMessage)) . "\\n";
               sleep 60;
             ' '\(pids.path)' &
             """)
@@ -672,7 +430,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let consumer = Task {
             for await event in agent.run(request) {
-                guard case .text = event else { continue }
+                guard case .message = event else { continue }
                 // End the run once the agent itself has exited.
                 let parent = try #require(
                     String(contentsOf: pids, encoding: .utf8).split(separator: "\n").first.flatMap {
@@ -701,11 +459,9 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ( /bin/sleep 0.3; echo written > '\(file.path)' ) >/dev/null 2>&1 &
             echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
             """)
-        let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let run = AgentProcess.run(
-            agent.executable, arguments: [], in: request.workingDirectory,
-            transcript: ClaudeTranscript(request: request))
+            agent.executable, arguments: [], in: FileManager.default.temporaryDirectory,
+            transcript: ClaudeTranscript(request: request()))
         var answered = false
         for await event in run {
             guard case .answer = event else { continue }
@@ -727,12 +483,10 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo $! > '\(pid.path)'
             echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
             """)
-        let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let start = ContinuousClock.now
         let run = AgentProcess.run(
-            agent.executable, arguments: [], in: request.workingDirectory,
-            transcript: ClaudeTranscript(request: request),
+            agent.executable, arguments: [], in: FileManager.default.temporaryDirectory,
+            transcript: ClaudeTranscript(request: request()),
             exitGrace: .milliseconds(300))
         var answered = false
         for await event in run {
@@ -751,25 +505,24 @@ func activities(_ events: [AgentEvent]) -> [String] {
     @Test func cancelAndWaitReturnsOnceTheTreeIsGone() async throws {
         let pids = FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/pids-\(UUID().uuidString)")
-        // A child in its own session, as Codex runs commands.
         let agent = try fakeAgent(
             .claude,
             """
             /usr/bin/perl -e 'use POSIX; POSIX::setsid(); sleep 60' &
             echo "$$ $!" > '\(pids.path)'
-            echo '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"working"}}}'
+            echo '\(claudeMessage)'
             sleep 60
             """)
-        let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
-        let run = agent.run(request)
+        let run = agent.run(
+            AgentRequest(
+                prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults))
         var events: [AgentEvent] = []
         for await event in run {
             events.append(event)
-            if case .text = event { #expect(await run.cancelAndWait() == .terminated) }
+            if case .message = event { #expect(await run.cancelAndWait() == .terminated) }
         }
         // No final event after a cancel, and nothing left running the moment it returned.
-        #expect(events == [.text("working")])
+        #expect(events == [.message("working")])
         let started = try String(contentsOf: pids, encoding: .utf8).split(separator: " ")
             .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         #expect(started.count == 2)

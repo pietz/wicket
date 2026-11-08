@@ -243,7 +243,6 @@ extension AppRuntime {
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] },
             instructionsFile: ExtensionAuthoring.instructionsFile, commandList: ExtensionPaths.commandList)
         answers.options = { weakRuntime?.applied?.ai[$0] ?? $0.defaultOptions }
-        answers.streamsAnswers = { weakRuntime?.applied?.ai.streamAnswers ?? false }
         let runAgent = AgentRunner(answers: answers)
         let work: [@MainActor () -> Void] = [
             {

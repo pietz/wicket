@@ -62,7 +62,7 @@ private final class Requests: Sendable {
 /// An agent that runs `body` (writing files, say) and then sends `events`, by default an answer.
 private func agent(
     _ requests: Requests,
-    events sent: [AgentEvent] = [.answer("Made it; review and enable it in Wicket.", usage: nil)],
+    events sent: [AgentEvent] = [.answer("Made it; review and enable it in Wicket.")],
     _ body: @escaping @Sendable () throws -> Void
 ) -> AgentBackend {
     AgentBackend(
@@ -180,7 +180,7 @@ private func finalDetail(
                 let script = directory.appending(path: "edited/main.sh")
                 try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
                     to: script, atomically: false, encoding: .utf8)
-            }, interval: .zero, provider: { .codex }))
+            }, provider: { .codex }))
     runner.answers.authoring = testAuthoring(extensions)
 
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
@@ -205,9 +205,11 @@ private func finalDetail(
     let made = try plain("weather")
     let runner = AgentRunner(
         answers: AnswerStream(
-            backend: agent(Requests(), events: [.text("Writing it"), .error("Claude Code was interrupted")]) {
+            backend: agent(
+                Requests(), events: [.message("Writing it"), .error("Claude Code was interrupted")]
+            ) {
                 try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
-            }, interval: .zero, provider: { .claude }))
+            }, provider: { .claude }))
     runner.answers.authoring = testAuthoring(extensions)
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
     #expect(detail.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry", "Copy Answer"])
@@ -219,7 +221,7 @@ private func finalDetail(
                 let script = directory.appending(path: "weather/main.sh")
                 try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
                     to: script, atomically: false, encoding: .utf8)
-            }, interval: .zero, provider: { .claude }))
+            }, provider: { .claude }))
     silent.answers.authoring = runner.answers.authoring
     let failure = try #require(try await finalDetail(silent, "change it"))
     #expect(failure.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry"])
@@ -227,7 +229,7 @@ private func finalDetail(
 
 @MainActor @Test func aRunCanNameItsFrame() async throws {
     let runner = AgentRunner(
-        answers: AnswerStream(backend: agent(Requests()) {}, interval: .zero, provider: { .claude }))
+        answers: AnswerStream(backend: agent(Requests()) {}, provider: { .claude }))
     let detail = try #require(
         try await finalDetail(
             runner, "Fix my Wicket extension Test in /tmp/x.\n\nIt failed Wicket's check: a long report",
@@ -358,7 +360,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
                 // Still no manifest, so the same error; but the folder changed.
                 try "echo v2".write(
                     to: directory.appending(path: "broken/main.sh"), atomically: false, encoding: .utf8)
-            }, interval: .zero, provider: { .codex }))
+            }, provider: { .codex }))
     runner.answers.authoring = testAuthoring(extensions)
     let detail = try #require(try await finalDetail(runner, "fix it"))
     #expect(detail.actions.first?.title == "Review and Enable broken")
@@ -370,7 +372,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     try FileManager.default.copyItem(
         at: try plain("earlier").folder, to: extensions.directory.appending(path: "earlier"))
     let runner = AgentRunner(
-        answers: AnswerStream(backend: agent(Requests()) {}, interval: .zero, provider: { .codex }))
+        answers: AnswerStream(backend: agent(Requests()) {}, provider: { .codex }))
     runner.answers.authoring = testAuthoring(extensions)
     let detail = try #require(try await finalDetail(runner, "what's the time?"))
     #expect(!detail.actions.contains { $0.title?.hasPrefix("Review") == true })
@@ -401,7 +403,7 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
                     events.yield(.error("No conversation found with that session ID"))
                 } else {
                     events.yield(.session(request.resume ?? "new-session"))
-                    events.yield(.answer("Fixed it.", usage: nil))
+                    events.yield(.answer("Fixed it."))
                 }
                 return .exited(.status(0))
             }
@@ -414,9 +416,9 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
     let made = try plain("weather")
     let runner = AgentRunner(
         answers: AnswerStream(
-            backend: agent(Requests(), events: [.session("s9"), .answer("Made it.", usage: nil)]) {
+            backend: agent(Requests(), events: [.session("s9"), .answer("Made it.")]) {
                 try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
-            }, interval: .zero, provider: { .claude }))
+            }, provider: { .claude }))
     runner.answers.authoring = testAuthoring(extensions)
     _ = try await finalDetail(runner, "build a weather command")
     let history = try #require(extensions.history)
@@ -438,7 +440,7 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
             session: "thread-1"),
         for: "weather")
     let requests = Requests()
-    let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(requests), interval: .zero))
+    let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(requests)))
     runner.answers.authoring = testAuthoring(extensions)
     // The conversation keeps the model it was built with.
     runner.answers.options = { _ in AgentOptions(model: "gpt-other") }
@@ -469,7 +471,7 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
 
     // None remembered: a new conversation, in the usual folder.
     let fresh = Requests()
-    let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(fresh), interval: .zero))
+    let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(fresh)))
     runner.answers.authoring = testAuthoring(extensions)
     _ = try await finalDetail(runner, text, args: args)
     #expect(fresh.all.count == 1 && fresh.last?.resume == nil)
@@ -486,7 +488,7 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
         for: "weather")
     let retried = Requests()
     let again = AgentRunner(
-        answers: AnswerStream(backend: resumingAgent(retried, resumes: false), interval: .zero))
+        answers: AnswerStream(backend: resumingAgent(retried, resumes: false)))
     again.answers.authoring = runner.answers.authoring
     let failed = try #require(try await finalDetail(again, text, args: args))
     #expect(retried.all.map(\.resume) == ["gone"])

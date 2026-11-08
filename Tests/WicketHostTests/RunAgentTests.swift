@@ -81,11 +81,8 @@ private struct Palette {
     let session: PaletteSession
     let runner: AgentRunner
 
-    /// Streaming by default, which most tests here watch; `ai.streamAnswers` is off in the app.
-    init(_ backend: AgentBackend, interval: Duration = .zero, streams: Bool = true) {
-        let answers = AnswerStream(backend: backend, interval: interval)
-        answers.streamsAnswers = { streams }
-        runner = AgentRunner(answers: answers)
+    init(_ backend: AgentBackend) {
+        runner = AgentRunner(answers: AnswerStream(backend: backend))
         let router = CommandRouter(
             builtins: [
                 Builtin(runAgent, runner: runner), Builtin(followUp, runner: runner),
@@ -133,7 +130,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     return condition()
 }
 
-@MainActor @Test func theAnswerGrowsInPlaceAndTheFinalOneReplacesIt() async throws {
+@MainActor @Test func eachWholeMessageShowsAndTheFinalAnswerReplacesThem() async throws {
     let agents = FakeAgents([.codex: .ready])
     let palette = Palette(agents.backend)
     palette.ask("capital of France?")
@@ -154,20 +151,16 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(run.request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
     #expect(run.request.prompt == "capital of France?")
 
-    // Tool use isn't shown.
-    run.continuation.yield(.activity("Ran ls *.md"))
-    try await Task.sleep(for: .milliseconds(50))
-    #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
     var text = ""
-    for delta in ["**Paris**", " is the", " capital."] {
-        text += delta
-        run.continuation.yield(.text(delta))
+    for message in ["Let me look.", "**Paris** is the capital."] {
+        text += text.isEmpty ? message : "\n\n" + message
+        run.continuation.yield(.message(message))
         #expect(await eventually { palette.detail?.markdown == text })
         #expect(palette.session.top.id == frame)
         #expect(palette.session.top.target?.actions.first == .copy(text: text, title: "Copy Answer"))
     }
-    // A final answer that isn't what streamed replaces it, so the page ends exactly on the answer.
-    run.continuation.yield(.answer("**Paris**.", usage: nil))
+    // A final answer the messages don't end with replaces them, so the page ends exactly on it.
+    run.continuation.yield(.answer("**Paris**."))
     #expect(await eventually { !palette.session.top.isLoading })
     #expect(palette.detail?.markdown == "**Paris**.")
     #expect(
@@ -184,7 +177,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let palette = Palette(agents.backend)
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.text("Hel"))
+    agents.runs[0].continuation.yield(.message("Hel"))
     agents.runs[0].continuation.yield(.error("the model is overloaded"))
     #expect(await eventually { palette.detail?.markdown.contains("incomplete") == true })
     #expect(await eventually { !palette.session.top.isLoading })
@@ -219,7 +212,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let palette = Palette(agents.backend)
     palette.ask("long story")
     #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.text("Once upon"))
+    agents.runs[0].continuation.yield(.message("Once upon"))
     #expect(await eventually { palette.detail?.markdown == "Once upon" })
     #expect(palette.session.back())
     #expect(await eventually { agents.wasEnded(0) })
@@ -276,7 +269,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.runner.answers.provider = { .codex }
     palette.ask("q1")
     #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.answer("a", usage: nil))
+    agents.runs[0].continuation.yield(.answer("a"))
     #expect(await eventually { !palette.session.top.isLoading })
     palette.session.reset()
 
@@ -292,35 +285,19 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(agents.checks == [.codex, .codex, .codex])
 }
 
-@MainActor @Test func frequentDeltasAreCoalesced() async throws {
-    let agents = FakeAgents([.codex: .ready])
-    let answers = AnswerStream(backend: agents.backend, interval: .seconds(60))
-    answers.streamsAnswers = { true }
-    let runner = AgentRunner(answers: answers)
-    let stream = runner.run(
-        Invocation(command: runAgent.id, text: "count"), retry: .never)
-    let events: [AgentEvent] = [.text("1"), .text(" 2"), .text(" 3"), .answer("1 2 3", usage: nil)]
-    let feed = Task {
-        while agents.runs.isEmpty { try await Task.sleep(for: .milliseconds(1)) }
-        for event in events { agents.runs[0].continuation.yield(event) }
-    }
-    var shown: [String] = []
-    for try await result in stream {
-        if case .show(.detail(let detail), _) = result { shown.append(detail.markdown) }
-    }
-    try await feed.value
-    // The status, the first text at once, then nothing until the interval is up: the answer ended it.
-    #expect(shown == ["_Asking ChatGPT…_", "1", "1 2 3"])
-}
-
-@MainActor @Test func aRecordedCodexAnswerThroughTheRealAdapter() async throws {
-    let agent = try replaying(.codex, "codex-answer")
+/// A recorded Codex run through the real adapter and process, its replay ignoring what it is sent.
+@MainActor @Test func aRecordedCodexRunThroughTheRealAdapter() async throws {
+    let url = try #require(
+        Bundle.module.url(forResource: "codex-build", withExtension: "jsonl", subdirectory: "Fixtures"))
+    let agent = try fakeAgent(.codex, "exec /bin/cat '\(url.path)'")
     let backend = AgentBackend(
         status: { AgentStatus(provider: $0, state: .ready) }, run: { _, request in agent.run(request) })
     let palette = Palette(backend)
-    palette.ask("What is the capital of France?")
-    #expect(await eventually { palette.detail?.markdown == "Paris" && !palette.session.top.isLoading })
-    #expect(palette.detail?.title == "What is the capital of France?")
+    palette.ask("Make hello.txt")
+    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
+    #expect(palette.detail?.title == "Make hello.txt")
+    #expect(palette.detail?.markdown.hasPrefix("I’ll create `hello.txt`") == true)
+    #expect(palette.detail?.actions.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
 }
 
 @MainActor @Test func aChosenProviderIsRecheckedAndNeverFallsBack() async throws {
@@ -329,7 +306,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.runner.answers.provider = { .claude }
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.answer("Hello!", usage: nil))
+    agents.runs[0].continuation.yield(.answer("Hello!"))
     #expect(await eventually { !palette.session.top.isLoading })
     palette.session.reset()
 
@@ -344,7 +321,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor @Test func theFinderSelectionFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
     let agents = FakeAgents([.codex: .ready])
-    let runner = AgentRunner(answers: AnswerStream(backend: agents.backend, interval: .zero))
+    let runner = AgentRunner(answers: AnswerStream(backend: agents.backend))
     let context = try #require(SummonContext(files: [URL(filePath: "/Users/me/Letters/anna.txt")]))
     var shown: [RunResult] = []
     let stream = runner.run(
@@ -406,7 +383,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await replies.next() == AgentReply(approval: files, decision: .decline))
     #expect(await eventually { palette.detail?.actions.isEmpty == true })
     run.continuation.yield(.approvals([]))
-    run.continuation.yield(.answer("Created hello.txt.", usage: nil))
+    run.continuation.yield(.answer("Created hello.txt."))
     #expect(await eventually { palette.detail?.markdown == "Created hello.txt." })
     #expect(palette.detail?.actions.first == .copy(text: "Created hello.txt.", title: "Copy Answer"))
 }
@@ -459,10 +436,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("search the web for it")
     #expect(await eventually { agents.runs.count == 1 })
     let run = try #require(agents.runs.first)
-    run.continuation.yield(.text("Let me search for that."))
-    run.continuation.yield(.activity("Searched the web"))
-    run.continuation.yield(.text("\n\nIt is 42."))
-    run.continuation.yield(.answer("It is 42.", usage: nil))
+    run.continuation.yield(.message("Let me search for that."))
+    run.continuation.yield(.message("It is 42."))
+    run.continuation.yield(.answer("It is 42."))
     #expect(await eventually { palette.detail?.actions.isEmpty == false && !palette.session.top.isLoading })
     #expect(palette.detail?.markdown == "Let me search for that.\n\nIt is 42.")
     // Copy and Paste take the final answer alone.
@@ -476,7 +452,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { agents.runs.count == 1 })
     let first = try #require(agents.runs.first)
     first.continuation.yield(.session("t1"))
-    first.continuation.yield(.answer("Made it.", usage: nil))
+    first.continuation.yield(.answer("Made it."))
     #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
     // Second, so ⌘↩ runs it.
     let actions = try #require(palette.detail?.actions)
@@ -514,7 +490,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { palette.detail?.title == "now add a readme" })
     // Its answer continues the same conversation again.
     second.continuation.yield(.session("t1"))
-    second.continuation.yield(.answer("Added README.md.", usage: nil))
+    second.continuation.yield(.answer("Added README.md."))
     #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
     #expect(palette.detail?.actions[1] == actions[1])
 }
@@ -524,7 +500,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let palette = Palette(agents.backend)
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.answer("Hi.", usage: nil))
+    agents.runs[0].continuation.yield(.answer("Hi."))
     #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
     #expect(palette.detail?.actions.map(\.title) == ["Copy Answer", "Paste Answer"])
 
@@ -532,54 +508,4 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         CommandRun(followUp, .invoked, text: "and?", args: ["conversation": .string("gone")]))
     #expect(await eventually { palette.detail?.title == "Follow Up Failed" })
     #expect(agents.runs.count == 1)
-}
-
-/// `ai.streamAnswers` off (the default): the page says the agent is working, shows each message once
-/// it is whole, still shows an approval at once, and the answer all at once.
-@MainActor @Test func withoutStreamingMessagesShowWholeAndApprovalsAtOnce() async throws {
-    let agents = FakeAgents([.codex: .ready])
-    let palette = Palette(agents.backend, streams: false)
-    palette.ask("search the web for it")
-    #expect(await eventually { agents.runs.count == 1 })
-    let run = try #require(agents.runs.first)
-    #expect(await eventually { palette.detail?.markdown == "_Asking ChatGPT…_" })
-    run.continuation.yield(.text("Let me search"))
-    run.continuation.yield(.text(" for that."))
-    // Nothing to wait for: deltas must not show, so give them time to (wrongly) arrive.
-    try await Task.sleep(for: .milliseconds(50))
-    #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
-    #expect(palette.session.top.target == nil)
-    run.continuation.yield(.messageEnd)
-    #expect(await eventually { palette.detail?.markdown == "Let me search for that." })
-
-    let approval = AgentApproval(id: .integer(0), kind: .network, subject: "example.com")
-    run.continuation.yield(.approvals([approval]))
-    #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
-    #expect(palette.detail?.markdown.hasSuffix("\n\nLet me search for that.") == true)
-    run.continuation.yield(.approvals([]))
-    // Sync on the approval leaving before checking that a delta doesn't show.
-    #expect(await eventually { palette.detail?.actions.first?.title != "Allow" })
-    run.continuation.yield(.text("\n\nIt is"))
-    try await Task.sleep(for: .milliseconds(50))
-    #expect(palette.detail?.markdown == "Let me search for that.")
-    // The answer can come without its message's end; it shows whole either way.
-    run.continuation.yield(.text(" 42."))
-    run.continuation.yield(.answer("It is 42.", usage: nil))
-    #expect(await eventually { !palette.session.top.isLoading })
-    #expect(palette.detail?.markdown == "Let me search for that.\n\nIt is 42.")
-    #expect(palette.detail?.actions.first == .copy(text: "It is 42.", title: "Copy Answer"))
-}
-
-@MainActor @Test func withoutStreamingAFailureStillKeepsWhatWasWritten() async throws {
-    let agents = FakeAgents([.codex: .ready])
-    let palette = Palette(agents.backend, streams: false)
-    palette.ask("hello")
-    #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.text("Hel"))
-    agents.runs[0].continuation.yield(.error("the model is overloaded"))
-    // The answer's frame may not be pushed yet when the run starts, so wait for the page itself.
-    #expect(
-        await eventually {
-            palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded"
-        })
 }

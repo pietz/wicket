@@ -11,10 +11,7 @@ import WicketCore
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
-    private var usage: AgentUsage?
     private var turnError: String?
-    private var messages = Set<String>()
-    private var streamed = false
     /// Approvals waiting for the user, oldest first.
     private var pending: [AgentApproval] = []
     /// File changes by item id, as "add notes.md": a file-change approval names only its item.
@@ -129,7 +126,7 @@ struct CodexTranscript: AgentTranscript {
                 subject: params["itemId"]?.string.flatMap { changes[$0] } ?? "files",
                 reason: params["reason"]?.string, grantRoot: params["grantRoot"]?.string)
         default:
-            return Self.refuse(id, method)
+            return Self.refuse(id)
         }
         pending.append(approval)
         return AgentStep(events: [.approvals(pending)])
@@ -141,50 +138,24 @@ struct CodexTranscript: AgentTranscript {
             let count = pending.count
             pending.removeAll { $0.id == params["requestId"] }
             if pending.count != count { return AgentStep(events: [.approvals(pending)]) }
-        case "item/agentMessage/delta":
-            guard let delta = params["delta"]?.string, let item = params["itemId"]?.string else { break }
-            var text = delta
-            if messages.insert(item).inserted, streamed { text = "\n\n" + text }
-            streamed = true
-            return AgentStep(events: [.text(text)])
         case "item/started":
             if let item = params["item"], item["type"]?.string == "fileChange", let id = item["id"]?.string {
                 changes[id] = changes(item)
             }
-            if let activity = params["item"].flatMap(Self.activity(started:)) {
-                return AgentStep(events: [.activity(activity)])
-            }
         case "item/completed":
-            guard let item = params["item"] else { break }
-            if item["type"]?.string == "agentMessage", let text = item["text"]?.string,
-                item["phase"]?.string != "commentary"
-            {
-                answer = text
-            }
-            if item["type"]?.string == "agentMessage" { return AgentStep(events: [.messageEnd]) }
-            if let activity = activity(completed: item) {
-                return AgentStep(events: [.activity(activity)] + (Self.acted(item) ? [.acted] : []))
-            }
-        case "thread/tokenUsage/updated":
-            if let total = params["tokenUsage"]?["total"] {
-                usage = AgentUsage(
-                    inputTokens: total["inputTokens"]?.integer ?? 0,
-                    cachedInputTokens: total["cachedInputTokens"]?.integer ?? 0,
-                    outputTokens: total["outputTokens"]?.integer ?? 0)
-            }
+            guard let item = params["item"], item["type"]?.string == "agentMessage",
+                let text = item["text"]?.string, !text.isEmpty
+            else { break }
+            if item["phase"]?.string != "commentary" { answer = text }
+            return AgentStep(events: [.message(text)])
         case "error":
-            let message = params["error"]?["message"]?.string
-            // Retries ("Reconnecting... 2/5") can take many seconds, so they are shown.
-            guard params["willRetry"] == .bool(true) else {
-                turnError = message
-                break
-            }
-            if let message { return AgentStep(events: [.activity(message)]) }
+            // Retries ("Reconnecting... 2/5") end in another error or the answer.
+            if params["willRetry"] != .bool(true) { turnError = params["error"]?["message"]?.string }
         case "turn/completed":
             let turn = params["turn"] ?? .null
             switch turn["status"]?.string {
             case "completed":
-                return AgentStep(events: [.answer(answer ?? "", usage: usage)])
+                return AgentStep(events: [.answer(answer ?? "")])
             case "interrupted":
                 return AgentStep(events: [.error("Codex interrupted the turn")])
             default:
@@ -196,46 +167,6 @@ struct CodexTranscript: AgentTranscript {
             break
         }
         return AgentStep()
-    }
-
-    /// A summary for tool calls worth showing when they start.
-    private static func activity(started item: JSONValue) -> String? {
-        switch item["type"]?.string {
-        case "webSearch": return "Searched the web"
-        case "mcpToolCall":
-            return "Used \(item["server"]?.string ?? "?").\(item["tool"]?.string ?? "?")"
-        default: return nil
-        }
-    }
-
-    /// A summary for commands and file changes once done: only then is it known whether they ran.
-    private func activity(completed item: JSONValue) -> String? {
-        let declined = item["status"]?.string == "declined"
-        switch item["type"]?.string {
-        case "commandExecution":
-            let command = summarized(Self.command(item) ?? "")
-            return declined ? "Declined " + command : "Ran " + command
-        case "fileChange":
-            let names = (item["changes"]?.array ?? []).compactMap { $0["path"]?.string }.map(request.shown)
-            guard !names.isEmpty, declined || item["status"]?.string == "completed" else { return nil }
-            return (declined ? "Declined changes to " : "Edited ") + names.joined(separator: ", ")
-        default: return nil
-        }
-    }
-
-    /// Whether a completed item ran a command or changed files (declined and failed ones count only
-    /// if they ran: a failed command did).
-    private static func acted(_ item: JSONValue) -> Bool {
-        switch (item["type"]?.string, item["status"]?.string) {
-        case ("commandExecution", let status): status != "declined"
-        case ("fileChange", "completed"): true
-        default: false
-        }
-    }
-
-    /// A command item's or approval's command, without the `zsh -lc` wrapper `commandActions` drops.
-    private static func command(_ value: JSONValue) -> String? {
-        value["commandActions"]?.array?.first?["command"]?.string ?? value["command"]?.string
     }
 
     /// An approval's whole command, as it will run: `commandActions` can hold only its first part.
@@ -262,22 +193,16 @@ struct CodexTranscript: AgentTranscript {
     }
 
     /// Answers a server request with an error, which Codex treats as declined.
-    private static func refuse(_ id: JSONValue, _ method: String) -> AgentStep {
+    private static func refuse(_ id: JSONValue) -> AgentStep {
         let error = JSONValue.object([
             "code": .integer(-32601), "message": .string("Wicket does not grant requests from the agent"),
         ])
-        return AgentStep(events: [.activity("Declined \(method)")], send: [line(["id": id, "error": error])])
+        return AgentStep(send: [line(["id": id, "error": error])])
     }
 
     private static func line(_ object: [String: JSONValue]) -> Data {
         Data((JSONValue.object(object).json + "\n").utf8)
     }
-}
-
-/// A command shortened to one line of about 80 characters.
-func summarized(_ command: String) -> String {
-    let line = command.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-    return line.count > 80 ? line.prefix(79) + "…" : line
 }
 
 extension JSONValue {

@@ -49,27 +49,6 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
     for field in policyFields { #expect(turn?[field] == nil, "\(field)") }
 }
 
-/// A resumed thread keeps the policy it started with unless thread/resume sets one, so a resume
-/// reads the configuration first and sets the policy configured now (verified with 0.167).
-@Test func codexResumesWithThePolicyConfiguredNow() throws {
-    let request = AgentRequest(
-        prompt: "And now?", workingDirectory: folder, options: AgentProvider.codex.defaultOptions,
-        resume: "t1")
-    var transcript = CodexTranscript(request: request)
-    let read = try decoded(transcript.start().send[2])
-    #expect(read["method"] == .string("config/read"))
-    let step = transcript.receive(
-        line(
-            #"{"id":2,"result":{"config":{"approval_policy":"on-request","sandbox_mode":"read-only","approvals_reviewer":"auto_review"}}}"#
-        ))
-    let resume = try decoded(try #require(step.send.first))
-    #expect(resume["method"] == .string("thread/resume"))
-    #expect(resume["params"]?["threadId"] == .string("t1"))
-    #expect(resume["params"]?["approvalPolicy"] == .string("on-request"))
-    #expect(resume["params"]?["sandbox"] == .string("read-only"))
-    #expect(resume["params"]?["approvalsReviewer"] == .string("auto_review"))
-}
-
 // MARK: Claude Code
 
 /// `--model sonnet` runs the latest Sonnet (verified with 2.1.319: its init reports claude-sonnet-5-5).
@@ -108,7 +87,7 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
                 return .exited(.status(0))
             }
         })
-    let runner = AgentRunner(answers: AnswerStream(backend: backend, interval: .zero, provider: { .codex }))
+    let runner = AgentRunner(answers: AnswerStream(backend: backend, provider: { .codex }))
     runner.answers.options = { _ in AgentOptions(model: "gpt-6-astra", effort: "max") }
     var details: [Detail] = []
     for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt"), retry: .never) {
