@@ -122,24 +122,48 @@ private let claudeMessage =
         #expect(turn["method"] == .string("turn/start"))
         #expect(turn["params"]?["threadId"] == .string("t1"))
         #expect(turn["params"]?["input"]?.array?.first?["text"] == .string("Hi"))
+        #expect(turn["params"]?["approvalPolicy"] == nil)  // A new thread takes the configuration itself.
     }
 
-    @Test func aFollowUpResumesItsThreadWithThePolicyConfiguredNow() throws {
+    // A thread started under a permissive policy keeps it on thread/resume, and config/read has
+    // only nulls once the setting is removed. An ephemeral thread reports what applies now.
+    @Test func aFollowUpResumesItsThreadUnderThePolicyThatAppliesNow() throws {
         var transcript = CodexTranscript(request: request(instructions: "Be brief.", resume: "t1"))
-        #expect(try sent(transcript.start(), 2)["method"] == .string("config/read"))
-        let read = transcript.receive(
-            line(#"{"id":2,"result":{"config":{"approval_policy":"never","sandbox_mode":"read-only"}}}"#))
-        let resume = try sent(read)
+        let probe = try sent(transcript.start(), 2)
+        #expect(probe["method"] == .string("thread/start"))
+        #expect(probe["params"] == .object(["cwd": .string("/tmp/work"), "ephemeral": .bool(true)]))
+        let current = transcript.receive(
+            line(
+                #"{"id":2,"result":{"thread":{"id":"e1"},"approvalPolicy":"on-request","sandbox":{"type":"readOnly","networkAccess":false},"approvalsReviewer":"user"}}"#
+            ))
+        #expect(current.events.isEmpty)
+        let resume = try sent(current)
         #expect(resume["method"] == .string("thread/resume"))
         #expect(
             resume["params"]
                 == .object([
                     "threadId": .string("t1"), "cwd": .string("/tmp/work"), "excludeTurns": .bool(true),
-                    "developerInstructions": .string("Be brief."), "approvalPolicy": .string("never"),
-                    "sandbox": .string("read-only"),
+                    "developerInstructions": .string("Be brief."),
                 ]))
-        let resumed = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
+        // The resumed thread reports its saved policy; the turn overrides it.
+        let resumed = transcript.receive(
+            line(
+                #"{"id":3,"result":{"thread":{"id":"t1"},"approvalPolicy":"never","sandbox":{"type":"dangerFullAccess"}}}"#
+            ))
         #expect(resumed.events == [.session("t1")])
+        let turn = try sent(resumed)["params"]
+        #expect(turn?["approvalPolicy"] == .string("on-request"))
+        #expect(
+            turn?["sandboxPolicy"] == .object(["type": .string("readOnly"), "networkAccess": .bool(false)]))
+        #expect(turn?["approvalsReviewer"] == .string("user"))
+    }
+
+    @Test func aResumeWithoutAReportedPolicyFails() throws {
+        var transcript = CodexTranscript(request: request(resume: "t1"))
+        _ = transcript.start()
+        let current = transcript.receive(line(#"{"id":2,"result":{"thread":{"id":"e1"}}}"#))
+        #expect(current.send.isEmpty)
+        #expect(current.events == [.error("Codex didn't say which permission policy applies")])
     }
 
     @Test func approvalsSayWhereAndWhatUntilResolved() throws {

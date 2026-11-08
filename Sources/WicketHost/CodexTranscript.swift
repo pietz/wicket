@@ -6,8 +6,9 @@ import WicketCore
 /// sandbox, reviewer, features and MCP servers are the user's own Codex configuration; command,
 /// network and file-change approvals become `AgentEvent.approvals`, answered through `reply(_:)`.
 /// Threads stay in Codex's history, so Follow Up continues one with thread/resume. A resumed thread
-/// keeps the policy it started with, so a resume first reads the configuration (config/read) and
-/// sets the policy configured now (verified with 0.167).
+/// keeps the policy it started with, and config/read can't say what applies to an unset key (the
+/// default depends on the folder's trust), so a resume first starts an ephemeral thread, which
+/// reports the policy a new thread gets now, and runs its turn under that (verified with 0.167).
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
@@ -16,6 +17,8 @@ struct CodexTranscript: AgentTranscript {
     private var pending: [AgentApproval] = []
     /// File changes by item id, as "add notes.md": a file-change approval names only its item.
     private var changes: [String: String] = [:]
+    /// On a resume, the policy configured now, which its turn sets.
+    private var policy: [String: JSONValue] = [:]
 
     init(request: AgentRequest) {
         self.request = request
@@ -23,7 +26,7 @@ struct CodexTranscript: AgentTranscript {
 
     private enum ID: Int {
         case initialize = 1
-        case readConfig, startThread, startTurn
+        case currentPolicy, startThread, startTurn
     }
 
     mutating func start() -> AgentStep {
@@ -33,8 +36,10 @@ struct CodexTranscript: AgentTranscript {
                 ["clientInfo": .object(["name": .string("wicket"), "version": .string("1")])]),
             Self.line(["method": .string("initialized")]),
             request.resume == nil
-                ? startThread(config: .null)
-                : Self.request(.readConfig, "config/read", ["cwd": .string(request.workingDirectory.path)]),
+                ? startThread()
+                : Self.request(
+                    .currentPolicy, "thread/start",
+                    ["cwd": .string(request.workingDirectory.path), "ephemeral": .bool(true)]),
         ])
     }
 
@@ -61,15 +66,19 @@ struct CodexTranscript: AgentTranscript {
         return response(id, message["result"] ?? .null)
     }
 
-    private func response(_ id: ID, _ result: JSONValue) -> AgentStep {
+    private mutating func response(_ id: ID, _ result: JSONValue) -> AgentStep {
         switch id {
-        case .readConfig:
-            return AgentStep(send: [startThread(config: result["config"] ?? .null)])
+        case .currentPolicy:
+            guard let approval = result["approvalPolicy"], let sandbox = result["sandbox"],
+                let reviewer = result["approvalsReviewer"]
+            else { return AgentStep(events: [.error("Codex didn't say which permission policy applies")]) }
+            policy = ["approvalPolicy": approval, "sandboxPolicy": sandbox, "approvalsReviewer": reviewer]
+            return AgentStep(send: [startThread()])
         case .startThread:
             guard let thread = result["thread"]?["id"] else {
                 return AgentStep(events: [.error("Codex started no thread")])
             }
-            var params = Self.turnSettings(request.options)
+            var params = Self.turnSettings(request.options).merging(policy) { $1 }
             params["threadId"] = thread
             params["input"] = .array([.object(["type": .string("text"), "text": .string(request.prompt)])])
             return AgentStep(
@@ -91,16 +100,13 @@ struct CodexTranscript: AgentTranscript {
 
     /// thread/start: a thread in the working directory, kept in Codex's history, with Wicket's
     /// instructions. Resuming sends thread/resume instead, with the instructions again, none of its
-    /// old turns, and the `config`'s policy.
-    private func startThread(config: JSONValue) -> Data {
+    /// old turns.
+    private func startThread() -> Data {
         var params: [String: JSONValue] = ["cwd": .string(request.workingDirectory.path)]
         params["developerInstructions"] = request.instructions.map(JSONValue.string)
         guard let thread = request.resume else { return Self.request(.startThread, "thread/start", params) }
         params["threadId"] = .string(thread)
         params["excludeTurns"] = .bool(true)
-        params["approvalPolicy"] = config["approval_policy"]
-        params["sandbox"] = config["sandbox_mode"]
-        params["approvalsReviewer"] = config["approvals_reviewer"]
         return Self.request(.startThread, "thread/resume", params)
     }
 
