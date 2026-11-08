@@ -25,6 +25,8 @@ final class PaletteModel {
             logQuery(since: start)
         }
     }
+    /// The text size of pages (details, Run Agent's answer), from settings.
+    var textSize = TextSize.medium
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
     /// The action panel (⌘K), when open. One optional, so at most one panel exists.

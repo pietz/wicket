@@ -1,5 +1,21 @@
 import Foundation
 
+/// The steps of `Settings.textSize`, how large a page's text is. Small is the original look; each
+/// step is two points more body text.
+public enum TextSize: String, CaseIterable, Sendable {
+    case small, medium, large, larger
+
+    /// The body text in points; headings, code and labels keep their proportion to it.
+    public var bodySize: Double {
+        switch self {
+        case .small: 13
+        case .medium: 15
+        case .large: 17
+        case .larger: 19
+        }
+    }
+}
+
 /// User settings from `settings.json` in the config directory, editable by people and agents.
 /// Every field is optional in the file, and unknown fields are ignored, so files written for newer
 /// builds still load.
@@ -13,6 +29,8 @@ public struct Settings: Equatable, Sendable {
     /// Whether Wicket shows its icon in the menu bar. A way back in, not a permission, so the file
     /// may set it.
     public var showInMenuBar = true
+    /// How large a page's text is: a detail, Run Agent's answer.
+    public var textSize = TextSize.medium
     public var ai = AI()
     /// The `webSearch` object: where Search the Web goes.
     public var webSearch = WebSearch()
@@ -261,7 +279,7 @@ extension Settings {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, showInMenuBar, ai, webSearch, commands, features
+        case hotkey, paletteWidth, showInMenuBar, textSize, ai, webSearch, commands, features
     }
 
     private enum WebSearchKeys: String, CodingKey {
@@ -303,6 +321,13 @@ extension Settings: Codable {
                 showInMenuBar = show
             } else {
                 ignored.append("showInMenuBar must be true or false; showing the menu bar icon")
+            }
+        }
+        if container.contains(.textSize), (try? container.decodeNil(forKey: .textSize)) != true {
+            if let size = (try? container.decode(String.self, forKey: .textSize)).flatMap(TextSize.init) {
+                textSize = size
+            } else {
+                ignored.append("textSize must be small, medium, large or larger; using medium")
             }
         }
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
@@ -506,6 +531,7 @@ extension Settings: Codable {
         try container.encode(paletteWidth, forKey: .paletteWidth)
         // Only when hidden, so a new file stays minimal and `update` removes it when shown again.
         if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
+        if textSize != .medium { try container.encode(textSize.rawValue, forKey: .textSize) }
         // Only what is chosen, so a new file stays minimal; `update` removes a field set back to the
         // provider's default (and the object once nothing is left in it).
         if ai != AI() {

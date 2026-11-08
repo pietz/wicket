@@ -149,6 +149,7 @@ final class AppRuntime {
         let previous = applied
         applied = settings
         palette?.width = CGFloat(settings.paletteWidth)
+        model.textSize = settings.textSize
 
         let changes = registry.changes
         registry.setDisabledFeatures(settings.disabledFeatures)

@@ -10,6 +10,7 @@ import WicketCore
 struct DetailView: View {
     static let metadataWidth: CGFloat = 180
     let detail: Detail
+    let textSize: TextSize
     let onMeasure: (CGFloat) -> Void
     @State private var pageHeight: CGFloat = 0
     @State private var metadataHeight: CGFloat = 0
@@ -17,7 +18,7 @@ struct DetailView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
-                MarkdownView(blocks: MarkdownBlock.parse(detail.markdown))
+                MarkdownView(blocks: MarkdownBlock.parse(detail.markdown), textSize: textSize)
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .onGeometryChange(for: CGFloat.self, of: \.size.height) { pageHeight = $0 }
@@ -29,10 +30,10 @@ struct DetailView: View {
                         ForEach(Array(detail.metadata.enumerated()), id: \.offset) { _, entry in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(entry.label)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: textSize.points(11)))
                                     .foregroundStyle(.secondary)
                                 Text(entry.value)
-                                    .font(.system(size: 13))
+                                    .font(.system(size: textSize.points(13)))
                             }
                         }
                     }
@@ -54,6 +55,7 @@ struct DetailView: View {
 /// Markdown blocks, each drawn on its own: `Text` keeps the inline styles (emphasis, code, links).
 struct MarkdownView: View {
     let blocks: [MarkdownBlock]
+    let textSize: TextSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -62,7 +64,7 @@ struct MarkdownView: View {
                     .padding(.top, index == 0 ? 0 : spacing(before: index))
             }
         }
-        .font(.system(size: 13))
+        .font(.system(size: textSize.points(13)))
     }
 
     /// List items sit close together; other blocks get a paragraph's gap.
@@ -77,7 +79,9 @@ struct MarkdownView: View {
             Text(text)
         case .heading(let level, let text):
             Text(text)
-                .font(.system(size: level == 1 ? 20 : level == 2 ? 16 : 14, weight: .semibold))
+                .font(
+                    .system(size: textSize.points(level == 1 ? 20 : level == 2 ? 16 : 14), weight: .semibold)
+                )
                 .padding(.top, 4)
         case .listItem(let marker, let depth, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -89,7 +93,7 @@ struct MarkdownView: View {
             .padding(.leading, CGFloat(depth) * 18)
         case .code(let code):
             Text(code)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: textSize.points(12), design: .monospaced))
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.primary.opacity(0.06), in: .rect(cornerRadius: 8, style: .continuous))
@@ -114,5 +118,12 @@ struct MarkdownView: View {
         case .rule:
             Divider()
         }
+    }
+}
+
+extension TextSize {
+    /// A size designed for small text (body 13), scaled to this step's body.
+    func points(_ small: CGFloat) -> CGFloat {
+        (small * bodySize / TextSize.small.bodySize).rounded()
     }
 }

@@ -314,6 +314,38 @@ func showInMenuBarFallsBackAlone(json: String, show: Bool, ignored: Bool) throws
     #expect(try read(url) == "{\n  \"hotkey\" : \"cmd+k\"\n}\n")
 }
 
+@Test(arguments: [
+    (#"{}"#, TextSize.medium, false),
+    (#"{"textSize": "small"}"#, .small, false),
+    (#"{"textSize": "larger"}"#, .larger, false),
+    (#"{"textSize": null}"#, .medium, false),
+    (#"{"textSize": "huge"}"#, .medium, true),
+    (#"{"textSize": 15}"#, .medium, true),
+])
+func textSizeFallsBackAlone(json: String, size: TextSize, ignored: Bool) throws {
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+    #expect(settings.textSize == size)
+    #expect(
+        settings.ignored == (ignored ? ["textSize must be small, medium, large or larger; using medium"] : [])
+    )
+}
+
+/// Small is the original look (body 13); each step adds two points.
+@Test func textSizeSteps() {
+    #expect(TextSize.allCases.map(\.bodySize) == [13, 15, 17, 19])
+}
+
+/// A non-default size is written; the default removes the field, so the file stays minimal.
+@Test func updateWritesTextSizeOnlyWhenChanged() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"hotkey": "cmd+k"}"#, to: url)
+    try Settings.update(at: url) { $0.textSize = .large }
+    #expect(try read(url).contains(#""textSize" : "large""#))
+    #expect(try Settings.load(from: url).textSize == .large)
+    try Settings.update(at: url) { $0.textSize = .medium }
+    #expect(try read(url) == "{\n  \"hotkey\" : \"cmd+k\"\n}\n")
+}
+
 @Test func editionFollowsTheBundleIdentifier() {
     #expect(Edition(bundleIdentifier: "app.wicket.Wicket") == .release)
     #expect(Edition(bundleIdentifier: "app.wicket.Wicket.dev") == .dev)

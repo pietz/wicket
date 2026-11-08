@@ -128,7 +128,7 @@ Save as Command is outside execution: `SavePromptRunner` (the hidden `builtin:sa
 
 **App runtime.** `AppDelegate` only starts `AppRuntime` (WicketApp), which composes the app (`AppRuntime.live()`: the sources, the registry, the palette model and window, the settings window, the menu bar icon) and applies settings.json. Every reload goes through `apply(Settings)`, one snapshot in an order that keeps what depends on it coherent:
 
-1. the values read on use: the palette's width (next summon), the AI provider (next answer);
+1. the values read on use: the palette's width (next summon), the pages' text size (`PaletteModel.textSize`, which `DetailView` scales every font of the markdown and metadata by: `TextSize.points` maps a size designed for body 13 to the step's body, so proportions stay), the AI provider (next answer);
 2. the registry: the built-ins of features that are off (`setDisabledFeatures`) and the aliases (`setAliases`);
 3. if the registry changed (`CommandRegistry.changes`), the runs of commands no longer in it stop (`PaletteSession.stopCommands(where:)`: an opening is cancelled, the lowest frame running one is popped with everything above it);
 4. the root's sources (`setSources`, which searches again), else, if the registry changed, one fresh root search, so a new alias or a feature turned off shows on screen at once;

@@ -526,6 +526,16 @@ private func addHello(_ h: Harness) async throws {
     #expect(h.menuBar.updates.last?.hotkey == shortcut("cmd+k"))
 }
 
+/// Pages take the text size from settings.json live.
+@MainActor @Test func textSizeFollowsSettings() throws {
+    let h = try Harness()
+    #expect(h.runtime.model.textSize == .medium)
+    try h.change(#"{"textSize": "larger"}"#)
+    #expect(h.runtime.model.textSize == .larger)
+    try h.change(#"{}"#)
+    #expect(h.runtime.model.textSize == .medium)
+}
+
 /// The menu shows the hotkey as a key equivalent: the key as AppKit spells it, Carbon's modifiers
 /// as AppKit's.
 @Test func shortcutAsMenuKeyEquivalent() throws {

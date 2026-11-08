@@ -290,7 +290,7 @@ private struct FrameContent: View {
         case .screen(let frame):
             switch frame.screen {
             case .answer, .list: ResultsView(model: model, onRun: onRun)
-            case .detail(let detail): DetailView(detail: detail, onMeasure: measure)
+            case .detail(let detail): DetailView(detail: detail, textSize: model.textSize, onMeasure: measure)
             case nil: Color.clear
             }
         }

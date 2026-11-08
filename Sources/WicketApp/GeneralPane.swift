@@ -2,7 +2,7 @@ import ServiceManagement
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ General: the hotkey, the palette's width, launch at login, the menu bar icon, updates, the
+/// Settings ▸ General: the hotkey, the palette's width and text size, launch at login, the menu bar icon, updates, the
 /// settings file and the extensions folder.
 struct GeneralPane: View {
     let store: SettingsStore
@@ -53,6 +53,11 @@ struct GeneralPane: View {
                     label: { Text("Palette width") },
                     minimumValueLabel: { Text("Narrow") },
                     maximumValueLabel: { Text("Wide") })
+                Picker("Text size", selection: textSize) {
+                    ForEach(TextSize.allCases, id: \.self) { size in
+                        Text(size.rawValue.capitalized)
+                    }
+                }
             }
             Section {
                 Toggle("Launch at login", isOn: launchAtLogin)
@@ -125,6 +130,14 @@ struct GeneralPane: View {
             width = newWidth
             // A failed write never reaches the file, so the slider goes back to what is applied.
             if !perform({ try store.update { $0.paletteWidth = newWidth } }) { width = nil }
+        }
+    }
+
+    private var textSize: Binding<TextSize> {
+        Binding {
+            store.settings.textSize
+        } set: { size in
+            perform { try store.update { $0.textSize = size } }
         }
     }
 
