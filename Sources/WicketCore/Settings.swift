@@ -2,7 +2,7 @@ import Foundation
 
 /// The steps of `Settings.textSize`, how large a page's text is. Small is the original look; each
 /// step is two points more body text.
-public enum TextSize: String, CaseIterable, Sendable {
+public enum TextSize: String, CaseIterable, Sendable, Codable {
     case small, medium, large, larger
 
     /// The body text in points; headings, code and labels keep their proportion to it.
@@ -192,40 +192,23 @@ extension Settings: Codable {
         if container.contains(.hotkey), (try? container.decodeNil(forKey: .hotkey)) == false {
             decodeHotkey(container)
         }
-        if container.contains(.paletteWidth) {
-            let width = try? container.decode(Double.self, forKey: .paletteWidth)
-            if let width, Self.paletteWidths.contains(width) {
-                paletteWidth = width
-            } else {
-                let range = Self.paletteWidths
-                ignored.append(
-                    "paletteWidth must be a number from \(Int(range.lowerBound)) to \(Int(range.upperBound)); "
-                        + "using \(Int(paletteWidth))")
-            }
-        }
-        if container.contains(.showInMenuBar), (try? container.decodeNil(forKey: .showInMenuBar)) != true {
-            if let show = try? container.decode(Bool.self, forKey: .showInMenuBar) {
-                showInMenuBar = show
-            } else {
-                ignored.append("showInMenuBar must be true or false; showing the menu bar icon")
-            }
-        }
-        if container.contains(.showOnlineContent),
-            (try? container.decodeNil(forKey: .showOnlineContent)) != true
-        {
-            if let show = try? container.decode(Bool.self, forKey: .showOnlineContent) {
-                showOnlineContent = show
-            } else {
-                ignored.append("showOnlineContent must be true or false; showing online content")
-            }
-        }
-        if container.contains(.textSize), (try? container.decodeNil(forKey: .textSize)) != true {
-            if let size = (try? container.decode(String.self, forKey: .textSize)).flatMap(TextSize.init) {
-                textSize = size
-            } else {
-                ignored.append("textSize must be small, medium, large or larger; using medium")
-            }
-        }
+        let range = Self.paletteWidths
+        paletteWidth =
+            field(
+                container, .paletteWidth, valid: range.contains, nullWarns: true,
+                "paletteWidth must be a number from \(Int(range.lowerBound)) to \(Int(range.upperBound)); "
+                    + "using \(Int(paletteWidth))") ?? paletteWidth
+        showInMenuBar =
+            field(container, .showInMenuBar, "showInMenuBar must be true or false; showing the menu bar icon")
+            ?? showInMenuBar
+        showOnlineContent =
+            field(
+                container, .showOnlineContent,
+                "showOnlineContent must be true or false; showing online content")
+            ?? showOnlineContent
+        textSize =
+            field(container, .textSize, "textSize must be small, medium, large or larger; using medium")
+            ?? textSize
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
         }
@@ -247,6 +230,21 @@ extension Settings: Codable {
         }
     }
 
+    /// The valid value the file gives `key`, else nil for the default. Absent or null (unless
+    /// `nullWarns`) is the default silently; anything else that doesn't decode or isn't `valid` is
+    /// ignored on its own with `warning`, so a wrong cosmetic value never costs the whole file.
+    private mutating func field<Key: CodingKey, Value: Decodable>(
+        _ object: KeyedDecodingContainer<Key>, _ key: Key, valid: (Value) -> Bool = { _ in true },
+        nullWarns: Bool = false, _ warning: String
+    ) -> Value? {
+        guard object.contains(key), nullWarns || (try? object.decodeNil(forKey: key)) != true else {
+            return nil
+        }
+        if let value = try? object.decode(Value.self, forKey: key), valid(value) { return value }
+        ignored.append(warning)
+        return nil
+    }
+
     /// A decoding error's message without its coding path.
     private static func reason(_ error: any Error) -> String {
         guard let error = error as? DecodingError else { return String(describing: error) }
@@ -265,22 +263,13 @@ extension Settings: Codable {
             ignored.append("ai must be an object; using defaults")
             return
         }
-        if ai.contains(.enabled), (try? ai.decodeNil(forKey: .enabled)) != true {
-            if let enabled = try? ai.decode(Bool.self, forKey: .enabled) {
-                self.ai.enabled = enabled
-            } else {
-                ignored.append("ai.enabled must be true or false; AI stays on")
-            }
-        }
+        self.ai.enabled =
+            field(ai, .enabled, "ai.enabled must be true or false; AI stays on") ?? self.ai.enabled
         // Null, like a missing field, means none chosen.
-        if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false {
-            if let provider = try? ai.decode(AgentProvider.self, forKey: .provider) {
-                self.ai.provider = provider
-            } else {
-                let names = AgentProvider.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
-                ignored.append("ai.provider must be \(names); using the first one that's ready")
-            }
-        }
+        let names = AgentProvider.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
+        self.ai.provider =
+            field(ai, .provider, "ai.provider must be \(names); using the first one that's ready")
+            ?? self.ai.provider
         for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)]
         where ai.contains(key) && (try? ai.decodeNil(forKey: key)) != true {
             decodeAgent(
@@ -296,25 +285,16 @@ extension Settings: Codable {
             ignored.append("ai.\(key) must be an object; using the defaults")
             return
         }
-        for field in [AgentKeys.model, .effort] where object.contains(field) {
-            if (try? object.decodeNil(forKey: field)) == true { continue }
-            guard let value = try? object.decode(String.self, forKey: field), AgentOptions.isValidValue(value)
-            else {
-                ignored.append(
-                    "ai.\(key).\(field.stringValue) must be one word; using the default")
-                continue
-            }
-            if field == .model { ai[provider].model = value } else { ai[provider].effort = value }
-        }
-        if object.contains(.speed), (try? object.decodeNil(forKey: .speed)) == false {
-            if let name = try? object.decode(String.self, forKey: .speed),
-                let speed = AgentSpeed(rawValue: name)
-            {
-                ai[provider].speed = speed
-            } else {
-                ignored.append("ai.\(key).speed must be \"regular\" or \"fast\"; using regular")
-            }
-        }
+        let valid = AgentOptions.isValidValue
+        ai[provider].model =
+            field(object, .model, valid: valid, "ai.\(key).model must be one word; using the default")
+            ?? ai[provider].model
+        ai[provider].effort =
+            field(object, .effort, valid: valid, "ai.\(key).effort must be one word; using the default")
+            ?? ai[provider].effort
+        ai[provider].speed =
+            field(object, .speed, "ai.\(key).speed must be \"regular\" or \"fast\"; using regular")
+            ?? ai[provider].speed
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -323,7 +303,7 @@ extension Settings: Codable {
         try container.encode(paletteWidth, forKey: .paletteWidth)
         // Only when hidden, so a new file stays minimal and `update` removes it when shown again.
         if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
-        if textSize != .medium { try container.encode(textSize.rawValue, forKey: .textSize) }
+        if textSize != .medium { try container.encode(textSize, forKey: .textSize) }
         if !showOnlineContent { try container.encode(false, forKey: .showOnlineContent) }
         // Only what is chosen, so a new file stays minimal; `update` removes a field set back to the
         // provider's default (and the object once nothing is left in it).
@@ -338,9 +318,7 @@ extension Settings: Codable {
                 var fields = nested.nestedContainer(keyedBy: AgentKeys.self, forKey: key)
                 if options.model != defaults.model { try fields.encode(options.model, forKey: .model) }
                 if options.effort != defaults.effort { try fields.encode(options.effort, forKey: .effort) }
-                if options.speed != defaults.speed {
-                    try fields.encode(options.speed.rawValue, forKey: .speed)
-                }
+                if options.speed != defaults.speed { try fields.encode(options.speed, forKey: .speed) }
             }
         }
     }
