@@ -98,6 +98,27 @@ public struct Listing: Sendable, Hashable, ExpressibleByArrayLiteral {
 
     /// Every row, in order, sections one after another.
     public var items: [Item] { sections.flatMap(\.items) }
+
+    /// The section title to draw above each of `rows` (the rows on screen, which a search may have
+    /// filtered), nil where none goes: above the first shown row of each titled section. Only while
+    /// the rows keep the sections' order: a search that ranks them across sections draws no titles,
+    /// since a title would then head rows that aren't its own.
+    public func headerTitles(for rows: [Item]) -> [String?] {
+        let none = [String?](repeating: nil, count: rows.count)
+        guard sections.contains(where: { $0.title != nil }) else { return none }
+        var sectionOf: [String: Int] = [:]
+        for (index, section) in sections.enumerated() {
+            for item in section.items where sectionOf[item.id] == nil { sectionOf[item.id] = index }
+        }
+        var titles = none
+        var previous = -1
+        for (row, item) in rows.enumerated() {
+            guard let section = sectionOf[item.id], section >= previous else { return none }
+            if section != previous { titles[row] = sections[section].title }
+            previous = section
+        }
+        return titles
+    }
 }
 
 /// What a frame above the root shows: a command's latest content, or a page pushed by a `detail`

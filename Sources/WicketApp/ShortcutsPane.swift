@@ -108,9 +108,7 @@ struct ShortcutsPane: View {
                     }
                 }
             } icon: {
-                Image(nsImage: IconCache.image(for: command.icon))
-                    .resizable()
-                    .frame(width: 18, height: 18)
+                IconView(icon: command.icon, size: 18)
             }
         }
     }

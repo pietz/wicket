@@ -143,9 +143,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
         panel.onKeyDown = { [weak self] in self?.keyDown($0) ?? false }
         model.session.onClose = { [weak self] in self?.hide() }
         model.session.messages.present = { [weak self] in self?.present($0) }
+        model.resolve = { [dispatcher] in dispatcher.resolve($0, as: $1) }
         let root = NSHostingView(
             rootView: PaletteRootView(
-                model: model, onRun: { [weak self] in self?.run($0, action: $1) },
+                model: model, onRun: { [weak self] in self?.run($0, at: $1) },
                 onEscape: { [weak self] in self?.escape() },
                 onListen: { [weak self] in self?.listen() },
                 onOpenLink: { [weak self] in self?.open(link: $0) },
@@ -160,9 +161,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
             let cards = Observations {
                 Card(
                     height: PaletteMetrics.cardHeight(
-                        for: model.top, actionMenu: model.actionMenu, detailHeight: model.detailHeight),
+                        for: model.top, actionMenu: model.actionMenu, detailHeight: model.detailHeight,
+                        listTop: model.listTopHeight),
                     frame: model.top.id, isCompact: model.top.isCompact,
-                    isUnmeasuredDetail: model.top.isMeasured && model.detailHeight == nil)
+                    isUnmeasured: model.top.isMeasured
+                        ? model.detailHeight == nil
+                        : model.top.listing?.hasTop == true && model.listTopHeight == nil)
             }
             for await card in cards {
                 self?.follow(card)
@@ -277,7 +281,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         guard !panel.isVisible else { return }
         present()
         if let height = PaletteMetrics.cardHeight(
-            for: model.top, actionMenu: nil, detailHeight: model.detailHeight)
+            for: model.top, actionMenu: nil, detailHeight: model.detailHeight, listTop: model.listTopHeight)
         {
             setCardHeight(height)
         }
@@ -309,13 +313,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
         if !model.session.cancelOpening() { hide() }
     }
 
-    /// Runs the action at `position` in the target's actions (0 is the primary) and applies its
-    /// outcome. Does nothing if there is no such action, so Return on a message row keeps the
-    /// palette open, or while an action is still opening a command (one at a time).
-    func run(_ target: ActionTarget?, action position: Int) {
-        run(target, at: .action(position))
-    }
-
+    /// Runs the action at `position` in the target's actions (`.action(0)` is the primary) or its
+    /// screen's, and applies its outcome. Does nothing if there is no such action, so Return on a
+    /// message row keeps the palette open, or while an action is still opening a command (one at a
+    /// time).
     func run(_ target: ActionTarget?, at position: ActionTarget.Position) {
         guard model.session.opening == nil, let target, let (action, authority) = target.action(at: position)
         else { return }
@@ -391,15 +392,15 @@ final class PaletteController: NSObject, NSWindowDelegate {
         case .toggleActions:
             if model.actionMenu != nil {
                 model.actionMenu = nil
-            } else if let target = model.target, !target.actions.isEmpty {
-                model.actionMenu = ActionMenu(target: target, pasteTarget: model.pasteTarget)
+            } else if let target = model.target, !target.actions.isEmpty || !target.screen.isEmpty {
+                model.actionMenu = model.actionMenu(for: target)
             }
         case .runSecondary:
             let target = model.actionMenu?.target ?? model.target
             run(target, at: target?.secondary ?? .action(1))
         case .runRow(let row):
             guard model.actionMenu == nil, model.results.indices.contains(row) else { break }
-            run(model.top.target(for: model.results[row]), action: 0)
+            run(model.top.target(for: model.results[row]), at: .action(0))
         case .openSettings:
             perform(.run(command: .settings), as: .host)
         case .listen:
@@ -427,21 +428,21 @@ final class PaletteController: NSObject, NSWindowDelegate {
         let height: CGFloat?
         let frame: Frame.ID
         let isCompact: Bool
-        /// A detail not laid out yet, so not measured; it needs a card to be laid out in.
-        let isUnmeasuredDetail: Bool
+        /// A page or a list's top not laid out yet, so not measured; it needs a card to be laid out in.
+        let isUnmeasured: Bool
     }
 
     /// Grows at once; shrinks after `shrinkDelay` without a taller result, so results that drop and
     /// return within it never move the card. Clearing the query (back to the bare pill) and going
     /// to another frame change it at once; a command frame still waiting for its first content, or a
-    /// detail for its first measurement, keeps the card as it is, and the content then sizes it at
-    /// once. A detail with no card to keep opens a small one to be measured in, then grows to fit.
+    /// page or a list's top for its first measurement, keeps the card as it is, and the content then
+    /// sizes it at once. One with no card to keep opens a small one to be measured in, then grows.
     /// So a streaming answer's card grows with the text (it never shrinks mid-stream, see
     /// `DetailMeasure`), and its scroll position holds once the card is at its tallest.
     private func follow(_ card: Card) {
         pendingShrink?.cancel()
-        let unmeasured = card.isUnmeasuredDetail && model.cardHeight == 0
-        guard let height = card.height ?? (unmeasured ? PaletteMetrics.unmeasuredDetailHeight : nil) else {
+        let unmeasured = card.isUnmeasured && model.cardHeight == 0
+        guard let height = card.height ?? (unmeasured ? PaletteMetrics.unmeasuredHeight : nil) else {
             return
         }
         defer { shownFrame = card.frame }

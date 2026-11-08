@@ -219,7 +219,12 @@ public struct ActionTarget: Sendable, Hashable {
     /// Who sent `actions`, which decides what activating one does (`ActionPolicy`).
     public var authority: Authority
     /// The screen's own actions, the host's; the action panel shows them as a group of their own.
+    /// The palette may add one it alone can know of (Read Summary, when the view clipped a summary).
     public var screen: [Item.Action]
+    /// What ⌘↩ runs: the screen's first action when it came with any (Follow Up, on an agent's
+    /// screen), else the second action, as on every other screen. Fixed when the target is made, so
+    /// an action the palette adds to `screen` later never takes ⌘↩ from the row.
+    public let secondary: Position
 
     /// An action of the target: one of its `actions`, or one of the screen's.
     public enum Position: Sendable, Hashable {
@@ -238,6 +243,7 @@ public struct ActionTarget: Sendable, Hashable {
         item = nil
         authority = context.authority
         screen = context.actions
+        secondary = context.actions.isEmpty ? .action(1) : .screen(0)
     }
 
     /// A detail's actions; without any, Return copies the markdown (docs/extensions.md).
@@ -245,10 +251,6 @@ public struct ActionTarget: Sendable, Hashable {
         self.init(
             actions: detail.actions.isEmpty ? [.copy(text: detail.markdown)] : detail.actions, in: context)
     }
-
-    /// What ⌘↩ runs: the screen's first action when it has any (Follow Up, on an agent's screen),
-    /// else the second action, as on every other screen.
-    public var secondary: Position { screen.isEmpty ? .action(1) : .screen(0) }
 
     /// The action at `position` and the authority it runs under; nil if there is none.
     public func action(at position: Position) -> (action: Item.Action, authority: Authority)? {

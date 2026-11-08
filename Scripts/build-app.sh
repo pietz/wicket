@@ -54,7 +54,7 @@ cp Resources/agent.md "$app/Contents/Resources/agent.md"
 kit="$app/Contents/Resources/Authoring"
 mkdir -p "$kit/docs/examples" "$kit/Extensions"
 cp docs/extensions.md docs/extension.schema.json "$kit/docs/"
-for sample in docs/examples/week-number docs/examples/unicode Extensions/slugify Extensions/github-prs; do
+for sample in docs/examples/week-number docs/examples/unicode Extensions/slugify Extensions/github-prs Extensions/gallery; do
   ditto "$sample" "$kit/$sample"
 done
 

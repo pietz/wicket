@@ -194,6 +194,8 @@ The user moved on, so request `7` no longer matters. Stop working on it if you c
 
 A result is an object with exactly one key, which says what it is.
 
+The [gallery sample](../Extensions/gallery) shows one of each: an answer, a composed list, file and link rows, and pages with their metadata under and beside the text, each a plain JSON file in its `screens/` folder. To see it in Wicket, copy the `gallery` folder into the extensions folder (`~/Library/Application Support/Wicket/Extensions`), run the Extensions command, pick Gallery and Review and Enable it; then type `gallery`.
+
 ### Level 1: an answer
 
 ```json
@@ -230,10 +232,12 @@ Since 0.0.6 a list can also say something about its rows and group them:
 |---|---|---|
 | `items` | | The rows. A list has `items` or `sections`, never both. |
 | `sections` | 0.0.6 | Titled groups of rows (`title`, `items`), instead of `items`; the arrow keys skip the titles. Up to 500 rows in all, and ids are unique across sections. |
-| `summary` | 0.0.6 | Markdown pinned above the rows, not selectable: a sentence or two of context. A long one shows its first lines, and Read Summary in the action panel shows it whole. |
-| `facts` | 0.0.6 | Labelled values (`label`, `value`) shown under the summary; up to four show beside the rows, all of them with the whole summary. |
+| `summary` | 0.0.6 | Markdown with inline styles and links, pinned above the rows, not selectable: a sentence or two of context. It shows whole when it is three lines or fewer, or when the list has at most three rows and the summary fits in the room they leave; otherwise its first three lines show with "more", and Read Summary in the action panel (⌘K) opens it whole as a page. |
+| `facts` | 0.0.6 | Labelled values (`label`, `value`) in a strip under the summary; up to four show beside the rows, and all of them on the Read Summary page, which more than four also offers. |
 
 In `root` mode a list holds `items` only, since its rows are mixed into the main results.
+
+The rows are always whole: the card shows up to eight (with the section titles above them) under the summary and facts, and scrolls the rest.
 
 ### Level 2: a detail view
 
@@ -246,7 +250,7 @@ In `root` mode a list holds `items` only, since its rows are mixed into the main
 }}
 ```
 
-`markdown` supports headings, emphasis, lists, links, code blocks, block quotes and tables. `metadata` is a list of label and value pairs shown beside it. Return runs the first action; with no actions, Return copies the markdown. Not allowed in `root` mode.
+`markdown` supports headings, emphasis, lists, links, code blocks, block quotes and tables. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown. Not allowed in `root` mode.
 
 ### Done: close or reload
 
@@ -277,12 +281,12 @@ For commands and actions that do something rather than show something:
 
 When a row is a file or a link, say which with `file` or `url` (one of them) and Wicket fills in the rest:
 
-| Subject | Title | Subtitle | Icon | Actions |
-|---|---|---|---|---|
-| `file` | its name | its folder, from `~` ("Not found" if it isn't there) | its Finder icon | Open, Reveal in Finder, Copy Path |
-| `url` | its host, else the link | its path | a globe, an envelope for `mailto:` | Open, Copy Link |
+| Subject | Title | Subtitle | Icon | Accessory | Actions |
+|---|---|---|---|---|---|
+| `file` | its name | its folder, from `~` ("Not found" if it isn't there) | its Finder icon | when it was modified ("12 min. ago", "Oct 30") | Open, Reveal in Finder, Copy Path |
+| `url` | its host, else the link | its path | a globe, an envelope for `mailto:` | none | Open, Copy Link |
 
-What you send wins: your title, subtitle, icon and id replace the derived ones, and your actions come first, followed by the derived ones that don't repeat one of yours (same kind and target). Without actions of your own, Return opens the subject. A `file` row's id defaults to its path with symlinks resolved and a `url` row's to the link, so fourteen files named `.DS_Store` are fourteen rows. A file that is missing still shows; opening it says it's gone, and Reveal in Finder shows its folder.
+What you send wins: your title, subtitle, icon, accessory and id replace the derived ones, and your actions come first, followed by the derived ones that don't repeat one of yours (same kind and target). Without actions of your own, Return opens the subject. A `file` row's id defaults to its path with symlinks resolved and a `url` row's to the link, so fourteen files named `.DS_Store` are fourteen rows. A file that is missing still shows; opening it says it's gone, and Reveal in Finder shows its folder.
 
 ### Icons
 

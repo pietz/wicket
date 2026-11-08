@@ -110,7 +110,7 @@ private let repository = URL(filePath: #filePath).deletingLastPathComponent().ap
 /// WICKET_CHECK is set.
 @Test(arguments: [
     "docs/examples/unicode", "docs/examples/week-number", "Extensions/github-prs", "Extensions/quit-apps",
-    "Extensions/system-toggles",
+    "Extensions/system-toggles", "Extensions/gallery",
 ])
 func samplesPass(path: String) async {
     let report = await Checker.check(

@@ -110,3 +110,25 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
         markdown: "Renamed three files.", metadata: [.init(label: "Folder", value: "~/Desktop")])
     #expect(Screen.detail(page).text(home: home) == "Renamed three files.\n\nFolder: ~/Desktop")
 }
+
+/// A section's title goes above its first row on screen, and only while the rows keep the
+/// sections' order: a search ranking them across sections draws none.
+@Test func sectionTitlesHeadTheirFirstShownRow() {
+    let a = row("a")
+    let b = row("b")
+    let c = row("c")
+    let d = row("d")
+    let listing = Listing(sections: [
+        .init(title: "Overdue", items: [a, b]), .init(title: nil, items: [c]),
+        .init(title: "Due", items: [d]),
+    ])
+    #expect(listing.headerTitles(for: [a, b, c, d]) == ["Overdue", nil, nil, "Due"])
+    // Filtered: a section's first shown row takes its title; an emptied section draws none.
+    #expect(listing.headerTitles(for: [b, d]) == ["Overdue", "Due"])
+    #expect(listing.headerTitles(for: [c, d]) == [nil, "Due"])
+    // Ranked across sections: no titles at all.
+    #expect(listing.headerTitles(for: [d, a]) == [nil, nil])
+    // A flat list has none.
+    #expect(Listing([a, b]).headerTitles(for: [a, b]) == [nil, nil])
+    #expect(listing.headerTitles(for: []) == [])
+}

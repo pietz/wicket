@@ -15,7 +15,20 @@ final class PaletteModel {
     /// The top frame's rows; empty for a page.
     var results: [Item] { top.list?.items ?? [] }
     var selection: Int { top.list?.selection ?? 0 }
-    var target: ActionTarget? { top.target }
+    /// What Return, ⌘↩ and ⌘K act on: the top frame's target, with Read Summary among the screen's
+    /// actions while its list has more than its top shows.
+    var target: ActionTarget? {
+        guard var target = top.target else { return nil }
+        if let listing = top.listing,
+            SummaryLayout.hasMore(
+                listing, summaryClipped: listTop?.frame == top.id && listTop?.clipped == true)
+        {
+            target.screen.append(ReadSummary.action(for: listing))
+        }
+        return target
+    }
+    /// The section title above each of the top frame's rows, nil where none goes.
+    var headers: [String?] { top.listing?.headerTitles(for: results) ?? [] }
 
     var query: String {
         get { session.query }
@@ -46,6 +59,14 @@ final class PaletteModel {
     var isExpanded: Bool { cardHeight > 0 }
     /// The top frame's page content as last laid out, which sizes its card.
     private var detailMeasure: DetailMeasure?
+    /// The height of a list's top (summary and facts) as last laid out, and whether its summary
+    /// was clipped.
+    private var listTop: (frame: Frame.ID, height: CGFloat, clipped: Bool)?
+    /// The height of the top frame's list top; nil before it is laid out.
+    var listTopHeight: CGFloat? { listTop?.frame == top.id ? listTop?.height : nil }
+    /// What activating an action under an authority runs (`ActionDispatcher.resolve`), so the footer
+    /// and the action panel name it; set by `PaletteController`.
+    var resolve: (Item.Action, Authority) -> ActionPolicy.Resolution = { action, _ in .perform(action) }
     /// The height the top frame's page content needs; nil for rows, or before it is laid out.
     var detailHeight: CGFloat? {
         detailMeasure?.height(of: top.id, isLoading: top.isLoading).map { CGFloat($0) }
@@ -93,6 +114,45 @@ final class PaletteModel {
         } else {
             detailMeasure?.record(Double(height), frame: frame, isLoading: top.isLoading)
         }
+    }
+
+    /// The list top of `frame` was laid out `height` tall, its summary `clipped` or not.
+    func measureListTop(_ height: CGFloat, clipped: Bool, of frame: Frame.ID) {
+        guard frame == top.id else { return }
+        listTop = (frame, height, clipped)
+    }
+
+    /// `action` named as it runs under `authority`.
+    func present(_ action: Item.Action, as authority: Authority) -> ActionPresentation {
+        ActionPresentation(action, resolved: resolve(action, authority), pasteTarget: pasteTarget)
+    }
+
+    /// What Return runs on `target`, for the footer.
+    func primaryPresentation(_ target: ActionTarget) -> ActionPresentation? {
+        target.actions.first.map { present($0, as: target.authority) }
+    }
+
+    /// The title of the screen action ⌘↩ runs on `target`, if it runs one (Follow Up).
+    func screenSecondaryTitle(_ target: ActionTarget) -> String? {
+        guard case .screen(let index) = target.secondary, target.screen.indices.contains(index) else {
+            return nil
+        }
+        return present(target.screen[index], as: .host).title
+    }
+
+    /// The action panel for `target`.
+    func actionMenu(for target: ActionTarget) -> ActionMenu {
+        ActionMenu(target: target, screenTitle: screenTitle, present: present)
+    }
+
+    /// What the screen's group in the action panel is called: "Answer" for an agent's, else the
+    /// command whose frame it is (a pushed page's, the one beneath it).
+    private var screenTitle: String {
+        for frame in session.frames.reversed() {
+            guard case .screen(let screen) = frame.content, let run = screen.run else { continue }
+            return screen.context.authority == .agent ? "Answer" : run.command.title
+        }
+        return "Page"
     }
 
     func moveSelection(by delta: Int) {

@@ -1,0 +1,16 @@
+{"list":{
+  "summary":"One of each screen Wicket draws. Each row opens its screen; **⌘[** comes back here.",
+  "sections":[
+    {"title":"Rows","items":[
+      {"id":"answer","title":"Answer","subtitle":"One value, shown large","icon":{"symbol":{"name":"equal.square"}},"actions":[{"run":{"command":"answer","title":"Show Answer"}}]},
+      {"id":"composed","title":"Composed List","subtitle":"Summary, facts and sections","icon":{"symbol":{"name":"list.bullet.rectangle"}},"actions":[{"run":{"command":"composed","title":"Show Composed List"}}]},
+      {"id":"long-summary","title":"Long Summary","subtitle":"Clipped to three lines, Read Summary in ⌘K","icon":{"symbol":{"name":"text.alignleft"}},"actions":[{"run":{"command":"long-summary","title":"Show Long Summary"}}]},
+      {"id":"files","title":"Files","subtitle":"File subjects: icon, folder, date, Reveal","icon":{"symbol":{"name":"folder"}},"actions":[{"run":{"command":"files","title":"Show Files"}}]},
+      {"id":"links","title":"Links","subtitle":"URL subjects: host, path, Copy Link","icon":{"symbol":{"name":"globe"}},"actions":[{"run":{"command":"links","title":"Show Links"}}]}
+    ]},
+    {"title":"Pages","items":[
+      {"id":"short-page","title":"Short Page","subtitle":"Metadata under the text","icon":{"symbol":{"name":"doc.plaintext"}},"actions":[{"run":{"command":"short-page","title":"Show Short Page"}}]},
+      {"id":"long-page","title":"Long Page","subtitle":"Metadata beside the text","icon":{"symbol":{"name":"doc.richtext"}},"actions":[{"run":{"command":"long-page","title":"Show Long Page"}}]}
+    ]}
+  ]
+}}

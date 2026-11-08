@@ -83,11 +83,17 @@ public struct ActionDispatcher {
         target.action(at: position).map { perform($0.action, as: $0.authority, in: context) }
     }
 
+    /// What activating `action` under `authority` would run (`ActionPolicy.resolve`), so the action
+    /// panel and the footer can name it: an agent's Open of a script is a Reveal.
+    public func resolve(_ action: Item.Action, as authority: Authority) -> ActionPolicy.Resolution {
+        ActionPolicy.resolve(action, as: authority, home: home, inspect: effects.inspect)
+    }
+
     public func perform(_ action: Item.Action, as authority: Authority, in context: ActionContext)
         -> ActionOutcome
     {
         let resolved: Item.Action
-        switch ActionPolicy.resolve(action, as: authority, home: home, inspect: effects.inspect) {
+        switch resolve(action, as: authority) {
         case .perform(let action): resolved = action
         case .refuse(let reason): return .refused(reason)
         }

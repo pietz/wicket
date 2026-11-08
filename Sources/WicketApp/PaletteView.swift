@@ -15,10 +15,11 @@ enum PaletteFocus: Hashable {
 enum PaletteMetrics {
     static let pillHeight: CGFloat = 56
     static let gap: CGFloat = 8
-    /// The tallest card: exactly eight whole rows above the divider and footer, so no row is ever
-    /// cut in half at rest. An answer on top makes its list's cap taller by the answer's extra height.
+    /// The tallest card of plain rows, and of a page: exactly eight whole rows above the divider and
+    /// footer, so no row is ever cut in half at rest. A list's top, its section titles and an answer
+    /// on top make its card taller by their height (`cardHeight`).
     static let maxCardHeight: CGFloat =
-        8 * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset + 1 + FooterBar.height
+        CGFloat(maxRows) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset + 1 + FooterBar.height
     static let cardRadius: CGFloat = 22
     /// Inset of the rows from the card's edge.
     static let rowInset: CGFloat = 10
@@ -31,36 +32,61 @@ enum PaletteMetrics {
     static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
-    /// The card for `frame`, up to `maxCardHeight`, and while the action panel is open at least tall
-    /// enough for it. A compact frame has none. Rows fit the card (with the divider and footer),
-    /// computed; a screen without rows (a page) fits its content as measured (`detailHeight`), since
-    /// markdown wraps. An empty list shows one row saying so. Nil, keep the card as it is, while a
-    /// command frame waits for its first content, a page for its first measurement, or the root
-    /// search for its slow sources with nothing found yet (so typing never flashes "No Results").
-    static func cardHeight(for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?) -> CGFloat? {
+    /// The card for `frame`, and while the action panel is open at least tall enough for it. A
+    /// compact frame has none. A list's card is computed: its top (summary and facts, as measured:
+    /// `listTop`), then whole rows, at most `maxRows` (an answer and seven), with the section titles
+    /// above them; more scroll. A screen without rows (a page) fits its content as measured
+    /// (`detailHeight`), up to `maxCardHeight`, since markdown wraps. An empty list shows one row
+    /// saying so. Nil, keep the card as it is, while a command frame waits for its first content, a
+    /// page or a list's top for its first measurement, or the root search for its slow sources with
+    /// nothing found yet (so typing never flashes "No Results").
+    static func cardHeight(
+        for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?, listTop: CGFloat? = nil
+    ) -> CGFloat? {
         if frame.isCompact { return 0 }
         if frame.isMeasured { return detailHeight.map { card(content: $0, actionMenu: actionMenu) } }
         guard let results = frame.list?.items else { return nil }
         if case .search = frame.content, results.isEmpty, frame.isLoading { return nil }
-        var rows = CGFloat(max(results.count, 1)) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
-        var extra: CGFloat = 0
-        if let first = results.first, ResultRow.isProminent(first, at: 0) {
-            extra = answerRowHeight - rowHeight
-            rows += extra
+        var top: CGFloat = 0
+        var headers: [Bool] = []
+        if let listing = frame.listing {
+            if listing.hasTop {
+                guard let listTop else { return nil }
+                top = listTop
+            }
+            headers = listing.headerTitles(for: results).map { $0 != nil }
         }
-        return card(content: rows, actionMenu: actionMenu, cap: maxCardHeight + extra)
+        let prominent = results.first.map { ResultRow.isProminent($0, at: 0) } ?? false
+        let content = top + rowsHeight(count: results.count, prominentFirst: prominent, headers: headers)
+        return card(
+            content: content, actionMenu: actionMenu, cap: max(maxCardHeight, content + 1 + FooterBar.height))
     }
 
-    /// A detail's card before its content is laid out, when no card is up to keep: the view must be
-    /// on screen to be measured, so it opens this small (under any page's height) and grows to fit.
-    static let unmeasuredDetailHeight = rowHeight + 1 + FooterBar.height
+    /// The most rows a card shows whole; more scroll.
+    static let maxRows = 8
+    /// A section's title above its first row.
+    static let sectionHeaderHeight: CGFloat = 24
+
+    /// The rows' part of a list's card: its first `maxRows` rows (one saying "No Results" for none),
+    /// taller by an answer's extra height if one is first, with the section titles among them
+    /// (`headers`, one per row: whether a title is drawn above it), and the inset around them.
+    static func rowsHeight(count: Int, prominentFirst: Bool, headers: [Bool]) -> CGFloat {
+        let shown = min(max(count, 1), maxRows)
+        var height = CGFloat(shown) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset
+        if prominentFirst, count > 0 { height += answerRowHeight - rowHeight }
+        height += CGFloat(headers.prefix(shown).filter { $0 }.count) * sectionHeaderHeight
+        return height
+    }
+
+    /// The card of a page or a list with a top before its content is laid out, when no card is up to
+    /// keep: the view must be on screen to be measured, so it opens this small and grows to fit.
+    static let unmeasuredHeight = rowHeight + 1 + FooterBar.height
 
     /// The card for `content` above the divider and footer, up to `cap`.
     private static func card(content: CGFloat, actionMenu: ActionMenu?, cap: CGFloat = maxCardHeight)
         -> CGFloat
     {
-        let menu =
-            actionMenu.map { ActionPanel.height(rows: $0.target.actions.count) + ActionPanel.clearance } ?? 0
+        let menu = actionMenu.map { ActionPanel.height(rows: $0.lineCount) + ActionPanel.clearance } ?? 0
         return min(max((content + 1 + FooterBar.height).rounded(.up), menu), cap)
     }
 
@@ -81,8 +107,8 @@ enum PaletteMetrics {
 /// plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
-    /// Runs the action at a position in a target's actions.
-    let onRun: (ActionTarget?, Int) -> Void
+    /// Runs the action at a position in a target's actions or its screen's.
+    let onRun: (ActionTarget?, ActionTarget.Position) -> Void
     let onEscape: () -> Void
     /// The mic button: start or stop listening.
     let onListen: () -> Void
@@ -127,7 +153,8 @@ struct PaletteRootView: View {
                             .id(model.top.id)
                         Divider()
                         FooterBar(
-                            target: model.target, toast: model.toast, pasteTarget: model.pasteTarget,
+                            primary: model.target.flatMap(model.primaryPresentation),
+                            secondary: model.target.flatMap(model.screenSecondaryTitle), toast: model.toast,
                             canGoBack: model.canGoBack)
                     }
                     .frame(height: model.cardHeight)
@@ -204,10 +231,7 @@ struct PaletteRootView: View {
                     .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(.secondary)
             case .file:
-                Image(nsImage: IconCache.image(for: pill.icon))
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 22, height: 22)
+                IconView(icon: pill.icon, size: 22)
             }
         }
     }
@@ -264,7 +288,7 @@ struct PaletteRootView: View {
                 return .handled
             }
             .onKeyPress(.return) {
-                onRun(model.target, 0)
+                onRun(model.target, .action(0))
                 return .handled
             }
             .onKeyPress(.escape) {
@@ -294,7 +318,7 @@ struct PaletteRootView: View {
 /// `Screen` case meets its view: a view without rows reports its height through `measure`.
 private struct FrameContent: View {
     let model: PaletteModel
-    let onRun: (ActionTarget?, Int) -> Void
+    let onRun: (ActionTarget?, ActionTarget.Position) -> Void
 
     /// Reports a detail's content height for the frame this view shows, so a view on its way out
     /// never sizes the next frame's card.
@@ -316,12 +340,33 @@ private struct FrameContent: View {
     }
 }
 
-/// The result list.
+/// The result list: a list's top (summary and facts) pinned above its rows, section titles above
+/// their first rows. Each title is drawn with its row, so scrolling to a row shows its title too.
 struct ResultsView: View {
     let model: PaletteModel
-    let onRun: (ActionTarget?, Int) -> Void
+    let onRun: (ActionTarget?, ActionTarget.Position) -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let listing = model.top.listing, listing.hasTop {
+                let frame = model.top.id
+                ListTop(
+                    listing: listing, onReadSummary: readSummary,
+                    onMeasure: { [model] in model.measureListTop($0, clipped: $1, of: frame) })
+            }
+            rows
+        }
+    }
+
+    /// The "more" after a clipped summary runs Read Summary, as ⌘K would.
+    private func readSummary() {
+        guard let target = model.target, let index = target.screen.firstIndex(where: ReadSummary.is) else {
+            return
+        }
+        onRun(target, .screen(index))
+    }
+
+    private var rows: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -337,15 +382,21 @@ struct ResultsView: View {
                             .frame(height: PaletteMetrics.rowHeight)
                             .padding(PaletteMetrics.rowInset)
                     } else {
+                        let headers = model.headers
                         LazyVStack(spacing: PaletteMetrics.rowSpacing) {
                             ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
-                                ResultRow(
-                                    item: item, isProminent: ResultRow.isProminent(item, at: index),
-                                    isSelected: index == model.selection, hint: hint(for: index)
-                                )
-                                .contentShape(Rectangle())
-                                .onTapGesture { onRun(model.top.target(for: item), 0) }
-                                .accessibilityAction { onRun(model.top.target(for: item), 0) }
+                                VStack(spacing: 0) {
+                                    if headers.indices.contains(index), let title = headers[index] {
+                                        SectionHeader(title: title)
+                                    }
+                                    ResultRow(
+                                        item: item, isProminent: ResultRow.isProminent(item, at: index),
+                                        isSelected: index == model.selection, hint: hint(for: index)
+                                    )
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { onRun(model.top.target(for: item), .action(0)) }
+                                    .accessibilityAction { onRun(model.top.target(for: item), .action(0)) }
+                                }
                             }
                         }
                         .padding(PaletteMetrics.rowInset)
@@ -389,13 +440,16 @@ struct ResultsView: View {
     }
 }
 
-/// The bar under the results or a detail: a command's message for a moment, what Return does, and
-/// where the other actions are; with nothing to run in a pushed frame, how to go back.
+/// The bar under the results or a detail: a command's message for a moment, the screen's own
+/// action ⌘↩ runs (Follow Up), what Return does and where the other actions are; with nothing to
+/// run in a pushed frame, how to go back.
 struct FooterBar: View {
     static let height: CGFloat = 34
-    let target: ActionTarget?
+    /// What Return runs, named as it really runs.
+    let primary: ActionPresentation?
+    /// The screen action ⌘↩ runs, if ⌘↩ runs one.
+    var secondary: String?
     var toast: Message?
-    var pasteTarget: String?
     /// A frame is pushed: ⌘[ goes back, shown when there is no action to hint at.
     var canGoBack = false
 
@@ -406,10 +460,12 @@ struct FooterBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .transition(.opacity)
+            } else if let secondary {
+                KeyHint(title: secondary, keys: "⌘↩")
             }
             Spacer()
-            if let primary = target?.actions.first {
-                KeyHint(title: ActionPresentation(primary, pasteTarget: pasteTarget).title, keys: "↩")
+            if let primary {
+                KeyHint(title: primary.title, keys: "↩")
                 Divider().frame(height: 14)
                 KeyHint(title: "Actions", keys: "⌘K")
             } else if canGoBack {
@@ -449,7 +505,8 @@ private struct KeyCap: View {
     }
 }
 
-/// The action panel: every action of what it was opened on, filtered by its own field.
+/// The action panel: every action of what it was opened on, filtered by its own field, then the
+/// screen's own actions as a group named after the screen ("Answer").
 struct ActionPanel: View {
     static let rowHeight: CGFloat = 30
     static let rowSpacing: CGFloat = 2
@@ -466,7 +523,8 @@ struct ActionPanel: View {
         (PaletteMetrics.maxCardHeight - clearance - fieldHeight - 1 - 2 * padding + rowSpacing)
             / (rowHeight + rowSpacing))
 
-    /// The height of the panel's rows (with their padding) for `rows` actions, up to `maxRows`.
+    /// The height of the panel's rows (with their padding) for `rows` lines (actions and the screen
+    /// group's title, which is a row tall), up to `maxRows`.
     static func listHeight(rows: Int) -> CGFloat {
         let rows = CGFloat(min(max(rows, 1), maxRows))
         return 2 * padding + rows * (rowHeight + rowSpacing) - rowSpacing
@@ -480,11 +538,12 @@ struct ActionPanel: View {
     @Bindable var model: PaletteModel
     let menu: ActionMenu
     var focus: FocusState<PaletteFocus?>.Binding
-    let onRun: (ActionTarget?, Int) -> Void
+    let onRun: (ActionTarget?, ActionTarget.Position) -> Void
 
     var body: some View {
         let rows = menu.rows
         let selected = menu.selectedRow?.id
+        let firstScreen = rows.first { if case .screen = $0.id { true } else { false } }?.id
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -496,16 +555,21 @@ struct ActionPanel: View {
                                 .frame(height: Self.rowHeight)
                         }
                         ForEach(rows) { row in
-                            ActionRow(row: row, isSelected: row.id == selected)
-                                .contentShape(.rect)
-                                .onTapGesture { onRun(menu.target, row.id) }
-                                .accessibilityAction { onRun(menu.target, row.id) }
+                            if row.id == firstScreen {
+                                GroupTitle(title: menu.screenTitle, separated: rows.first?.id != firstScreen)
+                            }
+                            ActionRow(
+                                row: row, shortcut: menu.shortcut(for: row.id), isSelected: row.id == selected
+                            )
+                            .contentShape(.rect)
+                            .onTapGesture { onRun(menu.target, row.id) }
+                            .accessibilityAction { onRun(menu.target, row.id) }
                         }
                     }
                     .padding(Self.padding)
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(height: Self.listHeight(rows: rows.count))
+                .frame(height: Self.listHeight(rows: rows.count + (firstScreen == nil ? 0 : 1)))
                 .onChange(of: selected) { _, selected in
                     if let selected { proxy.scrollTo(selected) }
                 }
@@ -545,8 +609,32 @@ struct ActionPanel: View {
     }
 }
 
+/// The title of the screen's group in the action panel, a row tall, under a hairline when actions
+/// come before it.
+private struct GroupTitle: View {
+    let title: String
+    let separated: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if separated {
+                Divider().padding(.horizontal, 8)
+            }
+            Spacer(minLength: 0)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 3)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .frame(height: ActionPanel.rowHeight)
+    }
+}
+
 private struct ActionRow: View {
     let row: ActionMenu.Row
+    let shortcut: String?
     let isSelected: Bool
 
     var body: some View {
@@ -561,7 +649,7 @@ private struct ActionRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            if let shortcut = ActionPresentation.shortcut(at: row.id) {
+            if let shortcut {
                 KeyCap(shortcut)
             }
         }
@@ -585,24 +673,34 @@ private struct ActionRow: View {
 
 /// A result. An answer at the top (a calculation, an extension's answer) is shown large: the result
 /// is the point, so it gets the big text and its interpretation the small line below. It stays large
-/// while the selection moves, so the list never reflows under the arrow keys.
+/// while the selection moves, so the list never reflows under the arrow keys. A file row without an
+/// accessory of its producer's shows when the file was modified, read off the main actor.
 struct ResultRow: View {
     let item: Item
     let isProminent: Bool
     let isSelected: Bool
     /// Replaces the accessory while ⌘ is held.
     let hint: String?
+    /// The file's modification date, for a file row without an accessory; nil until read.
+    @State private var modified: Date?
 
     static func isProminent(_ item: Item, at index: Int) -> Bool {
         index == 0 && item.relevance == .answer
     }
 
+    /// The file whose date is the row's accessory: a file subject's, when the producer sent none.
+    private var datedFile: URL? {
+        guard item.accessory == nil, case .file(let url)? = item.subject else { return nil }
+        return url
+    }
+
+    private var accessory: String? {
+        item.accessory ?? modified.map { FileDate.text($0) }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(nsImage: IconCache.image(for: item.icon))
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 26, height: 26)
+            IconView(icon: item.icon)
             if isProminent {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(item.title)
@@ -630,10 +728,11 @@ struct ResultRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if let accessory = hint ?? item.accessory {
+            if let accessory = hint ?? accessory {
                 Text(accessory)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 10)
@@ -644,42 +743,20 @@ struct ResultRow: View {
                     .fill(.primary.opacity(0.1))
             }
         }
+        .task(id: datedFile) {
+            modified = nil
+            if let datedFile { modified = await FileDate.load(datedFile) }
+        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabel(for: item))
+        .accessibilityLabel(
+            Self.accessibilityLabel(title: item.title, subtitle: item.subtitle, accessory: accessory)
+        )
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// What VoiceOver reads for `item`: its title, then its subtitle and accessory.
-    static func accessibilityLabel(for item: Item) -> String {
-        [item.title, item.subtitle, item.accessory].compactMap { $0 }.joined(separator: ", ")
-    }
-}
-
-@MainActor
-enum IconCache {
-    private static let cache = NSCache<NSString, NSImage>()
-    static let size = NSSize(width: 32, height: 32)
-
-    static func image(for icon: Item.Icon) -> NSImage {
-        let key: String
-        switch icon {
-        case .file(let url): key = url.path
-        case .symbol(let name): key = "symbol:" + name
-        }
-        if let cached = cache.object(forKey: key as NSString) { return cached }
-        let image: NSImage
-        switch icon {
-        case .file(let url):
-            image = NSWorkspace.shared.icon(forFile: url.path)
-        case .symbol(let name):
-            let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
-            image =
-                NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-                .withSymbolConfiguration(config) ?? NSImage()
-        }
-        image.size = size
-        cache.setObject(image, forKey: key as NSString)
-        return image
+    /// What VoiceOver reads for a row: its name, then its subtitle (a file's folder) and accessory.
+    static func accessibilityLabel(title: String, subtitle: String?, accessory: String?) -> String {
+        [title, subtitle, accessory].compactMap { $0 }.joined(separator: ", ")
     }
 }
 

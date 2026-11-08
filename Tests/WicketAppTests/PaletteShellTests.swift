@@ -36,11 +36,11 @@ struct PaletteShellTests {
         #expect(model.canGoBack)
     }
 
+    /// "name, folder, accessory", the accessory being the producer's or a file's derived date.
     @Test func resultRowsReadTheirTitleSubtitleAndAccessory() {
-        var row = item("Safari")
-        #expect(ResultRow.accessibilityLabel(for: row) == "Safari")
-        row.subtitle = "/Applications"
-        row.accessory = "App"
-        #expect(ResultRow.accessibilityLabel(for: row) == "Safari, /Applications, App")
+        #expect(ResultRow.accessibilityLabel(title: "Safari", subtitle: nil, accessory: nil) == "Safari")
+        #expect(
+            ResultRow.accessibilityLabel(title: "Report.pdf", subtitle: "~/Documents", accessory: "Oct 30")
+                == "Report.pdf, ~/Documents, Oct 30")
     }
 }

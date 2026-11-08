@@ -77,7 +77,7 @@ struct PaletteMetricsTests {
     @Test func actionMenuNeedsRoom() {
         let actions: [Item.Action] = (0..<5).map { .copy(text: "\($0)") }
         let frame = search([item("a", actions: actions)])
-        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host), pasteTarget: nil)
+        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host))
         let panel = ActionPanel.height(rows: 5) + ActionPanel.clearance
         #expect(card(frame, menu: menu) == panel.rounded(.up))
         #expect(card(frame, menu: menu)! > card(frame)!)
@@ -91,7 +91,7 @@ struct PaletteMetricsTests {
     @Test func longActionMenuFitsTheCard() {
         let actions: [Item.Action] = (0..<40).map { .copy(text: "\($0)") }
         let frame = search([item("a", actions: actions)])
-        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host), pasteTarget: nil)
+        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host))
         #expect(ActionPanel.maxRows > 5 && ActionPanel.maxRows < 40)
         #expect(ActionPanel.height(rows: 40) == ActionPanel.height(rows: ActionPanel.maxRows))
         #expect(ActionPanel.height(rows: 40) + ActionPanel.clearance <= PaletteMetrics.maxCardHeight)

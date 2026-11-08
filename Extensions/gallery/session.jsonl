@@ -1,0 +1,18 @@
+{"send":{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"gallery","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":1,"result":{"list":{}}}}
+{"send":{"jsonrpc":"2.0","id":2,"method":"run","params":{"command":"answer","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":2,"result":{"answer":{"title":"23:41"}}}}
+{"send":{"jsonrpc":"2.0","id":3,"method":"run","params":{"command":"composed","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":3,"result":{"list":{"facts":[{},{},{}]}}}}
+{"send":{"jsonrpc":"2.0","id":4,"method":"run","params":{"command":"long-summary","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":4,"result":{"list":{}}}}
+{"send":{"jsonrpc":"2.0","id":5,"method":"run","params":{"command":"files","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":5,"result":{"list":{}}}}
+{"send":{"jsonrpc":"2.0","id":6,"method":"run","params":{"command":"links","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":6,"result":{"list":{}}}}
+{"send":{"jsonrpc":"2.0","id":7,"method":"run","params":{"command":"short-page","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":7,"result":{"detail":{"title":"Short Page"}}}}
+{"send":{"jsonrpc":"2.0","id":8,"method":"run","params":{"command":"long-page","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":8,"result":{"detail":{"title":"Long Page"}}}}
+{"send":{"jsonrpc":"2.0","id":9,"method":"run","params":{"command":"lights-off","text":"","revision":1}}}
+{"expect":{"jsonrpc":"2.0","id":9,"error":{"code":1,"message":"Unknown command lights-off"}}}
