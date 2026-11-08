@@ -6,8 +6,6 @@ import Foundation
 
 /// What the host knows while decoding a response: the rules that depend on the command.
 public struct WireContext: Sendable {
-    /// The mode of the command the response answers; nil skips the mode rules.
-    public var mode: Manifest.Command.Mode?
     /// The icon items inherit: the command's, else the extension's.
     public var icon: Item.Icon?
     /// The extension's command ids, which `run` actions must name; nil skips the check.
@@ -22,10 +20,9 @@ public struct WireContext: Sendable {
     public var home = FileManager.default.homeDirectoryForCurrentUser
 
     public init(
-        mode: Manifest.Command.Mode? = nil, icon: Item.Icon? = nil, commands: Set<String>? = nil,
-        origin: CommandID? = nil, revision: ExtensionRevision? = nil
+        icon: Item.Icon? = nil, commands: Set<String>? = nil, origin: CommandID? = nil,
+        revision: ExtensionRevision? = nil
     ) {
-        self.mode = mode
         self.icon = icon
         self.commands = commands
         self.origin = origin
@@ -39,7 +36,7 @@ public struct WireContext: Sendable {
     public init(command id: String, in manifest: Manifest, revision: ExtensionRevision? = nil) {
         let command = manifest.command(id)
         self.init(
-            mode: command?.mode, icon: command?.icon ?? manifest.icon,
+            icon: command?.icon ?? manifest.icon,
             commands: Set(manifest.commands.map(\.id)), origin: .extension(manifest.id, id),
             revision: revision)
     }

@@ -12,7 +12,7 @@ private let valid = #"""
       "secrets": [{"name": "GITHUB_TOKEN", "title": "GitHub token"}],
       "commands": [
         {"id": "prs", "title": "Pull Requests", "keyword": "pr", "mode": "live", "placeholder": "Filter"},
-        {"id": "convert", "title": "Convert", "mode": "root", "pattern": "(?i)^\\d+ ?usd$"},
+        {"id": "convert", "title": "Convert"},
         {"id": "done", "title": "Done", "hidden": true}
       ]
     }
@@ -40,7 +40,7 @@ private func problem(_ old: String, _ new: String) -> String? {
     #expect(manifest.id == "github-prs")
     #expect(manifest.secrets.map(\.name) == ["GITHUB_TOKEN"])
     #expect(manifest.capabilities == [.network])
-    #expect(manifest.commands.map(\.mode) == [.live, .root, .once])
+    #expect(manifest.commands.map(\.mode) == [.live, .once, .once])
     #expect(manifest.command("done")?.hidden == true)
     #expect(manifest.command("prs")?.keyword == "pr")
     #expect(manifest.commands.allSatisfy { $0.search.isEmpty })
@@ -82,18 +82,9 @@ func rejectsInvalidSearchTerms(value: String, expected: String) {
     (#""GITHUB_TOKEN""#, #""github_token""#, "must be an environment variable name"),
     (#""GITHUB_TOKEN""#, #""WICKET_TOKEN""#, "reserved"),
     (#""GITHUB_TOKEN""#, #""PATH""#, "reserved"),
-    (#""mode": "live""#, #""mode": "stream""#, "must be once, live or root"),
+    (#""mode": "live""#, #""mode": "stream""#, "must be once or live"),
     (#""keyword": "pr""#, #""keyword": "p r""#, "must be one word"),
-    (#""pattern": "(?i)^\\d+ ?usd$""#, #""pattern": "(unclosed""#, "not a valid regular expression"),
-    (
-        #""mode": "root","#, #""mode": "root", "keyword": "c","#,
-        "commands[1].keyword: is not allowed for a root"
-    ),
-    (
-        #""mode": "root","#, #""mode": "root", "hidden": false,"#,
-        "commands[1].hidden: is not allowed for a root"
-    ),
-    (#""hidden": true"#, #""hidden": true, "pattern": "x""#, "commands[2].pattern: is only for root"),
+    (#""hidden": true"#, #""hidden": true, "pattern": "x""#, "commands[2].pattern: unknown field"),
     (#""id": "done""#, #""id": "prs""#, "two commands with the id \"prs\""),
     (#""title": "Done""#, #""title": "Done", "subtitel": "x""#, #"commands[2].subtitel: unknown field"#),
     (#""protocol": 1,"#, #""protocol": 1, "author": "me","#, #"author: unknown field"#),

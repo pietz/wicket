@@ -86,19 +86,17 @@ Each command:
 | `id` | yes | Same format as the extension id; unique within the extension. Sent back to you in every `run`. |
 | `title` | yes | What the user searches for, and the title of the command's view (also for `hidden` commands). |
 | `subtitle`, `icon` | no | Shown in the search result row. |
-| `mode` | no | `once` (default), `live` or `root`, below. |
-| `keyword` | no | A short word without spaces. Typing `keyword` and a space in the main search opens the command at once (see the modes below for what the rest of the line becomes). Not for `root`; ignored for `hidden` commands. |
+| `mode` | no | `once` (default) or `live`, below. |
+| `keyword` | no | A short word without spaces. Typing `keyword` and a space in the main search opens the command at once (see the modes below for what the rest of the line becomes). Ignored for `hidden` commands. |
 | `search` | no | Up to 16 words or phrases a person would type, each with non-whitespace text and at most 128 Unicode characters, e.g. `["wifi", "wireless", "turn off wifi"]`. Matched locally; equivalent title matches rank higher. A listed command without terms gets a checker warning. |
-| `placeholder` | no | Search field hint for a `live` command. Not for `root`. |
-| `hidden` | no | `true` keeps the command out of search; it can then only be reached by a [`run` action](#actions). Not for `root`. |
-| `pattern` | no | `root` only: a regular expression (ICU syntax, as in `NSRegularExpression`). Only queries in which it finds a match are sent to you, so you are not woken for unrelated typing. It searches the query exactly as typed: anchor it with `^` and `$`, and add `(?i)` to ignore case. |
-| `repeatable` | no | `once` only: `true` if running the command twice does no harm because it only reads (an answer, a list, a detail). Wicket may then send a run again after your program exits (see [The session](#the-session)). Leave it out for anything that changes something (a toggle, a write, a request that posts). `live` and `root` runs are searches, so they always may be resent. |
+| `placeholder` | no | Search field hint for a `live` command. |
+| `hidden` | no | `true` keeps the command out of search; it can then only be reached by a [`run` action](#actions). |
+| `repeatable` | no | `once` only: `true` if running the command twice does no harm because it only reads (an answer, a list, a detail). Wicket may then send a run again after your program exits (see [The session](#the-session)). Leave it out for anything that changes something (a toggle, a write, a request that posts). `live` runs are searches, so they always may be resent. |
 
-The three modes:
+The two modes:
 
 - **`once`**: runs when the user presses Return on the command or types its keyword and a space. `text` is what followed the keyword at that moment: `""` when they typed it, the rest of the line when they pasted one (`todo buy milk` gives `buy milk`). If you return a list, it opens with an empty search field that filters it locally (by title, best match first); you are not asked again. Use it for answers, actions and lists that fit in memory (bookmarks, tasks, hosts). A command that needs what the user types next is `live`.
 - **`live`**: Return on the command, or typing its keyword and a space, opens a view with its own search field. Wicket sends a `run` for every change of the text (rapid keystrokes may be coalesced, and a newer text cancels the request for an older one), starting with the initial text (`""` or what followed the keyword). Wicket shows your items in your order and does no filtering. While the field is empty and your list is too, the view is just the field with your `placeholder`. Use it when the search itself is your job (an API, a large index), or to act on what the user types: answer `add buy milk` with an item whose `run` action adds it.
-- **`root`**: has no view of its own. Every query typed in Wicket's main search (non-empty, matching `pattern` if given) is sent to you, and the items you return are mixed into the main results. Return an empty list when you have nothing to add. Use it sparingly, for things like a converter that should answer anywhere. Keep it fast and keep `pattern` tight.
 
 ## The session
 
@@ -109,7 +107,7 @@ Wicket starts your program the first time one of its commands is needed and keep
 - **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the check. Write logs and debugging output to **stderr**: Wicket keeps the end of it for diagnostics and never shows it unless something fails.
 - **One process at a time.** Wicket never runs two processes of your extension at once, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
 - **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
-- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with requests unanswered, Wicket resends the ones that are safe to repeat to a fresh process: every run of a `live` or `root` command, and runs of a `once` command marked `repeatable`. Every other run (any `once` command not marked, however it was started: Return on its row, its keyword, a hotkey or a `run` action, with or without `args`) fails instead, since your program may have read it and changed something before exiting, and the user sees the error. If your program exits with an error, every unanswered request fails. So a one-shot script can answer and quit, provided its `once` commands only read and say `repeatable` (a request written while it was exiting goes to the next process), while a persistent program pays its start-up cost once and answers later keystrokes from memory.
+- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with requests unanswered, Wicket resends the ones that are safe to repeat to a fresh process: every run of a `live` command, and runs of a `once` command marked `repeatable`. Every other run (any `once` command not marked, however it was started: Return on its row, its keyword, a hotkey or a `run` action, with or without `args`) fails instead, since your program may have read it and changed something before exiting, and the user sees the error. If your program exits with an error, every unanswered request fails. So a one-shot script can answer and quit, provided its `once` commands only read and say `repeatable` (a request written while it was exiting goes to the next process), while a persistent program pays its start-up cost once and answers later keystrokes from memory.
 - **Shutdown:** after about a minute without requests, or when the extension is disabled or updated, Wicket closes your stdin. Exit then (a `for line in stdin` loop ends by itself). Wicket sends SIGTERM if you are still running 2 seconds later, and SIGKILL 2 seconds after that.
 - **What you start ends with you.** Processes your program starts belong to it, even in the background or in a session of their own: when your program exits (by itself or at shutdown), they get the same 2 seconds, then SIGTERM, then SIGKILL, and Wicket starts your next process only after they are gone. Don't leave work running in the background after answering; do it before answering, or in a persistent program.
 
@@ -137,7 +135,7 @@ The only request. It means: show this command for this text. The `id` is a numbe
 | Param | Meaning |
 |---|---|
 | `command` | A command id from your manifest. |
-| `text` | What the user typed: after the keyword, in the command's own search field, or in the main search for `root`. May be `""`. |
+| `text` | What the user typed: after the keywordor in the command's own search field. May be `""`. |
 | `revision` | Grows with every query in a session. A higher revision makes a lower one obsolete; Wicket drops late answers. |
 | `args` | Present when a [`run` action](#actions) started the command: the `args` object from that action, unchanged. Only your own actions produce `args`, so bad `args` are a bug in your code. |
 
@@ -163,7 +161,7 @@ The [gallery sample](../Extensions/gallery) shows one of each: an answer, a comp
 {"answer":{"title":"Week 45","subtitle":"ISO week number"}}
 ```
 
-One [item](#items). In a `once` command Wicket shows it large; in `root` mode it ranks as an answer above normal matches (its `relevance` defaults to `answer`). Return runs its first action; with no actions, Return copies the title.
+One [item](#items). Wicket shows it large. Return runs its first action; with no actions, Return copies the title.
 
 ### Level 2: a list
 
@@ -174,7 +172,7 @@ One [item](#items). In a `once` command Wicket shows it large; in `root` mode it
 ]}}
 ```
 
-Up to 500 items (in `root` mode Wicket shows at most 10). An empty list shows "No Results" (in a `live` view with an empty search field, just the field).
+Up to 500 items. An empty list shows "No Results" (in a `live` view with an empty search field, just the field).
 
 Since 0.0.6 a list can also say something about its rows and group them:
 
@@ -196,7 +194,6 @@ Since 0.0.6 a list can also say something about its rows and group them:
 | `summary` | 0.0.6 | [Markup](markup.md) pinned above the rows, not selectable: a sentence or two of context, perhaps with `<stat>`s or `<facts>`. Rows and the answer can't be in it, and a card's target is dropped, since the arrows belong to the rows. It shows whole when it is three lines or fewer, or when the list has at most three rows and the summary fits in the room they leave; otherwise its first three lines show with "more", and Read Summary in the action panel (⌘K) opens it whole as a page. |
 | `facts` | 0.0.6 | Labelled values (`label`, `value`) in a strip under the summary; up to four show beside the rows, and all of them on the Read Summary page, which more than four also offers. |
 
-In `root` mode a list holds `items` only, since its rows are mixed into the main results.
 
 The rows are always whole: the card shows up to eight (with the section titles above them) under the summary and facts, and scrolls the rest.
 
@@ -211,7 +208,7 @@ The rows are always whole: the card shows up to eight (with the section titles a
 }}
 ```
 
-`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket check` reports every tag it can't read, with the response's line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown. Not allowed in `root` mode.
+`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket check` reports every tag it can't read, with the response's line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown.
 
 ### Done: close or reload
 
@@ -222,7 +219,7 @@ For commands and actions that do something rather than show something:
 {"reload":{"message":"Marked as done"}}
 ```
 
-`close` closes the palette and briefly shows the optional message where the search field was. `reload` goes back to the view the command was started from and runs it again (its command, text and args, not the action's command), keeping its search text and selection, and briefly shows the message; for example to refresh a list after an action changed an entry. A command that does something and answers `close` or `reload` never opens a view of its own. In `root` mode only `answer` and `list` are allowed.
+`close` closes the palette and briefly shows the optional message where the search field was. `reload` goes back to the view the command was started from and runs it again (its command, text and args, not the action's command), keeping its search text and selection, and briefly shows the message; for example to refresh a list after an action changed an entry. A command that does something and answers `close` or `reload` never opens a view of its own.
 
 ## Items
 
@@ -233,7 +230,6 @@ For commands and actions that do something rather than show something:
 | `subtitle` | no | | Secondary text. |
 | `icon` | no | | Defaults to the subject's, else the command's icon. |
 | `accessory` | no | | Short text on the right, such as a count, a date or a shortcut. |
-| `relevance` | no | | `root` mode only: `answer` (a computed result), `match` (the default for list items) or `fallback` (offered whatever was typed, like "Define …"). Wicket ranks by relevance first; within it, your order is kept (the user's habits never reorder your items), after Wicket's own matches such as apps and files. |
 | `actions` | no | | What the user can do; the first runs on Return, the others are in the action panel (⌘K). |
 | `file` | no | 0.0.6 | The file or folder the row is: an absolute or `~/` path, or a `file:` URL. See Subjects. |
 | `url` | no | 0.0.6 | The link the row is (`https:`, `mailto:`, an app scheme). See Subjects. |
@@ -281,7 +277,7 @@ If you can't produce a result, answer with a JSON-RPC error:
 - `message` is shown to the user as is: one short, plain sentence. Put details (stack traces, HTTP bodies) in `data` or on stderr; both go to the diagnostics, never into the view.
 - The `code` is an integer and doesn't change how the error is shown. Use `1` for your own errors, including an unknown `command`. Codes from -32768 to -32000 are JSON-RPC's: send -32601 for a method you don't know, and if you can't parse a line, reply with `"id":null` and -32700.
 - `error` holds only `code`, `message` and `data`.
-- In a view, Wicket shows the message in place of the view's content (in a `live` view, until the next keystroke's answer), with Fix with Agent (⌘↩). In `root` mode errors are not shown inline. Either way the run is recorded in the extension's history (see Debugging), and the extension's page in Extensions lists recent failures with Fix with Agent.
+- In a view, Wicket shows the message in place of the view's content (in a `live` view, until the next keystroke's answer), with Fix with Agent (⌘↩). The run is recorded in the extension's history (see Debugging), and the extension's page in Extensions lists recent failures with Fix with Agent.
 
 Wicket reports these failures itself, the same way: no response within 30 seconds (the request is cancelled), an invalid response, a line over the size limit, or an exit with an error status while a request was pending.
 
@@ -290,13 +286,13 @@ Wicket reports these failures itself, the same way: no response within 30 second
 | Limit | Value |
 |---|---|
 | One message (one line) | 1 MiB |
-| Items in a list | 500, across all its sections; in `root` mode at most 10 are shown |
+| Items in a list | 500, across all its sections |
 | Time to answer a request | 30 seconds, measured from when it was sent (including start-up) |
 | Idle time before stdin is closed | about 60 seconds |
 | Exit after stdin closes (you and what you started) | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
 | stderr kept for diagnostics | last 16 KiB (secret values and recent queries removed; anything else kept as written) |
 
-Keep answers fast: a `live` or `root` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.
+Keep answers fast: a `live` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.
 
 ## Python with uv
 

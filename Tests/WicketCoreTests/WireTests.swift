@@ -41,15 +41,11 @@ private func problem(_ json: String, _ context: WireContext = WireContext()) -> 
 /// What an extension's screens are stamped with when the context knows no revision.
 private let fromExtension = ScreenContext(authority: .extension(nil))
 
-@Test func answersRankAsAnswersUnlessTheySayOtherwise() throws {
+@Test func answersRankAsAnswers() throws {
     // Without actions, Return copies the answer's title.
     #expect(
         try result(#"{"answer":{"title":"4"}}"#)
             == .show(.answer(item("4", relevance: .answer, actions: [.copy(text: "4")])), fromExtension))
-    let fallback = try result(#"{"answer":{"title":"4","relevance":"fallback"}}"#, WireContext(mode: .root))
-    #expect(
-        fallback
-            == .show(.answer(item("4", relevance: .fallback, actions: [.copy(text: "4")])), fromExtension))
 }
 
 private func item(_ title: String, relevance: Item.Relevance, actions: [Item.Action] = []) -> Item {
@@ -120,7 +116,7 @@ private func item(_ title: String, relevance: Item.Relevance, actions: [Item.Act
     ),
     (#"{"answer":{"title":"x","icon":{"emoji":"x"}}}"#, "an icon must have"),
     // Values.
-    (#"{"answer":{"title":"x","relevance":"exact"}}"#, "must be answer, match or fallback"),
+    (#"{"answer":{"title":"x","relevance":"answer"}}"#, #"unknown field "relevance""#),
     (
         #"{"answer":{"title":"x","actions":[{"open":{"url":"relative/path"}}]}}"#,
         "must be a URL with a scheme"
@@ -141,17 +137,8 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
     #expect(problem(#"{"list":{"items":[\#(items)]}}"#)?.contains("the limit is 500") == true)
 }
 
-@Test func modeRules() {
-    let root = WireContext(mode: .root)
-    #expect(
-        problem(#"{"detail":{"markdown":"x"}}"#, root)?.contains("not allowed for a root command") == true)
-    #expect(problem(#"{"close":{}}"#, root)?.contains("not allowed for a root command") == true)
-    #expect(problem(#"{"list":{"items":[{"title":"a","relevance":"fallback"}]}}"#, root) == nil)
-    let live = WireContext(mode: .live)
-    #expect(
-        problem(#"{"list":{"items":[{"title":"a","relevance":"match"}]}}"#, live)?.contains("only for root")
-            == true)
-    #expect(problem(#"{"reload":{}}"#, live) == nil)
+@Test func runActionsNameDeclaredCommands() {
+    #expect(problem(#"{"reload":{}}"#) == nil)
     let commands = WireContext(commands: ["search"], origin: .extension("todo", "search"))
     let run = #"{"answer":{"title":"x","actions":[{"run":{"command":"other"}}]}}"#
     #expect(problem(run, commands)?.contains(#""other" is not a command in wicket.json"#) == true)

@@ -378,7 +378,7 @@ public final class ExtensionsRunner: CommandRunner {
     public static func enabled(_ sealed: SealedRevision, folder: URL) -> Detail {
         let id = sealed.revision.extensionID
         var actions: [Item.Action] = []
-        if let first = sealed.manifest.commands.first(where: { !$0.hidden && $0.mode != .root }) {
+        if let first = sealed.manifest.commands.first(where: { !$0.hidden }) {
             actions.append(
                 .run(
                     command: .extension(id, first.id), title: "Run \(first.title)", revision: sealed.revision)

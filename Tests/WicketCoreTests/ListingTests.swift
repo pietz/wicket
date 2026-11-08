@@ -67,14 +67,6 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
     #expect(problem(twice)?.contains("appears twice") == true)
 }
 
-/// A root command's list is mixed into the main results, which show rows only.
-@Test func rootListsHoldItemsOnly() {
-    let root = WireContext(mode: .root)
-    #expect(problem(#"{"list":{"items":[],"summary":"x"}}"#, root)?.contains("root command") == true)
-    #expect(problem(#"{"list":{"sections":[]}}"#, root)?.contains("root command") == true)
-    #expect(problem(#"{"list":{"items":[]}}"#, root) == nil)
-}
-
 @Test func theItemLimitCountsEverySection() {
     let items = (0..<300).map { #"{"title":"\#($0)"}"# }.joined(separator: ",")
     let lots =

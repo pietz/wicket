@@ -46,8 +46,7 @@ private func manifestCommands() throws -> [RegisteredCommand] {
           {"id":"toggle","title":"Toggle Dark Mode","keyword":"dark"},
           {"id":"list","title":"List Todos","keyword":"todos","repeatable":true},
           {"id":"find","title":"Find Todos","keyword":"find","mode":"live"},
-          {"id":"done","title":"Mark Done","hidden":true},
-          {"id":"words","title":"Word Count","mode":"root"}
+          {"id":"done","title":"Mark Done","hidden":true}
         ]}
         """#
     let manifest = try JSONDecoder().decode(Manifest.self, from: Data(json.utf8))
@@ -106,10 +105,8 @@ private let find = CommandID.extension("todo", "find")
     #expect(commands["find"]?.input == .liveText)
     #expect(commands["find"]?.retry == .safeToRepeat)
     #expect(commands["done"]?.retry == .never)
-    #expect(commands["words"]?.retry == .safeToRepeat)
-    #expect(commands["words"]?.isListed == false)
 
-    // `repeatable` is a once command's contract; live and root runs always are.
+    // `repeatable` is a once command's contract; live runs always are.
     let live =
         #"{"protocol":1,"id":"x","name":"X","version":"1.0.0","run":["x"],"commands":[{"id":"a","title":"A","mode":"live","repeatable":true}]}"#
     #expect(throws: DecodingError.self) { try JSONDecoder().decode(Manifest.self, from: Data(live.utf8)) }

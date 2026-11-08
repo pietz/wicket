@@ -14,8 +14,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     public var keyword: String?
     /// Alternate words and phrases for local search; these do not route keyword invocations.
     public var search: [String]
-    /// Whether the root search lists it. Hidden commands and root-mode extension commands are
-    /// reachable by id only.
+    /// Whether the root search lists it. Hidden commands are reachable by id only.
     public var isListed: Bool
     public var input: CommandInput
     public var retry: RetryPolicy
@@ -67,7 +66,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
             id: .extension(extensionID, command.id), title: command.title, subtitle: command.subtitle,
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
             search: command.search,
-            isListed: !command.hidden && command.mode != .root, input: command.input, retry: command.retry,
+            isListed: !command.hidden, input: command.input, retry: command.retry,
             placeholder: command.placeholder, revision: revision)
     }
 
@@ -77,14 +76,13 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
 
 /// The manifest's modes in the domain's terms.
 extension Manifest.Command {
-    /// `once` (and `root`, should a `run` action name one) runs on its text when invoked; `live`
-    /// searches as the user types.
+    /// `once` runs on its text when invoked; `live` searches as the user types.
     public var input: CommandInput {
         mode == .live ? .liveText : .immediateText
     }
 
-    /// Live and root runs are searches, so they may be resent; a once command only if its manifest
-    /// says it is `repeatable`.
+    /// Live runs are searches, so they may be resent; a once command only if its manifest says it
+    /// is `repeatable`.
     public var retry: RetryPolicy {
         mode != .once || repeatable ? .safeToRepeat : .never
     }

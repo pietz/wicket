@@ -80,7 +80,7 @@ final class AppRuntime {
         self.work = work
         self.system = system
         let sources =
-            sources + [CommandsSource(registry), FallbackSource(registry), ExtensionRootSource(extensions)]
+            sources + [CommandsSource(registry), FallbackSource(registry)]
         let runner = CommandRouter(builtins: builtins, extensions: extensions)
         self.runner = runner
         model = PaletteModel(

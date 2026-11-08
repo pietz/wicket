@@ -101,11 +101,6 @@ private func files(_ names: [String], _ query: String) -> [Item] {
     let named = files(["How to cook pasta.pdf"], "how to cook pasta")
     #expect(named.count == 1)
     #expect(ranked(named, "how to cook pasta").first == "How to cook pasta.pdf")
-    // An extension's match can't be judged, however it scores.
-    let ext = Item(
-        id: "ext:x/y:z", title: "Ext", icon: .symbol(name: "x"), score: 1000, actions: [],
-        origin: .extension("x", "y"))
-    #expect(ranked([ext], query).first == "Run Agent")
 }
 
 @Test func theStrongThresholdSeparatesRunsFromScatteredLetters() {

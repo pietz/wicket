@@ -120,15 +120,15 @@ func samplesPass(path: String) async {
 
 @Test func badManifestFailsBeforeRunning() async throws {
     let ext = try TestExtension(
-        commands: #"[{"id":"go","title":"Go","mode":"root","keyword":"g"}]"#, script: "")
+        commands: #"[{"id":"go","title":"Go","mode":"root"}]"#, script: "")
     let report = await check(ext)
-    #expect(report.errors == [#"wicket.json: commands[0].keyword: is not allowed for a root command"#])
+    #expect(report.errors == [#"wicket.json: commands[0].mode: "root" must be once or live"#])
 }
 
 @Test func missingSearchTermsOnlyWarnForListedCommands() async throws {
     let ext = try TestExtension(
         commands:
-            #"[{"id":"go","title":"Go"},{"id":"empty","title":"Empty","search":[]},{"id":"named","title":"Named","search":["find me"]},{"id":"hidden","title":"Hidden","hidden":true},{"id":"root","title":"Root","mode":"root"}]"#,
+            #"[{"id":"go","title":"Go"},{"id":"empty","title":"Empty","search":[]},{"id":"named","title":"Named","search":["find me"]},{"id":"hidden","title":"Hidden","hidden":true}]"#,
         script: answering(#"{"close":{}}"#), fixture: send(1))
     let report = await check(ext)
     #expect(report.passed, "\(report.errors)")
@@ -201,15 +201,6 @@ func samplesPass(path: String) async {
     #expect(
         await check(ext).errors.first?.contains(#"run for "nope", which wicket.json doesn't declare"#) == true
     )
-}
-
-@Test func modeRulesApply() async throws {
-    let ext = try TestExtension(
-        commands: #"[{"id":"go","title":"Go","mode":"root"}]"#,
-        script: answering(#"{"detail":{"markdown":"x"}}"#),
-        fixture: send(1))
-    #expect(
-        await check(ext).errors.first?.contains("result.detail: is not allowed for a root command") == true)
 }
 
 @Test func oneShotScriptsAreRestartedForEachRequest() async throws {

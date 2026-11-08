@@ -57,7 +57,7 @@ typealias Activation =
 /// changed: a read-only copy whose hash is its revision, with its state against `approvals`. The
 /// **active catalog** is the approved revisions the store keeps, one per discovered extension (a
 /// folder changed since approval keeps running its approved revision until the new one is
-/// approved); `commands`, root commands and sessions come from it alone, a session runs its sealed
+/// approved); `commands` and sessions come from it alone, a session runs its sealed
 /// folder, never the authoring one, and `result(of:)` refuses anything else before a session
 /// exists. Scanning, copying and hashing run off the main actor; each pass publishes one snapshot
 /// (discovery, catalog, sessions retired, diagnostics) in one main-actor step and then calls
@@ -77,12 +77,6 @@ typealias Activation =
 /// revision.
 @MainActor
 public final class Extensions {
-    private struct Active {
-        let sealed: SealedRevision
-        /// Compiled `pattern`s of root commands, by command id.
-        let patterns: [String: NSRegularExpression]
-    }
-
     /// What one discovery pass found, published at once.
     private struct Snapshot: Sendable {
         var discovered: [DiscoveredExtension]
@@ -112,7 +106,7 @@ public final class Extensions {
     }
     /// The uv prunes running or waiting, one after another; shutdown cancels them.
     private var uvPruning: Task<Void, Never>?
-    private var active: [String: Active] = [:]
+    private var active: [String: SealedRevision] = [:]
     private let activate: Activation
     /// The report version each session's diagnostics were last taken at.
     private var reported: [ObjectIdentifier: Int] = [:]
@@ -171,10 +165,10 @@ public final class Extensions {
     }
 
     /// The active revision of each extension, by id.
-    public var revisions: [String: ExtensionRevision] { active.mapValues(\.sealed.revision) }
+    public var revisions: [String: ExtensionRevision] { active.mapValues(\.revision) }
 
     /// The active sealed revision of `id`, if it may run.
-    public func activeRevision(of id: String) -> SealedRevision? { active[id]?.sealed }
+    public func activeRevision(of id: String) -> SealedRevision? { active[id] }
 
     /// The app's version, which extensions get as `WICKET_VERSION`; "dev" outside the bundle.
     public nonisolated static var hostVersion: String {
@@ -191,22 +185,8 @@ public final class Extensions {
     /// by extension id, then in manifest order; each with its own icon, else its extension's, and
     /// the revision it belongs to.
     public var commands: [RegisteredCommand] {
-        active.values.sorted { $0.sealed.manifest.id < $1.sealed.manifest.id }.flatMap { ext in
-            ext.sealed.manifest.commands.map { Self.registered($0, of: ext.sealed) }
-        }
-    }
-
-    /// The root commands a main-search query goes to: those whose pattern matches it, or that have
-    /// none. Empty queries go nowhere.
-    public func rootCommands(matching query: String) -> [RegisteredCommand] {
-        guard !query.isEmpty else { return [] }
-        return active.values.sorted { $0.sealed.manifest.id < $1.sealed.manifest.id }.flatMap { ext in
-            ext.sealed.manifest.commands.filter { command in
-                guard command.mode == .root else { return false }
-                guard let pattern = ext.patterns[command.id] else { return true }
-                return pattern.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)) != nil
-            }
-            .map { Self.registered($0, of: ext.sealed) }
+        active.values.sorted { $0.manifest.id < $1.manifest.id }.flatMap { sealed in
+            sealed.manifest.commands.map { Self.registered($0, of: sealed) }
         }
     }
 
@@ -234,8 +214,8 @@ public final class Extensions {
             guard let current = active[id] else {
                 throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
             }
-            guard current.sealed.manifest.command(command.name) != nil else { throw HostError.unknownCommand }
-            if let expected = invocation.revision, expected != current.sealed.revision {
+            guard current.manifest.command(command.name) != nil else { throw HostError.unknownCommand }
+            if let expected = invocation.revision, expected != current.revision {
                 throw HostError.extensionChanged
             }
             guard !isShutDown else { throw HostError.stopped }
@@ -327,7 +307,7 @@ public final class Extensions {
             // Another replacement may have been chained on meanwhile; only a finished chain counts.
             if stopping[id] == previous { stopping[id] = nil }
         }
-        guard let sealed = active[id]?.sealed, !isShutDown else { throw HostError.stopped }
+        guard let sealed = active[id], !isShutDown else { throw HostError.stopped }
         let session = ExtensionSession(
             manifest: sealed.manifest, folder: sealed.folder, revision: sealed.revision,
             configuration: configuration(id))
@@ -444,24 +424,12 @@ public final class Extensions {
     /// revisions no longer active (stopped, the next request starts the active one once they have
     /// exited) and the diagnostics; then tells `onChange`.
     private func publish(_ snapshot: Snapshot) {
-        var next: [String: Active] = [:]
-        for sealed in snapshot.active {
-            let id = sealed.revision.extensionID
-            if let current = active[id], current.sealed == sealed {
-                next[id] = current
-                continue
-            }
-            let patterns = sealed.manifest.commands.reduce(into: [String: NSRegularExpression]()) {
-                patterns, command in
-                patterns[command.id] = command.pattern.flatMap { try? NSRegularExpression(pattern: $0) }
-            }
-            next[id] = Active(sealed: sealed, patterns: patterns)
-        }
-        for (id, session) in sessions where next[id]?.sealed.revision != session.revision {
+        let next = Dictionary(snapshot.active.map { ($0.revision.extensionID, $0) }) { a, _ in a }
+        for (id, session) in sessions where next[id]?.revision != session.revision {
             retire(session, of: id)
         }
         // Reports about the old code go with it: a changed revision's, and everything of a removed one.
-        let replaced = Set(active.keys).filter { next[$0]?.sealed.revision != active[$0]?.sealed.revision }
+        let replaced = Set(active.keys).filter { next[$0]?.revision != active[$0]?.revision }
         diagnostics.remove { diagnostic in
             replaced.contains { diagnostic.concerns(extension: $0) } && diagnostic.kind != .discovery
         }

@@ -123,16 +123,6 @@ func topResult(query: String, expected: String) {
     #expect(abs(store.frecency("a", now: start.addingTimeInterval(UsageStore.halfLife)) - 1) < 1e-9)
 }
 
-private func fromExtension(
-    _ titles: [String], _ id: String, command: String = "search", relevance: Item.Relevance = .match
-) -> [Item] {
-    titles.map { title in
-        Item(
-            id: "ext:\(id)/\(command):\(title)", title: title, icon: .symbol(name: "x"),
-            relevance: relevance, actions: [], origin: .extension(id, command))
-    }
-}
-
 private func host(_ title: String, relevance: Item.Relevance = .match, score: Double = 0) -> Item {
     Item(
         id: "host:" + title, title: title, icon: .symbol(name: "x"), relevance: relevance, score: score,
@@ -143,47 +133,13 @@ private func rank(_ items: [Item], usage: [String: Double] = [:]) -> [String] {
     Ranker.rank(items, query: "x", usage: { usage[$0] ?? 0 }).map(\.title)
 }
 
-@Test func extensionItemsKeepTheirOrderWithinATier() {
-    let items = fromExtension(["Zebra", "Apple", "Mango"], "fruit")
-    let usage = ["ext:fruit/search:Mango": 1000.0]
-    #expect(
-        Ranker.rank(items, query: "a", usage: { usage[$0] ?? 0 }).map(\.title) == ["Zebra", "Apple", "Mango"])
-    #expect(Ranker.rank(items, query: "", usage: { _ in 0 }).map(\.title) == ["Zebra", "Apple", "Mango"])
-}
-
-@Test func tiersStillComeFirstForExtensionItems() {
-    let items =
-        fromExtension(["Define the word"], "dictionary", relevance: .fallback)
-        + fromExtension(["B", "A"], "letters")
-    #expect(rank(items) == ["B", "A", "Define the word"])
-}
-
-@Test func eachCommandIsOneBlockInItsOwnOrder() {
-    // Interleaved input, as several sources or commands might deliver it.
-    let one = fromExtension(["c", "a"], "one")
-    let two = fromExtension(["d", "b"], "two")
-    let other = fromExtension(["f", "e"], "one", command: "other")
-    #expect(rank([two[0], one[0], other[0], two[1], one[1], other[1]]) == ["f", "e", "c", "a", "d", "b"])
-}
-
-@Test func hostItemsComeBeforeProviderItemsInATier() {
-    let items = fromExtension(["Ext"], "web") + [host("Weak match", score: -50), host("Strong", score: 90)]
-    #expect(rank(items) == ["Strong", "Weak match", "Ext"])
-    // A higher tier still wins.
-    let answer = fromExtension(["42"], "calc", relevance: .answer)
-    #expect(rank(items + answer).first == "42")
-}
-
 // Regression: unconfigured fallbacks were sorted by title, against the registry order the source
 // gives.
 @Test func fallbacksKeepTheirSourceOrderNotTitleOrHabit() {
     let ai = host("Run Agent", relevance: .fallback)
     let other = host("Another", relevance: .fallback)
-    let ext = fromExtension(["A definition"], "dictionary", relevance: .fallback)
     let match = host("Match")
-    #expect(
-        rank(ext + [ai, match, other], usage: ["host:Another": 1000])
-            == ["Match", "Run Agent", "Another", "A definition"])
+    #expect(rank([ai, match, other], usage: ["host:Another": 1000]) == ["Match", "Run Agent", "Another"])
 }
 
 @Test func usageStillReordersHostItems() {

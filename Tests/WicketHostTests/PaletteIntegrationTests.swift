@@ -30,7 +30,6 @@ private struct Palette {
     let extensions: Extensions
     let session: PaletteSession
     let dispatcher: ActionDispatcher
-    let root: ExtensionRootSource
 
     /// `samples` are paths relative to the repository; `extra` are folders already in place.
     init(samples: [String], extra: [TestExtension] = [], data: URL? = nil) async throws {
@@ -68,9 +67,8 @@ private struct Palette {
         }
         let registry = CommandRegistry()
         registry.setExtensionCommands(extensions.commands)
-        root = ExtensionRootSource(extensions, debounce: .milliseconds(30))
         session = PaletteSession(
-            sources: [CommandsSource(registry), root], runner: extensions, registry: registry,
+            sources: [CommandsSource(registry)], runner: extensions, registry: registry,
             liveDebounce: .milliseconds(10))
         dispatcher = ActionDispatcher(registry: registry, effects: InertEffects())
     }
@@ -263,53 +261,4 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         return
     }
     #expect(detail.metadata.contains { $0.label == "Process ID" })
-}
-
-@MainActor
-@Test func rootCommandsJoinTheRootSearchWhenTheirPatternMatches() async throws {
-    // Doubles a number, logging every text it was sent; 13 is an error.
-    let script = #"""
-        while IFS= read -r line; do
-          case "$line" in *'"method":"run"'*) ;; *) continue ;; esac
-          id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-          text=$(printf '%s' "$line" | sed -n 's/.*"text":"\([^"]*\)".*/\1/p')
-          echo "$text" >> "$WICKET_DATA_DIR/log"
-          if [ "$text" = 13 ]; then
-            printf '{"jsonrpc":"2.0","id":%s,"error":{"code":1,"message":"Unlucky"}}\n' "$id"
-          else
-            printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"%s"}}}\n' "$id" $((text * 2))
-          fi
-        done
-        """#
-    let ext = try TestExtension(
-        id: "double", commands: #"[{"id":"double","title":"Double","mode":"root","pattern":"^[0-9]+$"}]"#,
-        script: script)
-    let data = FileManager.default.temporaryDirectory.appending(
-        path: "wicket-tests/data-\(UUID().uuidString)")
-    let palette = try await Palette(samples: [], extra: [ext], data: data)
-    let session = palette.session
-    let log = { (try? String(contentsOf: data.appending(path: "log"), encoding: .utf8)) ?? "" }
-
-    // A burst of keystrokes sends only the last text.
-    for text in ["1", "12", "123"] { session.query = text }
-    #expect(await eventually { palette.titles == ["246"] })
-    #expect(log() == "123\n")
-    #expect(session.top.list?.items.first?.relevance == .answer)
-    #expect(session.top.list?.items.first?.origin == .extension("double", "double"))
-
-    // Text the pattern doesn't match is never sent.
-    session.query = "abc"
-    try await Task.sleep(for: .milliseconds(100))
-    #expect(palette.titles.isEmpty)
-    #expect(log() == "123\n")
-
-    // A failure isn't shown in the root search; it is kept for the Extensions screen.
-    let diagnostics = palette.extensions.diagnostics
-    let failure = { diagnostics.text(for: .command(.extension("double", "double")), kind: .run) }
-    session.query = "13"
-    #expect(await eventually { failure() == "Unlucky" })
-    #expect(palette.titles.isEmpty)
-    session.query = "2"
-    #expect(await eventually { palette.titles == ["4"] })
-    #expect(failure() == nil)
 }

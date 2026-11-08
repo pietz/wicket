@@ -58,31 +58,19 @@
         "title": { "type": "string", "minLength": 1 },
         "subtitle": { "type": "string" },
         "icon": { "$ref": "#/$defs/Icon" },
-        "mode": { "enum": ["once", "live", "root"], "default": "once" },
+        "mode": { "enum": ["once", "live"], "default": "once" },
         "keyword": { "type": "string", "pattern": "^\\S+$" },
         "search": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" }, "description": "Words and phrases a person would type to find this command locally; equivalent title matches rank higher." },
         "placeholder": { "type": "string" },
         "hidden": { "type": "boolean", "default": false },
-        "pattern": { "type": "string", "format": "regex", "description": "Root only: queries that don't match are not sent." },
         "repeatable": {
           "type": "boolean",
           "default": false,
           "description": "Once only: running it twice does no harm, so Wicket may resend it after a clean exit."
         }
       },
-      "allOf": [
-        {
-          "if": { "required": ["mode"], "properties": { "mode": { "enum": ["live", "root"] } } },
-          "then": { "not": { "required": ["repeatable"] } }
-        }
-      ],
-      "if": { "required": ["mode"], "properties": { "mode": { "const": "root" } } },
-      "then": {
-        "not": {
-          "anyOf": [{ "required": ["keyword"] }, { "required": ["placeholder"] }, { "required": ["hidden"] }]
-        }
-      },
-      "else": { "not": { "required": ["pattern"] } }
+      "if": { "required": ["mode"], "properties": { "mode": { "const": "live" } } },
+      "then": { "not": { "required": ["repeatable"] } }
     },
     "Slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64 },
     "Icon": {
@@ -131,7 +119,6 @@
         "subtitle": { "type": "string" },
         "icon": { "$ref": "#/$defs/Icon" },
         "accessory": { "type": "string", "description": "Short text at the trailing edge." },
-        "relevance": { "enum": ["answer", "match", "fallback"], "description": "Root mode only." },
         "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } },
         "file": {
           "type": "string",

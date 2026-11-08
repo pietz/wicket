@@ -36,13 +36,11 @@ private func wifiCommand(_ fields: String = "") throws -> RegisteredCommand {
     }
 }
 
-@MainActor @Test func searchPhrasesDoNotListHiddenOrRootCommands() throws {
+@MainActor @Test func searchPhrasesDoNotListHiddenCommands() throws {
     let registry = CommandRegistry()
-    for fields in [#", "hidden":true"#, #", "mode":"root""#] {
-        registry.setExtensionCommands([try wifiCommand(fields)])
-        #expect(registry.search("wireless").isEmpty)
-        #expect(registry.command(.extension("system", "wifi")) != nil)
-    }
+    registry.setExtensionCommands([try wifiCommand(#", "hidden":true"#)])
+    #expect(registry.search("wireless").isEmpty)
+    #expect(registry.command(.extension("system", "wifi")) != nil)
 }
 
 @MainActor @Test func builtinsCanDeclareSearchPhrases() {

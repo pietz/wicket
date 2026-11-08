@@ -2,18 +2,12 @@ import Foundation
 
 /// Merges results from every root source into one order.
 ///
-/// Relevance tiers come first (exact, answer, match, fallback). Within a tier three policies
-/// apply:
+/// Relevance tiers come first (exact, answer, match, fallback). Within a tier two policies apply:
 /// - **Fixed menu**: the host's fallback rows (`FallbackSource`: Run Agent) keep the order their
 ///   source gave, never moved by habit or by title.
 /// - **Host-scored**: the host's other items (apps, files, calculator, built-ins) by score plus a
 ///   frecency boost, then (for a non-empty query) the shorter title, then name. An empty query
 ///   therefore lists by usage, then name.
-/// - **Provider order**: extension items after the host's, one block per command (by extension
-///   id, then command name), each in the order the command sent and never reordered by habit. The
-///   host can judge how well its own items match the query but not an extension's, so an extension
-///   that answers every query can't push the app the user typed off the top row; an extension that
-///   is sure goes in a higher tier (`answer`).
 ///
 /// One exception to the tiers: when the query reads like a request (`RequestText`) and nothing is a
 /// strong match, the lead fallback (Run Agent) moves to the top, so Return asks it. Ranking runs again
@@ -31,32 +25,17 @@ public enum Ranker {
         let typed = !Fold.query(query).isEmpty
         struct Candidate {
             let item: Item
-            /// The extension and command of a provider-ordered item.
-            let provider: (extension: String, command: String)?
-            /// Position in the input, which is the provider's order.
+            /// Position in the input, which is a fallback source's order.
             let position: Int
             let score: Double
         }
         var candidates = items.enumerated().map { position, item in
-            let fallback = item.relevance == .fallback
-            var provider: (String, String)?
-            if case .extension(let id) = item.origin?.owner, let name = item.origin?.name {
-                provider = (id, name)
-            }
-            let boost = fallback || provider != nil ? 0 : usageBoost(usage(item.id))
-            return Candidate(item: item, provider: provider, position: position, score: item.score + boost)
+            let boost = item.relevance == .fallback ? 0 : usageBoost(usage(item.id))
+            return Candidate(item: item, position: position, score: item.score + boost)
         }
         candidates.sort { a, b in
             if a.item.relevance != b.item.relevance { return a.item.relevance < b.item.relevance }
-            switch (a.provider, b.provider) {
-            case (nil, .some): return true
-            case (.some, nil): return false
-            case (.some(let pa), .some(let pb)):
-                if pa != pb { return pa < pb }
-                return a.position < b.position
-            case (nil, nil):
-                if a.item.relevance == .fallback { return a.position < b.position }
-            }
+            if a.item.relevance == .fallback { return a.position < b.position }
             if a.score != b.score { return a.score > b.score }
             let ta = a.item.title
             let tb = b.item.title
@@ -78,14 +57,12 @@ public enum Ranker {
         return ranked
     }
 
-    /// Exact and answer rows always are. A match is when the host scored it well; an
-    /// extension's match can't be judged (a sure extension answers in the `answer` tier).
+    /// Exact and answer rows always are; a match when it scored well.
     static func isStrong(_ item: Item, queryLength: Int) -> Bool {
         switch item.relevance {
         case .exact, .answer: return true
         case .fallback: return false
         case .match:
-            if case .extension = item.origin?.owner { return false }
             return item.score >= strongScorePerScalar * Double(queryLength)
         }
     }

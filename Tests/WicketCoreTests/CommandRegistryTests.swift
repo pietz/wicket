@@ -30,11 +30,10 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 }
 
 @MainActor
-@Test func extensionCommandsAreListedUnlessHiddenOrRoot() throws {
+@Test func extensionCommandsAreListedUnlessHidden() throws {
     let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([
         try command("todo", "add"), try command("todo", "done", hidden: true),
-        try command("units", "convert", mode: "root"),
     ])
     #expect(titles(registry.search("")) == ["Wicket Settings", "Quit Wicket", "todo add"])
     let add = try #require(registry.search("todo add").first)
@@ -42,7 +41,6 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
     #expect(add.actions == [.run(command: .extension("todo", "add"))])
     // Unlisted commands still resolve by id, for `run` actions.
     #expect(registry.command(.extension("todo", "done"))?.isListed == false)
-    #expect(registry.command(.extension("units", "convert"))?.isListed == false)
 }
 
 @MainActor

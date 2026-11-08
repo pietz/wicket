@@ -170,16 +170,15 @@ func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
 // MARK: The gate
 
 @MainActor @Test func unapprovedExtensionsNeverRunHoweverTheyAreAsked() async throws {
-    let root = try TestExtension(
-        id: "rooted", commands: #"[{"id":"go","title":"Go","mode":"root"}]"#, script: answering("{}"))
-    let h = try Harness([try titled("v1"), root])
+    let other = try TestExtension(
+        id: "other", commands: #"[{"id":"go","title":"Go"}]"#, script: answering("{}"))
+    let h = try Harness([try titled("v1"), other])
     await h.extensions.load().value
     let sealed = try #require(h.extensions.discovered.first { $0.id == "titled" }?.sealed)
     #expect(h.state() == .unapproved(sealed))
 
-    // Not in the catalog, the registry, or the root search.
+    // Not in the catalog or the registry.
     #expect(h.extensions.commands.isEmpty)
-    #expect(h.extensions.rootCommands(matching: "anything").isEmpty)
     let registry = CommandRegistry()
     registry.setExtensionCommands(h.extensions.commands)
     #expect(registry.command(.extension("titled", "go")) == nil)
@@ -187,7 +186,7 @@ func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
     // before any process starts.
     await #expect(throws: HostError.notApproved) { try await h.title() }
     await #expect(throws: HostError.notApproved) { try await h.title(bound: sealed.revision) }
-    await #expect(throws: HostError.notApproved) { try await h.title("rooted") }
+    await #expect(throws: HostError.notApproved) { try await h.title("other") }
     #expect(h.pids().isEmpty)
     // Something no folder has is still unknown.
     await #expect(throws: HostError.unknownCommand) { try await h.title("missing") }

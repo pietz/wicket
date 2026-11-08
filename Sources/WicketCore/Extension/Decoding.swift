@@ -11,11 +11,10 @@ extension Item: Decodable {
     /// Decodes an extension's item. Its subject (`file` or `url`, at most one) gives
     /// what the producer leaves out: title, subtitle, icon, id, and actions after the producer's.
     /// Without one, a missing id is the title, a missing icon the one in the decoder's `WireContext`.
-    /// A missing relevance is `match` (answers set their own). With an origin in the context, the
-    /// item carries it and its id is namespaced by it.
+    /// With an origin in the context, the item carries it and its id is namespaced by it.
     public init(from decoder: any Decoder) throws {
         let object = try decoder.object([
-            "id", "title", "subtitle", "icon", "accessory", "relevance", "actions", "file", "url",
+            "id", "title", "subtitle", "icon", "accessory", "actions", "file", "url",
         ])
         let home = decoder.wire.home
         if object.has("file"), object.has("url") {
@@ -28,17 +27,6 @@ extension Item: Decodable {
             subtitle: try object.optional("subtitle"), icon: try object.optional("icon"),
             accessory: try object.optional("accessory"), actions: try object.optional("actions") ?? [],
             origin: decoder.wire.origin, home: home, defaultIcon: decoder.wire.icon ?? extensionIcon)
-        if object.has("relevance") {
-            if let mode = decoder.wire.mode, mode != .root {
-                throw object.invalid("relevance", "is only for root commands; this is a \(mode) command")
-            }
-            let value = try object.required("relevance", as: String.self)
-            // Exact says what the user typed, which only the host knows.
-            guard let relevance = Relevance(rawValue: value), relevance > .exact else {
-                throw object.invalid("relevance", "\"\(value)\" must be answer, match or fallback")
-            }
-            self.relevance = relevance
-        }
     }
 
     /// The item's subject, `file` or `url`, if it names one.
@@ -140,16 +128,11 @@ extension RunResult: Decodable {
     public init(from decoder: any Decoder) throws {
         let wire = decoder.wire
         let (kind, object) = try decoder.oneOf(RunResult.Kind.allCases.map(\.rawValue), what: "a result")
-        if wire.mode == .root, kind != "answer", kind != "list" {
-            throw object.invalid(kind, "is not allowed for a root command; return answer or list")
-        }
         let context = ScreenContext(authority: wire.authority)
         switch kind {
         case "answer":
             var item: Item = try object.required(kind)
-            if !(try object.nestedContainer(keyedBy: AnyKey.self, forKey: AnyKey(kind)).has("relevance")) {
-                item.relevance = .answer
-            }
+            item.relevance = .answer
             // Return runs the first action; an answer without any copies its title.
             if item.actions.isEmpty { item.actions = [.copy(text: item.title)] }
             self = .show(.answer(item), context)
@@ -167,15 +150,12 @@ extension RunResult: Decodable {
 }
 
 extension Listing {
-    /// A list's fields: `items` or `sections`, never both; a summary and facts. A root command's
-    /// list is mixed into the main results, so it holds items only. Duplicate ids are an error.
+    /// A list's fields: `items` or `sections`, never both; a summary and facts. Duplicate ids are an
+    /// error.
     fileprivate init(_ list: WireObject, _ wire: WireContext) throws {
         if list.has("items") == list.has("sections") {
             throw list.invalid(
                 list.has("items") ? "sections" : "items", "a list has items or sections, not both")
-        }
-        if wire.mode == .root, let key = ["summary", "facts", "sections"].first(where: list.has) {
-            throw list.invalid(key, "is not allowed for a root command; send items only")
         }
         if list.has("items") {
             self.init(try list.required("items") as [Item])
