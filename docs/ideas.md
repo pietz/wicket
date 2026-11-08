@@ -23,3 +23,9 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Wicket must be findable:** the owner saw no Dock or menu bar presence and no way into Settings (menu bar icon in progress).
 - **A hybrid of launcher and agent harness:** typing finds things instantly like a launcher; anything that needs the AI goes to the agent, without the user choosing. The only routing question is "forward this to the AI or not", decided by a decision model or the local Apple model, quickly, for typed text and for voice.
 - ~~**No keyword for making commands:** "build an extension that shows the weather in Wicket" said to the AI should just work.~~ Decided (CONCEPT, AI): Make a Command is gone.
+- **Call it Run Agent, not Ask AI.**
+- **Agent settings per provider:** model, reasoning effort (native by default) and speed (Claude regular/fast; GPT regular/fast/ultra fast), for people willing to spend more usage for quicker results.
+- **Permission levels like T3 Code:** supervised (ask before changing files), auto-accept edits (ask before other actions), auto (approve routine actions, on supported providers), full access (never asks). Prompts appear natively in the palette with enough context to approve or deny.
+- **Voice:** summon and just start speaking, no typing: transcribe automatically (Apple on-device), with a simple waveform or, if transcription is live, the text as it comes. Configurable: on/off, and the trigger (listen automatically on summon, or a separate hotkey).
+- **Switch features on and off,** so the user can turn off what the app does that they don't want, especially as the agent can do more.
+- **Research:** what an AI-first launcher should be in early 2027; minimal yet powerful agent inside a launcher.
