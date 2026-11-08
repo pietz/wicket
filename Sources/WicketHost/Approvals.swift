@@ -94,6 +94,20 @@ public final class Approvals: Sendable {
         }
     }
 
+    /// Forgets the extension `id`: its approval and its previous one, so the store keeps none of
+    /// its revisions. For an extension moved to the Trash. Throws if the file can't be written, and
+    /// then nothing changes.
+    func forget(_ id: String) throws {
+        try state.withLock { state in
+            guard state.approved[id] != nil || state.previous[id] != nil else { return }
+            var next = State(approved: state.approved, previous: state.previous)
+            next.approved[id] = nil
+            next.previous[id] = nil
+            try write(next)
+            state = next
+        }
+    }
+
     private func write(_ state: State) throws {
         let file = File(
             version: 1, approved: state.approved.mapValues(\.sha256),

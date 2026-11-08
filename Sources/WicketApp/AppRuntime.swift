@@ -372,6 +372,11 @@ extension AppRuntime {
                 runner: consent),
             Builtin(
                 RegisteredCommand(
+                    id: .trashExtension, title: "Move Extension to Trash", icon: .symbol(name: "trash"),
+                    isListed: false, input: .none),
+                runner: consent),
+            Builtin(
+                RegisteredCommand(
                     id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
                     input: .submitText, placeholder: "Paste the value and press Return"),
                 runner: SecretsRunner(extensions: extensions)),

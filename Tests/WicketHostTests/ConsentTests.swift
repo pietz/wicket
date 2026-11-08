@@ -425,8 +425,8 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
         ).last
     else { return }
     #expect(again.markdown.hasPrefix("**Enabled.**"))
-    // Return runs its first command, bound to the enabled revision; Disable is last.
-    #expect(again.actions.compactMap(\.title) == ["Run Go", "Reveal in Finder", "Disable"])
+    // Return runs its first command, bound to the enabled revision; Disable, then Move to Trash, last.
+    #expect(again.actions.compactMap(\.title) == ["Run Go", "Reveal in Finder", "Disable", "Move to Trash"])
     guard case .run(.extension("titled", "go"), _, _, _, sealed.revision)? = again.actions.first else {
         Issue.record("not a run of its command: \(again.actions)")
         return
@@ -470,7 +470,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
         detail.markdown.contains(
             "**Problems**\n\n- The keyword go is taken by Other; this command has none.\n- it broke"))
     #expect(!detail.markdown.contains("a log line"))
-    #expect(detail.actions.last?.title == "Disable")
+    #expect(detail.actions.last?.title == "Move to Trash")
     guard
         case .copy(let text, "Copy Diagnostics")? = detail.actions.first(where: {
             $0.title == "Copy Diagnostics"
@@ -518,7 +518,10 @@ private func needsToken() throws -> TestExtension {
     let unset = try #require(try await page(runner))
     #expect(unset.markdown.contains("**Secrets**\n\n- API token (`TOKEN`): Not set"))
     // A secret not set is what it needs first.
-    #expect(unset.actions.compactMap(\.title) == ["Set TOKEN…", "Run Go", "Reveal in Finder", "Disable"])
+    #expect(
+        unset.actions.compactMap(\.title) == [
+            "Set TOKEN…", "Run Go", "Reveal in Finder", "Disable", "Move to Trash",
+        ])
     guard case .run(.setSecret, "", let args?, _, _)? = unset.actions.first else {
         Issue.record("no Set action")
         return
@@ -529,7 +532,10 @@ private func needsToken() throws -> TestExtension {
     let set = try #require(try await page(runner))
     #expect(set.markdown.contains("- API token (`TOKEN`): Set"))
     #expect(!set.markdown.contains("s3cret"))
-    #expect(set.actions.compactMap(\.title) == ["Run Go", "Reveal in Finder", "Set TOKEN…", "Disable"])
+    #expect(
+        set.actions.compactMap(\.title) == [
+            "Run Go", "Reveal in Finder", "Set TOKEN…", "Disable", "Move to Trash",
+        ])
 }
 
 @MainActor @Test func aRunMissingASecretOffersToSetIt() async throws {
@@ -630,7 +636,7 @@ private func needsToken() throws -> TestExtension {
     let detail = try #require(try await page(runner))
     #expect(
         detail.actions.compactMap(\.title) == [
-            "Run Go", "Reveal in Finder", "Use Previous Version", "Disable",
+            "Run Go", "Reveal in Finder", "Use Previous Version", "Disable", "Move to Trash",
         ])
     guard case .run(.enableExtension, _, let args?, _, _) = detail.actions[2] else {
         Issue.record("not an Enable action")
@@ -674,4 +680,52 @@ func rollbackSurvivesChangedAndInvalidAuthoringFolders(invalid: Bool) async thro
     #expect(h.approvals.approved("titled") == v1.revision)
     #expect(try await h.title() == "v1")
     await h.extensions.shutdown()
+}
+
+@MainActor @Test func moveToTrashRemovesTheFolderItsApprovalsAndItsRevisions() async throws {
+    let (h, runner) = try await enabled(try titled("v1"))
+    try await h.write("v2")
+    let v2 = try #require(h.extensions.discovered.first?.sealed)
+    try await h.extensions.approve(v2.revision)
+    #expect(try await h.title() == "v2")
+    let trashed = Mutex<[URL]>([])
+    h.extensions.trashItem = { url in
+        trashed.withLock { $0.append(url) }
+        try FileManager.default.removeItem(at: url)
+    }
+    let store = h.extensions.store.root.appending(path: "titled")
+    #expect(FileManager.default.fileExists(atPath: store.path))
+
+    // Every page of it ends with Move to Trash, which reloads the screen beneath with a message.
+    let action = try #require(try await page(runner)?.actions.last)
+    guard case .run(.trashExtension, _, let args?, "Move to Trash", _) = action else {
+        Issue.record("not Move to Trash: \(action)")
+        return
+    }
+    #expect(
+        try await results(runner, .trashExtension, args: args) == [
+            .reload(message: "Moved Test to the Trash.")
+        ])
+    #expect(trashed.withLock { $0.map(\.lastPathComponent) } == ["titled"])
+    #expect(!FileManager.default.fileExists(atPath: h.folder().path))
+    #expect(h.extensions.commands.isEmpty)
+    #expect(h.extensions.discovered.isEmpty)
+    #expect(h.approvals.approved("titled") == nil && h.approvals.previous("titled") == nil)
+    // Its sealed revisions are gone, once its session has stopped.
+    #expect(!FileManager.default.fileExists(atPath: store.path))
+    // Its page, reloaded after the trash, finds it gone and reloads the list beneath.
+    #expect(try await results(runner, .reviewExtension, args: args) == [.reload(message: nil)])
+}
+
+@MainActor @Test func moveToTrashRefusesAnythingOutsideTheExtensionsFolder() async throws {
+    let (h, runner) = try await enabled(try titled("v1"))
+    h.extensions.trashItem = { url in Issue.record("trashed \(url)") }
+    for forged in ["..", "../\(h.directory.lastPathComponent)", "/tmp", "missing"] {
+        await #expect(throws: Refusal.self) {
+            try await results(runner, .trashExtension, args: ["id": .string(forged)])
+        }
+    }
+    await #expect(throws: Refusal.self) { try await results(runner, .trashExtension) }
+    #expect(h.extensions.commands.map(\.id) == [.extension("titled", "go")])
+    #expect(h.approvals.approved("titled") != nil)
 }

@@ -62,8 +62,9 @@ typealias Activation =
 /// exists. Scanning, copying and hashing run off the main actor; each pass publishes one snapshot
 /// (discovery, catalog, sessions retired, diagnostics) in one main-actor step and then calls
 /// `onChange`. FSEvents bursts coalesce: a `load` while one runs is folded into one more pass.
-/// Approving or revoking (`approve`, `revoke`, internal to Host: only Wicket's review screens call
-/// them) writes `approvals` and runs a pass, so the catalog, the registry and open frames follow.
+/// Approving, revoking or trashing (`approve`, `revoke`, `trash`, internal to Host: only Wicket's
+/// review screens call them) writes `approvals` and runs a pass, so the catalog, the registry and
+/// open frames follow.
 ///
 /// Replacement is serialised: a new session for an extension starts only after the one it replaces
 /// has fully shut down, so two processes never share its data directory (one per extension id, not
@@ -103,6 +104,10 @@ public final class Extensions {
     public var onChange: (@MainActor () -> Void)?
     /// Prunes a uv cache after revisions were pruned (`UV.prune`); a seam for tests.
     var pruneUV: @Sendable (UVStorage) async -> Void = { await UV.prune($0) }
+    /// Moves a folder to the Trash; a seam for tests, which delete it instead.
+    var trashItem: @Sendable (URL) throws -> Void = {
+        try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+    }
     /// The uv prunes running or waiting, one after another; shutdown cancels them.
     private var uvPruning: Task<Void, Never>?
     /// Runs prompt commands, which never create an extension session: the app's one answer stream,
@@ -462,6 +467,23 @@ public final class Extensions {
     /// its commands leave the registry, its frames stop and its session is stopped.
     func revoke(_ id: String) async throws {
         try approvals.revoke(id)
+        await load().value
+    }
+
+    /// Moves the folder of the discovered extension `id` to the Trash and forgets its approvals
+    /// (so restoring it means enabling it again), then returns once the catalog no longer has it,
+    /// its session has stopped and the store has dropped its revisions. Its data directory and
+    /// Keychain secrets stay, so a folder put back from the Trash works as before. Refuses an id
+    /// that isn't a folder in `directory`.
+    func trash(_ id: String) async throws {
+        guard let found = discovered.first(where: { $0.id == id }),
+            found.folder.deletingLastPathComponent().standardizedFileURL.path == directory.path
+        else { throw Refusal("There's no extension \(id) in the extensions folder.") }
+        try approvals.forget(id)
+        try trashItem(found.folder)
+        await load().value
+        // Pruning keeps a revision while its session stops; the next pass drops it.
+        await stopping[id]?.value
         await load().value
     }
 

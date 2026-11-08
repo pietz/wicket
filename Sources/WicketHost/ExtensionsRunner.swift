@@ -12,22 +12,28 @@ extension CommandID {
     public static let enableExtension = CommandID.builtin("enable-extension")
     /// Withdraws an extension's approval (args: `id`).
     public static let disableExtension = CommandID.builtin("disable-extension")
+    /// Moves an extension's folder to the Trash and forgets it (args: `id`).
+    public static let trashExtension = CommandID.builtin("trash-extension")
 }
 
-/// Wicket's consent screens, one runner behind four built-ins (each its own entry in the app's
+/// Wicket's consent screens, one runner behind five built-ins (each its own entry in the app's
 /// table, reached by `run` actions on the screens it draws):
 ///
 /// - **Extensions** (`builtin:extensions`): every discovered extension with its state (enabled,
 ///   problem, changed, not enabled, invalid), then Open Extensions Folder. Return on one that isn't
 ///   enabled reviews it; on an enabled one it shows it.
 /// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
-///   its secrets, its problems, Use Previous Version, Disable last); otherwise runs the isolated
-///   checker on the extension's current sealed revision and shows the report, and only a passing
-///   check offers Enable; a failing one offers Fix with Agent, a Run Agent run with the report.
+///   its secrets, its problems, Use Previous Version, Disable, Move to Trash last); otherwise runs
+///   the isolated checker on the extension's current sealed revision and shows the report, and only
+///   a passing check offers Enable; a failing one offers Fix with Agent, a Run Agent run with the
+///   report. Every page ends with Move to Trash. An extension that is gone reloads the screen
+///   beneath (the Extensions list), which is how a page goes away after Move to Trash.
 /// - **Enable** (`builtin:enable-extension`): approves exactly the revision a screen offered (a
 ///   review's checked one, or the previous approved one) and closes with a message.
 /// - **Disable** (`builtin:disable-extension`): withdraws the approval; its commands leave the
 ///   palette and its frames stop.
+/// - **Move to Trash** (`builtin:trash-extension`): moves the folder to the Trash, forgets its
+///   approvals and sealed revisions, and reloads the screen beneath with a message.
 ///
 /// Enable acts only on a token a screen issued in this run of Wicket: the token is never written
 /// anywhere, so a binding in settings.json, a deeplink or another process can't approve anything,
@@ -64,6 +70,8 @@ public final class ExtensionsRunner: CommandRunner {
                     continuation.yield(try await enable(Self.argument("review", of: invocation)))
                 case .disableExtension:
                     continuation.yield(try await disable(Self.argument("id", of: invocation)))
+                case .trashExtension:
+                    continuation.yield(try await trash(Self.argument("id", of: invocation)))
                 default:
                     throw Refusal("Nothing runs this command.")
                 }
@@ -76,7 +84,7 @@ public final class ExtensionsRunner: CommandRunner {
         return stream
     }
 
-    // MARK: Review, enable, disable
+    // MARK: Review, enable, disable, trash
 
     /// Shows the extension `id`: enabled already, or its current revision checked, with Enable if
     /// the check passed.
@@ -84,7 +92,9 @@ public final class ExtensionsRunner: CommandRunner {
         async throws
     {
         guard let found = extensions.discovered.first(where: { $0.id == id }) else {
-            throw Refusal("There's no extension \(id) in the extensions folder any more.")
+            // Gone (moved to the Trash, or removed in Finder): the screen beneath shows what is left.
+            continuation.yield(.reload(message: nil))
+            return
         }
         let current: SealedRevision
         switch found.state {
@@ -101,6 +111,7 @@ public final class ExtensionsRunner: CommandRunner {
             if approved != nil {
                 actions.append(.run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"))
             }
+            actions.append(Self.trash(id))
             continuation.yield(.show(.detail(Detail(title: name, markdown: reason, actions: actions))))
             return
         case .unapproved(let sealed), .changed(_, let sealed):
@@ -146,6 +157,7 @@ public final class ExtensionsRunner: CommandRunner {
         }
         if let previous = previous(id) { actions.append(previous) }
         actions.append(.reveal(url: found.folder, title: "Reveal in Finder"))
+        actions.append(Self.trash(id))
         continuation.yield(
             .show(
                 .detail(
@@ -190,15 +202,34 @@ public final class ExtensionsRunner: CommandRunner {
 
     /// Withdraws the approval of the extension `id`, then closes with a message.
     private func disable(_ id: String) async throws -> RunResult {
-        let name =
-            extensions.discovered.first { $0.id == id }.flatMap { ($0.sealed ?? $0.approved)?.manifest.name }
-            ?? id
+        let name = name(of: id)
         guard extensions.approvals.approved(id) != nil else {
             return .close(message: "\(name) isn't enabled.")
         }
         try await extensions.revoke(id)
         Self.logger.notice("review: disabled")
         return .close(message: "Disabled \(name).")
+    }
+
+    /// Moves the extension `id` to the Trash, then reloads the screen beneath with a message. The
+    /// page it was chosen on reloads first and, finding the extension gone, reloads the Extensions
+    /// list beneath it.
+    private func trash(_ id: String) async throws -> RunResult {
+        let name = name(of: id)
+        try await extensions.trash(id)
+        Self.logger.notice("review: moved to trash")
+        return .reload(message: "Moved \(name) to the Trash.")
+    }
+
+    /// The last action of every extension page. No confirmation: the Trash is the undo.
+    private static func trash(_ id: String) -> Item.Action {
+        .run(command: .trashExtension, args: ["id": .string(id)], title: "Move to Trash")
+    }
+
+    /// The extension `id`'s name, from its current or approved manifest, else its id.
+    private func name(of id: String) -> String {
+        extensions.discovered.first { $0.id == id }.flatMap { ($0.sealed ?? $0.approved)?.manifest.name }
+            ?? id
     }
 
     private static func argument(_ name: String, of invocation: Invocation) throws -> String {
@@ -305,7 +336,7 @@ public final class ExtensionsRunner: CommandRunner {
     /// An enabled extension's page: its commands, the secrets it declares and whether each is set,
     /// and its problems; Return runs its first command, then Reveal in Finder, setting a secret
     /// (one not set first of all), Use Previous Version when the store keeps the one approved
-    /// before, Copy Diagnostics when there is anything to copy, and Disable last.
+    /// before, Copy Diagnostics when there is anything to copy, Disable, and Move to Trash last.
     private func enabled(_ sealed: SealedRevision, folder: URL) -> Detail {
         var detail = Self.enabled(sealed, folder: folder)
         let id = sealed.revision.extensionID
@@ -335,6 +366,7 @@ public final class ExtensionsRunner: CommandRunner {
             detail.actions.insert(extra.remove(at: missing), at: 0)
         }
         detail.actions.insert(contentsOf: extra, at: detail.actions.count - 1)
+        detail.actions.append(Self.trash(id))
         return detail
     }
 
