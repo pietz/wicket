@@ -1,6 +1,0 @@
-{"reply": {"detail": {
-  "title": "What I changed",
-  "markdown": "Renamed **three** files.",
-  "metadata": [{"label": "Folder", "value": "~/Desktop"}],
-  "actions": [{"open": {"url": "https://example.com/changes", "title": null}}]
-}}}

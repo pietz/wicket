@@ -155,17 +155,13 @@ public enum Screen: Sendable, Hashable {
         func facts(_ facts: [Detail.Metadata]) -> String? {
             facts.isEmpty ? nil : facts.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
         }
-        func line(_ item: Item) -> String {
-            let parts = [item.title, item.subject?.location(home: home) ?? item.subtitle, item.accessory]
-            return parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        }
         let blocks: [String?]
         switch self {
         case .answer(let item):
-            blocks = [line(item)]
+            blocks = [item.line(home: home)]
         case .list(let list):
             let rows = list.sections.filter { !$0.items.isEmpty }.map { section in
-                let lines = section.items.map { "- " + line($0) }
+                let lines = section.items.map { "- " + $0.line(home: home) }
                 return ([section.title].compactMap { $0 } + lines).joined(separator: "\n")
             }
             blocks = [list.summary, facts(list.facts)] + rows

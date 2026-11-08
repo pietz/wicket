@@ -1,6 +1,6 @@
 import Foundation
 
-// Strict decoding of what extensions and agents send (docs/extensions.md, AgentOutput.swift). Unknown fields are rejected and
+// Strict decoding of what extensions send (docs/extensions.md). Unknown fields are rejected and
 // every rule failure is a `DecodingError` with the path to the offending value, so `describe`
 // can tell an agent exactly what to fix.
 
@@ -30,13 +30,6 @@ public struct WireContext: Sendable {
         self.commands = commands
         self.origin = origin
         authority = .extension(revision)
-    }
-
-    /// An agent's reply, its items stamped with `origin`.
-    public static func agent(origin: CommandID) -> WireContext {
-        var context = WireContext(origin: origin)
-        context.authority = .agent
-        return context
     }
 
     var revision: ExtensionRevision? {

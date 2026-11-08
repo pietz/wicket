@@ -11,6 +11,34 @@ extension Item {
     }
 }
 
+extension Item {
+    /// An item as a producer describes it, with what it left out derived from its subject: title
+    /// (else the subject's), id (else the subject's, else the title; namespaced by `origin`), subtitle
+    /// (a file's folder, or "Not found"), icon (else `defaultIcon`) and actions (the producer's, then
+    /// the subject's that don't repeat them). Wire decoding and markup rows share it; `exists` is
+    /// whether a file subject is there, when the caller already knows.
+    init(
+        subject: Subject?, id: String?, title: String?, subtitle: String?, icon: Icon?, accessory: String?,
+        actions: [Action], origin: CommandID?, home: URL, defaultIcon: Icon, exists known: Bool? = nil
+    ) {
+        let title = title ?? subject?.title ?? ""
+        let id = id ?? subject?.id ?? title
+        let exists: Bool
+        if let known {
+            exists = known
+        } else if case .file(let url) = subject {
+            exists = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+        } else {
+            exists = true
+        }
+        self.init(
+            id: origin.map { Item.namespaced(id, by: $0) } ?? id, title: title,
+            subtitle: subtitle ?? subject?.subtitle(home: home, exists: exists),
+            icon: icon ?? subject?.icon ?? defaultIcon, accessory: accessory,
+            actions: Action.merged(actions, subject?.actions ?? []), origin: origin, subject: subject)
+    }
+}
+
 extension Item.Subject {
     /// A `file` subject from the wire: an absolute or `~/` path, or a `file:` URL. Nil for anything else.
     public static func file(parsing value: String, home: URL) -> Item.Subject? {
@@ -121,6 +149,7 @@ extension Item.Action {
     /// The producer's actions, then the derived ones that don't repeat one of them: same kind and
     /// same target (a file's path, a link, a text). A `detail` or `run` is never a repeat.
     static func merged(_ producer: [Item.Action], _ derived: [Item.Action]) -> [Item.Action] {
+        guard !producer.isEmpty else { return derived }
         let sent = Set(producer.compactMap(\.target))
         return producer + derived.filter { $0.target.map { !sent.contains($0) } ?? true }
     }

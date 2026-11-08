@@ -232,7 +232,7 @@ Since 0.0.6 a list can also say something about its rows and group them:
 |---|---|---|
 | `items` | | The rows. A list has `items` or `sections`, never both. |
 | `sections` | 0.0.6 | Titled groups of rows (`title`, `items`), instead of `items`; the arrow keys skip the titles. Up to 500 rows in all, and ids are unique across sections. |
-| `summary` | 0.0.6 | Markdown with inline styles and links, pinned above the rows, not selectable: a sentence or two of context. It shows whole when it is three lines or fewer, or when the list has at most three rows and the summary fits in the room they leave; otherwise its first three lines show with "more", and Read Summary in the action panel (⌘K) opens it whole as a page. |
+| `summary` | 0.0.6 | [Markup](markup.md) pinned above the rows, not selectable: a sentence or two of context, perhaps with `<stat>`s or `<facts>`. Rows and the answer can't be in it, and a card's target is dropped, since the arrows belong to the rows. It shows whole when it is three lines or fewer, or when the list has at most three rows and the summary fits in the room they leave; otherwise its first three lines show with "more", and Read Summary in the action panel (⌘K) opens it whole as a page. |
 | `facts` | 0.0.6 | Labelled values (`label`, `value`) in a strip under the summary; up to four show beside the rows, and all of them on the Read Summary page, which more than four also offers. |
 
 In `root` mode a list holds `items` only, since its rows are mixed into the main results.
@@ -250,7 +250,7 @@ The rows are always whole: the card shows up to eight (with the section titles a
 }}
 ```
 
-`markdown` supports headings, emphasis, lists, links, code blocks, block quotes and tables. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown. Not allowed in `root` mode.
+`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket check` reports every tag it can't read, with the response's line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown. Not allowed in `root` mode.
 
 ### Done: close or reload
 

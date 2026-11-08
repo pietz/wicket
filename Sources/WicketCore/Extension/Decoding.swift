@@ -1,7 +1,6 @@
 import Foundation
-import os
 
-// Decoding of items and content from what extensions and agents send (docs/extensions.md), with
+// Decoding of items and content from what extensions send (docs/extensions.md), with
 // the host's stamps: the item's origin, its namespaced id, what its subject derives and `run`
 // actions resolved to a `CommandID`. What the sender may send is `ActionPolicy`'s, by its authority.
 
@@ -9,7 +8,7 @@ import os
 private let extensionIcon = Item.Icon.symbol(name: "puzzlepiece.extension")
 
 extension Item: Decodable {
-    /// Decodes an extension's or agent's item. Its subject (`file` or `url`, at most one) gives
+    /// Decodes an extension's item. Its subject (`file` or `url`, at most one) gives
     /// what the producer leaves out: title, subtitle, icon, id, and actions after the producer's.
     /// Without one, a missing id is the title, a missing icon the one in the decoder's `WireContext`.
     /// A missing relevance is `match` (answers set their own). With an origin in the context, the
@@ -22,41 +21,13 @@ extension Item: Decodable {
         if object.has("file"), object.has("url") {
             throw object.invalid("url", "an item has one subject, file or url, not both")
         }
-        if object.has("file") {
-            let value = try object.nonEmpty("file")
-            guard let subject = Subject.file(parsing: value, home: home) else {
-                throw object.invalid("file", "\"\(value)\" must be an absolute or ~/ path, or a file: URL")
-            }
-            self.subject = subject
-        } else if object.has("url") {
-            let value = try object.nonEmpty("url")
-            guard let subject = Subject.url(parsing: value) else {
-                throw object.invalid(
-                    "url", "\"\(value)\" must be a URL with a scheme (https:, mailto:, ...); a file is a file"
-                )
-            }
-            self.subject = subject
-        } else {
-            subject = nil
-        }
-        if let subject {
-            title = try object.optionalNonEmpty("title") ?? subject.title
-        } else {
-            title = try object.nonEmpty("title")
-        }
-        let id = try object.optionalNonEmpty("id") ?? subject?.id ?? title
-        origin = decoder.wire.origin
-        self.id = origin.map { Item.namespaced(id, by: $0) } ?? id
-        let exists: Bool
-        if case .file(let url) = subject {
-            exists = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
-        } else {
-            exists = true
-        }
-        subtitle = try object.optional("subtitle") ?? subject?.subtitle(home: home, exists: exists)
-        icon = try object.optional("icon") ?? subject?.icon ?? decoder.wire.icon ?? extensionIcon
-        accessory = try object.optional("accessory")
-        relevance = .match
+        let subject: Subject? = try Self.subject(object, home: home)
+        self.init(
+            subject: subject, id: try object.optionalNonEmpty("id"),
+            title: subject == nil ? try object.nonEmpty("title") : try object.optionalNonEmpty("title"),
+            subtitle: try object.optional("subtitle"), icon: try object.optional("icon"),
+            accessory: try object.optional("accessory"), actions: try object.optional("actions") ?? [],
+            origin: decoder.wire.origin, home: home, defaultIcon: decoder.wire.icon ?? extensionIcon)
         if object.has("relevance") {
             if let mode = decoder.wire.mode, mode != .root {
                 throw object.invalid("relevance", "is only for root commands; this is a \(mode) command")
@@ -68,8 +39,27 @@ extension Item: Decodable {
             }
             self.relevance = relevance
         }
-        score = 0
-        actions = Action.merged(try object.optional("actions") ?? [], subject?.actions ?? [])
+    }
+
+    /// The item's subject, `file` or `url`, if it names one.
+    private static func subject(_ object: WireObject, home: URL) throws -> Subject? {
+        if object.has("file") {
+            let value = try object.nonEmpty("file")
+            guard let subject = Subject.file(parsing: value, home: home) else {
+                throw object.invalid("file", "\"\(value)\" must be an absolute or ~/ path, or a file: URL")
+            }
+            return subject
+        }
+        if object.has("url") {
+            let value = try object.nonEmpty("url")
+            guard let subject = Subject.url(parsing: value) else {
+                throw object.invalid(
+                    "url", "\"\(value)\" must be a URL with a scheme (https:, mailto:, ...); a file is a file"
+                )
+            }
+            return subject
+        }
+        return nil
     }
 
     /// The host id of an item `origin` sent with `id`: "ext:<extension>/<command>:<id>". Extension
@@ -91,12 +81,8 @@ extension Item.Icon: Decodable {
 }
 
 extension Item.Action: Decodable {
-    /// How deep an agent's pages may nest: a `detail` action on a page a `detail` action pushed, no
-    /// further. The schema can't bound its recursion, so the decoder does.
-    static let agentDepth = 2
-
-    /// The kinds are the sender's (`ActionPolicy`): `reveal` is host only, so no one sends it; an
-    /// agent sends no `paste` or `run`, at any depth. `run` can only name the sender's commands.
+    /// The kinds are the sender's (`ActionPolicy`): `reveal` is host only, so no one sends it. `run`
+    /// can only name the sender's commands.
     public init(from decoder: any Decoder) throws {
         let kinds = ActionPolicy.actions(from: decoder.wire.authority).filter { $0 != .reveal }
         let (kind, object) = try decoder.oneOf(kinds.map(\.rawValue), what: "an action")
@@ -110,11 +96,6 @@ extension Item.Action: Decodable {
             let title: String? = try fields.optional("title")
             self = kind == "copy" ? .copy(text: text, title: title) : .paste(text: text, title: title)
         case "detail":
-            if decoder.wire.authority == .agent,
-                decoder.codingPath.count(where: { $0.stringValue == "actions" }) > Self.agentDepth
-            {
-                throw object.invalid(kind, "nests pages deeper than \(Self.agentDepth) levels")
-            }
             self = .detail(try object.required(kind))
         default:
             let run = try object.object(kind, ["command", "args", "title"])
@@ -155,11 +136,10 @@ extension RunResult: Decodable {
     public static let itemLimit = 500
 
     /// The wire has no `show`: a screen's kind (`answer`, `list`, `detail`) is the result's. The
-    /// kinds are the sender's (`ActionPolicy`); the screen is stamped with its authority.
+    /// screen is stamped with the sender's authority.
     public init(from decoder: any Decoder) throws {
         let wire = decoder.wire
-        let kinds = ActionPolicy.screens(from: wire.authority).map(\.rawValue)
-        let (kind, object) = try decoder.oneOf(kinds, what: "a result")
+        let (kind, object) = try decoder.oneOf(RunResult.Kind.allCases.map(\.rawValue), what: "a result")
         if wire.mode == .root, kind != "answer", kind != "list" {
             throw object.invalid(kind, "is not allowed for a root command; return answer or list")
         }
@@ -188,8 +168,7 @@ extension RunResult: Decodable {
 
 extension Listing {
     /// A list's fields: `items` or `sections`, never both; a summary and facts. A root command's
-    /// list is mixed into the main results, so it holds items only. Duplicate ids are an extension's
-    /// error; in an agent's reply, which can't be told so, the later ones get an ordinal suffix.
+    /// list is mixed into the main results, so it holds items only. Duplicate ids are an error.
     fileprivate init(_ list: WireObject, _ wire: WireContext) throws {
         if list.has("items") == list.has("sections") {
             throw list.invalid(
@@ -211,27 +190,14 @@ extension Listing {
             throw list.invalid(key, "has \(count) items; the limit is \(RunResult.itemLimit)")
         }
         var ids = Set<String>()
-        var renamed = 0
-        for (s, section) in sections.enumerated() {
-            for (i, item) in section.items.enumerated() where !ids.insert(item.id).inserted {
-                guard wire.authority == .agent else {
-                    let prefix = wire.origin.map { Item.namespaced("", by: $0).count } ?? 0
-                    throw list.invalid(
-                        key,
-                        "item id \"\(item.id.dropFirst(prefix))\" appears twice; ids (which default to the "
-                            + "title, or a file's path or a link) must be unique")
-                }
-                var ordinal = 2
-                while ids.contains("\(item.id)#\(ordinal)") { ordinal += 1 }
-                sections[s].items[i].id = "\(item.id)#\(ordinal)"
-                ids.insert(sections[s].items[i].id)
-                renamed += 1
-            }
+        for item in items where !ids.insert(item.id).inserted {
+            let prefix = wire.origin.map { Item.namespaced("", by: $0).count } ?? 0
+            throw list.invalid(
+                key,
+                "item id \"\(item.id.dropFirst(prefix))\" appears twice; ids (which default to the title, "
+                    + "or a file's path or a link) must be unique")
         }
-        if renamed > 0 { Self.logger.info("reply: \(renamed, privacy: .public) duplicate ids suffixed") }
     }
-
-    private static let logger = Logger(subsystem: "app.wicket", category: "reply")
 }
 
 extension Listing.Section: Decodable {

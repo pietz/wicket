@@ -18,15 +18,6 @@ public enum Authority: Sendable, Hashable {
 /// sender's authority); the dispatcher checks again at activation, so an action that reached a
 /// screen some other way, or one the host derived, still runs only what the table allows.
 public enum ActionPolicy {
-    /// The screens and done results each authority may send. Root mode narrows an extension's
-    /// further (answer and list).
-    public static func screens(from authority: Authority) -> [RunResult.Kind] {
-        switch authority {
-        case .host, .extension: RunResult.Kind.allCases
-        case .agent: [.answer, .list, .detail]
-        }
-    }
-
     /// The actions each authority may send. `reveal` is the host's: it derives it for file
     /// subjects, so it runs under every authority but no producer sends it.
     public static func actions(from authority: Authority) -> [Item.Action.Kind] {

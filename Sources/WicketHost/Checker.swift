@@ -242,6 +242,11 @@ public enum Checker {
                         "\(name):\(request.line): run for \"\(request.command)\", which wicket.json doesn't declare, got a result; answer unknown commands with an error (code 1)"
                     )
                 }
+                if case .success(let result) = reply.outcome {
+                    for problem in result.markupProblems {
+                        report.add(.error, "\(name):\(request.line): \(request.command) \(problem)")
+                    }
+                }
                 return reply
             } catch {
                 report.add(

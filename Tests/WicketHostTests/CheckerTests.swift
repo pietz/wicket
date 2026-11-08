@@ -186,6 +186,16 @@ func samplesPass(path: String) async {
         ])
 }
 
+@Test func markupIsLinted() async throws {
+    let ext = try TestExtension(
+        script: answering(#"{"detail":{"markdown":"Hi\n\n<stat label=\"x\"/>"}}"#), fixture: send(1))
+    let errors = await check(ext).errors
+    #expect(
+        errors == [
+            "session.jsonl:1: go markdown line 3: <stat> needs value; it shows as text"
+        ])
+}
+
 @Test func undeclaredCommandsMustGetErrors() async throws {
     let ext = try TestExtension(script: answering(#"{"close":{}}"#), fixture: send(1, "nope"))
     #expect(
