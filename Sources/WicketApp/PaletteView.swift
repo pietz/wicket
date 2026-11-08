@@ -195,6 +195,12 @@ struct PaletteRootView: View {
     /// keep showing "week " and append the next keys to it), and per kind, field or title.
     private var fieldID: String { "\(model.top.id)-\(model.top.isMeasured)" }
 
+    /// Whether the field takes a secret (Set Secret's frame).
+    private var isSecret: Bool {
+        guard case .screen(let frame) = model.top.content else { return false }
+        return frame.run?.command.id == .setSecret
+    }
+
     /// The focus value of the current search field.
     private var search: PaletteFocus { .search(fieldID) }
 
@@ -211,6 +217,10 @@ struct PaletteRootView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .focusable(interactions: .edit)
                         .focusEffectDisabled()
+                } else if isSecret {
+                    // A secret's value is masked like any password field, never shown.
+                    SecureField(pill.prompt, text: $model.query)
+                        .textFieldStyle(.plain)
                 } else {
                     TextField(pill.prompt, text: $model.query)
                         .textFieldStyle(.plain)
