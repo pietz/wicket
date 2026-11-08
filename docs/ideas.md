@@ -36,3 +36,7 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - ~~**Continue a conversation:** a short button under an answer ("Follow Up") returns to the normal input (type or speak), keeping the first question and answer so the agent has the context.~~ Done (CONCEPT, AI).
 - **Answer text size as a setting:** today's size is close to the smallest; default bigger (done: Settings ▸ General, default Medium).
 - **Remove Search the Web:** with an agent that answers, a native web search row isn't wanted; keep opening typed links (done: removed; typed addresses are the Links feature).
+- **Provider picker without a second checkmark:** unavailable providers greyed out instead (done).
+- **Voice when Wicket opens should stay quiet:** arm the mic without showing the voice UI; typing stops it, and the live transcript appears only once speech is heard. In Start Listening mode, make it obvious what to press (in progress).
+- **Streaming answers as a setting, off by default** (in progress).
+- **Answers that list things use Wicket's native list:** when the agent lists files or links, show them as real rows (icon, Return opens, the usual actions) instead of text. Maybe later, a small structured format the agent can answer in, which Wicket draws natively. Lead's take: start without a protocol, so markdown list items whose link is a file or URL become rows; add a format only when a second component needs one.
