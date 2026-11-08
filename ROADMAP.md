@@ -31,7 +31,6 @@ Supporting: palette with pill and card, keyboard model (Return, ⌘↩, ⌘K, �
 ## Next, once the core is on point
 
 - ⏭ Lazy layout for very long documents (a 64 KiB page takes about 470 ms to lay out; real replies are about 2 KiB).
-- ⏭ Tour manual rewritten for the current product.
 - ⏭ Dismissible runs: closing hides a running agent; the next summon shows it as a row.
 - 💤 Choices in agent replies, sent as Follow Up messages, never consent.
 - 💤 Empty palette: favourites and suggestions.
