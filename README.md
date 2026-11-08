@@ -19,7 +19,7 @@ Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/
 ## Requirements
 
 - macOS 26 (Tahoe) or later.
-- For the AI: [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in on your own subscription. Wicket runs them on your Mac; Settings ▸ AI picks one (Claude or ChatGPT), its model and what it may do without asking. Everything else works without any AI.
+- For the AI: [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in on your own subscription. Wicket runs them on your Mac; Settings ▸ AI picks one (Claude or ChatGPT), its model, effort and speed. What the agent may do without asking is its own setting: `permissions.defaultMode` in `~/.claude/settings.json` (`default` asks, `acceptEdits` allows edits, `auto` decides by itself), or `approval_policy` and `sandbox_mode` in `~/.codex/config.toml`. When it asks, Wicket shows the question with Allow and Deny. Everything else works without any AI.
 
 ## Privacy
 
@@ -31,7 +31,7 @@ Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/
 
 ## Settings and extensions
 
-Settings live in `~/.config/wicket/settings.json`, plain JSON that you or an agent can edit; the Settings window writes the same file. Extensions live in `~/Library/Application Support/Wicket/Extensions`. To write one by hand, see [docs/extensions.md](docs/extensions.md). What Run Agent tells your agent about Wicket is `~/.config/wicket/agent.md`: Settings ▸ AI ▸ Edit Agent Instructions opens it, and deleting it restores the default ([Resources/agent.md](Resources/agent.md)).
+Settings live in `~/.config/wicket/settings.json`, plain JSON that you or an agent can edit; the Settings window writes the same file. Extensions live in `~/Library/Application Support/Wicket/Extensions`. To write one by hand, see [docs/extensions.md](docs/extensions.md). Run Agent tells your agent about Wicket with rules built into the app ([Resources/agent.md](Resources/agent.md)), then adds your own instructions from `~/.config/wicket/agent.md`, which Settings ▸ AI ▸ Edit Agent Instructions opens.
 
 ## Build from source
 
