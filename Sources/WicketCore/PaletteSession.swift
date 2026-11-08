@@ -50,13 +50,6 @@ public final class PaletteSession {
     @ObservationIgnored private var work: [Frame.ID: [Task<Void, Never>]] = [:]
     @ObservationIgnored private var lastID = 0
 
-    /// What Escape did, so the app knows when to hide.
-    public enum EscapeOutcome: Sendable {
-        case clearedText, popped, hide
-        /// Stopped a command an action was opening.
-        case cancelledOpening
-    }
-
     /// `frecency` gives the usage scores as of now, read at each ranking. `runner` runs commands
     /// for their frames and `registry` resolves keywords; without them no command frame opens.
     /// `messages` is the app's message channel.
@@ -238,21 +231,14 @@ public final class PaletteSession {
         }
     }
 
-    /// Escape stops a command being opened, else clears the text, else pops the top frame, else
-    /// asks to hide.
-    public func escape() -> EscapeOutcome {
-        if opening != nil {
-            cancelOpening()
-            return .cancelledOpening
-        }
-        if !top.query.isEmpty {
-            setQuery("")
-            return .clearedText
-        }
-        guard frames.count > 1 else { return .hide }
+    /// Back (⌘[): stops a command being opened, else pops the top frame, whatever its text. False at
+    /// the root with nothing opening.
+    @discardableResult public func back() -> Bool {
+        if cancelOpening() { return true }
+        guard frames.count > 1 else { return false }
         let popped = frames.removeLast()
         cancel(popped.id)
-        return .popped
+        return true
     }
 
     /// Back to an empty root search with no work running, for when the palette is dismissed.
@@ -322,10 +308,12 @@ public final class PaletteSession {
         start(0)
     }
 
-    private func cancelOpening() {
-        guard let frame = openingFrame else { return }
+    /// Stops a command an action is opening (Escape does this before closing); false if none was.
+    @discardableResult public func cancelOpening() -> Bool {
+        guard let frame = openingFrame else { return false }
         cancel(frame.id)
         openingFrame = nil
+        return true
     }
 
     // MARK: Work

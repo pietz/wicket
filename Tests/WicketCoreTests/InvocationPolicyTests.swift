@@ -221,7 +221,7 @@ private let find = CommandID.extension("todo", "find")
     palette.session.open(run)
     #expect(await settle { palette.runner.runs.count == 1 })
     #expect(palette.runner.runs[0].text == "why is the sky blue?")
-    #expect(palette.session.escape() == .cancelledOpening)
+    #expect(palette.session.cancelOpening())
     #expect(palette.session.query == "why is the sky blue?")
 
     // An empty field has nothing to submit.

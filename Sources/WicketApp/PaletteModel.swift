@@ -57,12 +57,8 @@ final class PaletteModel {
         if case .screen = top.content { return top.isLoading }
         return false
     }
-    /// What Escape does from here, for the footer when there is nothing to run: clear the text, else
-    /// go back a frame (`PaletteSession.escape`); hiding needs no hint.
-    var escapeHint: String? {
-        if !top.query.isEmpty { return "Clear" }
-        return session.frames.count > 1 ? "Back" : nil
-    }
+    /// ⌘[ goes back a frame (`PaletteSession.back`): the footer says so when there is nothing to run.
+    var canGoBack: Bool { session.frames.count > 1 }
     /// A message (`Messages`) shown in the footer for a moment, while the card is up.
     private(set) var toast: Message?
     @ObservationIgnored private var toastExpiry: Task<Void, Never>?

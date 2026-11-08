@@ -77,7 +77,7 @@ enum PaletteMetrics {
 /// glass shapes sit in one container, so the card morphs out of the pill; the content is layered
 /// above the container, where a morph can't smear it.
 ///
-/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌘L, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
+/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌘L, ⌘[, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
 /// plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
@@ -116,7 +116,7 @@ struct PaletteRootView: View {
                         Divider()
                         FooterBar(
                             target: model.target, toast: model.toast, pasteTarget: model.pasteTarget,
-                            escape: model.escapeHint)
+                            canGoBack: model.canGoBack)
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
@@ -376,14 +376,14 @@ struct ResultsView: View {
 }
 
 /// The bar under the results or a detail: a command's message for a moment, what Return does, and
-/// where the other actions are; with nothing to run, what Escape does.
+/// where the other actions are; with nothing to run in a pushed frame, how to go back.
 struct FooterBar: View {
     static let height: CGFloat = 34
     let target: ActionTarget?
     var toast: Message?
     var pasteTarget: String?
-    /// What Escape does, shown when there is no action to hint at.
-    var escape: String?
+    /// A frame is pushed: ⌘[ goes back, shown when there is no action to hint at.
+    var canGoBack = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -398,8 +398,8 @@ struct FooterBar: View {
                 KeyHint(title: ActionPresentation(primary, pasteTarget: pasteTarget).title, keys: "↩")
                 Divider().frame(height: 14)
                 KeyHint(title: "Actions", keys: "⌘K")
-            } else if let escape {
-                KeyHint(title: escape, keys: "esc")
+            } else if canGoBack {
+                KeyHint(title: "Back", keys: "⌘[")
             }
         }
         .padding(.horizontal, 14)

@@ -100,8 +100,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(await eventually { !session.top.isLoading })
     #expect(titles(session) == ["Heavy Black Heart"])
 
-    #expect(session.escape() == .clearedText)
-    #expect(session.escape() == .popped)
+    #expect(session.back())
     #expect(session.query == "UC")
 }
 
@@ -272,7 +271,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(session.top.target?.actions == [.copy(text: "GitHub rejected the token")])
 
     // A live command's next query replaces the failure.
-    #expect(session.escape() == .popped)
+    #expect(session.back())
     session.query = "uc a"
     #expect(await eventually { runner.runs.count == 2 })
     runner.runs[1].continuation.finish(throwing: Failure())
@@ -339,7 +338,8 @@ private func titles(_ session: PaletteSession) -> [String] {
     // Escape stops a command still being opened.
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
-    #expect(session.escape() == .cancelledOpening)
+    #expect(session.cancelOpening())
+    #expect(!session.cancelOpening())
     #expect(session.opening == nil)
     #expect(await eventually { runner.wasEnded(0) })
     runner.runs[0].continuation.yield(.show(.list([row("Late")])))
@@ -351,7 +351,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(await eventually { runner.runs.count == 2 })
     session.query = ""
     #expect(await eventually { runner.runs.count == 3 })
-    #expect(session.escape() == .popped)
+    #expect(session.back())
     #expect(await eventually { runner.wasEnded(2) })
 
     // Dismissing ends everything, including an opening.

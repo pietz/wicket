@@ -292,9 +292,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Escape in the search field: clears the text, else goes back a frame, else hides.
+    /// Escape in the search field closes the palette from any depth; a command still being opened
+    /// is only stopped, leaving the frame it was picked on.
     func escape() {
-        if model.session.escape() == .hide { hide() }
+        if !model.session.cancelOpening() { hide() }
     }
 
     /// Runs the action at `position` in the target's actions (0 is the primary) and applies its
@@ -377,6 +378,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
             perform(.run(command: .settings))
         case .listen:
             listen()
+        case .back:
+            if model.actionMenu != nil {
+                model.actionMenu = nil
+            } else {
+                model.session.back()
+            }
         case .move(let delta):
             if model.actionMenu != nil {
                 model.actionMenu?.moveSelection(by: delta)

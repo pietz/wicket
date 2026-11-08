@@ -10,6 +10,11 @@ import Testing
     #expect(PaletteChord(keyCode: 0x25, characters: "l", modifiers: .command) == .listen)
     #expect(PaletteChord(keyCode: 0x2D, characters: "n", modifiers: .control) == .move(1))
     #expect(PaletteChord(keyCode: 0x23, characters: "p", modifiers: .control) == .move(-1))
+    #expect(PaletteChord(keyCode: 0x21, characters: "[", modifiers: .command) == .back)
+    // German: the key where US has "[" types "ü"; Dvorak types "[" on another key.
+    #expect(PaletteChord(keyCode: 0x21, characters: "ü", modifiers: .command) == .back)
+    #expect(PaletteChord(keyCode: 0x1B, characters: "[", modifiers: .command) == .back)
+    #expect(PaletteChord(keyCode: 0x21, characters: "[", modifiers: []) == nil)
 }
 
 @Test func numberRowMatchesByKeyCode() {

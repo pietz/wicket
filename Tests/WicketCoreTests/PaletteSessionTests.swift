@@ -91,19 +91,18 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     #expect(session.top.isLoading)
 }
 
-@MainActor @Test func escapeClearsThenPopsThenHides() {
+@MainActor @Test func backPopsAFrameWhateverItsText() {
     let session = PaletteSession(sources: [FakeSource("apps", instant: ["a": [item("A")]])])
     session.query = "a"
     session.push(page)
     session.query = "typed"
-    #expect(session.escape() == .clearedText)
-    #expect(session.frames.count == 2)
-    #expect(session.escape() == .popped)
+    #expect(session.back())
     // The root search comes back as it was.
+    #expect(session.frames.count == 1)
     #expect(session.query == "a")
     #expect(titles(session) == ["A"])
-    #expect(session.escape() == .clearedText)
-    #expect(session.escape() == .hide)
+    #expect(!session.back())
+    #expect(session.query == "a")
 }
 
 @MainActor @Test func aPushedFrameIsNeverCompact() {
@@ -148,7 +147,7 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     session.moveSelection(by: 1)
     session.push(page)
     session.moveSelection(by: -1)
-    _ = session.escape()
+    session.back()
     #expect(session.top.list?.selectedItem?.title == "B")
 }
 

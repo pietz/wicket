@@ -171,7 +171,7 @@ final class VoiceInput {
     /// A key pressed in the palette stops the microphone, and typing takes over: the key goes on to
     /// the field. Armed, nothing was heard, so nothing is left behind and Escape does what it always
     /// does. Listening, Escape is consumed, so it only stops (what was said stays; a second Escape
-    /// clears it as usual). Returns whether the key was consumed.
+    /// closes the palette). Returns whether the key was consumed.
     func keyPressed(isEscape: Bool) -> Bool {
         guard state != .idle else { return false }
         let consumed = isListening && isEscape

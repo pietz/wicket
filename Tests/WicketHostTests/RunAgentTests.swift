@@ -219,7 +219,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.text("Once upon"))
     #expect(await eventually { palette.detail?.markdown == "Once upon" })
-    #expect(palette.session.escape() == .popped)
+    #expect(palette.session.back())
     #expect(await eventually { agents.wasEnded(0) })
 
     palette.ask("another")
@@ -407,7 +407,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.actions.first == .copy(text: "Created hello.txt.", title: "Copy Answer"))
 }
 
-@MainActor @Test func escapeWhileAnApprovalWaitsStopsTheAgentAndTheActionExpires() async throws {
+@MainActor @Test func closingWhileAnApprovalWaitsStopsTheAgentAndTheActionExpires() async throws {
     let agents = FakeAgents([.codex: .ready])
     let palette = Palette(agents.backend)
     palette.ask("delete the logs")
@@ -416,7 +416,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         .approvals([AgentApproval(id: .integer(0), kind: .command, subject: "rm *.log")]))
     #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
     let allow = try #require(palette.detail?.actions.first)
-    #expect(palette.session.escape() == .popped)
+    palette.session.reset()  // Escape closes the palette.
     #expect(await eventually { agents.wasEnded(0) })
     await palette.runner.shutdown()  // Returns once the run has ended and cleaned up.
 
@@ -486,11 +486,11 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     }
     #expect(command == .followUp && text.isEmpty)
 
-    // It opens the input waiting for the question, as the pill; Escape there goes back to the answer.
+    // It opens the input waiting for the question, as the pill; ⌘[ there goes back to the answer.
     let answer = palette.session.top.id
     palette.session.open(CommandRun(followUp, .invoked, args: args))
     #expect(palette.session.top.awaitsText && palette.session.top.isCompact)
-    #expect(palette.session.escape() == .popped)
+    #expect(palette.session.back())
     #expect(palette.session.top.id == answer)
 
     // Submitted, the question continues the conversation: its session, provider, folder and settings,

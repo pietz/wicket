@@ -267,8 +267,8 @@ Each action is an object with exactly one key. Each takes an optional `title` fo
 | open | `{"open":{"url":"https://example.com"}}` | Opens a URL, file, folder or app in its default app. `url` is a URL (`https:`, `file:`, `mailto:`, an app scheme) or an absolute or `~/` path. Closes the palette. |
 | copy | `{"copy":{"text":"42"}}` | Copies the text and closes the palette. |
 | paste | `{"paste":{"text":"42"}}` | Closes the palette and types the text into the app the user came from. Without Accessibility permission it copies instead and says so. |
-| detail | `{"detail":{"markdown":"…"}}` | Pushes a detail view you already have (same fields as the detail result). Escape goes back. |
-| run | `{"run":{"command":"done","args":{"id":12},"title":"Mark as Done"}}` | Sends `run` for that command of your extension, with `args` passed through and `text` set to `""`. The result is pushed as a new view (Escape goes back) or is a `close` or `reload`; the current view stays, showing progress, until it arrives. If the target is a `live` command, its view opens at once and searches with the same `args` on every keystroke. Use it for follow-up work (fetching details, changing state) and for drill-down. Use a `hidden` command for targets the user shouldn't search for. |
+| detail | `{"detail":{"markdown":"…"}}` | Pushes a detail view you already have (same fields as the detail result). ⌘[ goes back. |
+| run | `{"run":{"command":"done","args":{"id":12},"title":"Mark as Done"}}` | Sends `run` for that command of your extension, with `args` passed through and `text` set to `""`. The result is pushed as a new view (⌘[ goes back) or is a `close` or `reload`; the current view stays, showing progress, until it arrives. If the target is a `live` command, its view opens at once and searches with the same `args` on every keystroke. Use it for follow-up work (fetching details, changing state) and for drill-down. Use a `hidden` command for targets the user shouldn't search for. |
 
 ## Errors
 

@@ -150,11 +150,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(detail.title == "Fix login timeout")
     #expect(detail.metadata.contains(.init(label: "Repository", value: "acme/web")))
 
-    // Escape: back to the list, its filter cleared, back to the root as it was.
-    #expect(session.escape() == .popped)
+    // ⌘[: back to the list, then back to the root as it was, whatever the list's filter.
+    #expect(session.back())
     #expect(palette.titles == ["Fix login timeout"])
-    #expect(session.escape() == .clearedText)
-    #expect(session.escape() == .popped)
+    #expect(session.back())
     #expect(session.query == "review req")
 
     // The keyword opens the other command at once; GitHub's refusal shows in its frame.
@@ -196,7 +195,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(detail.title == "Grinning Cat Face With Smiling Eyes")
     #expect(detail.metadata.contains(.init(label: "UTF-8", value: "F0 9F 98 B8")))
 
-    #expect(session.escape() == .popped)
+    #expect(session.back())
     #expect(session.query == "grinning cat")
     #expect(session.top.list?.selectedItem?.title == "Grinning Cat Face With Smiling Eyes")
 }
@@ -250,7 +249,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     }
     #expect(failure.title == "Quit App Failed")
     #expect(failure.markdown == "Ghost is no longer running.")
-    #expect(session.escape() == .popped)
+    #expect(session.back())
 
     // The details of a real app, if any is running (read only).
     guard let first = session.top.list?.items.first else { return }

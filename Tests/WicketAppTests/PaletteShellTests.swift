@@ -26,15 +26,14 @@ struct PaletteShellTests {
         #expect(model.toast == nil)
     }
 
-    /// With nothing to run the footer says what Escape does: clear the text, else go back.
-    @Test func emptyListFooterHintsAtEscape() {
-        #expect(model.escapeHint == nil)
+    /// With nothing to run in a pushed frame the footer says ⌘[ goes back; the root has no hint.
+    @Test func pushedFrameFooterHintsAtBack() {
         model.query = "zzz"
         #expect(model.target == nil)
-        #expect(model.escapeHint == "Clear")
+        #expect(!model.canGoBack)
         model.query = ""
         model.session.push(Detail(title: "Page", markdown: "Text"))
-        #expect(model.escapeHint == "Back")
+        #expect(model.canGoBack)
     }
 
     @Test func resultRowsReadTheirTitleSubtitleAndAccessory() {
