@@ -24,4 +24,5 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 - Settings: `~/.config/wicket/settings.json` (`~/.config/wicket-dev` for Wicket Dev), reloaded live; point `WICKET_CONFIG_DIR` at another folder to test without touching the real one.
 - Perf log: `/usr/bin/log stream --predicate 'subsystem == "app.wicket"'` (zsh has a `log` builtin, so use the full path).
 - On-screen checks with synthetic keys (`Scripts/bench/keys.swift`) can be swallowed by another app's keyboard event tap (Raycast's, seen 2026-11-06): if a chord never arrives even at a minimal Carbon test program, the cause is outside Wicket; list taps with `CGGetEventTapList` and never type plain keys unless the palette is confirmed key, or they land in the front app.
+- Builders never launch the app (no `swift run Wicket`, no opening a built bundle): a second copy puts another menu bar icon and update errors on the owner's screen. Only the lead launches builds, when the owner says the Mac is free.
 - Latency benchmark: `Scripts/bench/hotkey-latency.swift`. It posts real keystrokes and takes over the screen, so only run it when the user says the Mac is free.
