@@ -57,8 +57,8 @@ protocol Transcriber: Sendable {
 }
 
 /// The palette's voice input: listens, writes what is said into the search field as it comes, and
-/// stops at the end of the utterance (a short silence after speech), on a key, on Escape or when the
-/// palette hides. Nothing runs by itself: the text is in the field and Return runs the top row, as
+/// keeps listening through pauses until a key (Return included), Escape, ⌘L or the palette hiding
+/// stops it; a minute without a new word turns the microphone off. Nothing runs by itself: the text is in the field and Return runs the top row, as
 /// if it had been typed.
 @MainActor
 @Observable
@@ -86,17 +86,18 @@ final class VoiceInput {
     /// Bumped by every start and stop, so a late transcript from a stopped session is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var session: Task<Void, Never>?
-    /// Ends listening after a silence (or no speech at all), re-armed by every transcript.
+    /// Ends listening after a long silence (or no speech at all), re-armed by every transcript.
     @ObservationIgnored private var silence: Task<Void, Never>?
     @ObservationIgnored private var limit: Task<Void, Never>?
 
     struct Timing {
-        /// How long without a new word ends the utterance once something was said.
-        var silence: Duration = .milliseconds(1500)
+        /// How long without a new word turns the microphone off once something was said: long, since
+        /// dictation continues through pauses until the user presses a key (owner, 2026-11-08).
+        var silence: Duration = .seconds(60)
         /// How long to wait for a first word before giving up.
         var noSpeech: Duration = .seconds(6)
-        /// The longest one utterance may run, so background noise can't keep the microphone open.
-        var limit: Duration = .seconds(45)
+        /// The longest one dictation may run, so background noise can't keep the microphone open.
+        var limit: Duration = .seconds(300)
     }
 
     init(consent: VoiceConsent, timing: Timing = Timing(), transcriber: @escaping () -> any Transcriber) {
