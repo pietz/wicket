@@ -96,7 +96,7 @@ final class AnswerDraft {
 
     private func plain(_ markup: String) -> String {
         if let plainText, plainText.source == markup { return plainText.text }
-        let text = Markup.document(markup).text(home: FileManager.default.homeDirectoryForCurrentUser)
+        let text = Markup.plainText(markup, home: FileManager.default.homeDirectoryForCurrentUser)
         plainText = (markup, text)
         return text
     }

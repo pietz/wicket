@@ -226,7 +226,8 @@ public struct ScreenFrame: Sendable {
             }
             document = parsed.document
             pageText =
-                detail.actions.isEmpty && context.authority != .agent ? parsed.document.text(home: home) : ""
+                detail.actions.isEmpty && context.authority != .agent
+                ? Markup.plainText(detail.markdown, document: parsed.document, home: home) : ""
             var targets = list?.selectsFirst == false ? list! : ItemList(selectsFirst: false)
             targets.replace(with: parsed.document.targets)
             list = targets

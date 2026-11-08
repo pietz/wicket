@@ -140,3 +140,20 @@ private let mixed = """
     #expect(list.selectedItem == nil)
     #expect(ItemList(items).selectedItem?.id == "a")
 }
+
+/// Copy and Paste take the whole page, however long: the part drawn natively as its text, what lies
+/// past the markup and tail limits as written, to the last byte.
+@MainActor @Test func aLongPagesPlainTextIsWhole() async {
+    let line = String(repeating: "word ", count: 20) + "\n"
+    let lines = (Markup.Limits.bytes + Markup.Limits.tailBytes) / line.utf8.count + 10
+    let long =
+        "<stat label=\"Total\" value=\"€420\"/>\n\n" + String(repeating: line, count: lines)
+        + "<b>SENTINEL</b>"
+    #expect(long.utf8.count > 128 * 1024)
+    let text = Markup.plainText(long, home: URL(filePath: "/"))
+    #expect(!text.contains("<stat"))
+    #expect(text.hasSuffix(line + "<b>SENTINEL</b>"))
+    // An extension's page without actions copies the same.
+    let session = await showing(long)
+    #expect(session.top.target?.actions.first == .copy(text: text))
+}

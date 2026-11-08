@@ -50,8 +50,7 @@ extension Markup {
             var bytes = Array(text.utf8)
             var tail: String?
             var issues: [Issue] = []
-            if bytes.count > Limits.bytes {
-                let cut = bytes[..<Limits.bytes].lastIndex(of: .newline).map { $0 + 1 } ?? Limits.bytes
+            if let cut = Markup.cut(bytes) {
                 let rest = bytes[cut...]
                 let shown = String(decoding: rest.prefix(Limits.tailBytes), as: UTF8.self)
                 tail = rest.count > Limits.tailBytes ? shown + "…" : shown
@@ -72,6 +71,26 @@ extension Markup {
             issues = scanner.issues + builder.issues + issues
             return Parsed(document: Document(blocks: blocks), issues: issues.sorted { $0.line < $1.line })
         }
+    }
+
+    /// Where markup longer than `Limits.bytes` is cut: after its last whole line within the limit,
+    /// else at the limit (never inside a character). Nil when it fits.
+    static func cut(_ bytes: [UInt8]) -> Int? {
+        guard bytes.count > Limits.bytes else { return nil }
+        if let line = bytes[..<Limits.bytes].lastIndex(of: .newline) { return line + 1 }
+        var cut = Limits.bytes
+        while cut > 0, bytes[cut] & 0xC0 == 0x80 { cut -= 1 }
+        return cut
+    }
+
+    /// `markup` as plain text, whole however long it is: what Copy and Paste take. The part drawn
+    /// natively reads as its document's text (`document`, if already parsed), and whatever lies past
+    /// `Limits.bytes` follows as written, never cut.
+    public static func plainText(_ markup: String, document: Document? = nil, home: URL) -> String {
+        let bytes = Array(markup.utf8)
+        guard let cut = cut(bytes) else { return (document ?? Self.document(markup)).text(home: home) }
+        let head = Self.document(String(decoding: bytes[..<cut], as: UTF8.self)).text(home: home)
+        return head + "\n\n" + String(decoding: bytes[cut...], as: UTF8.self)
     }
 
     /// Parses `text` into a document, logging how many problems it had by kind (never what they were,

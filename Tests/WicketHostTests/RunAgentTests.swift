@@ -488,3 +488,26 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { palette.detail?.title == "Follow Up Failed" })
     #expect(agents.runs.count == 1)
 }
+
+/// Copy and Paste Answer take the whole answer, past every rendering limit, tags dropped only where
+/// the page draws them.
+@MainActor @Test func copyAndPasteTakeTheWholeOfALongAnswer() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    let line = String(repeating: "word ", count: 20) + "\n"
+    let answer =
+        "<stat label=\"Total\" value=\"€420\"/>\n\n" + String(repeating: line, count: 1500) + "SENTINEL"
+    #expect(answer.utf8.count > 128 * 1024)
+    agents.runs[0].continuation.yield(.answer(answer))
+    #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.isEmpty == false })
+    let texts = palette.screenActions.compactMap { action -> String? in
+        switch action {
+        case .copy(let text, _), .paste(let text, _): text
+        default: nil
+        }
+    }
+    #expect(texts.count == 2)
+    #expect(texts.allSatisfy { $0.hasSuffix(line + "SENTINEL") && !$0.contains("<stat") })
+}
