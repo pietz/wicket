@@ -4,6 +4,15 @@ The living plan: every workstream, its status and what's next. CONCEPT.md holds 
 
 Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later · 👀 watch
 
+
+## Plan to 0.0.11 (lead, 2026-11-08; owner away, authorized)
+
+1. Land the markup views (M2) and the scope cleanup.
+2. AI simplification plus markup in the adapters (M3), with agent.md split into built-in rules and the user's own instructions.
+3. Extension refactor: per-run processes, a static check, no root mode, no rollback.
+4. Palette simplification.
+5. Evaluate on both CLIs, do an on-screen check of Wicket Dev (authorized), rewrite CONCEPT.md short and current, release 0.0.11 even if the evaluation falls short, listing the gaps. Keep the Sparkle key file until the owner confirms a backup.
+
 ## 0.0.1 alpha (first public version)
 
 Goal: a fast native palette that already beats a basic launcher, plus the headline: describe a command in one sentence and it gets built and works.
