@@ -600,17 +600,19 @@ private func components<C: Component>(_ type: C.Type, in document: Document) -> 
     var parser = Markup.Parser(context: .init(home: home))
     let clock = ContinuousClock()
     let cold = clock.measure { _ = parser.parse(text) }
-    var warm = Duration.zero
-    for word in 0..<20 {
+    var times: [Duration] = []
+    for word in 0..<21 {
         text += " word\(word)"
-        warm = max(warm, clock.measure { _ = parser.parse(text) })
+        times.append(clock.measure { _ = parser.parse(text) })
     }
+    // The median, so a busy machine preempting one parse doesn't fail the check.
+    let warm = times.sorted()[times.count / 2]
     #if DEBUG
         let budget = Duration.milliseconds(30)
     #else
         let budget = Duration.milliseconds(2)
     #endif
-    print("markup: \(text.utf8.count) bytes, cold \(cold), slowest warm re-parse \(warm)")
+    print("markup: \(text.utf8.count) bytes, cold \(cold), median warm re-parse \(warm)")
     #expect(warm < budget, "re-parse took \(warm)")
 }
 

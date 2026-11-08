@@ -92,13 +92,17 @@ private func noUsage(_ id: String) -> Double { 0 }
     let titles = (0..<160).map { "\(words[$0 % 10]) \(words[($0 / 10) % 10]) \($0)" }
     let index = SearchIndex(titles.map { (item($0), []) })
     let queries = ["s", "sa", "saf", "safa", "safar", "safari", "c", "co", "cod", "code"]
-    let start = ContinuousClock.now
-    for query in queries {
-        var results = RootResults(limit: 50)
-        results.start(
-            Query(text: query, generation: 1), results: ["apps": index.search(query)], usage: noUsage)
+    // The best of five passes, so a busy machine preempting one pass doesn't fail the check.
+    let passes = (0..<5).map { _ in
+        ContinuousClock().measure {
+            for query in queries {
+                var results = RootResults(limit: 50)
+                results.start(
+                    Query(text: query, generation: 1), results: ["apps": index.search(query)], usage: noUsage)
+            }
+        }
     }
-    let perKeystroke = (ContinuousClock.now - start) / queries.count
+    let perKeystroke = passes.min()! / queries.count
     // Generous for unoptimised debug builds; release runs in about a tenth of this.
     #expect(perKeystroke < .milliseconds(5))
 }
