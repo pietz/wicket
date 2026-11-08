@@ -29,6 +29,17 @@ Get the core idea right before adding anything: **a simple, fast, AI-native laun
 
 Anything else waits until these are on point. That includes new features and polish on what isn't on this list. Existing extras are judged against this list in a scope audit.
 
+**Scope cuts (owner, 2026-11-08):**
+- **Removed: prompt commands and Save as Command.** A reusable command is something you ask the agent to build, so extensions stay one concept.
+- **Removed: selected-text capture.** It was paused and unreliable, and it needed Accessibility. Passing the Finder folder to the agent stays.
+- **Removed: the Shortcuts pane, aliases and per-command global hotkeys,** including Start Listening's. The mic button and ⌘L remain. They come back when there's a real need.
+- **Simplified: feature switches.** Only the AI and Voice switches remain, each in its own pane. The Features pane goes.
+- **Kept:**
+  - Currency and unit conversion (part of the calculator).
+  - Links.
+  - Text size, Follow Up, run history, and Fix and Change with Agent.
+  - Settings, the updater, the menu bar item, the opening hotkey, usage ranking and the `wicket` tool.
+
 ## Why build it (research, November 2026)
 
 - **Commercial:** Raycast 2.0 (Aug 2026) moved to WebViews plus Node; power users complain about memory, process count and AI being pushed, and AI moved to credits in Sept 2026. Alfred is steady but slow (Alfred 6 still in closed beta). Monarch is solo, pre-1.0.
