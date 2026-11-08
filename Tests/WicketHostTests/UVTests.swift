@@ -47,7 +47,8 @@ enum UVTest {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? Data(header(dependencies: "[]", sources: "").utf8).write(to: folder.appending(path: "probe.py"))
         let outcome = await UV.execute(
-            uv, ["python", "find", "--script", "probe.py"], in: folder, environment: await environment(.lock),
+            uv, ["python", "find", "--script", "probe.py"], in: folder,
+            environment: await environment(.maintenance),
             timeout: .seconds(300))
         return outcome.succeeded ? nil : "uv couldn't install a Python (offline?): \(outcome.output)"
     }
@@ -66,8 +67,8 @@ enum UVTest {
 }
 
 /// A uv extension whose `main.py` answers every run with `body` (Python, the body of
-/// `answer(params)`), depending on `tiny`, a wheel in its folder; locked by Wicket's own `uv lock`
-/// unless `lock` is false.
+/// `answer(params)`), depending on `tiny`, a wheel in its folder; locked with `uv lock --script`
+/// (wheels only, as every uv run here) unless `lock` is false.
 private func uvExtension(
     _ body: String, fixture: String? = nil, dependencies: String = #"["tiny"]"#,
     sources: String = #"tiny = { path = "wheels/tiny-1.0-py3-none-any.whl" }"#, lock: Bool = true
@@ -94,7 +95,10 @@ private func uvExtension(
             """
     try Data(script.utf8).write(to: ext.folder.appending(path: "main.py"))
     if lock {
-        try await UV.lock(script: "main.py", in: ext.folder, storage: UVTest.storage, timeout: .seconds(120))
+        let locked = await UV.execute(
+            try await UV.program(), ["lock", "--script", "main.py"], in: ext.folder,
+            environment: await UVTest.environment(.maintenance), timeout: .seconds(120))
+        try #require(locked.succeeded, "uv lock failed: \(locked.output)")
     }
     return ext
 }
@@ -244,39 +248,6 @@ private let uvVariables = [
     let errors = await check(ext).errors
     #expect(errors.count == 1)
     #expect(errors.first?.contains("Wicket installs wheels only") == true, "\(errors)")
-}
-
-/// `uv lock` with builds off refuses a dependency that has no wheel, without building it.
-@Test func lockingRefusesASourceDistribution() async throws {
-    try await UVTest.require()
-    let ext = try await uvExtension(
-        #"return {"close": {}}"#, dependencies: #"["tinysdist"]"#,
-        sources: #"tinysdist = { path = "pkgs/tinysdist-1.0" }"#, lock: false)
-    // A project whose build would leave a mark.
-    let project = ext.folder.appending(path: "pkgs/tinysdist-1.0")
-    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-    let mark = ext.folder.appending(path: "built")
-    try Data(
-        """
-        [project]
-        name = "tinysdist"
-        dynamic = ["version"]
-        [build-system]
-        requires = []
-        build-backend = "backend"
-        backend-path = ["."]
-        """.utf8
-    ).write(to: project.appending(path: "pyproject.toml"))
-    try Data(
-        "open(\(String(decoding: try JSONEncoder().encode(mark.path), as: UTF8.self)), \"w\").close()\n".utf8
-    ).write(to: project.appending(path: "backend.py"))
-    await #expect {
-        try await UV.lock(script: "main.py", in: ext.folder, storage: UVTest.storage, timeout: .seconds(60))
-    } throws: { error in
-        String(describing: error).contains("Wicket installs wheels only")
-    }
-    #expect(!FileManager.default.fileExists(atPath: mark.path))
-    #expect(!FileManager.default.fileExists(atPath: ext.folder.appending(path: "main.py.lock").path))
 }
 
 @Test func uvxIsRefusedBeforeAnythingRuns() async throws {

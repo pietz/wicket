@@ -27,7 +27,7 @@ public struct UVStorage: Sendable, Hashable {
 }
 
 /// Running uv for uv extensions (`Manifest.uvScript`): the environment every uv run gets, and the
-/// steps Wicket runs itself (preparing a check, locking a build, pruning the cache). Those always
+/// steps Wicket runs itself (preparing a check, pruning the cache). Those always
 /// use the `uv` on the login-shell PATH, never a program the extension names.
 enum UV {
     enum Mode {
@@ -35,8 +35,8 @@ enum UV {
         case run
         /// A check's replay: as `run`, offline, so only what the check prepared is used.
         case check
-        /// Wicket locking a script (`uv lock`), so no lock is required yet.
-        case lock
+        /// Wicket maintaining its storage (`uv cache prune`), which needs no lock.
+        case maintenance
     }
 
     /// `base` without any uv setting of its own, plus Wicket's. A command's own uv flags can't
@@ -53,7 +53,7 @@ enum UV {
         // No uv.toml or pyproject.toml from the user or the folders above: only the script counts.
         environment["UV_NO_CONFIG"] = "1"
         // A missing or stale lock fails (--frozen would run dependencies that drifted from it).
-        if mode != .lock { environment["UV_LOCKED"] = "1" }
+        if mode != .maintenance { environment["UV_LOCKED"] = "1" }
         if mode == .check { environment["UV_OFFLINE"] = "1" }
         return environment
     }
@@ -86,13 +86,11 @@ enum UV {
         if output.contains("--no-build") || output.contains("building from source is disabled")
             || output.contains("is disabled")
         {
-            text += "\n" + wheelsOnly
+            text +=
+                "\nWicket installs wheels only, since building a source distribution runs its code: use a package (or a version of it) that publishes a wheel for macOS"
         }
         return text
     }
-
-    static let wheelsOnly =
-        "Wicket installs wheels only, since building a source distribution runs its code: use a package (or a version of it) that publishes a wheel for macOS"
 
     struct Outcome: Sendable {
         /// How uv exited; nil if it couldn't start, was stopped (`timeout`, cancellation) or left
@@ -165,27 +163,6 @@ enum UV {
         return Outcome(exit: exit, output: text)
     }
 
-    /// Locks `script` in `folder` (`uv lock --script`), for a build whose agent had no network:
-    /// resolution only, with wheels only, so no package code runs. Uses Wicket's storage, whose
-    /// Python it may download. A current lock stays as it is.
-    static func lock(script: String, in folder: URL, storage: UVStorage, timeout: Duration)
-        async throws(Failure)
-    {
-        let uv = try await program()
-        var base = ProcessInfo.processInfo.environment
-        base["PATH"] = await LoginShell.path()
-        let outcome = await execute(
-            uv, ["lock", "--script", script], in: folder,
-            environment: environment(base, storage: storage, mode: .lock), timeout: timeout)
-        guard outcome.succeeded else {
-            var text = "uv couldn't lock \(script)'s dependencies:\n" + outcome.output
-            if outcome.output.contains("--no-build") || outcome.output.contains("is disabled") {
-                text += "\n" + wheelsOnly
-            }
-            throw Failure(text)
-        }
-    }
-
     /// `uv cache prune` on `storage`'s cache, if it exists: drops what no lock needs any more (and
     /// every script environment, which the next run rebuilds from the cache). uv waits for runs
     /// using the cache, so a running uv extension delays it, up to `timeout`; then it gives up until
@@ -199,7 +176,7 @@ enum UV {
         let outcome = await execute(
             // Not in the cache itself: uv refuses a working directory inside it.
             uv, ["cache", "prune"], in: storage.cache.deletingLastPathComponent(),
-            environment: environment(base, storage: storage, mode: .lock),
+            environment: environment(base, storage: storage, mode: .maintenance),
             timeout: timeout)
         logger.notice(
             """

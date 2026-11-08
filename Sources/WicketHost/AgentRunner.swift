@@ -119,12 +119,6 @@ public final class AgentRunner: CommandRunner {
     }
 
     public func shutdown() async { await answers.shutdown() }
-
-    static func unavailable(_ statuses: [AgentStatus], chosen: Bool, uses feature: String) -> String {
-        AnswerStream.unavailable(statuses, chosen: chosen, uses: feature)
-    }
-
-    static func reason(_ status: AgentStatus) -> String { AnswerStream.reason(status) }
 }
 
 /// The shared answer stream: a growing draft, Copy/Paste, partial failure, Retry, throttling and
