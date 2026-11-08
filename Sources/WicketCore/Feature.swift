@@ -9,7 +9,7 @@ import Foundation
 public enum Feature: String, CaseIterable, Sendable {
     case apps, files, calculator
     case ai
-    case webSearch = "web-search"
+    case links
 
     public var title: String {
         switch self {
@@ -17,7 +17,7 @@ public enum Feature: String, CaseIterable, Sendable {
         case .files: "Files"
         case .calculator: "Calculator"
         case .ai: "AI"
-        case .webSearch: "Web Search"
+        case .links: "Links"
         }
     }
 
@@ -29,7 +29,7 @@ public enum Feature: String, CaseIterable, Sendable {
         case .calculator: "Math, units and currencies as you type."
         case .ai:
             "Run Agent answers, does things and builds commands with your AI provider. Off, nothing in Wicket uses AI."
-        case .webSearch: "Search the web (type web and a space, or pick the last row) and open typed links."
+        case .links: "Open typed web addresses."
         }
     }
 

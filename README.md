@@ -2,7 +2,7 @@
 
 A small, fast, native macOS launcher whose extensions are written by agents.
 
-Press ⌥Space and Wicket opens apps, files, a calculator with units and currencies, web search, and an AI that answers questions or does things through the coding agent you already use. Ask it to "build a command that shows the weather" and your agent writes a Wicket extension; you review it and turn it on. No WebViews, no Node runtime, about 20 MB of memory at idle.
+Press ⌥Space and Wicket opens apps, files, a calculator with units and currencies, typed web addresses, and an AI that answers questions or does things through the coding agent you already use. Ask it to "build a command that shows the weather" and your agent writes a Wicket extension; you review it and turn it on. No WebViews, no Node runtime, about 20 MB of memory at idle.
 
 > **Alpha.** This is an early 0.0.x release: expect rough edges, missing features and settings that change between versions. Bug reports are welcome as GitHub issues.
 

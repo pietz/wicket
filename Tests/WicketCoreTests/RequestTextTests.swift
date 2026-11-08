@@ -68,9 +68,6 @@ func readsLikeRequest(text: String, expected: Bool) {
 
 private let runAgent = Item(
     id: "fallback:ai", title: "Run Agent", icon: .symbol(name: "sparkles"), relevance: .fallback, actions: [])
-private let web = Item(
-    id: "fallback:web", title: "Search the Web", icon: .symbol(name: "globe"), relevance: .fallback,
-    actions: [])
 
 private func host(_ title: String, relevance: Item.Relevance = .match, score: Double = 0) -> Item {
     Item(
@@ -79,7 +76,7 @@ private func host(_ title: String, relevance: Item.Relevance = .match, score: Do
 }
 
 private func ranked(_ items: [Item], _ query: String) -> [String] {
-    Ranker.rank(items + [runAgent, web], query: query, usage: { _ in 0 }).map(\.title)
+    Ranker.rank(items + [runAgent], query: query, usage: { _ in 0 }).map(\.title)
 }
 
 private func files(_ names: [String], _ query: String) -> [Item] {
@@ -90,9 +87,9 @@ private func files(_ names: [String], _ query: String) -> [Item] {
 
 @Test func runAgentTakesTheTopForARequestWithoutAStrongMatch() {
     let query = "what is the capital of france"
-    #expect(ranked([host("Weak", score: 40)], query) == ["Run Agent", "Weak", "Search the Web"])
+    #expect(ranked([host("Weak", score: 40)], query) == ["Run Agent", "Weak"])
     // Not a request: ranking is unchanged.
-    #expect(ranked([host("Weak", score: 10)], "meeting notes") == ["Weak", "Run Agent", "Search the Web"])
+    #expect(ranked([host("Weak", score: 10)], "meeting notes") == ["Weak", "Run Agent"])
 }
 
 @Test func aStrongMatchKeepsTheTop() {
@@ -116,37 +113,37 @@ private func files(_ names: [String], _ query: String) -> [Item] {
     let run = SearchIndex([(host("How to cook pasta at home"), [])]).search("how to cook pasta")
     #expect(run.first.map { Ranker.isStrong($0, queryLength: 14) } == true)
     #expect(
-        Ranker.rank(run + [runAgent, web], query: "how to cook pasta", usage: { _ in 0 }).first?.title
+        Ranker.rank(run + [runAgent], query: "how to cook pasta", usage: { _ in 0 }).first?.title
             != "Run Agent")
     // Letters picked out of other words (about 3 per scalar) are a match, but weak.
     let scattered = SearchIndex([(host("Disk Utility Monitor"), [])]).search("is it on")
     #expect(scattered.count == 1)
-    #expect(ranked(scattered, "is it on") == ["Run Agent", "Disk Utility Monitor", "Search the Web"])
+    #expect(ranked(scattered, "is it on") == ["Run Agent", "Disk Utility Monitor"])
 }
 
 @Test func aLateStrongMatchTakesTheTopBack() {
     let query = Query(text: "how to cook pasta", generation: 1)
     var results = RootResults()
-    results.start(query, results: ["fallbacks": [runAgent, web]], usage: { _ in 0 })
+    results.start(query, results: ["fallbacks": [runAgent]], usage: { _ in 0 })
     #expect(results.selectedItem?.title == "Run Agent")
     results.update(
         "files", items: files(["How to cook pasta.pdf"], query.text), generation: 1, usage: { _ in 0 })
     #expect(results.selectedItem?.title == "How to cook pasta.pdf")
-    #expect(results.items.map(\.title) == ["How to cook pasta.pdf", "Run Agent", "Search the Web"])
+    #expect(results.items.map(\.title) == ["How to cook pasta.pdf", "Run Agent"])
     // A weak late result leaves Run Agent on top; a chosen row stays chosen.
     var weak = RootResults()
-    weak.start(query, results: ["fallbacks": [runAgent, web]], usage: { _ in 0 })
+    weak.start(query, results: ["fallbacks": [runAgent]], usage: { _ in 0 })
     weak.update("apps", items: [host("Weak", score: 10)], generation: 1, usage: { _ in 0 })
     #expect(weak.selectedItem?.title == "Run Agent")
-    weak.moveSelection(by: 2)
+    weak.moveSelection(by: 1)
     weak.update(
         "files", items: files(["How to cook pasta.pdf"], query.text), generation: 1, usage: { _ in 0 })
-    #expect(weak.selectedItem?.title == "Search the Web")
+    #expect(weak.selectedItem?.title == "Weak")
 }
 
 /// The check adds a string scan per ranking; a long request against 160 items stays far below a frame.
 @Test func requestCheckKeepsRankingFast() {
-    let items = (0..<160).map { host("Item \($0)", score: Double($0 % 40)) } + [runAgent, web]
+    let items = (0..<160).map { host("Item \($0)", score: Double($0 % 40)) } + [runAgent]
     let query = "how do I undo the last git commit without losing changes"
     let start = ContinuousClock.now
     for _ in 0..<100 { _ = Ranker.rank(items, query: query, usage: { _ in 0 }) }

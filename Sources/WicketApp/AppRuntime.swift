@@ -322,8 +322,7 @@ extension AppRuntime {
                 RegisteredCommand(
                     id: .runAgent, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
                     isListed: false, input: .submitText, placeholder: "Ask or tell the agent",
-                    isFallback: true,
-                    feature: .ai, usesContext: true),
+                    isFallback: true, feature: .ai, usesContext: true),
                 runner: runAgent),
             Builtin(
                 RegisteredCommand(
@@ -349,13 +348,6 @@ extension AppRuntime {
                     id: .aiSettings, title: "AI Settings", icon: .symbol(name: "sparkles"), isListed: false,
                     input: .none),
                 effect: { settingsWindow.show(pane: "AI") }),
-            // Opens the user's search address for the text; the next fallback row after Run Agent.
-            Builtin(
-                RegisteredCommand(
-                    id: .builtin("web-search"), title: "Search the Web", icon: .symbol(name: "globe"),
-                    keyword: "web", isListed: false, input: .submitText, placeholder: "Search the web",
-                    isFallback: true, feature: .webSearch),
-                runner: WebSearchRunner(template: { weakRuntime?.applied?.webSearch.url })),
             // Every discovered extension with its state; reviewing, enabling and disabling one are
             // the hidden built-ins below, reached only by the actions its screens draw.
             Builtin(

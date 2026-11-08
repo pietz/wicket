@@ -153,9 +153,9 @@ private func rank(_ items: [Item], usage: [String: Double] = [:]) -> [String] {
 
 @Test func tiersStillComeFirstForExtensionItems() {
     let items =
-        fromExtension(["Search the web"], "web", relevance: .fallback)
+        fromExtension(["Define the word"], "dictionary", relevance: .fallback)
         + fromExtension(["B", "A"], "letters")
-    #expect(rank(items) == ["B", "A", "Search the web"])
+    #expect(rank(items) == ["B", "A", "Define the word"])
 }
 
 @Test func eachCommandIsOneBlockInItsOwnOrder() {
@@ -174,17 +174,16 @@ private func rank(_ items: [Item], usage: [String: Double] = [:]) -> [String] {
     #expect(rank(items + answer).first == "42")
 }
 
-// Regression: unconfigured fallbacks were sorted by title, so "Search the Web" would have
-// come before "Run Agent" against the registry order the source gives.
+// Regression: unconfigured fallbacks were sorted by title, against the registry order the source
+// gives.
 @Test func fallbacksKeepTheirSourceOrderNotTitleOrHabit() {
     let ai = host("Run Agent", relevance: .fallback)
-    let web = host("Search the Web", relevance: .fallback)
     let other = host("Another", relevance: .fallback)
-    let ext = fromExtension(["A web search"], "web", relevance: .fallback)
+    let ext = fromExtension(["A definition"], "dictionary", relevance: .fallback)
     let match = host("Match")
     #expect(
-        rank(ext + [ai, match, web, other], usage: ["host:Another": 1000])
-            == ["Match", "Run Agent", "Search the Web", "Another", "A web search"])
+        rank(ext + [ai, match, other], usage: ["host:Another": 1000])
+            == ["Match", "Run Agent", "Another", "A definition"])
 }
 
 @Test func usageStillReordersHostItems() {

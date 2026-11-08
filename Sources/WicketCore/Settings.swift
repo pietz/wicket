@@ -32,8 +32,6 @@ public struct Settings: Equatable, Sendable {
     /// How large a page's text is: a detail, Run Agent's answer.
     public var textSize = TextSize.medium
     public var ai = AI()
-    /// The `webSearch` object: where Search the Web goes.
-    public var webSearch = WebSearch()
     /// What the user bound to commands: a global hotkey, an alias. Keyed by `CommandID`, written in
     /// the file by its canonical spelling (`"builtin:run-agent"`, `"ext:github/search"`). Entries for
     /// commands that aren't registered stay here (the extension may be installed later) and do
@@ -87,16 +85,6 @@ public struct Settings: Equatable, Sendable {
         }
     }
 
-    /// The `webSearch` object.
-    public struct WebSearch: Equatable, Sendable {
-        /// The search address, `{query}` standing for the typed text (`WebQuery.searchURL`).
-        public var url: String
-
-        public init(url: String = WebQuery.defaultTemplate) {
-            self.url = url
-        }
-    }
-
     /// A settings file that exists but can't be read as settings: not JSON, or a known field with an
     /// invalid value.
     public struct InvalidFile: LocalizedError, Equatable, CustomStringConvertible {
@@ -146,11 +134,13 @@ public struct Settings: Equatable, Sendable {
     }
 
     /// Keys an older Wicket used, by the object holding them, and what they are called now, so a
-    /// file keeps working after a rename (Ask AI became Run Agent, 2026-11-08). The file is rewritten
+    /// file keeps working after a rename (Ask AI became Run Agent, 2026-11-08; Web Search became
+    /// Links when Search the Web was removed, 2026-11-08). The file is rewritten
     /// with the new name the next time Settings changes something.
     static let renamed: [(object: String, old: String, new: String)] = [
         ("commands", "builtin:ask-ai", "builtin:run-agent"),
         ("features", "ask-ai", "ai"),
+        ("features", "web-search", "links"),
     ]
 
     /// `file` with every renamed key under its current name; a key already under the new name wins.
@@ -279,11 +269,7 @@ extension Settings {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, showInMenuBar, textSize, ai, webSearch, commands, features
-    }
-
-    private enum WebSearchKeys: String, CodingKey {
-        case url
+        case hotkey, paletteWidth, showInMenuBar, textSize, ai, commands, features
     }
 
     private enum CommandKeys: String, CodingKey {
@@ -332,9 +318,6 @@ extension Settings: Codable {
         }
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
-        }
-        if container.contains(.webSearch), (try? container.decodeNil(forKey: .webSearch)) != true {
-            decodeWebSearch(try? container.nestedContainer(keyedBy: WebSearchKeys.self, forKey: .webSearch))
         }
         if container.contains(.commands), (try? container.decodeNil(forKey: .commands)) != true {
             decodeCommands(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .commands))
@@ -507,24 +490,6 @@ extension Settings: Codable {
         }
     }
 
-    /// Like the width, a bad search address costs only itself: Search the Web uses Google.
-    private mutating func decodeWebSearch(_ object: KeyedDecodingContainer<WebSearchKeys>?) {
-        guard let object else {
-            ignored.append("webSearch must be an object; searching with Google")
-            return
-        }
-        guard object.contains(.url), (try? object.decodeNil(forKey: .url)) == false else { return }
-        if let url = try? object.decode(String.self, forKey: .url),
-            WebQuery.searchURL(template: url, query: "test") != nil
-        {
-            webSearch.url = url
-        } else {
-            ignored.append(
-                "webSearch.url must be an http or https address with {query} in its path or query; "
-                    + "searching with Google")
-        }
-    }
-
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(hotkey, forKey: .hotkey)
@@ -548,11 +513,6 @@ extension Settings: Codable {
                     try fields.encode(options.speed.rawValue, forKey: .speed)
                 }
             }
-        }
-        // Only when changed, like the provider.
-        if webSearch != WebSearch() {
-            var nested = container.nestedContainer(keyedBy: WebSearchKeys.self, forKey: .webSearch)
-            try nested.encode(webSearch.url, forKey: .url)
         }
         // Like the provider, only what is bound, so `update` removes a cleared binding (and the
         // object once nothing is left in it).

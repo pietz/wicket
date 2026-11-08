@@ -39,7 +39,7 @@ private func object(_ url: URL) throws -> [String: Any] {
     #expect(
         settings.ignored == [
             "features.calculator must be true or false; leaving it on",
-            #"features: "clipboard" is not a feature (apps, files, calculator, ai, web-search); ignoring it"#,
+            #"features: "clipboard" is not a feature (apps, files, calculator, ai, links); ignoring it"#,
         ])
 }
 

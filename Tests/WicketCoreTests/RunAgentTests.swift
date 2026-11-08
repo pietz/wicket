@@ -61,20 +61,22 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
 }
 
 @MainActor @Test func everySubmitTextFallbackGetsARowAndNothingElseDoes() {
-    let web = RegisteredCommand(
-        id: .builtin("web"), title: "Search the Web", icon: .symbol(name: "globe"), isListed: false,
+    let define = RegisteredCommand(
+        id: .builtin("define"), title: "Define", icon: .symbol(name: "book"), isListed: false,
         input: .submitText, isFallback: true)
     // Only a submit-text command can take the query as its text.
     let notSubmit = RegisteredCommand(
         id: .builtin("live"), title: "Live", icon: .symbol(name: "bolt"), input: .liveText, isFallback: true)
-    let registry = CommandRegistry(builtins: builtins + [web, notSubmit])
-    #expect(fallbacks("paris", registry).map(\.origin) == [CommandID.runAgent, web.id])
+    let registry = CommandRegistry(builtins: builtins + [define, notSubmit])
+    #expect(fallbacks("paris", registry).map(\.origin) == [CommandID.runAgent, define.id])
     #expect(
-        fallbacks("paris", registry)[1].actions == [.run(command: web.id, text: "paris", title: web.title)])
+        fallbacks("paris", registry)[1].actions == [
+            .run(command: define.id, text: "paris", title: define.title)
+        ])
 
     // A fallback whose feature is off isn't registered, so it isn't offered.
     registry.setDisabledFeatures([.ai])
-    #expect(fallbacks("paris", registry).map(\.origin) == [web.id])
+    #expect(fallbacks("paris", registry).map(\.origin) == [define.id])
 }
 
 @MainActor @Test func theRowRanksLastAndHabitNeverMovesIt() throws {

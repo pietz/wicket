@@ -4,9 +4,8 @@ import Foundation
 ///
 /// Relevance tiers come first (alias, exact, answer, match, fallback). Within a tier three policies
 /// apply:
-/// - **Fixed menu**: the host's fallback rows keep the order their source gave (`FallbackSource`:
-///   registry order, so the built-ins table's, Run Agent before web search). A fallback list never
-///   moves by habit or by title.
+/// - **Fixed menu**: the host's fallback rows (`FallbackSource`: Run Agent) keep the order their
+///   source gave, never moved by habit or by title.
 /// - **Host-scored**: the host's other items (apps, files, calculator, built-ins) by score plus a
 ///   frecency boost, then (for a non-empty query) the shorter title, then name. An empty query
 ///   therefore lists by usage, then name.
