@@ -226,7 +226,7 @@ Not on the roadmap yet, and each fits the thesis.
 
 1. **Copy Deeplink (Tinycast) plus a `wicket://` scheme with consent for outside links.** It gives Karabiner, Shortcuts and agents one way to drive any item, and costs little in the core.
 2. **Script-command metadata header (Raycast).** A single file with `# @wicket.title` comments is the lowest rung of the extension ladder, and the easiest one for an agent to get right.
-3. **Alfred Script Filter JSON adapter.** CONCEPT already notes it is close to one-shot mode. Adding it brings years of existing workflows almost for free, and nobody else runs them.
+3. **Alfred Script Filter JSON adapter.** It is close to protocol 2's one process per run. Adding it brings years of existing workflows almost for free, and nobody else runs them.
 4. **Fallback list for unmatched queries (all four).** It is an ordered, user-editable list: web search, Ask AI, define word. It fits the host-owned "fallback" relevance tier directly.
 5. **Favorites and suggestions on the empty palette (Raycast, Tinycast).** An empty query is the fastest screen the palette has; it should show something useful without adding a source.
 6. **Compact mode (Raycast, Tinycast).** Show only the bar until there are results. It makes the palette look smaller and suits a "small door" brand.
@@ -310,4 +310,4 @@ Monarch:
 - https://nerdymomocat.github.io/posts/i-used-monarch-launcher
 - https://www.fileminutes.com/blog/best-spotlight-alternatives-for-mac-5-launchers-compared/
 
-Wicket figures: CONCEPT.md "Measurements" (Tinycast 38–40 MB and Wicket 18–24 MB idle, measured on this machine).
+Wicket figures: docs/architecture.md "Performance" (Tinycast 38–40 MB and Wicket 18–24 MB idle, measured on this machine).
