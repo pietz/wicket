@@ -8,9 +8,12 @@ import WicketCore
 final class Updater {
     private let controller: SPUStandardUpdaterController
 
-    /// Starts Sparkle for the released app; nil for Wicket Dev.
-    init?(edition: Edition = .current) {
-        guard edition == .release else { return nil }
+    /// Starts Sparkle for the released app; nil for Wicket Dev and for anything outside an app
+    /// bundle with a feed (`swift run`, tests), where Sparkle would only show errors.
+    init?(edition: Edition = .current, bundle: Bundle = .main) {
+        guard edition == .release, bundle.bundleIdentifier != nil,
+            bundle.object(forInfoDictionaryKey: "SUFeedURL") != nil
+        else { return nil }
         controller = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     }
