@@ -24,7 +24,7 @@ if grep -q REPLACE_WITH_SPARKLE_PUBLIC_KEY Resources/Info.plist; then
 fi
 
 # The build number Sparkle compares: one past the newest in the appcast, 1 for the first release.
-last=$(grep -o '<sparkle:version>[0-9]*' appcast.xml | grep -o '[0-9]*$' | sort -n | tail -1)
+last=$(grep -o '<sparkle:version>[0-9]*' appcast.xml | grep -o '[0-9]*$' | sort -n | tail -1 || true)
 build=$(( ${last:-0} + 1 ))
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" \
   -c "Set :CFBundleVersion $build" Resources/Info.plist
