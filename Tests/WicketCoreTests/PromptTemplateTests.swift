@@ -82,3 +82,41 @@ func promptCommandsNeverRunOnTyping(mode: String) {
         #expect(invoked.invocation.text == text)
     }
 }
+
+/// Turning AI off stops every AI use: prompt commands go with Run Agent, so their rows, keywords
+/// and hotkeys go inert and an open prompt frame stops; program commands stay.
+@MainActor @Test func aiOffUnregistersPromptCommandsAndStopsTheirFrames() async throws {
+    let manifest = try promptManifest(
+        [
+            ["id": "ask", "title": "Ask", "keyword": "ask", "prompt": "Hello {text}"],
+            ["id": "local", "title": "Local"],
+        ],
+        run: ["/bin/false"])
+    let commands = manifest.commands.map { RegisteredCommand(extension: "prompts", command: $0, icon: nil) }
+    #expect(commands.map(\.feature) == [.ai, nil])
+    let registry = CommandRegistry()
+    registry.setExtensionCommands(commands)
+    let session = PaletteSession(sources: [], runner: Waiting(), registry: registry)
+    session.query = "ask "
+    session.query = "ask hi"
+    #expect(session.frames.count == 2)
+
+    registry.setDisabledFeatures([.ai])
+    #expect(registry.command(commands[0].id) == nil)
+    #expect(registry.command(keyword: "ask") == nil)
+    #expect(registry.command(commands[1].id) != nil)
+    // What the app does on every registry change (`AppRuntime.registryChanged`).
+    session.stopCommands { registry.command($0) == nil }
+    #expect(session.frames.count == 1)
+
+    registry.setDisabledFeatures([])
+    #expect(registry.command(commands[0].id) != nil)
+}
+
+/// A runner whose runs never answer.
+@MainActor
+private final class Waiting: CommandRunner {
+    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+        AsyncThrowingStream { _ in }
+    }
+}

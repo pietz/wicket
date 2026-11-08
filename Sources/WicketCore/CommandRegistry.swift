@@ -24,7 +24,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// Offered as a row in the root's fallback tier for any query, which it is run on (`FallbackSource`).
     /// Only for `submitText` commands.
     public var isFallback: Bool
-    /// The feature it belongs to: while that is off, the command isn't registered.
+    /// The feature it belongs to: while that is off, the command isn't registered. A built-in's is
+    /// its table entry's; an extension's prompt command belongs to `ai`, since it asks a model.
     public var feature: Feature?
     /// An extension command's: the active revision it was registered from, which a run of it binds
     /// to when it starts (`CommandRun`). Nil for built-ins.
@@ -67,7 +68,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
             search: command.search,
             isListed: !command.hidden && command.mode != .root, input: command.input, retry: command.retry,
-            placeholder: command.placeholder, revision: revision, usesContext: command.prompt != nil)
+            placeholder: command.placeholder, feature: command.prompt != nil ? .ai : nil, revision: revision,
+            usesContext: command.prompt != nil)
     }
 
     /// Whether the root offers it: listed, or a fallback. Only these have keywords, and the settings
@@ -129,7 +131,7 @@ public final class CommandRegistry {
     public private(set) var changes = 0
     private let builtins: [RegisteredCommand]
     private var extensions: [RegisteredCommand] = []
-    /// Features that are off: their built-ins aren't registered until they are on again.
+    /// Features that are off: their commands aren't registered until they are on again.
     private var disabledFeatures: Set<Feature> = []
     /// The aliases settings.json asks for, registered or not.
     private var requestedAliases: [CommandID: String] = [:]
@@ -155,8 +157,8 @@ public final class CommandRegistry {
         rebuild()
     }
 
-    /// Unregisters the built-ins of the features in `disabled` and registers the rest again, for
-    /// when settings.json turned a feature off or on. Their hotkeys and aliases wait, inert, like
+    /// Unregisters the commands of the features in `disabled` (built-ins and prompt commands) and
+    /// registers the rest again, for when settings.json turned a feature off or on. Their hotkeys and aliases wait, inert, like
     /// those of a command that isn't installed.
     public func setDisabledFeatures(_ disabled: Set<Feature>) {
         guard disabled != disabledFeatures else { return }
@@ -225,8 +227,10 @@ public final class CommandRegistry {
         changes += 1
         commands = []
         byID = [:]
-        let builtins = builtins.filter { $0.feature.map { !disabledFeatures.contains($0) } ?? true }
-        for command in builtins + extensions where byID[command.id] == nil {
+        let enabled = (builtins + extensions).filter {
+            $0.feature.map { !disabledFeatures.contains($0) } ?? true
+        }
+        for command in enabled where byID[command.id] == nil {
             commands.append(command)
             byID[command.id] = command
         }
