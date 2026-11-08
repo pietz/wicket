@@ -111,7 +111,7 @@ private struct Palette {
     }
 
     var detail: Detail? {
-        if case .screen(let frame) = session.top.content, case .detail(let detail) = frame.screen {
+        if case .detail(let detail) = session.top.screen {
             detail
         } else {
             nil
@@ -120,7 +120,7 @@ private struct Palette {
 
     /// The answer's actions: an agent's page has none of its own, so they are all the screen's.
     var screenActions: [Item.Action] {
-        if case .screen(let frame) = session.top.content { frame.context.actions } else { [] }
+        session.top.context.actions
     }
 }
 
@@ -549,7 +549,7 @@ private final class RecordedEffects: ActionEffects {
             <file path="\(script.path)"/>
             """))
     #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.count == 3 })
-    guard case .screen(let frame) = palette.session.top.content else {
+    guard case let frame = palette.session.top, frame.results == nil else {
         Issue.record("no answer frame")
         return
     }

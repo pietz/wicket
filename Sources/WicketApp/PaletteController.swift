@@ -246,7 +246,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         guard !model.top.isStarting, let target, let (action, authority) = target.action(at: position)
         else { return }
         // Usage only ranks the root search, so only its rows are recorded.
-        if case .action = position, case .search = model.top.content, let item = target.item {
+        if case .action = position, model.top.results != nil, let item = target.item {
             model.recordUse(of: item)
         }
         perform(action, as: authority)

@@ -86,9 +86,7 @@ private struct Palette {
         CommandRun(try command(id), .invoked, text: text)
     }
 
-    var commandFrame: ScreenFrame? {
-        if case .screen(let frame) = session.top.content { frame } else { nil }
-    }
+    var commandFrame: Frame? { session.top.results == nil ? session.top : nil }
 }
 
 private let toggle = CommandID.extension("todo", "toggle")
@@ -199,7 +197,7 @@ private let find = CommandID.extension("todo", "find")
     let runner = Recorder()
     let session = PaletteSession(sources: [], runner: runner, registry: registry, liveDebounce: .zero)
     session.query = "ai "
-    guard case .screen(let frame) = session.top.content else {
+    guard case let frame = session.top, frame.results == nil else {
         Issue.record("no frame")
         return
     }
@@ -220,11 +218,11 @@ private let find = CommandID.extension("todo", "find")
         id: id, title: "Add Note", icon: .symbol(name: "note"), input: .submitText)
     let revision = ExtensionRevision(extensionID: "notes", sha256: "abc")
     let invocation = Invocation(command: id, args: ["folder": .string("work")], revision: revision)
-    let frame = ScreenFrame(
-        run: CommandRun(command: command, invocation: invocation))
+    var frame = Frame(id: 1, run: CommandRun(command: command, invocation: invocation))
+    frame.query = "buy milk"
     #expect(frame.run?.awaitsText == true)
     #expect(
-        frame.target(query: "buy milk")?.actions == [
+        frame.target?.actions == [
             .run(
                 command: id, text: "buy milk", args: ["folder": .string("work")], title: "Add Note",
                 revision: revision)

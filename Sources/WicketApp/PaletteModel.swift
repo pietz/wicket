@@ -174,8 +174,8 @@ final class PaletteModel {
     /// command whose frame it is (a pushed page's, the one beneath it).
     private var screenTitle: String {
         for frame in session.frames.reversed() {
-            guard case .screen(let screen) = frame.content, let run = screen.run else { continue }
-            return screen.context.authority == .agent ? "Answer" : run.command.title
+            guard let run = frame.run else { continue }
+            return frame.context.authority == .agent ? "Answer" : run.command.title
         }
         return "Page"
     }
@@ -218,7 +218,7 @@ final class PaletteModel {
     }
 
     private func logQuery(since start: ContinuousClock.Instant) {
-        guard case .search = top.content, !top.query.isEmpty else { return }
+        guard top.results != nil, !top.query.isEmpty else { return }
         Perf.log("query (\(top.query.count) chars): \(results.count) results in \(Perf.ms(since: start))")
     }
 

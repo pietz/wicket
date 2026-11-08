@@ -46,7 +46,7 @@ public final class PaletteSession {
         self.registry = registry
         self.liveDebounce = liveDebounce
         self.contextWait = contextWait
-        frames = [Frame(id: 0, content: .search(RootResults(limit: resultLimit)))]
+        frames = [Frame(id: 0, results: RootResults(limit: resultLimit))]
     }
 
     public var top: Frame { frames[frames.count - 1] }
@@ -67,9 +67,8 @@ public final class PaletteSession {
             return
         }
         frames[index].query = text
-        if case .screen(var screen) = frames[index].content, !screen.isLive {
-            screen.filter(text)
-            frames[index].content = .screen(screen)
+        if frames[index].results == nil, !frames[index].isLive {
+            frames[index].filter(text)
             return
         }
         start(index, debounce: true)
@@ -110,8 +109,6 @@ public final class PaletteSession {
         for frame in frames[(index + 1)...] { cancel(frame.id) }
         frames.removeSubrange((index + 1)...)
         cancel(frames[index].id)
-        frames[index].generation += 1
-        frames[index].pending = 0
         let invocation = run.invocation
         // A live command searched the frame's text, not the text it opened with.
         let text = run.command.input == .liveText ? frames[index].query : invocation.text
@@ -123,7 +120,10 @@ public final class PaletteSession {
         ]
         // The page retires the stale run, so the next reconcile doesn't find it again under a frame
         // Run Again opened.
-        frames[index].content = .screen(ScreenFrame(showing: .detail(changed), .host))
+        var page = Frame(id: frames[index].id, showing: .detail(changed), .host)
+        page.query = frames[index].query
+        page.generation = frames[index].generation + 1
+        frames[index] = page
         return true
     }
 
@@ -161,12 +161,12 @@ public final class PaletteSession {
     /// on a page an agent's row opened.
     public func push(_ detail: Detail, from authority: Authority) {
         var context = ScreenContext(authority: authority)
-        if case .screen(let below) = top.content {
-            context.actions = below.context.actions
-            context.secondary = below.context.secondary
+        if top.results == nil {
+            context.actions = top.context.actions
+            context.secondary = top.context.secondary
         }
         lastID += 1
-        frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail), context))))
+        frames.append(Frame(id: lastID, showing: .detail(detail), context))
     }
 
     /// Pushes a command frame for `run` at once, its field holding the run's `query`, and starts the
@@ -174,9 +174,7 @@ public final class PaletteSession {
     /// `reload` or `stay` takes it off again.
     public func open(_ run: CommandRun) {
         lastID += 1
-        var frame = Frame(id: lastID, content: .screen(ScreenFrame(run: run)))
-        frame.query = run.query
-        frames.append(frame)
+        frames.append(Frame(id: lastID, run: run))
         start(frames.count - 1)
     }
 
@@ -267,7 +265,7 @@ public final class PaletteSession {
     /// `liveDebounce` first when `debounce` is set (a keystroke), so a burst of them sends only the
     /// last text.
     private func start(_ index: Int, debounce: Bool = false) {
-        if case .screen = frames[index].content {
+        guard frames[index].results != nil else {
             startCommand(&frames[index], debounce: debounce)
             return
         }
@@ -275,19 +273,14 @@ public final class PaletteSession {
         cancel(id)
         frames[index].generation += 1
         frames[index].pending = 0
-        guard case .search(var results) = frames[index].content else { return }
 
         let query = Query(text: frames[index].query, generation: frames[index].generation)
-        let usage = frecency()
-        guard !query.text.isEmpty else {
-            results.start(query, results: [:], usage: usage)
-            frames[index].content = .search(results)
-            return
-        }
         var instant: [String: [Item]] = [:]
-        for source in sources { instant[source.id] = source.instant(query) }
-        results.start(query, results: instant, usage: usage)
-        frames[index].content = .search(results)
+        if !query.text.isEmpty {
+            for source in sources { instant[source.id] = source.instant(query) }
+        }
+        frames[index].results?.start(query, results: instant, usage: frecency())
+        guard !query.text.isEmpty else { return }
 
         var tasks: [Task<Void, Never>] = []
         for source in sources {
@@ -298,11 +291,9 @@ public final class PaletteSession {
                 Task { [weak self] in
                     for await items in stream {
                         guard let self else { return }
-                        apply(ticket) { frame in
-                            guard case .search(var results) = frame.content else { return }
-                            results.update(
+                        apply(ticket) {
+                            $0.results?.update(
                                 source, items: items, generation: query.generation, usage: frecency())
-                            frame.content = .search(results)
                         }
                     }
                     self?.apply(ticket) { $0.pending -= 1 }
@@ -315,15 +306,15 @@ public final class PaletteSession {
     /// Starts a new generation of a command frame's run: its invocation, with the frame's query as
     /// the text for a live command. A frame waiting for its text runs nothing, nor does a page.
     private func startCommand(_ frame: inout Frame, debounce: Bool) {
-        guard case .screen(let screen) = frame.content, let run = screen.run, !run.awaitsText else { return }
+        guard let run = frame.run, !run.awaitsText else { return }
         cancel(frame.id)
         frame.generation += 1
         frame.pending = 1
         var invocation = run.invocation
         let usesContext = run.command.usesContext
-        if screen.isLive { invocation.text = frame.query }
+        if frame.isLive { invocation.text = frame.query }
         let ticket = Ticket(frame: frame.id, generation: frame.generation)
-        let delay = debounce && screen.isLive ? liveDebounce : nil
+        let delay = debounce && frame.isLive ? liveDebounce : nil
         let runner = runner
         work[frame.id] = [
             Task { [weak self] in
@@ -377,11 +368,7 @@ public final class PaletteSession {
 
     /// Replaces a command frame's content.
     private func show(_ screen: Screen, _ context: ScreenContext, _ ticket: Ticket, text: String) {
-        apply(ticket) { frame in
-            guard case .screen(var shown) = frame.content else { return }
-            shown.show(screen, context, text: shown.isLive ? text : frame.query)
-            frame.content = .screen(shown)
-        }
+        apply(ticket) { $0.show(screen, context, text: $0.isLive ? text : $0.query) }
     }
 
     /// The run failed: the frame shows what went wrong, until a new query of a live command.
@@ -396,7 +383,7 @@ public final class PaletteSession {
     /// The run ended. One that sent nothing to show is a failure: nothing would ever fill its frame.
     private func finish(_ ticket: Ticket) {
         guard isCurrent(ticket) else { return }
-        if case .screen(let screen) = frame(ticket.frame)?.content, screen.screen == nil {
+        if frame(ticket.frame)?.screen == nil {
             fail(ticket, "The command finished without a result.")
         } else {
             apply(ticket) { $0.pending = 0 }

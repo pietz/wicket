@@ -39,7 +39,7 @@ enum PaletteMetrics {
         if frame.isCompact { return 0 }
         if frame.isMeasured { return detailHeight.map { card(content: $0) } }
         guard let results = frame.list?.items else { return nil }
-        if case .search = frame.content, results.isEmpty, frame.isLoading { return nil }
+        if frame.results != nil, results.isEmpty, frame.isLoading { return nil }
         var top: CGFloat = 0
         var headers: [Bool] = []
         if let listing = frame.listing {
@@ -177,18 +177,15 @@ struct PaletteRootView: View {
     /// screen's title, else its title for a page (which takes no text) or while it starts (a live
     /// command's field already searches), else its placeholder; a pushed page's title. Voice never changes the prompt: until words arrive the field reads as usual.
     private var pill: (icon: Item.Icon, prompt: String) {
-        switch model.top.content {
-        case .search:
+        let frame = model.top
+        guard frame.results == nil else {
             return (.symbol(name: "magnifyingglass"), "Search or run a command")
-        case .screen(let frame):
-            let title = frame.screen?.title
-            guard let command = frame.run?.command else {
-                return (.symbol(name: "doc.text"), title ?? "Details")
-            }
-            let titled = model.top.isMeasured || (model.top.isStarting && command.input != .liveText)
-            let prompt = titled ? command.title : command.placeholder ?? command.title
-            return (command.icon, title ?? prompt)
         }
+        let title = frame.screen?.title
+        guard let command = frame.run?.command else { return (.symbol(name: "doc.text"), title ?? "Details") }
+        let titled = frame.isMeasured || (frame.isStarting && command.input != .liveText)
+        let prompt = titled ? command.title : command.placeholder ?? command.title
+        return (command.icon, title ?? prompt)
     }
 
     /// A spinner while a command runs, a moving waveform while speech is transcribed into the field
@@ -231,8 +228,7 @@ struct PaletteRootView: View {
 
     /// Whether the field takes a secret (Set Secret's frame).
     private var isSecret: Bool {
-        guard case .screen(let frame) = model.top.content else { return false }
-        return frame.run?.command.id == .setSecret
+        model.top.run?.command.id == .setSecret
     }
 
     /// The search field, or on a page (which takes no text) its title as a label that still takes
@@ -320,9 +316,7 @@ private struct FrameContent: View {
     }
 
     var body: some View {
-        if case .screen(let frame) = model.top.content, let document = frame.document,
-            case .detail(let detail)? = frame.screen
-        {
+        if let document = model.top.document, case .detail(let detail)? = model.top.screen {
             DocumentView(
                 document: document, metadata: detail.metadata, textSize: model.textSize,
                 navigation: model.navigation, onMeasure: measure
@@ -332,7 +326,7 @@ private struct FrameContent: View {
             .onPreferenceChange(BlockedImagesKey.self) { [model, frame = model.top.id] count in
                 model.blockImages(count, of: frame)
             }
-        } else if case .screen(let frame) = model.top.content, frame.screen == nil {
+        } else if model.top.results == nil, model.top.screen == nil {
             Color.clear
         } else {
             ResultsView(model: model, onRun: onRun)

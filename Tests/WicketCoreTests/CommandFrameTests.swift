@@ -72,8 +72,8 @@ private func session(debounce: Duration = .zero) -> (PaletteSession, FakeRunner,
 }
 
 @MainActor
-private func content(_ session: PaletteSession) -> ScreenFrame? {
-    if case .screen(let screen) = session.top.content { screen } else { nil }
+private func content(_ session: PaletteSession) -> Frame? {
+    session.top.results == nil ? session.top : nil
 }
 
 @MainActor
@@ -301,7 +301,13 @@ private func titles(_ session: PaletteSession) -> [String] {
     for word in ["Paris", " is", " the", " capital."] {
         markdown += word
         runner.runs[0].continuation.yield(.show(.detail(Detail(title: "Answer", markdown: markdown))))
-        #expect(await eventually { content(session)?.target(query: "")?.actions == [.copy(text: markdown)] })
+        // Once done, Return would copy the page as it is now.
+        #expect(
+            await eventually {
+                var done = session.top
+                done.pending = 0
+                return done.target?.actions == [.copy(text: markdown)]
+            })
         frame = frame ?? session.top.id
         #expect(session.top.id == frame)
         #expect(session.top.isLoading)

@@ -1,15 +1,11 @@
 import Foundation
 
 /// One screen of the palette: the root search at the bottom of the stack, or a screen pushed on top
-/// of it (a command's, or a page). `PaletteSession` owns the stack.
+/// of it, a command's (fed by its run) or a page pushed by a `detail` action. `PaletteSession` owns
+/// the stack. A page's markup is parsed once per change into a `Document` whose targets are the
+/// rows, none selected at first; a once command's list is filtered here by the frame's query, a live
+/// command's is shown as sent (docs/architecture.md, "Documents").
 public struct Frame: Identifiable, Sendable {
-    public enum Content: Sendable {
-        /// The root search. Only the bottom frame has it.
-        case search(RootResults)
-        /// A command's screen, fed by its run, or a page pushed by a `detail` action.
-        case screen(ScreenFrame)
-    }
-
     /// Unique within a session, so work started for a popped frame never lands on a new one.
     public let id: Int
     /// What the search field holds while the frame is on top.
@@ -17,140 +13,30 @@ public struct Frame: Identifiable, Sendable {
     /// Bumped whenever the frame's work starts again (a new root or live query, a reload): work
     /// started for an older generation is dropped. A once command's local filter doesn't bump it.
     public internal(set) var generation = 0
-    public internal(set) var content: Content
     /// Slow work for the current generation still running, such as a file search or a command run.
     var pending = 0
-
-    init(id: Int, content: Content) {
-        self.id = id
-        self.content = content
-    }
-
-    public var isLoading: Bool { pending > 0 }
-
-    /// A command's frame whose run has sent nothing yet: the pill spins, the card keeps its height,
-    /// and other actions wait, so commands start one at a time.
-    public var isStarting: Bool {
-        if case .screen(let screen) = content { isLoading && screen.screen == nil } else { false }
-    }
-
-    /// The frame's list, whose selection the arrow keys move; nil for a screen without rows.
-    public var list: ItemList? {
-        switch content {
-        case .search(let results): results.list
-        case .screen(let screen): screen.list
-        }
-    }
-
-    /// What Return, ⌘↩ and ⌘K act on in this frame. A page still loading without actions of its own
-    /// has none: the copy a finished one gets would take a status, such as "Asking…", or half a page.
-    public var target: ActionTarget? {
-        switch content {
-        case .search(let results): return results.selectedItem.map { target(for: $0) }
-        case .screen(let screen):
-            if isLoading, case .detail(let detail) = screen.screen, detail.actions.isEmpty,
-                screen.context.actions.isEmpty
-            {
-                return nil
-            }
-            return screen.target(query: query)
-        }
-    }
-
-    /// What clicking `item` (or ⌘1 to ⌘9 on it) acts on: its actions under the frame's authority,
-    /// with the screen's own actions beside them.
-    public func target(for item: Item) -> ActionTarget {
-        switch content {
-        case .search: ActionTarget(item: item, in: .host)
-        case .screen(let screen): ActionTarget(item: item, in: screen.context)
-        }
-    }
-
-    /// The command run feeding the frame; nil for the root and a pushed page.
-    public var run: CommandRun? {
-        if case .screen(let screen) = content { screen.run } else { nil }
-    }
-
-    /// Whether the frame is a command's waiting for its text, which a submit runs.
-    public var awaitsText: Bool { run?.awaitsText == true }
-
-    /// Whether the frame shows a page, whose view measures it to size the card.
-    public var isMeasured: Bool {
-        if case .screen(let screen) = content { screen.document != nil } else { false }
-    }
-
-    public var document: Document? {
-        if case .screen(let screen) = content { screen.document } else { nil }
-    }
-
-    /// A command's list, or a page made only of rows (not the root's results).
-    public var listing: Listing? {
-        if case .screen(let screen) = content { screen.listing } else { nil }
-    }
-
-    /// The summary above the frame's list, parsed.
-    public var summary: Document? {
-        if case .screen(let screen) = content { screen.summary } else { nil }
-    }
-
-    /// What typing on a page starts with the typed text: the first screen action whose command waits
-    /// for text (Follow Up on an answer). A page is read, not searched; nil on a list, which filters.
-    public func typingAction(waitsForText: (CommandID) -> Bool) -> Item.Action? {
-        guard case .screen(let screen) = content, screen.document != nil else { return nil }
-        return screen.context.actions.first { action in
-            guard case .run(let command, let text, _, _, _) = action else { return false }
-            return text.isEmpty && waitsForText(command)
-        }
-    }
-
-    /// Whether the palette shows just the pill: the root search with nothing typed, a live command
-    /// with nothing typed and nothing to show, or a command waiting for its text (the placeholder says
-    /// what to type). An empty query anywhere else is still a screen with content.
-    public var isCompact: Bool {
-        switch content {
-        case .search: query.isEmpty
-        case .screen(let screen):
-            awaitsText || (screen.isLive && query.isEmpty && screen.list?.items.isEmpty == true)
-        }
-    }
-
-    mutating func moveSelection(by delta: Int) {
-        switch content {
-        case .search(var results):
-            results.moveSelection(by: delta)
-            content = .search(results)
-        case .screen(var screen):
-            screen.moveSelection(by: delta)
-            content = .screen(screen)
-        }
-    }
-}
-
-/// A frame's screen: what it shows, and the command run feeding it (none for a pushed page, which
-/// never runs). A page's markup is parsed once per change into a `Document` whose targets are the
-/// rows, none selected at first; a once command's list is filtered here by the frame's query, a
-/// live command's is shown as sent (docs/architecture.md, "Documents").
-public struct ScreenFrame: Sendable {
-    /// The command feeding the frame; nil for a pushed page.
+    /// The root search's results; nil for every frame above it.
+    public internal(set) var results: RootResults?
+    /// The command feeding the frame; nil for the root and a pushed page.
     public private(set) var run: CommandRun?
-    /// The latest content; nil until a command's first arrives.
+    /// The latest content; nil for the root, and until a command's first arrives.
     public private(set) var screen: Screen?
     /// Who made `screen` and the host's actions for it; a pushed page has the authority of the
     /// screen that pushed it.
     public private(set) var context = ScreenContext.host
-    /// The screen's rows (a list's filtered, for a once command; a document's targets) with the
-    /// selection.
-    public private(set) var list: ItemList?
     /// The page as a document; nil for anything shown as a list.
     public private(set) var document: Document?
-    /// The list on screen with its sections: a command's, or a page made only of rows.
+    /// A command's list, or a page made only of rows (not the root's results).
     public private(set) var listing: Listing?
-    /// The list's summary as a document.
+    /// The summary above the frame's list, parsed.
     public private(set) var summary: Document?
+    /// The screen's rows (a list's filtered, for a once command; a document's targets) with the
+    /// selection.
+    private var rows: ItemList?
     /// A list as sent and its search index, for filtering.
     private var items: [Item] = []
     private var index = SearchIndex([])
-    /// The text `list` answers (live) or is filtered by (once).
+    /// The text `rows` answers (live) or is filtered by (once).
     private var listText = ""
     /// Parses the page, keeping what it parsed for the next, longer text of a growing answer.
     private var parser = Markup.Parser()
@@ -159,24 +45,53 @@ public struct ScreenFrame: Sendable {
     /// How many problems the last parse found, so a growing answer logs them once, not per redraw.
     private var issueCount = 0
 
-    /// A command's frame, empty until its run sends something.
-    init(run: CommandRun) {
+    /// The root search.
+    init(id: Int, results: RootResults) {
+        self.id = id
+        self.results = results
+    }
+
+    /// A command's frame, empty until its run sends something; its field starts with the run's query.
+    init(id: Int, run: CommandRun) {
+        self.id = id
         self.run = run
+        query = run.query
     }
 
     /// A pushed page, with no run behind it.
-    init(showing screen: Screen, _ context: ScreenContext) {
-        run = nil
+    init(id: Int, showing screen: Screen, _ context: ScreenContext) {
+        self.id = id
         show(screen, context, text: "")
     }
 
+    public var isLoading: Bool { pending > 0 }
+
+    /// A command's frame whose run has sent nothing yet: the pill spins, the card keeps its height,
+    /// and other actions wait, so commands start one at a time.
+    public var isStarting: Bool { run != nil && isLoading && screen == nil }
+
+    /// The frame's list, whose selection the arrow keys move; nil for a screen without rows.
+    public var list: ItemList? { results?.list ?? rows }
+
     var isLive: Bool { run?.command.input == .liveText }
 
-    /// What Return acts on; a frame waiting for its text submits `query`, once there is one, as its
-    /// own invocation with only the text replaced (the args and revision it was opened with stay).
-    /// On a document, the selected target's actions, or with none selected the page's own; with no
-    /// row at all, the screen's alone.
-    func target(query: String) -> ActionTarget? {
+    /// Whether the frame is a command's waiting for its text, which a submit runs.
+    public var awaitsText: Bool { run?.awaitsText == true }
+
+    /// Whether the frame shows a page, whose view measures it to size the card.
+    public var isMeasured: Bool { document != nil }
+
+    /// What Return, ⌘↩ and ⌘K act on in this frame; a frame waiting for its text submits `query`,
+    /// once there is one, as its own invocation with only the text replaced (the args and revision
+    /// it was opened with stay). On a document, the selected target's actions, or with none
+    /// selected the page's own; with no row at all, the screen's alone. A page still loading without
+    /// actions of its own has none: the copy a finished one gets would take a status, such as
+    /// "Asking…", or half a page.
+    public var target: ActionTarget? {
+        if let results { return results.selectedItem.map { target(for: $0) } }
+        if isLoading, case .detail(let detail)? = screen, detail.actions.isEmpty, context.actions.isEmpty {
+            return nil
+        }
         if let run, run.awaitsText {
             guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             let invocation = run.invocation
@@ -186,12 +101,40 @@ public struct ScreenFrame: Sendable {
                     revision: invocation.revision)
             ])
         }
-        if let item = list?.selectedItem { return ActionTarget(item: item, in: context) }
+        if let item = rows?.selectedItem { return ActionTarget(item: item, in: context) }
         if document != nil, case .detail(let detail) = screen {
             return ActionTarget(detail: detail, text: pageText, in: context)
         }
         // No row (a filter that matches none): the screen's actions stay, Copy Answer and Follow Up.
         return context.actions.isEmpty ? nil : ActionTarget(actions: [], in: context)
+    }
+
+    /// What clicking `item` (or ⌘1 to ⌘9 on it) acts on: its actions under the frame's authority,
+    /// with the screen's own actions beside them.
+    public func target(for item: Item) -> ActionTarget {
+        ActionTarget(item: item, in: results == nil ? context : .host)
+    }
+
+    /// What typing on a page starts with the typed text: the first screen action whose command waits
+    /// for text (Follow Up on an answer). A page is read, not searched; nil on a list, which filters.
+    public func typingAction(waitsForText: (CommandID) -> Bool) -> Item.Action? {
+        guard document != nil else { return nil }
+        return context.actions.first { action in
+            guard case .run(let command, let text, _, _, _) = action else { return false }
+            return text.isEmpty && waitsForText(command)
+        }
+    }
+
+    /// Whether the palette shows just the pill: the root search with nothing typed, a live command
+    /// with nothing typed and nothing to show, or a command waiting for its text (the placeholder says
+    /// what to type). An empty query anywhere else is still a screen with content.
+    public var isCompact: Bool {
+        if results != nil { return query.isEmpty }
+        return awaitsText || (isLive && query.isEmpty && rows?.items.isEmpty == true)
+    }
+
+    mutating func moveSelection(by delta: Int) {
+        if results != nil { results?.moveSelection(by: delta) } else { rows?.moveSelection(by: delta) }
     }
 
     /// Replaces the content with `screen`, which answers `text` (the frame's query when it arrived).
@@ -221,9 +164,9 @@ public struct ScreenFrame: Sendable {
             pageText =
                 detail.actions.isEmpty && context.authority != .agent
                 ? Markup.plainText(detail.markdown, document: parsed.document, home: home) : ""
-            var targets = list?.selectsFirst == false ? list! : ItemList(selectsFirst: false)
+            var targets = rows?.selectsFirst == false ? rows! : ItemList(selectsFirst: false)
             targets.replace(with: parsed.document.targets)
-            list = targets
+            rows = targets
         }
     }
 
@@ -240,38 +183,34 @@ public struct ScreenFrame: Sendable {
     }
 
     /// Rows that aren't filtered (an answer's), replacing the list's and following its selection.
-    private mutating func replaceRows(with rows: [Item]) {
-        var list = self.list?.selectsFirst == true ? self.list! : ItemList()
-        list.replace(with: rows)
-        self.list = list
+    private mutating func replaceRows(with items: [Item]) {
+        var list = rows?.selectsFirst == true ? rows! : ItemList()
+        list.replace(with: items)
+        rows = list
     }
 
     /// A list's rows, searched by the command (live) or filtered here by `text` (once).
-    private mutating func showList(_ rows: [Item], text: String) {
-        let previous = self.list?.selectsFirst == true ? self.list : nil
+    private mutating func showList(_ items: [Item], text: String) {
+        let previous = rows?.selectsFirst == true ? rows : nil
         var list = previous ?? ItemList()
         let reset = text != listText || previous == nil
         if isLive {
-            list.replace(with: rows, resettingSelection: reset)
+            list.replace(with: items, resettingSelection: reset)
         } else {
-            items = rows
-            index = SearchIndex(rows.map { ($0, []) })
+            self.items = items
+            index = SearchIndex(items.map { ($0, []) })
             list.replace(with: filtered(text), resettingSelection: reset)
         }
         listText = text
-        self.list = list
+        rows = list
     }
 
     /// Filters a once command's list by `text`; does nothing for anything else.
     mutating func filter(_ text: String) {
-        guard !isLive, listing != nil, var list else { return }
+        guard !isLive, listing != nil, var list = rows else { return }
         list.replace(with: filtered(text), resettingSelection: text != listText)
-        self.list = list
+        rows = list
         listText = text
-    }
-
-    mutating func moveSelection(by delta: Int) {
-        list?.moveSelection(by: delta)
     }
 
     /// The items matching `text`, best first, as sent: the match only orders them.
