@@ -25,7 +25,7 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - ~~**No keyword for making commands:** "build an extension that shows the weather in Wicket" said to the AI should just work.~~ Decided (CONCEPT, AI): Make a Command is gone.
 - ~~**Call it Run Agent, not Ask AI.**~~ Done (CONCEPT, AI).
 - ~~**Agent settings per provider:** model, reasoning effort (native by default) and speed.~~ Done (CONCEPT, AI); Codex 0.167 has one fast tier, so there is no ultra fast.
-- ~~**Permission levels like T3 Code.**~~ Done (CONCEPT, AI).
+- ~~**Permission levels like T3 Code.**~~ Built, then removed: the permission policy is the agent's own, and Wicket shows what it asks (CONCEPT, AI).
 - **Voice:** summon and just start speaking, no typing: transcribe automatically (Apple on-device), with a simple waveform or, if transcription is live, the text as it comes. Configurable: on/off, and the trigger (listen automatically on summon, or a separate hotkey).
 - **Switch features on and off,** so the user can turn off what the app does that they don't want, especially as the agent can do more.
 - **Research:** what an AI-first launcher should be in early 2027; minimal yet powerful agent inside a launcher.

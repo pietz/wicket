@@ -30,8 +30,8 @@ extension CommandID {
     }
 }
 
-/// The canonical spelling, used wherever a command is named in text: settings.json keys
-/// (`"commands": {"builtin:run-agent": …}`), logs, and the prefix of the item ids an extension's
+/// The canonical spelling, used wherever a command is named in text: logs, the agent's command
+/// list, and the prefix of the item ids an extension's
 /// command produces ("ext:github/search:pr-12"). `builtin:<name>` for Wicket's own commands,
 /// `ext:<extension>/<command>` for an extension's. Every part is a slug, so the separators can't
 /// appear inside one and the spelling round-trips.

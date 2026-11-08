@@ -67,7 +67,7 @@ final class AppRuntime {
     private(set) var applied: Settings?
 
     /// `sources` are the host's own root sources (apps, calculator, files); the runtime adds the
-    /// registry's commands, its fallback rows and the approved extensions' root commands.
+    /// registry's commands and its fallback rows.
     /// `builtins` is the table of Wicket's own commands (`live()` composes it): the registry takes
     /// their commands, the router their runners.
     init(
@@ -146,9 +146,9 @@ final class AppRuntime {
 
     /// After something that may have changed the registry: the runs of commands no longer in it
     /// stop (Run Agent turned off mid-answer, an extension removed), runs bound to a revision their
-    /// command no longer has are reconciled (`PaletteSession.rebind`: searches run again on the new
-    /// revision, anything else stops saying the extension changed), keyword conflicts are reported,
-    /// and the root searches again, so a command gone shows at once.
+    /// command no longer has stop saying the extension changed (`PaletteSession.rebind`; nothing
+    /// reruns by itself), keyword conflicts are reported, and the root searches again, so a command
+    /// gone shows at once.
     private func registryChanged(since changes: Int) {
         guard registry.changes != changes else { return }
         model.session.stopCommands { [registry] in registry.command($0) == nil }

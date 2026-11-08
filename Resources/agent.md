@@ -15,7 +15,7 @@ Commands come from extensions: one folder per extension, named by its id, in Wic
 1. Read the authoring guide first: it is the whole contract (manifest, protocol, results). The JSON Schema next to it validates `wicket.json` and every message. Start from the sample closest to what you are building.
 2. Run `wicket check <folder>`, which reviews it as Wicket does before the user enables it (the manifest and the program it runs; it runs no code). Fix what it reports until it passes.
 3. Test it for real: run every command with `wicket run <folder> <command> [text]`, its error cases included, and fix it until each answer is right. `wicket run` fails on an invalid answer or bad markup. If it caches in its data folder, make sure a first run, with nothing cached yet, works too. A secret that isn't stored makes the run fail with what to set; say so instead of faking it. When `wicket run` fails it prints the error and the end of the extension's stderr; `wicket log <id>` shows the failures of runs in Wicket itself (the CLI's runs aren't recorded there).
-4. End by saying what you made and what you ran. Wicket runs nothing new or changed until the user reviews and enables it, which it offers under your reply, so say it is ready to review and enable.
+4. End by saying what you made and what you ran. Wicket's palette runs nothing new or changed until the user reviews and enables it (`wicket run` runs the folder as it is), which it offers under your reply, so say it is ready to review and enable.
 
 ## When a command fails
 

@@ -129,7 +129,7 @@ Monarch data is thinner than the others. Its manual and changelog pages did not 
 
 | Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
 |---|---|---|---|---|---|
-| Model | visual canvas of objects (PP) | React + TypeScript on bundled Node | runs Raycast extensions (about 80%; frozen); native plugins planned | none yet; only custom commands and Superlinks | JSON-RPC over stdio, any executable |
+| Model | visual canvas of objects (PP) | React + TypeScript on bundled Node | runs Raycast extensions (about 80%; frozen); native plugins planned | none yet; only custom commands and Superlinks | one JSON request and response over stdio per run, any executable |
 | Languages | any script | TS/JS (+ script commands in bash, Python, Swift, Ruby, AppleScript…) | JS (Raycast bundles), shell | shell | any |
 | Lightweight "script commands" | ✓ Script Filter JSON | ✓ script commands with metadata comments | ✓ custom commands with arguments | ✓ | 0.0.1 (one-shot answers) |
 | List / detail | ✓ (+ Text View) | ✓ | ✓ | ✗ | 0.0.1 |
@@ -141,7 +141,7 @@ Monarch data is thinner than the others. Its manual and changelog pages did not 
 | Extension preferences UI | ✓ workflow configuration | ✓ | ✓ | ✗ | |
 | Store | Gallery: hundreds, invitation only | thousands, PR-reviewed | installs Raycast store + GitHub | ✗ | ✗ (agent-written; sharing later) |
 | Hot reload while authoring | ✓ | ✓ (<1 s) | ? | n/a | 0.0.1 |
-| Sandboxing | ✗ | ✗ | ✗ (explicitly: "install only what you trust") | n/a | ✗ (review before enable, rollback) |
+| Sandboxing | ✗ | ✗ | ✗ (explicitly: "install only what you trust") | n/a | ✗ (review before enable) |
 
 ## Automation
 
