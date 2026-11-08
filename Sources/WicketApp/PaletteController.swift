@@ -129,6 +129,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private var previousApp: RunningApp?
     /// Where a message shows while the card is not up.
     private let hud = MessageHUD()
+    /// The actions menu while it tracks, so losing key to it doesn't hide the palette.
+    private var openActions: ActionMenu?
 
     init(model: PaletteModel, dispatcher: ActionDispatcher) {
         self.model = model
@@ -160,8 +162,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
             let cards = Observations {
                 Card(
                     height: PaletteMetrics.cardHeight(
-                        for: model.top, actionMenu: model.actionMenu, detailHeight: model.detailHeight,
-                        listTop: model.listTopHeight),
+                        for: model.top, detailHeight: model.detailHeight, listTop: model.listTopHeight),
                     frame: model.top.id, isCompact: model.top.isCompact,
                     isUnmeasured: model.top.isMeasured
                         ? model.detailHeight == nil
@@ -218,12 +219,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     func hide() {
         guard panel.isVisible else { return }
+        openActions?.menu.cancelTrackingWithoutAnimation()
         panel.orderOut(nil)
         model.voice?.stop()
         // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
         // cancels every command run.
         pendingShrink?.cancel()
-        model.actionMenu = nil
         model.showToast(nil)
         model.commandHeld = false
         model.forgetPages()
@@ -261,7 +262,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// Text typed on a page: a document is read, not searched, so typing starts the screen's Follow
     /// Up with the text in its field (`Frame.typingAction`). False when the page takes no text.
     func type(_ text: String) -> Bool {
-        guard model.actionMenu == nil, let action = model.session.typingAction else { return false }
+        guard let action = model.session.typingAction else { return false }
         perform(action, as: .host, typed: text)
         return true
     }
@@ -269,7 +270,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// Performs `action`; a frame it opens waiting for its text starts with `typed` in its field.
     private func perform(_ action: Item.Action, as authority: Authority, typed: String? = nil) {
         guard !model.top.isStarting else { return }
-        model.actionMenu = nil
         model.voice?.stop()
         switch dispatcher.perform(action, as: authority, in: ActionContext(previousApp: previousApp)) {
         case .close: hide()
@@ -324,28 +324,43 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private func handle(_ chord: PaletteChord) {
         switch chord {
         case .toggleActions:
-            if model.actionMenu != nil {
-                model.actionMenu = nil
-            } else if let target = model.target, !target.actions.isEmpty || !target.screen.isEmpty {
-                model.actionMenu = model.actionMenu(for: target)
+            if let target = model.target, !target.actions.isEmpty || !target.screen.isEmpty {
+                showActions(for: target)
             }
         case .runSecondary:
-            let target = model.actionMenu?.target ?? model.target
-            run(target, at: target?.secondary ?? .action(1))
+            run(model.target, at: model.target?.secondary ?? .action(1))
         case .runRow(let row):
-            guard model.actionMenu == nil, model.results.indices.contains(row) else { break }
+            guard model.results.indices.contains(row) else { break }
             run(model.top.target(for: model.results[row]), at: .action(0))
         case .openSettings:
             perform(.run(command: .settings), as: .host)
         case .listen:
             listen()
         case .move(let delta):
-            if model.actionMenu != nil {
-                model.actionMenu?.moveSelection(by: delta)
-            } else {
-                model.moveSelection(by: delta)
-            }
+            model.moveSelection(by: delta)
         }
+    }
+
+    /// ⌘K: the actions menu for `target`, above the footer at the card's right (under the pill when
+    /// there is no card). `popUp` tracks until the menu closes, which Escape does without reaching
+    /// the palette; the chosen action then runs as Return would run it.
+    private func showActions(for target: ActionTarget) {
+        guard let view = panel.contentView else { return }
+        let actions = model.actionMenu(for: target)
+        let size = actions.menu.size
+        let top = panel.frame.height - PaletteMetrics.margin - PaletteMetrics.pillHeight - PaletteMetrics.gap
+        let footer = top - model.cardHeight + FooterBar.height
+        let corner = NSPoint(
+            x: panel.frame.width - PaletteMetrics.margin - 10 - size.width,
+            y: model.cardHeight > 0 ? footer + 4 + size.height : top)
+        openActions = actions
+        actions.menu.popUp(positioning: nil, at: view.convert(corner, from: nil), in: view)
+        openActions = nil
+        guard panel.isVisible else { return }
+        // ⌘ may have been released while the menu tracked the keys, where the view saw no change.
+        model.commandHeld = NSEvent.modifierFlags.contains(.command)
+        if !panel.isKeyWindow { panel.makeKey() }
+        if let position = actions.chosen { run(target, at: position) }
     }
 
     // MARK: Frame
@@ -438,7 +453,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
     func windowDidResignKey(_ notification: Notification) {
-        hide()
+        if openActions == nil { hide() }
     }
 }
 

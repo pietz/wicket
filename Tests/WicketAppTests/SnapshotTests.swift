@@ -179,7 +179,7 @@ struct SnapshotTests {
             host.layoutSubtreeIfNeeded()
             let measured =
                 PaletteMetrics.cardHeight(
-                    for: model.top, actionMenu: nil, detailHeight: model.detailHeight,
+                    for: model.top, detailHeight: model.detailHeight,
                     listTop: model.listTopHeight) ?? card
             if measured == card { break }
             card = measured

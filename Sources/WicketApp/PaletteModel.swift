@@ -3,8 +3,8 @@ import Observation
 import WicketCore
 
 /// The palette's view state around its `PaletteSession` (Core), which owns the frames, the search
-/// and the navigation: this adds what only the window needs (focus, the action panel, the card's
-/// height) and the usage store.
+/// and the navigation: this adds what only the window needs (focus, the card's height) and the
+/// usage store.
 @MainActor
 @Observable
 final class PaletteModel {
@@ -52,8 +52,6 @@ final class PaletteModel {
     private(set) var navigation: Navigation?
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
-    /// The action panel (⌘K), when open. One optional, so at most one panel exists.
-    var actionMenu: ActionMenu?
     /// ⌘ is held, so rows show their ⌘1 to ⌘9 hints.
     var commandHeld = false
     /// Voice input into the search field; nil in tests that don't use it.
@@ -77,7 +75,7 @@ final class PaletteModel {
     /// The height of the top frame's list top; nil before it is laid out.
     var listTopHeight: CGFloat? { listTop?.frame == top.id ? listTop?.height : nil }
     /// What activating an action under an authority runs (`ActionDispatcher.resolve`), so the footer
-    /// and the action panel name it; set by `PaletteController`.
+    /// and the actions menu name it; set by `PaletteController`.
     var resolve: (Item.Action, Authority) -> ActionPolicy.Resolution = { action, _ in .perform(action) }
     /// The height the top frame's page content needs; nil for rows, or before it is laid out.
     var detailHeight: CGFloat? {
@@ -167,12 +165,12 @@ final class PaletteModel {
         return present(target.screen[index], as: .host).title
     }
 
-    /// The action panel for `target`.
+    /// The actions menu (⌘K) for `target`.
     func actionMenu(for target: ActionTarget) -> ActionMenu {
         ActionMenu(target: target, screenTitle: screenTitle, present: present)
     }
 
-    /// What the screen's group in the action panel is called: "Answer" for an agent's, else the
+    /// What the screen's group in the actions menu is called: "Answer" for an agent's, else the
     /// command whose frame it is (a pushed page's, the one beneath it).
     private var screenTitle: String {
         for frame in session.frames.reversed() {

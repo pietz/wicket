@@ -22,8 +22,8 @@ struct PaletteMetricsTests {
         return session.top
     }
 
-    private func card(_ frame: Frame, menu: ActionMenu? = nil, detail: CGFloat? = nil) -> CGFloat? {
-        PaletteMetrics.cardHeight(for: frame, actionMenu: menu, detailHeight: detail)
+    private func card(_ frame: Frame, detail: CGFloat? = nil) -> CGFloat? {
+        PaletteMetrics.cardHeight(for: frame, detailHeight: detail)
     }
 
     @Test func emptyRootHasNoCard() {
@@ -72,33 +72,6 @@ struct PaletteMetricsTests {
             height - 1 - FooterBar.height - 2 * PaletteMetrics.rowInset - PaletteMetrics.answerRowHeight
         let step = PaletteMetrics.rowHeight + PaletteMetrics.rowSpacing
         #expect(rows / step == 7)
-    }
-
-    @Test func actionMenuNeedsRoom() {
-        let actions: [Item.Action] = (0..<5).map { .copy(text: "\($0)") }
-        let frame = search([item("a", actions: actions)])
-        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host))
-        let panel = ActionPanel.height(rows: 5) + ActionPanel.clearance
-        #expect(card(frame, menu: menu) == panel.rounded(.up))
-        #expect(card(frame, menu: menu)! > card(frame)!)
-        // A list taller than the panel keeps its own height.
-        let tall = search((0..<7).map { item("\($0)", actions: actions) })
-        #expect(card(tall, menu: menu) == card(tall))
-    }
-
-    /// A long menu shows as many whole rows as the tallest card holds and scrolls the rest, so it
-    /// never grows past the card over the pill.
-    @Test func longActionMenuFitsTheCard() {
-        let actions: [Item.Action] = (0..<40).map { .copy(text: "\($0)") }
-        let frame = search([item("a", actions: actions)])
-        let menu = ActionMenu(target: ActionTarget(item: frame.list!.items[0], in: .host))
-        #expect(ActionPanel.maxRows > 5 && ActionPanel.maxRows < 40)
-        #expect(ActionPanel.height(rows: 40) == ActionPanel.height(rows: ActionPanel.maxRows))
-        #expect(ActionPanel.height(rows: 40) + ActionPanel.clearance <= PaletteMetrics.maxCardHeight)
-        // One more row would not fit.
-        let step = ActionPanel.rowHeight + ActionPanel.rowSpacing
-        #expect(ActionPanel.height(rows: 40) + step + ActionPanel.clearance > PaletteMetrics.maxCardHeight)
-        #expect(card(frame, menu: menu)! >= ActionPanel.height(rows: 40) + ActionPanel.clearance)
     }
 
     @Test func detailFitsItsMeasuredContent() {

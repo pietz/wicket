@@ -1,6 +1,7 @@
+import AppKit
 import WicketCore
 
-/// How an action is named and drawn in the action panel and the footer: the one place to extend
+/// How an action is named and drawn in the actions menu and the footer: the one place to extend
 /// when `Item.Action` gains cases or titles.
 struct ActionPresentation {
     var title: String
@@ -44,26 +45,18 @@ struct ActionPresentation {
     }
 }
 
-/// The open action panel: what it was opened on (the selected item, or a detail), its filter and
-/// the selected row. The target's actions come first, then the screen's own as a group.
-struct ActionMenu {
-    struct Row: Identifiable {
-        /// Where the action is in the target.
-        let id: ActionTarget.Position
-        let presentation: ActionPresentation
-    }
-
-    /// Captured on opening, so a late result never changes what the panel runs.
+/// The actions menu (⌘K), a native `NSMenu` built from the target captured on opening, so a late
+/// result never changes what it runs: the target's actions, then the screen's own under a section
+/// header named after the screen ("Answer"), each named as it runs, with ↩ and ⌘↩ shown on the
+/// actions those chords run. It only records the choice (`chosen`); the controller runs it through
+/// the dispatcher once the menu has closed.
+@MainActor
+final class ActionMenu: NSObject {
+    let menu = NSMenu()
     let target: ActionTarget
-    /// The screen group's title: "Answer" on an agent's screen.
-    let screenTitle: String
-    /// Every action, named as it runs.
-    private let all: [Row]
-    var filter = "" {
-        didSet { if filter != oldValue { selection = 0 } }
-    }
-    /// Index into `rows`.
-    private(set) var selection = 0
+    /// The position of each action item, in menu order.
+    private(set) var positions: [ActionTarget.Position] = []
+    private(set) var chosen: ActionTarget.Position?
 
     /// `present` names an action under the authority it runs as.
     init(
@@ -71,42 +64,41 @@ struct ActionMenu {
         present: (Item.Action, Authority) -> ActionPresentation = { action, _ in ActionPresentation(action) }
     ) {
         self.target = target
-        self.screenTitle = screenTitle
-        let actions = target.actions.enumerated().map {
-            Row(id: .action($0.offset), presentation: present($0.element, target.authority))
+        super.init()
+        menu.autoenablesItems = false
+        for (index, action) in target.actions.enumerated() {
+            add(.action(index), present(action, target.authority))
         }
-        let screen = target.screen.enumerated().map { index, action in
-            Row(id: .screen(index), presentation: present(action, .host))
+        guard !target.screen.isEmpty else { return }
+        if !target.actions.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(.sectionHeader(title: screenTitle))
+        for (index, action) in target.screen.enumerated() {
+            add(.screen(index), present(action, .host))
         }
-        all = actions + screen
     }
 
-    /// The lines the panel has unfiltered: its actions and the screen group's title. The card makes
-    /// room for them all, so filtering never moves it.
-    var lineCount: Int { all.count + (target.screen.isEmpty ? 0 : 1) }
-
-    /// The actions whose title matches the filter.
-    var rows: [Row] {
-        let query = Fold.query(filter)
-        guard !query.isEmpty else { return all }
-        return all.filter { FuzzyMatcher.score(query, SearchKey($0.presentation.title)) != nil }
+    private func add(_ position: ActionTarget.Position, _ presentation: ActionPresentation) {
+        let item = NSMenuItem(title: presentation.title, action: #selector(choose(_:)), keyEquivalent: "")
+        item.target = self
+        item.tag = positions.count
+        item.image = NSImage(systemSymbolName: presentation.symbol, accessibilityDescription: nil)
+        item.subtitle = presentation.detail.flatMap(Self.subtitle)
+        if position == target.primary || position == target.secondary {
+            item.keyEquivalent = "\r"
+            item.keyEquivalentModifierMask = position == target.primary ? [] : .command
+        }
+        positions.append(position)
+        menu.addItem(item)
     }
 
-    var selectedRow: Row? {
-        let rows = rows
-        return rows.indices.contains(selection) ? rows[selection] : nil
+    /// A detail's first line, cut short: a copied text can be long.
+    static func subtitle(_ detail: String) -> String? {
+        let line = detail.prefix { !$0.isNewline }
+        guard !line.isEmpty else { return nil }
+        return line.count > 60 || line.count < detail.count ? line.prefix(60) + "…" : String(line)
     }
 
-    /// The chord that runs the action at `position` without the panel: Return the target's primary,
-    /// ⌘↩ its secondary.
-    func shortcut(for position: ActionTarget.Position) -> String? {
-        if position == target.primary { return "↩" }
-        return position == target.secondary ? "⌘↩" : nil
-    }
-
-    mutating func moveSelection(by delta: Int) {
-        let count = rows.count
-        guard count > 0 else { return }
-        selection = min(max(selection + delta, 0), count - 1)
+    @objc private func choose(_ item: NSMenuItem) {
+        chosen = positions[item.tag]
     }
 }

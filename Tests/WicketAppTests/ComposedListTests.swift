@@ -52,10 +52,10 @@ struct ComposedListTests {
             sections: [.init(title: "A", items: rows(2)), .init(title: "B", items: [item("x")])],
             summary: "Three things.")
         let frame = await show(listing)
-        #expect(PaletteMetrics.cardHeight(for: frame, actionMenu: nil, detailHeight: nil) == nil)
+        #expect(PaletteMetrics.cardHeight(for: frame, detailHeight: nil) == nil)
         let rowsHeight = PaletteMetrics.rowsHeight(
             count: 3, prominentFirst: false, headers: [true, false, true])
-        let card = PaletteMetrics.cardHeight(for: frame, actionMenu: nil, detailHeight: nil, listTop: 40)
+        let card = PaletteMetrics.cardHeight(for: frame, detailHeight: nil, listTop: 40)
         #expect(card == (40 + rowsHeight + 1 + FooterBar.height).rounded(.up))
     }
 
@@ -64,9 +64,9 @@ struct ComposedListTests {
     @Test func longListUnderASummaryKeepsEightWholeRows() async {
         let frame = await show(Listing(rows(30), summary: "<stat label=\"Total\" value=\"30\"/>"))
         #expect(frame.summary?.blocks.count == 1)
-        let card = PaletteMetrics.cardHeight(for: frame, actionMenu: nil, detailHeight: nil, listTop: 50)
+        let card = PaletteMetrics.cardHeight(for: frame, detailHeight: nil, listTop: 50)
         #expect(card == PaletteMetrics.maxCardHeight + 50)
-        let tall = PaletteMetrics.cardHeight(for: frame, actionMenu: nil, detailHeight: nil, listTop: 900)
+        let tall = PaletteMetrics.cardHeight(for: frame, detailHeight: nil, listTop: 900)
         #expect(tall == PaletteMetrics.maxCardHeight + PaletteMetrics.maxListTop)
     }
 
@@ -175,22 +175,37 @@ struct ComposedListTests {
         #expect(model.detailHeight == 120)
     }
 
-    /// The panel lists the row's actions, then the screen's under its title; ⌘↩ marks the
-    /// secondary, which is the screen's first when it came with any.
-    @Test func actionPanelGroupsTheScreensActions() {
+    /// The menu lists the row's actions, then the screen's under a section header; ↩ and ⌘↩ mark
+    /// the primary and the secondary, which is the screen's first when it came with any. Choosing
+    /// an item records its position for the controller to run.
+    @Test func actionsMenuGroupsTheScreensActions() {
         let followUp = Item.Action.copy(text: "follow", title: "Follow Up")
         let row = item("a", actions: [.copy(text: "1"), .copy(text: "2")])
         let target = ActionTarget(item: row, in: ScreenContext(authority: .agent, actions: [followUp]))
-        let menu = ActionMenu(target: target, screenTitle: "Answer")
-        #expect(menu.rows.map(\.id) == [.action(0), .action(1), .screen(0)])
-        #expect(menu.lineCount == 4)
-        #expect(menu.shortcut(for: .action(0)) == "↩")
-        #expect(menu.shortcut(for: .screen(0)) == "⌘↩")
-        #expect(menu.shortcut(for: .action(1)) == nil)
+        let actions = ActionMenu(target: target, screenTitle: "Answer")
+        let items = actions.menu.items
+        #expect(actions.positions == [.action(0), .action(1), .screen(0)])
+        #expect(items.map(\.title) == ["Copy", "Copy", "", "Answer", "Follow Up"])
+        #expect(items[2].isSeparatorItem && items[3].isSectionHeader)
+        #expect(items[0].keyEquivalent == "\r" && items[0].keyEquivalentModifierMask == [])
+        #expect(items[4].keyEquivalent == "\r" && items[4].keyEquivalentModifierMask == .command)
+        #expect(items[1].keyEquivalent == "")
+        #expect(items[1].subtitle == "2")
+        actions.menu.performActionForItem(at: 4)
+        #expect(actions.chosen == .screen(0))
 
         let plain = ActionMenu(target: ActionTarget(item: row, in: .host))
-        #expect(plain.lineCount == 2)
-        #expect(plain.shortcut(for: .action(1)) == "⌘↩")
+        #expect(plain.menu.items.count == 2)
+        #expect(plain.menu.items[1].keyEquivalentModifierMask == .command)
+    }
+
+    /// A detail is one line, cut short.
+    @Test func actionsMenuShortensDetails() {
+        #expect(ActionMenu.subtitle("") == nil)
+        #expect(ActionMenu.subtitle("one") == "one")
+        #expect(ActionMenu.subtitle("one\ntwo") == "one…")
+        #expect(
+            ActionMenu.subtitle(String(repeating: "x", count: 80)) == String(repeating: "x", count: 60) + "…")
     }
 
     /// An agent's Open of an app is named as the Reveal it becomes, with the file it reveals.

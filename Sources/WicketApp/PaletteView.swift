@@ -2,14 +2,7 @@ import AppKit
 import SwiftUI
 import WicketCore
 
-// The palette's SwiftUI shell, shared sizing metrics, result rows, footer and action panel.
-
-/// Which field has the keyboard: the search field (the one with this `fieldID`), or the action
-/// panel's filter while it is open.
-enum PaletteFocus: Hashable {
-    case search(String)
-    case actions
-}
+// The palette's SwiftUI shell, shared sizing metrics, result rows and footer.
 
 /// The palette's sizes. The window is the visible shapes plus a transparent `margin`, where the
 /// glass draws its rim. The width is a setting (`paletteWidth`); the content follows the window's.
@@ -33,8 +26,7 @@ enum PaletteMetrics {
     static let rowSpacing: CGFloat = 2
     static let margin: CGFloat = 40
 
-    /// The card for `frame`, and while the action panel is open at least tall enough for it. A
-    /// compact frame has none. A list's card is computed: its summary (as measured: `listTop`, up to
+    /// The card for `frame`. A compact frame has none. A list's card is computed: its summary (as measured: `listTop`, up to
     /// `maxListTop`), then whole rows, at most `maxRows` (an answer and seven), with the section titles
     /// above them; more scroll. A screen without rows (a page) fits its content as measured
     /// (`detailHeight`), up to `maxCardHeight`, since markdown wraps. An empty list shows one row
@@ -42,10 +34,10 @@ enum PaletteMetrics {
     /// page or a list's top for its first measurement, or the root search for its slow sources with
     /// nothing found yet (so typing never flashes "No Results").
     static func cardHeight(
-        for frame: Frame, actionMenu: ActionMenu?, detailHeight: CGFloat?, listTop: CGFloat? = nil
+        for frame: Frame, detailHeight: CGFloat?, listTop: CGFloat? = nil
     ) -> CGFloat? {
         if frame.isCompact { return 0 }
-        if frame.isMeasured { return detailHeight.map { card(content: $0, actionMenu: actionMenu) } }
+        if frame.isMeasured { return detailHeight.map { card(content: $0) } }
         guard let results = frame.list?.items else { return nil }
         if case .search = frame.content, results.isEmpty, frame.isLoading { return nil }
         var top: CGFloat = 0
@@ -59,8 +51,7 @@ enum PaletteMetrics {
         }
         let prominent = results.first.map { ResultRow.isProminent($0, at: 0) } ?? false
         let content = top + rowsHeight(count: results.count, prominentFirst: prominent, headers: headers)
-        return card(
-            content: content, actionMenu: actionMenu, cap: max(maxCardHeight, content + 1 + FooterBar.height))
+        return card(content: content, cap: max(maxCardHeight, content + 1 + FooterBar.height))
     }
 
     /// The most rows a card shows whole; more scroll.
@@ -87,11 +78,8 @@ enum PaletteMetrics {
     static let unmeasuredHeight = rowHeight + 1 + FooterBar.height
 
     /// The card for `content` above the divider and footer, up to `cap`.
-    private static func card(content: CGFloat, actionMenu: ActionMenu?, cap: CGFloat = maxCardHeight)
-        -> CGFloat
-    {
-        let menu = actionMenu.map { ActionPanel.height(rows: $0.lineCount) + ActionPanel.clearance } ?? 0
-        return min(max((content + 1 + FooterBar.height).rounded(.up), menu), cap)
+    private static func card(content: CGFloat, cap: CGFloat = maxCardHeight) -> CGFloat {
+        min((content + 1 + FooterBar.height).rounded(.up), cap)
     }
 
     /// The window for a card of `cardHeight` (0 for just the pill).
@@ -102,9 +90,8 @@ enum PaletteMetrics {
 }
 
 /// The palette: a Liquid Glass pill holding the search field and, while there is something to show,
-/// a glass card under it with the top frame (the results, or a detail) and the footer, with the
-/// action panel (⌘K) over them. The
-/// glass shapes sit in one container, so the card morphs out of the pill; the content is layered
+/// a glass card under it with the top frame (the results, or a detail) and the footer. The glass
+/// shapes sit in one container, so the card morphs out of the pill; the content is layered
 /// above the container, where a morph can't smear it.
 ///
 /// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌘L, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
@@ -122,7 +109,8 @@ struct PaletteRootView: View {
     let onQueryChange: () -> Void
     /// Text typed on a page; true if it started something (a Follow Up).
     let onType: (String) -> Bool
-    @FocusState private var focus: PaletteFocus?
+    /// The focused search field, by `fieldID`.
+    @FocusState private var focus: String?
     @Namespace private var glass
 
     var body: some View {
@@ -168,33 +156,17 @@ struct PaletteRootView: View {
                     .transition(.opacity)
                 }
             }
-            .overlay {
-                if let menu = model.actionMenu {
-                    // A click anywhere outside the panel closes it rather than reaching what is beneath.
-                    Color.clear
-                        .contentShape(.rect)
-                        .onTapGesture { model.actionMenu = nil }
-                        .overlay(alignment: .bottomTrailing) {
-                            ActionPanel(model: model, menu: menu, focus: $focus, onRun: onRun)
-                                .padding(.trailing, 10)
-                                .padding(.bottom, ActionPanel.bottomPadding)
-                        }
-                }
-            }
         }
         .padding(PaletteMetrics.margin)
         // Top-aligned, so the pill stays put while the window grows and shrinks beneath it.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
-        .onAppear { focus = search }
-        .onChange(of: model.focusToken) { focus = search }
+        .onAppear { focus = fieldID }
+        .onChange(of: model.focusToken) { focus = fieldID }
         // Each field has its own focus value, so a new field (see `fieldID`) is a real change of
         // focus. Re-asserting one shared value would need clearing it first, and a deferred set
         // after the clear could land before SwiftUI applied the clear, leaving nothing focused.
-        .onChange(of: fieldID) { focus = search }
-        // Every way the panel closes hands the keyboard back to the search field, so it never
-        // unmounts while focused and leaves the window without a first responder.
-        .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? search : .actions }
+        .onChange(of: fieldID) { focus = fieldID }
     }
 
     /// Tinted: untinted glass is hard to read over busy windows.
@@ -263,8 +235,6 @@ struct PaletteRootView: View {
         return frame.run?.command.id == .setSecret
     }
 
-    private var search: PaletteFocus { .search(fieldID) }
-
     /// The search field, or on a page (which takes no text) its title as a label that still takes
     /// the keys.
     private var searchField: some View {
@@ -292,7 +262,7 @@ struct PaletteRootView: View {
             // A field scrolls to its caret only as it is typed in; text set from outside (a
             // transcript) moves the caret to the end but leaves the visible part where it was.
             .onChange(of: model.query) { onQueryChange() }
-            .focused($focus, equals: search)
+            .focused($focus, equals: fieldID)
             // Return is handled here rather than by `onSubmit`, which ends editing.
             .onKeyPress(.upArrow) {
                 model.moveSelection(by: -1)
@@ -373,7 +343,7 @@ private struct FrameContent: View {
     private var focus: DocumentFocus {
         let targets = model.results
         var hints: [String: String] = [:]
-        if model.commandHeld, model.actionMenu == nil {
+        if model.commandHeld {
             for (index, item) in targets.prefix(9).enumerated() { hints[item.id] = "⌘\(index + 1)" }
         }
         return DocumentFocus(
@@ -471,7 +441,7 @@ struct ResultsView: View {
 
     /// "⌘1" to "⌘9" while ⌘ is held: the chords that run the first nine rows.
     private func hint(for index: Int) -> String? {
-        guard model.commandHeld, model.actionMenu == nil, index < 9 else { return nil }
+        guard model.commandHeld, index < 9 else { return nil }
         return "⌘\(index + 1)"
     }
 }
@@ -538,172 +508,6 @@ private struct KeyCap: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(.primary.opacity(0.08), in: .rect(cornerRadius: 4))
-    }
-}
-
-/// The action panel: every action of what it was opened on, filtered by its own field, then the
-/// screen's own actions as a group named after the screen ("Answer").
-struct ActionPanel: View {
-    static let rowHeight: CGFloat = 30
-    static let rowSpacing: CGFloat = 2
-    static let padding: CGFloat = 6
-    static let radius: CGFloat = 16
-    static let fieldHeight: CGFloat = 34
-    /// It sits just above the footer.
-    static let bottomPadding = FooterBar.height + 4
-    /// Room the card keeps around the panel: below it, and above it so it never covers the pill.
-    static let clearance = bottomPadding + 8
-    /// The most rows the panel shows at once: as many whole rows as the tallest card holds. More
-    /// scroll.
-    static let maxRows = Int(
-        (PaletteMetrics.maxCardHeight - clearance - fieldHeight - 1 - 2 * padding + rowSpacing)
-            / (rowHeight + rowSpacing))
-
-    /// The height of the panel's rows (with their padding) for `rows` lines (actions and the screen
-    /// group's title, which is a row tall), up to `maxRows`.
-    static func listHeight(rows: Int) -> CGFloat {
-        let rows = CGFloat(min(max(rows, 1), maxRows))
-        return 2 * padding + rows * (rowHeight + rowSpacing) - rowSpacing
-    }
-
-    /// The panel's height for `rows` actions.
-    static func height(rows: Int) -> CGFloat {
-        listHeight(rows: rows) + 1 + fieldHeight
-    }
-
-    @Bindable var model: PaletteModel
-    let menu: ActionMenu
-    var focus: FocusState<PaletteFocus?>.Binding
-    let onRun: (ActionTarget?, ActionTarget.Position) -> Void
-
-    var body: some View {
-        let rows = menu.rows
-        let selected = menu.selectedRow?.id
-        let firstScreen = rows.first { if case .screen = $0.id { true } else { false } }?.id
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: Self.rowSpacing) {
-                        if rows.isEmpty {
-                            Text("No Matching Actions")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .frame(height: Self.rowHeight)
-                        }
-                        ForEach(rows) { row in
-                            if row.id == firstScreen {
-                                GroupTitle(title: menu.screenTitle, separated: rows.first?.id != firstScreen)
-                            }
-                            ActionRow(
-                                row: row, shortcut: menu.shortcut(for: row.id), isSelected: row.id == selected
-                            )
-                            .contentShape(.rect)
-                            .onTapGesture { onRun(menu.target, row.id) }
-                            .accessibilityAction { onRun(menu.target, row.id) }
-                        }
-                    }
-                    .padding(Self.padding)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(height: Self.listHeight(rows: rows.count + (firstScreen == nil ? 0 : 1)))
-                .onChange(of: selected) { _, selected in
-                    if let selected { proxy.scrollTo(selected) }
-                }
-            }
-            Divider()
-            TextField("Search actions…", text: filter)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused(focus, equals: .actions)
-                .onKeyPress(.upArrow) {
-                    model.actionMenu?.moveSelection(by: -1)
-                    return .handled
-                }
-                .onKeyPress(.downArrow) {
-                    model.actionMenu?.moveSelection(by: 1)
-                    return .handled
-                }
-                .onKeyPress(.return) {
-                    if let row = model.actionMenu?.selectedRow { onRun(menu.target, row.id) }
-                    return .handled
-                }
-                .onKeyPress(.escape) {
-                    if menu.filter.isEmpty { model.actionMenu = nil } else { model.actionMenu?.filter = "" }
-                    return .handled
-                }
-                .padding(.horizontal, 12)
-                .frame(height: Self.fieldHeight)
-        }
-        .frame(width: 320)
-        .background(.regularMaterial, in: .rect(cornerRadius: Self.radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Self.radius, style: .continuous).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
-    }
-
-    private var filter: Binding<String> {
-        Binding(get: { menu.filter }, set: { model.actionMenu?.filter = $0 })
-    }
-}
-
-/// The title of the screen's group in the action panel, a row tall, under a hairline when actions
-/// come before it.
-private struct GroupTitle: View {
-    let title: String
-    let separated: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if separated {
-                Divider().padding(.horizontal, 8)
-            }
-            Spacer(minLength: 0)
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 3)
-                .accessibilityAddTraits(.isHeader)
-        }
-        .frame(height: ActionPanel.rowHeight)
-    }
-}
-
-private struct ActionRow: View {
-    let row: ActionMenu.Row
-    let shortcut: String?
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: row.presentation.symbol)
-                .frame(width: 18)
-            Text(row.presentation.title)
-                .layoutPriority(1)
-            if let detail = row.presentation.detail {
-                Text(detail)
-                    .foregroundStyle(.secondary)
-                    .truncationMode(.middle)
-            }
-            Spacer(minLength: 8)
-            if let shortcut {
-                KeyCap(shortcut)
-            }
-        }
-        .font(.system(size: 13))
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .frame(height: ActionPanel.rowHeight)
-        .background {
-            if isSelected {
-                RoundedRectangle(cornerRadius: ActionPanel.radius - ActionPanel.padding, style: .continuous)
-                    .fill(.primary.opacity(0.1))
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            [row.presentation.title, row.presentation.detail].compactMap { $0 }.joined(separator: ", ")
-        )
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
