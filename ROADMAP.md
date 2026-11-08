@@ -68,7 +68,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
 - ✅ Escape goes up one layer (menu, page, text, then close), Raycast-style; ⌘[ removed (2026-11-08, reversing the same-day "Escape closes")
 - ✅ Answers: links open through Wicket (apps and scripts revealed, never run); streaming a setting, off by default; extensions get Move to Trash (2026-11-08)
-- 🚧 Agent replies as markdown with native component tags, a cornerstone (owner keeps close watch): round 4 decided (CONCEPT); building M1 Core parser and catalog, M2 document view and keyboard (on-screen spike), M3 adapters, agent.md, gallery, evaluation on both CLIs
+- 🚧 Agent replies as markdown with native component tags, a cornerstone (owner keeps close watch): round 4 decided (CONCEPT); base first (owner, 2026-11-08: few features early, a solid base): M1 Core parser, catalog as single source, validation, authority, minimal tags (markdown, file/url/item rows, stat, card, columns, image); M2 document view and keyboard (on-screen spike); M3 adapters, agent.md, gallery, evaluation. Chart, timeline, progress, badge, callout, answer, choices come later, one tag at a time
 - ⏭ Dismissible runs: closing hides a running agent instead of ending it; the next summon shows it as a row (running, needs approval, ready)
 - ⏭ Feature switches for every built-in (calculator, files, links, agent), so the user turns off what they don't want
 - ⏭ Tour manual rewritten for the current product
