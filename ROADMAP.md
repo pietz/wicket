@@ -41,7 +41,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ `wicket` checker CLI at `Contents/Helpers/wicket` (runs `session.jsonl` fixtures, `wicket secret set`): validate manifest, run fixture queries, check output
 - ✅ Sample extensions in `Extensions/`: system-toggles, quit-apps, github-prs (sh + jq, all pass `wicket check`)
 - ✅ "Make a command": build job (staging, agent, seal, check), review and Enable, uv for Python extensions, newest-first progress, Stop while checking, Fix with Agent (repairs in place), the current build in Extensions, a message when an unwatched build ends
-- 🔨 Extensions screen: ✅ palette list (review and enable, disable, reveal); ✅ Return runs the first command, Disable last; ✅ Make a Command row and Open Extensions Folder; ✅ problems from diagnostics; ✅ secrets set from the palette; ✅ Use Previous Version (the previous approved revision, kept explicitly); ⏭ change by prompt; settings pane dropped (the palette list and a folder button cover it)
+- 🔨 Extensions screen: ✅ palette list (review and enable, disable, reveal); ✅ Return runs the first command, Disable last; ✅ Open Extensions Folder (Make a Command row removed: the AI builds commands when asked); ✅ problems from diagnostics; ✅ secrets set from the palette; ✅ Use Previous Version (the previous approved revision, kept explicitly); ⏭ change by prompt; settings pane dropped (the palette list and a folder button cover it)
 
 ### Palette and effects polish (2026-11-08)
 - ✅ Whole rows with an answer on top, a bounded scrolling action panel, a root No Results once searches finish, page titles as labels, footer messages by kind, button semantics for VoiceOver
