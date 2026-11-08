@@ -100,13 +100,14 @@ struct AIPane: View {
         statuses.count == AgentProvider.allCases.count && !statuses.values.contains { $0.state == .ready }
     }
 
-    /// The provider picker: one that isn't ready says why and can't be chosen.
+    /// The provider picker: one that isn't ready is greyed out, says why and can't be chosen. No
+    /// checkmark on ready ones: the menu already checks the selected one.
     private func providerSection(_ current: AgentProvider) -> some View {
         Section {
             Picker("AI provider", selection: provider(current)) {
                 ForEach(AgentProvider.allCases, id: \.self) { provider in
                     switch statuses[provider]?.state {
-                    case .ready: Label(provider.name, systemImage: "checkmark").tag(provider)
+                    case .ready: Text(provider.name).tag(provider)
                     case .loggedOut: Text("\(provider.name) (not signed in)").tag(provider).disabled(true)
                     case .notInstalled: Text("\(provider.name) (not installed)").tag(provider).disabled(true)
                     case nil: Text(provider.name).tag(provider)
