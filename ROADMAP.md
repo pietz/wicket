@@ -66,7 +66,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ✅ Wicket's agent instructions as an editable `agent.md` (Settings ▸ AI ▸ Edit Agent Instructions…), plus a complete authoring kit (schema, samples), the command list on demand and a check-until-it-passes loop (from the Pi comparison)
 - ✅ Follow Up (⌘↩ on an answer): the next question, typed or spoken, resumes the agent's own session (Claude `--resume`, Codex `thread/resume`)
 - ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
-- ✅ Escape closes the palette from any depth; ⌘[ goes back (2026-11-08)
+- ✅ Escape goes up one layer (menu, page, text, then close), Raycast-style; ⌘[ removed (2026-11-08, reversing the same-day "Escape closes")
 - ✅ Answers: links open through Wicket (apps and scripts revealed, never run); streaming a setting, off by default; extensions get Move to Trash (2026-11-08)
 - 🔍 Agent output as native UI, a cornerstone (owner keeps close watch): decided harness structured output plus the shared screen vocabulary, present-only v1 (docs/reviews/2026-11-08-agent-ui.md). Now: a live spike of both CLIs, and a broad design of Wicket's native UI system for agent and extensions; the owner reviews the design before building
 - ⏭ Dismissible runs: closing hides a running agent instead of ending it; the next summon shows it as a row (running, needs approval, ready)

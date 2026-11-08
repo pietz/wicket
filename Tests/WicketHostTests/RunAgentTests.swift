@@ -546,8 +546,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("search the web for it")
     #expect(await eventually { agents.runs.count == 1 })
     let run = try #require(agents.runs.first)
+    #expect(await eventually { palette.detail?.markdown == "_Asking ChatGPT…_" })
     run.continuation.yield(.text("Let me search"))
     run.continuation.yield(.text(" for that."))
+    // Nothing to wait for: deltas must not show, so give them time to (wrongly) arrive.
     try await Task.sleep(for: .milliseconds(50))
     #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
     #expect(palette.session.top.target == nil)
@@ -559,6 +561,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
     #expect(palette.detail?.markdown.hasSuffix("\n\nLet me search for that.") == true)
     run.continuation.yield(.approvals([]))
+    // Sync on the approval leaving before checking that a delta doesn't show.
+    #expect(await eventually { palette.detail?.actions.first?.title != "Allow" })
     run.continuation.yield(.text("\n\nIt is"))
     try await Task.sleep(for: .milliseconds(50))
     #expect(palette.detail?.markdown == "Let me search for that.")
