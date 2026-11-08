@@ -366,7 +366,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     /// page or a list's top for its first measurement, keeps the card as it is, and the content then
     /// sizes it at once. One with no card to keep opens a small one to be measured in, then grows.
     /// So a streaming answer's card grows with the text (it never shrinks mid-stream, see
-    /// `DetailMeasure`), and its scroll position holds once the card is at its tallest.
+    /// `PaletteModel.detailHeight`), and its scroll position holds once the card is at its tallest.
     private func follow(_ card: Card) {
         pendingShrink?.cancel()
         let unmeasured = card.isUnmeasured && model.cardHeight == 0

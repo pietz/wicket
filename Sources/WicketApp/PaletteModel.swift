@@ -65,8 +65,10 @@ final class PaletteModel {
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0
     var isExpanded: Bool { cardHeight > 0 }
-    /// The top frame's page content as last laid out, which sizes its card.
-    private var detailMeasure: DetailMeasure?
+    /// The tallest the top frame's page has been laid out in its current generation, which sizes
+    /// its card: a streaming answer's card grows with the text and never shrinks mid-stream (a
+    /// closing `**` can briefly reflow it shorter), while a new query or reload starts over.
+    private var pageHeight: (frame: Frame.ID, generation: Int, height: CGFloat)?
     /// The height of a list's summary as last laid out.
     private var listTop: (frame: Frame.ID, height: CGFloat)?
     /// The height of the top frame's list top; nil before it is laid out.
@@ -76,7 +78,10 @@ final class PaletteModel {
     var resolve: (Item.Action, Authority) -> ActionPolicy.Resolution = { action, _ in .perform(action) }
     /// The height the top frame's page content needs; nil for rows, or before it is laid out.
     var detailHeight: CGFloat? {
-        detailMeasure?.height(of: top.id, isLoading: top.isLoading).map { CGFloat($0) }
+        guard let pageHeight, pageHeight.frame == top.id, pageHeight.generation == top.generation else {
+            return nil
+        }
+        return pageHeight.height
     }
     /// The top frame's command is running (the root's slow sources don't count). The pill spins.
     var isBusy: Bool { top.run != nil && top.isLoading }
@@ -111,11 +116,7 @@ final class PaletteModel {
     /// The detail view of `frame` was laid out with its content `height` tall.
     func measureDetail(_ height: CGFloat, of frame: Frame.ID) {
         guard frame == top.id else { return }
-        if detailMeasure == nil {
-            detailMeasure = DetailMeasure(frame: frame, height: Double(height))
-        } else {
-            detailMeasure?.record(Double(height), frame: frame, isLoading: top.isLoading)
-        }
+        pageHeight = (frame, top.generation, max(height, detailHeight ?? 0))
     }
 
     /// The list summary of `frame` was laid out `height` tall.

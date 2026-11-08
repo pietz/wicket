@@ -138,6 +138,29 @@ struct ComposedListTests {
         #expect(prose.navigation?.moved == false && prose.navigation?.delta == 1)
     }
 
+    /// A page's card grows with its content and never shrinks while the same run feeds it (a
+    /// streaming answer reflowing shorter for a moment); a new query of a live command starts over.
+    @Test func aPageGrowsWithinARunAndStartsOverWithTheNext() async {
+        let model = PaletteModel(sources: [], runner: runner, usageURL: scratchUsage())
+        let live = command("live-page", input: .liveText)
+        model.session.open(CommandRun(live, .invoked))
+        #expect(await eventually { runner.count[live.id] == 1 })
+        runner.runs[live.id]?.yield(.show(.detail(Detail(markdown: "Long"))))
+        #expect(await eventually { model.top.isMeasured })
+        #expect(model.detailHeight == nil)
+        model.measureDetail(300, of: model.top.id)
+        model.measureDetail(200, of: model.top.id)
+        #expect(model.detailHeight == 300)
+        // A view on its way out never sizes another frame's card.
+        model.measureDetail(500, of: model.top.id + 1)
+        #expect(model.detailHeight == 300)
+
+        model.query = "short"
+        #expect(model.detailHeight == nil)
+        model.measureDetail(120, of: model.top.id)
+        #expect(model.detailHeight == 120)
+    }
+
     /// The panel lists the row's actions, then the screen's under its title; ⌘↩ marks the
     /// secondary, which is the screen's first when it came with any.
     @Test func actionPanelGroupsTheScreensActions() {
