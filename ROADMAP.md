@@ -14,6 +14,7 @@ Legend: ✅ done · 🚧 in progress · ⏭ next · 💤 later, frozen until the
 6. ✅ Palette simplification; agent content under agent authority (tested end to end); a stopped run keeps what it wrote for review; AgentRunner absorbed AnswerStream.
 7. ✅ CONCEPT.md rewritten short and current.
 8. ✅ Released 0.0.11 (2026-11-08).
+9. ✅ 0.0.12 (2026-11-08): newest model per family in the pickers, Claude's Fast explained, a native ⌘K menu (owner to confirm on screen), about 650 lines of behaviour-preserving cuts ([size audit](docs/reviews/2026-11-08-size-audit.md)).
 
 ## The core (owner, 2026-11-08)
 
