@@ -4,6 +4,7 @@ A small, fast, native macOS launcher whose extensions are written by agents. Rea
 
 - Stack: Swift 6, AppKit + SwiftUI, macOS 26+. No WebViews, no third-party dependencies without a concrete need.
 - Keep the core small; anything that can be an extension should be one.
+- Concise code, clean architecture, no remains (owner): when a change supersedes a design, delete the old code, settings, tests, docs and comments in the same change. Prefer deleting to adding; an abstraction needs two real users. After each product pivot the lead runs a tech-debt audit and lands its cleanup before new features pile on.
 - Measure performance (hotkey-to-visible, query latency, idle memory) when touching hot paths.
 - Question the product before building it: for new user-facing work, get an unanchored product challenge first (see ROADMAP's cross-cutting rules). If a brief hands you a design that exposes internal distinctions to the user, say so before building.
 - Design first, then compare: work out our own approach, check how Tinycast (and Vicinae if relevant) does it before building, then pick the better one on the merits. Never copy their code (see "Reference policy" in CONCEPT.md).
