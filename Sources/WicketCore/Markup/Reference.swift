@@ -1,7 +1,8 @@
 import Foundation
 
-// The references generated from the registry: what the agent is told (its "Your reply" section in
-// agent.md) and the component reference in docs/markup.md, which a test keeps equal to `reference()`.
+// The references generated from the registry: what the agent is told (appended to the "Your reply"
+// section that ends the bundled agent.md) and the component reference in docs/markup.md, which a
+// test keeps equal to `reference()`.
 
 extension Markup {
     /// The markup the agent may write, as Markdown for its instructions: the syntax rules, every tag
@@ -9,13 +10,20 @@ extension Markup {
     /// never listed, so the agent learns one spelling.
     public static func agentReference() -> String {
         let wrappers = catalog.filter { $0.role == .wrapper }.map { "`<\($0.name)>`" }
-        let groups: String = catalog.compactMap(\.grouping).joined(separator: " ")
+        var groups: [String] = []
+        for grouping in catalog.compactMap(\.grouping) where !groups.contains(grouping) {
+            groups.append(grouping)
+        }
         var lines: [String] = [
-            "Reply in Markdown. Where it helps the user see, compare or act on something, use Wicket's tags; Wicket draws them natively.",
+            "Write plain Markdown first. Wicket also draws the tags below natively; use them only where they "
+                + "genuinely help: numbers to compare, a few items with a picture, files or pages to open, steps "
+                + "at times. An explanation or a how-to stays plain Markdown. A direct question whose answer is "
+                + "one value (a name, a number, a time) is best answered by `<answer>` alone; other short replies "
+                + "are plain text.",
             "",
             "- A tag starts its own line. Attributes are `name=\"value\"`. A tag closes itself (`<stat value=\"7\" label=\"Open\"/>`) or wraps content up to its closing tag (`<card title=\"…\">` … `</card>`).",
-            "- Repeat a tag to make a group. \(groups) \(list(wrappers)) only add a `title` to their group.",
-            "- Tables, emphasis, code and links in prose are Markdown. Files and pages the user may open belong in rows, not as paths in prose.",
+            "- Repeat a tag to make a group. \(groups.joined(separator: " ")) \(list(wrappers)) only add a `title` to their group.",
+            "- Tables, emphasis, code and links in prose are Markdown. Files and folders you list for the user are `<file>` rows with absolute paths, never names or paths in prose; pages to open are `<url>` rows.",
             "- Only the tags and attributes below exist: anything else (HTML such as `<b>` or `<br>`, a misspelling) shows as text. Tags inside code blocks are code.",
             "",
             "| Tag | Attributes | Use when |",
@@ -27,9 +35,8 @@ extension Markup {
                 guard case .choice(let choices) = attribute.type else { return name }
                 return "\(name) (\(choices.joined(separator: ", ")))"
             }
-            let use = [tag.use, tag.grouping].compactMap { $0 }.joined(separator: " ")
             let form = tag.body == .none ? "<\(tag.name)/>" : "<\(tag.name)>…</\(tag.name)>"
-            lines.append("| `\(form)` | \(attributes.joined(separator: ", ")) | \(use) |")
+            lines.append("| `\(form)` | \(attributes.joined(separator: ", ")) | \(tag.use) |")
         }
         let limits = limits().map { "\($0.what) \($0.value)" }.joined(separator: "; ")
         lines += ["", "Limits: \(limits)."]

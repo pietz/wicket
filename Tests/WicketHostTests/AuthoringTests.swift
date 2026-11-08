@@ -104,7 +104,12 @@ private func finalDetail(
     let authoring = testAuthoring(extensions, commands: commands, kit: repository, tool: tool)
     let text = authoring.instructions()
     let bundled = try String(contentsOf: repository.appending(path: "Resources/agent.md"), encoding: .utf8)
-    #expect(text.hasPrefix(bundled.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n## This Wicket\n"))
+    // The rules end with "Your reply", which the reference generated from the markup catalog completes.
+    #expect(bundled.contains("\n## Your reply\n"))
+    #expect(
+        text.hasPrefix(
+            bundled.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + Markup.agentReference()
+                + "\n## This Wicket\n"))
     #expect(text.contains("- Extensions folder: \(extensions.directory.path)\n"))
     #expect(text.contains("- Authoring guide: \(repository.path)/docs/extensions.md\n"))
     #expect(text.contains("- Schema: \(repository.path)/docs/extension.schema.json\n"))
@@ -146,8 +151,10 @@ private func finalDetail(
 @MainActor @Test func theUsersInstructionsFollowTheRules() async throws {
     let extensions = try await extensions([])
     let authoring = testAuthoring(extensions)
-    let rules = try String(contentsOf: try #require(authoring.rules), encoding: .utf8)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let rules =
+        try String(contentsOf: try #require(authoring.rules), encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
+        + Markup.agentReference().trimmingCharacters(in: .whitespacesAndNewlines)
     let bare = authoring.instructions()
     #expect(bare.hasPrefix(rules + "\n\n## This Wicket"))
 

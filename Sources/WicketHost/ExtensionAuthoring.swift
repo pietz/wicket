@@ -2,7 +2,7 @@ import Foundation
 import WicketCore
 
 /// How Wicket extends itself through the user's agent. A run is told Wicket's built-in rules (the
-/// bundled agent.md), then the user's own instructions (agent.md in the settings folder), then what
+/// bundled agent.md and the markup reference), then the user's own instructions (agent.md in the settings folder), then what
 /// only this run can know: where the extensions folder, the authoring kit and the `wicket` tool are, and a list of
 /// Wicket's commands written for it to read on demand. Once the run has ended, the extensions it
 /// added or changed are offered for review: the same review, check and Enable as any other, so
@@ -75,7 +75,8 @@ public final class ExtensionAuthoring {
     static let fieldLimit = 80
 
     /// What a run is told, read again for every run so an edit applies to the next one: the rules,
-    /// the user's instructions (without HTML comments), then the live part. Writes the run's
+    /// ending with "Your reply", which the markup reference generated from the catalog completes;
+    /// the user's instructions (without HTML comments); then the live part. Writes the run's
     /// command list.
     func instructions() -> String {
         let rules = self.rules.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
@@ -83,6 +84,7 @@ public final class ExtensionAuthoring {
             .replacing(/<!--[\s\S]*?-->/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         return [
             rules.trimmingCharacters(in: .whitespacesAndNewlines),
+            Markup.agentReference().trimmingCharacters(in: .whitespacesAndNewlines),
             own.isEmpty ? "" : "## The user's own instructions\n\n" + own, live(),
         ].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
