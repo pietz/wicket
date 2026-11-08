@@ -29,8 +29,7 @@ extension Agent {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let run = AgentProcess.run(
-            executable, arguments: ModelListing.arguments(for: provider),
-            request: AgentRequest(prompt: "", workingDirectory: folder, mode: .answer),
+            executable, arguments: ModelListing.arguments(for: provider), in: folder,
             transcript: ModelListing(provider: provider), exitGrace: .seconds(1))
         let deadline = Task {
             try await Task.sleep(for: .seconds(10))

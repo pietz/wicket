@@ -150,8 +150,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { !agents.runs.isEmpty })
     let run = try #require(agents.runs.first)
     #expect(run.provider == .codex)
-    // Codex acts, in the home folder when nothing was selected in Finder.
-    #expect(run.request.options != nil)
+    // In the home folder when nothing was selected in Finder.
     #expect(run.request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
     #expect(run.request.prompt == "capital of France?")
 
@@ -451,7 +450,6 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     #expect(agents.runs[0].provider == .claude)
-    #expect(agents.runs[0].request.options != nil)
     #expect(agents.runs[0].request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
 }
 

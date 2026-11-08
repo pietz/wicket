@@ -183,11 +183,13 @@ private struct NoEffects: ActionEffects {
         path: "wicket-tests/pid-\(UUID().uuidString)")
     let agent = try fakeAgent(.claude, "echo $$ > '\(pidFile.path)'\nexec 1>&-\nexec /bin/sleep 30")
     let request = AgentRequest(
-        prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
+        prompt: "test", workingDirectory: FileManager.default.temporaryDirectory,
+        options: AgentProvider.claude.defaultOptions)
     let start = ContinuousClock.now
     var events: [AgentEvent] = []
     for await event in AgentProcess.run(
-        agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request),
+        agent.executable, arguments: [], in: request.workingDirectory,
+        transcript: ClaudeTranscript(request: request),
         exitGrace: .milliseconds(200))
     {
         events.append(event)

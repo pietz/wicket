@@ -9,11 +9,8 @@ import WicketCore
 // from the real CLIs (Fixtures/, scrubbed of personal paths and account details; the Codex recordings
 // were made before the adapter read the config, so their config/read reply is trimmed by hand).
 
-extension AgentMode {
-    /// An acting run with Claude's defaults on Auto, for tests where the choices don't matter.
-    static let acting = AgentMode.act(
-        AgentProvider.claude.defaultOptions)
-}
+/// Claude's defaults, for tests where the choices don't matter.
+let defaults = AgentProvider.claude.defaultOptions
 
 /// A fake agent executable named like the real one, running `script` with /bin/sh.
 func fakeAgent(_ provider: AgentProvider, _ script: String) throws -> Agent {
@@ -33,12 +30,17 @@ func replaying(_ provider: AgentProvider, _ fixture: String) throws -> Agent {
     return try fakeAgent(provider, "exec /bin/cat '\(url.path)'")
 }
 
-func events(_ agent: Agent, _ mode: AgentMode = .answer) async -> [AgentEvent] {
+func events(_ agent: Agent) async -> [AgentEvent] {
     let request = AgentRequest(
-        prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: mode)
+        prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
     var events: [AgentEvent] = []
-    for await event in agent.run(request) { events.append(event) }
+    // Sessions are tested on their own.
+    for await event in agent.run(request) where !event.isSession { events.append(event) }
     return events
+}
+
+extension AgentEvent {
+    var isSession: Bool { if case .session = self { true } else { false } }
 }
 
 func text(_ events: [AgentEvent]) -> String {
@@ -93,60 +95,10 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(message.hasPrefix("unexpected status 401 Unauthorized"))
     }
 
-    @Test func requestsFollowTheProtocol() throws {
-        let folder = URL(filePath: "/tmp/stage")
-        var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hello", workingDirectory: folder, mode: .answer))
-        #expect(try methods(transcript.start()) == ["initialize", "initialized", "config/read"])
-
-        let thread = try sent(
-            transcript.receive(line(#"{"id":2,"result":{"config":{"mcp_servers":{"docs":{"url":"x"}}}}}"#)))
-        #expect(thread["method"] == .string("thread/start"))
-        #expect(thread["params"]?["cwd"] == .string("/tmp/stage"))
-        #expect(thread["params"]?["sandbox"] == .string("read-only"))
-        #expect(thread["params"]?["approvalPolicy"] == .string("never"))
-        #expect(thread["params"]?["config"]?["mcp_servers"]?["docs"]?["enabled"] == .bool(false))
-
-        let turn = try sent(transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#)))
-        #expect(turn["method"] == .string("turn/start"))
-        #expect(turn["params"]?["threadId"] == .string("t1"))
-        #expect(turn["params"]?["input"]?.array?.first?["text"] == .string("Hello"))
-        #expect(turn["params"]?["effort"] == .string("low"))
-    }
-
-    @Test func answerRunsAreReadOnlyWithoutTools() throws {
-        let arguments = CodexTranscript.arguments(for: .answer)
-        #expect(arguments.first == "app-server")
-        for feature in ["shell_tool", "unified_exec", "code_mode_host", "hooks", "plugins", "apps"] {
-            #expect(arguments.contains("features.\(feature)=false"))
-        }
-
-        var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .answer))
-        _ = transcript.start()
-        let thread = try sent(transcript.receive(line(#"{"id":2,"result":{"config":{}}}"#)))
-        #expect(thread["params"]?["sandbox"] == .string("read-only"))
-        #expect(thread["params"]?["baseInstructions"] == .string(Agent.answerInstructions))
-    }
-
-    @Test func lockedDownRunsRefuseServerRequests() throws {
-        var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .answer))
-        let step = transcript.receive(
-            line(
-                #"{"id":7,"method":"item/commandExecution/requestApproval","params":{"command":"rm -rf /"}}"#)
-        )
-        #expect(step.events == [.activity("Declined item/commandExecution/requestApproval")])
-        let reply = try sent(step)
-        #expect(reply["id"] == .integer(7))
-        #expect(reply["error"]?["code"] == .integer(-32601))
-    }
-
     @Test func actingRunsKeepTheUsersServersAndSetTheChoicesOnTheTurn() throws {
-        #expect(CodexTranscript.arguments(for: .acting) == ["app-server"])
         var transcript = CodexTranscript(
             request: AgentRequest(
-                prompt: "Tidy up", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting)
+                prompt: "Tidy up", workingDirectory: URL(filePath: "/tmp/work"), options: defaults)
         )
         let start = transcript.start()
         #expect(try methods(start) == ["initialize", "initialized", "thread/start"])
@@ -169,7 +121,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     @Test func aFollowUpResumesItsThread() throws {
         var transcript = CodexTranscript(
             request: AgentRequest(
-                prompt: "And now?", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting,
+                prompt: "And now?", workingDirectory: URL(filePath: "/tmp/work"), options: defaults,
                 instructions: "Be brief.", resume: "t1")
         )
         // The configuration first, for the policy configured now (`AgentSettingsTests`).
@@ -190,7 +142,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func approvalsWaitForTheUserUntilResolved() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting))
+            request: AgentRequest(
+                prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), options: defaults))
         _ = transcript.start()
         let command = AgentApproval(
             id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create hello.txt?")
@@ -242,7 +195,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func approvalsSayWhereAndWhatUnambiguously() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting))
+            request: AgentRequest(
+                prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), options: defaults))
         _ = transcript.start()
         // A managed-network prompt names its host and protocol, not the command behind it.
         #expect(
@@ -278,7 +232,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func actingRunsStillRefuseOtherRequests() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .acting))
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), options: defaults))
         let step = transcript.receive(
             line(#"{"id":5,"method":"item/tool/requestUserInput","params":{"questions":[]}}"#))
         #expect(step.events == [.activity("Declined item/tool/requestUserInput")])
@@ -288,7 +242,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     @Test func aRecordedApprovalRoundTrip() async throws {
         // Recorded from Codex 0.167 with a temporary config (on-request, read-only), the command
         // accepted; the replay ignores what it is sent.
-        let events = await events(try replaying(.codex, "codex-act-approval"), .acting)
+        let events = await events(try replaying(.codex, "codex-act-approval"))
         let approval = AgentApproval(
             id: .integer(0), kind: .command, subject: "echo hi > hello.txt",
             reason: "Allow creating hello.txt with the requested content?", workingDirectory: "/tmp/work")
@@ -306,7 +260,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func aRequestErrorEndsTheRun() {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .answer))
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), options: defaults))
         let step = transcript.receive(line(#"{"id":3,"error":{"code":-32600,"message":"bad cwd"}}"#))
         #expect(step.events == [.error("bad cwd")])
     }
@@ -324,7 +278,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m","text":"ok"}}}'
             echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
             """)
-        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .acting))
+        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, options: defaults))
         var last: AgentEvent?
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
@@ -388,28 +342,10 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(events == [.error("Not logged in · Please run /login")])
     }
 
-    @Test func answerRunsSendThePromptAsTextWithEverythingOff() async throws {
-        // Echoes its stdin back as a text delta, then succeeds.
-        let agent = try fakeAgent(
-            .claude,
-            #"""
-            prompt=$(cat)
-            printf '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"%s"}}}\n' "$prompt"
-            echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
-            """#)
-        #expect(await events(agent).first == .text("test"))
-
-        let answer = ClaudeTranscript.arguments(for: request(.answer))
-        #expect(answer.firstIndex(of: "--tools").map { answer[$0 + 1] } == "")
-        #expect(answer.contains("--safe-mode") && answer.contains("--strict-mcp-config"))
-        #expect(answer.firstIndex(of: "--permission-prompts").map { answer[$0 + 1] } == "none")
-        #expect(answer.contains("--no-session-persistence"))
-    }
-
     @Test func actingRunsKeepTheirSessionAndAFollowUpResumesIt() throws {
-        let first = ClaudeTranscript.arguments(for: request(.acting))
+        let first = ClaudeTranscript.arguments(for: request())
         #expect(!first.contains("--no-session-persistence") && !first.contains("--resume"))
-        var followUp = request(.acting)
+        var followUp = request()
         followUp.resume = "s1"
         let resumed = ClaudeTranscript.arguments(for: followUp)
         #expect(resumed.firstIndex(of: "--resume").map { resumed[$0 + 1] } == "s1")
@@ -423,7 +359,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func actingRunsKeepTheUsersSetupAndTalkStreamJSON() throws {
-        let acting = request(.acting, instructions: "About Wicket.")
+        let acting = request(instructions: "About Wicket.")
         let arguments = ClaudeTranscript.arguments(for: acting)
         // Nothing that overrides the user's settings, tools or MCP servers; the model, effort and
         // permission mode are the choices from Settings ▸ AI (`AgentSettingsTests`).
@@ -459,7 +395,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     // The control requests below are as Claude Code 2.1.318 sent them (paths shortened).
 
     @Test func permissionPromptsWaitForTheUserUntilTheirToolsReturn() throws {
-        var transcript = ClaudeTranscript(request: request(.acting))
+        var transcript = ClaudeTranscript(request: request())
         _ = transcript.receive(
             line(
                 #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo one > a.txt","description":"Write \"one\" to a.txt"}}]},"parent_tool_use_id":null}"#
@@ -528,7 +464,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func subAgentsAndUnknownToolsCountAsActing() {
-        var transcript = ClaudeTranscript(request: request(.acting))
+        var transcript = ClaudeTranscript(request: request())
         _ = transcript.receive(
             line(
                 #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s","name":"Write","input":{"file_path":"/tmp/work/a.txt","content":"x"}},{"type":"tool_use","id":"toolu_m","name":"mcp__notes__update","input":{}},{"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/tmp/work/a.txt"}}]},"parent_tool_use_id":"toolu_task"}"#
@@ -541,7 +477,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func otherToolsShowTheirInputAndCancelledPromptsGo() throws {
-        var transcript = ClaudeTranscript(request: request(.acting))
+        var transcript = ClaudeTranscript(request: request())
         let fetch = transcript.receive(
             line(
                 #"{"type":"control_request","request_id":"r3","request":{"subtype":"can_use_tool","tool_name":"WebFetch","display_name":"Fetch","input":{"url":"https://example.com","prompt":"Summarize"},"tool_use_id":"toolu_3"}}"#
@@ -560,7 +496,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func questionsAndUnknownRequestsAreRefused() throws {
-        var transcript = ClaudeTranscript(request: request(.acting))
+        var transcript = ClaudeTranscript(request: request())
         let question = transcript.receive(
             line(
                 #"{"type":"control_request","request_id":"q","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"toolu_q"}}"#
@@ -576,15 +512,6 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ))
         #expect(hook.events.isEmpty)
         #expect(try decoded(try #require(hook.send.first))["response"]?["subtype"] == .string("error"))
-
-        // An answer run never asks: anything that comes is refused.
-        var answering = ClaudeTranscript(request: request(.answer))
-        let refused = answering.receive(
-            line(
-                #"{"type":"control_request","request_id":"r","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}"#
-            ))
-        #expect(refused.events.isEmpty)
-        #expect(try decoded(try #require(refused.send.first))["response"]?["subtype"] == .string("error"))
     }
 
     @Test func aReplyReachesTheAgentWhileItWaits() async throws {
@@ -602,7 +529,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"ok"}'
             cat > /dev/null
             """)
-        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .acting))
+        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, options: defaults))
         var last: AgentEvent?
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
@@ -631,13 +558,13 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let agent = try #require(await Agent.locate(.claude))
         let request = AgentRequest(
             prompt: "Run exactly this with the Bash tool: echo hi > hello.txt. Then reply: done.",
-            workingDirectory: folder, mode: .acting)
+            workingDirectory: folder, options: defaults)
         let run = AgentProcess.run(
             agent.executable,
             arguments: ClaudeTranscript.arguments(for: request) + [
                 "--permission-mode", "manual", "--effort", "low",
             ],
-            request: request, transcript: ClaudeTranscript(request: request))
+            in: request.workingDirectory, transcript: ClaudeTranscript(request: request))
         var events: [AgentEvent] = []
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
@@ -658,9 +585,10 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(!FileManager.default.fileExists(atPath: folder.appending(path: ".claude").path))
     }
 
-    private func request(_ mode: AgentMode, instructions: String? = nil) -> AgentRequest {
+    private func request(instructions: String? = nil) -> AgentRequest {
         AgentRequest(
-            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: mode, instructions: instructions
+            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), options: defaults,
+            instructions: instructions
         )
     }
 
@@ -702,7 +630,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             sleep 60
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let consumer = Task {
             for await event in agent.run(request) {
                 if case .text = event { return true }
@@ -741,7 +669,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ' '\(pids.path)' &
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let consumer = Task {
             for await event in agent.run(request) {
                 guard case .text = event else { continue }
@@ -774,9 +702,10 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let run = AgentProcess.run(
-            agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request))
+            agent.executable, arguments: [], in: request.workingDirectory,
+            transcript: ClaudeTranscript(request: request))
         var answered = false
         for await event in run {
             guard case .answer = event else { continue }
@@ -799,10 +728,11 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let start = ContinuousClock.now
         let run = AgentProcess.run(
-            agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request),
+            agent.executable, arguments: [], in: request.workingDirectory,
+            transcript: ClaudeTranscript(request: request),
             exitGrace: .milliseconds(300))
         var answered = false
         for await event in run {
@@ -831,7 +761,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             sleep 60
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
         let run = agent.run(request)
         var events: [AgentEvent] = []
         for await event in run {

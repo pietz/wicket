@@ -38,7 +38,7 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
 /// the turn (verified with 0.167 and a throwaway CODEX_HOME).
 @Test func codexLeavesThePolicyToItsConfiguration() throws {
     let request = AgentRequest(
-        prompt: "Tidy up", workingDirectory: folder, mode: .act(AgentOptions(model: "gpt-6-luna")))
+        prompt: "Tidy up", workingDirectory: folder, options: AgentOptions(model: "gpt-6-luna"))
     var transcript = CodexTranscript(request: request)
     let thread = try decoded(transcript.start().send[2])
     #expect(thread["method"] == .string("thread/start"))
@@ -53,7 +53,7 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
 /// reads the configuration first and sets the policy configured now (verified with 0.167).
 @Test func codexResumesWithThePolicyConfiguredNow() throws {
     let request = AgentRequest(
-        prompt: "And now?", workingDirectory: folder, mode: .act(AgentProvider.codex.defaultOptions),
+        prompt: "And now?", workingDirectory: folder, options: AgentProvider.codex.defaultOptions,
         resume: "t1")
     var transcript = CodexTranscript(request: request)
     let read = try decoded(transcript.start().send[2])
@@ -68,19 +68,6 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
     #expect(resume["params"]?["approvalPolicy"] == .string("on-request"))
     #expect(resume["params"]?["sandbox"] == .string("read-only"))
     #expect(resume["params"]?["approvalsReviewer"] == .string("auto_review"))
-}
-
-@Test func codexAnswerRunsKeepTheirFixedSetup() throws {
-    let request = AgentRequest(prompt: "Hi", workingDirectory: folder, mode: .answer)
-    var transcript = CodexTranscript(request: request)
-    _ = transcript.start()
-    _ = transcript.receive(line(#"{"id":2,"result":{"config":{}}}"#))
-    let step = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
-    let turn = try decoded(try #require(step.send.first))["params"]
-    #expect(turn?["effort"] == .string("low"))
-    for field in ["model", "serviceTierForTurn", "approvalPolicy", "sandboxPolicy"] {
-        #expect(turn?[field] == nil, "\(field)")
-    }
 }
 
 // MARK: Claude Code
@@ -99,14 +86,11 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
 
 /// No `--permission-mode`: fresh and resumed sessions take the mode configured in Claude Code's
 /// settings (verified with 2.1.319).
-@Test func claudeActingRunsAddTheChoicesAndAnswerRunsDont() {
+@Test func claudeRunsAddTheChoices() {
     let acting = ClaudeTranscript.arguments(
-        for: AgentRequest(prompt: "Hi", workingDirectory: folder, mode: .act(AgentOptions(model: "opus"))))
+        for: AgentRequest(prompt: "Hi", workingDirectory: folder, options: AgentOptions(model: "opus")))
     #expect(acting.suffix(4) == ["--model", "opus", "--effort", "medium"])
     #expect(!acting.contains("--permission-mode"))
-    let answer = ClaudeTranscript.arguments(
-        for: AgentRequest(prompt: "Hi", workingDirectory: folder, mode: .answer))
-    #expect(!answer.contains("--model"))
 }
 
 // MARK: Run Agent
@@ -133,7 +117,7 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
         if !detail.actions.isEmpty { break }
     }
     let request = try #require(requests.all.first)
-    #expect(request.mode == .act(AgentOptions(model: "gpt-6-astra", effort: "max")))
+    #expect(request.options == AgentOptions(model: "gpt-6-astra", effort: "max"))
     #expect(details.last?.actions.map(\.title) == ["Allow", "Deny"])
 }
 

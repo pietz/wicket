@@ -1,16 +1,13 @@
 import Foundation
 import WicketCore
 
-/// Claude Code through `claude -p` with stream-json output: events come out one JSON object per
-/// line, and a `result` object ends the run.
-///
-/// Answer runs send the prompt as plain text on stdin and close it, with every tool, customization
-/// and prompt off. Acting runs keep the user's own setup (settings, permission mode and rules, hooks,
-/// MCP servers, CLAUDE.md) with the model, effort and speed chosen in Settings ▸ AI, and talk
-/// stream-json both ways: each permission prompt comes out as a `control_request` (`can_use_tool`)
-/// that becomes an `AgentApproval`, answered by a `control_response`. Their session stays in Claude
-/// Code's history, so Follow Up continues it with `--resume`, which takes the permission mode
-/// configured now, not the one the session started with (verified with 2.1.319).
+/// Claude Code through `claude -p`, stream-json both ways: the prompt goes in as a user message and
+/// stdin stays open until the `result` that ends the run. The user's own setup applies (settings,
+/// permission mode and rules, hooks, MCP servers, CLAUDE.md) with the model, effort and speed chosen
+/// in Settings ▸ AI; each permission prompt comes out as a `control_request` (`can_use_tool`) that
+/// becomes an `AgentApproval`, answered by a `control_response`. The session stays in Claude Code's
+/// history, so Follow Up continues it with `--resume`, which takes the permission mode configured
+/// now, not the one the session started with (verified with 2.1.319).
 struct ClaudeTranscript: AgentTranscript {
     let request: AgentRequest
     private var newMessage = false
@@ -24,23 +21,14 @@ struct ClaudeTranscript: AgentTranscript {
         self.request = request
     }
 
+    /// What would prompt comes to Wicket over stdio.
     static func arguments(for request: AgentRequest) -> [String] {
-        let output = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
-        switch request.mode {
-        case .act(let options):
-            // What would prompt comes to Wicket over stdio.
-            let instructions = request.instructions.map { ["--append-system-prompt", $0] } ?? []
-            return output + ["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]
-                + instructions + settings(options) + (request.resume.map { ["--resume", $0] } ?? [])
-        case .answer:
-            // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
-            // --permission-prompts none denies anything that would ask.
-            return output + [
-                "--no-session-persistence", "--safe-mode", "--strict-mcp-config", "--permission-prompts",
-                "none", "--tools", "",
-                "--effort", "low", "--system-prompt", Agent.answerInstructions,
-            ]
-        }
+        [
+            "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+            "--input-format",
+            "stream-json", "--permission-prompt-tool", "stdio",
+        ] + (request.instructions.map { ["--append-system-prompt", $0] } ?? []) + settings(request.options)
+            + (request.resume.map { ["--resume", $0] } ?? [])
     }
 
     /// The flags for the user's choices. With `-p`, fast mode is on only when `--settings` opts in,
@@ -51,10 +39,7 @@ struct ClaudeTranscript: AgentTranscript {
     }
 
     mutating func start() -> AgentStep {
-        guard request.mode != .answer else {
-            return AgentStep(send: [Data(request.prompt.utf8)], closeInput: true)
-        }
-        return AgentStep(send: [
+        AgentStep(send: [
             Self.line([
                 "type": .string("user"),
                 "message": .object(["role": .string("user"), "content": .string(request.prompt)]),
@@ -133,7 +118,6 @@ struct ClaudeTranscript: AgentTranscript {
             }
         case "result":
             // With stream-json input the CLI waits for more until stdin closes.
-            guard request.mode != .answer else { return AgentStep(events: [Self.result(message)]) }
             let session = message["session_id"]?.string.map { [AgentEvent.session($0)] } ?? []
             return AgentStep(events: session + [Self.result(message)], closeInput: true)
         default:
@@ -142,10 +126,10 @@ struct ClaudeTranscript: AgentTranscript {
         return AgentStep()
     }
 
-    /// A request from the CLI: in an acting run, a permission prompt waits for the user; anything
-    /// else is refused (Wicket registers no hooks or SDK servers, so none should come).
+    /// A request from the CLI: a permission prompt waits for the user; anything else is refused
+    /// (Wicket registers no hooks or SDK servers, so none should come).
     private mutating func controlRequest(_ id: JSONValue, _ body: JSONValue) -> AgentStep {
-        guard request.mode != .answer, body["subtype"]?.string == "can_use_tool",
+        guard body["subtype"]?.string == "can_use_tool",
             let tool = body["tool_name"]?.string
         else {
             return AgentStep(send: [

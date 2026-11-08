@@ -1,16 +1,13 @@
 import Foundation
 import WicketCore
 
-/// Codex through `codex app-server`: JSON-RPC over stdio (lines without the "jsonrpc" field).
-///
-/// Answer runs are initialize, config/read (to learn the user's MCP servers), thread/start
-/// (ephemeral, read-only, approval policy "never", those servers disabled), turn/start,
-/// then notifications until turn/completed; any request the server still sends is refused. Acting
-/// runs leave approval policy, sandbox, reviewer, features and MCP servers to the user's own Codex
-/// configuration; their command, network and file-change approvals become `AgentEvent.approvals`,
-/// answered through `reply(_:)`. Their threads stay in Codex's history, so Follow Up continues one
-/// with thread/resume. A resumed thread keeps the policy it started with, so a resume first reads
-/// the configuration and sets the policy configured now (verified with 0.167).
+/// Codex through `codex app-server`: JSON-RPC over stdio (lines without the "jsonrpc" field):
+/// initialize, thread/start, turn/start, then notifications until turn/completed. Approval policy,
+/// sandbox, reviewer, features and MCP servers are the user's own Codex configuration; command,
+/// network and file-change approvals become `AgentEvent.approvals`, answered through `reply(_:)`.
+/// Threads stay in Codex's history, so Follow Up continues one with thread/resume. A resumed thread
+/// keeps the policy it started with, so a resume first reads the configuration (config/read) and
+/// sets the policy configured now (verified with 0.167).
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
@@ -32,34 +29,13 @@ struct CodexTranscript: AgentTranscript {
         case readConfig, startThread, startTurn
     }
 
-    /// Features switched off for answer runs: anything that reaches outside the sandbox or brings
-    /// the user's own setup along (hooks, plugins, apps, browser and computer use, sub-agents,
-    /// memories), the shell, and the code-mode host every other tool runs through. As `-c`
-    /// overrides, because `--disable` rejects names a later version drops.
-    private static let disabled = [
-        "apps", "plugins", "browser_use", "computer_use", "in_app_browser", "image_generation", "hooks",
-        "multi_agent", "goals", "memories", "tool_suggest", "skill_search", "default_mode_request_user_input",
-        "shell_tool", "unified_exec", "code_mode_host", "js_repl", "view_image", "sleep_tool",
-    ]
-
-    /// Acting runs override nothing: the user's own Codex configuration is the policy.
-    static func arguments(for mode: AgentMode) -> [String] {
-        guard mode == .answer else { return ["app-server"] }
-        let overrides =
-            disabled.map { "features.\($0)=false" } + [
-                "features.multi_agent_v2.enabled=false", "agents.enabled=false", #"web_search="disabled""#,
-                "notify=[]", "skills.include_instructions=false", "include_apps_instructions=false",
-            ]
-        return ["app-server"] + overrides.flatMap { ["-c", $0] }
-    }
-
     mutating func start() -> AgentStep {
         AgentStep(send: [
             Self.request(
                 .initialize, "initialize",
                 ["clientInfo": .object(["name": .string("wicket"), "version": .string("1")])]),
             Self.line(["method": .string("initialized")]),
-            request.mode != .answer && request.resume == nil
+            request.resume == nil
                 ? startThread(config: .null)
                 : Self.request(.readConfig, "config/read", ["cwd": .string(request.workingDirectory.path)]),
         ])
@@ -96,24 +72,18 @@ struct CodexTranscript: AgentTranscript {
             guard let thread = result["thread"]?["id"] else {
                 return AgentStep(events: [.error("Codex started no thread")])
             }
-            var events: [AgentEvent] = []
-            var params: [String: JSONValue] = [
-                "threadId": thread,
-                "input": .array([.object(["type": .string("text"), "text": .string(request.prompt)])]),
-            ]
-            switch request.mode {
-            case .answer: params["effort"] = .string("low")
-            case .act(let options):
-                params.merge(Self.turnSettings(options)) { $1 }
-                if let id = thread.string { events.append(.session(id)) }
-            }
-            return AgentStep(events: events, send: [Self.request(.startTurn, "turn/start", params)])
+            var params = Self.turnSettings(request.options)
+            params["threadId"] = thread
+            params["input"] = .array([.object(["type": .string("text"), "text": .string(request.prompt)])])
+            return AgentStep(
+                events: thread.string.map { [.session($0)] } ?? [],
+                send: [Self.request(.startTurn, "turn/start", params)])
         case .initialize, .startTurn:
             return AgentStep()
         }
     }
 
-    /// What an acting run's turn/start sets from the user's choices.
+    /// What turn/start sets from the user's choices.
     static func turnSettings(_ options: AgentOptions) -> [String: JSONValue] {
         [
             "model": .string(options.model), "effort": .string(options.effort),
@@ -122,43 +92,27 @@ struct CodexTranscript: AgentTranscript {
         ]
     }
 
-    /// thread/start: a thread in the working directory. Answer runs' are ephemeral, with a read-only
-    /// sandbox, approval policy "never" and the `config`'s MCP servers disabled; acting runs' are
-    /// kept and get Wicket's instructions. Resuming sends thread/resume instead, with the
-    /// instructions again, none of its old turns, and the `config`'s policy.
+    /// thread/start: a thread in the working directory, kept in Codex's history, with Wicket's
+    /// instructions. Resuming sends thread/resume instead, with the instructions again, none of its
+    /// old turns, and the `config`'s policy.
     private func startThread(config: JSONValue) -> Data {
         var params: [String: JSONValue] = ["cwd": .string(request.workingDirectory.path)]
-        switch request.mode {
-        case .act:
-            params["developerInstructions"] = request.instructions.map(JSONValue.string)
-            if let thread = request.resume {
-                params["threadId"] = .string(thread)
-                params["excludeTurns"] = .bool(true)
-                params["approvalPolicy"] = config["approval_policy"]
-                params["sandbox"] = config["sandbox_mode"]
-                params["approvalsReviewer"] = config["approvals_reviewer"]
-                return Self.request(.startThread, "thread/resume", params)
-            }
-        case .answer:
-            let servers = config["mcp_servers"]?.object?.keys.sorted() ?? []
-            params["ephemeral"] = .bool(true)
-            let off = JSONValue.object(["enabled": .bool(false)])
-            params["sandbox"] = .string("read-only")
-            params["approvalPolicy"] = .string("never")
-            params["config"] = .object([
-                "mcp_servers": .object(Dictionary(uniqueKeysWithValues: servers.map { ($0, off) }))
-            ])
-            params["baseInstructions"] = .string(Agent.answerInstructions)
-        }
-        return Self.request(.startThread, "thread/start", params)
+        params["developerInstructions"] = request.instructions.map(JSONValue.string)
+        guard let thread = request.resume else { return Self.request(.startThread, "thread/start", params) }
+        params["threadId"] = .string(thread)
+        params["excludeTurns"] = .bool(true)
+        params["approvalPolicy"] = config["approval_policy"]
+        params["sandbox"] = config["sandbox_mode"]
+        params["approvalsReviewer"] = config["approvals_reviewer"]
+        return Self.request(.startThread, "thread/resume", params)
     }
 
-    /// A request from the server: in an acting run, a command, network or file-change approval
-    /// waits for the user; anything else is refused.
+    /// A request from the server: a command, network or file-change approval waits for the user;
+    /// anything else is refused.
     private mutating func serverRequest(_ id: JSONValue, _ method: String, _ params: JSONValue) -> AgentStep {
         let approval: AgentApproval
-        switch (request.mode, method) {
-        case (.act, "item/commandExecution/requestApproval"):
+        switch method {
+        case "item/commandExecution/requestApproval":
             // A managed-network prompt comes as a command approval with the host it wants to reach.
             if let network = params["networkApprovalContext"], let host = network["host"]?.string {
                 let via = network["protocol"]?.string.map { " (\($0))" } ?? ""
@@ -169,7 +123,7 @@ struct CodexTranscript: AgentTranscript {
                     id: id, kind: .command, subject: Self.fullCommand(params) ?? "a command",
                     reason: params["reason"]?.string, workingDirectory: params["cwd"]?.string)
             }
-        case (.act, "item/fileChange/requestApproval"):
+        case "item/fileChange/requestApproval":
             approval = AgentApproval(
                 id: id, kind: .fileChange,
                 subject: params["itemId"]?.string.flatMap { changes[$0] } ?? "files",

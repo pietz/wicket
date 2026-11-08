@@ -2,9 +2,9 @@ import Foundation
 import WicketCore
 import os
 
-/// What Wicket needs from its AI providers: whether a provider is ready, and an answer run.
-/// `installed` uses the CLIs on the login-shell PATH; tests pass stand-ins. Run Agent and
-/// `wicket agent ask` both pick their provider through `ready(_:)`.
+/// What Wicket needs from its AI providers: whether a provider is ready, and a run. `installed` uses
+/// the CLIs on the login-shell PATH; tests pass stand-ins. Run Agent picks its provider through
+/// `ready(_:)`.
 public struct AgentBackend: Sendable {
     public var status: @Sendable (AgentProvider) async -> AgentStatus
     public var run: @Sendable (AgentProvider, AgentRequest) async -> AgentRun

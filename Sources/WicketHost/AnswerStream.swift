@@ -9,7 +9,7 @@ import os
 public final class AnswerStream {
     /// The settings' `ai.provider`, read when a question is asked; nil for the first ready one.
     public var provider: @MainActor () -> AgentProvider?
-    /// What acting runs are told about Wicket and how their extensions reach review; set by the app.
+    /// What runs are told about Wicket and how their extensions reach review; set by the app.
     public var authoring: ExtensionAuthoring?
     /// A provider's model, effort and speed from settings.json, read when a question is asked; set by
     /// the app. The defaults until it is.
@@ -23,7 +23,7 @@ public final class AnswerStream {
     private var running: [UUID: Task<Void, Never>] = [:]
     /// The approvals shown in frames, by the token their actions carry, until answered or their run ends.
     private var waiting: [String: (run: AgentRun, approval: AgentApproval, draft: AnswerDraft)] = [:]
-    /// Acting runs' conversations, by the token their Follow Up actions carry, newest last. Only the
+    /// Runs' conversations, by the token their Follow Up actions carry, newest last. Only the
     /// latest few: Follow Up is offered on answers in the palette, which a dismiss clears.
     private var conversations: [(token: String, conversation: Conversation)] = []
     private var isShutDown = false
@@ -158,7 +158,7 @@ public final class AnswerStream {
         // What the extensions folder holds before the run, to offer what it changes for review.
         let before = await authoring?.snapshot()
         let request = AgentRequest(
-            prompt: prompt, workingDirectory: acting, mode: .act(options),
+            prompt: prompt, workingDirectory: acting, options: options,
             instructions: authoring?.instructions(), resume: continued?.session)
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         draft.redraw = { throttle.submit() }
@@ -289,7 +289,7 @@ public final class AnswerStream {
     /// How many conversations Follow Up can continue.
     static let keptConversations = 20
 
-    /// An acting run's conversation: the agent's own session and what the run was set up with, which
+    /// A run's conversation: the agent's own session and what the run was set up with, which
     /// a follow-up keeps.
     struct Conversation: Codable {
         var provider: AgentProvider

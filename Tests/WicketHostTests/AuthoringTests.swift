@@ -130,7 +130,8 @@ private func finalDetail(
     // The instructions go to Codex as its developer instructions.
     var transcript = CodexTranscript(
         request: AgentRequest(
-            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .acting, instructions: text))
+            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"),
+            options: AgentProvider.claude.defaultOptions, instructions: text))
     let start = transcript.start()
     guard case .object(let thread)? = try? JSONDecoder().decode(JSONValue.self, from: start.send[2]) else {
         Issue.record("no thread/start")
@@ -195,7 +196,6 @@ private func finalDetail(
     }
     #expect(ids == ["edited", "weather"])
     let request = try #require(requests.first)
-    #expect(request.options != nil)
     #expect(request.instructions?.contains(directory.path) == true)
 }
 

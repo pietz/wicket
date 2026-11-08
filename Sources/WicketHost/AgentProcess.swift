@@ -31,12 +31,12 @@ enum AgentProcess {
     private static let logger = Logger(subsystem: "app.wicket", category: "agent")
 
     static func run(
-        _ executable: URL, arguments: [String], request: AgentRequest, transcript: some AgentTranscript,
+        _ executable: URL, arguments: [String], in folder: URL, transcript: some AgentTranscript,
         exitGrace: Duration = .seconds(2)
     ) -> AgentRun {
         AgentRun { continuation, replies in
             await drive(
-                executable, arguments: arguments, request: request, transcript: transcript,
+                executable, arguments: arguments, in: folder, transcript: transcript,
                 replies: replies, exitGrace: exitGrace
             ) {
                 continuation.yield($0)
@@ -45,7 +45,7 @@ enum AgentProcess {
     }
 
     private static func drive<Transcript: AgentTranscript>(
-        _ executable: URL, arguments: [String], request: AgentRequest, transcript: Transcript,
+        _ executable: URL, arguments: [String], in folder: URL, transcript: Transcript,
         replies: AsyncStream<AgentReply>, exitGrace: Duration, emit: (AgentEvent) -> Void
     ) async -> Shutdown {
         let start = ContinuousClock.now
@@ -53,7 +53,7 @@ enum AgentProcess {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
-        process.currentDirectoryURL = request.workingDirectory
+        process.currentDirectoryURL = folder
         process.environment = await environment()
         let output = Pipe()
         let errors = Pipe()

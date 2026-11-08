@@ -1,42 +1,30 @@
 import Foundation
 import WicketCore
 
-/// What a run may do.
-public enum AgentMode: Sendable, Equatable {
-    /// Answer from the model alone: no tools, no commands, no file access.
-    case answer
-    /// Answer or do what the user asks with the agent's own tools, with the model, effort and speed
-    /// chosen in Settings ▸ AI, under the permission policy configured in the agent itself; requests
-    /// it sends are approvals.
-    case act(AgentOptions)
-}
-
+/// One run: the agent answers or does what the user asks with its own tools, under the
+/// permission policy configured in the agent itself; requests it sends are approvals.
 public struct AgentRequest: Sendable {
     public var prompt: String
-    /// The folder an acting run works in. Answer runs get an empty folder.
+    /// The folder the run works in.
     public var workingDirectory: URL
-    public var mode: AgentMode
-    /// For an acting run, what it is told on top of the agent's own prompt: Wicket's agent
-    /// instructions and the run's paths (`ExtensionAuthoring.instructions`).
+    /// The model, effort and speed chosen in Settings ▸ AI.
+    public var options: AgentOptions
+    /// What the run is told on top of the agent's own prompt: Wicket's agent instructions and the
+    /// run's paths (`ExtensionAuthoring.instructions`).
     public var instructions: String?
-    /// For an acting run, the agent's own session to continue (`AgentEvent.session` of an earlier
-    /// run): Claude Code's session id, Codex's thread id. Nil starts a new one.
+    /// The agent's own session to continue (`AgentEvent.session` of an earlier run): Claude Code's
+    /// session id, Codex's thread id. Nil starts a new one.
     public var resume: String?
 
     public init(
-        prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil,
+        prompt: String, workingDirectory: URL, options: AgentOptions, instructions: String? = nil,
         resume: String? = nil
     ) {
         self.prompt = prompt
         self.workingDirectory = workingDirectory
-        self.mode = mode
+        self.options = options
         self.instructions = instructions
         self.resume = resume
-    }
-
-    /// The user's choices for an acting run; nil for an answer run, which keeps its fixed setup.
-    var options: AgentOptions? {
-        if case .act(let options) = mode { options } else { nil }
     }
 
     /// A path as the user can tell it apart: relative to the run's folder when inside it, else
@@ -81,12 +69,12 @@ public enum AgentEvent: Sendable, Equatable {
     /// The agent ran a command or changed a file (after the activity saying which); can come more
     /// than once. Actions approved without asking come too, never reaching `approvals`.
     case acted
-    /// An acting run's session, which the agent keeps in its own history, so a later run can continue
-    /// it (`AgentRequest.resume`); comes before the answer.
+    /// The run's session, which the agent keeps in its own history, so a later run can continue it
+    /// (`AgentRequest.resume`); comes before the answer.
     case session(String)
 }
 
-/// Something an acting agent asks permission for: a command to run, a host to reach, files to
+/// Something the agent asks permission for: a command to run, a host to reach, files to
 /// change or another tool to use.
 public struct AgentApproval: Sendable, Hashable {
     public enum Kind: Sendable, Hashable {
@@ -136,7 +124,7 @@ public enum AgentDecision: String, Sendable, CaseIterable {
 }
 
 /// One agent run: its events, and the means to stop it. The events end after one `.answer` or
-/// `.error`, which comes only once the agent's whole process tree has exited (so an acting run
+/// `.error`, which comes only once the agent's whole process tree has exited (so the run
 /// has written everything when its answer arrives), or without either if the run was cancelled.
 /// Iterating it iterates the events (once); ending that iteration early cancels the run.
 public final class AgentRun: AsyncSequence, Sendable {
@@ -296,20 +284,12 @@ public struct Agent: Sendable {
         switch provider {
         case .codex:
             AgentProcess.run(
-                executable, arguments: CodexTranscript.arguments(for: request.mode), request: request,
+                executable, arguments: ["app-server"], in: request.workingDirectory,
                 transcript: CodexTranscript(request: request))
         case .claude:
             AgentProcess.run(
-                executable, arguments: ClaudeTranscript.arguments(for: request), request: request,
+                executable, arguments: ClaudeTranscript.arguments(for: request), in: request.workingDirectory,
                 transcript: ClaudeTranscript(request: request))
         }
     }
-
-    /// The system prompt for answer runs, replacing each CLI's coding-agent prompt: the one place
-    /// that frames quick answers (Run Agent sends the user's question as is).
-    static let answerInstructions =
-        "You answer quick questions inside Wicket, a macOS command palette. Start with the answer: "
-        + "no preamble, no restating the question, no closing offers. Be brief and direct; the reply "
-        + "renders as Markdown, so use it when it helps (lists, code, tables). You have no tools and "
-        + "no access to the user's files."
 }
