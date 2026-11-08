@@ -79,13 +79,9 @@ private func leakyExtension() throws -> TestExtension {
     let ext = try leakyExtension()
     let secret = "s3cret-value-42"
     let history = testHistory()
-    let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
-        history: history, activate: Extensions.currentRevisions
-    ) { _ in
-        testConfiguration(secrets: ["LEAKY_TOKEN": secret])
+    let extensions = try await enabledExtensions(ext.folder.deletingLastPathComponent(), history: history) {
+        _ in testConfiguration(secrets: ["LEAKY_TOKEN": secret])
     }
-    await extensions.load().value
     let command = CommandID.extension("leaky", "go")
     await #expect(throws: ExtensionError.self) {
         try await extensions.result(of: Invocation(command: command, text: "private-words"))
@@ -104,7 +100,32 @@ private func leakyExtension() throws -> TestExtension {
     try Data("{".utf8).write(to: ext.folder.appending(path: "wicket.json"))
     await extensions.load(changed: [ext.folder.path]).value
     #expect(diagnostics.report(forExtension: "leaky").map(\.kind) == [.discovery])
-    #expect(extensions.commands.isEmpty)
+    // The approved revision keeps running meanwhile.
+    #expect(extensions.revisions["leaky"] == revision)
+}
+
+/// What a failed run was sent goes to `wicket log` and Fix with Agent, so a secret in its text or
+/// anywhere in its args is redacted before it is kept.
+@MainActor @Test func aFailedRunsInputsAreRedacted() async throws {
+    let secret = "s3cret-value-42"
+    let history = testHistory()
+    let extensions = try await enabledExtensions(
+        try leakyExtension().folder.deletingLastPathComponent(), history: history
+    ) { _ in testConfiguration(secrets: ["LEAKY_TOKEN": secret]) }
+    let args: [String: JSONValue] = [
+        "token": .string(secret), "deep": .object(["list": .array([.string("bearer \(secret)")])]),
+    ]
+    await #expect(throws: ExtensionError.self) {
+        try await extensions.result(
+            of: Invocation(command: .extension("leaky", "go"), text: "use \(secret)", args: args))
+    }
+    let failed = try #require(await history.runs(of: "leaky").last)
+    #expect(failed.text == "use ‹secret›")
+    #expect(
+        failed.args == [
+            "token": .string("‹secret›"), "deep": .object(["list": .array([.string("bearer ‹secret›")])]),
+        ])
+    #expect(!ExtensionHistory.text([failed]).contains(secret))
 }
 
 // MARK: Stale actions
@@ -123,13 +144,7 @@ private func actingExtension() throws -> TestExtension {
 
 @MainActor @Test func aRunFromAReplacedRevisionIsRefused() async throws {
     let ext = try actingExtension()
-    let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
-        activate: Extensions.currentRevisions
-    ) { _ in
-        testConfiguration()
-    }
-    await extensions.load().value
+    let extensions = try await enabledExtensions(ext.folder.deletingLastPathComponent())
     let registry = CommandRegistry()
     registry.setExtensionCommands(extensions.commands)
     let dispatcher = ActionDispatcher(registry: registry, effects: NoEffects())
@@ -156,9 +171,10 @@ private func actingExtension() throws -> TestExtension {
     #expect(extensions.revisions["acting"] == loaded)
     #expect(try await extensions.result(of: current) == .close(message: "acted"))
 
-    // Changed: the row shown from the old code no longer runs anything.
+    // Changed and enabled: the row shown from the old code no longer runs anything.
     try Data((String(decoding: Data(contentsOf: main), as: UTF8.self) + "\n# v2\n").utf8).write(to: main)
     await extensions.load(changed: [main.path]).value
+    try await extensions.enableAll()
     #expect(extensions.revisions["acting"] != loaded)
     await #expect(throws: HostError.extensionChanged) {
         try await extensions.result(of: current)

@@ -144,13 +144,7 @@ private func link(_ path: String, to target: String, in folder: URL) throws {
 @MainActor @Test func aFolderWithoutARevisionIsNotInstalled() async throws {
     let ext = try TestExtension(script: answering(#"{"close":{}}"#))
     try link("escape", to: "..", in: ext.folder)
-    let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
-        activate: Extensions.currentRevisions
-    ) { _ in
-        testConfiguration()
-    }
-    await extensions.load().value
+    let extensions = try await enabledExtensions(ext.folder.deletingLastPathComponent())
     #expect(extensions.commands.isEmpty)
     #expect(
         extensions.diagnostics.text(for: .extension("test"), kind: .discovery)

@@ -44,13 +44,6 @@ public struct DiscoveredExtension: Sendable, Hashable {
     }
 }
 
-/// Which revision of each extension may run, given what discovery found: the one seam that decides
-/// the active catalog. It runs off the main actor on every discovery and may return any revision
-/// the store retains (`RevisionStore.retained`), not only the folders' current ones. The app's is
-/// always `Extensions.approvedRevisions`; tests of other mechanisms may pass their own.
-typealias Activation =
-    @Sendable (_ discovered: [DiscoveredExtension], _ store: RevisionStore) -> [SealedRevision]
-
 /// Discovery and the active catalog of extensions, and their runs.
 ///
 /// Discovery (`discovered`) is every folder in `directory`, each sealed into `store` when new or
@@ -99,7 +92,6 @@ public final class Extensions {
         try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
     }
     private var active: [String: SealedRevision] = [:]
-    private let activate: Activation
     /// Each extension's runs in flight (waiting or running), by a token; `stop` cancels them.
     private var running: [String: [UUID: Task<ExtensionProcess.Run, Never>]] = [:]
     /// The end of each extension's latest run, cleanup included, which the next one waits for.
@@ -119,20 +111,9 @@ public final class Extensions {
     /// `approvals` decides what may run: each extension's approved revision, if the store keeps it.
     /// `configuration` makes a run's configuration from the extension id; the default uses
     /// `ExtensionPaths`, the app version and the Keychain.
-    public convenience init(
+    public init(
         directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
         history: ExtensionHistory? = nil,
-        configuration: @escaping @Sendable (String) -> RunConfiguration = Extensions.configuration
-    ) {
-        self.init(
-            directory: directory, store: store, approvals: approvals, diagnostics: diagnostics,
-            history: history, activate: Extensions.approvedRevisions, configuration: configuration)
-    }
-
-    /// With another activation, for tests of mechanisms other than consent.
-    init(
-        directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
-        history: ExtensionHistory? = nil, activate: @escaping Activation,
         configuration: @escaping @Sendable (String) -> RunConfiguration = Extensions.configuration
     ) {
         self.directory = directory.standardizedFileURL
@@ -140,18 +121,7 @@ public final class Extensions {
         self.approvals = approvals
         self.diagnostics = diagnostics
         self.history = history
-        self.activate = activate
         self.configuration = configuration
-    }
-
-    /// The consent gate: each extension's approved revision, if the store keeps it.
-    nonisolated static let approvedRevisions: Activation = { discovered, _ in
-        discovered.compactMap(\.approved)
-    }
-
-    /// Every valid folder's current revision, approved or not: only for tests of other mechanisms.
-    nonisolated static let currentRevisions: Activation = { discovered, _ in
-        discovered.compactMap(\.sealed)
     }
 
     /// The active revision of each extension, by id.
@@ -213,12 +183,16 @@ public final class Extensions {
             // Cancelled by `stop`, not by the caller.
             let error = error is CancellationError ? HostError.stopped : error
             let outcome = ExtensionHistory.Outcome(error)
-            let secrets = run?.secrets ?? []
-            let text = Redaction.redact(Self.diagnostic(for: error), secrets: secrets)
+            let secrets = run?.secrets ?? storedSecrets(of: invocation)
             Self.logger.error(
                 "command \(command, privacy: .public) failed: \(outcome.rawValue, privacy: .public)")
+            // Redacted before the history bounds it: a cut can split a secret.
+            var redacted = invocation
+            redacted.text = Redaction.redact(invocation.text, secrets: secrets)
+            redacted.args = invocation.args?.mapValues { Redaction.redact($0, secrets: secrets) }
             await record(
-                invocation, outcome, since: start, revision: revision, message: text,
+                redacted, outcome, since: start, revision: revision,
+                message: Redaction.redact(Self.diagnostic(for: error), secrets: secrets),
                 stderr: run.map { Redaction.redact($0.stderr, secrets: secrets) })
             throw error
         }
@@ -265,8 +239,21 @@ public final class Extensions {
         }
         running[id]?[token] = nil
         inUse[sealed.revision, default: 1] -= 1
-        if inUse[sealed.revision] == 0 { inUse[sealed.revision] = nil }
+        if inUse[sealed.revision] == 0 {
+            inUse[sealed.revision] = nil
+            // The last run of a replaced revision has ended: its folder can go now.
+            if active[id]?.revision != sealed.revision, worker == nil { prune() }
+        }
         return run
+    }
+
+    /// The stored values of the secrets the invocation's extension declares: what to redact from a
+    /// run that failed before it was passed any (the user may have typed one in).
+    private func storedSecrets(of invocation: Invocation) -> Set<String> {
+        guard case .extension(let id) = invocation.command.owner, let manifest = active[id]?.manifest
+        else { return [] }
+        let configuration = configuration(id)
+        return Set(manifest.secrets.compactMap { configuration.secret($0.name) })
     }
 
     /// Stops the extension `id`'s runs in flight; their callers get `HostError.stopped`.
@@ -340,22 +327,21 @@ public final class Extensions {
             let touched = touched
             self.touched = []
             let previous = Dictionary(discovered.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            let inUse = Set(inUse.keys)
             let snapshot = await Self.scan(
-                directory, store: store, approvals: approvals, touched: touched, previous: previous,
-                inUse: inUse, activate: activate)
+                directory, store: store, approvals: approvals, touched: touched, previous: previous)
             publish(snapshot)
         }
         worker = nil
     }
 
     /// One discovery pass, off the main actor: seal what is new or touched, decide each folder's
-    /// state against the approvals as they are now, choose the active catalog and prune the store
-    /// (keeping the active, discovered and in-use revisions and each extension's approved one).
+    /// state against the approvals as they are now, and choose the active catalog: each
+    /// extension's approved revision, if the store keeps it. It never prunes: runs of the outgoing
+    /// catalog may start while it scans, so `publish` does.
     @concurrent
     private nonisolated static func scan(
         _ directory: URL, store: RevisionStore, approvals: Approvals, touched: Set<String>,
-        previous: [String: DiscoveredExtension], inUse: Set<ExtensionRevision>, activate: Activation
+        previous: [String: DiscoveredExtension]
     ) async -> Snapshot {
         let start = ContinuousClock.now
         let approved = approvals.all
@@ -380,14 +366,9 @@ public final class Extensions {
                     id: id, folder: folder, state: state(current, approved: approved[id], store: store)))
         }
         discovered.sort { $0.id < $1.id }
-        // One revision per extension: the first the activation names.
-        var seen: Set<String> = []
-        let active = activate(discovered, store).filter { seen.insert($0.revision.extensionID).inserted }
-        store.prune(
-            keeping: Set(active.map(\.revision)).union(discovered.compactMap(\.sealed?.revision)).union(inUse)
-                .union(approved.values))
         return Snapshot(
-            discovered: discovered, active: active, sealed: sealed, duration: ContinuousClock.now - start)
+            discovered: discovered, active: discovered.compactMap(\.approved), sealed: sealed,
+            duration: ContinuousClock.now - start)
     }
 
     /// A folder's state: its current revision (or why it has none) against the approved one, which
@@ -406,7 +387,7 @@ public final class Extensions {
     }
 
     /// Makes `snapshot` current in one step: discovery, the active catalog, the runs of revisions no
-    /// longer active (stopped) and the diagnostics; then tells `onChange`.
+    /// longer active (stopped) and the diagnostics; prunes the store; then tells `onChange`.
     private func publish(_ snapshot: Snapshot) {
         let next = Dictionary(snapshot.active.map { ($0.revision.extensionID, $0) }) { a, _ in a }
         // Runs and reports of the old code go with it: a changed revision's, and a removed one's.
@@ -429,7 +410,18 @@ public final class Extensions {
             extensions: \(snapshot.discovered.count, privacy: .public) found, \(next.count, privacy: .public) \
             active (\(snapshot.sealed, privacy: .public) sealed) in \(snapshot.duration, privacy: .public)
             """)
+        prune()
         onChange?()
+    }
+
+    /// Deletes the sealed revisions nothing needs: it keeps the active catalog, the discovered
+    /// folders' current revisions, the approved ones, and those of runs in flight, stopping ones
+    /// included, until their process trees are gone. Only between discovery passes, which seal into
+    /// the same store.
+    private func prune() {
+        store.prune(
+            keeping: Set(active.values.map(\.revision)).union(discovered.compactMap(\.sealed?.revision))
+                .union(inUse.keys).union(approvals.all.values))
     }
 
     // MARK: Consent (Wicket's review screens only)

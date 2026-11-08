@@ -168,9 +168,9 @@ extension Diagnostic {
     }
 }
 
-/// Redaction for text an extension wrote before it is kept. It replaces only the secret values the
-/// host passed; anything else the extension writes, such as file contents or what an API returned,
-/// is kept as written.
+/// Redaction for what a failed run kept: its message, stderr, text and args. It replaces only the
+/// secret values the host passed; anything else, such as file contents or what an API returned, is
+/// kept as written.
 enum Redaction {
     /// Shorter secrets aren't tokens anyone would store, and would blank out ordinary words.
     static let minimumSecretLength = 4
@@ -184,5 +184,19 @@ enum Redaction {
             text = text.replacingOccurrences(of: secret, with: "‹secret›")
         }
         return text
+    }
+
+    /// `value` with `redact` applied to every string in it, keys included.
+    static func redact(_ value: JSONValue, secrets: Set<String>) -> JSONValue {
+        switch value {
+        case .string(let text): .string(redact(text, secrets: secrets))
+        case .array(let values): .array(values.map { redact($0, secrets: secrets) })
+        case .object(let fields):
+            .object(
+                Dictionary(
+                    fields.map { (redact($0.key, secrets: secrets), redact($0.value, secrets: secrets)) },
+                    uniquingKeysWith: { a, _ in a }))
+        default: value
+        }
     }
 }

@@ -85,3 +85,30 @@ func testApprovals() -> Approvals {
         url: FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/approvals-\(UUID().uuidString)/approvals.json"))
 }
+
+/// Extensions over `directory`, discovered, with every folder's current revision enabled, as
+/// Review and Enable would.
+@MainActor
+func enabledExtensions(
+    _ directory: URL, store: RevisionStore = testStore(), history: ExtensionHistory? = nil,
+    configuration: @escaping @Sendable (String) -> RunConfiguration = { _ in testConfiguration() }
+) async throws -> Extensions {
+    let extensions = Extensions(
+        directory: directory, store: store, approvals: testApprovals(), history: history,
+        configuration: configuration)
+    await extensions.load().value
+    try await extensions.enableAll()
+    return extensions
+}
+
+extension Extensions {
+    /// Approves every discovered folder's current revision that isn't approved yet, as Review and
+    /// Enable would after the user changed it.
+    func enableAll() async throws {
+        for found in discovered {
+            if let current = found.sealed, found.approved?.revision != current.revision {
+                try await approve(current.revision)
+            }
+        }
+    }
+}

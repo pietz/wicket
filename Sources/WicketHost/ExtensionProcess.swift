@@ -32,6 +32,9 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
     case outputTooLong
     /// The program exited without writing anything to stdout.
     case exited(Exit)
+    /// The program wrote a response but exited with an error status or was killed, so the
+    /// response doesn't count.
+    case exitedAfterAnswering(Exit)
     /// The extension was disabled, changed or removed, or Wicket quit, while it ran.
     case stopped
     /// No installed extension has the command, such as after it was removed.
@@ -53,6 +56,8 @@ public enum HostError: Error, Sendable, Equatable, CustomStringConvertible {
             "wrote over \(ExtensionProcess.outputLimit >> 20) MiB to stdout; it was stopped"
         case .exited(let exit) where exit.isClean: "exited without writing a response to stdout"
         case .exited(let exit): "\(exit) without writing a response to stdout"
+        case .exitedAfterAnswering(let exit):
+            "\(exit) after writing its response, which doesn't count; a run must exit with status 0"
         case .stopped: "the extension was stopped before answering"
         case .unknownCommand: "no installed extension has this command; it may have been removed"
         case .extensionChanged: "the extension changed since this was shown; run it again"
@@ -162,9 +167,12 @@ public enum ExtensionProcess {
                 run.result = .failure(HostError.exited(exit))
             } else {
                 run.output = text
-                run.result = decode(
-                    Data(text.utf8),
-                    context: WireContext(command: request.command, in: manifest, revision: revision))
+                run.result =
+                    exit.isClean
+                    ? decode(
+                        Data(text.utf8),
+                        context: WireContext(command: request.command, in: manifest, revision: revision))
+                    : .failure(HostError.exitedAfterAnswering(exit))
             }
         }
         let elapsed = ContinuousClock.now - start

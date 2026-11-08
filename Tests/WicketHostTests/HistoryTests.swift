@@ -8,7 +8,7 @@ import WicketCore
 // Each extension's run history: what `wicket log` prints, Fix with Agent hands over, and Move to
 // Trash deletes.
 
-/// Extensions over a fresh folder holding `ext`, active without approval, with a history.
+/// Extensions over a fresh folder holding `ext`, enabled, with a history.
 @MainActor
 private func extensions(_ ext: TestExtension, timeout: Duration = .seconds(2)) async throws -> Extensions {
     let directory = FileManager.default.temporaryDirectory.appending(
@@ -16,12 +16,9 @@ private func extensions(_ ext: TestExtension, timeout: Duration = .seconds(2)) a
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try FileManager.default.moveItem(
         at: ext.folder, to: directory.appending(path: ext.folder.lastPathComponent))
-    let extensions = Extensions(
-        directory: directory, store: testStore(), approvals: testApprovals(), history: testHistory(),
-        activate: Extensions.currentRevisions
-    ) { _ in testConfiguration { $0.timeout = timeout } }
-    await extensions.load().value
-    return extensions
+    return try await enabledExtensions(directory, history: testHistory()) { _ in
+        testConfiguration { $0.timeout = timeout }
+    }
 }
 
 /// A script that writes `stderr` to stderr and answers every run with an error saying `message`.

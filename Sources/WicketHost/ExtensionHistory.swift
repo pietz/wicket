@@ -36,7 +36,7 @@ public actor ExtensionHistory {
             case is ExtensionError: self = .error
             case HostError.invalidResponse, HostError.outputTooLong: self = .rejected
             case HostError.timeout: self = .timeout
-            case HostError.exited, HostError.launch: self = .crashed
+            case HostError.exited, HostError.exitedAfterAnswering, HostError.launch: self = .crashed
             default: self = .refused
             }
         }

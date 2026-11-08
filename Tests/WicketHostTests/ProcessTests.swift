@@ -72,6 +72,20 @@ import WicketCore
     }
 }
 
+/// A response counts only when the program exits cleanly: JSON followed by an error status or a
+/// kill is a failure, recorded as a crash with its stderr.
+@Test func aResponseCountsOnlyAfterACleanExit() async throws {
+    let failing = try await TestExtension(
+        script: #"cat >/dev/null; echo '{"close":{}}'; echo 'disk full' >&2; exit 7"#
+    ).run()
+    #expect(throws: HostError.exitedAfterAnswering(.status(7))) { try failing.result.get() }
+    #expect(failing.stderr == "disk full\n")
+    if case .failure(let error) = failing.result { #expect(ExtensionHistory.Outcome(error) == .crashed) }
+
+    let killed = try await TestExtension(script: #"cat >/dev/null; echo '{"close":{}}'; kill -KILL $$"#).run()
+    #expect(throws: HostError.exitedAfterAnswering(.signal(SIGKILL))) { try killed.result.get() }
+}
+
 @Test func slowRunsTimeOut() async throws {
     let start = ContinuousClock.now
     let run = try await TestExtension(script: "exec /bin/sleep 30").run { $0.timeout = .milliseconds(300) }

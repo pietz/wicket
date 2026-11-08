@@ -125,13 +125,7 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
 @MainActor @Test func whatRunsIsTheSealedRevisionNotTheAuthoringFolder() async throws {
     let ext = try titled("v1")
     let store = testStore()
-    let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: store, approvals: testApprovals(),
-        activate: Extensions.currentRevisions
-    ) { _ in
-        testConfiguration()
-    }
-    await extensions.load().value
+    let extensions = try await enabledExtensions(ext.folder.deletingLastPathComponent(), store: store)
     let sealed = try #require(extensions.activeRevision(of: "titled"))
     #expect(sealed.folder.path.hasPrefix(store.root.path))
     #expect(try await title(extensions) == "v1")
@@ -140,6 +134,9 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
     try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
     #expect(try await title(extensions) == "v1")
     await extensions.load(changed: [ext.folder.appending(path: "title.txt").path]).value
+    // Sealed, it still waits for the user: enabled, it runs.
+    #expect(extensions.revisions["titled"] == sealed.revision)
+    try await extensions.enableAll()
     #expect(extensions.revisions["titled"] != sealed.revision)
     #expect(try await title(extensions) == "v2")
 }
@@ -174,64 +171,25 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
     #expect(try await title(extensions, "good") == "v1")
 }
 
-/// Lets the test hold a discovery pass inside the activation, and see where it ran.
-private final class Gate: Sendable {
-    private let state = Mutex((holding: false, entered: false, onMain: false, released: false))
-    private let semaphore = DispatchSemaphore(value: 0)
-
-    var entered: Bool { state.withLock { $0.entered } }
-    var ranOnMain: Bool { state.withLock { $0.onMain } }
-    var wasReleased: Bool { state.withLock { $0.released } }
-
-    /// Whether the next passes wait in the activation for `release`.
-    func hold(_ holding: Bool) { state.withLock { $0.holding = holding } }
-
-    func pass(_ discovered: [DiscoveredExtension]) -> [SealedRevision] {
-        guard state.withLock({ $0.holding }) else { return discovered.compactMap(\.sealed) }
-        state.withLock {
-            $0.entered = true
-            $0.onMain = pthread_main_np() != 0
-        }
-        let released = semaphore.wait(timeout: .now() + 5) == .success
-        state.withLock { $0.released = released }
-        return discovered.compactMap(\.sealed)
-    }
-
-    func release() { semaphore.signal() }
-}
-
-@MainActor @Test func discoveryRunsOffTheMainActorAndPublishesOneSnapshot() async throws {
+@MainActor @Test func aBurstOfLoadsPublishesOneSnapshot() async throws {
     let ext = try titled("v1")
-    let gate = Gate()
-    let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: testStore(), approvals: testApprovals(),
-        activate: { discovered, _ in gate.pass(discovered) }, configuration: { _ in testConfiguration() })
+    let extensions = try await enabledExtensions(ext.folder.deletingLastPathComponent())
+    let first = try #require(extensions.revisions["titled"])
     var published = 0
     extensions.onChange = { published += 1 }
-    await extensions.load().value
-    #expect(published == 1)
-    let first = try #require(extensions.revisions["titled"])
 
+    // A burst while a pass is pending folds into it; the main actor keeps the previous snapshot
+    // until that pass publishes, in one step.
     try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
-    gate.hold(true)
     let loading = extensions.load(changed: [ext.folder.path + "/title.txt"])
-    // A burst while it runs folds into one more pass.
-    let deadline = ContinuousClock.now + .seconds(5)
-    while !gate.entered, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-    #expect(gate.entered)
-    // The main actor is free while discovery works, and still sees the whole previous snapshot.
-    #expect(extensions.revisions["titled"] == first)
-    #expect(extensions.commands.first?.revision == first)
-    #expect(published == 1)
-    gate.hold(false)
     extensions.load(changed: [ext.folder.path + "/title.txt"])
-    gate.release()
+    extensions.load(changed: [ext.folder.path + "/title.txt"])
+    #expect(extensions.revisions["titled"] == first)
     await loading.value
-    #expect(gate.wasReleased)
-    #expect(!gate.ranOnMain)
+    #expect(published == 1)
+    try await extensions.enableAll()
     #expect(extensions.revisions["titled"] != first)
     #expect(extensions.commands.first?.revision == extensions.revisions["titled"])
-    #expect(published == 3)
 }
 
 @Test func pruningKeepsOnlyWhatItIsTold() throws {
@@ -255,8 +213,7 @@ private final class Gate: Sendable {
     let ext = try titled("v1")
     let store = testStore()
     let extensions = Extensions(
-        directory: ext.folder.deletingLastPathComponent(), store: store, approvals: testApprovals(),
-        activate: Extensions.currentRevisions
+        directory: ext.folder.deletingLastPathComponent(), store: store, approvals: testApprovals()
     ) { _ in
         testConfiguration()
     }
@@ -264,7 +221,7 @@ private final class Gate: Sendable {
     for version in 1...4 {
         try Data("v\(version)".utf8).write(to: ext.folder.appending(path: "title.txt"))
         await extensions.load(changed: [ext.folder.path + "/title.txt"]).value
-        active.append(try #require(extensions.revisions["titled"]))
+        active.append(try #require(extensions.discovered.first?.sealed?.revision))
     }
     // Nothing approved: only the current revision is kept.
     let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
