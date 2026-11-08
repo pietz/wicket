@@ -43,6 +43,10 @@ enum ContextCapture {
     private static func selectedText(in pid: Int32) -> String? {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, timeout)
+        // Chromium and Electron apps (Slack, VS Code, T3 Code) expose their text only once a client
+        // asks for it; native apps ignore the attribute. The first summon in such an app may still
+        // find nothing while it builds its tree.
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         guard let focused = attribute(kAXFocusedUIElementAttribute, of: app),
             CFGetTypeID(focused) == AXUIElementGetTypeID()
         else { return nil }
