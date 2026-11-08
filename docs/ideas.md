@@ -32,3 +32,4 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **No harness of our own:** a thin wrapper that maps Wicket's own understanding onto each agent harness, like T3 Code. The harnesses can already do anything on the computer; Wicket adds context on how to do things inside Wicket.
 - **Wicket's agent instructions as an editable Markdown file** the user can change.
 - **Richer agent replies using Wicket components** instead of text only (later).
+- **Settings ▸ AI much simpler:** one provider dropdown (Claude, ChatGPT), only ready ones selectable, one set of fields; real defaults (Claude sonnet, ChatGPT gpt-6.1-terra, effort medium, speed regular, permissions Auto); four permission levels, no "default"; Apple Intelligence out of the picker (in progress).
