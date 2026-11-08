@@ -380,34 +380,6 @@ private let claudeMessage =
         #expect(message.hasPrefix("could not start /nonexistent/codex"))
     }
 
-    @Test func cancellingKillsTheProcessTree() async throws {
-        let pids = FileManager.default.temporaryDirectory.appending(
-            path: "wicket-tests/pids-\(UUID().uuidString)")
-        // A child in its own session, as Codex runs commands, so a process group kill would miss it.
-        let agent = try fakeAgent(
-            .claude,
-            """
-            /usr/bin/perl -e 'use POSIX; POSIX::setsid(); sleep 60' &
-            echo "$$ $!" > '\(pids.path)'
-            echo '\(claudeMessage)'
-            sleep 60
-            """)
-        let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, options: defaults)
-        let consumer = Task {
-            for await event in agent.run(request) {
-                if case .message = event { return true }
-            }
-            return false
-        }
-        #expect(await consumer.value)
-        // Returning from the loop ended the stream, which cancels the run.
-        let started = try String(contentsOf: pids, encoding: .utf8).split(separator: " ")
-            .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        #expect(started.count == 2)
-        #expect(await within10s { !started.contains(where: isRunning) })
-    }
-
     @Test func cancellingAfterTheAgentExitedStopsWhatItLeft() async throws {
         let pids = FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/pids-\(UUID().uuidString)")
@@ -502,6 +474,7 @@ private let claudeMessage =
         #expect(ContinuousClock.now - start < .seconds(10))
     }
 
+    /// A child in its own session, as Codex runs commands, so a process group kill would miss it.
     @Test func cancelAndWaitReturnsOnceTheTreeIsGone() async throws {
         let pids = FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/pids-\(UUID().uuidString)")

@@ -260,58 +260,18 @@ private func finalDetail(
     #expect(text.hasPrefix("Find out why it fails and fix it.\n\nIt failed Wicket's check:"))
 }
 
-/// The real thing, on the user's Codex subscription: a headless `codex app-server` asked for a
-/// command writes an extension into the folder, Wicket offers its review, and it passes its check.
-/// Opt in with `WICKET_TEST_CODEX=1` and a `CODEX_HOME` holding only `auth.json` and a config.toml
-/// with `approval_policy = "never"` and `sandbox_mode = "workspace-write"`.
-@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_TEST_CODEX"] == "1"))
-func codexBuildsACommandThatWicketOffersForReview() async throws {
-    let root = FileManager.default.temporaryDirectory.appending(
-        path: "wicket-tests/codex-\(UUID().uuidString)"
-    )
-    .resolvingSymlinksInPath()
-    let directory = root.appending(path: "Extensions")
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
-        testConfiguration()
-    }
-    await extensions.load().value
-    let runner = AgentRunner(answers: AnswerStream(provider: { .codex }))
-    runner.answers.authoring = testAuthoring(extensions, kit: repository)
-    var last: Detail?
-    for try await result in runner.run(
-        Invocation(
-            command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
-            context: SummonContext(files: [root])), retry: .never)
-    {
-        if case .show(.detail(let detail), _) = result { last = detail }
-    }
-    let detail = try #require(last)
-    print("ANSWER:\n\(detail.markdown)\nACTIONS: \(detail.actions.compactMap(\.title))")
-    let review = try #require(detail.actions.first)
-    guard case .run(.reviewExtension, _, let args?, _, _) = review, case .string(let id)? = args["id"] else {
-        Issue.record("no review offered: \(detail.actions)")
+/// The real thing, on the user's subscription: the agent, asked for a command, writes an extension
+/// into the folder, Wicket offers its review, and it passes its check. Opt in per provider with
+/// `WICKET_TEST_CLAUDE=1` or `WICKET_TEST_CODEX=1`; the agent must be allowed to write in the folder
+/// without asking (Claude Code's auto mode; for Codex a `CODEX_HOME` holding only `auth.json` and a
+/// config.toml with `approval_policy = "never"` and `sandbox_mode = "workspace-write"`).
+@MainActor @Test(arguments: AgentProvider.allCases)
+func theAgentBuildsACommandThatWicketOffersForReview(provider: AgentProvider) async throws {
+    guard ProcessInfo.processInfo.environment["WICKET_TEST_\(provider.rawValue.uppercased())"] == "1" else {
         return
     }
-    let consent = ExtensionsRunner(
-        extensions: extensions, checkOptions: checkOptions { $0.requestTimeout = .seconds(30) })
-    var page: Detail?
-    for try await result in consent.run(
-        Invocation(command: .reviewExtension, args: ["id": .string(id)]), retry: .never)
-    {
-        if case .show(.detail(let detail), _) = result { page = detail }
-    }
-    print("REVIEW:\n\(page?.markdown ?? "-")\nACTIONS: \(page?.actions.compactMap(\.title) ?? [])")
-    #expect(page?.actions.first?.title == "Enable")
-}
-
-/// The same with Claude Code, on the user's subscription with Wicket's defaults (Sonnet on Auto, which
-/// lets it write in the folder without asking).
-/// Opt in with `WICKET_TEST_CLAUDE=1`.
-@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_TEST_CLAUDE"] == "1"))
-func claudeBuildsACommandThatWicketOffersForReview() async throws {
     let root = FileManager.default.temporaryDirectory.appending(
-        path: "wicket-tests/claude-\(UUID().uuidString)"
+        path: "wicket-tests/live-\(UUID().uuidString)"
     )
     .resolvingSymlinksInPath()
     let directory = root.appending(path: "Extensions")
@@ -320,7 +280,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
         testConfiguration()
     }
     await extensions.load().value
-    let runner = AgentRunner(answers: AnswerStream(provider: { .claude }))
+    let runner = AgentRunner(answers: AnswerStream(provider: { provider }))
     runner.answers.authoring = testAuthoring(extensions, kit: repository)
     var last: Detail?
     for try await result in runner.run(
@@ -332,8 +292,9 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     }
     let detail = try #require(last)
     print("ANSWER:\n\(detail.markdown)\nACTIONS: \(detail.actions.compactMap(\.title))")
-    let review = try #require(detail.actions.first)
-    guard case .run(.reviewExtension, _, let args?, _, _) = review, case .string(let id)? = args["id"] else {
+    guard case .run(.reviewExtension, _, let args?, _, _)? = detail.actions.first,
+        case .string(let id)? = args["id"]
+    else {
         Issue.record("no review offered: \(detail.actions)")
         return
     }

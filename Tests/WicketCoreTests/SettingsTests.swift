@@ -104,16 +104,6 @@ func badHotkeyFallsBackAlone(json: String, reason: String) throws {
     #expect(settings.ignored == [reason])
 }
 
-/// Like a bad width, a bad hotkey stays in the file until the hotkey itself is changed.
-@Test func updateKeepsIgnoredHotkey() throws {
-    let url = temporarySettingsURL()
-    try write(#"{"hotkey": "option+spacebar"}"#, to: url)
-    try Settings.update(at: url) { $0.paletteWidth = 720 }
-    #expect(try read(url).contains(#""hotkey" : "option+spacebar""#))
-    try Settings.update(at: url) { $0.hotkey = try! Shortcut("cmd+k") }
-    #expect(try Settings.load(from: url).hotkey == Shortcut("cmd+k"))
-}
-
 @Test(arguments: [
     (#"{}"#, 600.0, false),
     (#"{"paletteWidth": 720}"#, 720, false),
@@ -127,16 +117,6 @@ func paletteWidthFallsBackAlone(json: String, width: Double, ignored: Bool) thro
     let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
     #expect(settings.paletteWidth == width)
     #expect(settings.ignored == (ignored ? ["paletteWidth must be a number from 480 to 900; using 600"] : []))
-}
-
-/// A bad width is reported, not fixed: the file keeps it until the width itself is changed.
-@Test func updateKeepsIgnoredWidth() throws {
-    let url = temporarySettingsURL()
-    try write(#"{"hotkey": "cmd+k", "paletteWidth": "wide"}"#, to: url)
-    try Settings.update(at: url) { $0.hotkey = .default }
-    #expect(try read(url).contains(#""paletteWidth" : "wide""#))
-    try Settings.update(at: url) { $0.paletteWidth = 720 }
-    #expect(try Settings.load(from: url).paletteWidth == 720)
 }
 
 @Test func settingsDirectory() {
@@ -276,14 +256,32 @@ func aiProviderFallsBackAlone(json: String, provider: AgentProvider?, ignored: S
     #expect(try read(url) == "{\n\n}\n")
 }
 
-/// A bad provider is reported, not fixed, until a provider is chosen.
-@Test func updateKeepsIgnoredProvider() throws {
-    let url = temporarySettingsURL()
-    try write(#"{"ai": {"provider": "gemini"}}"#, to: url)
-    try Settings.update(at: url) { $0.hotkey = try! Shortcut("cmd+k") }
-    #expect(try read(url).contains(#""provider" : "gemini""#))
-    try Settings.update(at: url) { $0.ai.provider = .codex }
-    #expect(try Settings.load(from: url).ai.provider == .codex)
+/// A bad value is reported, not fixed: the file keeps it while other fields change, until the field
+/// itself is set.
+@Test func updateKeepsAnIgnoredValueUntilItIsSet() throws {
+    let cases: [(String, String, (inout Settings) -> Void, (Settings) -> Bool)] = [
+        (
+            #"{"hotkey": "option+spacebar"}"#, #""hotkey" : "option+spacebar""#,
+            { $0.hotkey = try! Shortcut("cmd+k") },
+            { $0.hotkey == (try! Shortcut("cmd+k")) }
+        ),
+        (
+            #"{"paletteWidth": "wide"}"#, #""paletteWidth" : "wide""#, { $0.paletteWidth = 720 },
+            { $0.paletteWidth == 720 }
+        ),
+        (
+            #"{"ai": {"provider": "gemini"}}"#, #""provider" : "gemini""#, { $0.ai.provider = .codex },
+            { $0.ai.provider == .codex }
+        ),
+    ]
+    for (json, kept, set, applied) in cases {
+        let url = temporarySettingsURL()
+        try write(json, to: url)
+        try Settings.update(at: url) { $0.textSize = .large }
+        #expect(try read(url).contains(kept))
+        try Settings.update(at: url, set)
+        #expect(applied(try Settings.load(from: url)))
+    }
 }
 
 @Test(arguments: [

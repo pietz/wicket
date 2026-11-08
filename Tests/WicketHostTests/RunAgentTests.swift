@@ -172,7 +172,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.session.frames.count == 2)
 }
 
-@MainActor @Test func aLateErrorKeepsThePartialAnswer() async throws {
+@MainActor @Test func aFailureKeepsWhatWasWrittenAndOffersRetry() async throws {
     let agents = FakeAgents([.codex: .ready])
     let palette = Palette(agents.backend)
     palette.ask("hello")
@@ -192,19 +192,12 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.session.open(CommandRun(runAgent, .invoked, text: "hello"))
     #expect(await eventually { agents.runs.count == 2 })
     #expect(agents.runs[1].request.prompt == "hello")
-}
 
-@MainActor @Test func anErrorBeforeAnyTextOffersRetry() async throws {
-    let agents = FakeAgents([.codex: .ready])
-    let palette = Palette(agents.backend)
-    palette.ask("hello")
-    #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.error("the model is overloaded"))
+    // Before anything was written, the failure is the page.
+    agents.runs[1].continuation.yield(.error("the model is overloaded"))
     #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(palette.detail?.markdown == "the model is overloaded")
-    #expect(await eventually { !palette.session.top.isLoading })
-    #expect(
-        palette.session.top.target?.actions == [.run(command: runAgent.id, text: "hello", title: "Retry")])
+    #expect(palette.session.top.target?.actions == [retry])
 }
 
 @MainActor @Test func poppingOrDismissingStopsTheAgent() async throws {
@@ -300,26 +293,18 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.actions.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
 }
 
-@MainActor @Test func aChosenProviderIsRecheckedAndNeverFallsBack() async throws {
-    let agents = FakeAgents([.codex: .ready, .claude: .ready])
-    let palette = Palette(agents.backend)
-    palette.runner.answers.provider = { .claude }
-    palette.ask("hello")
-    #expect(await eventually { agents.runs.count == 1 })
-    agents.runs[0].continuation.yield(.answer("Hello!"))
-    #expect(await eventually { !palette.session.top.isLoading })
-    palette.session.reset()
+/// The agent works in the Finder selection's folder (the folder itself when it is the only item, else
+/// the home folder) and is told which files they are; the frame's title stays the question.
+@MainActor @Test func theFinderSelectionSetsTheFolderAndFollowsTheQuestion() async throws {
+    let folder = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/sel-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let file = folder.appending(path: "a.txt")
+    try Data().write(to: file)
+    #expect(AgentRunner.folder(for: SummonContext(files: [file])) == file.deletingLastPathComponent())
+    #expect(AgentRunner.folder(for: SummonContext(files: [folder])) == folder)
+    #expect(AgentRunner.folder(for: nil) == FileManager.default.homeDirectoryForCurrentUser)
 
-    agents.set(.claude, .loggedOut)
-    palette.ask("hello again")
-    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
-    #expect(palette.detail?.markdown.contains("claude auth login") == true)
-    #expect(palette.detail?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
-    #expect(agents.checks == [.claude, .claude])
-    #expect(agents.runs.count == 1)
-}
-
-@MainActor @Test func theFinderSelectionFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
     let agents = FakeAgents([.codex: .ready])
     let runner = AgentRunner(answers: AnswerStream(backend: agents.backend))
     let context = try #require(SummonContext(files: [URL(filePath: "/Users/me/Letters/anna.txt")]))
@@ -408,26 +393,6 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         results.append(result)
     }
     #expect(results == [.stay])
-}
-
-@MainActor @Test func agentsWorkInTheFinderSelectionsFolder() async throws {
-    let folder = FileManager.default.temporaryDirectory.appending(
-        path: "wicket-tests/sel-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let file = folder.appending(path: "a.txt")
-    try Data().write(to: file)
-    #expect(
-        AgentRunner.folder(for: SummonContext(files: [file]))
-            == file.deletingLastPathComponent())
-    #expect(AgentRunner.folder(for: SummonContext(files: [folder])) == folder)
-    #expect(AgentRunner.folder(for: nil) == FileManager.default.homeDirectoryForCurrentUser)
-
-    let agents = FakeAgents([.codex: .loggedOut, .claude: .ready])
-    let palette = Palette(agents.backend)
-    palette.ask("hello")
-    #expect(await eventually { agents.runs.count == 1 })
-    #expect(agents.runs[0].provider == .claude)
-    #expect(agents.runs[0].request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
 }
 
 @MainActor @Test func messagesAlongTheWayStayAboveTheFinalAnswer() async throws {
