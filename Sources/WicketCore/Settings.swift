@@ -31,6 +31,10 @@ public struct Settings: Equatable, Sendable {
     public var showInMenuBar = true
     /// How large a page's text is: a detail, Run Agent's answer.
     public var textSize = TextSize.medium
+    /// Whether a page fetches what it shows from the network (remote images). On by default; when
+    /// off, a page offers Load Images for itself. A preference, not a permission: Wicket fetches,
+    /// never the page's author.
+    public var showOnlineContent = true
     public var ai = AI()
     /// Why a field the file sets was ignored for its default. A cosmetic value that is wrong or out
     /// of range shouldn't cost the whole file, so it is reported here instead of making it invalid.
@@ -172,7 +176,7 @@ public struct Settings: Equatable, Sendable {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, showInMenuBar, textSize, ai
+        case hotkey, paletteWidth, showInMenuBar, textSize, showOnlineContent, ai
     }
 
     private enum AIKeys: String, CodingKey {
@@ -204,6 +208,15 @@ extension Settings: Codable {
                 showInMenuBar = show
             } else {
                 ignored.append("showInMenuBar must be true or false; showing the menu bar icon")
+            }
+        }
+        if container.contains(.showOnlineContent),
+            (try? container.decodeNil(forKey: .showOnlineContent)) != true
+        {
+            if let show = try? container.decode(Bool.self, forKey: .showOnlineContent) {
+                showOnlineContent = show
+            } else {
+                ignored.append("showOnlineContent must be true or false; showing online content")
             }
         }
         if container.contains(.textSize), (try? container.decodeNil(forKey: .textSize)) != true {
@@ -311,6 +324,7 @@ extension Settings: Codable {
         // Only when hidden, so a new file stays minimal and `update` removes it when shown again.
         if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
         if textSize != .medium { try container.encode(textSize.rawValue, forKey: .textSize) }
+        if !showOnlineContent { try container.encode(false, forKey: .showOnlineContent) }
         // Only what is chosen, so a new file stays minimal; `update` removes a field set back to the
         // provider's default (and the object once nothing is left in it).
         if ai != AI() {

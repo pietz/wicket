@@ -135,6 +135,7 @@ final class AppRuntime {
         applied = settings
         palette?.width = CGFloat(settings.paletteWidth)
         model.textSize = settings.textSize
+        model.showsOnlineContent = settings.showOnlineContent
 
         let changes = registry.changes
         registry.setAIEnabled(settings.ai.enabled)
@@ -325,6 +326,13 @@ extension AppRuntime {
                     id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
                     input: .submitText, placeholder: "Paste the value and press Return"),
                 runner: SecretsRunner(extensions: extensions)),
+            // Load Images on a page while "Show online content" is off: that page loads its web
+            // images; reached by id only, from the screen's actions.
+            Builtin(
+                RegisteredCommand(
+                    id: .loadImages, title: "Load Images", icon: .symbol(name: "photo"), isListed: false,
+                    input: .none),
+                staying: { weakRuntime?.model.loadImages() }),
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
@@ -350,4 +358,6 @@ extension AppRuntime {
 extension CommandID {
     /// Wicket Settings, a built-in in `live()`'s table, which ⌘, in the palette runs.
     static let settings = CommandID.builtin("settings")
+    /// Loads the web images of the page on top (`PaletteModel.loadImages`).
+    static let loadImages = CommandID.builtin("load-images")
 }

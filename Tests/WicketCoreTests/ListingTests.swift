@@ -26,10 +26,9 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
         actions: [])
 }
 
-@Test func aListComposesSummaryFactsAndSections() throws {
+@Test func aListComposesSummaryAndSections() throws {
     let json = #"""
         {"list":{"summary":"Three invoices, one overdue.",
-          "facts":[{"label":"Total","value":"€420"}],
           "sections":[{"title":"Overdue","items":[{"title":"Hetzner"}]},{"title":"Due","items":[{"title":"Telekom"},{"title":"Vodafone"}]}]}}
         """#
     guard case .show(.list(let list), let context) = try result(json) else {
@@ -38,13 +37,12 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
     }
     #expect(context.authority == .extension(nil))
     #expect(list.summary == "Three invoices, one overdue.")
-    #expect(list.facts == [.init(label: "Total", value: "€420")])
     #expect(list.sections.map(\.title) == ["Overdue", "Due"])
     // The rows a selection moves through: every section's, in order.
     #expect(list.items.map(\.title) == ["Hetzner", "Telekom", "Vodafone"])
 }
 
-/// Lists from before sections decode as they did: one untitled section, no summary or facts.
+/// Lists from before sections decode as they did: one untitled section, no summary.
 @Test func aFlatListIsOneUntitledSection() throws {
     guard case .show(.list(let list), _) = try result(#"{"list":{"items":[{"title":"A"}]}}"#) else {
         Issue.record("not a list")
@@ -52,7 +50,7 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
     }
     #expect(list.sections.map(\.title) == [nil])
     #expect(list.items.map(\.title) == ["A"])
-    #expect(list.summary == nil && list.facts.isEmpty)
+    #expect(list.summary == nil)
     #expect(Listing([]).sections == [.init(title: nil, items: [])])
 }
 
@@ -61,6 +59,8 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
     #expect(problem(#"{"list":{"items":[],"sections":[]}}"#)?.contains("not both") == true)
     #expect(problem(#"{"list":{"sections":[{"items":[]}]}}"#)?.contains("\"title\"") == true)
     #expect(problem(#"{"list":{"items":[],"summary":""}}"#)?.contains("must not be empty") == true)
+    // Facts left the wire: a summary's <stat> and <fact> say them now.
+    #expect(problem(#"{"list":{"items":[],"facts":[]}}"#)?.contains("facts") == true)
     // Ids are unique across sections.
     let twice =
         #"{"list":{"sections":[{"title":"A","items":[{"title":"x"}]},{"title":"B","items":[{"title":"x"}]}]}}"#
@@ -74,7 +74,7 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
     #expect(problem(lots)?.contains("the limit is 500") == true)
 }
 
-/// Copy Answer's text: the summary, the facts, then a line per row under its section's title.
+/// A screen's text: the summary, then a line per row under its section's title.
 @Test func aScreenAsText() {
     let home = URL(filePath: "/Users/me")
     var file = row("Hetzner.pdf", subtitle: "~/Documents", accessory: "since Nov 3")
@@ -83,12 +83,10 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
         sections: [
             .init(title: "Overdue", items: [file]), .init(title: "Empty", items: []),
             .init(title: "Due", items: [row("Telekom", subtitle: "Mobile", accessory: "€180")]),
-        ], summary: "Three invoices, **one overdue**.", facts: [.init(label: "Total", value: "€420")])
+        ], summary: "Three invoices, **one overdue**.")
     #expect(
         Screen.list(list).text(home: home) == """
             Three invoices, **one overdue**.
-
-            Total: €420
 
             Overdue
             - Hetzner.pdf · ~/Documents/Hetzner.pdf · since Nov 3

@@ -216,23 +216,32 @@ public struct Builtin {
     /// A built-in that just does something (open the settings window, quit): `effect` runs when it
     /// is run, and the palette closes without a frame ever showing.
     public init(_ command: RegisteredCommand, effect: @escaping @MainActor () -> Void) {
-        self.init(command, runner: EffectRunner(effect))
+        self.init(command, runner: EffectRunner(effect, then: .close(message: nil)))
+    }
+
+    /// A built-in that does something to the palette itself (load a page's images): `effect` runs
+    /// when it is run, and the palette stays as it was, no frame showing.
+    public init(_ command: RegisteredCommand, staying effect: @escaping @MainActor () -> Void) {
+        self.init(command, runner: EffectRunner(effect, then: .stay))
     }
 }
 
-/// Runs a built-in that just does something: its effect, then `close`.
+/// Runs a built-in that just does something: its effect, then `close` or `stay`.
 @MainActor
 final class EffectRunner: CommandRunner {
     private let effect: @MainActor () -> Void
+    private let result: RunResult
 
-    init(_ effect: @escaping @MainActor () -> Void) {
+    init(_ effect: @escaping @MainActor () -> Void, then result: RunResult) {
         self.effect = effect
+        self.result = result
     }
 
     func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         effect()
+        let result = result
         return AsyncThrowingStream {
-            $0.yield(.close(message: nil))
+            $0.yield(result)
             $0.finish()
         }
     }

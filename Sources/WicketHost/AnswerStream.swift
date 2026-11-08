@@ -145,14 +145,14 @@ public final class AnswerStream {
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…")
         draft.startFresh = startFresh
-        output.yield(.show(.detail(draft.detail)))
+        output.yield(draft.result)
 
         // What the extensions folder holds before the run, to offer what it changes for review.
         let before = await authoring?.snapshot()
         let request = AgentRequest(
             prompt: prompt, workingDirectory: acting, options: options,
             instructions: authoring?.instructions(), resume: continued?.session)
-        draft.redraw = { output.yield(.show(.detail(draft.detail))) }
+        draft.redraw = { output.yield(draft.result) }
         defer { draft.redraw = {} }  // It holds the draft.
         let run = await backend.run(provider, request)
         defer { waiting = waiting.filter { $0.value.draft !== draft } }
@@ -171,7 +171,7 @@ public final class AnswerStream {
             draft.reviews = await reviews(since: before, conversation: session.flatMap(conversation))
             try Task.checkCancellation()
             draft.failure = failure.description
-            output.yield(.show(.detail(draft.detail)))
+            output.yield(draft.result)
             Self.logger.notice(
                 "agent: \(provider.rawValue, privacy: .public) failed after \(draft.text.count, privacy: .public) chars"
             )
@@ -223,7 +223,7 @@ public final class AnswerStream {
                 try Task.checkCancellation()
                 // Follow Up continues this conversation, under the token its follow-ups keep.
                 draft.followUp = conversation.map { remember($0, as: token ?? UUID().uuidString) }
-                output.yield(.show(.detail(draft.detail)))
+                output.yield(draft.result)
                 Self.logger.notice(
                     """
                     agent: \(provider.rawValue, privacy: .public) first message after \

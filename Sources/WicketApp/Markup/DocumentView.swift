@@ -1,39 +1,51 @@
 import SwiftUI
 import WicketCore
 
-/// A detail frame: the markdown page with its metadata. The title is in the pill and the actions in
-/// the footer and the action panel (⌘K).
+/// A page: its document (prose and native components in reading order) in one scroll, with an
+/// extension page's metadata. The title is in the pill and the actions in the footer and the action
+/// panel (⌘K).
 ///
-/// The metadata's place follows one rule (`DetailLayout`): a 180 pt column beside the text when the
-/// text is taller than the column, else a two-column table under the text, full width. Both
+/// The selected target (`DocumentFocus.selected`) is scrolled into view as the arrows move; with
+/// nothing to select the arrows scroll the page (`scroll`, a line per press).
+///
+/// The metadata's place follows one rule (`DetailLayout`): a 180 pt column beside the document when
+/// the document is taller than the column, else a two-column table under it, full width. Both
 /// heights are measured at the column's widths whichever way the page is drawn (the one not drawn
 /// by a hidden copy, which only a short page needs), so the choice never flips back and forth.
 ///
 /// The card fits the page: `onMeasure` gets the content's height whenever it changes, laid out at
 /// the card's width inside the scroll views, so it doesn't depend on the card's height and
 /// resizing the card never measures again.
-struct DetailView: View {
+struct DocumentView: View {
     static let metadataWidth: CGFloat = 180
-    let detail: Detail
+    /// The page's inset from the card's edge.
+    static let inset = EdgeInsets(top: 18, leading: 20, bottom: 20, trailing: 20)
+    let document: WicketCore.Document
+    let metadata: [Detail.Metadata]
     let textSize: TextSize
+    /// A press of the arrows that moved no selection: scroll by this many lines.
+    let scroll: ScrollRequest?
     let onMeasure: (CGFloat) -> Void
-    /// The page's content as drawn: the text, and the table under it when there is one.
+    @Environment(\.documentFocus) private var focus
+    /// The page's content as drawn: the document, and the table under it when there is one.
     @State private var pageHeight: CGFloat = 0
-    /// The text laid out beside the column, and the column; nil until measured.
+    /// The document laid out beside the column, and the column; nil until measured.
     @State private var textBeside: CGFloat?
     @State private var columnHeight: CGFloat?
     @State private var width: CGFloat = 0
+    @State private var position = ScrollPosition(edge: .top)
+    @State private var offset: CGFloat = 0
 
     private var sidebar: Bool {
-        !detail.metadata.isEmpty && DetailLayout.usesSidebar(text: textBeside, metadata: columnHeight)
+        !metadata.isEmpty && DetailLayout.usesSidebar(text: textBeside, metadata: columnHeight)
     }
 
     var body: some View {
         Group {
             if sidebar {
                 HStack(alignment: .top, spacing: 0) {
-                    ScrollView {
-                        markdown
+                    scrolling {
+                        page
                             .onGeometryChange(for: CGFloat.self, of: \.size.height) {
                                 pageHeight = $0
                                 textBeside = $0
@@ -41,17 +53,17 @@ struct DetailView: View {
                     }
                     Divider()
                     ScrollView {
-                        MetadataColumn(metadata: detail.metadata, textSize: textSize)
+                        MetadataColumn(metadata: metadata, textSize: textSize)
                             .onGeometryChange(for: CGFloat.self, of: \.size.height) { columnHeight = $0 }
                     }
                     .frame(width: Self.metadataWidth)
                 }
             } else {
-                ScrollView {
+                scrolling {
                     VStack(alignment: .leading, spacing: 0) {
-                        markdown
-                        if !detail.metadata.isEmpty {
-                            MetadataTable(metadata: detail.metadata, textSize: textSize)
+                        page
+                        if !metadata.isEmpty {
+                            MetadataTable(metadata: metadata, textSize: textSize)
                                 .padding(.horizontal, 20)
                                 .padding(.top, 4)
                                 .padding(.bottom, 18)
@@ -60,44 +72,105 @@ struct DetailView: View {
                     .onGeometryChange(for: CGFloat.self, of: \.size.height) { pageHeight = $0 }
                 }
                 .background(alignment: .topLeading) {
-                    if !detail.metadata.isEmpty { hiddenSidebar }
+                    if !metadata.isEmpty { hiddenSidebar }
                 }
             }
         }
         .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
         .scrollIndicators(.never)
-        .textSelection(.enabled)
+        .environment(\.textSize, textSize)
         .onChange(of: measured, initial: true) { _, height in
             if height > 0 { onMeasure(height) }
         }
     }
 
-    /// The content's height: the taller of the text and the column beside it, or the page.
+    /// The content's height: the taller of the document and the column beside it, or the page.
     private var measured: CGFloat {
         sidebar ? max(pageHeight, columnHeight ?? 0) : pageHeight
     }
 
-    private var markdown: some View {
-        MarkdownView(blocks: MarkdownBlock.parse(detail.markdown), textSize: textSize)
-            .padding(18)
+    private var page: some View {
+        DocumentBlocks(blocks: document.blocks)
+            .padding(Self.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
     }
 
-    /// The text and the column as the sidebar would lay them out, measured but never shown, so a
-    /// page drawn full width still knows when its text grows taller than the column.
+    /// The page's scroll view, following the selection and the arrows.
+    private func scrolling(@ViewBuilder _ content: () -> some View) -> some View {
+        let content = content()
+        return ScrollViewReader { proxy in
+            ScrollView {
+                content
+            }
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { offset = $1 }
+            // The system's soft edge where the page passes under the footer.
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
+            .onChange(of: focus.selected) { _, selected in
+                withAnimation(.snappy(duration: 0.2)) {
+                    if let selected { proxy.scrollTo(selected) } else { position.scrollTo(edge: .top) }
+                }
+            }
+            .onChange(of: scroll) { _, scroll in
+                guard let scroll else { return }
+                let line = textSize.points(13) * 3
+                withAnimation(.snappy(duration: 0.2)) {
+                    position.scrollTo(y: max(0, offset + CGFloat(scroll.lines) * line))
+                }
+            }
+        }
+    }
+
+    /// The document and the column as the sidebar would lay them out, measured but never shown, so
+    /// a page drawn full width still knows when its document grows taller than the column.
     private var hiddenSidebar: some View {
         HStack(alignment: .top, spacing: 0) {
-            markdown
+            page
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self, of: \.size.height) { textBeside = $0 }
                 .frame(width: max(width - Self.metadataWidth - 1, 0))
-            MetadataColumn(metadata: detail.metadata, textSize: textSize)
+            MetadataColumn(metadata: metadata, textSize: textSize)
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self, of: \.size.height) { columnHeight = $0 }
                 .frame(width: Self.metadataWidth)
         }
         .hidden()
         .accessibilityHidden(true)
+    }
+}
+
+/// A press of the arrows the page scrolls by, since nothing moved the selection. `serial` makes
+/// each press a change.
+struct ScrollRequest: Equatable {
+    var serial: Int
+    var lines: Int
+}
+
+/// Blocks in reading order: prose, text shown as written, and each component as its registered
+/// view (`ComponentViews`). A component that holds blocks (a card, a column) draws them with this.
+struct DocumentBlocks: View {
+    let blocks: [WicketCore.Document.Block]
+    /// The gap between blocks: a page's, or a card's tighter one.
+    var spacing: CGFloat = 16
+    @Environment(\.textSize) private var textSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing * textSize.scale) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .markdown(let markdown):
+                    MarkdownView(blocks: markdown.blocks, textSize: textSize)
+                case .text(let text):
+                    Text(verbatim: text)
+                        .font(.system(size: textSize.points(12), design: .monospaced))
+                        .foregroundStyle(.secondary)
+                case .component(let component):
+                    ComponentViews.view(for: component)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -185,6 +258,7 @@ struct MarkdownView: View {
                     .system(size: textSize.points(level == 1 ? 20 : level == 2 ? 16 : 14), weight: .semibold)
                 )
                 .padding(.top, 4)
+                .accessibilityAddTraits(.isHeader)
         case .listItem(let marker, let depth, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker)
@@ -210,22 +284,18 @@ struct MarkdownView: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     GridRow {
-                        ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                            Text(cell).fontWeight(index == 0 ? .semibold : nil)
+                        ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                            Text(cell)
+                                .fontWeight(index == 0 ? .semibold : nil)
+                                .foregroundStyle(index > 0 && column == 0 ? .secondary : .primary)
                         }
                     }
-                    if index == 0 { Divider().gridCellUnsizedAxes(.horizontal) }
+                    if index < rows.count - 1 { Divider().gridCellUnsizedAxes(.horizontal) }
                 }
             }
+            .monospacedDigit()
         case .rule:
             Divider()
         }
-    }
-}
-
-extension TextSize {
-    /// A size designed for small text (body 13), scaled to this step's body.
-    func points(_ small: CGFloat) -> CGFloat {
-        (small * bodySize / TextSize.small.bodySize).rounded()
     }
 }

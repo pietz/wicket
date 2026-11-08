@@ -137,7 +137,7 @@ Environment of the process:
 
 A result is an object with exactly one key, which says what it is.
 
-The [gallery sample](../Extensions/gallery) shows one of each: an answer, a composed list, file and link rows, and pages with their metadata under and beside the text, each a plain JSON file in its `screens/` folder. To see it in Wicket, copy the `gallery` folder into the extensions folder (`~/Library/Application Support/Wicket/Extensions`), run the Extensions command, pick Gallery and Review and Enable it; then type `gallery`.
+The [gallery sample](../Extensions/gallery) shows what pages can be: weather (a card with columns, stats and a sparkline), a comparison of two cards, a repo's changes (toned stats, a timeline, file rows), a person with a portrait from the web, a calendar, and one plain list in sections under a summary, each a plain JSON file in its `screens/` folder. To see it in Wicket, copy the `gallery` folder into the extensions folder (`~/Library/Application Support/Wicket/Extensions`), run the Extensions command, pick Gallery and Review and Enable it; then type `gallery`.
 
 ### Level 1: an answer
 
@@ -162,8 +162,7 @@ Since 0.0.6 a list can also say something about its rows and group them:
 
 ```json
 {"list":{
-  "summary":"Three invoices, **one overdue**.",
-  "facts":[{"label":"Total","value":"€420"},{"label":"Overdue","value":"1"}],
+  "summary":"Three invoices, **one overdue**.\n\n<stat label=\"Total\" value=\"€420\"/>\n<stat label=\"Overdue\" value=\"1\" tone=\"negative\"/>",
   "sections":[
     {"title":"Overdue","items":[{"file":"~/Documents/Invoices/Hetzner 2026-10.pdf","accessory":"since Nov 3"}]},
     {"title":"Due","items":[{"file":"~/Documents/Invoices/Telekom.pdf","accessory":"€180 · Nov 14"}]}
@@ -175,11 +174,10 @@ Since 0.0.6 a list can also say something about its rows and group them:
 |---|---|---|
 | `items` | | The rows. A list has `items` or `sections`, never both. |
 | `sections` | 0.0.6 | Titled groups of rows (`title`, `items`), instead of `items`; the arrow keys skip the titles. Up to 500 rows in all, and ids are unique across sections. |
-| `summary` | 0.0.6 | [Markup](markup.md) pinned above the rows, not selectable: a sentence or two of context, perhaps with `<stat>`s or `<facts>`. Rows and the answer can't be in it, and a card's target is dropped, since the arrows belong to the rows. It shows whole when it is three lines or fewer, or when the list has at most three rows and the summary fits in the room they leave; otherwise its first three lines show with "more", and Read Summary in the action panel (⌘K) opens it whole as a page. |
-| `facts` | 0.0.6 | Labelled values (`label`, `value`) in a strip under the summary; up to four show beside the rows, and all of them on the Read Summary page, which more than four also offers. |
+| `summary` | 0.0.6 | [Markup](markup.md) above the rows, scrolling with them and not selectable: a sentence or two of context, perhaps with `<stat>`s or `<facts>`. Rows and the answer can't be in it, and a card's target is dropped, since the arrows belong to the rows. The card makes room for it up to the height of four rows; a longer summary scrolls away as the rows are read. |
 
 
-The rows are always whole: the card shows up to eight (with the section titles above them) under the summary and facts, and scrolls the rest.
+The rows are always whole: the card shows up to eight (with the section titles above them) under the summary, and scrolls the rest. (`facts`, a strip of labelled values in 0.0.6, is gone: put `<stat>`s or `<facts>` in the summary.)
 
 ### Level 2: a detail view
 
@@ -192,7 +190,7 @@ The rows are always whole: the card shows up to eight (with the section titles a
 }}
 ```
 
-`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket run` reports every tag it can't read, with its line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the markdown.
+`markdown` is [markup](markup.md): Markdown (headings, emphasis, lists, links, code blocks, block quotes and tables) with Wicket's native component tags, the same an agent writes; `wicket run` reports every tag it can't read, with its line. `metadata` is a list of label and value pairs: Wicket shows them in a column beside the text when the text is the taller of the two, otherwise as a table under the text, full width. Nothing in the data chooses this. Return runs the first action; with no actions, Return copies the page as plain text, tags dropped.
 
 ### Done: close or reload
 

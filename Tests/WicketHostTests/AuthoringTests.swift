@@ -85,7 +85,7 @@ private func finalDetail(
     for try await result in runner.run(
         Invocation(command: .runAgent, text: question, args: args))
     {
-        if case .show(.detail(let detail), _) = result { last = detail }
+        if let detail = result.page { last = detail }
     }
     return last
 }
@@ -243,7 +243,7 @@ private func finalDetail(
     for try await result in runner.run(
         Invocation(command: .reviewExtension, args: ["id": .string("broken")]))
     {
-        if case .show(.detail(let detail), _) = result { last = detail }
+        if let detail = result.page { last = detail }
     }
     let detail = try #require(last)
     #expect(!detail.actions.contains { $0.title == "Enable" })
@@ -286,7 +286,7 @@ func theAgentBuildsACommandThatWicketOffersForReview(provider: AgentProvider) as
             command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
             context: SummonContext(files: [root])))
     {
-        if case .show(.detail(let detail), _) = result { last = detail }
+        if let detail = result.page { last = detail }
     }
     let detail = try #require(last)
     print("ANSWER:\n\(detail.markdown)\nACTIONS: \(detail.actions.compactMap(\.title))")
@@ -301,7 +301,7 @@ func theAgentBuildsACommandThatWicketOffersForReview(provider: AgentProvider) as
     for try await result in consent.run(
         Invocation(command: .reviewExtension, args: ["id": .string(id)]))
     {
-        if case .show(.detail(let detail), _) = result { page = detail }
+        if let detail = result.page { page = detail }
     }
     print("REVIEW:\n\(page?.markdown ?? "-")\nACTIONS: \(page?.actions.compactMap(\.title) ?? [])")
     #expect(page?.actions.first?.title == "Enable")

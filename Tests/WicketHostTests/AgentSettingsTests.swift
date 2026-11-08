@@ -89,15 +89,16 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
         })
     let runner = AgentRunner(answers: AnswerStream(backend: backend, provider: { .codex }))
     runner.answers.options = { _ in AgentOptions(model: "gpt-6-astra", effort: "max") }
-    var details: [Detail] = []
+    // The approval's Allow and Deny are the answer screen's actions.
+    var actions: [Item.Action] = []
     for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt")) {
-        guard case .show(.detail(let detail), _) = result else { continue }
-        details.append(detail)
-        if !detail.actions.isEmpty { break }
+        guard case .show(.detail, let context) = result else { continue }
+        actions = context.actions
+        if !actions.isEmpty { break }
     }
     let request = try #require(requests.all.first)
     #expect(request.options == AgentOptions(model: "gpt-6-astra", effort: "max"))
-    #expect(details.last?.actions.map(\.title) == ["Allow", "Deny"])
+    #expect(actions.map(\.title) == ["Allow", "Deny"])
 }
 
 private final class RequestLog: @unchecked Sendable {

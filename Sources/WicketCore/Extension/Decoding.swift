@@ -138,7 +138,7 @@ extension RunResult: Decodable {
             self = .show(.answer(item), context)
         case "list":
             self = .show(
-                .list(try Listing(object.object(kind, ["summary", "facts", "items", "sections"]), wire)),
+                .list(try Listing(object.object(kind, ["summary", "items", "sections"]), wire)),
                 context)
         case "detail":
             self = .show(.detail(try object.required(kind)), context)
@@ -150,8 +150,7 @@ extension RunResult: Decodable {
 }
 
 extension Listing {
-    /// A list's fields: `items` or `sections`, never both; a summary and facts. Duplicate ids are an
-    /// error.
+    /// A list's fields: `items` or `sections`, never both; a summary. Duplicate ids are an error.
     fileprivate init(_ list: WireObject, _ wire: WireContext) throws {
         if list.has("items") == list.has("sections") {
             throw list.invalid(
@@ -163,7 +162,6 @@ extension Listing {
             self.init(sections: try list.required("sections") as [Section])
         }
         summary = try list.optionalNonEmpty("summary")
-        facts = try list.optional("facts") ?? []
         let key = list.has("items") ? "items" : "sections"
         let count = items.count
         if count > RunResult.itemLimit {

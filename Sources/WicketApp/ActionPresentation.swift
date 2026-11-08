@@ -76,9 +76,7 @@ struct ActionMenu {
             Row(id: .action($0.offset), presentation: present($0.element, target.authority))
         }
         let screen = target.screen.enumerated().map { index, action in
-            var presentation = present(action, .host)
-            if ReadSummary.is(action) { presentation.title = ReadSummary.title }
-            return Row(id: .screen(index), presentation: presentation)
+            Row(id: .screen(index), presentation: present(action, .host))
         }
         all = actions + screen
     }
@@ -99,10 +97,10 @@ struct ActionMenu {
         return rows.indices.contains(selection) ? rows[selection] : nil
     }
 
-    /// The chord that runs the action at `position` without the panel: Return the first, ⌘↩ the
-    /// target's secondary.
+    /// The chord that runs the action at `position` without the panel: Return the target's primary,
+    /// ⌘↩ its secondary.
     func shortcut(for position: ActionTarget.Position) -> String? {
-        if position == .action(0) { return "↩" }
+        if position == target.primary { return "↩" }
         return position == target.secondary ? "⌘↩" : nil
     }
 

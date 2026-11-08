@@ -16,8 +16,8 @@ enum PaletteMetrics {
     static let pillHeight: CGFloat = 56
     static let gap: CGFloat = 8
     /// The tallest card of plain rows, and of a page: exactly eight whole rows above the divider and
-    /// footer, so no row is ever cut in half at rest. A list's top, its section titles and an answer
-    /// on top make its card taller by their height (`cardHeight`).
+    /// footer, so no row is ever cut in half at rest. A list's summary, its section titles and an
+    /// answer on top make its card taller by their height (`cardHeight`).
     static let maxCardHeight: CGFloat =
         CGFloat(maxRows) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset + 1 + FooterBar.height
     static let cardRadius: CGFloat = 22
@@ -33,8 +33,8 @@ enum PaletteMetrics {
     static let margin: CGFloat = 40
 
     /// The card for `frame`, and while the action panel is open at least tall enough for it. A
-    /// compact frame has none. A list's card is computed: its top (summary and facts, as measured:
-    /// `listTop`), then whole rows, at most `maxRows` (an answer and seven), with the section titles
+    /// compact frame has none. A list's card is computed: its summary (as measured: `listTop`, up to
+    /// `maxListTop`), then whole rows, at most `maxRows` (an answer and seven), with the section titles
     /// above them; more scroll. A screen without rows (a page) fits its content as measured
     /// (`detailHeight`), up to `maxCardHeight`, since markdown wraps. An empty list shows one row
     /// saying so. Nil, keep the card as it is, while a command frame waits for its first content, a
@@ -50,9 +50,9 @@ enum PaletteMetrics {
         var top: CGFloat = 0
         var headers: [Bool] = []
         if let listing = frame.listing {
-            if listing.hasTop {
+            if listing.summary != nil {
                 guard let listTop else { return nil }
-                top = listTop
+                top = min(listTop, maxListTop)
             }
             headers = listing.headerTitles(for: results).map { $0 != nil }
         }
@@ -64,6 +64,9 @@ enum PaletteMetrics {
 
     /// The most rows a card shows whole; more scroll.
     static let maxRows = 8
+    /// The most a list's summary adds to its card: four rows' worth. A taller one scrolls with the
+    /// rows, so the card never outgrows the screen for a summary.
+    static let maxListTop: CGFloat = 4 * (rowHeight + rowSpacing)
     /// A section's title above its first row.
     static let sectionHeaderHeight: CGFloat = 24
 
@@ -116,6 +119,8 @@ struct PaletteRootView: View {
     let onOpenLink: (URL) -> Void
     /// The search field's text changed: keeps its caret in view.
     let onQueryChange: () -> Void
+    /// Text typed on a page; true if it started something (a Follow Up).
+    let onType: (String) -> Bool
     @FocusState private var focus: PaletteFocus?
     @Namespace private var glass
 
@@ -236,6 +241,15 @@ struct PaletteRootView: View {
         }
     }
 
+    /// Whether a key press typed text: printable characters, not a control key or one of AppKit's
+    /// function keys (the arrows, Page Down), which come as private-use characters.
+    static func isTyped(_ characters: String) -> Bool {
+        !characters.isEmpty
+            && characters.unicodeScalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
+            }
+    }
+
     /// The search field's identity: a new field per frame (a keyword opens a frame from inside the
     /// field's own edit, and an editing TextField ignores a binding change made there, so it would
     /// keep showing "week " and append the next keys to it), and per kind, field or title.
@@ -288,12 +302,19 @@ struct PaletteRootView: View {
                 return .handled
             }
             .onKeyPress(.return) {
-                onRun(model.target, .action(0))
+                onRun(model.target, model.target?.primary ?? .action(0))
                 return .handled
             }
             .onKeyPress(.escape) {
                 onEscape()
                 return .handled
+            }
+            // Typing on a document (a page, which has no field) starts a Follow Up with the text.
+            .onKeyPress(phases: .down) { press in
+                guard model.top.isMeasured, press.modifiers.isDisjoint(with: [.command, .control]),
+                    Self.isTyped(press.characters)
+                else { return .ignored }
+                return onType(press.characters) ? .handled : .ignored
             }
             // Backspace in an empty field dismisses the context, as it would delete a token.
             .onKeyPress(.delete) {
@@ -315,12 +336,12 @@ struct PaletteRootView: View {
 
 /// The top frame's content in the card: a list (the root's results, or a screen's rows), or a page.
 /// A command frame waiting for its first content shows nothing yet; the pill spins. The one place a
-/// `Screen` case meets its view: a view without rows reports its height through `measure`.
+/// `Screen` meets its view: a page draws its document and reports its height through `measure`.
 private struct FrameContent: View {
     let model: PaletteModel
     let onRun: (ActionTarget?, ActionTarget.Position) -> Void
 
-    /// Reports a detail's content height for the frame this view shows, so a view on its way out
+    /// Reports a page's content height for the frame this view shows, so a view on its way out
     /// never sizes the next frame's card.
     private var measure: (CGFloat) -> Void {
         let frame = model.top.id
@@ -328,51 +349,61 @@ private struct FrameContent: View {
     }
 
     var body: some View {
-        switch model.top.content {
-        case .search: ResultsView(model: model, onRun: onRun)
-        case .screen(let frame):
-            switch frame.screen {
-            case .answer, .list: ResultsView(model: model, onRun: onRun)
-            case .detail(let detail): DetailView(detail: detail, textSize: model.textSize, onMeasure: measure)
-            case nil: Color.clear
+        if case .screen(let frame) = model.top.content, let document = frame.document,
+            case .detail(let detail)? = frame.screen
+        {
+            DocumentView(
+                document: document, metadata: detail.metadata, textSize: model.textSize,
+                scroll: model.scrollRequest, onMeasure: measure
+            )
+            .environment(\.documentFocus, focus)
+            .environment(\.loadsOnlineContent, model.loadsOnlineContent)
+            .onPreferenceChange(BlockedImagesKey.self) { [model, frame = model.top.id] count in
+                model.blockImages(count, of: frame)
             }
+        } else if case .screen(let frame) = model.top.content, frame.screen == nil {
+            Color.clear
+        } else {
+            ResultsView(model: model, onRun: onRun)
         }
+    }
+
+    /// The selection, a target's click, and the ⌘1 to ⌘9 hints while ⌘ is held.
+    private var focus: DocumentFocus {
+        let targets = model.results
+        var hints: [String: String] = [:]
+        if model.commandHeld, model.actionMenu == nil {
+            for (index, item) in targets.prefix(9).enumerated() { hints[item.id] = "⌘\(index + 1)" }
+        }
+        return DocumentFocus(
+            selected: model.top.list?.selectedItem?.id, hints: hints,
+            run: { [model, onRun] item in onRun(model.top.target(for: item), .action(0)) })
     }
 }
 
-/// The result list: a list's top (summary and facts) pinned above its rows, section titles above
+/// The result list: a list's summary above its rows, scrolling with them, section titles above
 /// their first rows. Each title is drawn with its row, so scrolling to a row shows its title too.
 struct ResultsView: View {
     let model: PaletteModel
     let onRun: (ActionTarget?, ActionTarget.Position) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let listing = model.top.listing, listing.hasTop {
-                let frame = model.top.id
-                ListTop(
-                    listing: listing, onReadSummary: readSummary,
-                    onMeasure: { [model] in model.measureListTop($0, clipped: $1, of: frame) })
-            }
-            rows
-        }
-    }
-
-    /// The "more" after a clipped summary runs Read Summary, as ⌘K would.
-    private func readSummary() {
-        guard let target = model.target, let index = target.screen.firstIndex(where: ReadSummary.is) else {
-            return
-        }
-        onRun(target, .screen(index))
+        rows
     }
 
     private var rows: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
-                    // The content's real top, above the inset: scrolling to the first row itself
-                    // would hide the inset above it.
+                    // The content's real top, above the summary and the inset: scrolling to the first
+                    // row itself would hide them.
                     Color.clear.frame(height: 0).id(Self.top)
+                    if let summary = model.top.summary {
+                        let frame = model.top.id
+                        ListTop(
+                            summary: summary, textSize: model.textSize,
+                            onMeasure: { [model] in model.measureListTop($0, of: frame) })
+                    }
                     if model.results.isEmpty {
                         // Blank while the search or run still goes on, under the card kept from before.
                         Text(model.top.isLoading ? "" : "No Results")
@@ -391,7 +422,9 @@ struct ResultsView: View {
                                     }
                                     ResultRow(
                                         item: item, isProminent: ResultRow.isProminent(item, at: index),
-                                        isSelected: index == model.selection, hint: hint(for: index)
+                                        isSelected: model.top.list?.hasSelection == true
+                                            && index == model.selection,
+                                        hint: hint(for: index)
                                     )
                                     .contentShape(Rectangle())
                                     .onTapGesture { onRun(model.top.target(for: item), .action(0)) }
@@ -681,6 +714,8 @@ struct ResultRow: View {
     let isSelected: Bool
     /// Replaces the accessory while ⌘ is held.
     let hint: String?
+    /// How much larger than a list's row it draws: a document's rows follow its text size.
+    var scale: CGFloat = 1
     /// The file's modification date, for a file row without an accessory; nil until read.
     @State private var modified: Date?
 
@@ -700,7 +735,7 @@ struct ResultRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            IconView(icon: item.icon)
+            IconView(icon: item.icon, size: 26 * scale)
             if isProminent {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(item.title)
@@ -724,19 +759,19 @@ struct ResultRow: View {
                             .truncationMode(.middle)
                     }
                 }
-                .font(.system(size: 14))
+                .font(.system(size: (14 * scale).rounded()))
                 .lineLimit(1)
             }
             Spacer(minLength: 8)
             if let accessory = hint ?? accessory {
                 Text(accessory)
-                    .font(.system(size: 13))
+                    .font(.system(size: (13 * scale).rounded()))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: isProminent ? PaletteMetrics.answerRowHeight : PaletteMetrics.rowHeight)
+        .frame(height: (isProminent ? PaletteMetrics.answerRowHeight : PaletteMetrics.rowHeight) * scale)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: PaletteMetrics.rowRadius, style: .continuous)

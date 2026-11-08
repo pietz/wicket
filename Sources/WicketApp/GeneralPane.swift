@@ -2,8 +2,8 @@ import ServiceManagement
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ General: the hotkey, the palette's width and text size, launch at login, the menu bar icon, updates, the
-/// settings file and the extensions folder.
+/// Settings ▸ General: the hotkey, the palette's width, text size and online content, launch at
+/// login, the menu bar icon, updates, the settings file and the extensions folder.
 struct GeneralPane: View {
     let store: SettingsStore
     /// Sparkle, for the released app; nil in Wicket Dev, which hides the Updates section.
@@ -57,6 +57,12 @@ struct GeneralPane: View {
                     ForEach(TextSize.allCases, id: \.self) { size in
                         Text(size.rawValue.capitalized)
                     }
+                }
+                Toggle(isOn: showOnlineContent) {
+                    Text("Show online content")
+                    Text(
+                        "Images on a page load from the web. When it's off, Load Images in ⌘K loads a page's."
+                    )
                 }
             }
             Section {
@@ -141,6 +147,14 @@ struct GeneralPane: View {
             store.settings.textSize
         } set: { size in
             perform { try store.update { $0.textSize = size } }
+        }
+    }
+
+    private var showOnlineContent: Binding<Bool> {
+        Binding {
+            store.settings.showOnlineContent
+        } set: { show in
+            perform { try store.update { $0.showOnlineContent = show } }
         }
     }
 

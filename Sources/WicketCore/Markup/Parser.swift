@@ -79,13 +79,16 @@ extension Markup {
     public static func document(_ text: String, context: Context = Context()) -> Document {
         var parser = Parser(context: context)
         let parsed = parser.parse(text)
-        if !parsed.issues.isEmpty {
-            let counts = Dictionary(grouping: parsed.issues, by: \.kind)
-                .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: ", ")
-            logger.info(
-                "markup: \(parsed.issues.count, privacy: .public) issues (\(counts, privacy: .public))")
-        }
+        log(parsed.issues)
         return parsed.document
+    }
+
+    /// Logs how many `issues` a parse had, by kind; nothing when there are none.
+    public static func log(_ issues: [Issue]) {
+        guard !issues.isEmpty else { return }
+        let counts = Dictionary(grouping: issues, by: \.kind)
+            .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: ", ")
+        logger.info("markup: \(issues.count, privacy: .public) issues (\(counts, privacy: .public))")
     }
 
     /// Every problem in `text`, for `wicket run`: an extension's markup must have none, while the

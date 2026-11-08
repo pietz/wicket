@@ -5,8 +5,8 @@ import WicketCore
 
 @testable import WicketApp
 
-/// The composed list's rules that don't need a window: when a summary is clipped, how its card is
-/// sized, when Read Summary is offered and how the action panel groups the screen's actions.
+/// The composed list's and page's rules that don't need a window: how a card is sized under a
+/// summary, when Load Images is offered and how the action panel groups the screen's actions.
 @MainActor
 struct ComposedListTests {
     let runner = FakeRunner()
@@ -28,24 +28,6 @@ struct ComposedListTests {
 
     private func rows(_ count: Int) -> [Item] { (0..<count).map { item("\($0)") } }
 
-    /// Three lines show whole beside any number of rows; a longer summary is clipped to three,
-    /// unless at most three rows leave it the room of the rows they don't take.
-    @Test func summaryIsClippedOnlyWhenItDoesNotFit() {
-        let line: CGFloat = 16
-        #expect(!SummaryLayout.isClipped(lines: 3, rows: 20, lineHeight: line))
-        #expect(SummaryLayout.isClipped(lines: 4, rows: 20, lineHeight: line))
-        #expect(SummaryLayout.isClipped(lines: 4, rows: 4, lineHeight: line))
-        // Three rows leave five rows of 42 pt: 13 more lines of 16 pt.
-        #expect(SummaryLayout.lineLimit(rows: 3, lineHeight: line) == 16)
-        #expect(!SummaryLayout.isClipped(lines: 16, rows: 3, lineHeight: line))
-        #expect(SummaryLayout.isClipped(lines: 17, rows: 3, lineHeight: line))
-        // No rows leave room as one does.
-        #expect(
-            SummaryLayout.lineLimit(rows: 0, lineHeight: line)
-                == SummaryLayout.lineLimit(rows: 1, lineHeight: line))
-        #expect(SummaryLayout.lines(height: 47, lineHeight: line) == 3)
-    }
-
     /// The rows' part holds whole rows, at most eight, with the section titles among them.
     @Test func rowsHeightCountsTitlesAmongTheShownRows() {
         let step = PaletteMetrics.rowHeight + PaletteMetrics.rowSpacing
@@ -64,8 +46,8 @@ struct ComposedListTests {
                 == PaletteMetrics.maxCardHeight)
     }
 
-    /// A list with a top waits for the top's measurement, then adds it to the rows and titles.
-    @Test func cardAddsTheMeasuredTopAndTitles() async {
+    /// A list with a summary waits for its measurement, then adds it to the rows and titles.
+    @Test func cardAddsTheMeasuredSummaryAndTitles() async {
         let listing = Listing(
             sections: [.init(title: "A", items: rows(2)), .init(title: "B", items: [item("x")])],
             summary: "Three things.")
@@ -77,43 +59,35 @@ struct ComposedListTests {
         #expect(card == (40 + rowsHeight + 1 + FooterBar.height).rounded(.up))
     }
 
-    /// Eight whole rows still show under a top: the card grows past the plain cap by the top.
-    @Test func longListUnderATopKeepsEightWholeRows() async {
-        let frame = await show(Listing(rows(30), facts: [.init(label: "Total", value: "30")]))
+    /// Eight whole rows still show under a summary: the card grows past the plain cap by the
+    /// summary, up to four rows' worth; a taller summary scrolls with the rows.
+    @Test func longListUnderASummaryKeepsEightWholeRows() async {
+        let frame = await show(Listing(rows(30), summary: "<stat label=\"Total\" value=\"30\"/>"))
+        #expect(frame.summary?.blocks.count == 1)
         let card = PaletteMetrics.cardHeight(for: frame, actionMenu: nil, detailHeight: nil, listTop: 50)
         #expect(card == PaletteMetrics.maxCardHeight + 50)
+        let tall = PaletteMetrics.cardHeight(for: frame, actionMenu: nil, detailHeight: nil, listTop: 900)
+        #expect(tall == PaletteMetrics.maxCardHeight + PaletteMetrics.maxListTop)
     }
 
-    /// Read Summary joins the screen's actions when the view clipped the summary or there are more
-    /// facts than the strip shows, after the screen's own actions, and never takes ⌘↩ from the row.
-    @Test func readSummaryIsOfferedWhenThereIsMore() async {
+    /// With online content off, a page holding web images offers Load Images among the screen's
+    /// actions, until it is run for that page; with it on, never.
+    @Test func loadImagesIsOfferedWhileOnlineContentIsOff() async {
         let model = PaletteModel(sources: [], runner: runner, usageURL: scratchUsage())
         let once = command("show")
-        let facts = (0..<5).map { Detail.Metadata(label: "L\($0)", value: "\($0)") }
         model.session.open(CommandRun(once, .invoked))
         #expect(await eventually { runner.count[once.id] == 1 })
         runner.runs[once.id]?.yield(
-            .show(.list(Listing(rows(5), summary: "Long", facts: Array(facts.prefix(4))))))
-        #expect(await eventually { model.session.frames.count == 2 })
+            .show(.detail(Detail(markdown: "<image src=\"https://example.com/a.png\"/>\n\nText"))))
+        runner.runs[once.id]?.finish()
+        #expect(await eventually { model.session.frames.count == 2 && !model.top.isLoading })
+        model.blockImages(1, of: model.top.id)
         #expect(model.target?.screen.isEmpty == true)
-        model.measureListTop(60, clipped: true, of: model.top.id)
-        #expect(model.target?.screen.count == 1)
-        #expect(model.target?.screen.first.map(ReadSummary.is) == true)
-        #expect(model.target?.secondary == .action(1))
-        let menu = model.actionMenu(for: model.target!)
-        #expect(menu.rows.last?.presentation.title == "Read Summary")
-        #expect(menu.lineCount == 2)  // The group's title and Read Summary; the row has no actions.
-
-        // Unclipped, five facts still offer it; the page holds them all.
-        runner.runs[once.id]?.yield(.show(.list(Listing(rows(5), summary: "Short", facts: facts))))
-        #expect(await eventually { model.top.listing?.facts.count == 5 })
-        model.measureListTop(60, clipped: false, of: model.top.id)
-        guard case .detail(let page)? = model.target?.screen.last else {
-            Issue.record("no Read Summary")
-            return
-        }
-        #expect(page.markdown == "Short")
-        #expect(page.metadata == facts)
+        model.showsOnlineContent = false
+        #expect(model.target?.screen == [.run(command: .loadImages, title: "Load Images")])
+        model.loadImages()
+        #expect(model.loadsOnlineContent)
+        #expect(model.target?.screen.isEmpty == true)
     }
 
     /// The panel lists the row's actions, then the screen's under its title; ⌘↩ marks the

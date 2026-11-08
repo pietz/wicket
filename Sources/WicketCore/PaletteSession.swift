@@ -165,6 +165,13 @@ public final class PaletteSession {
         frames[frames.count - 1].moveSelection(by: delta)
     }
 
+    /// The action typing on the top frame starts (`Frame.typingAction`): Follow Up on an agent's
+    /// answer, whose command waits for text in the registry. Nil where typing filters or does
+    /// nothing.
+    public var typingAction: Item.Action? {
+        top.typingAction { registry?.command($0)?.input == .submitText }
+    }
+
     /// Sets the text from speech, in the root search or a frame waiting for its text (Run Agent's
     /// question, a follow-up): like typing it, except a leading keyword never opens its command,
     /// since a transcript grows word by word and would be routed halfway through. Returns false,

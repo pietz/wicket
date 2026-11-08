@@ -53,17 +53,21 @@ public enum RunResult: Sendable, Hashable {
 public struct ScreenContext: Sendable, Hashable {
     public var authority: Authority
     public var actions: [Item.Action]
+    /// Which of `actions` ⌘↩ runs (Follow Up on an answer), whatever is selected: the first unless
+    /// the screen says otherwise.
+    public var secondary: Int
 
-    public init(authority: Authority, actions: [Item.Action] = []) {
+    public init(authority: Authority, actions: [Item.Action] = [], secondary: Int = 0) {
         self.authority = authority
         self.actions = actions
+        self.secondary = secondary
     }
 
     public static let host = ScreenContext(authority: .host)
 }
 
-/// A list screen: an optional markdown summary and labelled facts above one collection of rows,
-/// flat or in titled sections. Flat rows are one section without a title.
+/// A list screen: an optional summary above one collection of rows, flat or in titled sections.
+/// Flat rows are one section without a title.
 public struct Listing: Sendable, Hashable, ExpressibleByArrayLiteral {
     public struct Section: Sendable, Hashable {
         /// Nil for a flat list's one section.
@@ -76,19 +80,16 @@ public struct Listing: Sendable, Hashable, ExpressibleByArrayLiteral {
         }
     }
 
-    /// Markdown pinned above the rows.
+    /// Markup above the rows (placement `summary`: nothing in it is selectable).
     public var summary: String?
-    /// Labelled values under the summary.
-    public var facts: [Detail.Metadata]
     public var sections: [Section]
 
-    public init(_ items: [Item], summary: String? = nil, facts: [Detail.Metadata] = []) {
-        self.init(sections: [Section(title: nil, items: items)], summary: summary, facts: facts)
+    public init(_ items: [Item], summary: String? = nil) {
+        self.init(sections: [Section(title: nil, items: items)], summary: summary)
     }
 
-    public init(sections: [Section], summary: String? = nil, facts: [Detail.Metadata] = []) {
+    public init(sections: [Section], summary: String? = nil) {
         self.summary = summary
-        self.facts = facts
         self.sections = sections
     }
 
@@ -149,8 +150,8 @@ public enum Screen: Sendable, Hashable {
         }
     }
 
-    /// The screen as plain text, which Copy Answer copies: a list's summary, its facts and one line
-    /// per row (under its section's title); an answer's line; a page's markdown and metadata.
+    /// The screen as plain text: a list's summary and one line per row (under its section's title);
+    /// an answer's line; a page's markdown and metadata.
     public func text(home: URL) -> String {
         func facts(_ facts: [Detail.Metadata]) -> String? {
             facts.isEmpty ? nil : facts.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
@@ -164,7 +165,7 @@ public enum Screen: Sendable, Hashable {
                 let lines = section.items.map { "- " + $0.line(home: home) }
                 return ([section.title].compactMap { $0 } + lines).joined(separator: "\n")
             }
-            blocks = [list.summary, facts(list.facts)] + rows
+            blocks = [list.summary] + rows
         case .detail(let detail):
             blocks = [detail.markdown, facts(detail.metadata)]
         }

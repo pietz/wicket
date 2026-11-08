@@ -15,15 +15,12 @@ final class PaletteModel {
     /// The top frame's rows; empty for a page.
     var results: [Item] { top.list?.items ?? [] }
     var selection: Int { top.list?.selection ?? 0 }
-    /// What Return, ⌘↩ and ⌘K act on: the top frame's target, with Read Summary among the screen's
-    /// actions while its list has more than its top shows.
+    /// What Return, ⌘↩ and ⌘K act on: the top frame's target, with Load Images among the screen's
+    /// actions while its page holds images that wait for online content.
     var target: ActionTarget? {
         guard var target = top.target else { return nil }
-        if let listing = top.listing,
-            SummaryLayout.hasMore(
-                listing, summaryClipped: listTop?.frame == top.id && listTop?.clipped == true)
-        {
-            target.screen.append(ReadSummary.action(for: listing))
+        if !loadsOnlineContent, blockedImages?.frame == top.id, blockedImages?.count ?? 0 > 0 {
+            target.screen.append(.run(command: .loadImages, title: "Load Images"))
         }
         return target
     }
@@ -40,6 +37,16 @@ final class PaletteModel {
     }
     /// The text size of pages (details, Run Agent's answer), from settings.
     var textSize = TextSize.medium
+    /// Whether pages load images from the web ("Show online content"), from settings.
+    var showsOnlineContent = true
+    /// Pages whose images the user loaded with Load Images while online content is off.
+    private var imagesLoaded: Set<Frame.ID> = []
+    /// How many images the top frame's page holds back while online content is off.
+    private var blockedImages: (frame: Frame.ID, count: Int)?
+    /// Whether the top frame's page loads its web images.
+    var loadsOnlineContent: Bool { showsOnlineContent || imagesLoaded.contains(top.id) }
+    /// The latest press of the arrows that moved no selection on a page, which scrolls it instead.
+    private(set) var scrollRequest: ScrollRequest?
     /// Bumped on every summon so a SwiftUI search field can take focus.
     var focusToken = 0
     /// The action panel (⌘K), when open. One optional, so at most one panel exists.
@@ -59,9 +66,8 @@ final class PaletteModel {
     var isExpanded: Bool { cardHeight > 0 }
     /// The top frame's page content as last laid out, which sizes its card.
     private var detailMeasure: DetailMeasure?
-    /// The height of a list's top (summary and facts) as last laid out, and whether its summary
-    /// was clipped.
-    private var listTop: (frame: Frame.ID, height: CGFloat, clipped: Bool)?
+    /// The height of a list's summary as last laid out.
+    private var listTop: (frame: Frame.ID, height: CGFloat)?
     /// The height of the top frame's list top; nil before it is laid out.
     var listTopHeight: CGFloat? { listTop?.frame == top.id ? listTop?.height : nil }
     /// What activating an action under an authority runs (`ActionDispatcher.resolve`), so the footer
@@ -116,10 +122,28 @@ final class PaletteModel {
         }
     }
 
-    /// The list top of `frame` was laid out `height` tall, its summary `clipped` or not.
-    func measureListTop(_ height: CGFloat, clipped: Bool, of frame: Frame.ID) {
+    /// The list summary of `frame` was laid out `height` tall.
+    func measureListTop(_ height: CGFloat, of frame: Frame.ID) {
         guard frame == top.id else { return }
-        listTop = (frame, height, clipped)
+        listTop = (frame, height)
+    }
+
+    /// The page of `frame` holds back `count` web images while online content is off.
+    func blockImages(_ count: Int, of frame: Frame.ID) {
+        guard frame == top.id, blockedImages?.frame != frame || blockedImages?.count != count else { return }
+        blockedImages = (frame, count)
+    }
+
+    /// Load Images: the top frame's page loads its web images, this once.
+    func loadImages() {
+        imagesLoaded.insert(top.id)
+    }
+
+    /// Forgets what the last summon's pages loaded, for when the palette is dismissed.
+    func forgetPages() {
+        imagesLoaded = []
+        blockedImages = nil
+        scrollRequest = nil
     }
 
     /// `action` named as it runs under `authority`.
@@ -129,7 +153,7 @@ final class PaletteModel {
 
     /// What Return runs on `target`, for the footer.
     func primaryPresentation(_ target: ActionTarget) -> ActionPresentation? {
-        target.actions.first.map { present($0, as: target.authority) }
+        target.action(at: target.primary).map { present($0.action, as: $0.authority) }
     }
 
     /// The title of the screen action ⌘↩ runs on `target`, if it runs one (Follow Up).
@@ -155,8 +179,13 @@ final class PaletteModel {
         return "Page"
     }
 
+    /// The arrows: move the selection; on a page where they select nothing (no targets, or above
+    /// the first with none selected), scroll it instead.
     func moveSelection(by delta: Int) {
+        let before = top.list?.selectedItem?.id
         session.moveSelection(by: delta)
+        guard top.isMeasured, top.list?.selectedItem == nil, before == nil else { return }
+        scrollRequest = ScrollRequest(serial: (scrollRequest?.serial ?? 0) + 1, lines: delta)
     }
 
     /// Runs the root search again, for when a source's data changed.

@@ -113,7 +113,8 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     session.push(page, from: .host)
     #expect(session.query.isEmpty)
     #expect(!session.top.isCompact)
-    #expect(session.top.list == nil)
+    // A page's list holds its targets: none in plain text.
+    #expect(session.top.list?.items.isEmpty == true)
 }
 
 @MainActor @Test func theRootKeepsLoadingUnderAPushedFrame() async {
@@ -165,10 +166,28 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
 }
 
 @Test func detailsActOnTheirOwnActions() {
-    #expect(ActionTarget(detail: page, in: .host).actions == [.copy(text: "x")])
-    #expect(ActionTarget(detail: page, in: .host).item == nil)
-    // Without actions, Return copies the markdown.
-    #expect(ActionTarget(detail: Detail(markdown: "# Hi"), in: .host).actions == [.copy(text: "# Hi")])
+    #expect(ActionTarget(detail: page, text: "x", in: .host).actions == [.copy(text: "x")])
+    #expect(ActionTarget(detail: page, text: "x", in: .host).item == nil)
+    // Without actions, Return copies the page as text.
+    #expect(
+        ActionTarget(detail: Detail(markdown: "# Hi"), text: "Hi", in: .host).actions == [.copy(text: "Hi")])
+}
+
+/// An agent's page has no actions of its own: every action on it is Wicket's, the screen's. Return
+/// runs the first (Copy Answer) and ⌘↩ the one the screen names (Follow Up), selected row or not.
+@Test func anAgentsPageActsThroughTheScreensActions() {
+    let copy = Item.Action.copy(text: "answer", title: "Copy Answer")
+    let followUp = Item.Action.run(command: .builtin("follow-up"), title: "Follow Up")
+    let context = ScreenContext(authority: .agent, actions: [copy, followUp], secondary: 1)
+    let page = ActionTarget(detail: Detail(markdown: "# Hi"), text: "Hi", in: context)
+    #expect(page.actions.isEmpty)
+    #expect(page.primary == .screen(0))
+    #expect(page.secondary == .screen(1))
+    #expect(page.action(at: page.primary)?.action == copy)
+    let row = ActionTarget(item: item("A"), in: context)
+    #expect(row.primary == .action(0))
+    #expect(row.secondary == .screen(1))
+    #expect(row.action(at: row.secondary)?.authority == .host)
 }
 
 /// ⌘↩ is the screen's first action when it has any, else the second action as before.

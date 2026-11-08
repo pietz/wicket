@@ -102,7 +102,7 @@ private struct Palette {
     /// Picks one of the top frame's actions by title, as the action menu would: a `run` opens its
     /// command, the rest are ignored here.
     func pick(_ title: String) throws {
-        let action = try #require(session.top.target?.actions.first { $0.title == title })
+        let action = try #require(session.top.target?.screen.first { $0.title == title })
         guard case .run(let command, let text, let args, _, _) = action else { return }
         #expect(command == aiApproval.id)
         session.open(
@@ -116,6 +116,21 @@ private struct Palette {
         } else {
             nil
         }
+    }
+
+    /// The answer's actions: an agent's page has none of its own, so they are all the screen's.
+    var screenActions: [Item.Action] {
+        if case .screen(let frame) = session.top.content { frame.context.actions } else { [] }
+    }
+}
+
+extension RunResult {
+    /// The page shown with every action on it: its own, then the screen's (an agent's answer has only
+    /// the screen's).
+    var page: Detail? {
+        guard case .show(.detail(var detail), let context) = self else { return nil }
+        detail.actions += context.actions
+        return detail
     }
 }
 
@@ -139,7 +154,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
     #expect(palette.session.top.isLoading)
     // Nothing to copy or paste yet: Return does nothing rather than clear the clipboard.
-    #expect(palette.detail?.actions == [])
+    #expect(palette.screenActions == [])
     #expect(palette.session.top.target == nil)
     let frame = palette.session.top.id
     // The status shows before the agent is asked.
@@ -156,14 +171,14 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         run.continuation.yield(.message(message))
         #expect(await eventually { palette.detail?.markdown == text })
         #expect(palette.session.top.id == frame)
-        #expect(palette.session.top.target?.actions.first == .copy(text: text, title: "Copy Answer"))
+        #expect(palette.session.top.target?.screen.first == .copy(text: text, title: "Copy Answer"))
     }
     // A final answer the messages don't end with replaces them, so the page ends exactly on it.
     run.continuation.yield(.answer("**Paris**."))
     #expect(await eventually { !palette.session.top.isLoading })
     #expect(palette.detail?.markdown == "**Paris**.")
     #expect(
-        palette.session.top.target?.actions == [
+        palette.session.top.target?.screen == [
             .copy(text: "**Paris**.", title: "Copy Answer"),
             .paste(text: "**Paris**.", title: "Paste Answer"),
         ])
@@ -184,7 +199,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded")
     // Retry asks the same question again, only when picked; Copy takes the text without the note.
     let retry = Item.Action.run(command: runAgent.id, text: "hello", title: "Retry")
-    #expect(palette.session.top.target?.actions == [retry, .copy(text: "Hel", title: "Copy Answer")])
+    #expect(palette.session.top.target?.screen == [retry, .copy(text: "Hel", title: "Copy Answer")])
     #expect(agents.runs.count == 1)
     #expect(agents.wasEnded(0))
 
@@ -196,7 +211,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     agents.runs[1].continuation.yield(.error("the model is overloaded"))
     #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(palette.detail?.markdown == "the model is overloaded")
-    #expect(palette.session.top.target?.actions == [retry])
+    #expect(palette.session.top.target?.screen == [retry])
 }
 
 @MainActor @Test func poppingOrDismissingStopsTheAgent() async throws {
@@ -286,10 +301,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         status: { AgentStatus(provider: $0, state: .ready) }, run: { _, request in agent.run(request) })
     let palette = Palette(backend)
     palette.ask("Make hello.txt")
-    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
+    #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.isEmpty == false })
     #expect(palette.detail?.title == "Make hello.txt")
     #expect(palette.detail?.markdown.hasPrefix("I’ll create `hello.txt`") == true)
-    #expect(palette.detail?.actions.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
+    #expect(palette.screenActions.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
 }
 
 /// The agent works in the Finder selection's folder (the folder itself when it is the only item, else
@@ -318,7 +333,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let prompt = try #require(agents.runs.first).request.prompt
     #expect(prompt == "translate this to German\n\n" + context.promptBlock)
     var title: String? {
-        guard case .show(.detail(let detail), _) = shown.last else { return nil }
+        guard let detail = shown.last?.page else { return nil }
         return detail.title
     }
     #expect(await eventually { title == "translate this to German" })
@@ -336,8 +351,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let files = AgentApproval(
         id: .string("r2"), kind: .fileChange, subject: "add notes.md", grantRoot: "/tmp/work")
     run.continuation.yield(.approvals([command, files]))
-    #expect(await eventually { palette.detail?.actions.count == 2 })
-    #expect(palette.detail?.actions.map(\.title) == ["Allow", "Deny"])
+    #expect(await eventually { palette.screenActions.count == 2 })
+    #expect(palette.screenActions.map(\.title) == ["Allow", "Deny"])
     // Captured once the answer's frame is up: it is pushed with the first content, not with the run.
     let frame = palette.session.top.id
     #expect(
@@ -365,11 +380,11 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
     try palette.pick("Deny")
     #expect(await replies.next() == AgentReply(approval: files, decision: .decline))
-    #expect(await eventually { palette.detail?.actions.isEmpty == true })
+    #expect(await eventually { palette.screenActions.isEmpty == true })
     run.continuation.yield(.approvals([]))
     run.continuation.yield(.answer("Created hello.txt."))
     #expect(await eventually { palette.detail?.markdown == "Created hello.txt." })
-    #expect(palette.detail?.actions.first == .copy(text: "Created hello.txt.", title: "Copy Answer"))
+    #expect(palette.screenActions.first == .copy(text: "Created hello.txt.", title: "Copy Answer"))
 }
 
 @MainActor @Test func closingWhileAnApprovalWaitsStopsTheAgentAndTheActionExpires() async throws {
@@ -379,8 +394,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(
         .approvals([AgentApproval(id: .integer(0), kind: .command, subject: "rm *.log")]))
-    #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
-    let allow = try #require(palette.detail?.actions.first)
+    #expect(await eventually { palette.screenActions.first?.title == "Allow" })
+    let allow = try #require(palette.screenActions.first)
     palette.session.reset()  // The palette closes.
     #expect(await eventually { agents.wasEnded(0) })
     await palette.runner.shutdown()  // Returns once the run has ended and cleaned up.
@@ -403,10 +418,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     run.continuation.yield(.message("Let me search for that."))
     run.continuation.yield(.message("It is 42."))
     run.continuation.yield(.answer("It is 42."))
-    #expect(await eventually { palette.detail?.actions.isEmpty == false && !palette.session.top.isLoading })
+    #expect(await eventually { palette.screenActions.isEmpty == false && !palette.session.top.isLoading })
     #expect(palette.detail?.markdown == "Let me search for that.\n\nIt is 42.")
     // Copy and Paste take the final answer alone.
-    #expect(palette.detail?.actions.first == .copy(text: "It is 42.", title: "Copy Answer"))
+    #expect(palette.screenActions.first == .copy(text: "It is 42.", title: "Copy Answer"))
 }
 
 @MainActor @Test func followUpContinuesTheAgentsSessionWithTheConversationsSetup() async throws {
@@ -417,9 +432,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let first = try #require(agents.runs.first)
     first.continuation.yield(.session("t1"))
     first.continuation.yield(.answer("Made it."))
-    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
+    #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.isEmpty == false })
     // Second, so ⌘↩ runs it.
-    let actions = try #require(palette.detail?.actions)
+    let actions = palette.screenActions
     #expect(actions.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
     guard case .run(let command, let text, let args, _, _) = actions[1] else {
         Issue.record("Follow Up is not a run")
@@ -455,8 +470,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     // Its answer continues the same conversation again.
     second.continuation.yield(.session("t1"))
     second.continuation.yield(.answer("Added README.md."))
-    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
-    #expect(palette.detail?.actions[1] == actions[1])
+    #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.isEmpty == false })
+    #expect(palette.screenActions[1] == actions[1])
 }
 
 @MainActor @Test func noFollowUpWithoutASessionAndAnUnknownConversationSaysItEnded() async throws {
@@ -465,8 +480,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.answer("Hi."))
-    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
-    #expect(palette.detail?.actions.map(\.title) == ["Copy Answer", "Paste Answer"])
+    #expect(await eventually { !palette.session.top.isLoading && palette.screenActions.isEmpty == false })
+    #expect(palette.screenActions.map(\.title) == ["Copy Answer", "Paste Answer"])
 
     palette.session.open(
         CommandRun(followUp, .invoked, text: "and?", args: ["conversation": .string("gone")]))

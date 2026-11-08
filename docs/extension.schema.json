@@ -125,7 +125,6 @@
       "oneOf": [{ "required": ["items"] }, { "required": ["sections"] }],
       "properties": {
         "summary": { "type": "string", "minLength": 1, "description": "Markup (docs/markup.md) shown above the rows: a sentence or two of context. Nothing in it is selectable." },
-        "facts": { "type": "array", "items": { "$ref": "#/$defs/Fact" }, "description": "Labelled values shown under the summary, up to four beside the rows." },
         "items": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Item" } },
         "sections": { "type": "array", "items": { "$ref": "#/$defs/Section" }, "description": "Titled groups of rows, instead of items; up to 500 rows in all." }
       }

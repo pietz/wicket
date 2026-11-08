@@ -417,7 +417,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(pushed?.run == nil)
     #expect(pushed?.screen == .detail(page))
     #expect(session.top.isMeasured)
-    #expect(session.top.list == nil)
+    #expect(session.top.list?.items.isEmpty == true)
     #expect(!session.top.isCompact)
     #expect(!session.top.isLoading)
     #expect(session.top.target?.actions == [.copy(text: "1")])
@@ -436,7 +436,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(content(session)?.run?.command.id == reviews.id)
     #expect(content(session)?.screen == .detail(page))
     #expect(session.top.isMeasured)
-    #expect(session.top.list == nil)
+    #expect(session.top.list?.items.isEmpty == true)
     #expect(session.top.target?.actions == [.copy(text: "1")])
 }
 

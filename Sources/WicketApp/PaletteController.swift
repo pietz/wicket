@@ -148,7 +148,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
                 onEscape: { [weak self] in self?.escape() },
                 onListen: { [weak self] in self?.listen() },
                 onOpenLink: { [weak self] in self?.open(link: $0) },
-                onQueryChange: { [weak self] in self?.panel.revealCaret() }))
+                onQueryChange: { [weak self] in self?.panel.revealCaret() },
+                onType: { [weak self] in self?.type($0) ?? false }))
         // The controller owns the frame; SwiftUI must never resize the panel.
         root.sizingOptions = []
         panel.contentView = root
@@ -164,7 +165,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
                     frame: model.top.id, isCompact: model.top.isCompact,
                     isUnmeasured: model.top.isMeasured
                         ? model.detailHeight == nil
-                        : model.top.listing?.hasTop == true && model.listTopHeight == nil)
+                        : model.top.summary != nil && model.listTopHeight == nil)
             }
             for await card in cards {
                 self?.follow(card)
@@ -225,6 +226,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         model.actionMenu = nil
         model.showToast(nil)
         model.commandHeld = false
+        model.forgetPages()
         model.session.reset()
         model.session.captureContext(nil)
         model.cardHeight = 0
@@ -257,7 +259,16 @@ final class PaletteController: NSObject, NSWindowDelegate {
         perform(.open(url: url), as: .agent)
     }
 
-    private func perform(_ action: Item.Action, as authority: Authority) {
+    /// Text typed on a page: a document is read, not searched, so typing starts the screen's Follow
+    /// Up with the text in its field (`Frame.typingAction`). False when the page takes no text.
+    func type(_ text: String) -> Bool {
+        guard model.actionMenu == nil, let action = model.session.typingAction else { return false }
+        perform(action, as: .host, typed: text)
+        return true
+    }
+
+    /// Performs `action`; a frame it opens waiting for its text starts with `typed` in its field.
+    private func perform(_ action: Item.Action, as authority: Authority, typed: String? = nil) {
         guard model.session.opening == nil else { return }
         model.actionMenu = nil
         model.voice?.stop()
@@ -267,9 +278,13 @@ final class PaletteController: NSObject, NSWindowDelegate {
         case .push(let detail, let authority): model.session.push(detail, from: authority)
         case .open(let run):
             model.session.open(run)
-            // A frame waiting for its text (a follow-up, Run Agent's question) is an input like the
-            // opened palette's, so it arms the microphone as that does.
-            if run.awaitsText, let voice = model.voice, voice.listensOnOpen { voice.arm() }
+            if let typed, run.awaitsText {
+                model.session.query = typed
+            } else if run.awaitsText, let voice = model.voice, voice.listensOnOpen {
+                // A frame waiting for its text (a follow-up, Run Agent's question) is an input like
+                // the opened palette's, so it arms the microphone as that does.
+                voice.arm()
+            }
         }
     }
 

@@ -1,5 +1,0 @@
-{"detail":{
-  "title":"Short Page",
-  "markdown":"## Metadata under the text\n\nThis page's text is shorter than its metadata column would be, so the metadata shows **full width** as a table under it.",
-  "metadata":[{"label":"Layout","value":"Full width"},{"label":"Rule","value":"Text shorter than the column"},{"label":"Entries","value":"3"}]
-}}

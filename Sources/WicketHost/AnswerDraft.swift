@@ -57,37 +57,48 @@ final class AnswerDraft {
     /// The question is the title (the pill shows it), the answer the page, after what the agent did
     /// and, first, the question it is waiting on, whose answers are then the actions. Nothing to act
     /// on until text arrives; a failed run keeps what it sent, marked incomplete, with Retry first.
-    var detail: Detail {
-        let final = answer ?? text
+    /// The page is the agent's (its markup's rows act under `.agent`); every action on it is Wicket's,
+    /// so they are the screen's, with ⌘↩ on the second (Follow Up, Deny).
+    var result: RunResult {
+        func screen(_ detail: Detail, _ actions: [Item.Action] = []) -> RunResult {
+            .show(.detail(detail), ScreenContext(authority: .agent, actions: actions, secondary: 1))
+        }
+        let final = plain(answer ?? text)
         let copy = Item.Action.copy(text: final, title: "Copy Answer")
         guard let failure else {
             let body = text.isEmpty ? "_\(status)_" : text
             if let (token, approval) = approvals.first {
-                return Detail(
-                    title: title, markdown: [ask(approval), body].joined(separator: "\n\n"),
-                    actions: [
-                        decide(token, .accept, "Allow"),
-                        decide(token, .decline, "Deny"),
-                    ])
+                return screen(
+                    Detail(title: title, markdown: [ask(approval), body].joined(separator: "\n\n")),
+                    [decide(token, .accept, "Allow"), decide(token, .decline, "Deny")])
             }
-            if text.isEmpty { return Detail(title: title, markdown: body) }
+            if text.isEmpty { return screen(Detail(title: title, markdown: body)) }
             var actions = reviews + [copy, .paste(text: final, title: "Paste Answer")]
             if let followUp { actions.insert(followUp, at: 1) }
-            return Detail(title: title, markdown: body, actions: actions)
+            return screen(Detail(title: title, markdown: body), actions)
         }
         let retry = Item.Action.run(
             command: invocation.command, text: invocation.text,
             args: invocation.args, title: "Retry", revision: invocation.revision)
         let retries = [retry] + (startFresh.map { [$0] } ?? [])
         guard !text.isEmpty else {
-            var detail = Detail.failure("Run Agent Failed", failure, command: invocation.command)
-            detail.actions = reviews + retries
-            return detail
+            return screen(
+                Detail.failure("Run Agent Failed", failure, command: invocation.command), reviews + retries)
         }
-        return Detail(
-            title: title,
-            markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
-            actions: reviews + retries + [copy])
+        return screen(
+            Detail(title: title, markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure),
+            reviews + retries + [copy])
+    }
+
+    /// The last text made plain, for Copy and Paste: the reply's markup as a document's text, tags
+    /// dropped. Kept, so a redraw that didn't change the text doesn't parse it again.
+    private var plainText: (source: String, text: String)?
+
+    private func plain(_ markup: String) -> String {
+        if let plainText, plainText.source == markup { return plainText.text }
+        let text = Markup.document(markup).text(home: FileManager.default.homeDirectoryForCurrentUser)
+        plainText = (markup, text)
+        return text
     }
 
     private func ask(_ approval: AgentApproval) -> String {

@@ -1,5 +1,0 @@
-{"detail":{
-  "title":"Long Page",
-  "markdown":"## Metadata beside the text\n\nThis page's text is taller than its metadata, so the metadata sits in a **180 pt column** beside it. Nothing in the data chooses this: Wicket measures both.\n\n### What a page can hold\n\n- Headings, *emphasis* and `code`\n- Lists, like this one\n- [Links](https://www.apple.com/macos/), which open in the browser\n\n```\nwicket check ~/Library/Application\\ Support/Wicket/Extensions/gallery\n```\n\n> Block quotes, for what someone said.\n\n| Screen | Selectable | Sized by |\n|---|---|---|\n| answer | yes | one large row |\n| list | rows | its rows |\n| detail | no | its text |\n\nReturn on a page runs its first action; this one has none, so Return copies the text.",
-  "metadata":[{"label":"Layout","value":"Sidebar"},{"label":"Rule","value":"Text taller than the column"}]
-}}

@@ -1,0 +1,6 @@
+{
+ "detail": {
+  "title": "How old is Keanu Reeves?",
+  "markdown": "<answer value=\"62\" detail=\"Keanu Reeves, born 2 September 1964\"/>\n\n<card title=\"Keanu Reeves\">\n<columns>\n  <image src=\"https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Keanu_Reeves_2019.jpg/960px-Keanu_Reeves_2019.jpg\" alt=\"Portrait of Keanu Reeves\"/>\n  <facts>\n    <fact label=\"Born\" value=\"2 Sep 1964\"/>\n    <fact label=\"Birthplace\" value=\"Beirut, Lebanon\"/>\n  </facts>\n</columns>\n</card>\n\nHe turns 63 on 2 September 2027.\n\n<url href=\"https://en.wikipedia.org/wiki/Keanu_Reeves\" title=\"Keanu Reeves on Wikipedia\"/>\n<url href=\"https://www.imdb.com/name/nm0000206/\" title=\"Filmography on IMDb\"/>"
+ }
+}

@@ -2,7 +2,7 @@
   "protocol": 2,
   "id": "gallery",
   "name": "Gallery",
-  "description": "One of each screen Wicket draws: an answer, composed lists, file and link rows, and pages.",
+  "description": "Pages written in Wicket's markup (weather, a comparison, repo changes, a person, a calendar) and one plain list.",
   "version": "1.0.0",
   "icon": { "symbol": { "name": "square.grid.2x2" } },
   "run": ["/bin/sh", "gallery.sh"],
@@ -10,16 +10,15 @@
     {
       "id": "gallery",
       "title": "Gallery",
-      "subtitle": "One of each screen Wicket draws",
+      "subtitle": "Pages written in Wicket's markup",
       "keyword": "gallery",
-      "search": ["screens", "samples"]
+      "search": ["screens", "samples", "markup"]
     },
-    { "id": "answer", "title": "Gallery: Answer", "hidden": true },
-    { "id": "composed", "title": "Gallery: Composed List", "hidden": true },
-    { "id": "long-summary", "title": "Gallery: Long Summary", "hidden": true },
-    { "id": "files", "title": "Gallery: Files", "hidden": true },
-    { "id": "links", "title": "Gallery: Links", "hidden": true },
-    { "id": "short-page", "title": "Gallery: Short Page", "hidden": true },
-    { "id": "long-page", "title": "Gallery: Long Page", "hidden": true }
+    { "id": "weather", "title": "Gallery: Weather", "hidden": true },
+    { "id": "compare", "title": "Gallery: Comparison", "hidden": true },
+    { "id": "repo", "title": "Gallery: Repo Changes", "hidden": true },
+    { "id": "person", "title": "Gallery: Person", "hidden": true },
+    { "id": "calendar", "title": "Gallery: Calendar", "hidden": true },
+    { "id": "invoices", "title": "Gallery: Invoices", "hidden": true }
   ]
 }
