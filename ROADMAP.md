@@ -15,6 +15,7 @@ Legend: ✅ done · 🚧 in progress · ⏭ next · 💤 later, frozen until the
 7. ✅ CONCEPT.md rewritten short and current.
 8. ✅ Released 0.0.11 (2026-11-08).
 9. ✅ 0.0.12 (2026-11-08): newest model per family in the pickers, Claude's Fast explained, a native ⌘K menu (owner to confirm on screen), about 650 lines of behaviour-preserving cuts ([size audit](docs/reviews/2026-11-08-size-audit.md)).
+10. ✅ 0.0.13 (2026-11-08): agents get a short brief instead of rules (structure becomes components): 83% fitting components on structured prompts, no tags on plain ones ([eval](docs/reviews/2026-11-08-markup-eval.md)). Next A/B: one sentence of restraint against callout overuse.
 
 ## The core (owner, 2026-11-08)
 
