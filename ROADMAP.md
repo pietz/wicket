@@ -48,11 +48,11 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Copy says Copied, a failed open says why, one guarded paste (cancelled if the clipboard changed), a palette hotkey another app holds keeps the old one
 
 ### AI-native (thesis: the model is the compiler, not the runtime)
-- 🔨 Summon context: selected text and Finder selection as "this", a chip in the pill
-- 🔨 Search terms in manifests (agent-written words people type)
-- 🔨 Apple's on-device model as an answer provider
-- 🔨 Do (plan first, the user presses Run, writes only in one folder), then Keep as a command
-- ⏭ Prompt commands and Keep from an answer (adds a `prompt` command kind to the protocol)
+- ✅ Summon context: selected text and Finder selection as "this", a chip in the pill (Ask AI, Do; extensions' `selection` capability later)
+- ✅ Search terms in manifests (agent-written words people type)
+- ✅ Apple's on-device model as an answer provider
+- ✅ Do (plan first, the user presses Run, writes only in one folder, the Finder selection's folder first), then Keep as a command
+- ✅ Prompt commands and Keep from an answer (adds a `prompt` command kind to the protocol)
 - 💤 Submit-time intent router on the on-device model (after search terms prove how much they cover)
 - 👀 Watch macOS 27.3: its expected new on-device AI options (owner, 2026-11-08); re-check the Apple provider, the router and voice against them when it ships
 - 👀 On-device transcription for voice input (SpeechAnalyzer), alongside the voice item below
