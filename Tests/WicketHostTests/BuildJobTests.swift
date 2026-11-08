@@ -773,3 +773,32 @@ private final class Attempts: Sendable {
     await job.cancel()
     #expect(ExtensionsRunner.build(job).isEmpty)
 }
+
+@MainActor @Test(arguments: [false, true])
+func startingOverRetainsTheSuccessfulDoContext(stopped: Bool) async throws {
+    let agent = DrivenAgent()
+    let jobs = makeJobs(agent.backend)
+    let context = "Successful script: printf kept; folder: /tmp/example; shell: bash"
+    let first = try jobs.start("keep this", context: context)
+    #expect(await eventually { agent.requests.count == 1 })
+    if stopped {
+        await first.cancel()
+    } else {
+        agent.send(.event(.error("try again")))
+        await first.finished()
+    }
+    let action = try #require(Shown(first).detail.actions.first { $0.title == "Start Over" })
+    guard case .run(let command, let text, let args, _, _) = action else {
+        Issue.record("missing Start Over invocation")
+        return
+    }
+    let stream = MakeCommandRunner(jobs: jobs).run(
+        Invocation(command: command, text: text, args: args), retry: .never)
+    var iterator = stream.makeAsyncIterator()
+    _ = try await iterator.next()
+    #expect(await eventually { agent.requests.count == 2 })
+    #expect(jobs.current !== first)
+    #expect(jobs.current?.promptContext == context)
+    #expect(agent.requests.last?.prompt.contains(context) == true)
+    await jobs.shutdown()
+}

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 import WicketCore
@@ -301,4 +302,37 @@ func fixturesThatExerciseNothingFail(fixture: String) async throws {
     let ext = try TestExtension(script: "read r; read r; read r", fixture: fixture)
     let errors = await check(ext).errors
     #expect(errors.contains { $0.hasPrefix("session.jsonl: no run got a response") }, "\(errors)")
+}
+
+@Test func cancellingAHangingCheckReapsItsProcessesAndSkipsLaterFixtures() async throws {
+    let marker = "cancel-" + UUID().uuidString
+    let script = """
+        sleep 30 &
+        echo "$$ $!" >> "$WICKET_DATA_DIR/\(marker)"
+        wait
+        """
+    let fixture = send(1) + "\n" + #"{"expect":{"id":1,"result":{}}}"#
+    let ext = try TestExtension(script: script, fixture: fixture)
+    try Data(fixture.utf8).write(to: ext.folder.appending(path: "z-later.session.jsonl"))
+    let task = Task { await check(ext) { $0.requestTimeout = .seconds(30) } }
+    let deadline = ContinuousClock.now + .seconds(10)
+    var pids: [pid_t] = []
+    while pids.isEmpty, ContinuousClock.now < deadline {
+        let scratch = try FileManager.default.contentsOfDirectory(
+            at: FileManager.default.temporaryDirectory, includingPropertiesForKeys: nil)
+        for folder in scratch where folder.lastPathComponent.hasPrefix("wicket-check-") {
+            if let text = try? String(contentsOf: folder.appending(path: "data/" + marker), encoding: .utf8) {
+                pids = text.split(whereSeparator: \.isWhitespace).compactMap { pid_t($0) }
+            }
+        }
+        if pids.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    }
+    let start = ContinuousClock.now
+    task.cancel()
+    let report = await task.value
+    #expect(pids.count == 2, "The hanging fixture must have started before cancellation")
+    #expect(ContinuousClock.now - start < .seconds(5))
+    #expect(pids.allSatisfy { kill($0, 0) != 0 })
+    #expect(!report.passed)
+    #expect(!report.lines.contains { $0.text.contains("z-later.session.jsonl") })
 }

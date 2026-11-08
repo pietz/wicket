@@ -97,7 +97,17 @@ public final class ExtensionsRunner: CommandRunner {
             continuation.yield(.show(.detail(enabled(sealed, folder: found.folder))))
             return
         case .invalid(let reason, _):
-            throw Refusal(reason)
+            guard let previous = previous(id) else { throw Refusal(reason) }
+            continuation.yield(
+                .show(
+                    .detail(
+                        Detail(
+                            title: found.approved?.manifest.name ?? id, markdown: reason,
+                            actions: [
+                                previous, .reveal(url: found.folder, title: "Reveal in Finder"),
+                                .run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"),
+                            ]))))
+            return
         case .unapproved(let sealed), .changed(_, let sealed):
             current = sealed
         }
@@ -107,7 +117,7 @@ public final class ExtensionsRunner: CommandRunner {
                 .detail(
                     Detail(
                         title: manifest.name, markdown: "_Checking the extension…_",
-                        metadata: Self.metadata(current)))))
+                        metadata: Self.metadata(current), actions: previous(id).map { [$0] } ?? []))))
         let checked = await Checker.check(current, options: checkOptions)
         try Task.checkCancellation()
         Self.logger.notice(
@@ -135,6 +145,7 @@ public final class ExtensionsRunner: CommandRunner {
         } else {
             sections.append("_It can't be enabled until it passes its check._")
         }
+        if let previous = previous(id) { actions.append(previous) }
         actions.append(.reveal(url: found.folder, title: "Reveal in Finder"))
         continuation.yield(
             .show(
@@ -142,6 +153,17 @@ public final class ExtensionsRunner: CommandRunner {
                     Detail(
                         title: manifest.name, markdown: sections.joined(separator: "\n\n"),
                         metadata: Self.metadata(current), actions: actions))))
+    }
+
+    /// Rollback depends on retained approvals, never on whether the authoring draft is valid.
+    private func previous(_ id: String) -> Item.Action? {
+        guard let approved = extensions.approvals.approved(id),
+            let previous = extensions.approvals.previous(id), previous != approved,
+            let kept = extensions.store.retained(previous)
+        else { return nil }
+        return offer(
+            kept, message: "Now using the previous version of \(kept.manifest.name).",
+            title: "Use Previous Version")
     }
 
     /// An action enabling `sealed`, carrying a fresh token only this run of Wicket knows.
@@ -226,7 +248,7 @@ public final class ExtensionsRunner: CommandRunner {
                     icon: .symbol(name: "exclamationmark.triangle"), accessory: "Problem",
                     actions: [.copy(text: problem, title: "Copy Diagnostics")]))
         }
-        items += Self.items(extensions.discovered) { self.problems(of: $0) }
+        items += Self.items(extensions.discovered, previous: previous) { self.problems(of: $0) }
         // Opening the folder should work before anything was ever put in it.
         try? FileManager.default.createDirectory(at: extensions.directory, withIntermediateDirectories: true)
         items.append(
@@ -241,7 +263,10 @@ public final class ExtensionsRunner: CommandRunner {
     }
 
     /// The rows of `discovered`; an enabled one with `problems` says so.
-    static func items(_ discovered: [DiscoveredExtension], problems: (String) -> [Diagnostic]) -> [Item] {
+    static func items(
+        _ discovered: [DiscoveredExtension], previous: (String) -> Item.Action? = { _ in nil },
+        problems: (String) -> [Diagnostic]
+    ) -> [Item] {
         discovered.map { found in
             let manifest = (found.sealed ?? found.approved)?.manifest
             let name = manifest?.name ?? found.id
@@ -276,6 +301,14 @@ public final class ExtensionsRunner: CommandRunner {
                 subtitle = reason
                 actions = [.detail(Detail(title: name, markdown: reason, actions: [reveal])), reveal]
                 if approved != nil { actions.append(disable) }
+            }
+            if let previous = previous(found.id) {
+                if case .invalid = found.state {
+                    actions[0] = .run(
+                        command: .reviewExtension, args: ["id": .string(found.id)], title: "Show Extension")
+                }
+                let index = actions.last?.title == "Disable" ? actions.count - 1 : actions.count
+                actions.insert(previous, at: index)
             }
             return Item(
                 id: "extensions:\(found.id)", title: name, subtitle: subtitle,
@@ -312,14 +345,7 @@ public final class ExtensionsRunner: CommandRunner {
             sections.append(
                 "**Problems**\n\n" + problems.map { "- " + Self.firstLine($0.text) }.joined(separator: "\n"))
         }
-        if let previous = extensions.approvals.previous(id), previous != sealed.revision,
-            let kept = extensions.store.retained(previous)
-        {
-            extra.append(
-                offer(
-                    kept, message: "Now using the previous version of \(kept.manifest.name).",
-                    title: "Use Previous Version"))
-        }
+        if let previous = previous(id) { extra.append(previous) }
         let all = extensions.diagnostics.report(forExtension: id)
         if !all.isEmpty {
             extra.append(.copy(text: Self.diagnosticsText(sealed, all), title: "Copy Diagnostics"))

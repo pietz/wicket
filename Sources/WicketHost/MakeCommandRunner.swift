@@ -55,7 +55,15 @@ public final class MakeCommandRunner: CommandRunner {
 
     /// Make a Command's job for the submitted sentence; Current Build's, repaired first for `fix`.
     private func job(for invocation: Invocation) throws -> BuildJob {
-        guard invocation.command == .currentBuild else { return try jobs.start(invocation.text) }
+        guard invocation.command == .currentBuild else {
+            if let restart = invocation.args?["restart"]?.string {
+                guard let job = jobs.current, job.id.uuidString == restart else {
+                    throw BuildJob.Failure("This build is no longer current. Make the command again.")
+                }
+                return try jobs.start(job.sentence, context: job.promptContext)
+            }
+            return try jobs.start(invocation.text)
+        }
         if case .string(let id)? = invocation.args?["fix"] {
             guard let id = UUID(uuidString: id) else { throw BuildJob.Failure("This isn't a build to fix.") }
             return try jobs.repair(id)
@@ -108,7 +116,9 @@ struct Shown: Sendable {
     @MainActor private static func detail(_ job: BuildJob) -> Detail {
         let agent = job.provider.map { [Detail.Metadata(label: "Agent", value: $0.name)] } ?? []
         let showFiles = Item.Action.reveal(url: job.work, title: "Show Files")
-        let startOver = Item.Action.run(command: .makeCommand, text: job.sentence, title: "Start Over")
+        let startOver = Item.Action.run(
+            command: .makeCommand, text: job.sentence,
+            args: ["restart": .string(job.id.uuidString)], title: "Start Over")
         let running: [Item.Action] = [showFiles, .run(command: .stopBuild, title: "Stop Making It")]
         switch job.phase {
         case .generating(let activity):

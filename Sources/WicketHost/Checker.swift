@@ -90,6 +90,10 @@ public enum Checker {
 
     private static func report(_ sealed: SealedRevision, options: CheckOptions) async -> CheckReport {
         var report = CheckReport()
+        guard !Task.isCancelled else {
+            report.add(.error, "Check cancelled.")
+            return report
+        }
         let manifest = sealed.manifest
         if manifest.commands.allSatisfy({ $0.prompt != nil }) {
             report.add(
@@ -131,6 +135,10 @@ public enum Checker {
         let path = await LoginShell.path()
         let program = try? ExtensionSession.resolve(manifest.run[0], in: isolation.candidate, path: path)
         let uv = manifest.uvScript.map { _ in options.uv }
+        guard !Task.isCancelled else {
+            report.add(.error, "Check cancelled.")
+            return report
+        }
         do throws(CheckIsolationError) {
             try isolation.seal(program: program, userHome: options.userHome, uv: uv)
             try isolation.verifySandbox(executable: options.sandboxExecutable)
@@ -151,6 +159,10 @@ public enum Checker {
         configuration.requestTimeout = options.requestTimeout
         configuration.exitGrace = options.exitGrace
         for url in fixtures {
+            guard !Task.isCancelled else {
+                report.add(.error, "Check cancelled.")
+                break
+            }
             let name = url.lastPathComponent
             do {
                 let fixture = try Fixture(String(decoding: try Data(contentsOf: url), as: UTF8.self))
@@ -188,6 +200,20 @@ public enum Checker {
         configuration: SessionConfiguration,
         into report: inout CheckReport
     ) async {
+        let session = ExtensionSession(manifest: manifest, folder: folder, configuration: configuration)
+        await withTaskCancellationHandler {
+            await replay(fixture, name: name, manifest: manifest, session: session, into: &report)
+        } onCancel: {
+            Task { await session.stop() }
+        }
+        // Also await cleanup when cancellation arrived before the replay started.
+        if Task.isCancelled { await session.stop() }
+    }
+
+    private static func replay(
+        _ fixture: Fixture, name: String, manifest: Manifest, session: ExtensionSession,
+        into report: inout CheckReport
+    ) async {
         // A fixture must exercise the candidate: a launch and an answer, not just a clean parse.
         guard fixture.steps.contains(where: { if case .send(.run) = $0.step { true } else { false } }) else {
             report.add(
@@ -197,7 +223,6 @@ public enum Checker {
         }
         let start = ContinuousClock.now
         let errorsBefore = report.errors.count
-        let session = ExtensionSession(manifest: manifest, folder: folder, configuration: configuration)
         var lastExpect: [RequestID: Int] = [:]
         for (line, step) in fixture.steps {
             if case .expect(let id, _) = step { lastExpect[id] = line }
@@ -226,6 +251,7 @@ public enum Checker {
         }
 
         for (line, step) in fixture.steps {
+            guard !Task.isCancelled else { break }
             switch step {
             case .send(.run(let id, let params)):
                 do {
@@ -270,7 +296,13 @@ public enum Checker {
         }
         // Requests without an expect still need a valid response.
         for request in sent.values.sorted(by: { $0.line < $1.line }) {
+            guard !Task.isCancelled else { break }
             _ = await outcome(request, into: &report)
+        }
+        if Task.isCancelled {
+            await session.stop()
+            report.add(.error, "\(name): check cancelled.")
+            return
         }
         if answered == 0 {
             report.add(

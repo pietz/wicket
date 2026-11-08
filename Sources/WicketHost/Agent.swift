@@ -61,8 +61,12 @@ public final class AgentRun: AsyncSequence, Sendable {
 
     /// A run whose work is `body`: it yields the events and returns how the run's processes ended.
     /// The events end when it returns; cancelling the run cancels its task.
-    public init(_ body: @escaping @Sendable (AsyncStream<AgentEvent>.Continuation) async -> Shutdown) {
-        let (events, continuation) = AsyncStream<AgentEvent>.makeStream()
+    /// Bounded buffering is only for replaceable snapshots, such as DoScript's output, never deltas.
+    public init(
+        bufferingPolicy: AsyncStream<AgentEvent>.Continuation.BufferingPolicy = .unbounded,
+        _ body: @escaping @Sendable (AsyncStream<AgentEvent>.Continuation) async -> Shutdown
+    ) {
+        let (events, continuation) = AsyncStream<AgentEvent>.makeStream(bufferingPolicy: bufferingPolicy)
         let task = Task.detached {
             let ended = await body(continuation)
             continuation.finish()

@@ -156,6 +156,9 @@ func rejectsCommaDecimalsInEnglish(text: String) {
     ("10000000000000 - 9999999999999", "1"),
     ("sin(0.0000000000001)", "1E-13"),
     ("sin(1 pi)", "0"),
+    ("sin(10000000000000000)", "0.779688"),
+    ("cos(10000000000000000)", "-0.626168"),
+    ("tan(10000000000000000)", "-1.24517"),
     ("1e-20 * 1", "1E-20"),
 ])
 func roundsForDisplay(text: String, display: String) throws {

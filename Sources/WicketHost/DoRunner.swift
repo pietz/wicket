@@ -43,17 +43,22 @@ public final class DoRunner: CommandRunner {
             {
                 return observe(current)
             }
-            let scopes = scopes(selected: invocation.context?.files ?? [])
+            let selected =
+                invocation.context?.files.map(\.path)
+                ?? invocation.args?["selected"]?.array?.compactMap(\.string) ?? []
+            let scopes = scopes(selected: selected.map { URL(filePath: $0) })
             guard let scopeID = invocation.args?["scope"]?.string,
-                let scope = scopes.first(where: { $0.id == scopeID })
-                    ?? (scopeID == "Selection"
+                let scope =
+                    (scopeID == "Selection"
                         ? invocation.args?["folder"]?.string.map({ (scopeID, URL(filePath: $0)) }) : nil)
-            else { return result(.show(.list(scopeItems(scopes, sentence: sentence)))) }
+                    ?? scopes.first(where: { $0.id == scopeID })
+            else { return result(.show(.list(scopeItems(scopes, sentence: sentence, selected: selected)))) }
             guard let resolved = CheckIsolation.realPath(scope.url.path),
                 (try? scope.url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             else { throw BuildJob.Failure("That folder is unavailable. Choose another folder.") }
             let job = DoJob(
-                sentence: sentence, scope: URL(filePath: resolved), backend: backend, provider: provider())
+                sentence: sentence, scope: URL(filePath: resolved), selected: selected,
+                backend: backend, provider: provider())
             current = job
             return observe(job)
         } catch {
@@ -78,7 +83,9 @@ public final class DoRunner: CommandRunner {
         return [("Selection", folder)] + usual
     }
 
-    private func scopeItems(_ scopes: [(id: String, url: URL)], sentence: String) -> [Item] {
+    private func scopeItems(
+        _ scopes: [(id: String, url: URL)], sentence: String, selected: [String]
+    ) -> [Item] {
         scopes.map { scope in
             let subtitle =
                 switch scope.id {
@@ -86,9 +93,10 @@ public final class DoRunner: CommandRunner {
                 case "Selection": "Plan “\(sentence)” where your Finder selection is"
                 default: "Plan “\(sentence)” in this folder"
                 }
-            // The selection's folder travels in the action: the context is gone by the time it runs.
+            // The selection travels in the action: summon context is gone by the time it runs.
             var args: [String: JSONValue] = ["scope": .string(scope.id), "new": .bool(true)]
             if scope.id == "Selection" { args["folder"] = .string(scope.url.path) }
+            if !selected.isEmpty { args["selected"] = .array(selected.map(JSONValue.string)) }
             return Item(
                 id: "do-scope:" + scope.id,
                 title: scope.id == "Selection" ? scope.url.lastPathComponent : scope.id,
@@ -129,7 +137,8 @@ public final class DoRunner: CommandRunner {
     }
 
     private func observe(_ job: DoJob) -> AsyncThrowingStream<RunResult, any Error> {
-        let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
+        let (stream, continuation) = AsyncThrowingStream.makeStream(
+            of: RunResult.self, bufferingPolicy: .bufferingNewest(1))
         let task = Task {
             for await (detail, working) in Observations({ (Self.detail(job), job.phase.isWorking) }) {
                 guard !Task.isCancelled else { return }
@@ -158,7 +167,9 @@ public final class DoRunner: CommandRunner {
                 title: title)
         }
         let again = Item.Action.run(
-            command: .doAction, text: job.sentence, args: ["new": .bool(true)], title: "Plan Again")
+            command: .doAction, text: job.sentence,
+            args: ["new": .bool(true), "selected": .array(job.selected.map(JSONValue.string))],
+            title: "Plan Again")
         let metadata = [Detail.Metadata(label: "Folder", value: job.scope.path)]
         var sections: [String] = []
         var actions: [Item.Action] = []

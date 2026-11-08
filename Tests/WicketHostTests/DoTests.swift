@@ -308,8 +308,22 @@ private func doInvocation(_ action: Item.Action) throws -> Invocation {
     try Data().write(to: file)
     let builds = BuildJobs(
         backend: doBackend(try planJSON("true")), staging: folder.appending(path: "staging"), guide: { "" })
-    let runner = DoRunner(builds: builds, backend: doBackend(try planJSON("true")), home: folder)
-    let context = try #require(SummonContext(app: "Finder", files: [file]))
+    let requests = Mutex<[AgentRequest]>([])
+    let answer = try planJSON("true")
+    let planner = AgentBackend(
+        status: { AgentStatus(provider: $0, state: .ready) },
+        run: { _, request in
+            requests.withLock { $0.append(request) }
+            return AgentRun {
+                $0.yield(.answer(answer, usage: nil))
+                return .exited(.status(0))
+            }
+        })
+    let runner = DoRunner(builds: builds, backend: planner, home: folder)
+    let second = shots.appending(path: "b \"quoted\".png")
+    try Data().write(to: second)
+    let selected = [file, second]
+    let context = try #require(SummonContext(app: "Finder", files: selected))
     let input = Invocation(command: .doAction, text: "rename them", context: context)
     let picker = try await collectDo(runner.run(input, retry: .never))
     guard case .show(.list(let items))? = picker.last else {
@@ -323,6 +337,48 @@ private func doInvocation(_ action: Item.Action) throws -> Invocation {
     _ = try await collectDo(runner.run(select, retry: .never))
     let job = try #require(runner.current)
     #expect(job.scope.path == CheckIsolation.realPath(shots.path))
+    #expect(job.selected == selected.map(\.path))
+    let request = try #require(requests.withLock { $0.first })
+    #expect(request.prompt.contains("The user selected these items"))
+    #expect(request.prompt.contains(JSONValue.array(selected.map { .string($0.path) }).json))
     await runner.shutdown()
     await builds.shutdown()
+}
+
+@Test func verboseDoScriptCoalescesOutputWhileTheConsumerIsDetached() async throws {
+    let folder = try doFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let script = "/usr/bin/head -c 8388608 /dev/zero | /usr/bin/tr '\\0' x; printf final-marker"
+    let run = DoScript.run(DoPlan(explanation: "Verbose", script: script, shell: "bash"), scope: folder)
+    // Do not consume until the pipe is fully drained. Both stream buffers must stay bounded.
+    #expect(await run.ended == .exited(.status(0)))
+    var events: [AgentEvent] = []
+    for await event in run { events.append(event) }
+    #expect(events.count == 2)
+    guard case .text(let output)? = events.first else {
+        Issue.record("missing final output snapshot")
+        return
+    }
+    #expect(output.utf8.count == DoScript.outputLimit + 1)
+    #expect(output.hasSuffix("final-marker"))
+    guard case .answer? = events.last else {
+        Issue.record("missing terminal event")
+        return
+    }
+}
+
+@MainActor @Test func verboseDoJobShowsOnlyTheFinalOutputTail() async throws {
+    let folder = try doFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let script = "/usr/bin/head -c 1048576 /dev/zero | /usr/bin/tr '\\0' x; printf final-marker"
+    let job = DoJob(
+        sentence: "verbose", scope: folder, backend: doBackend(try planJSON(script)), provider: nil)
+    await job.finished()
+    try job.execute(token: job.token)
+    await job.finished()
+    #expect(job.phase == .succeeded)
+    #expect(job.output.utf8.count == DoScript.outputLimit)
+    #expect(job.output.hasSuffix("final-marker"))
+    #expect(job.outputTruncated)
+    #expect(DoRunner.detail(job).markdown.contains("last 64 KiB"))
 }

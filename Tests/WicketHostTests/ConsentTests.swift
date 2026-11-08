@@ -674,3 +674,34 @@ private func needsToken() throws -> TestExtension {
     #expect(try String(contentsOf: trash.appending(path: "titled/title.txt"), encoding: .utf8) == "v1")
     #expect(try FileManager.default.contentsOfDirectory(atPath: h.directory.path) == ["titled"])
 }
+
+@MainActor @Test(arguments: [false, true])
+func rollbackSurvivesChangedAndInvalidAuthoringFolders(invalid: Bool) async throws {
+    let (h, runner) = try await enabled(try titled("v1", fixture: true))
+    let v1 = try #require(h.extensions.discovered.first?.sealed)
+    try await h.write("v2")
+    let v2 = try #require(h.extensions.discovered.first?.sealed)
+    try await h.extensions.approve(v2.revision)
+    if invalid {
+        try Data("broken JSON".utf8).write(to: h.folder().appending(path: "wicket.json"))
+        await h.extensions.load(changed: [h.folder().appending(path: "wicket.json").path]).value
+        guard case .invalid = h.state() else {
+            Issue.record("expected invalid authoring folder")
+            return
+        }
+    } else {
+        try await h.write("v3")
+    }
+    let row = try #require(try await list(runner).first)
+    #expect(row.actions.contains { $0.title == "Use Previous Version" })
+    let detail = try #require(try await page(runner))
+    let rollback = try #require(detail.actions.first { $0.title == "Use Previous Version" })
+    guard case .run(.enableExtension, _, let args, _, _) = rollback else {
+        Issue.record("not a rollback offer")
+        return
+    }
+    _ = try await results(runner, .enableExtension, args: args)
+    #expect(h.approvals.approved("titled") == v1.revision)
+    #expect(try await h.title() == "v1")
+    await h.extensions.shutdown()
+}

@@ -713,6 +713,23 @@ final class OutputTail: Sendable {
         for await chunk in handle.chunks() { append(chunk) }
     }
 
+    /// Bound bytes at the pipe reader, then coalesce replaceable snapshots for a slow consumer.
+    func snapshots(_ handle: FileHandle) -> AsyncStream<String> {
+        let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        handle.readabilityHandler = { [self] handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                continuation.finish()
+            } else {
+                append(chunk)
+                continuation.yield(text)
+            }
+        }
+        continuation.onTermination = { _ in handle.readabilityHandler = nil }
+        return stream
+    }
+
     private func append(_ chunk: Data) {
         data.withLock {
             $0.tail.append(chunk)

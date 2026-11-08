@@ -452,8 +452,10 @@ enum Math {
         switch arguments.count {
         case 1:
             var value = function(first.value)
-            // π is rounded, so trigonometry at its multiples is off by about its ulp.
-            if trigonometric.contains(name) { value = denoised(value, scale: abs(first.value)) }
+            // Denoise modest multiples of rounded π; huge arguments have meaningful residuals.
+            if trigonometric.contains(name), abs(first.value) <= 32 * .pi {
+                value = denoised(value, scale: abs(first.value))
+            }
             return Quantity(value: value, kind: first.kind)
         case 2:
             let second = arguments[1].scalar
