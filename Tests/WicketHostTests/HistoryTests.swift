@@ -223,7 +223,7 @@ func everyWayARunEndsIsRecordedWithItsReason(
     let history = try #require(extensions.history)
     await run(extensions)
     await history.remember(
-        AnswerStream.Conversation(
+        AgentRunner.Conversation(
             provider: .claude, folder: URL(filePath: "/tmp"),
             options: AgentProvider.claude.defaultOptions,
             session: "s1"),

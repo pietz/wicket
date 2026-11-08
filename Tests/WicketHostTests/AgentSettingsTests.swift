@@ -87,8 +87,8 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
                 return .exited(.status(0))
             }
         })
-    let runner = AgentRunner(answers: AnswerStream(backend: backend, provider: { .codex }))
-    runner.answers.options = { _ in AgentOptions(model: "gpt-6-astra", effort: "max") }
+    let runner = AgentRunner(backend: backend, provider: { .codex })
+    runner.options = { _ in AgentOptions(model: "gpt-6-astra", effort: "max") }
     // The approval's Allow and Deny are the answer screen's actions.
     var actions: [Item.Action] = []
     for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt")) {

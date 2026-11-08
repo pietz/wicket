@@ -82,7 +82,7 @@ private struct Palette {
     let runner: AgentRunner
 
     init(_ backend: AgentBackend) {
-        runner = AgentRunner(answers: AnswerStream(backend: backend))
+        runner = AgentRunner(backend: backend)
         let router = CommandRouter(
             builtins: [
                 Builtin(runAgent, runner: runner), Builtin(followUp, runner: runner),
@@ -243,7 +243,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     // Chosen in settings: that one or nothing, never another.
     agents.set(.claude, .ready)
     agents.set(.codex, .loggedOut)
-    palette.runner.answers.provider = { .codex }
+    palette.runner.provider = { .codex }
     palette.ask("hi")
     #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(
@@ -273,7 +273,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 @MainActor @Test func readinessIsCheckedBeforeEveryRun() async throws {
     let agents = FakeAgents([.codex: .ready])
     let palette = Palette(agents.backend)
-    palette.runner.answers.provider = { .codex }
+    palette.runner.provider = { .codex }
     palette.ask("q1")
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.answer("a"))
@@ -320,7 +320,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(AgentRunner.folder(for: nil) == FileManager.default.homeDirectoryForCurrentUser)
 
     let agents = FakeAgents([.codex: .ready])
-    let runner = AgentRunner(answers: AnswerStream(backend: agents.backend))
+    let runner = AgentRunner(backend: agents.backend)
     let context = try #require(SummonContext(files: [URL(filePath: "/Users/me/Letters/anna.txt")]))
     var shown: [RunResult] = []
     let stream = runner.run(

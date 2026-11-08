@@ -179,7 +179,7 @@ public actor ExtensionHistory {
 
     /// Remembers `conversation` as the one that last built or changed the extension `id`,
     /// replacing any before it.
-    func remember(_ conversation: AnswerStream.Conversation, for id: String) {
+    func remember(_ conversation: AgentRunner.Conversation, for id: String) {
         guard let file = folder(of: id)?.appending(path: "conversation.json"),
             let data = try? Self.encoder.encode(conversation)
         else { return }
@@ -190,11 +190,11 @@ public actor ExtensionHistory {
 
     /// The conversation that last built or changed the extension `id`, if one is remembered. One
     /// this build can't read (an older shape) counts as none.
-    func conversation(of id: String) -> AnswerStream.Conversation? {
+    func conversation(of id: String) -> AgentRunner.Conversation? {
         guard let file = folder(of: id)?.appending(path: "conversation.json"),
             let data = try? Data(contentsOf: file)
         else { return nil }
-        guard let conversation = try? Self.decoder.decode(AnswerStream.Conversation.self, from: data) else {
+        guard let conversation = try? Self.decoder.decode(AgentRunner.Conversation.self, from: data) else {
             Self.logger.notice("history: 1 unreadable conversation, ignored")
             return nil
         }

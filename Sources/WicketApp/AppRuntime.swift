@@ -236,14 +236,12 @@ extension AppRuntime {
             approvals: Approvals(), diagnostics: diagnostics,
             history: ExtensionHistory(root: ExtensionPaths.history))
         let consent = ExtensionsRunner(extensions: extensions)
-        // Every AI answer; Run Agent's runner owns its shutdown.
-        let answers = AnswerStream(provider: { weakRuntime?.applied?.ai.provider })
-        // Acting runs know Wicket's commands and write extensions into its folder for review.
-        answers.authoring = ExtensionAuthoring(
+        // Every AI run. Runs know Wicket's commands and write extensions into its folder for review.
+        let runAgent = AgentRunner(provider: { weakRuntime?.applied?.ai.provider })
+        runAgent.authoring = ExtensionAuthoring(
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] },
             instructionsFile: ExtensionAuthoring.instructionsFile, commandList: ExtensionPaths.commandList)
-        answers.options = { weakRuntime?.applied?.ai[$0] ?? $0.defaultOptions }
-        let runAgent = AgentRunner(answers: answers)
+        runAgent.options = { weakRuntime?.applied?.ai[$0] ?? $0.defaultOptions }
         let work: [@MainActor () -> Void] = [
             {
                 Task {

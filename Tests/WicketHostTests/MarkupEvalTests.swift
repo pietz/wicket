@@ -71,8 +71,8 @@ private struct Outcome: Codable {
     // The providers side by side, each a few prompts at a time: every prompt is a CLI process.
     let runs = providers.map { provider in
         Task {
-            let runner = AgentRunner(answers: AnswerStream(provider: { provider }))
-            runner.answers.authoring = authoring
+            let runner = AgentRunner(provider: { provider })
+            runner.authoring = authoring
             var outcomes: [Outcome] = []
             for batch in stride(from: 0, to: prompts.count, by: 4) {
                 let tasks = prompts[batch..<min(batch + 4, prompts.count)].map { prompt in
