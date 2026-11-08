@@ -31,7 +31,7 @@ build=$(( ${last:-0} + 1 ))
 echo "== Wicket $version ($build)"
 
 Scripts/build-app.sh --release
-identity=$(codesign -dvv build/Wicket.app 2>&1 | sed -n 's/^Authority=\(Developer ID Application.*\)/\1/p')
+identity=$(security find-identity -v -p codesigning | awk '/Developer ID Application:.*34MWWCL4H2/ {print $2; exit}')  # by hash: names with non-ASCII letters don't round-trip
 
 # A plain drag-to-Applications disk image: the app and a link to /Applications.
 stage=$(mktemp -d)
