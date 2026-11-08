@@ -81,8 +81,11 @@ private struct Palette {
     let session: PaletteSession
     let runner: AgentRunner
 
-    init(_ backend: AgentBackend, interval: Duration = .zero) {
-        runner = AgentRunner(answers: AnswerStream(backend: backend, interval: interval))
+    /// Streaming by default, which most tests here watch; `ai.streamAnswers` is off in the app.
+    init(_ backend: AgentBackend, interval: Duration = .zero, streams: Bool = true) {
+        let answers = AnswerStream(backend: backend, interval: interval)
+        answers.streamsAnswers = { streams }
+        runner = AgentRunner(answers: answers)
         let router = CommandRouter(
             builtins: [
                 Builtin(runAgent, runner: runner), Builtin(followUp, runner: runner),
@@ -292,7 +295,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor @Test func frequentDeltasAreCoalesced() async throws {
     let agents = FakeAgents([.codex: .ready])
-    let runner = AgentRunner(answers: AnswerStream(backend: agents.backend, interval: .seconds(60)))
+    let answers = AnswerStream(backend: agents.backend, interval: .seconds(60))
+    answers.streamsAnswers = { true }
+    let runner = AgentRunner(answers: answers)
     let stream = runner.run(
         Invocation(command: runAgent.id, text: "count"), retry: .never)
     let events: [AgentEvent] = [.text("1"), .text(" 2"), .text(" 3"), .answer("1 2 3", usage: nil)]
@@ -531,4 +536,47 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         CommandRun(followUp, .invoked, text: "and?", args: ["conversation": .string("gone")]))
     #expect(await eventually { palette.detail?.title == "Follow Up Failed" })
     #expect(agents.runs.count == 1)
+}
+
+/// `ai.streamAnswers` off (the default): the page says the agent is working, shows each message once
+/// it is whole, still shows an approval at once, and the answer all at once.
+@MainActor @Test func withoutStreamingMessagesShowWholeAndApprovalsAtOnce() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend, streams: false)
+    palette.ask("search the web for it")
+    #expect(await eventually { agents.runs.count == 1 })
+    let run = try #require(agents.runs.first)
+    run.continuation.yield(.text("Let me search"))
+    run.continuation.yield(.text(" for that."))
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
+    #expect(palette.session.top.target == nil)
+    run.continuation.yield(.messageEnd)
+    #expect(await eventually { palette.detail?.markdown == "Let me search for that." })
+
+    let approval = AgentApproval(id: .integer(0), kind: .network, subject: "example.com")
+    run.continuation.yield(.approvals([approval]))
+    #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
+    #expect(palette.detail?.markdown.hasSuffix("\n\nLet me search for that.") == true)
+    run.continuation.yield(.approvals([]))
+    run.continuation.yield(.text("\n\nIt is"))
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(palette.detail?.markdown == "Let me search for that.")
+    // The answer can come without its message's end; it shows whole either way.
+    run.continuation.yield(.text(" 42."))
+    run.continuation.yield(.answer("It is 42.", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading })
+    #expect(palette.detail?.markdown == "Let me search for that.\n\nIt is 42.")
+    #expect(palette.detail?.actions.first == .copy(text: "It is 42.", title: "Copy Answer"))
+}
+
+@MainActor @Test func withoutStreamingAFailureStillKeepsWhatWasWritten() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend, streams: false)
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    agents.runs[0].continuation.yield(.text("Hel"))
+    agents.runs[0].continuation.yield(.error("the model is overloaded"))
+    #expect(await eventually { !palette.session.top.isLoading })
+    #expect(palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded")
 }

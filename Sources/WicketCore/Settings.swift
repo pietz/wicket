@@ -64,9 +64,13 @@ public struct Settings: Equatable, Sendable {
         public var claude = AgentProvider.claude.defaultOptions
         /// How Codex runs (`ai.codex`).
         public var codex = AgentProvider.codex.defaultOptions
+        /// Whether an answer is drawn as its text arrives (`ai.streamAnswers`). Off by default: the
+        /// page shows the agent working, each message once it is whole, then the answer at once.
+        public var streamAnswers = false
 
-        public init(provider: AgentProvider? = nil) {
+        public init(provider: AgentProvider? = nil, streamAnswers: Bool = false) {
             self.provider = provider
+            self.streamAnswers = streamAnswers
         }
 
         public subscript(provider: AgentProvider) -> AgentOptions {
@@ -277,7 +281,7 @@ extension Settings: Codable {
     }
 
     private enum AIKeys: String, CodingKey {
-        case provider, codex, claude
+        case provider, codex, claude, streamAnswers
     }
 
     private enum AgentKeys: String, CodingKey {
@@ -443,6 +447,13 @@ extension Settings: Codable {
                 ignored.append("ai.provider must be \(names); using the first one that's ready")
             }
         }
+        if ai.contains(.streamAnswers), (try? ai.decodeNil(forKey: .streamAnswers)) != true {
+            if let stream = try? ai.decode(Bool.self, forKey: .streamAnswers) {
+                self.ai.streamAnswers = stream
+            } else {
+                ignored.append("ai.streamAnswers must be true or false; not streaming answers")
+            }
+        }
         for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)]
         where ai.contains(key) && (try? ai.decodeNil(forKey: key)) != true {
             decodeAgent(
@@ -502,6 +513,7 @@ extension Settings: Codable {
         if ai != AI() {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
             try nested.encodeIfPresent(ai.provider, forKey: .provider)
+            if ai.streamAnswers { try nested.encode(true, forKey: .streamAnswers) }
             for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)] {
                 let options = ai[provider]
                 let defaults = provider.defaultOptions

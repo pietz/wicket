@@ -5,7 +5,7 @@ import WicketHost
 
 /// Settings ▸ AI: which provider Run Agent uses and how it runs. One picker chooses Claude or
 /// ChatGPT, only those that are installed and signed in; below it, the chosen one's model, effort,
-/// speed and permission level. Provider, model, effort and speed are preferences in settings.json
+/// speed and permission level, then whether answers stream. Provider, model, effort and speed are preferences in settings.json
 /// (`ai`); the permission level is consent, so it goes to `AgentPermissions`, which only this pane
 /// writes. Each provider's status and models are asked when the pane opens.
 struct AIPane: View {
@@ -31,6 +31,15 @@ struct AIPane: View {
             }
             providerSection(current)
             optionsSection(current)
+            Section {
+                Toggle("Stream answers", isOn: streamAnswers)
+            } footer: {
+                Text(
+                    "Show an answer as it's written. When off, each message the agent sends shows once "
+                        + "it's complete."
+                )
+                .foregroundStyle(.secondary)
+            }
             Section {
                 Button("Edit Agent Instructions…") { editInstructions() }
             } footer: {
@@ -206,6 +215,19 @@ struct AIPane: View {
                     }
                     settings.ai[provider] = options
                 }
+                error = nil
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private var streamAnswers: Binding<Bool> {
+        Binding {
+            store.settings.ai.streamAnswers
+        } set: { stream in
+            do {
+                try store.update { $0.ai.streamAnswers = stream }
                 error = nil
             } catch {
                 self.error = error.localizedDescription

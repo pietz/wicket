@@ -284,6 +284,7 @@ extension AppRuntime {
                 options: weakRuntime?.applied?.ai[provider] ?? provider.defaultOptions,
                 permission: permissions.level(for: provider))
         }
+        answers.streamsAnswers = { weakRuntime?.applied?.ai.streamAnswers ?? false }
         extensions.answers = answers
         let runAgent = AgentRunner(answers: answers)
         let savePrompt = SavePromptRunner(extensions: extensions, reviews: consent)

@@ -18,6 +18,9 @@ public final class AnswerStream {
     public var configuration: @MainActor (AgentProvider) -> AgentConfiguration = {
         AgentConfiguration(options: $0.defaultOptions, permission: .auto)
     }
+    /// The settings' `ai.streamAnswers`, read when a question is asked: whether text is drawn as it
+    /// comes, or each message only once it is whole.
+    public var streamsAnswers: @MainActor () -> Bool = { false }
     private let backend: AgentBackend
     private let interval: Duration
     /// The runs in flight, each ending once its agent's process tree is gone.
@@ -123,7 +126,8 @@ public final class AnswerStream {
         let configuration = continued?.configuration ?? acting.map { _ in configuration(provider) }
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
-            permission: configuration?.permission, completedActions: completedActions)
+            permission: configuration?.permission, streams: streamsAnswers(),
+            completedActions: completedActions)
         output.yield(.show(.detail(draft.detail)))
 
         let request: AgentRequest
@@ -171,6 +175,7 @@ public final class AnswerStream {
             await run.cancelAndWait()
             draft.reviews = await reviews(since: before)
             try Task.checkCancellation()
+            draft.endMessage()
             draft.failure = failure.description
             output.yield(.show(.detail(draft.detail)))
             Self.logger.notice(
@@ -199,7 +204,9 @@ public final class AnswerStream {
                 session = id
             case .text(let delta):
                 firstText = firstText ?? ContinuousClock.now - start
-                draft.text += delta
+                if draft.write(delta) { throttle.submit() }
+            case .messageEnd:
+                draft.endMessage()
                 throttle.submit()
             case .activity:
                 break  // Tool use isn't shown; only what the agent writes.
@@ -212,6 +219,7 @@ public final class AnswerStream {
                 throttle.submit()
             case .answer(let answer, _):
                 throttle.cancel()
+                draft.endMessage()
                 // What streamed stays when it ends with this answer (messages along the way, then the
                 // answer); otherwise the answer alone, so the final text is always exactly the answer.
                 if !answer.isEmpty {

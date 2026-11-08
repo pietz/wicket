@@ -218,6 +218,7 @@ struct CodexTranscript: AgentTranscript {
             {
                 answer = text
             }
+            if item["type"]?.string == "agentMessage" { return AgentStep(events: [.messageEnd]) }
             if let activity = activity(completed: item) {
                 return AgentStep(events: [.activity(activity)] + (Self.acted(item) ? [.acted] : []))
             }

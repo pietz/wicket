@@ -21,6 +21,10 @@ final class AnswerDraft {
     /// Everything the agent wrote, in order: its messages along the way, then its final answer.
     /// Tools it used and its thinking aren't shown.
     var text = ""
+    /// Whether text shows as it comes; if not, each message shows once it is whole.
+    let streams: Bool
+    /// The message being written, while it is kept out of the page (not streaming).
+    private var unfinished = ""
     /// The final answer alone, once it has come: what Copy and Paste take.
     var answer: String?
     /// Whether the agent ran a command or changed a file.
@@ -36,13 +40,27 @@ final class AnswerDraft {
 
     init(
         title: String, invocation: Invocation, status: String, permission: AgentPermission?,
-        completedActions: @escaping @MainActor () -> [Item.Action]
+        streams: Bool, completedActions: @escaping @MainActor () -> [Item.Action]
     ) {
         self.title = title
         self.invocation = invocation
         self.status = status
         self.permission = permission
+        self.streams = streams
         self.completedActions = completedActions
+    }
+
+    /// Adds what the agent wrote and returns whether the page changed: streaming, at once; else it
+    /// waits for the message to end.
+    func write(_ delta: String) -> Bool {
+        if streams { text += delta } else { unfinished += delta }
+        return streams
+    }
+
+    /// The message being written is whole (or the run ended): it joins the page.
+    func endMessage() {
+        text += unfinished
+        unfinished = ""
     }
 
     /// The agent's waiting approvals, keeping the tokens of those already shown.

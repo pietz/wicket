@@ -54,7 +54,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let events = await events(try replaying(.codex, "codex-answer"))
         #expect(
             events == [
-                .text("Paris"),
+                .text("Paris"), .messageEnd,
                 .answer(
                     "Paris", usage: AgentUsage(inputTokens: 4347, cachedInputTokens: 2432, outputTokens: 5)),
             ])
@@ -68,6 +68,12 @@ func activities(_ events: [AgentEvent]) -> [String] {
             text(events).hasPrefix(
                 "I’ll create `hello.txt`, run the exact shell command once, and report the results.\n\n- Created"
             ))
+        // The commentary ends as a whole message before the command it announces runs.
+        let end = try #require(events.firstIndex(of: .messageEnd))
+        #expect(
+            text(Array(events[..<end]))
+                == "I’ll create `hello.txt`, run the exact shell command once, and report the results.")
+        #expect(end < (events.firstIndex { if case .activity = $0 { true } else { false } } ?? 0))
         guard case .answer(let answer, let usage)? = events.last else {
             Issue.record("no answer: \(events)")
             return
@@ -354,7 +360,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let events = await events(try replaying(.claude, "claude-answer"))
         #expect(
             events == [
-                .text("Paris"),
+                .text("Paris"), .messageEnd,
                 .answer("Paris", usage: AgentUsage(inputTokens: 985, cachedInputTokens: 0, outputTokens: 5)),
             ])
     }
@@ -372,6 +378,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
             return
         }
         #expect(text(events) == answer)
+        // Only a message with text ends one: the first held only tool calls.
+        #expect(events.filter { $0 == .messageEnd }.count == 1)
         #expect(answer.hasPrefix("Step 1 worked."))
         #expect(usage == AgentUsage(inputTokens: 20723, cachedInputTokens: 16278, outputTokens: 370))
     }

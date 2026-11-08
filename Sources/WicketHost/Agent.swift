@@ -77,6 +77,8 @@ public struct AgentUsage: Sendable, Equatable {
 public enum AgentEvent: Sendable, Equatable {
     /// Assistant text as it streams in; separate messages are joined by a blank line.
     case text(String)
+    /// The message the text was streaming is whole; later text starts a new one.
+    case messageEnd
     /// A one-line summary of a tool call, such as "Ran swift build" or "Edited main.py".
     case activity(String)
     /// The run succeeded; this is the last event. `answer` is the final message alone.

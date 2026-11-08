@@ -153,6 +153,8 @@ struct ClaudeTranscript: AgentTranscript {
                 newMessage = false
                 streamed = true
                 return AgentStep(events: [.text(text)])
+            case "message_stop" where streamed && !newMessage:
+                return AgentStep(events: [.messageEnd])
             default:
                 break
             }

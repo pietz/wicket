@@ -86,6 +86,8 @@ struct PaletteRootView: View {
     let onEscape: () -> Void
     /// The mic button: start or stop listening.
     let onListen: () -> Void
+    /// Follows a link clicked in a page.
+    let onOpenLink: (URL) -> Void
     @FocusState private var focus: PaletteFocus?
     @Namespace private var glass
 
@@ -110,6 +112,14 @@ struct PaletteRootView: View {
                 if model.isExpanded {
                     VStack(spacing: 0) {
                         FrameContent(model: model, onRun: onRun)
+                            // Links in pages go through Wicket's own open, never straight to macOS.
+                            .environment(
+                                \.openURL,
+                                OpenURLAction {
+                                    onOpenLink($0)
+                                    return .handled
+                                }
+                            )
                             // Each frame keeps its own scroll position; one frame's content replaced
                             // (a live list, a growing answer) updates in place.
                             .id(model.top.id)

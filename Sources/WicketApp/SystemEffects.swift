@@ -195,6 +195,18 @@ final class SystemEffects: ActionEffects {
     func reveal(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
+
+    /// What a page's file link reaches (`Item.Action.following`), nil if nothing is there.
+    nonisolated static func inspect(_ file: URL) -> LinkedFile? {
+        let target = file.resolvingSymlinksInPath()
+        guard
+            let values = try? target.resourceValues(forKeys: [
+                .isRegularFileKey, .isExecutableKey, .isAliasFileKey,
+            ])
+        else { return nil }
+        let executable = values.isRegularFile == true && values.isExecutable == true
+        return LinkedFile(target: target, isRunnable: executable || values.isAliasFile == true)
+    }
 }
 
 /// A keyboard layout's key map (`UCKeyTranslate`, the one API that answers which key types what;

@@ -139,7 +139,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
             rootView: PaletteRootView(
                 model: model, onRun: { [weak self] in self?.run($0, action: $1) },
                 onEscape: { [weak self] in self?.escape() },
-                onListen: { [weak self] in self?.listen() }))
+                onListen: { [weak self] in self?.listen() },
+                onOpenLink: { [weak self] in self?.open(link: $0) }))
         // The controller owns the frame; SwiftUI must never resize the panel.
         root.sizingOptions = []
         panel.contentView = root
@@ -307,6 +308,18 @@ final class PaletteController: NSObject, NSWindowDelegate {
         }
         if let item = target.item { model.recordUse(of: item) }
         perform(target.actions[position])
+    }
+
+    /// A link clicked in a page (an answer, an extension's detail) becomes an Open or Reveal action
+    /// (`Item.Action.following`) and runs like one, so it closes the palette and reports a missing
+    /// file; any other link isn't followed.
+    func open(link url: URL) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard let action = Item.Action.following(url, home: home, inspect: SystemEffects.inspect) else {
+            model.session.messages.post(Message("Wicket opens only web, mail and file links", kind: .failed))
+            return
+        }
+        perform(action)
     }
 
     private func perform(_ action: Item.Action) {

@@ -315,6 +315,33 @@ func showInMenuBarFallsBackAlone(json: String, show: Bool, ignored: Bool) throws
 }
 
 @Test(arguments: [
+    (#"{}"#, false, false),
+    (#"{"ai": {"streamAnswers": true}}"#, true, false),
+    (#"{"ai": {"streamAnswers": false}}"#, false, false),
+    (#"{"ai": {"streamAnswers": null}}"#, false, false),
+    (#"{"ai": {"streamAnswers": "yes", "provider": "codex"}}"#, false, true),
+])
+func streamAnswersFallsBackAlone(json: String, stream: Bool, ignored: Bool) throws {
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+    #expect(settings.ai.streamAnswers == stream)
+    #expect(
+        settings.ignored == (ignored ? ["ai.streamAnswers must be true or false; not streaming answers"] : [])
+    )
+    if ignored { #expect(settings.ai.provider == .codex) }
+}
+
+/// Streaming writes `true`; turning it off again removes the field (and the empty `ai` object).
+@Test func updateWritesStreamAnswersOnlyWhenOn() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"hotkey": "cmd+k"}"#, to: url)
+    try Settings.update(at: url) { $0.ai.streamAnswers = true }
+    #expect(try read(url).contains(#""streamAnswers" : true"#))
+    #expect(try Settings.load(from: url).ai.streamAnswers)
+    try Settings.update(at: url) { $0.ai.streamAnswers = false }
+    #expect(try read(url) == "{\n  \"hotkey\" : \"cmd+k\"\n}\n")
+}
+
+@Test(arguments: [
     (#"{}"#, TextSize.medium, false),
     (#"{"textSize": "small"}"#, .small, false),
     (#"{"textSize": "larger"}"#, .larger, false),
