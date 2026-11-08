@@ -229,7 +229,7 @@ private let find = CommandID.extension("todo", "find")
     #expect(runner.runs.isEmpty)
 
     // With Run Agent off, the extension has the word.
-    registry.setDisabledFeatures([.ai])
+    registry.setAIEnabled(false)
     #expect(registry.command(keyword: "ai")?.id == rival.id)
 }
 

@@ -117,10 +117,10 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 @MainActor @Test func changesCountChangesOnly() {
     let registry = CommandRegistry(builtins: builtins)
     let start = registry.changes
-    registry.setDisabledFeatures([])
+    registry.setAIEnabled(true)
     #expect(registry.changes == start)
-    registry.setDisabledFeatures([.ai])
+    registry.setAIEnabled(false)
     #expect(registry.changes == start + 1)
-    registry.setDisabledFeatures([.ai])
+    registry.setAIEnabled(false)
     #expect(registry.changes == start + 1)
 }

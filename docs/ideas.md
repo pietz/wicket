@@ -7,7 +7,7 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Four pillars:** light and fast (small memory), native and modern (Apple's way, opinionated only in small portions), AI first, hackable.
 - **Hackable like the Pi agent harness:** ask the launcher itself to build an extension, with access to the docs and the extension API, and use it right away without a restart.
 - ~~**Ask Wicket what it can do:** a way to ask the launcher about its own capabilities.~~ Done: acting runs are told Wicket's commands (see CONCEPT, AI).
-- **Everything is an extension (direction, not a rewrite):** each functionality, even the calculator, a unit you can switch on or off in settings. Cheap step: list the built-ins in Settings ▸ Features.
+- **Everything is an extension (direction, not a rewrite):** each functionality, even the calculator, a unit you can switch on or off in settings. A per-source switch pane (Settings ▸ Features) was tried and removed in the 2026-11-08 scope audit.
 - **Our own extension repository** can still exist, but asking for what you need is the main path.
 - **Compact results mode:** maybe show fewer rows (no files under a strong app match) as an option; a full mode fills the space.
 - **Highlight is always the top row** (done, e0d3b93).

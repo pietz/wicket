@@ -2,7 +2,8 @@ import SwiftUI
 import WicketCore
 import WicketHost
 
-/// Settings ▸ AI: which provider Run Agent uses and how it runs. One picker chooses Claude or
+/// Settings ▸ AI: whether Wicket uses AI at all (`ai.enabled`; off, the rest of the pane is hidden),
+/// then which provider Run Agent uses and how it runs. One picker chooses Claude or
 /// ChatGPT, only those that are installed and signed in; below it, the chosen one's model, effort,
 /// speed and permission level, then whether answers stream. Provider, model, effort and speed are preferences in settings.json
 /// (`ai`); the permission level is consent, so it goes to `AgentPermissions`, which only this pane
@@ -24,51 +25,17 @@ struct AIPane: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
-            if let problem = permissions.problem {
-                Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            }
-            providerSection(current)
-            optionsSection(current)
             Section {
-                Toggle("Stream answers", isOn: streamAnswers)
+                Toggle("Use AI", isOn: aiSetting(\.enabled))
             } footer: {
                 Text(
-                    "Show an answer as it's written. When off, each message the agent sends shows once "
-                        + "it's complete."
+                    store.settings.ai.enabled
+                        ? "Run Agent hands what you ask to the agent chosen below."
+                        : "Nothing in Wicket uses AI, and Run Agent leaves the search."
                 )
                 .foregroundStyle(.secondary)
             }
-            Section {
-                Button("Edit Agent Instructions…") { editInstructions() }
-            } footer: {
-                Text(
-                    "What Run Agent tells your agent about Wicket, in agent.md next to settings.json. "
-                        + "Delete the file to go back to Wicket's default."
-                )
-                .foregroundStyle(.secondary)
-            }
-            Section {
-                LabeledContent("Files selected in Finder") {
-                    switch finderAccess {
-                    case .granted: allowed
-                    case .notAsked: Button("Allow…") { Task { await checkFinder(ask: true) } }
-                    case .refused:
-                        Button("Open Automation Settings") {
-                            NSWorkspace.shared.open(Self.automationSettings)
-                        }
-                    case nil: ProgressView().controlSize(.small)
-                    }
-                }
-            } header: {
-                Text("Finder")
-            } footer: {
-                Text(
-                    "Opened from Finder, Run Agent works in the folder of the files you had selected and "
-                        + "knows which they are, shown at the end of the bar. Press Delete in the empty "
-                        + "field to leave them out. This needs permission to control Finder."
-                )
-                .foregroundStyle(.secondary)
-            }
+            if store.settings.ai.enabled { details }
         }
         .formStyle(.grouped)
         .frame(width: 460)
@@ -78,6 +45,55 @@ struct AIPane: View {
             async let listing: Void = listModels()
             await check()
             await listing
+        }
+    }
+
+    /// Everything below the switch, while AI is on.
+    @ViewBuilder private var details: some View {
+        if let problem = permissions.problem {
+            Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        }
+        providerSection(current)
+        optionsSection(current)
+        Section {
+            Toggle("Stream answers", isOn: aiSetting(\.streamAnswers))
+        } footer: {
+            Text(
+                "Show an answer as it's written. When off, each message the agent sends shows once "
+                    + "it's complete."
+            )
+            .foregroundStyle(.secondary)
+        }
+        Section {
+            Button("Edit Agent Instructions…") { editInstructions() }
+        } footer: {
+            Text(
+                "What Run Agent tells your agent about Wicket, in agent.md next to settings.json. "
+                    + "Delete the file to go back to Wicket's default."
+            )
+            .foregroundStyle(.secondary)
+        }
+        Section {
+            LabeledContent("Files selected in Finder") {
+                switch finderAccess {
+                case .granted: allowed
+                case .notAsked: Button("Allow…") { Task { await checkFinder(ask: true) } }
+                case .refused:
+                    Button("Open Automation Settings") {
+                        NSWorkspace.shared.open(Self.automationSettings)
+                    }
+                case nil: ProgressView().controlSize(.small)
+                }
+            }
+        } header: {
+            Text("Finder")
+        } footer: {
+            Text(
+                "Opened from Finder, Run Agent works in the folder of the files you had selected and "
+                    + "knows which they are, shown at the end of the bar. Press Delete in the empty "
+                    + "field to leave them out. This needs permission to control Finder."
+            )
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -209,12 +225,12 @@ struct AIPane: View {
         }
     }
 
-    private var streamAnswers: Binding<Bool> {
+    private func aiSetting(_ setting: WritableKeyPath<WicketCore.Settings.AI, Bool>) -> Binding<Bool> {
         Binding {
-            store.settings.ai.streamAnswers
-        } set: { stream in
+            store.settings.ai[keyPath: setting]
+        } set: { isOn in
             do {
-                try store.update { $0.ai.streamAnswers = stream }
+                try store.update { $0.ai[keyPath: setting] = isOn }
                 error = nil
             } catch {
                 self.error = error.localizedDescription

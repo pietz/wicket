@@ -4,7 +4,7 @@ import Foundation
 /// (`RegisteredCommand.isFallback`, a `submitText` command such as Run Agent) that runs it on the query.
 /// They rank in the fallback tier, so they come last, in registry order (`Ranker`). Run Agent is the
 /// only built-in one today. Habit never moves them.
-/// A fallback whose feature is off isn't registered, so it isn't offered either.
+/// A fallback that uses AI isn't registered while AI is off, so it isn't offered either.
 @MainActor
 public struct FallbackSource: ResultSource {
     public let id = "fallbacks"

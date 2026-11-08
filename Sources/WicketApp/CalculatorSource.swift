@@ -18,11 +18,6 @@ final class CalculatorSource: ResultSource {
         rates.start()
     }
 
-    /// Stops refreshing the exchange rates, for when the feature is turned off. `start` resumes.
-    func stop() {
-        rates.stop()
-    }
-
     func instant(_ query: Query) -> [Item] {
         guard
             let result = Calculator.evaluate(

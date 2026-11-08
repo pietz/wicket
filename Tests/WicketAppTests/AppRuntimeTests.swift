@@ -155,21 +155,17 @@ private final class Harness {
                 RegisteredCommand(
                     id: runAgentCommand, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
-                    feature: .ai),
+                    usesAI: true),
                 runner: runAgent),
         ]
         let apps = StaticSource("apps", items: [item("Safari")])
         let calculator = StaticSource("calculator", items: [])
-        let work = { (feature: Feature) in
-            AppRuntime.Work(
-                start: { harness?.work.append("start \(feature.rawValue)") },
-                stop: { harness?.work.append("stop \(feature.rawValue)") })
-        }
         let diagnostics = Diagnostics()
         runtime = AppRuntime(
             store: SettingsStore(directory: directory, diagnostics: diagnostics),
             sources: [apps, calculator],
-            work: [.apps: work(.apps), .calculator: work(.calculator)], builtins: builtins,
+            work: [{ harness?.work.append("start apps") }, { harness?.work.append("start calculator") }],
+            builtins: builtins,
             extensions: Extensions(
                 directory: directory.appending(path: "extensions"),
                 store: RevisionStore(root: directory.appending(path: "revisions")),
@@ -207,8 +203,8 @@ private final class Harness {
 
 private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) }
 
-/// A `commands` object older builds wrote (per-command hotkeys and aliases) binds nothing and,
-/// like any unknown key, warns about nothing.
+/// A `commands` object older builds wrote (per-command hotkeys and aliases) and their feature
+/// switches other than AI bind and turn off nothing and, like any unknown key, warn about nothing.
 @MainActor @Test func startingAppliesEverySetting() throws {
     let h = try Harness(
         settings: #"""
@@ -218,7 +214,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
             """#)
     #expect(h.palette.width == 720)
     #expect(h.runAgent.answers.provider() == .claude)
-    #expect(h.work == ["start apps"])
+    #expect(h.work == ["start apps", "start calculator"])
     #expect(h.system.registered == [shortcut("cmd+k")])
     #expect(h.store.diagnostics.all.isEmpty)
 
@@ -226,15 +222,11 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.palette.toggles == [42])
 }
 
-@MainActor @Test func featureWorkFollowsItsFeatureOnly() throws {
+@MainActor @Test func theSourcesWorkStartsOnce() throws {
     let h = try Harness()
     #expect(h.work == ["start apps", "start calculator"])
     try h.change(#"{"paletteWidth": 540}"#)
-    #expect(h.work.count == 2)  // Nothing restarts for an unrelated change.
-    try h.change(#"{"features": {"apps": false}}"#)
-    #expect(h.work == ["start apps", "start calculator", "stop apps"])
-    try h.change("{}")
-    #expect(h.work.last == "start apps")
+    #expect(h.work.count == 2)
 }
 
 /// Settings and Quit are table entries like Run Agent: their rows run through the router, their effect
@@ -255,13 +247,12 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.session.frames.count == 1)
 }
 
-@MainActor @Test func turningAFeatureOffTakesItsRowsAtOnce() throws {
+@MainActor @Test func turningAIOffTakesItsRowsAtOnce() throws {
     let h = try Harness()
     h.session.query = "saf"
-    #expect(h.rootIDs.contains("test:Safari"))
     #expect(h.rootIDs.contains("fallback:builtin:run-agent"))
-    try h.change(#"{"features": {"apps": false, "ai": false}}"#)
-    #expect(!h.rootIDs.contains("test:Safari"))
+    try h.change(#"{"ai": {"enabled": false}}"#)
+    #expect(h.rootIDs.contains("test:Safari"))
     #expect(!h.rootIDs.contains("fallback:builtin:run-agent"))
 }
 
@@ -273,7 +264,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(await eventually { h.session.frames.count == 2 })
     #expect(h.session.top.isLoading)
 
-    try h.change(#"{"features": {"ai": false}}"#)
+    try h.change(#"{"ai": {"enabled": false}}"#)
     #expect(h.session.frames.count == 1)
     #expect(await eventually { h.agent.ended.withLock { $0 } == 1 })
 }

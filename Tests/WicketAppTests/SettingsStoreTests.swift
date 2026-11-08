@@ -35,7 +35,7 @@ import WicketCore
     let file = folder.appending(path: "settings.json")
     let store = SettingsStore(directory: folder)
 
-    try Data(#"{"features": {"nope": true}}"#.utf8).write(to: file)
+    try Data(#"{"ai": {"enabled": "no"}}"#.utf8).write(to: file)
     store.reload()
     #expect(store.warnings.count == 1)
     #expect(store.loadError == nil)

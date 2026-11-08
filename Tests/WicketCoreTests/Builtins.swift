@@ -16,7 +16,7 @@ extension RegisteredCommand {
         id: .quit, title: "Quit Wicket", icon: .symbol(name: "power"), input: .none)
     static let runAgent = RegisteredCommand(
         id: .runAgent, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
-        input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .ai,
+        input: .submitText, placeholder: "Ask a question", isFallback: true, usesAI: true,
         usesContext: true)
 }
 

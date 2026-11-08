@@ -36,7 +36,7 @@ public final class PaletteSession {
     @ObservationIgnored public var onClose: () -> Void = {}
     /// Where a command's `close` and `reload` messages go, after the close they come with.
     @ObservationIgnored public let messages: Messages
-    @ObservationIgnored private var sources: [any ResultSource]
+    @ObservationIgnored private let sources: [any ResultSource]
     @ObservationIgnored private let frecency: () -> (String) -> Double
     @ObservationIgnored private let runner: (any CommandRunner)?
     @ObservationIgnored private let registry: CommandRegistry?
@@ -102,20 +102,8 @@ public final class PaletteSession {
         start(0)
     }
 
-    /// Replaces the root search's sources, for when a feature was turned on or off, and runs the
-    /// root again with the same text: a removed source's rows go and its work stops, an added one
-    /// is asked, and the selection stays on its item if that is still there. Nothing happens if the
-    /// sources are the same ones; returns whether they changed.
-    @discardableResult
-    public func setSources(_ sources: [any ResultSource]) -> Bool {
-        guard sources.map(\.id) != self.sources.map(\.id) else { return false }
-        self.sources = sources
-        start(0)
-        return true
-    }
-
-    /// Stops every run of a command `shouldStop` names, for when it left the registry (its feature
-    /// was turned off, its extension removed): one being opened is cancelled, and the lowest frame
+    /// Stops every run of a command `shouldStop` names, for when it left the registry (AI was turned
+    /// off, its extension removed): one being opened is cancelled, and the lowest frame
     /// running one is popped with every frame above it, so the palette goes back to where the
     /// command was opened from. Returns whether anything stopped.
     @discardableResult

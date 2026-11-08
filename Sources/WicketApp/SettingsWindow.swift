@@ -49,7 +49,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store, updater: updater)))
-        tabs.addTabViewItem(pane("Features", symbol: "square.grid.2x2", FeaturesPane(store: store)))
         tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store, permissions: permissions)))
         tabs.addTabViewItem(pane("Voice", symbol: "waveform", VoicePane(consent: voice)))
         let window = NSWindow(contentViewController: tabs)

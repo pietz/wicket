@@ -23,14 +23,12 @@ final class ExchangeRateStore {
         configuration.timeoutIntervalForRequest = 20
         return URLSession(configuration: configuration)
     }()
-    private var loop: Task<Void, Never>?
 
     /// Loads the cache, then keeps the rates fresh: a fetch when the cache is a day old, and a
-    /// retry every hour while fetching fails.
+    /// retry every hour while fetching fails. Called once, at launch.
     func start() {
-        guard loop == nil else { return }
         let cachedAt = loadCache()
-        loop = Task {
+        Task {
             var fetchedAt = cachedAt
             while !Task.isCancelled {
                 let due = fetchedAt?.addingTimeInterval(Self.refreshInterval) ?? .distantPast
@@ -43,11 +41,6 @@ final class ExchangeRateStore {
                 }
             }
         }
-    }
-
-    func stop() {
-        loop?.cancel()
-        loop = nil
     }
 
     /// Reads the cached feed; returns when it was fetched (the file's modification date).

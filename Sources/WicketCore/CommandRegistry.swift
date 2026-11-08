@@ -24,9 +24,9 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// Offered as a row in the root's fallback tier for any query, which it is run on (`FallbackSource`).
     /// Only for `submitText` commands.
     public var isFallback: Bool
-    /// The feature it belongs to: while that is off, the command isn't registered (a built-in's,
-    /// from its table entry).
-    public var feature: Feature?
+    /// Whether it asks a model (Run Agent, Follow Up): while AI is off (`ai.enabled`), it isn't
+    /// registered.
+    public var usesAI: Bool
     /// An extension command's: the active revision it was registered from, which a run of it binds
     /// to when it starts (`CommandRun`). Nil for built-ins.
     public var revision: ExtensionRevision?
@@ -38,7 +38,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
         search: [String] = [], isListed: Bool = true, input: CommandInput = .immediateText,
         retry: RetryPolicy = .never,
-        placeholder: String? = nil, isFallback: Bool = false, feature: Feature? = nil,
+        placeholder: String? = nil, isFallback: Bool = false, usesAI: Bool = false,
         revision: ExtensionRevision? = nil, usesContext: Bool = false
     ) {
         self.id = id
@@ -52,7 +52,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.retry = retry
         self.placeholder = placeholder
         self.isFallback = isFallback
-        self.feature = feature
+        self.usesAI = usesAI
         self.revision = revision
         self.usesContext = usesContext
     }
@@ -116,8 +116,8 @@ public final class CommandRegistry {
     public private(set) var changes = 0
     private let builtins: [RegisteredCommand]
     private var extensions: [RegisteredCommand] = []
-    /// Features that are off: their commands aren't registered until they are on again.
-    private var disabledFeatures: Set<Feature> = []
+    /// Whether commands that use AI are registered.
+    private var aiEnabled = true
     private var byID: [CommandID: RegisteredCommand] = [:]
     private var byKeyword: [String: CommandID] = [:]
     private var index = SearchIndex([])
@@ -137,11 +137,11 @@ public final class CommandRegistry {
         rebuild()
     }
 
-    /// Unregisters the commands of the features in `disabled` and registers the rest again, for when
-    /// settings.json turned a feature off or on.
-    public func setDisabledFeatures(_ disabled: Set<Feature>) {
-        guard disabled != disabledFeatures else { return }
-        disabledFeatures = disabled
+    /// Registers the commands that use AI, or unregisters them, for when settings.json turned AI on
+    /// or off.
+    public func setAIEnabled(_ enabled: Bool) {
+        guard enabled != aiEnabled else { return }
+        aiEnabled = enabled
         rebuild()
     }
 
@@ -173,9 +173,7 @@ public final class CommandRegistry {
         changes += 1
         commands = []
         byID = [:]
-        let enabled = (builtins + extensions).filter {
-            $0.feature.map { !disabledFeatures.contains($0) } ?? true
-        }
+        let enabled = (builtins + extensions).filter { aiEnabled || !$0.usesAI }
         for command in enabled where byID[command.id] == nil {
             commands.append(command)
             byID[command.id] = command

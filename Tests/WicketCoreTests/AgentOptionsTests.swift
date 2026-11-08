@@ -3,8 +3,8 @@ import Testing
 
 @testable import WicketCore
 
-// The agents' options in settings.json (`ai.codex`, `ai.claude`), and the keys renamed when Ask AI
-// became Run Agent.
+// The AI settings in settings.json: the switch (`ai.enabled`, and the feature switch it replaced)
+// and the agents' options (`ai.codex`, `ai.claude`).
 
 private func load(_ json: String) throws -> Settings {
     let url = temporarySettingsURL()
@@ -109,28 +109,52 @@ private let terra = AgentOptions(model: "gpt-6.1-terra", effort: "medium", speed
     #expect(try object(url)["ai"] as? [String: [String: String]] == ["codex": ["effort": "low"]])
 }
 
-// MARK: Ask AI became Run Agent
+// MARK: The AI switch
 
-@Test func askAIsFeatureCarriesOverToRunAgent() throws {
-    let settings = try load(#"{"features": {"ask-ai": false}}"#)
-    #expect(settings.disabledFeatures == [.ai])
+@Test func aiIsOnByDefaultAndTheSwitchTurnsItOff() throws {
+    #expect(try load("{}").ai.enabled)
+    #expect(try !load(#"{"ai": {"enabled": false}}"#).ai.enabled)
+    let wrong = try load(#"{"ai": {"enabled": "no"}}"#)
+    #expect(wrong.ai.enabled)
+    #expect(wrong.ignored == ["ai.enabled must be true or false; AI stays on"])
+}
+
+@Test func onlyTheSwitchTurnedOffIsWritten() throws {
+    let url = temporarySettingsURL()
+    try Settings.update(at: url) { $0.ai.enabled = false }
+    #expect(try object(url)["ai"] as? [String: Bool] == ["enabled": false])
+    try Settings.update(at: url) { $0.ai.enabled = true }
+    #expect(try object(url)["ai"] == nil)
+}
+
+/// Older builds had a switch per feature; the AI one (`ai`, Ask AI's `ask-ai` before it) carries
+/// over to `ai.enabled`, the others are ignored silently.
+@Test(arguments: [#"{"features": {"ai": false}}"#, #"{"features": {"ask-ai": false}}"#])
+func theOldAIFeatureSwitchCarriesOver(json: String) throws {
+    let settings = try load(json)
+    #expect(!settings.ai.enabled)
     #expect(settings.ignored.isEmpty)
 }
 
-@Test func theNewNameWinsOverTheOld() throws {
-    let settings = try load(#"{"features": {"ask-ai": true, "ai": false}}"#)
-    #expect(settings.disabledFeatures == [.ai])
+@Test func theNewerOldNameAndTheNewKeyWin() throws {
+    #expect(try !load(#"{"features": {"ask-ai": true, "ai": false}}"#).ai.enabled)
+    #expect(try load(#"{"features": {"ai": false}, "ai": {"enabled": true}}"#).ai.enabled)
+    let others = try load(#"{"features": {"files": false, "apps": false, "links": false}}"#)
+    #expect(others == Settings())
+    #expect(others.ignored.isEmpty)
 }
 
-/// The next change from Settings writes the new names. A `commands` object older builds wrote
-/// (hotkeys and aliases) is an unknown key now: ignored without a warning and kept as written.
-@Test func updateRewritesTheOldNames() throws {
+/// The next change from Settings moves the switch. Other feature switches and a `commands` object
+/// older builds wrote (hotkeys and aliases) are unknown keys now: ignored and kept as written.
+@Test func updateMovesTheOldSwitch() throws {
     let url = temporarySettingsURL()
     try write(
-        #"{"commands": {"builtin:ask-ai": {"alias": "ask"}}, "features": {"ask-ai": false}}"#, to: url)
+        #"{"commands": {"builtin:ask-ai": {"alias": "ask"}}, "features": {"ask-ai": false, "files": false}}"#,
+        to: url)
     #expect(try Settings.load(from: url).ignored.isEmpty)
     try Settings.update(at: url) { $0.paletteWidth = 700 }
     let file = try object(url)
-    #expect(file["features"] as? [String: Bool] == ["ai": false])
+    #expect(file["features"] as? [String: Bool] == ["files": false])
+    #expect(file["ai"] as? [String: Bool] == ["enabled": false])
     #expect(file["commands"] as? [String: [String: String]] == ["builtin:ask-ai": ["alias": "ask"]])
 }

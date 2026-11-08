@@ -1,10 +1,9 @@
 import Foundation
 
-/// One answer row, "Open apple.com", when the query plainly is a web address (`link`). The Links
-/// feature's source.
+/// One answer row, "Open apple.com", when the query plainly is a web address (`link`).
 @MainActor
 public struct LinkSource: ResultSource {
-    public let id = Feature.links.rawValue
+    public let id = "links"
 
     public init() {}
 
@@ -46,7 +45,7 @@ public struct LinkSource: ResultSource {
         var host = url.host() ?? url.absoluteString
         if host.lowercased().hasPrefix("www.") { host.removeFirst(4) }
         return Item(
-            id: "\(Feature.links.rawValue):link", title: "Open \(host)", subtitle: url.absoluteString,
+            id: "links:link", title: "Open \(host)", subtitle: url.absoluteString,
             icon: .symbol(name: "link"), relevance: .answer,
             actions: [
                 .open(url: url, title: "Open Link"), .copy(text: url.absoluteString, title: "Copy Link"),

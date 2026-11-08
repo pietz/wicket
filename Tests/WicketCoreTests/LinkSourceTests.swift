@@ -34,7 +34,7 @@ func otherTextIsNoLink(text: String) {
     #expect(item.title == "Open apple.com")
     #expect(item.subtitle == "https://www.apple.com/support")
     #expect(item.relevance == .answer)
-    #expect(item.id.hasPrefix(Feature.links.rawValue + ":"))
+    #expect(item.id == "links:link")
     #expect(item.actions.first == .open(url: url, title: "Open Link"))
 }
 
@@ -42,16 +42,6 @@ func otherTextIsNoLink(text: String) {
 
 private func decode(_ json: String) throws -> Settings {
     try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
-}
-
-@Test func theOldWebSearchFeatureKeyTurnsOffLinks() throws {
-    let url = URL(filePath: NSTemporaryDirectory()).appending(path: "wicket-\(UUID())/settings.json")
-    try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try Data(#"{"features": {"web-search": false}}"#.utf8).write(to: url)
-    let settings = try Settings.load(from: url)
-    #expect(settings.disabledFeatures == [.links])
-    #expect(settings.ignored.isEmpty)
 }
 
 /// Search the Web was removed; a file that still sets its address loads without a word about it.

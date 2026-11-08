@@ -68,10 +68,10 @@ private final class FakeAgents: Sendable {
 private let runAgent = RegisteredCommand(
     id: .builtin("run-agent"), title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
     isListed: false,
-    input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .ai)
+    input: .submitText, placeholder: "Ask a question", isFallback: true, usesAI: true)
 private let followUp = RegisteredCommand(
     id: .followUp, title: "Follow Up", icon: .symbol(name: "sparkles"), isListed: false, input: .submitText,
-    placeholder: "Follow up", feature: .ai)
+    placeholder: "Follow up", usesAI: true)
 private let aiApproval = RegisteredCommand(
     id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"), isListed: false, input: .none
 )

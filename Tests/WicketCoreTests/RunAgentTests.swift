@@ -75,8 +75,8 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
             .run(command: define.id, text: "paris", title: define.title)
         ])
 
-    // A fallback whose feature is off isn't registered, so it isn't offered.
-    registry.setDisabledFeatures([.ai])
+    // With AI off, Run Agent isn't registered, so it isn't offered.
+    registry.setAIEnabled(false)
     #expect(fallbacks("paris", registry).map(\.origin) == [define.id])
 }
 

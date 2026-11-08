@@ -32,26 +32,18 @@ public struct Settings: Equatable, Sendable {
     /// How large a page's text is: a detail, Run Agent's answer.
     public var textSize = TextSize.medium
     public var ai = AI()
-    /// The built-in features turned off. The file says `"features": {"files": false}`; a feature it
-    /// doesn't mention, or sets to true, is on.
-    public var disabledFeatures: Set<Feature> = []
     /// Why a field the file sets was ignored for its default. A cosmetic value that is wrong or out
     /// of range shouldn't cost the whole file, so it is reported here instead of making it invalid.
     public private(set) var ignored: [String] = []
 
     public init() {}
 
-    public func isEnabled(_ feature: Feature) -> Bool {
-        !disabledFeatures.contains(feature)
-    }
-
-    public mutating func setEnabled(_ feature: Feature, _ enabled: Bool) {
-        if enabled { disabledFeatures.remove(feature) } else { disabledFeatures.insert(feature) }
-    }
-
     /// The `ai` object. Preferences only: nothing here grants anything, so the agents' permission
     /// level is not here (`AgentPermission`).
     public struct AI: Equatable, Sendable {
+        /// Whether Wicket uses AI at all (`ai.enabled`, Settings ▸ AI). Off, Run Agent and Follow Up
+        /// aren't registered, so nothing in Wicket asks a model.
+        public var enabled = true
         /// Which agent answers Run Agent; nil (none chosen yet) means the first one that's ready, in
         /// `AgentProvider.allCases` order (Claude first).
         public var provider: AgentProvider?
@@ -132,24 +124,24 @@ public struct Settings: Equatable, Sendable {
         try (json + Data("\n".utf8)).write(to: url, options: .atomic)
     }
 
-    /// Keys an older Wicket used, by the object holding them, and what they are called now, so a
-    /// file keeps working after a rename (Ask AI's feature became Run Agent's, 2026-11-08; Web Search became
-    /// Links when Search the Web was removed, 2026-11-08). The file is rewritten
-    /// with the new name the next time Settings changes something.
-    static let renamed: [(object: String, old: String, new: String)] = [
-        ("features", "ask-ai", "ai"),
-        ("features", "web-search", "links"),
-    ]
-
-    /// `file` with every renamed key under its current name; a key already under the new name wins.
+    /// `file` as this build reads it. Older builds had a switch per feature (`"features": {"ai":
+    /// false}`, Ask AI's `ask-ai` before that); the AI switch moves to `ai.enabled` (a value already
+    /// there wins), and the other switches (apps, files, calculator, links) are left as unknown keys,
+    /// since what they turned off is always on now (2026-11-08). The file is rewritten this way the
+    /// next time Settings changes something, so the old switch can't turn AI off again.
     static func migrated(_ file: [String: Any]) -> [String: Any] {
+        guard var features = file["features"] as? [String: Any] else { return file }
+        let current = features.removeValue(forKey: "ai")
+        let older = features.removeValue(forKey: "ask-ai")
+        guard current != nil || older != nil, file["ai"] == nil || file["ai"] is [String: Any] else {
+            return file
+        }
         var file = file
-        for rename in renamed {
-            guard var object = file[rename.object] as? [String: Any],
-                let value = object.removeValue(forKey: rename.old)
-            else { continue }
-            if object[rename.new] == nil { object[rename.new] = value }
-            file[rename.object] = object
+        file["features"] = features.isEmpty ? nil : features
+        if (current ?? older) as? Bool == false {
+            var ai = file["ai"] as? [String: Any] ?? [:]
+            if ai["enabled"] == nil { ai["enabled"] = false }
+            file["ai"] = ai
         }
         return file
     }
@@ -215,11 +207,11 @@ public struct Settings: Equatable, Sendable {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, showInMenuBar, textSize, ai, features
+        case hotkey, paletteWidth, showInMenuBar, textSize, ai
     }
 
     private enum AIKeys: String, CodingKey {
-        case provider, codex, claude, streamAnswers
+        case enabled, provider, codex, claude, streamAnswers
     }
 
     private enum AgentKeys: String, CodingKey {
@@ -261,9 +253,6 @@ extension Settings: Codable {
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
         }
-        if container.contains(.features), (try? container.decodeNil(forKey: .features)) != true {
-            decodeFeatures(try? container.nestedContainer(keyedBy: AnyKey.self, forKey: .features))
-        }
     }
 
     /// Like the width, a bad hotkey costs only itself: it is ignored with its reason and the palette
@@ -279,28 +268,6 @@ extension Settings: Codable {
             }
         } catch {
             ignored.append("hotkey: \(Self.reason(error)); using \(Shortcut.default)")
-        }
-    }
-
-    /// Each entry stands alone: an unknown feature or a value that isn't a
-    /// boolean is ignored with its reason, and that feature stays on.
-    private mutating func decodeFeatures(_ object: KeyedDecodingContainer<AnyKey>?) {
-        guard let object else {
-            ignored.append("features must be an object; every feature is on")
-            return
-        }
-        for key in object.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
-            guard let feature = Feature(rawValue: key.stringValue) else {
-                let names = Feature.allCases.map(\.rawValue).joined(separator: ", ")
-                ignored.append("features: \"\(key.stringValue)\" is not a feature (\(names)); ignoring it")
-                continue
-            }
-            if (try? object.decodeNil(forKey: key)) == true { continue }
-            guard let enabled = try? object.decode(Bool.self, forKey: key) else {
-                ignored.append("features.\(feature.rawValue) must be true or false; leaving it on")
-                continue
-            }
-            setEnabled(feature, enabled)
         }
     }
 
@@ -323,6 +290,13 @@ extension Settings: Codable {
         guard let ai else {
             ignored.append("ai must be an object; using defaults")
             return
+        }
+        if ai.contains(.enabled), (try? ai.decodeNil(forKey: .enabled)) != true {
+            if let enabled = try? ai.decode(Bool.self, forKey: .enabled) {
+                self.ai.enabled = enabled
+            } else {
+                ignored.append("ai.enabled must be true or false; AI stays on")
+            }
         }
         // Null, like a missing field, means none chosen.
         if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false,
@@ -400,6 +374,7 @@ extension Settings: Codable {
         // provider's default (and the object once nothing is left in it).
         if ai != AI() {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
+            if !ai.enabled { try nested.encode(false, forKey: .enabled) }
             try nested.encodeIfPresent(ai.provider, forKey: .provider)
             if ai.streamAnswers { try nested.encode(true, forKey: .streamAnswers) }
             for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)] {
@@ -412,13 +387,6 @@ extension Settings: Codable {
                 if options.speed != defaults.speed {
                     try fields.encode(options.speed.rawValue, forKey: .speed)
                 }
-            }
-        }
-        // Only the features turned off, so `update` removes one turned back on.
-        if !disabledFeatures.isEmpty {
-            var object = container.nestedContainer(keyedBy: AnyKey.self, forKey: .features)
-            for feature in disabledFeatures {
-                try object.encode(false, forKey: AnyKey(feature.rawValue))
             }
         }
     }
