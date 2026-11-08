@@ -164,12 +164,24 @@ struct VoiceInputTests {
     @Test func firstWordsWhileArmedStartListening() async throws {
         let harness = try Harness(timing: patient)
         harness.voice.arm()
-        harness.session.continuation.yield("")
-        await Task.yield()
+        // Nothing, or only punctuation from noise, keeps it quiet.
+        for noise in ["", "…", " - "] {
+            harness.session.continuation.yield(noise)
+            await Task.yield()
+        }
         #expect(harness.voice.state == .armed)
+        #expect(harness.written.isEmpty)
         harness.session.continuation.yield("Weather")
         #expect(await soon { harness.voice.isListening })
         #expect(harness.written == ["Weather"])
+    }
+
+    @Test func speechIsAWordOrANumber() {
+        #expect(VoiceInput.isSpeech("Weather"))
+        #expect(VoiceInput.isSpeech("42"))
+        #expect(VoiceInput.isSpeech("¿Qué?"))
+        #expect(!VoiceInput.isSpeech("…"))
+        #expect(!VoiceInput.isSpeech("- ?"))
     }
 
     /// Armed, a silence just turns the microphone off: no failure, no text.

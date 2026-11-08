@@ -68,6 +68,14 @@ final class PalettePanel: NSPanel {
         return NSApp.mainMenu?.bindsKeyEquivalent(of: event) == true
     }
 
+    /// Scrolls the focused field to its caret. AppKit's field editor scrolls only after its own
+    /// edits, and SwiftUI's TextField has no way to, even with a `selection` binding (checked on
+    /// macOS 26): text set through the binding (a transcript) would stay scrolled to where it was.
+    func revealCaret() {
+        guard let editor = firstResponder as? NSTextView, editor.isFieldEditor else { return }
+        editor.scrollRangeToVisible(editor.selectedRange())
+    }
+
     /// The chord `event` is, unless an input method is composing with it.
     func chord(for event: NSEvent) -> PaletteChord? {
         guard (firstResponder as? NSTextView)?.hasMarkedText() != true else { return nil }
@@ -140,7 +148,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
                 model: model, onRun: { [weak self] in self?.run($0, action: $1) },
                 onEscape: { [weak self] in self?.escape() },
                 onListen: { [weak self] in self?.listen() },
-                onOpenLink: { [weak self] in self?.open(link: $0) }))
+                onOpenLink: { [weak self] in self?.open(link: $0) },
+                onQueryChange: { [weak self] in self?.panel.revealCaret() }))
         // The controller owns the frame; SwiftUI must never resize the panel.
         root.sizingOptions = []
         panel.contentView = root

@@ -66,9 +66,10 @@ final class VoiceInput {
     enum State {
         case idle
         /// The microphone is on, quietly, since the palette opened: nothing shows but a mic glyph,
-        /// the first key ends it, and the first words turn it into `listening`.
+        /// the first key ends it, and the first words (`isSpeech`) turn it into `listening`.
         case armed
-        /// Listening in the open: the pill says so and the words go into the field.
+        /// Listening in the open: a moving waveform takes the search glyph's place and the words go
+        /// into the field.
         case listening
     }
 
@@ -140,6 +141,8 @@ final class VoiceInput {
                     guard generation == current else { continue }
                     let spoken = Transcript.searchText(text)
                     guard !spoken.isEmpty else { continue }
+                    // Armed, only words open up: noise transcribed as "…" or "-" stays quiet.
+                    guard isListening || Self.isSpeech(spoken) else { continue }
                     if updates == 0 { Perf.log("voice: first words after \(Perf.ms(since: start))") }
                     updates += 1
                     self.state = .listening
@@ -200,6 +203,11 @@ final class VoiceInput {
             guard !Task.isCancelled, let self, generation == current else { return }
             stop()
         }
+    }
+
+    /// Whether a transcript holds a word or a number, rather than only punctuation from noise.
+    static func isSpeech(_ text: String) -> Bool {
+        text.contains { $0.isLetter || $0.isNumber }
     }
 
     private static func describe(_ error: any Error) -> String {

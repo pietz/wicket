@@ -88,6 +88,8 @@ struct PaletteRootView: View {
     let onListen: () -> Void
     /// Follows a link clicked in a page.
     let onOpenLink: (URL) -> Void
+    /// The search field's text changed: keeps its caret in view.
+    let onQueryChange: () -> Void
     @FocusState private var focus: PaletteFocus?
     @Namespace private var glass
 
@@ -168,11 +170,8 @@ struct PaletteRootView: View {
 
     /// The pill's glyph and prompt: search at the root; in a command's frame its icon with the
     /// screen's title, else its title for a page (which takes no text) or its placeholder; a pushed
-    /// page's title. "Listening…" wherever speech goes (the root, a frame waiting for its text).
+    /// page's title. Voice never changes the prompt: until words arrive the field reads as usual.
     private var pill: (icon: Item.Icon, prompt: String) {
-        if model.voice?.isListening == true, model.takesSpeech {
-            return (.symbol(name: "waveform"), "Listening…")
-        }
         switch model.top.content {
         case .search:
             return (.symbol(name: "magnifyingglass"), "Search or run a command")
@@ -186,7 +185,9 @@ struct PaletteRootView: View {
         }
     }
 
-    /// A spinner while a command runs, a moving waveform while listening, else the pill's icon.
+    /// A spinner while a command runs, a moving waveform while speech is transcribed into the field
+    /// (listening, not armed: armed, the microphone is on but nothing was heard, and the pill stays
+    /// as it was, so voice never looks like the field's main input), else the pill's icon.
     @ViewBuilder private var pillGlyph: some View {
         if model.isBusy {
             ProgressView().controlSize(.small)
@@ -195,7 +196,7 @@ struct PaletteRootView: View {
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(.tint)
                 .symbolEffect(.variableColor.iterative, options: .repeat(.continuous))
-                .accessibilityLabel("Listening")
+                .accessibilityLabel("Transcribing speech")
         } else {
             switch pill.icon {
             case .symbol(let name):
@@ -249,6 +250,9 @@ struct PaletteRootView: View {
             }
             .id(fieldID)
             .font(.system(size: 21))
+            // A field scrolls to its caret only as it is typed in; text set from outside (a
+            // transcript) moves the caret to the end but leaves the visible part where it was.
+            .onChange(of: model.query) { onQueryChange() }
             .focused($focus, equals: search)
             // Return is handled here rather than by `onSubmit`, which ends editing.
             .onKeyPress(.upArrow) {
@@ -697,6 +701,7 @@ private struct MicButton: View {
         .focusable(false)
         .help(state == .listening ? "Stop Listening (⌘L)" : "Start Listening (⌘L)")
         .accessibilityLabel(state == .listening ? "Stop Listening" : "Start Listening")
+        .accessibilityValue(state == .idle ? "" : state == .armed ? "Microphone on" : "Transcribing")
     }
 }
 
