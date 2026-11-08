@@ -52,7 +52,9 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 No harness of our own: a thin adapter layer maps Wicket's runs, events, approvals and settings onto Claude Code and Codex, the way T3 Code does. The harness already has the tools; Wicket adds context. Research: docs/reviews/2026-11-08-ai-native.md, docs/reviews/2026-11-08-launcher-2027.md.
 - ✅ Summon context: selected text and Finder selection as "this", a chip in the pill (paused by the owner: works, no further investment for now)
 - ✅ Search terms in manifests (agent-written words people type)
-- ✅ Apple's on-device model as an answer provider
+- ✅ Apple's on-device model as an answer provider (removed by the owner 2026-11-08: no tools; may return for small internal jobs)
+- ✅ Settings ▸ AI simplified: one provider (Claude or ChatGPT, only ready ones), real defaults (sonnet, gpt-6.1-terra, medium, regular), Auto by default
+- ✅ Agent answers show only what the agent writes (no tool lines, no thinking)
 - ✅ One agent row that answers, acts and builds commands, through Codex and Claude Code under the user's own permission settings; approvals in the palette; Do and Make a Command removed
 - ✅ The agent row on top when the typing reads like a request (a rule; a classifier only if real use shows misses)
 - ✅ Prompt commands and Keep from an answer
@@ -69,7 +71,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - 💤 A successful run becomes a command ("Keep this"), saved instructions first, code only when needed
 - 💤 Richer agent replies with Wicket components (lists, details) instead of text only
 - 💤 Submit-time intent classifier on the on-device model (only if the rule misses in real use)
-- 👀 Watch macOS 27.3: its expected new on-device AI options (owner, 2026-11-08); re-check the Apple provider, the router and voice against them when it ships
+- 👀 Watch macOS 27.3: its expected new on-device AI options (owner, 2026-11-08); re-check the router and voice against them when it ships
 
 ### App shell
 - ✅ Settings window (native SwiftUI): General (hotkey recorder, palette width, launch at login, settings.json and extensions folder, ignored-field warnings); AI (provider and status); Shortcuts (scrolling, filter, keywords); Features (toggle each source, live). No Extensions pane (the palette list covers it). The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
