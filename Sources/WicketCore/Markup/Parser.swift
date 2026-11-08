@@ -88,7 +88,7 @@ extension Markup {
         return parsed.document
     }
 
-    /// Every problem in `text`, for `wicket check`: an extension's markup must have none, while the
+    /// Every problem in `text`, for `wicket run`: an extension's markup must have none, while the
     /// same markup from an agent renders anyway.
     public static func lint(_ text: String, placement: Context.Placement = .page) -> [Issue] {
         var parser = Parser(context: Context(placement: placement))

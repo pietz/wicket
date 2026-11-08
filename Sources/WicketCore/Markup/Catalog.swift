@@ -3,7 +3,7 @@ import Foundation
 /// Wicket's markup: markdown plus a fixed catalog of block-level tags, which agents write in their
 /// replies and extensions in their pages (docs/markup.md). Each component is one file in
 /// `Markup/Components`, registered in `components` below; the parser, the agent's reference, the
-/// docs, the lint used by `wicket check` and the tests all read the catalog from there, so a tag
+/// docs, the lint used by `wicket run` and the tests all read the catalog from there, so a tag
 /// that isn't registered is never advertised.
 public enum Markup {
     /// Every component, in the order the references list them. Adding one is its file and a line here.

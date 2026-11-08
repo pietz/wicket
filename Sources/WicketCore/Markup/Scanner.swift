@@ -2,7 +2,7 @@ import Foundation
 
 extension Markup {
     /// A problem in markup, by line. An agent's reply renders anyway and only the counts are logged;
-    /// `wicket check` reports each one of an extension's as an error.
+    /// `wicket run` reports each one of an extension's as an error.
     public struct Issue: Sendable, Hashable, CustomStringConvertible {
         public enum Kind: String, Sendable, Hashable, CaseIterable {
             /// Not a Wicket tag (real HTML such as `<b>`, a misspelling): it shows as text.

@@ -78,7 +78,7 @@ extension Markup {
         }
         if !tag.aliases.isEmpty {
             let aliases = list(tag.aliases.map { "`<\($0)>`" })
-            about.append("Also read as \(aliases), which `wicket check` asks to spell `<\(tag.name)>`.")
+            about.append("Also read as \(aliases), which `wicket run` asks to spell `<\(tag.name)>`.")
         }
         var lines = [about.joined(separator: " "), ""]
         guard !tag.attributes.isEmpty else { return lines }

@@ -26,7 +26,7 @@ A focused day on **wicket**.
 
 An agent's reply never fails. A tag Wicket doesn't know (HTML such as `<b>`, a misspelling) shows as text; so does a tag missing a required attribute, or one past a limit. An unknown attribute is dropped. A few spellings models reach for are read as the real tag (`<img>` as `<image>`, `<link>` as `<url>`, `type` as a chart's `kind`), but never advertised.
 
-`wicket check` holds an extension's markup to the same rules strictly: every problem the parser tolerates, aliases included, is an error naming the response's line.
+`wicket run` holds an extension's markup to the same rules strictly: every problem the parser tolerates, aliases included, is an error naming the response's line.
 
 ## Selection and Copy Answer
 
@@ -36,7 +36,7 @@ In a list's summary nothing is selectable, since the arrows belong to the rows: 
 
 ## Adding a component
 
-A component is one file in `Sources/WicketCore/Markup/Components/` conforming to `Component`: its tags and attributes, an example with its Copy Answer text, how it is built from a parsed element, its text and its targets. Registered in `Markup.components`, it appears in the agent's instructions, in this reference, in `wicket check` and in the tests without another change. Its view is one file in the app, registered by type.
+A component is one file in `Sources/WicketCore/Markup/Components/` conforming to `Component`: its tags and attributes, an example with its Copy Answer text, how it is built from a parsed element, its text and its targets. Registered in `Markup.components`, it appears in the agent's instructions, in this reference, in `wicket run`'s lint and in the tests without another change. Its view is one file in the app, registered by type.
 
 ## Reference
 
@@ -150,7 +150,7 @@ Sources
 | `accessory` | text |  | A short text at the right. |
 | `icon` | SF Symbol name |  | An SF Symbol instead of the Finder icon. |
 
-**`<url>`** A web page or mail address to open: sources, results, references. Adjacent rows (file, url, item) form a list. Closes itself. The arrows select it. Also read as `<link>`, which `wicket check` asks to spell `<url>`.
+**`<url>`** A web page or mail address to open: sources, results, references. Adjacent rows (file, url, item) form a list. Closes itself. The arrows select it. Also read as `<link>`, which `wicket run` asks to spell `<url>`.
 
 | Attribute | Value | Required | Meaning |
 |---|---|---|---|
@@ -258,7 +258,7 @@ Copy Answer copies:
 Keanu Reeves · 2019 · https://upload.wikimedia.org/keanu.jpg
 ```
 
-**`<image>`** A picture that helps: a product, a person, a screenshot. Adjacent images form a gallery. Closes itself. The arrows select it. Also read as `<img>`, which `wicket check` asks to spell `<image>`.
+**`<image>`** A picture that helps: a product, a person, a screenshot. Adjacent images form a gallery. Closes itself. The arrows select it. Also read as `<img>`, which `wicket run` asks to spell `<image>`.
 
 | Attribute | Value | Required | Meaning |
 |---|---|---|---|
