@@ -33,3 +33,4 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Wicket's agent instructions as an editable Markdown file** the user can change.
 - **Richer agent replies using Wicket components** instead of text only (later).
 - **Settings ▸ AI much simpler:** one provider dropdown (Claude, ChatGPT), only ready ones selectable, one set of fields; real defaults (Claude sonnet, ChatGPT gpt-6.1-terra, effort medium, speed regular, permissions Auto); four permission levels, no "default"; Apple Intelligence out of the picker (in progress).
+- **Continue a conversation:** a short button under an answer ("Follow Up") returns to the normal input (type or speak), keeping the first question and answer so the agent has the context. Not for 0.0.2, but soon.

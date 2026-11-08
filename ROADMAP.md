@@ -60,6 +60,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ✅ Voice: summon and speak, live transcript into the field, on/off and trigger (on summon, or the Start Listening hotkey) in Settings ▸ Voice
 - 💤 Voice: hold-to-talk, and a language choice for mixed German and English
 - ⏭ Wicket's agent instructions as an editable Markdown file, plus a complete authoring kit (schema, samples) and a check-until-it-passes loop (from the Pi comparison)
+- ⏭ Follow Up: a short action under an answer returns to the input (typed or spoken) and continues the same agent conversation
 - ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
 - ⏭ Dismissible runs: Escape hides a running agent; the next summon shows it as a row (running, needs approval, ready)
 - ⏭ Feature switches for every built-in (calculator, files, links, web search, agent), so the user turns off what they don't want
