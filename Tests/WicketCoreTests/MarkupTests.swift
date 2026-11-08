@@ -177,6 +177,14 @@ private func components<C: Component>(_ type: C.Type, in document: Document) -> 
     }
 }
 
+/// The example in the agent's reference is clean markup with components.
+@Test func agentExampleIsClean() throws {
+    let fenced = try #require(Markup.agentReference().components(separatedBy: "```\n").dropFirst().first)
+    let parsed = parse(fenced)
+    #expect(parsed.issues.isEmpty, "\(parsed.issues)")
+    #expect(parsed.document.blocks.count == 2, "\(outline(parsed.document))")
+}
+
 @Test func catalogIsConsistent() {
     for tag in Markup.catalog {
         var names = Set<String>()

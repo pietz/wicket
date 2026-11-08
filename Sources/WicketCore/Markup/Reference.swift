@@ -15,16 +15,42 @@ extension Markup {
             groups.append(grouping)
         }
         var lines: [String] = [
-            "Write plain Markdown first. Wicket also draws the tags below natively; use them only where they "
-                + "genuinely help: numbers to compare, a few items with a picture, files or pages to open, steps "
-                + "at times. An explanation or a how-to stays plain Markdown. A direct question whose answer is "
-                + "one value (a name, a number, a time) is best answered by `<answer>` alone; other short replies "
-                + "are plain text.",
+            "Wicket draws the tags below natively, and they beat Markdown wherever content has structure, so "
+                + "turn structure into tags:",
+            "",
+            "- Key numbers: `<stat>`s, with `tone` for good or bad.",
+            "- Two or three things compared: a `<card>` each in `<columns>`, with stats or facts inside. A "
+                + "Markdown table only for many rows or attributes.",
+            "- Facts about one subject (specs, settings, a forecast): `<fact>`s.",
+            "- Files and folders: `<file>` rows with absolute paths, never paths in prose. Sources and pages: `<url>` "
+                + "rows. Other things to open or pick: `<item>` rows.",
+            "- What changed (commits, edits), a day's events, history: a `<timeline>` of `<event>`s with times. A series of numbers: a `<chart>`. "
+                + "Status: `<badge>`s. How full or far along: `<progress>`. A warning or tip: a `<callout>`.",
+            "- Plain Markdown stays for an explanation, a how-to with code and a conversational reply. A "
+                + "question whose answer is one value (a name, a number, a time) gets `<answer>` alone.",
+            "",
+            "For example:",
+            "",
+            "```",
+            "<answer value=\"Pixel 11\" detail=\"Cheaper, longer battery\"/>",
+            "<columns>",
+            "<card title=\"iPhone 17\">",
+            "<stat value=\"$799\" label=\"From\"/>",
+            "<fact label=\"Battery\" value=\"22 h video\"/>",
+            "</card>",
+            "<card title=\"Pixel 11\">",
+            "<stat value=\"$749\" label=\"From\" tone=\"positive\"/>",
+            "<fact label=\"Battery\" value=\"26 h video\"/>",
+            "</card>",
+            "</columns>",
+            "```",
+            "",
+            "Syntax:",
             "",
             "- A tag starts its own line. Attributes are `name=\"value\"`. A tag closes itself (`<stat value=\"7\" label=\"Open\"/>`) or wraps content up to its closing tag (`<card title=\"…\">` … `</card>`).",
             "- Repeat a tag to make a group. \(groups.joined(separator: " ")) \(list(wrappers)) only add a `title` to their group.",
-            "- Tables, emphasis, code and links in prose are Markdown. Files and folders you list for the user are `<file>` rows with absolute paths, never names or paths in prose; pages to open are `<url>` rows.",
-            "- Only the tags and attributes below exist: anything else (HTML such as `<b>` or `<br>`, a misspelling) shows as text. Tags inside code blocks are code.",
+            "- Tables, emphasis, code and links in prose are Markdown.",
+            "- Only the tags and attributes below exist: anything else (HTML such as `<b>` or `<br>`, a misspelling) shows as text, so a placeholder such as `<name>` goes in backticks. Tags inside code blocks are code.",
             "",
             "| Tag | Attributes | Use when |",
             "|---|---|---|",

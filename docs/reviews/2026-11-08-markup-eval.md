@@ -33,3 +33,32 @@ None against the lint. Worth knowing:
 ## Size
 
 The largest reply was 2255 bytes in 5 blocks, far under the 8 KiB where the eager `DocumentView` layout would start to matter (a 64 KiB page takes about 470 ms), so the view is unchanged.
+
+## Structure becomes components (later the same day)
+
+The owner saw agents in real use rarely draw components: told "write plain Markdown first … use them only where they genuinely help", they wrote tables and bullet lists. The guidance now says the opposite, as concrete lines: key numbers become `<stat>`s, two or three things compared become `<card>`s in `<columns>` (a table only for many rows or attributes), facts about one subject `<fact>`s, files and pages rows, what changed and a day's events a `<timeline>`, series a `<chart>`, status `<badge>`s, fullness `<progress>`, a warning a `<callout>`; plain Markdown stays for explanations, how-tos with code and conversation, and one value is `<answer>` alone. One short comparison example follows (`agentExampleIsClean` keeps it clean markup). The reference grew from 3687 to 4497 bytes, about 200 tokens.
+
+The evaluation now has 18 prompts: 8 plain (the four short ones, a brief HTTPS explanation, "thanks, that worked", the SSH and Python how-tos with code) and 10 structured, each with the components that fit it (iPhone 17 vs Pixel 11, EU populations, a signup funnel's numbers, the revenue trend, today's calendar, what changed today in a fresh git repository with five commits, disk usage, Hamburg's weather tomorrow, the newest Downloads, the Apollo timeline). Targets: every reply strictly clean, at least 80% of structured prompts with a fitting component, at most 1 in 10 plain prompts with tags other than `<answer>`. Default models (Claude Code `sonnet`, Codex `gpt-6.1-terra`).
+
+| Round | CLI | Zero strict problems | Structured with a fitting component | Plain with tags | Median time |
+|---|---|---|---|---|---|
+| 1 | Claude Code | 17/18 | 9/10 | 0/8 | 5.9 s |
+| 1 | Codex | 18/18 | 9/10 | 0/8 | 7.7 s |
+| 2 | Claude Code | 18/18 | 10/10 | 0/8 | 5.8 s |
+| 2 | Codex | 18/18 | 8/10 | 0/8 | 7.7 s |
+| 3 | Claude Code | 18/18 | 10/10 | 0/8 | 5.3 s |
+| 3 | Codex | 18/18 | 9/10 | 0/8 | 8.0 s |
+
+Round 3 is the final wording. Comparisons now come as cards in columns on both CLIs (facts per side, sometimes a stat), numbers as stat strips with tones and charts, disk usage as `<progress>` or stats with the biggest folders as `<file>` rows, the repository's commits as a timeline (Claude Code). Plain prompts got no component in any round; short values kept getting `<answer>`.
+
+Wording changes:
+
+- Round 1 to 2: Claude Code wrote "Hi `<username>`!" in prose (an unknown tag, the only strict problem in all rounds), so a placeholder now goes in backticks; it put its sources in a prose line, so "Sources and pages: `<url>` rows"; Codex summarized today's commits as bullets, so the timeline line names commits first.
+- Round 2 to 3: the timeline line starts "What changed (commits, edits)". Codex still answered the repository prompt with prose and bullets in all three rounds; it summarizes what the commits did rather than listing them, which reads fine but misses the timeline.
+
+Notable failures and caveats:
+
+- The calendar was empty that Sunday: Claude Code answered with `<answer>` "Nothing today" in round 1 and a `<callout>` after, Codex with a plain sentence in round 2 and a `<callout>` in rounds 1 and 3. Neither invented events. The prompt can't test a full day's timeline on an empty calendar.
+- Callouts are the most common extra: Claude Code adds one for caveats (price sources, conversion rates) in about half the structured replies. They read well, but a long one is a paragraph in a box.
+- Codex still opens replies with its working message ("I'll check tomorrow's forecast for Hamburg."), as before.
+- One sample per prompt per round: the rates are tendencies.
