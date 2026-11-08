@@ -10,6 +10,9 @@ public struct Settings: Equatable, Sendable {
     public var hotkey: Shortcut = .default
     /// The palette's width in points, within `paletteWidths`.
     public var paletteWidth = defaultPaletteWidth
+    /// Whether Wicket shows its icon in the menu bar. A way back in, not a permission, so the file
+    /// may set it.
+    public var showInMenuBar = true
     public var ai = AI()
     /// The `webSearch` object: where Search the Web goes.
     public var webSearch = WebSearch()
@@ -209,7 +212,7 @@ extension Settings {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, ai, webSearch, commands, features
+        case hotkey, paletteWidth, showInMenuBar, ai, webSearch, commands, features
     }
 
     private enum WebSearchKeys: String, CodingKey {
@@ -238,6 +241,13 @@ extension Settings: Codable {
                 ignored.append(
                     "paletteWidth must be a number from \(Int(range.lowerBound)) to \(Int(range.upperBound)); "
                         + "using \(Int(paletteWidth))")
+            }
+        }
+        if container.contains(.showInMenuBar), (try? container.decodeNil(forKey: .showInMenuBar)) != true {
+            if let show = try? container.decode(Bool.self, forKey: .showInMenuBar) {
+                showInMenuBar = show
+            } else {
+                ignored.append("showInMenuBar must be true or false; showing the menu bar icon")
             }
         }
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
@@ -389,6 +399,8 @@ extension Settings: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(hotkey, forKey: .hotkey)
         try container.encode(paletteWidth, forKey: .paletteWidth)
+        // Only when hidden, so a new file stays minimal and `update` removes it when shown again.
+        if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
         // Only when chosen, so a new file stays minimal; `update` removes it again for automatic.
         if let provider = ai.provider {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)

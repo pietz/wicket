@@ -72,6 +72,7 @@ Each is the call and its reason; the mechanism is in docs/architecture.md. All d
 - **Action panel: an overlay in the palette, not a child window.** Most menus are short, and an overlay needs no key-status hand-off; a long one scrolls inside the card instead. Tinycast uses a child panel so long menus aren't clipped.
 - **Keyboard model:** Return, ⌘↩, ⌘K, ⌘1 to ⌘9, ⌃N/⌃P, Escape stepping back (clear, pop, hide). ⌘1 to ⌘9 match the number row by key code so AZERTY works (from Tinycast).
 - **Main menu only for the settings window; inert in the palette.** ⌘Q in the palette does nothing, as in Spotlight and Raycast: a launcher dismissed by reflex shouldn't quit. Tinycast rebinds ⌘Q to Close even in settings; we keep the platform's Quit there, since the user opened the window on purpose.
+- **A menu bar icon, on by default (2026-11-08).** Without a Dock icon, the owner couldn't tell Wicket was running or reach Settings without the hotkey. Its menu is only Open Wicket (with the hotkey as its hint), Settings… and Quit, on the same paths as the hotkey and ⌘,. `"showInMenuBar": false` hides it: a way in, not a permission, so the file may set it; opening the app again still shows the palette. Tinycast and Raycast have the same switch; Tinycast also puts features in the menu, which we leave to the palette.
 - **App icon:** the warm ivory open doorway on graphite (`Resources/AppIcon.icns`, from `AppIcon-master.png`).
 
 ### Settings

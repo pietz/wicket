@@ -21,7 +21,8 @@ extension PaletteController: PaletteSurface {}
 /// on them coherent: first the registry (which built-ins exist, which aliases name what), then the
 /// runs of commands that left it stop, then the root's sources, then one fresh root search if
 /// either changed (so what is on screen shows the new aliases and features at once), then the work
-/// behind features starts or stops, and last the hotkeys, resolved against the new registry. The
+/// behind features starts or stops, then the hotkeys, resolved against the new registry, and last
+/// the menu bar icon, which shows the hotkey that is in effect. The
 /// palette's width and the AI provider are read on use (next summon, next answer).
 ///
 /// What touches the system (hotkey registration, file watching, the work behind features) comes in
@@ -56,6 +57,8 @@ final class AppRuntime {
     var diagnostics: Diagnostics { store.diagnostics }
     /// The palette window, once composed; hotkeys and settings reach it through here.
     var palette: (any PaletteSurface)?
+    /// The menu bar icon, once composed; settings show or hide it.
+    var menuBar: (any MenuBarSurface)?
     /// Opens the settings window.
     var showSettings: () -> Void = {}
 
@@ -190,6 +193,7 @@ final class AppRuntime {
             Perf.log("features off: \(settings.disabledFeatures.map(\.rawValue).sorted())")
         }
         applyHotKeys(settings)
+        menuBar?.update(visible: settings.showInMenuBar, hotkey: hotKeys.paletteHotKey)
     }
 
     /// After something that may have changed the registry: the runs of commands no longer in it
@@ -415,6 +419,9 @@ extension AppRuntime {
             model: runtime.model, dispatcher: ActionDispatcher(registry: runtime.registry, effects: effects))
         runtime.palette = palette
         runtime.showSettings = { settingsWindow.show() }
+        runtime.menuBar = MenuBarItem(
+            onOpen: { [weak runtime] in runtime?.showPalette() },
+            onSettings: { [weak runtime] in runtime?.showSettings() })
         return runtime
     }
 }

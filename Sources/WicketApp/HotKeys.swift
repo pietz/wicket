@@ -26,6 +26,9 @@ final class HotKeys {
     /// Why the palette's hotkey from settings isn't in effect (another app holds it), naming the one
     /// that still opens Wicket, if any; nil when it is.
     private(set) var paletteProblem: String?
+    /// The combination that opens Wicket right now: settings' hotkey, the previous one if another
+    /// app holds it, or nil if none is registered.
+    var paletteHotKey: Shortcut? { palette == nil ? nil : paletteShortcut }
 
     private let register: RegisterHotKey
     private var palette: AnyObject?

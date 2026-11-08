@@ -2,8 +2,8 @@ import ServiceManagement
 import SwiftUI
 import WicketCore
 
-/// Settings ▸ General: the hotkey, the palette's width, launch at login, the settings file and the
-/// extensions folder.
+/// Settings ▸ General: the hotkey, the palette's width, launch at login, the menu bar icon, the
+/// settings file and the extensions folder.
 struct GeneralPane: View {
     let store: SettingsStore
     @State private var recorder = ShortcutRecorder()
@@ -57,6 +57,10 @@ struct GeneralPane: View {
                         Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
                     }
                 }
+                Toggle(isOn: showInMenuBar) {
+                    Text("Show in menu bar")
+                    Text("When it's hidden, open Wicket with its shortcut or by opening the app again.")
+                }
             }
             Section {
                 LabeledContent("Files") {
@@ -109,6 +113,14 @@ struct GeneralPane: View {
             width = newWidth
             // A failed write never reaches the file, so the slider goes back to what is applied.
             if !perform({ try store.update { $0.paletteWidth = newWidth } }) { width = nil }
+        }
+    }
+
+    private var showInMenuBar: Binding<Bool> {
+        Binding {
+            store.settings.showInMenuBar
+        } set: { show in
+            perform { try store.update { $0.showInMenuBar = show } }
         }
     }
 

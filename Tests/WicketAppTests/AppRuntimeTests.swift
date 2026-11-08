@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Synchronization
 import Testing
@@ -68,6 +69,12 @@ private final class FakePalette: PaletteSurface {
     func run(bound id: CommandID) { bound.append(id) }
 }
 
+@MainActor
+private final class FakeMenuBar: MenuBarSurface {
+    private(set) var updates: [(visible: Bool, hotkey: Shortcut?)] = []
+    func update(visible: Bool, hotkey: Shortcut?) { updates.append((visible, hotkey)) }
+}
+
 /// An agent that is always ready and answers "Hel…" without ever finishing, until its run is
 /// cancelled (its process tree then takes `exitDelay` to exit) or `failure` is set (it fails with it).
 private final class FakeAgent: Sendable {
@@ -119,6 +126,7 @@ private final class Harness {
     let directory = URL(filePath: NSTemporaryDirectory()).appending(path: "wicket-runtime-\(UUID())")
     let system = FakeSystem()
     let palette = FakePalette()
+    let menuBar = FakeMenuBar()
     let agent = FakeAgent()
     let askAI: AskAIRunner
     let buildJobs: BuildJobs
@@ -182,6 +190,7 @@ private final class Harness {
             },
             buildJobs: buildJobs, usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
+        runtime.menuBar = menuBar
         harness = self
         try write(json)
         runtime.start()
@@ -558,4 +567,35 @@ private func addHello(_ h: Harness) async throws {
     #expect(h.runtime.registry.command(hello) == nil)
     #expect(h.session.frames.count == 1)
     #expect(!h.system.registered.contains(shortcut("ctrl+option+h")))
+}
+
+/// The icon follows settings.json live and shows the hotkey that opens Wicket, the previous one
+/// while another app holds the new one.
+@MainActor @Test func menuBarFollowsSettings() throws {
+    let h = try Harness()
+    #expect(h.menuBar.updates.last?.visible == true)
+    #expect(h.menuBar.updates.last?.hotkey == .default)
+    try h.change(#"{"showInMenuBar": false, "hotkey": "cmd+k"}"#)
+    #expect(h.menuBar.updates.last?.visible == false)
+    #expect(h.menuBar.updates.last?.hotkey == shortcut("cmd+k"))
+    h.system.heldElsewhere = [shortcut("ctrl+k")]
+    try h.change(#"{"hotkey": "ctrl+k"}"#)
+    #expect(h.menuBar.updates.last?.visible == true)
+    #expect(h.menuBar.updates.last?.hotkey == shortcut("cmd+k"))
+}
+
+/// The menu shows the hotkey as a key equivalent: the key as AppKit spells it, Carbon's modifiers
+/// as AppKit's.
+@Test func shortcutAsMenuKeyEquivalent() throws {
+    let cases: [(String, String, NSEvent.ModifierFlags)] = [
+        ("option+space", " ", .option),
+        ("ctrl+shift+k", "k", [.control, .shift]),
+        ("cmd+return", "\r", .command),
+        ("f13", String(Character(Unicode.Scalar(NSF13FunctionKey)!)), []),
+    ]
+    for (spelling, key, flags) in cases {
+        let hotkey = try Shortcut(spelling)
+        #expect(hotkey.keyEquivalent == key, "\(spelling)")
+        #expect(hotkey.modifierFlags == flags, "\(spelling)")
+    }
 }

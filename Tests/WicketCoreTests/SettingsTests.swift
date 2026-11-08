@@ -286,3 +286,29 @@ func aiProviderFallsBackAlone(json: String, provider: AgentProvider?, ignored: S
     try Settings.update(at: url) { $0.ai.provider = .codex }
     #expect(try Settings.load(from: url).ai.provider == .codex)
 }
+
+@Test(arguments: [
+    (#"{}"#, true, false),
+    (#"{"showInMenuBar": false}"#, false, false),
+    (#"{"showInMenuBar": true}"#, true, false),
+    (#"{"showInMenuBar": null}"#, true, false),
+    (#"{"showInMenuBar": "no"}"#, true, true),
+])
+func showInMenuBarFallsBackAlone(json: String, show: Bool, ignored: Bool) throws {
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+    #expect(settings.showInMenuBar == show)
+    #expect(
+        settings.ignored
+            == (ignored ? ["showInMenuBar must be true or false; showing the menu bar icon"] : []))
+}
+
+/// Hiding the icon writes `false`; showing it again removes the field, so the file stays minimal.
+@Test func updateWritesShowInMenuBarOnlyWhenHidden() throws {
+    let url = temporarySettingsURL()
+    try write(#"{"hotkey": "cmd+k"}"#, to: url)
+    try Settings.update(at: url) { $0.showInMenuBar = false }
+    #expect(try read(url).contains(#""showInMenuBar" : false"#))
+    #expect(try Settings.load(from: url).showInMenuBar == false)
+    try Settings.update(at: url) { $0.showInMenuBar = true }
+    #expect(try read(url) == "{\n  \"hotkey\" : \"cmd+k\"\n}\n")
+}
