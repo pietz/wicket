@@ -2,9 +2,11 @@ import AppKit
 import SwiftUI
 import WicketCore
 
-/// Which field has the keyboard: the search field, or the action panel's filter while it is open.
+/// Which field has the keyboard: the search field (the one with this `fieldID`), or the action
+/// panel's filter while it is open.
 enum PaletteFocus: Hashable {
-    case search, actions
+    case search(String)
+    case actions
 }
 
 /// The palette's sizes. The window is the visible shapes plus a transparent `margin`, where the
@@ -137,17 +139,15 @@ struct PaletteRootView: View {
         // Top-aligned, so the pill stays put while the window grows and shrinks beneath it.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onModifierKeysChanged(mask: .command) { _, keys in model.commandHeld = !keys.isEmpty }
-        .onAppear { focus = .search }
-        .onChange(of: model.focusToken) { focus = .search }
-        // The field is new (see `fieldID`), and focus already says `.search`, so setting it again
-        // would be ignored: clear it, then focus the new field once it exists.
-        .onChange(of: fieldID) {
-            focus = nil
-            Task { @MainActor in focus = .search }
-        }
+        .onAppear { focus = search }
+        .onChange(of: model.focusToken) { focus = search }
+        // Each field has its own focus value, so a new field (see `fieldID`) is a real change of
+        // focus. Re-asserting one shared value would need clearing it first, and a deferred set
+        // after the clear could land before SwiftUI applied the clear, leaving nothing focused.
+        .onChange(of: fieldID) { focus = search }
         // Every way the panel closes hands the keyboard back to the search field, so it never
         // unmounts while focused and leaves the window without a first responder.
-        .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? .search : .actions }
+        .onChange(of: model.actionMenu == nil) { _, closed in focus = closed ? search : .actions }
     }
 
     /// Tinted: untinted glass is hard to read over busy windows.
@@ -195,6 +195,9 @@ struct PaletteRootView: View {
     /// keep showing "week " and append the next keys to it), and per kind, field or title.
     private var fieldID: String { "\(model.top.id)-\(model.top.isMeasured)" }
 
+    /// The focus value of the current search field.
+    private var search: PaletteFocus { .search(fieldID) }
+
     /// The search field, or on a page (which takes no text) its title as a label that still takes
     /// the keys.
     private var searchField: some View {
@@ -215,7 +218,7 @@ struct PaletteRootView: View {
             }
             .id(fieldID)
             .font(.system(size: 21))
-            .focused($focus, equals: .search)
+            .focused($focus, equals: search)
             // Return is handled here rather than by `onSubmit`, which ends editing.
             .onKeyPress(.upArrow) {
                 model.moveSelection(by: -1)
