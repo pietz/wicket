@@ -13,7 +13,8 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Highlight is always the top row** (done, e0d3b93).
 - **Calculator result layout:** big result, interpretation below is good; maybe clean up a little.
 - **One AI instead of Ask, Web search and Do rows (confidence 8/10):** a model with search covers web search; asking it to do something covers Do.
-- **Permissions like agent harnesses, not a plan-and-Run gate every time:** reads allowed by default; writes under explicit user control, per write operation or for the whole task, with a setting for how strict. Avoid the overhead of always accepting something; agents are good now.
-- **Lean on Claude Code and Codex:** use their permission systems and auto mode (hook their permission prompts and ask the user in Wicket), and their subscriptions instead of API billing. Speech to text through Apple's on-device transcription, so the harness doesn't need it.
+- **Permissions, two alternatives (not combined):** avoid the overhead of always accepting something; agents are good now.
+  - **A, Wicket's own rule:** reads allowed by default; every write needs explicit permission, per write operation or for the whole task.
+  - **B, the harness decides (preferred):** run actions through Claude Code or Codex and let the permission mode the user set there (including auto mode) govern; Wicket's read/write rule doesn't apply. When the harness asks, Wicket shows the question in its own UI. Bonus: their subscriptions instead of API billing. Speech to text through Apple's on-device transcription, so the harness doesn't need it.
 - **Keep macOS 27.3's coming AI options in mind**, and the on-device transcription model.
 - **The AI is what has to be new.** Launcher basics can borrow freely from Raycast, Alfred and the others we watch; the AI part is where to think outside the box: AI native, future proof, making people more capable. This is the thing to get right.
