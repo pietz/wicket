@@ -15,9 +15,11 @@ final class AnswerDraft {
     /// The permission level the run was started with, said under each question; nil when the
     /// agent's own settings decide.
     let permission: AgentPermission?
+    /// Everything the agent wrote, in order: its messages along the way, then its final answer.
+    /// Tools it used and its thinking aren't shown.
     var text = ""
-    /// What the agent did, one line each ("Ran ls", "Edited notes.md").
-    var progress: [String] = []
+    /// The final answer alone, once it has come: what Copy and Paste take.
+    var answer: String?
     /// Whether the agent ran a command or changed a file.
     var acted = false
     /// The agent's questions waiting for the user, oldest first, each with its action token.
@@ -58,23 +60,23 @@ final class AnswerDraft {
     /// and, first, the question it is waiting on, whose answers are then the actions. Nothing to act
     /// on until text arrives; a failed run keeps what it sent, marked incomplete, with Retry first.
     var detail: Detail {
-        let copy = Item.Action.copy(text: text, title: "Copy Answer")
+        let final = answer ?? text
+        let copy = Item.Action.copy(text: final, title: "Copy Answer")
         guard let failure else {
             let body = text.isEmpty ? "_\(status)_" : text
             if let (token, approval) = approvals.first {
                 return Detail(
-                    title: title, markdown: ([ask(approval)] + steps + [body]).joined(separator: "\n\n"),
+                    title: title, markdown: [ask(approval), body].joined(separator: "\n\n"),
                     actions: [
                         decide(token, .accept, "Allow"),
                         decide(token, .acceptForSession, "Allow for Session"),
                         decide(token, .decline, "Deny"),
                     ])
             }
-            let markdown = (steps + [body]).joined(separator: "\n\n")
-            if text.isEmpty { return Detail(title: title, markdown: markdown) }
+            if text.isEmpty { return Detail(title: title, markdown: body) }
             return Detail(
-                title: title, markdown: markdown,
-                actions: reviews + [copy, .paste(text: text, title: "Paste Answer")] + finishedActions)
+                title: title, markdown: body,
+                actions: reviews + [copy, .paste(text: final, title: "Paste Answer")] + finishedActions)
         }
         let retry = Item.Action.run(
             command: invocation.command, text: invocation.text,
@@ -86,19 +88,8 @@ final class AnswerDraft {
         }
         return Detail(
             title: title,
-            markdown: (steps + [text + "\n\n---\n\n**The answer is incomplete.** " + failure])
-                .joined(separator: "\n\n"),
+            markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
             actions: reviews + [retry, copy])
-    }
-
-    /// The progress as a list: the latest steps, and how many came before them.
-    private var steps: [String] {
-        guard !progress.isEmpty else { return [] }
-        let shown = progress.suffix(12)
-        let earlier = progress.count - shown.count
-        let lines =
-            (earlier > 0 ? ["- _\(earlier) earlier steps_"] : []) + shown.map { "- " + Self.escaped($0) }
-        return [lines.joined(separator: "\n")]
     }
 
     private func ask(_ approval: AgentApproval) -> String {

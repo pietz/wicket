@@ -146,21 +146,22 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(run.request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
     #expect(run.request.prompt == "capital of France?")
 
-    // What the agent does shows as progress above the answer, escaped.
+    // Tool use isn't shown.
     run.continuation.yield(.activity("Ran ls *.md"))
-    #expect(await eventually { palette.detail?.markdown == "- Ran ls \\*\\.md\n\n_Asking Codex…_" })
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(palette.detail?.markdown == "_Asking Codex…_")
     var text = ""
     for delta in ["**Paris**", " is the", " capital."] {
         text += delta
         run.continuation.yield(.text(delta))
-        #expect(await eventually { palette.detail?.markdown == "- Ran ls \\*\\.md\n\n" + text })
+        #expect(await eventually { palette.detail?.markdown == text })
         #expect(palette.session.top.id == frame)
         #expect(palette.session.top.target?.actions.first == .copy(text: text, title: "Copy Answer"))
     }
-    // The final message alone replaces whatever streamed before it.
+    // A final answer that isn't what streamed replaces it, so the page ends exactly on the answer.
     run.continuation.yield(.answer("**Paris**.", usage: nil))
     #expect(await eventually { !palette.session.top.isLoading })
-    #expect(palette.detail?.markdown == "- Ran ls \\*\\.md\n\n**Paris**.")
+    #expect(palette.detail?.markdown == "**Paris**.")
     #expect(
         palette.session.top.target?.actions == [
             .copy(text: "**Paris**.", title: "Copy Answer"),
@@ -474,4 +475,20 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(apple.runs[0].provider == .apple)
     #expect(apple.runs[0].request.mode == .answer)
     #expect(apple.runs[0].request.workingDirectory.lastPathComponent.hasPrefix("wicket-ask-"))
+}
+
+@MainActor @Test func messagesAlongTheWayStayAboveTheFinalAnswer() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("search the web for it")
+    #expect(await eventually { agents.runs.count == 1 })
+    let run = try #require(agents.runs.first)
+    run.continuation.yield(.text("Let me search for that."))
+    run.continuation.yield(.activity("Searched the web"))
+    run.continuation.yield(.text("\n\nIt is 42."))
+    run.continuation.yield(.answer("It is 42.", usage: nil))
+    #expect(await eventually { palette.detail?.actions.isEmpty == false && !palette.session.top.isLoading })
+    #expect(palette.detail?.markdown == "Let me search for that.\n\nIt is 42.")
+    // Copy and Paste take the final answer alone.
+    #expect(palette.detail?.actions.first == .copy(text: "It is 42.", title: "Copy Answer"))
 }

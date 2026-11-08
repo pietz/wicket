@@ -180,9 +180,8 @@ public final class AnswerStream {
                 firstText = firstText ?? ContinuousClock.now - start
                 draft.text += delta
                 throttle.submit()
-            case .activity(let activity):
-                draft.progress.append(activity)
-                throttle.submit()
+            case .activity:
+                break  // Tool use isn't shown; only what the agent writes.
             case .acted:
                 draft.acted = true
             case .approvals(let approvals):
@@ -192,8 +191,16 @@ public final class AnswerStream {
                 throttle.submit()
             case .answer(let answer, _):
                 throttle.cancel()
-                // The final message alone; anything streamed before it (commentary) goes.
-                if !answer.isEmpty { draft.text = answer }
+                // What streamed stays when it ends with this answer (messages along the way, then the
+                // answer); otherwise the answer alone, so the final text is always exactly the answer.
+                if !answer.isEmpty {
+                    draft.answer = answer
+                    if !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(
+                        answer.trimmingCharacters(in: .whitespacesAndNewlines))
+                    {
+                        draft.text = answer
+                    }
+                }
                 guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
                 draft.approvals = []
                 // The answer comes once the agent's tree is gone, so what it wrote is complete.
