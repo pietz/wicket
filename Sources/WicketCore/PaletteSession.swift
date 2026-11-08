@@ -2,23 +2,9 @@ import Foundation
 import Observation
 
 /// The palette's session: a stack of frames with the root search at the bottom, and the work each
-/// frame started. The app renders the top frame and forwards the user's intents here.
-///
-/// Each keystroke starts a new generation of the top frame. In the root frame that collects every
-/// source's instant results synchronously, then applies slow updates as they arrive. Work results
-/// are applied only while their frame is still on the stack at the same generation, and work is
-/// cancelled when its frame's query changes, when the frame is popped and when the palette is
-/// dismissed. An empty root query asks no source: the palette opens as the bare pill.
-///
-/// A command's frame is pushed when it opens and fed by its run (`CommandRunner`): every result
-/// replaces what the frame shows, `close` asks the app to close the palette, `reload` drops the
-/// frame and runs the one beneath it again, and `stay` only drops the frame; their messages go to
-/// `messages`. Until its first result the frame is loading (the pill spins, the card keeps its
-/// height), which is all a command that only has an effect ever shows. A live command runs again
-/// for every change of the frame's text (rapid keystrokes coalesced by `liveDebounce`); a once
-/// command runs when opened and filters a list locally; a command waiting for its text
-/// (`CommandRun.awaitsText`) runs nothing until the text is submitted, which runs it in a frame of
-/// its own.
+/// frame started (docs/architecture.md, "Palette session and frames"). Every restart of a frame's
+/// work is a new generation; results land only while their frame is on the stack at the same
+/// generation, and work is cancelled with its frame, its superseded query and the palette.
 @MainActor
 @Observable
 public final class PaletteSession {

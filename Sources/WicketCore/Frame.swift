@@ -74,19 +74,16 @@ public struct Frame: Identifiable, Sendable {
     /// Whether the frame is a command's waiting for its text, which a submit runs.
     public var awaitsText: Bool { run?.awaitsText == true }
 
-    /// Whether the frame shows a document (a page), whose view lays out its content and measures it
-    /// to size the card. A page made only of rows shows as a list instead.
+    /// Whether the frame shows a page, whose view measures it to size the card.
     public var isMeasured: Bool {
         if case .screen(let screen) = content { screen.document != nil } else { false }
     }
 
-    /// The document the frame shows, if it shows a page.
     public var document: Document? {
         if case .screen(let screen) = content { screen.document } else { nil }
     }
 
-    /// The list the frame shows with what is said about it, if it shows one: a command's list, or a
-    /// page made only of rows (not the root's results).
+    /// A command's list, or a page made only of rows (not the root's results).
     public var listing: Listing? {
         if case .screen(let screen) = content { screen.listing } else { nil }
     }
@@ -96,11 +93,8 @@ public struct Frame: Identifiable, Sendable {
         if case .screen(let screen) = content { screen.summary } else { nil }
     }
 
-    /// The screen action typing on this frame starts with the typed text, for a document: the first
-    /// of the screen's actions that opens a frame waiting for text (Follow Up on an agent's answer),
-    /// as `waitsForText` says of its command. A document is read, not searched, so typing on it
-    /// continues the conversation instead of filtering; a list keeps filtering, and a page without
-    /// such an action takes no text.
+    /// What typing on a page starts with the typed text: the first screen action whose command waits
+    /// for text (Follow Up on an answer). A page is read, not searched; nil on a list, which filters.
     public func typingAction(waitsForText: (CommandID) -> Bool) -> Item.Action? {
         guard case .screen(let screen) = content, screen.document != nil else { return nil }
         return screen.context.actions.first { action in
@@ -132,22 +126,10 @@ public struct Frame: Identifiable, Sendable {
     }
 }
 
-/// A frame's screen: what it shows, and the command run feeding it, if any.
-///
-/// A command's frame starts without content and each result of its run replaces it. A page pushed
-/// by a `detail` action (or a failure saying what went wrong) has no run: it shows its screen and
-/// never runs, so a reload of it does nothing.
-///
-/// A page's markup is parsed into a `Document` whenever it is shown (one parser per frame, so a
-/// growing answer re-parses only what changed). Its targets are the frame's rows in reading order,
-/// none selected until the arrows move; a page made only of rows, without actions or metadata of
-/// its own, is shown as the list it is. A list's summary is parsed the same way.
-///
-/// A list from a `once` command (or a page shown as a list) is filtered locally by the frame's
-/// query with the shared fuzzy matcher (best match first, the command's order breaking ties; all
-/// items in its order for an empty query). A `live` command's list is shown as sent: the command
-/// did the searching. Either way the selection follows its item when the content is replaced, and
-/// goes back to the top when the text the list answers changes.
+/// A frame's screen: what it shows, and the command run feeding it (none for a pushed page, which
+/// never runs). A page's markup is parsed once per change into a `Document` whose targets are the
+/// rows, none selected at first; a once command's list is filtered here by the frame's query, a
+/// live command's is shown as sent (docs/architecture.md, "Documents").
 public struct ScreenFrame: Sendable {
     /// The command feeding the frame; nil for a pushed page.
     public private(set) var run: CommandRun?
