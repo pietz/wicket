@@ -68,7 +68,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
 - ✅ Escape goes up one layer (menu, page, text, then close), Raycast-style; ⌘[ removed (2026-11-08, reversing the same-day "Escape closes")
 - ✅ Answers: links open through Wicket (apps and scripts revealed, never run); streaming a setting, off by default; extensions get Move to Trash (2026-11-08)
-- 🔍 Agent output as native UI, a cornerstone (owner keeps close watch): decided harness structured output plus the shared screen vocabulary, present-only v1 (docs/reviews/2026-11-08-agent-ui.md). Now: a live spike of both CLIs, and a broad design of Wicket's native UI system for agent and extensions; the owner reviews the design before building
+- 🚧 Agent replies as markdown with native component tags, a cornerstone (owner keeps close watch): round 4 decided (CONCEPT); building M1 Core parser and catalog, M2 document view and keyboard (on-screen spike), M3 adapters, agent.md, gallery, evaluation on both CLIs
 - ⏭ Dismissible runs: closing hides a running agent instead of ending it; the next summon shows it as a row (running, needs approval, ready)
 - ⏭ Feature switches for every built-in (calculator, files, links, agent), so the user turns off what they don't want
 - ⏭ Tour manual rewritten for the current product
