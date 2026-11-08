@@ -324,9 +324,13 @@ private func titles(_ session: PaletteSession) -> [String] {
     let (session, runner, _) = session()
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
-    let stop = Item.Action.run(command: .builtin("stop-build"), title: "Stop")
-    runner.runs[0].continuation.yield(.show(.detail(Detail(markdown: "Building…", actions: [stop]))))
-    #expect(await eventually { session.top.target?.actions == [stop] })
+    // An agent waiting for an approval: its answer is still streaming, and Allow must stay pickable.
+    let allow = Item.Action.run(
+        command: .builtin("ai-approval"), args: ["token": .string("t"), "decision": .string("accept")],
+        title: "Allow")
+    runner.runs[0].continuation.yield(
+        .show(.detail(Detail(markdown: "**The agent asks to run a command.**", actions: [allow]))))
+    #expect(await eventually { session.top.target?.actions == [allow] })
     #expect(session.top.isLoading)
 }
 

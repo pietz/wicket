@@ -213,8 +213,7 @@ public struct CommandRun: Sendable, Hashable {
 /// producer (an AI answer) yields a growing detail again and again. `close` closes the palette and
 /// `reload` goes back to the frame the command was opened from and runs that again. Cancelling the
 /// iteration (the frame was popped, the palette dismissed, the query superseded) must stop the
-/// frame's own work; work the frame only observes and that belongs to someone else (a build job,
-/// owned by the runtime) keeps running.
+/// frame's work.
 @MainActor
 public protocol CommandRunner: AnyObject {
     func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
