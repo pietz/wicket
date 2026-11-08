@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WicketCore
 import WicketHost
 
 /// The settings window: an AppKit window with toolbar tabs, one SwiftUI pane per tab. Not SwiftUI's
@@ -82,3 +83,31 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 }
 
 extension NSApplication: ForcedActivation {}
+
+extension SettingsStore {
+    /// A field of settings.json for a pane's control: reads the applied value, writes the file, and
+    /// shows a failed write in `error`.
+    func binding<Value>(_ field: WritableKeyPath<WicketCore.Settings, Value>, error: Binding<String?>)
+        -> Binding<Value>
+    {
+        Binding {
+            self.settings[keyPath: field]
+        } set: { value in
+            perform(error: error) { try self.update { $0[keyPath: field] = value } }
+        }
+    }
+}
+
+/// Runs a pane's `action`, showing its error in `error` and clearing it on success; returns whether
+/// it succeeded.
+@MainActor @discardableResult
+func perform(error: Binding<String?>, _ action: () throws -> Void) -> Bool {
+    do {
+        try action()
+        error.wrappedValue = nil
+        return true
+    } catch let failure {
+        error.wrappedValue = failure.localizedDescription
+        return false
+    }
+}

@@ -23,7 +23,6 @@ enum PaletteMetrics {
     static let maxCardHeight: CGFloat =
         CGFloat(maxRows) * (rowHeight + rowSpacing) - rowSpacing + 2 * rowInset + 1 + FooterBar.height
     static let cardRadius: CGFloat = 22
-    /// Inset of the rows from the card's edge.
     static let rowInset: CGFloat = 10
     /// The selection's corner radius: the card's minus the inset, so every highlight is concentric
     /// with the card by construction and the same on every row (Apple's guidance for nested shapes).
@@ -264,7 +263,6 @@ struct PaletteRootView: View {
         return frame.run?.command.id == .setSecret
     }
 
-    /// The focus value of the current search field.
     private var search: PaletteFocus { .search(fieldID) }
 
     /// The search field, or on a page (which takes no text) its title as a label that still takes

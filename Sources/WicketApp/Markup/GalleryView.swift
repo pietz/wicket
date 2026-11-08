@@ -97,7 +97,6 @@ private struct ImageTile: View {
         }
     }
 
-    /// The loaded image, if it is.
     private var shown: NSImage? {
         loaded?.url == image.source ? loaded?.image : ImageLoader.shared.cached(image.source)
     }

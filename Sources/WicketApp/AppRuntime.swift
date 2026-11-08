@@ -50,7 +50,6 @@ final class AppRuntime {
     var palette: (any PaletteSurface)?
     /// The menu bar icon, once composed; settings show or hide it.
     var menuBar: (any MenuBarSurface)?
-    /// Opens the settings window.
     var showSettings: () -> Void = {}
 
     /// Discovery and the active catalog: only approved revisions, whose commands the registry
@@ -268,7 +267,7 @@ extension AppRuntime {
         ]
         // Wicket's own commands: each is one entry, its registration and its runner. Search, keywords
         // and its frame come from the registry and the invocation policy.
-        let builtins = [
+        var builtins = [
             Builtin(
                 RegisteredCommand(
                     id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"),
@@ -295,12 +294,6 @@ extension AppRuntime {
                     id: .followUp, title: "Follow Up", icon: .symbol(name: "sparkles"), isListed: false,
                     input: .submitText, placeholder: "Follow up", usesAI: true),
                 runner: runAgent),
-            // Answers an acting agent's approval shown in a Run Agent frame; reached by id only.
-            Builtin(
-                RegisteredCommand(
-                    id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"),
-                    isListed: false, input: .none),
-                runner: runAgent),
             // Run Agent's action when no provider is ready; reached by id only.
             Builtin(
                 RegisteredCommand(
@@ -308,7 +301,7 @@ extension AppRuntime {
                     input: .none),
                 effect: { settingsWindow.show(pane: "AI") }),
             // Every discovered extension with its state; reviewing, enabling and disabling one are
-            // the hidden built-ins below, reached only by the actions its screens draw.
+            // the hidden built-ins below.
             Builtin(
                 RegisteredCommand(
                     id: .extensions, title: "Extensions", icon: .symbol(name: "puzzlepiece.extension"),
@@ -316,30 +309,25 @@ extension AppRuntime {
                 runner: consent),
             Builtin(
                 RegisteredCommand(
-                    id: .reviewExtension, title: "Review Extension", icon: .symbol(name: "checkmark.shield"),
-                    isListed: false, input: .none),
-                runner: consent),
-            Builtin(
-                RegisteredCommand(
-                    id: .enableExtension, title: "Enable Extension", icon: .symbol(name: "checkmark.circle"),
-                    isListed: false, input: .none),
-                runner: consent),
-            Builtin(
-                RegisteredCommand(
-                    id: .disableExtension, title: "Disable Extension", icon: .symbol(name: "xmark.circle"),
-                    isListed: false, input: .none),
-                runner: consent),
-            Builtin(
-                RegisteredCommand(
-                    id: .trashExtension, title: "Move Extension to Trash", icon: .symbol(name: "trash"),
-                    isListed: false, input: .none),
-                runner: consent),
-            Builtin(
-                RegisteredCommand(
                     id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
                     input: .submitText, placeholder: "Paste the value and press Return"),
                 runner: SecretsRunner(extensions: extensions)),
         ]
+        // Hidden built-ins without input, reached only by id from the actions screens draw: the
+        // answer to an acting agent's approval in a Run Agent frame, and an extension's lifecycle.
+        let hidden: [(CommandID, String, String, any CommandRunner)] = [
+            (.aiApproval, "Answer the Agent", "sparkles", runAgent),
+            (.reviewExtension, "Review Extension", "checkmark.shield", consent),
+            (.enableExtension, "Enable Extension", "checkmark.circle", consent),
+            (.disableExtension, "Disable Extension", "xmark.circle", consent),
+            (.trashExtension, "Move Extension to Trash", "trash", consent),
+        ]
+        builtins += hidden.map { id, title, symbol, runner in
+            Builtin(
+                RegisteredCommand(
+                    id: id, title: title, icon: .symbol(name: symbol), isListed: false, input: .none),
+                runner: runner)
+        }
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
             builtins: builtins, extensions: extensions, system: .live)

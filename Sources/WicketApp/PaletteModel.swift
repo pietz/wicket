@@ -114,7 +114,6 @@ final class PaletteModel {
         model = self
     }
 
-    /// The detail view of `frame` was laid out with its content `height` tall.
     func measureDetail(_ height: CGFloat, of frame: Frame.ID) {
         guard frame == top.id else { return }
         let onStack = Set(session.frames.map(\.id))
@@ -122,7 +121,6 @@ final class PaletteModel {
         pageHeights[frame] = (top.generation, max(height, detailHeight ?? 0))
     }
 
-    /// The list summary of `frame` was laid out `height` tall.
     func measureListTop(_ height: CGFloat, of frame: Frame.ID) {
         guard frame == top.id else { return }
         listTop = (frame, height)

@@ -21,7 +21,7 @@ struct AIPane: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
             Section {
-                Toggle("Use AI", isOn: enabled)
+                Toggle("Use AI", isOn: store.binding(\.ai.enabled, error: $error))
             } footer: {
                 Text(
                     store.settings.ai.enabled
@@ -201,7 +201,7 @@ struct AIPane: View {
             store.settings.ai[provider][keyPath: field]
         } set: { value in
             let listed = models[provider] ?? []
-            do {
+            perform(error: $error) {
                 try store.update { settings in
                     var options = settings.ai[provider]
                     options[keyPath: field] = value
@@ -215,22 +215,6 @@ struct AIPane: View {
                     }
                     settings.ai[provider] = options
                 }
-                error = nil
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
-    }
-
-    private var enabled: Binding<Bool> {
-        Binding {
-            store.settings.ai.enabled
-        } set: { isOn in
-            do {
-                try store.update { $0.ai.enabled = isOn }
-                error = nil
-            } catch {
-                self.error = error.localizedDescription
             }
         }
     }
@@ -238,12 +222,9 @@ struct AIPane: View {
     /// Opens agent.md in the user's editor (or reveals it if nothing opens Markdown), creating it
     /// first if it doesn't exist.
     private func editInstructions() {
-        do {
+        perform(error: $error) {
             let file = try ExtensionAuthoring.editableInstructions()
             if !NSWorkspace.shared.open(file) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
         }
     }
 
@@ -266,12 +247,7 @@ struct AIPane: View {
             current
         } set: { provider in
             guard statuses[provider]?.state == .ready else { return }
-            do {
-                try store.update { $0.ai.provider = provider }
-                error = nil
-            } catch {
-                self.error = error.localizedDescription
-            }
+            perform(error: $error) { try store.update { $0.ai.provider = provider } }
         }
     }
 

@@ -23,10 +23,8 @@ final class ImageLoader {
         cache.totalCostLimit = 128 * 1024 * 1024
     }
 
-    /// The image if it is loaded already.
     func cached(_ url: URL) -> NSImage? { cache.object(forKey: url as NSURL) }
 
-    /// Whether `url` is being loaded.
     func isLoading(_ url: URL) -> Bool { loading[url] != nil }
 
     /// The image at `url` (a file or an https URL); nil if it can't be had, or every view that
@@ -120,10 +118,9 @@ enum LocalImages {
 
 /// Web images, fetched under fixed rules: https only and never to a host that resolves to this Mac
 /// or the local network (checked before the connection, so DNS rebinding in between is possible; an
-/// accepted risk), an ephemeral
-/// session without cookies, cache or credentials, a redirect only to another allowed URL, at most
-/// `Limits.bytes` within `Limits.seconds`, raster formats only, decoded off the main actor to at
-/// most `Limits.pixels` on a side.
+/// accepted risk), an ephemeral session without cookies, cache or credentials, a redirect only to
+/// another allowed URL, at most `Limits.bytes` within `Limits.seconds`, raster formats only,
+/// decoded off the main actor to at most `Limits.pixels` on a side.
 struct RemoteImages: Sendable {
     enum Limits {
         /// The most an image may weigh as sent.
@@ -238,19 +235,21 @@ struct RemoteImages: Sendable {
         return addresses
     }
 
-    /// The image at `url`, decoded.
     @concurrent func fetch(_ url: URL) async throws -> Bitmap {
         guard await Self.allows(url, resolve: resolve) else { throw Failure.refused }
-        let task = session.dataTask(with: url)
-        let collector = Collector(resolve: resolve)
-        task.delegate = collector
-        let data = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                collector.start(continuation)
-                task.resume()
-            }
-        } onCancel: {
-            task.cancel()
+        let (bytes, response) = try await session.bytes(
+            for: URLRequest(url: url), delegate: Redirects(resolve: resolve))
+        // Leaving early (refused, too large, cancelled) stops the transfer.
+        defer { bytes.task.cancel() }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw Failure.status(http.statusCode)
+        }
+        guard response.expectedContentLength <= Int64(Limits.bytes) else { throw Failure.tooLarge }
+        var data = Data()
+        data.reserveCapacity(Int(max(0, response.expectedContentLength)))
+        for try await byte in bytes {
+            guard data.count < Limits.bytes else { throw Failure.tooLarge }
+            data.append(byte)
         }
         return try Self.decode(data)
     }
@@ -273,71 +272,18 @@ struct RemoteImages: Sendable {
         return Bitmap(image: image)
     }
 
-    /// Gathers one fetch's bytes, stopping it as soon as it is refused or grows past the limit, and
-    /// follows a redirect only to a URL Wicket would fetch itself, checked the same way. URLSession
-    /// calls it on its own serial queue; the lock covers the hand-off from `fetch`.
-    private final class Collector: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-        private let resolve: Resolver
-        private let lock = NSLock()
-        private var data = Data()
-        private var failure: Failure?
-        private var continuation: CheckedContinuation<Data, any Error>?
+    /// Follows a redirect only to a URL Wicket would fetch itself, checked the same way.
+    private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+        let resolve: Resolver
 
         init(resolve: @escaping Resolver) { self.resolve = resolve }
 
-        func start(_ continuation: CheckedContinuation<Data, any Error>) {
-            lock.withLock { self.continuation = continuation }
-        }
-
-        func urlSession(
-            _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-            completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
-        ) {
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                lock.withLock { failure = .status(http.statusCode) }
-                return completionHandler(.cancel)
-            }
-            if response.expectedContentLength > Int64(Limits.bytes) {
-                lock.withLock { failure = .tooLarge }
-                return completionHandler(.cancel)
-            }
-            completionHandler(.allow)
-        }
-
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-            let over = lock.withLock {
-                self.data.append(data)
-                if self.data.count > Limits.bytes { failure = .tooLarge }
-                return failure != nil
-            }
-            if over { dataTask.cancel() }
-        }
-
-        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?)
-        {
-            let (continuation, result): (CheckedContinuation<Data, any Error>?, Result<Data, any Error>) =
-                lock.withLock {
-                    defer { self.continuation = nil }
-                    if let failure { return (self.continuation, .failure(failure)) }
-                    if let error { return (self.continuation, .failure(error)) }
-                    return (self.continuation, .success(data))
-                }
-            continuation?.resume(with: result)
-        }
-
         func urlSession(
             _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-            newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
-        ) {
-            let resolve = resolve
-            // Resolved off the session's queue, which other fetches share.
-            Task {
-                let allowed =
-                    if let url = request.url { await RemoteImages.allows(url, resolve: resolve) } else {
-                        false
-                    }
-                completionHandler(allowed ? request : nil)
-            }
+            newRequest request: URLRequest
+        ) async -> URLRequest? {
+            guard let url = request.url, await RemoteImages.allows(url, resolve: resolve) else { return nil }
+            return request
         }
     }
 }

@@ -18,7 +18,6 @@ import WicketCore
 /// resizing the card never measures again.
 struct DocumentView: View {
     static let metadataWidth: CGFloat = 180
-    /// The page's inset from the card's edge.
     static let inset = EdgeInsets(top: 18, leading: 20, bottom: 20, trailing: 20)
     let document: WicketCore.Document
     let metadata: [Detail.Metadata]

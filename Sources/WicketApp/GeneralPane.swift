@@ -53,12 +53,12 @@ struct GeneralPane: View {
                     label: { Text("Palette width") },
                     minimumValueLabel: { Text("Narrow") },
                     maximumValueLabel: { Text("Wide") })
-                Picker("Text size", selection: textSize) {
+                Picker("Text size", selection: store.binding(\.textSize, error: $error)) {
                     ForEach(TextSize.allCases, id: \.self) { size in
                         Text(size.rawValue.capitalized)
                     }
                 }
-                Toggle(isOn: showOnlineContent) {
+                Toggle(isOn: store.binding(\.showOnlineContent, error: $error)) {
                     Text("Show online content")
                     Text(
                         "Images on a page load from the web. When it's off, Load Images in ⌘K loads a page's."
@@ -72,7 +72,7 @@ struct GeneralPane: View {
                         Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
                     }
                 }
-                Toggle(isOn: showInMenuBar) {
+                Toggle(isOn: store.binding(\.showInMenuBar, error: $error)) {
                     Text("Show in menu bar")
                     Text("When it's hidden, open Wicket with its shortcut or by opening the app again.")
                 }
@@ -88,8 +88,10 @@ struct GeneralPane: View {
             Section {
                 LabeledContent("Files") {
                     HStack {
-                        Button("Open settings.json") { perform { try store.openFile() } }
-                        Button("Open Extensions Folder") { perform { try store.openExtensionsFolder() } }
+                        Button("Open settings.json") { perform(error: $error) { try store.openFile() } }
+                        Button("Open Extensions Folder") {
+                            perform(error: $error) { try store.openExtensionsFolder() }
+                        }
                     }
                 }
                 if let loadError = store.loadError {
@@ -127,7 +129,7 @@ struct GeneralPane: View {
     private func record() {
         error = nil
         recorder.start(pausing: store.pauseHotKey) { shortcut in
-            perform { try store.update { $0.hotkey = shortcut } }
+            perform(error: $error) { try store.update { $0.hotkey = shortcut } }
         }
     }
 
@@ -138,31 +140,7 @@ struct GeneralPane: View {
             guard newWidth != (width ?? store.settings.paletteWidth) else { return }
             width = newWidth
             // A failed write never reaches the file, so the slider goes back to what is applied.
-            if !perform({ try store.update { $0.paletteWidth = newWidth } }) { width = nil }
-        }
-    }
-
-    private var textSize: Binding<TextSize> {
-        Binding {
-            store.settings.textSize
-        } set: { size in
-            perform { try store.update { $0.textSize = size } }
-        }
-    }
-
-    private var showOnlineContent: Binding<Bool> {
-        Binding {
-            store.settings.showOnlineContent
-        } set: { show in
-            perform { try store.update { $0.showOnlineContent = show } }
-        }
-    }
-
-    private var showInMenuBar: Binding<Bool> {
-        Binding {
-            store.settings.showInMenuBar
-        } set: { show in
-            perform { try store.update { $0.showInMenuBar = show } }
+            if !perform(error: $error, { try store.update { $0.paletteWidth = newWidth } }) { width = nil }
         }
     }
 
@@ -183,7 +161,7 @@ struct GeneralPane: View {
         Binding {
             loginStatus == .enabled || loginStatus == .requiresApproval
         } set: { enabled in
-            perform {
+            perform(error: $error) {
                 if enabled {
                     try SMAppService.mainApp.register()
                 } else {
@@ -191,19 +169,6 @@ struct GeneralPane: View {
                 }
             }
             loginStatus = SMAppService.mainApp.status
-        }
-    }
-
-    /// Runs `action`, showing its error if it throws; returns whether it succeeded.
-    @discardableResult
-    private func perform(_ action: () throws -> Void) -> Bool {
-        do {
-            try action()
-            error = nil
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            return false
         }
     }
 }

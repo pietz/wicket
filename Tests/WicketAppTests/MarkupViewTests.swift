@@ -20,14 +20,41 @@ struct MarkupViewTests {
     }
 
     /// Columns sit side by side while each is at least 150 pt at small text, scaled with the text:
-    /// three fit the default palette at medium, stack at large; two stack only when narrow.
-    @Test func columnsCollapseWhenNarrowOrLarge() {
-        #expect(!ColumnsLayout.stacks(count: 3, width: 560, textSize: .medium))
-        #expect(ColumnsLayout.stacks(count: 3, width: 560, textSize: .large))
-        #expect(!ColumnsLayout.stacks(count: 2, width: 560, textSize: .larger))
-        #expect(ColumnsLayout.stacks(count: 2, width: 300, textSize: .medium))
-        #expect(!ColumnsLayout.stacks(count: 2, width: 330, textSize: .small))
-        #expect(ColumnsLayout.stacks(count: 1, width: 900, textSize: .small))
+    /// three fit the default palette at medium, stack at large; two stack only when narrow; one
+    /// column is as tall as its text alone.
+    @Test func columnsCollapseWhenNarrowOrLarge() throws {
+        #expect(try !Self.columnsStack(count: 3, width: 560, textSize: .medium))
+        #expect(try Self.columnsStack(count: 3, width: 560, textSize: .large))
+        #expect(try !Self.columnsStack(count: 2, width: 560, textSize: .larger))
+        #expect(try Self.columnsStack(count: 2, width: 300, textSize: .medium))
+        #expect(try !Self.columnsStack(count: 2, width: 330, textSize: .small))
+        #expect(
+            try Self.columnsHeight(count: 1, width: 900, textSize: .small)
+                == Self.columnsHeight(count: 0, width: 900, textSize: .small))
+    }
+
+    /// Whether `count` one-line columns render taller than one line, so stacked.
+    private static func columnsStack(count: Int, width: CGFloat, textSize: TextSize) throws -> Bool {
+        try columnsHeight(count: count, width: width, textSize: textSize)
+            > columnsHeight(count: 1, width: width, textSize: textSize) * 1.5
+    }
+
+    /// The height `count` columns of one word lay out to; 0 for the word alone, without columns.
+    private static func columnsHeight(count: Int, width: CGFloat, textSize: TextSize) throws -> CGFloat {
+        let word = "Word"
+        let markup =
+            count == 0
+            ? word
+            : "<columns>\n"
+                + Array(repeating: "<column>\(word)</column>", count: count).joined(separator: "\n")
+                + "\n</columns>"
+        var parser = Markup.Parser()
+        let document = parser.parse(markup).document
+        try #require(count == 0 || document.blocks.count == 1)
+        let host = NSHostingView(
+            rootView: DocumentBlocks(blocks: document.blocks).environment(\.textSize, textSize).frame(
+                width: width))
+        return host.fittingSize.height
     }
 
     @Test func tonesAreDistinctSystemColors() {

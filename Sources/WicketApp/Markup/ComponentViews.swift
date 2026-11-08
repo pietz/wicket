@@ -11,12 +11,10 @@ protocol ComponentView: View {
 }
 
 extension ComponentView {
-    /// The component's view, if `component` is this view's node.
     static func view(for component: any Component) -> AnyView? {
         (component as? Node).map { AnyView(Self($0)) }
     }
 
-    /// The node type this view draws.
     static var node: ObjectIdentifier { ObjectIdentifier(Node.self) }
 }
 
@@ -34,7 +32,6 @@ enum ComponentViews {
     private static let views: [ObjectIdentifier: (any Component) -> AnyView?] = Dictionary(
         registered.map { ($0.node, $0.view(for:)) }, uniquingKeysWith: { first, _ in first })
 
-    /// Whether a view draws components of `type`.
     static func draws(_ type: any Component.Type) -> Bool { views[ObjectIdentifier(type)] != nil }
 
     /// `component`'s registered view; one without a view shows its text, so nothing is ever lost.
@@ -47,7 +44,6 @@ enum ComponentViews {
 /// What a document's views share: the text size, which target is selected and how to run one, and
 /// whether images may come from the network.
 struct DocumentFocus {
-    /// The selected target's id.
     var selected: String?
     /// The chord hint ("⌘3") per target id while ⌘ is held.
     var hints: [String: String] = [:]

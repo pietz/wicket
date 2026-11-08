@@ -37,7 +37,6 @@ final class MessageHUD {
         panel.animationBehavior = .none
     }
 
-    /// Shows `message` centred on `center`.
     func show(_ message: Message, centeredAt center: NSPoint) {
         let content = NSHostingView(rootView: HUDView(message: message))
         let size = content.fittingSize
