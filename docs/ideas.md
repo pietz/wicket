@@ -19,3 +19,5 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Keep macOS 27.3's coming AI options in mind**, and the on-device transcription model.
 - **The AI is what has to be new.** Launcher basics can borrow freely from Raycast, Alfred and the others we watch; the AI part is where to think outside the box: AI native, future proof, making people more capable. This is the thing to get right.
 - **Automatic intent, no manual choice:** a cheap decision model in the background reads what's typed and decides the intent, e.g. switches to AI for a question or a phrase, stays out of the way for an equation or a file name; maybe a hybrid engine. The user types or speaks and gets the right response without picking Ask AI or Search the Web. (Overnight Sol verdict: only as a suggestion after submit, measure search-phrase misses first, label ~500 queries before building.)
+- **Selected text is a nice-to-have, paused (not removed):** don't spend more time on it or its permission flow for now.
+- **Wicket must be findable:** the owner saw no Dock or menu bar presence and no way into Settings (menu bar icon in progress).
