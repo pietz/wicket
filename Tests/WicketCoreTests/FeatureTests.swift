@@ -33,13 +33,13 @@ private func object(_ url: URL) throws -> [String: Any] {
 
 @Test func featuresDecodeEachEntryAlone() throws {
     let settings = try decode(
-        #"{"features": {"files": false, "apps": true, "calculator": "no", "ask-ai": null, "clipboard": false}}"#
+        #"{"features": {"files": false, "apps": true, "calculator": "no", "ai": null, "clipboard": false}}"#
     )
     #expect(settings.disabledFeatures == [.files])
     #expect(
         settings.ignored == [
             "features.calculator must be true or false; leaving it on",
-            #"features: "clipboard" is not a feature (apps, files, calculator, ask-ai, web-search); ignoring it"#,
+            #"features: "clipboard" is not a feature (apps, files, calculator, ai, web-search); ignoring it"#,
         ])
 }
 
@@ -65,9 +65,9 @@ func featuresThatArentAnObjectLeaveEverythingOn(json: String) throws {
 
 @Test func turningTheLastFeatureBackOnRemovesTheObject() throws {
     let url = temporarySettingsURL()
-    try Settings.update(at: url) { $0.setEnabled(.askAI, false) }
-    #expect(try object(url)["features"] as? [String: Bool] == ["ask-ai": false])
-    try Settings.update(at: url) { $0.setEnabled(.askAI, true) }
+    try Settings.update(at: url) { $0.setEnabled(.ai, false) }
+    #expect(try object(url)["features"] as? [String: Bool] == ["ai": false])
+    try Settings.update(at: url) { $0.setEnabled(.ai, true) }
     #expect(try object(url)["features"] == nil)
 }
 
@@ -81,13 +81,13 @@ private struct StubSource: ResultSource {
 }
 
 @MainActor @Test func sourcesOfFeaturesTurnedOffAreDropped() {
-    let all: [any ResultSource] = ["apps", "commands", "calculator", "files", "ask-ai", "ext"].map {
+    let all: [any ResultSource] = ["apps", "commands", "calculator", "files", "ai", "ext"].map {
         StubSource(id: $0)
     }
     #expect(Feature.enabled(all, in: Settings()).map(\.id) == all.map(\.id))
     var settings = Settings()
     settings.setEnabled(.files, false)
-    settings.setEnabled(.askAI, false)
+    settings.setEnabled(.ai, false)
     #expect(Feature.enabled(all, in: settings).map(\.id) == ["apps", "commands", "calculator", "ext"])
     for feature in Feature.allCases { settings.setEnabled(feature, false) }
     #expect(Feature.enabled(all, in: settings).map(\.id) == ["commands", "ext"])
@@ -95,27 +95,27 @@ private struct StubSource: ResultSource {
 
 // MARK: Commands
 
-@MainActor @Test func askAIOffUnregistersItsCommandAndItsBindingsGoInert() throws {
+@MainActor @Test func runAgentOffUnregistersItsCommandAndItsBindingsGoInert() throws {
     let registry = CommandRegistry(builtins: builtins)
-    registry.setAliases([CommandID.askAI: "ask"])
+    registry.setAliases([CommandID.runAgent: "ask"])
     let hotkey = try Shortcut("ctrl+option+a")
-    let bindings = [CommandID.askAI: CommandBinding(hotkey: hotkey, alias: "ask")]
+    let bindings = [CommandID.runAgent: CommandBinding(hotkey: hotkey, alias: "ask")]
     let resolve = {
         CommandHotkeys.resolve(bindings, palette: .default, isRegistered: { registry.command($0) != nil })
     }
-    #expect(resolve().hotkeys == [hotkey: CommandID.askAI])
+    #expect(resolve().hotkeys == [hotkey: CommandID.runAgent])
 
-    registry.setDisabledFeatures([.askAI])
-    #expect(registry.command(CommandID.askAI) == nil)
+    registry.setDisabledFeatures([.ai])
+    #expect(registry.command(CommandID.runAgent) == nil)
     #expect(registry.command(alias: "ask") == nil)
-    #expect(registry.alias(of: CommandID.askAI) == nil)
+    #expect(registry.alias(of: CommandID.runAgent) == nil)
     #expect(resolve().hotkeys.isEmpty)
     #expect(resolve().rejected.isEmpty)
     #expect(registry.command(CommandID.settings) != nil)
 
     registry.setDisabledFeatures([])
-    #expect(registry.alias(of: CommandID.askAI) == "ask")
-    #expect(resolve().hotkeys == [hotkey: CommandID.askAI])
+    #expect(registry.alias(of: CommandID.runAgent) == "ask")
+    #expect(resolve().hotkeys == [hotkey: CommandID.runAgent])
 }
 
 // MARK: Live changes

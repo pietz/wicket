@@ -8,7 +8,7 @@ import Foundation
 /// out of the window that turns them back on.
 public enum Feature: String, CaseIterable, Sendable {
     case apps, files, calculator
-    case askAI = "ask-ai"
+    case ai
     case webSearch = "web-search"
 
     public var title: String {
@@ -16,7 +16,7 @@ public enum Feature: String, CaseIterable, Sendable {
         case .apps: "Applications"
         case .files: "Files"
         case .calculator: "Calculator"
-        case .askAI: "AI"
+        case .ai: "AI"
         case .webSearch: "Web Search"
         }
     }
@@ -27,8 +27,8 @@ public enum Feature: String, CaseIterable, Sendable {
         case .apps: "Find and open apps by name."
         case .files: "Find files and folders with Spotlight."
         case .calculator: "Math, units and currencies as you type."
-        case .askAI:
-            "Ask AI to answer, do things or build commands with your AI provider. Off, nothing in Wicket uses AI."
+        case .ai:
+            "Run Agent answers, does things and builds commands with your AI provider. Off, nothing in Wicket uses AI."
         case .webSearch: "Search the web (type web and a space, or pick the last row) and open typed links."
         }
     }

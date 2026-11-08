@@ -105,7 +105,7 @@ public final class Extensions {
     var pruneUV: @Sendable (UVStorage) async -> Void = { await UV.prune($0) }
     /// The uv prunes running or waiting, one after another; shutdown cancels them.
     private var uvPruning: Task<Void, Never>?
-    /// Composed with Ask AI by the app; prompt commands never create an extension session.
+    /// Composed with Run Agent by the app; prompt commands never create an extension session.
     public weak var promptRunner: PromptCommandRunner?
     private var active: [String: Active] = [:]
     private let activate: Activation

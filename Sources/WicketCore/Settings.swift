@@ -17,7 +17,7 @@ public struct Settings: Equatable, Sendable {
     /// The `webSearch` object: where Search the Web goes.
     public var webSearch = WebSearch()
     /// What the user bound to commands: a global hotkey, an alias. Keyed by `CommandID`, written in
-    /// the file by its canonical spelling (`"builtin:ask-ai"`, `"ext:github/search"`). Entries for
+    /// the file by its canonical spelling (`"builtin:run-agent"`, `"ext:github/search"`). Entries for
     /// commands that aren't registered stay here (the extension may be installed later) and do
     /// nothing until they are.
     public var commands: [CommandID: CommandBinding] = [:]
@@ -38,14 +38,37 @@ public struct Settings: Equatable, Sendable {
         if enabled { disabledFeatures.remove(feature) } else { disabledFeatures.insert(feature) }
     }
 
-    /// The `ai` object. Preferences only: nothing here grants anything.
+    /// The `ai` object. Preferences only: nothing here grants anything, so the agents' permission
+    /// level is not here (`AgentPermission`).
     public struct AI: Equatable, Sendable {
-        /// Which agent answers Ask AI; nil (the default) means the first one that's ready, in
+        /// Which agent answers Run Agent; nil (the default) means the first one that's ready, in
         /// `AgentProvider.allCases` order (Codex first).
         public var provider: AgentProvider?
+        /// How Codex runs (`ai.codex`).
+        public var codex = AgentOptions()
+        /// How Claude Code runs (`ai.claude`).
+        public var claude = AgentOptions()
 
         public init(provider: AgentProvider? = nil) {
             self.provider = provider
+        }
+
+        /// The options of an agent CLI; Apple's model has none.
+        public subscript(provider: AgentProvider) -> AgentOptions {
+            get {
+                switch provider {
+                case .codex: codex
+                case .claude: claude
+                case .apple: AgentOptions()
+                }
+            }
+            set {
+                switch provider {
+                case .codex: codex = newValue
+                case .claude: claude = newValue
+                case .apple: break
+                }
+            }
         }
     }
 
@@ -94,7 +117,8 @@ public struct Settings: Equatable, Sendable {
         let object: [String: Any]
         if let data {  // `decode` accepted it, so it holds a JSON object.
             let file = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            object = merge(file, old: try old.fields(), new: try new.fields()) as? [String: Any] ?? [:]
+            object =
+                merge(migrated(file), old: try old.fields(), new: try new.fields()) as? [String: Any] ?? [:]
             guard !NSDictionary(dictionary: object).isEqual(to: file) else { return }
         } else {
             object = try new.fields()
@@ -104,6 +128,27 @@ public struct Settings: Equatable, Sendable {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try (json + Data("\n".utf8)).write(to: url, options: .atomic)
+    }
+
+    /// Keys an older Wicket used, by the object holding them, and what they are called now, so a
+    /// file keeps working after a rename (Ask AI became Run Agent, 2026-11-08). The file is rewritten
+    /// with the new name the next time Settings changes something.
+    static let renamed: [(object: String, old: String, new: String)] = [
+        ("commands", "builtin:ask-ai", "builtin:run-agent"),
+        ("features", "ask-ai", "ai"),
+    ]
+
+    /// `file` with every renamed key under its current name; a key already under the new name wins.
+    static func migrated(_ file: [String: Any]) -> [String: Any] {
+        var file = file
+        for rename in renamed {
+            guard var object = file[rename.object] as? [String: Any],
+                let value = object.removeValue(forKey: rename.old)
+            else { continue }
+            if object[rename.new] == nil { object[rename.new] = value }
+            file[rename.object] = object
+        }
+        return file
     }
 
     /// The file's bytes, or nil if it does not exist.
@@ -116,6 +161,13 @@ public struct Settings: Equatable, Sendable {
     }
 
     private static func decode(_ data: Data) throws -> Settings {
+        var data = data
+        if let file = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            case let current = migrated(file), !NSDictionary(dictionary: current).isEqual(to: file),
+            let rewritten = try? JSONSerialization.data(withJSONObject: current)
+        {
+            data = rewritten
+        }
         do {
             return try JSONDecoder().decode(Settings.self, from: data)
         } catch let error as DecodingError {
@@ -224,7 +276,13 @@ extension Settings: Codable {
     }
 
     private enum AIKeys: String, CodingKey {
-        case provider
+        case provider, codex, claude
+    }
+
+    private enum AgentKeys: String, CodingKey {
+        case model, effort, speed
+        /// Never read: a permission is set only in Wicket's UI (principle 6).
+        case permission
     }
 
     public init(from decoder: any Decoder) throws {
@@ -361,19 +419,60 @@ extension Settings: Codable {
         }
     }
 
-    /// Like the width, a wrong provider is ignored on its own: Ask AI then uses the first ready one.
+    /// Like the width, a wrong provider is ignored on its own: Run Agent then uses the first ready one.
     private mutating func decodeAI(_ ai: KeyedDecodingContainer<AIKeys>?) {
         guard let ai else {
             ignored.append("ai must be an object; using defaults")
             return
         }
         // Null, like a missing field, means automatic.
-        guard ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false else { return }
-        if let provider = try? ai.decode(AgentProvider.self, forKey: .provider) {
-            self.ai.provider = provider
-        } else {
-            let names = AgentProvider.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
-            ignored.append("ai.provider must be \(names); using the first one that's ready")
+        if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false {
+            if let provider = try? ai.decode(AgentProvider.self, forKey: .provider) {
+                self.ai.provider = provider
+            } else {
+                let names = AgentProvider.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
+                ignored.append("ai.provider must be \(names); using the first one that's ready")
+            }
+        }
+        for (key, provider) in [(AIKeys.codex, AgentProvider.codex), (.claude, .claude)]
+        where ai.contains(key) && (try? ai.decodeNil(forKey: key)) != true {
+            decodeAgent(
+                try? ai.nestedContainer(keyedBy: AgentKeys.self, forKey: key), provider, key.stringValue)
+        }
+    }
+
+    /// One agent's options; each field fails alone and leaves the agent's own default. A
+    /// `permission` here is ignored with its reason: the file never grants consent.
+    private mutating func decodeAgent(
+        _ object: KeyedDecodingContainer<AgentKeys>?, _ provider: AgentProvider, _ key: String
+    ) {
+        guard let object else {
+            ignored.append("ai.\(key) must be an object; using \(provider.name)'s own settings")
+            return
+        }
+        for field in [AgentKeys.model, .effort] where object.contains(field) {
+            if (try? object.decodeNil(forKey: field)) == true { continue }
+            guard let value = try? object.decode(String.self, forKey: field), AgentOptions.isValidValue(value)
+            else {
+                ignored.append(
+                    "ai.\(key).\(field.stringValue) must be one word; using \(provider.name)'s default")
+                continue
+            }
+            if field == .model { ai[provider].model = value } else { ai[provider].effort = value }
+        }
+        if object.contains(.speed), (try? object.decodeNil(forKey: .speed)) == false {
+            if let name = try? object.decode(String.self, forKey: .speed),
+                let speed = AgentSpeed(rawValue: name)
+            {
+                ai[provider].speed = speed
+            } else {
+                ignored.append("ai.\(key).speed must be \"regular\" or \"fast\"; using regular")
+            }
+        }
+        if object.contains(.permission) {
+            ignored.append(
+                "ai.\(key).permission can only be set in Settings ▸ AI, since it decides what the agent may "
+                    + "do without asking; ignoring it")
         }
     }
 
@@ -401,10 +500,18 @@ extension Settings: Codable {
         try container.encode(paletteWidth, forKey: .paletteWidth)
         // Only when hidden, so a new file stays minimal and `update` removes it when shown again.
         if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
-        // Only when chosen, so a new file stays minimal; `update` removes it again for automatic.
-        if let provider = ai.provider {
+        // Only what is chosen, so a new file stays minimal; `update` removes a field set back to the
+        // agent's default (and the object once nothing is left in it).
+        if ai != AI() {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
-            try nested.encode(provider, forKey: .provider)
+            try nested.encodeIfPresent(ai.provider, forKey: .provider)
+            for (key, options) in [(AIKeys.codex, ai.codex), (.claude, ai.claude)]
+            where options != AgentOptions() {
+                var fields = nested.nestedContainer(keyedBy: AgentKeys.self, forKey: key)
+                try fields.encodeIfPresent(options.model, forKey: .model)
+                try fields.encodeIfPresent(options.effort, forKey: .effort)
+                if options.speed != .regular { try fields.encode(options.speed.rawValue, forKey: .speed) }
+            }
         }
         // Only when changed, like the provider.
         if webSearch != WebSearch() {

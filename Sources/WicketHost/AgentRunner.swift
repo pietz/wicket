@@ -3,17 +3,28 @@ import WicketCore
 import os
 
 extension CommandID {
-    /// Ask AI: answers a question or does what it asks, the one AI entry.
-    public static let askAI = CommandID.builtin("ask-ai")
-    /// Opens Settings on its AI pane: the action of an Ask AI frame whose provider isn't ready.
+    /// Run Agent: answers a question or does what it asks, the one AI entry.
+    public static let runAgent = CommandID.builtin("run-agent")
+    /// Opens Settings on its AI pane: the action of a Run Agent frame whose provider isn't ready.
     /// Hidden, reached by id only; the app's table gives it its effect.
     public static let aiSettings = CommandID.builtin("ai-settings")
-    /// Answers an acting agent's approval shown in an Ask AI frame (`token` and `decision` args).
+    /// Answers an acting agent's approval shown in a Run Agent frame (`token` and `decision` args).
     /// Hidden, reached by id only.
     public static let aiApproval = CommandID.builtin("ai-approval")
 }
 
-/// What Ask AI needs from its providers: whether a provider is ready, and an answer run.
+/// How an acting run is set up beyond its prompt: the user's choices for that agent.
+public struct AgentConfiguration: Sendable, Equatable {
+    public var options: AgentOptions
+    public var permission: AgentPermission?
+
+    public init(options: AgentOptions = AgentOptions(), permission: AgentPermission? = nil) {
+        self.options = options
+        self.permission = permission
+    }
+}
+
+/// What Run Agent needs from its providers: whether a provider is ready, and an answer run.
 /// `installed` uses the CLIs on the login-shell PATH or Apple's model; tests pass stand-ins.
 public struct AgentBackend: Sendable {
     public var status: @Sendable (AgentProvider) async -> AgentStatus
@@ -40,13 +51,13 @@ public struct AgentBackend: Sendable {
         })
 }
 
-/// Ask AI and prompt commands share one answer stream, provider selection and process lifetime.
-/// Ask AI acts with a provider that can (`AgentProvider.acts`), in the folder of the Finder
+/// Run Agent and prompt commands share one answer stream, provider selection and process lifetime.
+/// Run Agent acts with a provider that can (`AgentProvider.acts`), in the folder of the Finder
 /// selection or the home folder; its approvals are answered through `builtin:ai-approval`. With
 /// `authoring`, an acting run knows Wicket and can add or change its commands, and its answer offers
 /// to review what it wrote.
 @MainActor
-public final class AskAIRunner: CommandRunner {
+public final class AgentRunner: CommandRunner {
     let answers: AnswerStream
     /// Supplies the finished answer's Save as Command action in the app. No action during streaming
     /// or after failure; the saver keeps the original invocation out of action arguments.
@@ -61,6 +72,13 @@ public final class AskAIRunner: CommandRunner {
     public var authoring: ExtensionAuthoring? {
         get { answers.authoring }
         set { answers.authoring = newValue }
+    }
+
+    /// How an acting run of a provider runs: settings.json's options and the permission level from
+    /// Settings ▸ AI, read when a question is asked; set by the app. Nothing forced by default.
+    public var configuration: @MainActor (AgentProvider) -> AgentConfiguration {
+        get { answers.configuration }
+        set { answers.configuration = newValue }
     }
 
     public init(
@@ -117,6 +135,8 @@ final class AnswerStream {
     public var provider: @MainActor () -> AgentProvider?
     /// Tells acting runs about Wicket and finds the extensions they wrote.
     var authoring: ExtensionAuthoring?
+    /// The user's model, effort, speed and permission level for an acting run of a provider.
+    var configuration: @MainActor (AgentProvider) -> AgentConfiguration = { _ in AgentConfiguration() }
     private let backend: AgentBackend
     private let interval: Duration
     private let statusLifetime: Duration
@@ -208,24 +228,27 @@ final class AnswerStream {
         do {
             provider = try await readyProvider()
         } catch {
-            var detail = Detail.failure("Ask AI Failed", error.description, command: invocation.command)
+            var detail = Detail.failure("Run Agent Failed", error.description, command: invocation.command)
             detail.actions = [.run(command: .aiSettings, title: "Open AI Settings")]
             output.yield(.show(.detail(detail)))
             return
         }
         try Task.checkCancellation()
+        let acts = acting != nil && provider.acts
+        let configuration = acts ? configuration(provider) : AgentConfiguration()
         let draft = Draft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
-            completedActions: completedActions)
+            permission: configuration.permission, completedActions: completedActions)
         output.yield(.show(.detail(draft.detail)))
 
         let request: AgentRequest
         // What the extensions folder holds before an acting run, to offer what it changes for review.
         var before: ExtensionAuthoring.Snapshot?
-        if let acting, provider.acts {
+        if let acting, acts {
             before = await authoring?.snapshot()
             request = AgentRequest(
-                prompt: prompt, workingDirectory: acting, mode: .act, instructions: authoring?.instructions())
+                prompt: prompt, workingDirectory: acting, mode: .act, instructions: authoring?.instructions(),
+                options: configuration.options, permission: configuration.permission)
         } else {
             // An empty folder, so the agent's working directory holds nothing to read.
             let folder = FileManager.default.temporaryDirectory.appending(
@@ -259,7 +282,7 @@ final class AnswerStream {
             draft.failure = failure.description
             output.yield(.show(.detail(draft.detail)))
             Self.logger.notice(
-                "ask-ai: \(provider.rawValue, privacy: .public) failed after \(draft.text.count, privacy: .public) chars"
+                "agent: \(provider.rawValue, privacy: .public) failed after \(draft.text.count, privacy: .public) chars"
             )
         } catch {
             await run.cancelAndWait()
@@ -308,7 +331,7 @@ final class AnswerStream {
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
-                    ask-ai: \(provider.rawValue, privacy: .public) first text after \
+                    agent: \(provider.rawValue, privacy: .public) first text after \
                     \(firstText.map { "\($0)" } ?? "-", privacy: .public), answer after \
                     \(ContinuousClock.now - start, privacy: .public), \(draft.text.count, privacy: .public) chars
                     """)
@@ -343,7 +366,7 @@ final class AnswerStream {
             let start = ContinuousClock.now
             let status = await backend.status(candidate)
             Self.logger.notice(
-                "ask-ai: \(candidate.rawValue, privacy: .public) status in \(ContinuousClock.now - start, privacy: .public)"
+                "agent: \(candidate.rawValue, privacy: .public) status in \(ContinuousClock.now - start, privacy: .public)"
             )
             if status.state == .ready {
                 ready[candidate] = .now
@@ -352,10 +375,10 @@ final class AnswerStream {
             ready[candidate] = nil
             statuses.append(status)
         }
-        throw Failure(Self.unavailable(statuses, chosen: chosen != nil, uses: "Ask AI"))
+        throw Failure(Self.unavailable(statuses, chosen: chosen != nil, uses: "Run Agent"))
     }
 
-    /// What the frame of `feature` (Ask AI) says when no provider can run it.
+    /// What the frame of `feature` (Run Agent) says when no provider can run it.
     static func unavailable(_ statuses: [AgentStatus], chosen: Bool, uses feature: String) -> String {
         let reasons = statuses.map(reason)
         if chosen, let reason = reasons.first {
@@ -394,6 +417,9 @@ private final class Draft {
     var reviews: [Item.Action] = []
     /// Shown until the first text arrives.
     let status: String
+    /// The permission level the run was started with, said under each question; nil when the
+    /// agent's own settings decide.
+    let permission: AgentPermission?
     var text = ""
     /// What the agent did, one line each ("Ran ls", "Edited notes.md").
     var progress: [String] = []
@@ -409,12 +435,13 @@ private final class Draft {
     var redraw: () -> Void = {}
 
     init(
-        title: String, invocation: Invocation, status: String,
+        title: String, invocation: Invocation, status: String, permission: AgentPermission?,
         completedActions: @escaping @MainActor () -> [Item.Action]
     ) {
         self.title = title
         self.invocation = invocation
         self.status = status
+        self.permission = permission
         self.completedActions = completedActions
     }
 
@@ -458,7 +485,7 @@ private final class Draft {
             command: invocation.command, text: invocation.text,
             args: invocation.args, title: "Retry", revision: invocation.revision)
         guard !text.isEmpty else {
-            var detail = Detail.failure("Ask AI Failed", failure, command: invocation.command)
+            var detail = Detail.failure("Run Agent Failed", failure, command: invocation.command)
             detail.actions = reviews + [retry]
             return detail
         }
@@ -500,6 +527,7 @@ private final class Draft {
         if let reason = approval.reason, !reason.isEmpty { parts.append(Self.escaped(reason)) }
         if approval.kind == .command { parts.append(Self.fenced(approval.subject)) }
         if let input = approval.input { parts.append(Self.fenced(input)) }
+        if let permission { parts.append("_\(permission.title): \(permission.summary)._") }
         if approvals.count > 1 { parts.append("_\(approvals.count - 1) more waiting_") }
         return parts.joined(separator: "\n\n")
     }

@@ -118,7 +118,7 @@ private func soon(_ condition: () -> Bool) async -> Bool {
     return condition()
 }
 
-private let askAICommand = CommandID.builtin("ask-ai")
+private let runAgentCommand = CommandID.builtin("run-agent")
 private let quitCommand = CommandID.builtin("quit")
 
 @MainActor
@@ -128,7 +128,7 @@ private final class Harness {
     let palette = FakePalette()
     let menuBar = FakeMenuBar()
     let agent = FakeAgent()
-    let askAI: AskAIRunner
+    let runAgent: AgentRunner
     private(set) var work: [String] = []
     /// The built-ins' effects that ran.
     private(set) var effects: [String] = []
@@ -140,7 +140,7 @@ private final class Harness {
     init(settings json: String = "{}") throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         weak var harness: Harness?
-        askAI = AskAIRunner(
+        runAgent = AgentRunner(
             backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider })
         // The table as `live()` composes it, with effects that are only recorded.
         let builtins = [
@@ -154,10 +154,10 @@ private final class Harness {
                 effect: { harness?.effects.append("quit") }),
             Builtin(
                 RegisteredCommand(
-                    id: askAICommand, title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
+                    id: runAgentCommand, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
-                    feature: .askAI),
-                runner: askAI),
+                    feature: .ai),
+                runner: runAgent),
         ]
         let apps = StaticSource("apps", items: [item("Safari")])
         let calculator = StaticSource("calculator", items: [])
@@ -210,20 +210,20 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
         settings: #"""
             {"hotkey": "cmd+k", "paletteWidth": 720, "ai": {"provider": "claude"},
              "features": {"calculator": false},
-             "commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a", "alias": "ask"}}}
+             "commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a", "alias": "ask"}}}
             """#)
     #expect(h.palette.width == 720)
-    #expect(h.askAI.provider() == .claude)
+    #expect(h.runAgent.provider() == .claude)
     #expect(h.work == ["start apps"])
     #expect(h.system.registered == [shortcut("cmd+k"), shortcut("ctrl+option+a")])
-    #expect(h.runtime.registry.alias(of: askAICommand) == "ask")
+    #expect(h.runtime.registry.alias(of: runAgentCommand) == "ask")
     #expect(h.store.commands.map(\.id) == h.runtime.registry.commands.map(\.id))
     #expect(h.store.diagnostics.all.isEmpty)
 
     h.system.press(shortcut("cmd+k"))
     h.system.press(shortcut("ctrl+option+a"))
     #expect(h.palette.toggles == [42])
-    #expect(h.palette.bound == [askAICommand])
+    #expect(h.palette.bound == [runAgentCommand])
 }
 
 @MainActor @Test func featureWorkFollowsItsFeatureOnly() throws {
@@ -251,7 +251,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(!h.rootIDs.contains("commands:quit"))
 }
 
-/// Settings and Quit are table entries like Ask AI: their rows run through the router, their effect
+/// Settings and Quit are table entries like Run Agent: their rows run through the router, their effect
 /// runs and the palette closes without a frame.
 @MainActor @Test func builtinsThatDoSomethingRunTheirEffectAndClose() async throws {
     let h = try Harness()
@@ -273,27 +273,27 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     let h = try Harness()
     h.session.query = "saf"
     #expect(h.rootIDs.contains("test:Safari"))
-    #expect(h.rootIDs.contains("fallback:builtin:ask-ai"))
-    try h.change(#"{"features": {"apps": false, "ask-ai": false}}"#)
+    #expect(h.rootIDs.contains("fallback:builtin:run-agent"))
+    try h.change(#"{"features": {"apps": false, "ai": false}}"#)
     #expect(!h.rootIDs.contains("test:Safari"))
-    #expect(!h.rootIDs.contains("fallback:builtin:ask-ai"))
+    #expect(!h.rootIDs.contains("fallback:builtin:run-agent"))
 }
 
-/// The review's gap: turning Ask AI off left a running answer streaming.
-@MainActor @Test func turningAskAIOffStopsARunningAnswer() async throws {
-    let h = try Harness(settings: #"{"commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
-    let command = try #require(h.runtime.registry.command(askAICommand))
+/// The review's gap: turning Run Agent off left a running answer streaming.
+@MainActor @Test func turningRunAgentOffStopsARunningAnswer() async throws {
+    let h = try Harness(settings: #"{"commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
+    let command = try #require(h.runtime.registry.command(runAgentCommand))
     h.session.open(CommandRun(command, .invoked, text: "hello"))
     #expect(await eventually { h.session.frames.count == 2 })
     #expect(h.session.top.isLoading)
 
     try h.change(
-        #"{"features": {"ask-ai": false}, "commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
+        #"{"features": {"ai": false}, "commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
     #expect(h.session.frames.count == 1)
     #expect(await eventually { h.agent.ended.withLock { $0 } == 1 })
     // Its hotkey goes inert with it, and comes back when the feature does.
     #expect(h.system.registered == [.default])
-    try h.change(#"{"commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
+    try h.change(#"{"commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
     #expect(h.system.registered == [.default, shortcut("ctrl+option+a")])
 }
 
@@ -301,7 +301,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
 @MainActor @Test func shutdownWaitsForRunningAgentsOnce() async throws {
     let h = try Harness()
     h.agent.exitDelay.withLock { $0 = .milliseconds(200) }
-    let command = try #require(h.runtime.registry.command(askAICommand))
+    let command = try #require(h.runtime.registry.command(runAgentCommand))
     h.session.open(CommandRun(command, .invoked, text: "hello"))
     #expect(await soon { h.agent.started.withLock { $0 } == 1 })
 
@@ -323,7 +323,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
 @MainActor @Test func shutdownIsBounded() async throws {
     let h = try Harness()
     h.agent.exitDelay.withLock { $0 = .seconds(30) }
-    let command = try #require(h.runtime.registry.command(askAICommand))
+    let command = try #require(h.runtime.registry.command(runAgentCommand))
     h.session.open(CommandRun(command, .invoked, text: "hello"))
     #expect(await soon { h.agent.started.withLock { $0 } == 1 })
 
@@ -335,13 +335,14 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
 
 /// One snapshot can hand a combination from a command to the palette and back.
 @MainActor @Test func hotkeysCanSwapInOneChange() throws {
-    let h = try Harness(settings: #"{"commands": {"builtin:ask-ai": {"hotkey": "ctrl+option+a"}}}"#)
-    try h.change(#"{"hotkey": "ctrl+option+a", "commands": {"builtin:ask-ai": {"hotkey": "option+space"}}}"#)
+    let h = try Harness(settings: #"{"commands": {"builtin:run-agent": {"hotkey": "ctrl+option+a"}}}"#)
+    try h.change(
+        #"{"hotkey": "ctrl+option+a", "commands": {"builtin:run-agent": {"hotkey": "option+space"}}}"#)
     #expect(h.system.registered == [shortcut("ctrl+option+a"), .default])
     h.system.press(shortcut("ctrl+option+a"))
     h.system.press(.default)
     #expect(h.palette.toggles == [42])
-    #expect(h.palette.bound == [askAICommand])
+    #expect(h.palette.bound == [runAgentCommand])
     #expect(!h.store.hotKeyFailed)
 }
 

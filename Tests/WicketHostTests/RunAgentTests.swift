@@ -5,7 +5,7 @@ import WicketCore
 
 @testable import WicketHost
 
-// Ask AI end to end through a palette session: the runner behind the router, fed by a scripted agent
+// Run Agent end to end through a palette session: the runner behind the router, fed by a scripted agent
 // backend (no processes), and once by a fake agent CLI replaying a recorded Codex stream.
 
 /// Agents whose status the test sets and whose runs it drives through their continuations.
@@ -64,10 +64,11 @@ private final class FakeAgents: Sendable {
     func wasEnded(_ run: Int) -> Bool { state.withLock { $0.ended.contains(run) } }
 }
 
-/// Ask AI as the app's table registers it (`AppRuntime.live()`).
-private let askAI = RegisteredCommand(
-    id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
-    input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .askAI)
+/// Run Agent as the app's table registers it (`AppRuntime.live()`).
+private let runAgent = RegisteredCommand(
+    id: .builtin("run-agent"), title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
+    isListed: false,
+    input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .ai)
 private let aiApproval = RegisteredCommand(
     id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"), isListed: false, input: .none
 )
@@ -75,20 +76,21 @@ private let aiApproval = RegisteredCommand(
 @MainActor
 private struct Palette {
     let session: PaletteSession
-    let runner: AskAIRunner
+    let runner: AgentRunner
 
     init(_ backend: AgentBackend, interval: Duration = .zero) {
-        runner = AskAIRunner(backend: backend, interval: interval)
+        runner = AgentRunner(backend: backend, interval: interval)
         let router = CommandRouter(
-            builtins: [Builtin(askAI, runner: runner), Builtin(aiApproval, runner: runner)], extensions: nil)
-        let registry = CommandRegistry(builtins: [askAI, aiApproval])
+            builtins: [Builtin(runAgent, runner: runner), Builtin(aiApproval, runner: runner)],
+            extensions: nil)
+        let registry = CommandRegistry(builtins: [runAgent, aiApproval])
         session = PaletteSession(sources: [FallbackSource(registry)], runner: router, registry: registry)
     }
 
-    /// Types `question` and picks the Ask AI row, as Return on it would.
+    /// Types `question` and picks the Run Agent row, as Return on it would.
     func ask(_ question: String) {
         session.query = question
-        session.open(CommandRun(askAI, .invoked, text: question))
+        session.open(CommandRun(runAgent, .invoked, text: question))
     }
 
     /// Picks one of the top frame's actions by title, as the action menu would: a `run` opens its
@@ -180,12 +182,12 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.title == "hello")
     #expect(palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded")
     // Retry asks the same question again, only when picked; Copy takes the text without the note.
-    let retry = Item.Action.run(command: askAI.id, text: "hello", title: "Retry")
+    let retry = Item.Action.run(command: runAgent.id, text: "hello", title: "Retry")
     #expect(palette.session.top.target?.actions == [retry, .copy(text: "Hel", title: "Copy Answer")])
     #expect(agents.runs.count == 1)
     #expect(agents.wasEnded(0))
 
-    palette.session.open(CommandRun(askAI, .invoked, text: "hello"))
+    palette.session.open(CommandRun(runAgent, .invoked, text: "hello"))
     #expect(await eventually { agents.runs.count == 2 })
     #expect(agents.runs[1].request.prompt == "hello")
 }
@@ -196,11 +198,11 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.error("the model is overloaded"))
-    #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
+    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(palette.detail?.markdown == "the model is overloaded")
     #expect(await eventually { !palette.session.top.isLoading })
     #expect(
-        palette.session.top.target?.actions == [.run(command: askAI.id, text: "hello", title: "Retry")])
+        palette.session.top.target?.actions == [.run(command: runAgent.id, text: "hello", title: "Retry")])
 }
 
 @MainActor @Test func poppingOrDismissingStopsTheAgent() async throws {
@@ -233,7 +235,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     agents.set(.codex, .loggedOut)
     palette.runner.provider = { .codex }
     palette.ask("hi")
-    #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
+    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(
         palette.detail?.markdown
             == "Codex isn't signed in: run `codex login` in Terminal to sign in.\n\n"
@@ -247,10 +249,10 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     agents.set(.apple, .unavailable("The on-device model is not ready."))
     let fresh = Palette(agents.backend)
     fresh.ask("hi")
-    #expect(await eventually { fresh.detail?.title == "Ask AI Failed" })
+    #expect(await eventually { fresh.detail?.title == "Run Agent Failed" })
     #expect(
         fresh.detail?.markdown == """
-            Ask AI uses Codex or Claude Code or Apple Intelligence (on device), and none is ready:
+            Run Agent uses Codex or Claude Code or Apple Intelligence (on device), and none is ready:
 
             - Codex isn't signed in: run `codex login` in Terminal to sign in.
             - Claude Code isn't signed in: run `claude auth login` in Terminal to sign in.
@@ -274,7 +276,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("q4")
     #expect(await eventually { agents.runs.count == 4 })
     agents.runs[3].continuation.yield(.error("logged out"))
-    #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
+    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     palette.session.reset()
     palette.ask("q5")
     #expect(await eventually { agents.runs.count == 5 })
@@ -283,9 +285,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor @Test func frequentDeltasAreCoalesced() async throws {
     let agents = FakeAgents([.codex: .ready])
-    let runner = AskAIRunner(backend: agents.backend, interval: .seconds(60))
+    let runner = AgentRunner(backend: agents.backend, interval: .seconds(60))
     let stream = runner.run(
-        Invocation(command: askAI.id, text: "count"), retry: .never)
+        Invocation(command: runAgent.id, text: "count"), retry: .never)
     let events: [AgentEvent] = [.text("1"), .text(" 2"), .text(" 3"), .answer("1 2 3", usage: nil)]
     let feed = Task {
         while agents.runs.isEmpty { try await Task.sleep(for: .milliseconds(1)) }
@@ -344,7 +346,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let reason = "Enable Apple Intelligence in System Settings ▸ Apple Intelligence & Siri."
     agents.set(.apple, .unavailable(reason))
     palette.ask("hello again")
-    #expect(await eventually { palette.detail?.title == "Ask AI Failed" })
+    #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
     #expect(palette.detail?.markdown.contains(reason) == true)
     #expect(palette.detail?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
     #expect(agents.checks == [.apple, .apple])
@@ -353,11 +355,11 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
 @MainActor @Test func whatWasSelectedFollowsTheQuestionAndTheTitleStaysTheQuestion() async throws {
     let agents = FakeAgents([.codex: .ready])
-    let runner = AskAIRunner(backend: agents.backend, interval: .zero)
+    let runner = AgentRunner(backend: agents.backend, interval: .zero)
     let context = try #require(SummonContext(app: "Mail", text: "Dear Anna, thanks again."))
     var shown: [RunResult] = []
     let stream = runner.run(
-        Invocation(command: askAI.id, text: "translate this to German", context: context), retry: .never)
+        Invocation(command: runAgent.id, text: "translate this to German", context: context), retry: .never)
     let reading = Task {
         for try await result in stream { shown.append(result) }
     }
@@ -449,11 +451,11 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let file = folder.appending(path: "a.txt")
     try Data().write(to: file)
     #expect(
-        AskAIRunner.folder(for: SummonContext(app: "Finder", files: [file]))
+        AgentRunner.folder(for: SummonContext(app: "Finder", files: [file]))
             == file.deletingLastPathComponent())
-    #expect(AskAIRunner.folder(for: SummonContext(app: "Finder", files: [folder])) == folder)
+    #expect(AgentRunner.folder(for: SummonContext(app: "Finder", files: [folder])) == folder)
     #expect(
-        AskAIRunner.folder(for: SummonContext(app: "Mail", text: "hi"))
+        AgentRunner.folder(for: SummonContext(app: "Mail", text: "hi"))
             == FileManager.default.homeDirectoryForCurrentUser)
 
     let agents = FakeAgents([.codex: .loggedOut, .claude: .ready])

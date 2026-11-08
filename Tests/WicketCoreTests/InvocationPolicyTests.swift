@@ -66,7 +66,7 @@ private struct Palette {
         registry.setExtensionCommands(try manifestCommands())
         registry.setAliases([
             CommandID.settings: "prefs", .extension("todo", "toggle"): "dm",
-            .extension("todo", "find"): "f", CommandID.askAI: "ask",
+            .extension("todo", "find"): "f", CommandID.runAgent: "ask",
         ])
         session = PaletteSession(
             sources: [CommandsSource(registry), FallbackSource(registry)], runner: runner, registry: registry,
@@ -182,18 +182,19 @@ private let find = CommandID.extension("todo", "find")
 
 @MainActor @Test func aSubmitTextCommandWaitsForItsTextUnlessItWasSubmitted() async throws {
     let palette = try Palette()
-    let ask = try palette.command(CommandID.askAI)
+    let ask = try palette.command(CommandID.runAgent)
     let waiting = CommandRun(
-        command: ask, invocation: Invocation(command: CommandID.askAI), retry: .never, query: "")
+        command: ask, invocation: Invocation(command: CommandID.runAgent), retry: .never, query: "")
     // A hotkey or `run` without text opens its frame waiting for the text; nothing runs.
-    #expect(try palette.hotkey(CommandID.askAI) == .open(waiting))
+    #expect(try palette.hotkey(CommandID.runAgent) == .open(waiting))
     #expect(waiting.awaitsText)
     #expect(CommandRun(ask, .invoked, text: "  ") == waiting)
     // Submitted text (its fallback row, a `run` with text) runs now.
     #expect(
         CommandRun(ask, .invoked, text: "why")
             == CommandRun(
-                command: ask, invocation: Invocation(command: CommandID.askAI, text: "why"), retry: .never))
+                command: ask, invocation: Invocation(command: CommandID.runAgent, text: "why"), retry: .never)
+    )
 
     // Its keyword and its alias put what followed them in the waiting frame's field; never run it.
     for typed in ["ai why is the sky blue", "ask why is the sky blue"] {
@@ -228,17 +229,17 @@ private let find = CommandID.extension("todo", "find")
     #expect(palette.session.top.target == nil)
 }
 
-@MainActor @Test func askAIKeepsItsKeywordAgainstAnExtension() async throws {
+@MainActor @Test func runAgentKeepsItsKeywordAgainstAnExtension() async throws {
     let rival = RegisteredCommand(
         id: .extension("assistant", "chat"), title: "Assistant", icon: .symbol(name: "bubble"), keyword: "ai")
     let registry = CommandRegistry(builtins: builtins)
     registry.setExtensionCommands([rival])
-    #expect(registry.command(keyword: "ai")?.id == CommandID.askAI)
+    #expect(registry.command(keyword: "ai")?.id == CommandID.runAgent)
     #expect(
         registry.keywordConflicts
-            == [CommandRegistry.KeywordConflict(keyword: "ai", winner: CommandID.askAI, loser: rival.id)])
+            == [CommandRegistry.KeywordConflict(keyword: "ai", winner: CommandID.runAgent, loser: rival.id)])
 
-    // So "ai " opens Ask AI, waiting for the question, and the extension is never run.
+    // So "ai " opens Run Agent, waiting for the question, and the extension is never run.
     let runner = Recorder()
     let session = PaletteSession(sources: [], runner: runner, registry: registry, liveDebounce: .zero)
     session.query = "ai "
@@ -246,12 +247,12 @@ private let find = CommandID.extension("todo", "find")
         Issue.record("no frame")
         return
     }
-    #expect(frame.run?.command.id == CommandID.askAI)
+    #expect(frame.run?.command.id == CommandID.runAgent)
     try? await Task.sleep(for: .milliseconds(20))
     #expect(runner.runs.isEmpty)
 
-    // With Ask AI off, the extension has the word.
-    registry.setDisabledFeatures([.askAI])
+    // With Run Agent off, the extension has the word.
+    registry.setDisabledFeatures([.ai])
     #expect(registry.command(keyword: "ai")?.id == rival.id)
     // The user's alias beats even a built-in's keyword.
     registry.setDisabledFeatures([])

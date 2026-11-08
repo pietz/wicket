@@ -6,7 +6,7 @@ import WicketCore
 extension CommandID {
     static let settings = CommandID.builtin("settings")
     static let quit = CommandID.builtin("quit")
-    static let askAI = CommandID.builtin("ask-ai")
+    static let runAgent = CommandID.builtin("run-agent")
 }
 
 extension RegisteredCommand {
@@ -14,16 +14,16 @@ extension RegisteredCommand {
         id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"), input: .none)
     static let quit = RegisteredCommand(
         id: .quit, title: "Quit Wicket", icon: .symbol(name: "power"), input: .none)
-    static let askAI = RegisteredCommand(
-        id: .askAI, title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
-        input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .askAI,
+    static let runAgent = RegisteredCommand(
+        id: .runAgent, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai", isListed: false,
+        input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .ai,
         usesContext: true)
 }
 
 /// The built-ins in the app's order.
-let builtins: [RegisteredCommand] = [.settings, .quit, .askAI]
+let builtins: [RegisteredCommand] = [.settings, .quit, .runAgent]
 
-/// The action Ask AI's fallback row has for `prompt`.
+/// The action Run Agent's fallback row has for `prompt`.
 func asking(_ prompt: String) -> Item.Action {
-    .run(command: .askAI, text: prompt, title: "Ask AI")
+    .run(command: .runAgent, text: prompt, title: "Run Agent")
 }

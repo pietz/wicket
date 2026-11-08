@@ -148,6 +148,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(turn["method"] == .string("turn/start"))
         #expect(turn["params"]?["effort"] == nil)
         #expect(turn["params"]?["sandboxPolicy"] == nil)
+        // Only the speed is Wicket's: regular unless the user chose fast (`AgentSettingsTests`).
+        #expect(turn["params"]?["serviceTierForTurn"] == .string("default"))
     }
 
     @Test func approvalsWaitForTheUserUntilResolved() throws {

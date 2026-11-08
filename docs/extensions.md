@@ -104,7 +104,7 @@ The three modes:
 
 A `once` command can declare `prompt` instead of sending requests to a program. Wicket substitutes
 its inputs, then streams an answer through the same provider, Copy Answer, Paste Answer and Retry
-as Ask AI. Nothing runs on a keystroke. For example, a complete `wicket.json` with no other files:
+as Run Agent. Nothing runs on a keystroke. For example, a complete `wicket.json` with no other files:
 
 ```json
 {
@@ -132,7 +132,7 @@ extension may omit `run`; `wicket check` validates its manifest and templates wi
 process, sandbox or model request. A mixed extension needs `run` and fixtures for its program
 commands; a fixture cannot invoke a prompt command.
 
-A completed Ask AI answer offers **Save as Command** in its action menu. This writes a new,
+A completed Run Agent answer offers **Save as Command** in its action menu. This writes a new,
 unapproved extension and opens its review. The question becomes its prompt; captured selected
 text is replaced with `{selection}`, or appended as that placeholder when the question referred
 to “this”. Selected files are represented by `{files}`. The answer is never saved. Name, keyword

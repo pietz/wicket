@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where extensions and their data live.
+/// Where Wicket's own files live: extensions, their data and the host-owned stores.
 public enum ExtensionPaths {
     /// `~/Library/Application Support/Wicket/Extensions`: one folder per extension, named by its id.
     public static var extensions: URL { support.appending(path: "Extensions", directoryHint: .isDirectory) }
@@ -11,6 +11,10 @@ public enum ExtensionPaths {
     /// `~/Library/Application Support/Wicket/approvals.json`: the approved revision of each
     /// extension (`Approvals`), written only by Wicket's UI.
     public static var approvals: URL { support.appending(path: "approvals.json") }
+
+    /// `~/Library/Application Support/Wicket/agent-permissions.json`: the permission level chosen for
+    /// each agent (`AgentPermissions`), written only by Settings ▸ AI.
+    public static var agentPermissions: URL { support.appending(path: "agent-permissions.json") }
 
     /// `~/Library/Application Support/Wicket/uv`: uv's cache and Pythons for uv extensions
     /// (`UVStorage`), Wicket's own rather than the user's.

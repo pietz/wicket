@@ -29,7 +29,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// An extension command's: the active revision it was registered from, which a run of it binds
     /// to when it starts (`CommandRun`). Nil for built-ins.
     public var revision: ExtensionRevision?
-    /// Whether its runs get what the user had selected at summon (`Invocation.context`): Ask AI.
+    /// Whether its runs get what the user had selected at summon (`Invocation.context`): Run Agent.
     /// Any other command never sees it.
     public var usesContext: Bool
 
@@ -194,7 +194,7 @@ public final class CommandRegistry {
 
     /// The listed commands matching `text` as root items (all of them for an empty text). A keyword
     /// or an alias matches as an alternate name, and the text being exactly an alias puts its command
-    /// in the `alias` tier: any command the root offers, so an alias of an unlisted fallback (Ask AI)
+    /// in the `alias` tier: any command the root offers, so an alias of an unlisted fallback (Run Agent)
     /// lists it too, and Return opens it waiting for its text.
     public func search(_ text: String) -> [Item] {
         var items = index.search(text)

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WicketHost
 
 /// The settings window: an AppKit window with toolbar tabs, one SwiftUI pane per tab. Not SwiftUI's
 /// `Settings` scene, which needs a SwiftUI `App` lifecycle; Wicket has an AppKit main.
@@ -11,11 +12,13 @@ import SwiftUI
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: SettingsStore
     private let voice: VoiceConsent
+    private let permissions: AgentPermissions
     private var window: NSWindow?
 
-    init(store: SettingsStore, voice: VoiceConsent) {
+    init(store: SettingsStore, voice: VoiceConsent, permissions: AgentPermissions) {
         self.store = store
         self.voice = voice
+        self.permissions = permissions
     }
 
     /// Shows the window, on the pane titled `pane` if given, else on the one it shows.
@@ -45,7 +48,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store)))
         tabs.addTabViewItem(pane("Features", symbol: "square.grid.2x2", FeaturesPane(store: store)))
-        tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store)))
+        tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store, permissions: permissions)))
         tabs.addTabViewItem(pane("Voice", symbol: "waveform", VoicePane(consent: voice)))
         tabs.addTabViewItem(pane("Shortcuts", symbol: "command", ShortcutsPane(store: store)))
         let window = NSWindow(contentViewController: tabs)

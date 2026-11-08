@@ -4,7 +4,7 @@ import Testing
 @testable import WicketCore
 
 // What the user had selected at summon: the value, and how the session hands it to the commands
-// that use it (Ask AI) and to no other.
+// that use it (Run Agent) and to no other.
 
 @Test func nothingSelectedIsNoContext() {
     #expect(SummonContext(app: "Mail") == nil)
@@ -81,7 +81,7 @@ private func session(wait: Duration = .seconds(5)) -> (PaletteSession, Recording
     session.captureContext(Task { mail })
     #expect(await eventually { session.context == mail })
 
-    session.open(CommandRun(.askAI, .invoked, text: "translate this to German"))
+    session.open(CommandRun(.runAgent, .invoked, text: "translate this to German"))
     #expect(await eventually { runner.runs.count == 1 })
     #expect(runner.runs[0].context == mail)
     #expect(runner.runs[0].text == "translate this to German")
@@ -99,7 +99,7 @@ private func session(wait: Duration = .seconds(5)) -> (PaletteSession, Recording
             for await _ in gate { break }
             return mail
         })
-    session.open(CommandRun(.askAI, .invoked, text: "what is this?"))
+    session.open(CommandRun(.runAgent, .invoked, text: "what is this?"))
     try await Task.sleep(for: .milliseconds(50))
     // Nothing is shown and nothing runs until the capture is done.
     #expect(session.context == nil)
@@ -120,7 +120,7 @@ private func session(wait: Duration = .seconds(5)) -> (PaletteSession, Recording
             return mail
         })
     let start = ContinuousClock.now
-    session.open(CommandRun(.askAI, .invoked, text: "what is this?"))
+    session.open(CommandRun(.runAgent, .invoked, text: "what is this?"))
     #expect(await eventually { runner.runs.count == 1 })
     #expect(ContinuousClock.now - start < .seconds(1))
     #expect(runner.runs[0].context == nil)
@@ -132,7 +132,7 @@ private func session(wait: Duration = .seconds(5)) -> (PaletteSession, Recording
     #expect(await eventually { session.context == mail })
     session.dismissContext()
     #expect(session.context == nil)
-    session.open(CommandRun(.askAI, .invoked, text: "one"))
+    session.open(CommandRun(.runAgent, .invoked, text: "one"))
     #expect(await eventually { runner.runs.count == 1 })
     #expect(runner.runs[0].context == nil)
 
@@ -145,7 +145,7 @@ private func session(wait: Duration = .seconds(5)) -> (PaletteSession, Recording
         })
     session.dismissContext()
     open.yield()
-    session.open(CommandRun(.askAI, .invoked, text: "two"))
+    session.open(CommandRun(.runAgent, .invoked, text: "two"))
     #expect(await eventually { runner.runs.count == 2 })
     #expect(runner.runs[1].context == nil)
     try await Task.sleep(for: .milliseconds(20))
@@ -171,12 +171,12 @@ private struct NoEffects: ActionEffects {
     let session = PaletteSession(sources: [], runner: runner, registry: registry)
     let dispatcher = ActionDispatcher(registry: registry, effects: NoEffects())
     session.captureContext(Task { mail })
-    // `ai ` opens Ask AI waiting for its question; Return submits the field through the dispatcher.
+    // `ai ` opens Run Agent waiting for its question; Return submits the field through the dispatcher.
     session.query = "ai "
     session.query = "summarise this"
     let action = try #require(session.top.target?.actions.first)
     guard case .open(let run) = dispatcher.perform(action, in: ActionContext()) else {
-        Issue.record("expected Ask AI to open")
+        Issue.record("expected Run Agent to open")
         return
     }
     session.open(run)

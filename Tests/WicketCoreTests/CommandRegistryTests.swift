@@ -78,7 +78,7 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
 @MainActor
 @Test func aBuiltinKeepsItsKeyword() throws {
     let ask = RegisteredCommand(
-        id: .builtin("ask"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai")
+        id: .builtin("ask"), title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai")
     let registry = CommandRegistry(builtins: [ask])
     registry.setExtensionCommands([try command("chat", "ask", keyword: "AI")])
     #expect(registry.command(keyword: "ai")?.id == .builtin("ask"))
@@ -120,6 +120,6 @@ private func titles(_ items: [Item]) -> [String] { items.map(\.title) }
     registry.setAliases([CommandID.quit: "bye"])
     #expect(registry.changes == start + 1)
     registry.setAliases([CommandID.quit: "bye"])
-    registry.setDisabledFeatures([.askAI])
+    registry.setDisabledFeatures([.ai])
     #expect(registry.changes == start + 2)
 }

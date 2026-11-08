@@ -3,7 +3,7 @@ import Testing
 
 @testable import WicketCore
 
-// Ask AI as an ordinary submit-text command: offered by the generic fallback source, reached by its
+// Run Agent as an ordinary submit-text command: offered by the generic fallback source, reached by its
 // keyword through the registry's rules, and run through the router only when its text is submitted.
 
 /// Records each run and never answers.
@@ -50,10 +50,10 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     for text in ["s", "safari", "2+2", "what is the capital of peru?"] {
         let row = try #require(fallbacks(text).first)
         #expect(fallbacks(text).count == 1)
-        #expect(row.title == "Ask AI")
+        #expect(row.title == "Run Agent")
         #expect(row.subtitle == text)
         #expect(row.relevance == .fallback)
-        #expect(row.origin == CommandID.askAI)
+        #expect(row.origin == CommandID.runAgent)
         #expect(row.actions == [asking(text)])
     }
     // The same id while typing, so the selection follows it.
@@ -68,12 +68,12 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     let notSubmit = RegisteredCommand(
         id: .builtin("live"), title: "Live", icon: .symbol(name: "bolt"), input: .liveText, isFallback: true)
     let registry = CommandRegistry(builtins: builtins + [web, notSubmit])
-    #expect(fallbacks("paris", registry).map(\.origin) == [CommandID.askAI, web.id])
+    #expect(fallbacks("paris", registry).map(\.origin) == [CommandID.runAgent, web.id])
     #expect(
         fallbacks("paris", registry)[1].actions == [.run(command: web.id, text: "paris", title: web.title)])
 
     // A fallback whose feature is off isn't registered, so it isn't offered.
-    registry.setDisabledFeatures([.askAI])
+    registry.setDisabledFeatures([.ai])
     #expect(fallbacks("paris", registry).map(\.origin) == [web.id])
 }
 
@@ -84,14 +84,14 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     #expect(ranked.map(\.id) == ["apps:Safari", row.id])
 }
 
-@MainActor @Test func pickingTheRowRunsAskAIOnTheQueryThroughTheRouter() async throws {
+@MainActor @Test func pickingTheRowRunsRunAgentOnTheQueryThroughTheRouter() async throws {
     let registry = CommandRegistry(builtins: builtins)
-    let askAI = RecordingRunner()
+    let runAgent = RecordingRunner()
     let extensions = RecordingRunner()
-    let router = CommandRouter(builtins: [Builtin(.askAI, runner: askAI)], extensions: extensions)
+    let router = CommandRouter(builtins: [Builtin(.runAgent, runner: runAgent)], extensions: extensions)
     let session = PaletteSession(sources: [FallbackSource(registry)], runner: router, registry: registry)
     // Not listed: the root offers it only as its fallback row.
-    #expect(registry.command(CommandID.askAI)?.isListed == false)
+    #expect(registry.command(CommandID.runAgent)?.isListed == false)
     #expect(registry.search("ask").isEmpty)
 
     session.query = "capital of peru"
@@ -99,26 +99,26 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     let outcome = ActionDispatcher(registry: registry, effects: NoEffects()).perform(
         target.actions[0], in: ActionContext())
     guard case .open(let run) = outcome else {
-        Issue.record("expected Ask AI to open its frame, got \(outcome)")
+        Issue.record("expected Run Agent to open its frame, got \(outcome)")
         return
     }
-    #expect(run == CommandRun(RegisteredCommand.askAI, .invoked, text: "capital of peru"))
+    #expect(run == CommandRun(RegisteredCommand.runAgent, .invoked, text: "capital of peru"))
     #expect(run.query == nil)
     session.open(run)
     #expect(session.opening == run)
-    #expect(await eventually { !askAI.runs.isEmpty })
-    #expect(askAI.runs.map(\.text) == ["capital of peru"])
-    #expect(askAI.retries == [.never])
+    #expect(await eventually { !runAgent.runs.isEmpty })
+    #expect(runAgent.runs.map(\.text) == ["capital of peru"])
+    #expect(runAgent.retries == [.never])
     #expect(extensions.runs.isEmpty)
 }
 
 @MainActor @Test func theRouterSendsEachRunToItsOwner() async {
-    let askAI = RecordingRunner()
+    let runAgent = RecordingRunner()
     let extensions = RecordingRunner()
-    let router = CommandRouter(builtins: [Builtin(.askAI, runner: askAI)], extensions: extensions)
-    _ = router.run(Invocation(command: CommandID.askAI, text: "why"), retry: .never)
+    let router = CommandRouter(builtins: [Builtin(.runAgent, runner: runAgent)], extensions: extensions)
+    _ = router.run(Invocation(command: CommandID.runAgent, text: "why"), retry: .never)
     _ = router.run(Invocation(command: .extension("unicode", "search"), text: "x"), retry: .safeToRepeat)
-    #expect(askAI.runs.map(\.command) == [CommandID.askAI])
+    #expect(runAgent.runs.map(\.command) == [CommandID.runAgent])
     #expect(extensions.runs.map(\.text) == ["x"])
 
     // A built-in nothing runs fails its frame rather than hanging it.

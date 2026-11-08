@@ -676,7 +676,7 @@ private struct ContextChip: View {
             .padding(.vertical, 3)
             .background(.quaternary, in: .capsule)
             .fixedSize()
-            .help("Ask AI sees this selection. Press Delete in an empty field to leave it out.")
+            .help("The agent sees this selection. Press Delete in an empty field to leave it out.")
             .accessibilityLabel("Context: \(text)")
     }
 }

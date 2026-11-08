@@ -77,7 +77,7 @@ func topResult(query: String, expected: String) {
         id: "calc", title: "= 4", icon: .symbol(name: "equal"), relevance: .answer, score: 0,
         actions: [.copy(text: "4")])
     let fallback = Item(
-        id: "ai", title: "Ask AI", icon: .symbol(name: "sparkles"), relevance: .fallback, score: 1000,
+        id: "ai", title: "Run Agent", icon: .symbol(name: "sparkles"), relevance: .fallback, score: 1000,
         actions: [])
     let mail = index.search("mail")
     let order = Ranker.rank(mail + [fallback, answer], query: "mail", usage: { $0 == "Maps" ? 1000 : 0 })
@@ -175,16 +175,16 @@ private func rank(_ items: [Item], usage: [String: Double] = [:]) -> [String] {
 }
 
 // Regression: unconfigured fallbacks were sorted by title, so "Search the Web" would have
-// come before "Ask AI" against the registry order the source gives.
+// come before "Run Agent" against the registry order the source gives.
 @Test func fallbacksKeepTheirSourceOrderNotTitleOrHabit() {
-    let ai = host("Ask AI", relevance: .fallback)
+    let ai = host("Run Agent", relevance: .fallback)
     let web = host("Search the Web", relevance: .fallback)
     let other = host("Another", relevance: .fallback)
     let ext = fromExtension(["A web search"], "web", relevance: .fallback)
     let match = host("Match")
     #expect(
         rank(ext + [ai, match, web, other], usage: ["host:Another": 1000])
-            == ["Match", "Ask AI", "Search the Web", "Another", "A web search"])
+            == ["Match", "Run Agent", "Search the Web", "Another", "A web search"])
 }
 
 @Test func usageStillReordersHostItems() {

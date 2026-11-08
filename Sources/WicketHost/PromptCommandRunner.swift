@@ -5,7 +5,7 @@ extension CommandID {
     public static let savePromptCommand = CommandID.builtin("save-prompt-command")
 }
 
-/// Approved prompt commands use the same answer stream as Ask AI. The hidden Save action holds
+/// Approved prompt commands use the same answer stream as Run Agent. The hidden Save action holds
 /// only a token: the original question and selection stay in memory until explicitly saved.
 @MainActor
 public final class PromptCommandRunner: CommandRunner {
@@ -16,7 +16,7 @@ public final class PromptCommandRunner: CommandRunner {
     private var saving: [UUID: Task<Void, Never>] = [:]
     private var isShutDown = false
 
-    public init(answers: AskAIRunner, extensions: Extensions, reviews: ExtensionsRunner) {
+    public init(answers: AgentRunner, extensions: Extensions, reviews: ExtensionsRunner) {
         self.answers = answers.answers
         self.extensions = extensions
         self.reviews = reviews
@@ -55,7 +55,7 @@ public final class PromptCommandRunner: CommandRunner {
                 guard case .string(let token)? = invocation.args?["save"],
                     let offered = offers.first(where: { $0.token == token })
                 else {
-                    throw Refusal("Save a finished Ask AI answer from its action menu.")
+                    throw Refusal("Save a finished agent answer from its action menu.")
                 }
                 let folder = try Self.write(offered.invocation, into: extensions.directory)
                 offers.removeAll { $0.token == token }
@@ -105,7 +105,7 @@ public final class PromptCommandRunner: CommandRunner {
             "prompt-" + (stem.isEmpty ? "command" : stem) + "-" + UUID().uuidString.prefix(8).lowercased()
         let manifest: [String: Any] = [
             "protocol": 1, "id": id, "name": title, "version": "1.0.0",
-            "description": "A saved Ask AI prompt. Edit wicket.json to change its name, keyword or prompt.",
+            "description": "A saved agent prompt. Edit wicket.json to change its name, keyword or prompt.",
             "commands": [
                 [
                     "id": "ask", "title": title, "keyword": keyword, "prompt": template,

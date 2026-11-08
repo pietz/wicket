@@ -36,7 +36,7 @@ struct ClaudeTranscript: AgentTranscript {
             return output + [
                 "--input-format", "stream-json", "--permission-prompt-tool", "stdio",
                 "--append-system-prompt", instructions,
-            ]
+            ] + settings(request.options, request.permission)
         case .answer:
             // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
             // --permission-prompts none denies anything that would ask.
@@ -45,6 +45,28 @@ struct ClaudeTranscript: AgentTranscript {
                 "--effort", "low", "--system-prompt", Agent.answerInstructions,
             ]
         }
+    }
+
+    /// The flags an acting run adds for the user's choices; an unset choice adds none, so Claude
+    /// Code's own settings decide it (verified with 2.1.318: `--permission-mode manual` is the CLI's
+    /// default mode, `bypassPermissions` needs no other flag, and with `-p` fast mode is on only
+    /// when `--settings` opts in, so regular needs nothing).
+    static func settings(_ options: AgentOptions, _ permission: AgentPermission?) -> [String] {
+        var flags: [String] = []
+        if let model = options.model { flags += ["--model", model] }
+        if let effort = options.effort { flags += ["--effort", effort] }
+        if options.speed == .fast { flags += ["--settings", #"{"fastMode":true}"#] }
+        if let permission {
+            let mode =
+                switch permission {
+                case .supervised: "manual"
+                case .autoAcceptEdits: "acceptEdits"
+                case .auto: "auto"
+                case .fullAccess: "bypassPermissions"
+                }
+            flags += ["--permission-mode", mode]
+        }
+        return flags
     }
 
     mutating func start() -> AgentStep {

@@ -222,7 +222,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     /// Runs a command bound to a global hotkey (settings.json `commands`) without the root search
     /// first, through the same dispatcher as its row. One that shows something summons the palette
-    /// straight into its frame (a command that takes typed text, like Ask AI, into its frame waiting
+    /// straight into its frame (a command that takes typed text, like Run Agent, into its frame waiting
     /// for the text); one that just does something (Quit, a toggle answering `close`) shows nothing
     /// but its close message, since a hidden palette is revealed only when the command has content
     /// (or is still running after `revealDelay`). Pressing a command's hotkey while its frame is on

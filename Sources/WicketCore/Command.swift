@@ -31,7 +31,7 @@ extension CommandID {
 }
 
 /// The canonical spelling, used wherever a command is named in text: settings.json keys
-/// (`"commands": {"builtin:ask-ai": …}`), logs, and the prefix of the item ids an extension's
+/// (`"commands": {"builtin:run-agent": …}`), logs, and the prefix of the item ids an extension's
 /// command produces ("ext:github/search:pr-12"). `builtin:<name>` for Wicket's own commands,
 /// `ext:<extension>/<command>` for an extension's. Every part is a slug, so the separators can't
 /// appear inside one and the spelling round-trips.
@@ -97,7 +97,7 @@ public enum CommandInput: Sendable, Hashable {
     /// Runs when invoked, on the text that came with it: `""` from its row or a hotkey, the rest of
     /// the line after its keyword (an extension's `once` command).
     case immediateText
-    /// Takes typed text and runs only when it is submitted (Return), never on a keystroke (Ask AI).
+    /// Takes typed text and runs only when it is submitted (Return), never on a keystroke (Run Agent).
     /// Reached without text, its frame waits for it.
     case submitText
     /// A keyword waits for Return; a row or hotkey runs even with empty text (prompt commands
@@ -237,7 +237,7 @@ public struct Builtin {
     public var command: RegisteredCommand
     public var runner: any CommandRunner
 
-    /// A built-in that shows something in its frame (Ask AI).
+    /// A built-in that shows something in its frame (Run Agent).
     public init(_ command: RegisteredCommand, runner: any CommandRunner) {
         self.command = command
         self.runner = runner

@@ -64,10 +64,10 @@ func readsLikeRequest(text: String, expected: Bool) {
     #expect(RequestText.readsLikeRequest(text) == expected)
 }
 
-// MARK: Ask AI on top
+// MARK: Run Agent on top
 
-private let askAI = Item(
-    id: "fallback:ai", title: "Ask AI", icon: .symbol(name: "sparkles"), relevance: .fallback, actions: [])
+private let runAgent = Item(
+    id: "fallback:ai", title: "Run Agent", icon: .symbol(name: "sparkles"), relevance: .fallback, actions: [])
 private let web = Item(
     id: "fallback:web", title: "Search the Web", icon: .symbol(name: "globe"), relevance: .fallback,
     actions: [])
@@ -79,7 +79,7 @@ private func host(_ title: String, relevance: Item.Relevance = .match, score: Do
 }
 
 private func ranked(_ items: [Item], _ query: String) -> [String] {
-    Ranker.rank(items + [askAI, web], query: query, usage: { _ in 0 }).map(\.title)
+    Ranker.rank(items + [runAgent, web], query: query, usage: { _ in 0 }).map(\.title)
 }
 
 private func files(_ names: [String], _ query: String) -> [Item] {
@@ -88,11 +88,11 @@ private func files(_ names: [String], _ query: String) -> [Item] {
         scopes: ["/Users/me/Documents"], home: "/Users/me")
 }
 
-@Test func askAITakesTheTopForARequestWithoutAStrongMatch() {
+@Test func runAgentTakesTheTopForARequestWithoutAStrongMatch() {
     let query = "what is the capital of france"
-    #expect(ranked([host("Weak", score: 40)], query) == ["Ask AI", "Weak", "Search the Web"])
+    #expect(ranked([host("Weak", score: 40)], query) == ["Run Agent", "Weak", "Search the Web"])
     // Not a request: ranking is unchanged.
-    #expect(ranked([host("Weak", score: 10)], "meeting notes") == ["Weak", "Ask AI", "Search the Web"])
+    #expect(ranked([host("Weak", score: 10)], "meeting notes") == ["Weak", "Run Agent", "Search the Web"])
 }
 
 @Test func aStrongMatchKeepsTheTop() {
@@ -108,7 +108,7 @@ private func files(_ names: [String], _ query: String) -> [Item] {
     let ext = Item(
         id: "ext:x/y:z", title: "Ext", icon: .symbol(name: "x"), score: 1000, actions: [],
         origin: .extension("x", "y"))
-    #expect(ranked([ext], query).first == "Ask AI")
+    #expect(ranked([ext], query).first == "Run Agent")
 }
 
 @Test func theStrongThresholdSeparatesRunsFromScatteredLetters() {
@@ -116,28 +116,28 @@ private func files(_ names: [String], _ query: String) -> [Item] {
     let run = SearchIndex([(host("How to cook pasta at home"), [])]).search("how to cook pasta")
     #expect(run.first.map { Ranker.isStrong($0, queryLength: 14) } == true)
     #expect(
-        Ranker.rank(run + [askAI, web], query: "how to cook pasta", usage: { _ in 0 }).first?.title
-            != "Ask AI")
+        Ranker.rank(run + [runAgent, web], query: "how to cook pasta", usage: { _ in 0 }).first?.title
+            != "Run Agent")
     // Letters picked out of other words (about 3 per scalar) are a match, but weak.
     let scattered = SearchIndex([(host("Disk Utility Monitor"), [])]).search("is it on")
     #expect(scattered.count == 1)
-    #expect(ranked(scattered, "is it on") == ["Ask AI", "Disk Utility Monitor", "Search the Web"])
+    #expect(ranked(scattered, "is it on") == ["Run Agent", "Disk Utility Monitor", "Search the Web"])
 }
 
 @Test func aLateStrongMatchTakesTheTopBack() {
     let query = Query(text: "how to cook pasta", generation: 1)
     var results = RootResults()
-    results.start(query, results: ["fallbacks": [askAI, web]], usage: { _ in 0 })
-    #expect(results.selectedItem?.title == "Ask AI")
+    results.start(query, results: ["fallbacks": [runAgent, web]], usage: { _ in 0 })
+    #expect(results.selectedItem?.title == "Run Agent")
     results.update(
         "files", items: files(["How to cook pasta.pdf"], query.text), generation: 1, usage: { _ in 0 })
     #expect(results.selectedItem?.title == "How to cook pasta.pdf")
-    #expect(results.items.map(\.title) == ["How to cook pasta.pdf", "Ask AI", "Search the Web"])
-    // A weak late result leaves Ask AI on top; a chosen row stays chosen.
+    #expect(results.items.map(\.title) == ["How to cook pasta.pdf", "Run Agent", "Search the Web"])
+    // A weak late result leaves Run Agent on top; a chosen row stays chosen.
     var weak = RootResults()
-    weak.start(query, results: ["fallbacks": [askAI, web]], usage: { _ in 0 })
+    weak.start(query, results: ["fallbacks": [runAgent, web]], usage: { _ in 0 })
     weak.update("apps", items: [host("Weak", score: 10)], generation: 1, usage: { _ in 0 })
-    #expect(weak.selectedItem?.title == "Ask AI")
+    #expect(weak.selectedItem?.title == "Run Agent")
     weak.moveSelection(by: 2)
     weak.update(
         "files", items: files(["How to cook pasta.pdf"], query.text), generation: 1, usage: { _ in 0 })
@@ -146,7 +146,7 @@ private func files(_ names: [String], _ query: String) -> [Item] {
 
 /// The check adds a string scan per ranking; a long request against 160 items stays far below a frame.
 @Test func requestCheckKeepsRankingFast() {
-    let items = (0..<160).map { host("Item \($0)", score: Double($0 % 40)) } + [askAI, web]
+    let items = (0..<160).map { host("Item \($0)", score: Double($0 % 40)) } + [runAgent, web]
     let query = "how do I undo the last git commit without losing changes"
     let start = ContinuousClock.now
     for _ in 0..<100 { _ = Ranker.rank(items, query: query, usage: { _ in 0 }) }

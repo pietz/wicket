@@ -117,7 +117,7 @@ final class AppRuntime {
         watch([extensions.directory.path], latency: 0.3) { [weak self] in self?.extensions.load(changed: $0) }
     }
 
-    /// Stops what runs outside the app before it quits: every command's runs, Ask AI's agents and the
+    /// Stops what runs outside the app before it quits: every command's runs, Run Agent's agents and the
     /// extension sessions, each through its process tree. Returns once all
     /// are gone, or after `limit` (quitting must not hang on a process that won't die). Runs once
     /// however often it's called.
@@ -171,7 +171,7 @@ final class AppRuntime {
     }
 
     /// After something that may have changed the registry: the runs of commands no longer in it
-    /// stop (Ask AI turned off mid-answer, an extension removed), runs bound to a revision their
+    /// stop (Run Agent turned off mid-answer, an extension removed), runs bound to a revision their
     /// command no longer has are reconciled (`PaletteSession.rebind`: searches run again on the new
     /// revision, anything else stops saying the extension changed), and the root searches again
     /// unless it just did, so a new alias or a command gone shows at once.
@@ -259,7 +259,10 @@ extension AppRuntime {
         // Whether Wicket may listen is consent, kept outside settings.json (VoiceConsent).
         let voiceConsent = VoiceConsent()
         let voice = VoiceInput(consent: voiceConsent) { AppleTranscriber() }
-        let settingsWindow = SettingsWindowController(store: store, voice: voiceConsent)
+        // The agents' permission levels: a host file only Settings ▸ AI writes, never settings.json.
+        let permissions = AgentPermissions()
+        let settingsWindow = SettingsWindowController(
+            store: store, voice: voiceConsent, permissions: permissions)
         weak var weakRuntime: AppRuntime?
         weak var weakPalette: PaletteController?
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
@@ -267,13 +270,18 @@ extension AppRuntime {
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
             approvals: Approvals(), diagnostics: diagnostics)
         let consent = ExtensionsRunner(extensions: extensions)
-        let askAI = AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })
+        let runAgent = AgentRunner(provider: { weakRuntime?.applied?.ai.provider })
         // Acting runs know Wicket's commands and write extensions into its folder for review.
-        askAI.authoring = ExtensionAuthoring(
+        runAgent.authoring = ExtensionAuthoring(
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] })
-        let prompts = PromptCommandRunner(answers: askAI, extensions: extensions, reviews: consent)
+        let prompts = PromptCommandRunner(answers: runAgent, extensions: extensions, reviews: consent)
         extensions.promptRunner = prompts
-        askAI.saveCommand = { [weak prompts] in prompts?.offer($0) }
+        runAgent.saveCommand = { [weak prompts] in prompts?.offer($0) }
+        runAgent.configuration = { provider in
+            AgentConfiguration(
+                options: weakRuntime?.applied?.ai[provider] ?? AgentOptions(),
+                permission: permissions.level(for: provider))
+        }
         let work: [Feature: Work] = [
             .apps: Work(
                 start: {
@@ -306,28 +314,29 @@ extension AppRuntime {
             // as a fallback row for whatever was typed.
             Builtin(
                 RegisteredCommand(
-                    id: .askAI, title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
-                    isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
-                    feature: .askAI, usesContext: true),
-                runner: askAI),
+                    id: .runAgent, title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
+                    isListed: false, input: .submitText, placeholder: "Ask or tell the agent",
+                    isFallback: true,
+                    feature: .ai, usesContext: true),
+                runner: runAgent),
             Builtin(
                 RegisteredCommand(
                     id: .savePromptCommand, title: "Save as Command", icon: .symbol(name: "bookmark"),
                     isListed: false, input: .none),
                 runner: prompts),
-            // Answers an acting agent's approval shown in an Ask AI frame; reached by id only.
+            // Answers an acting agent's approval shown in a Run Agent frame; reached by id only.
             Builtin(
                 RegisteredCommand(
                     id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"),
                     isListed: false, input: .none),
-                runner: askAI),
-            // Ask AI's action when no provider is ready; reached by id only.
+                runner: runAgent),
+            // Run Agent's action when no provider is ready; reached by id only.
             Builtin(
                 RegisteredCommand(
                     id: .aiSettings, title: "AI Settings", icon: .symbol(name: "sparkles"), isListed: false,
                     input: .none),
                 effect: { settingsWindow.show(pane: "AI") }),
-            // Opens the user's search address for the text; the next fallback row after Ask AI.
+            // Opens the user's search address for the text; the next fallback row after Run Agent.
             Builtin(
                 RegisteredCommand(
                     id: .builtin("web-search"), title: "Search the Web", icon: .symbol(name: "globe"),

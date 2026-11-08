@@ -100,11 +100,40 @@ struct CodexTranscript: AgentTranscript {
                 "threadId": thread,
                 "input": .array([.object(["type": .string("text"), "text": .string(request.prompt)])]),
             ]
-            if request.mode == .answer { params["effort"] = .string("low") }
+            switch request.mode {
+            case .answer: params["effort"] = .string("low")
+            case .act:
+                params.merge(Self.turnSettings(request.options, request.permission)) { $1 }
+            }
             return AgentStep(send: [Self.request(.startTurn, "turn/start", params)])
         case .initialize, .startTurn:
             return AgentStep()
         }
+    }
+
+    /// What an acting run's turn/start sets from the user's choices; an unset choice sets nothing, so
+    /// config.toml decides it. Set per turn, not per thread: Codex resets the approvals reviewer on
+    /// every turn/start (verified with 0.167's app-server schema: approval policy, sandbox, reviewer,
+    /// model, effort and service tier are all turn overrides).
+    static func turnSettings(_ options: AgentOptions, _ permission: AgentPermission?) -> [String: JSONValue] {
+        var settings: [String: JSONValue] = [
+            // "default" is standard speed even for a model whose catalog default is the fast tier.
+            "serviceTierForTurn": .string(options.speed == .fast ? "priority" : "default")
+        ]
+        if let model = options.model { settings["model"] = .string(model) }
+        if let effort = options.effort { settings["effort"] = .string(effort) }
+        guard let permission else { return settings }
+        let (policy, sandbox, reviewer): (String, String, String) =
+            switch permission {
+            case .supervised: ("untrusted", "readOnly", "user")
+            case .autoAcceptEdits: ("on-request", "workspaceWrite", "user")
+            case .auto: ("on-request", "workspaceWrite", "auto_review")
+            case .fullAccess: ("never", "dangerFullAccess", "user")
+            }
+        settings["approvalPolicy"] = .string(policy)
+        settings["sandboxPolicy"] = .object(["type": .string(sandbox)])
+        settings["approvalsReviewer"] = .string(reviewer)
+        return settings
     }
 
     /// thread/start: an ephemeral thread in the working directory. Answer runs set a read-only

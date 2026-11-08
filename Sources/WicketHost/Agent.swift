@@ -18,12 +18,23 @@ public struct AgentRequest: Sendable {
     /// For an acting run, what it is told after `Agent.actInstructions`: what Wicket has and how to
     /// extend it (`ExtensionAuthoring.instructions`).
     public var instructions: String?
+    /// For an acting run, the model, effort and speed the user chose (settings.json); unset fields
+    /// leave the agent's own. Answer runs keep their fixed setup.
+    public var options: AgentOptions
+    /// For an acting run, the permission level the user chose in Settings ▸ AI; nil leaves the
+    /// agent's own permission settings in charge.
+    public var permission: AgentPermission?
 
-    public init(prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil) {
+    public init(
+        prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil,
+        options: AgentOptions = AgentOptions(), permission: AgentPermission? = nil
+    ) {
         self.prompt = prompt
         self.workingDirectory = workingDirectory
         self.mode = mode
         self.instructions = instructions
+        self.options = options
+        self.permission = permission
     }
 
     /// A path as the user can tell it apart: relative to the run's folder when inside it, else
@@ -195,7 +206,7 @@ public struct AgentReply: Sendable, Hashable {
 }
 
 extension AgentProvider {
-    /// Whether Ask AI runs this provider as an acting agent (`AgentMode.act`) rather than answer-only:
+    /// Whether Run Agent runs this provider as an acting agent (`AgentMode.act`) rather than answer-only:
     /// the agent CLIs, whose approvals reach the palette; Apple's model only answers.
     public var acts: Bool { self != .apple }
 }
@@ -307,7 +318,7 @@ public struct Agent: Sendable {
     }
 
     /// The system prompt for answer runs, replacing each CLI's coding-agent prompt: the one place
-    /// that frames quick answers (Ask AI sends the user's question as is).
+    /// that frames quick answers (Run Agent sends the user's question as is).
     static let answerInstructions =
         "You answer quick questions inside Wicket, a macOS command palette. Start with the answer: "
         + "no preamble, no restating the question, no closing offers. Be brief and direct; the reply "

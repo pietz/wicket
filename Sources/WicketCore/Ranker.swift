@@ -5,7 +5,7 @@ import Foundation
 /// Relevance tiers come first (alias, exact, answer, match, fallback). Within a tier three policies
 /// apply:
 /// - **Fixed menu**: the host's fallback rows keep the order their source gave (`FallbackSource`:
-///   registry order, so the built-ins table's, Ask AI before web search). A fallback list never
+///   registry order, so the built-ins table's, Run Agent before web search). A fallback list never
 ///   moves by habit or by title.
 /// - **Host-scored**: the host's other items (apps, files, calculator, built-ins) by score plus a
 ///   frecency boost, then (for a non-empty query) the shorter title, then name. An empty query
@@ -17,7 +17,7 @@ import Foundation
 ///   is sure goes in a higher tier (`answer`).
 ///
 /// One exception to the tiers: when the query reads like a request (`RequestText`) and nothing is a
-/// strong match, the lead fallback (Ask AI) moves to the top, so Return asks it. Ranking runs again
+/// strong match, the lead fallback (Run Agent) moves to the top, so Return asks it. Ranking runs again
 /// on every late result, so a strong match arriving later takes the top back.
 public enum Ranker {
     /// Frecency adds at most this much, so habit breaks ties but never beats a clearly better match.

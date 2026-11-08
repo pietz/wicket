@@ -23,7 +23,7 @@ extension CommandID {
 /// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
 ///   its secrets, its problems, Use Previous Version, Disable last); otherwise runs the isolated
 ///   checker on the extension's current sealed revision and shows the report, and only a passing
-///   check offers Enable; a failing one offers Fix with Agent, an Ask AI run with the report.
+///   check offers Enable; a failing one offers Fix with Agent, a Run Agent run with the report.
 /// - **Enable** (`builtin:enable-extension`): approves exactly the revision a screen offered (a
 ///   review's checked one, or the previous approved one) and closes with a message.
 /// - **Disable** (`builtin:disable-extension`): withdraws the approval; its commands leave the
@@ -232,12 +232,12 @@ public final class ExtensionsRunner: CommandRunner {
         return items
     }
 
-    /// Fix with Agent: an Ask AI run asking to fix the extension in `folder`, told why it fails, in
+    /// Fix with Agent: a Run Agent run asking to fix the extension in `folder`, told why it fails, in
     /// a frame titled by the extension (the failure is too long for a title).
     /// An acting agent fixes it in place, and its answer offers the review again.
     static func fix(_ name: String, folder: URL, failure: String) -> Item.Action {
         .run(
-            command: .askAI,
+            command: .runAgent,
             text: "Fix my Wicket extension \(name) in \(folder.path).\n\n\(failure)",
             args: ["title": .string("Fix \(name)")], title: "Fix with Agent")
     }
