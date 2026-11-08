@@ -63,7 +63,7 @@ struct DocumentView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         page
                         if !metadata.isEmpty {
-                            MetadataTable(metadata: metadata, textSize: textSize)
+                            LabelValueGrid(pairs: metadata.map { ($0.label, $0.value) })
                                 .padding(.horizontal, 20)
                                 .padding(.top, 4)
                                 .padding(.bottom, 18)
@@ -213,27 +213,6 @@ private struct MetadataColumn: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// Metadata as a table under the text: labels in one column, values in the other.
-private struct MetadataTable: View {
-    let metadata: [Detail.Metadata]
-    let textSize: TextSize
-
-    var body: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 24, verticalSpacing: 8) {
-            ForEach(Array(metadata.enumerated()), id: \.offset) { _, entry in
-                GridRow {
-                    Text(entry.label)
-                        .foregroundStyle(.secondary)
-                        .gridColumnAlignment(.leading)
-                    Text(entry.value)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-        .font(.system(size: textSize.points(13)))
     }
 }
 

@@ -131,15 +131,20 @@ struct Surface: ViewModifier {
 }
 
 /// A selectable block of a document: the selection's highlight, a click runs it, the arrows scroll
-/// to it (its id), and VoiceOver reads it as a button.
+/// to it (its id), and VoiceOver reads it as a button. A block without an item is left as it is.
 struct Target: ViewModifier {
-    let item: Item
+    let item: Item?
     var radius = PaletteMetrics.rowRadius
     @Environment(\.documentFocus) private var focus
 
     func body(content: Content) -> some View {
+        if let item { selectable(content, item) } else { content }
+    }
+
+    private func selectable(_ content: Content, _ item: Item) -> some View {
         let selected = focus.selected == item.id
-        content
+        return
+            content
             .background {
                 if selected {
                     RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.primary.opacity(0.1))
@@ -167,17 +172,7 @@ struct Target: ViewModifier {
 extension View {
     func surface(radius: CGFloat) -> some View { modifier(Surface(radius: radius)) }
     func target(_ item: Item?, radius: CGFloat = PaletteMetrics.rowRadius) -> some View {
-        modifier(OptionalTarget(item: item, radius: radius))
-    }
-}
-
-/// `Target` when there is an item; a block without one is left as it is.
-private struct OptionalTarget: ViewModifier {
-    let item: Item?
-    let radius: CGFloat
-
-    func body(content: Content) -> some View {
-        if let item { content.modifier(Target(item: item, radius: radius)) } else { content }
+        modifier(Target(item: item, radius: radius))
     }
 }
 

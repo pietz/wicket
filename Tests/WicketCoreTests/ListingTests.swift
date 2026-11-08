@@ -74,33 +74,6 @@ private func row(_ title: String, subtitle: String? = nil, accessory: String? = 
     #expect(problem(lots)?.contains("the limit is 500") == true)
 }
 
-/// A screen's text: the summary, then a line per row under its section's title.
-@Test func aScreenAsText() {
-    let home = URL(filePath: "/Users/me")
-    var file = row("Hetzner.pdf", subtitle: "~/Documents", accessory: "since Nov 3")
-    file.subject = .file(URL(filePath: "/Users/me/Documents/Hetzner.pdf"))
-    let list = Listing(
-        sections: [
-            .init(title: "Overdue", items: [file]), .init(title: "Empty", items: []),
-            .init(title: "Due", items: [row("Telekom", subtitle: "Mobile", accessory: "€180")]),
-        ], summary: "Three invoices, **one overdue**.")
-    #expect(
-        Screen.list(list).text(home: home) == """
-            Three invoices, **one overdue**.
-
-            Overdue
-            - Hetzner.pdf · ~/Documents/Hetzner.pdf · since Nov 3
-
-            Due
-            - Telekom · Mobile · €180
-            """)
-    #expect(Screen.list([row("A"), row("B", subtitle: "b")]).text(home: home) == "- A\n- B · b")
-    #expect(Screen.answer(row("23:41", subtitle: "Monday")).text(home: home) == "23:41 · Monday")
-    let page = Detail(
-        markdown: "Renamed three files.", metadata: [.init(label: "Folder", value: "~/Desktop")])
-    #expect(Screen.detail(page).text(home: home) == "Renamed three files.\n\nFolder: ~/Desktop")
-}
-
 /// A section's title goes above its first row on screen, and only while the rows keep the
 /// sections' order: a search ranking them across sections draws none.
 @Test func sectionTitlesHeadTheirFirstShownRow() {

@@ -193,9 +193,11 @@ struct MarkupViewTests {
     // MARK: Performance
 
     /// Lays out a 64 KiB page (every gallery example repeated) at the palette's width, as the card
-    /// measures it, and logs how long that took. A guard against a pathological layout, not a
-    /// benchmark: the bound is generous for a debug build.
-    @Test func aFullPageLaysOutQuickly() throws {
+    /// measures it, and prints how long that took. It holds the main actor for half a second, which
+    /// upsets timing-sensitive tests, so it runs only when asked:
+    /// `WICKET_BENCH=1 swift test -c release -Xswiftc -enable-testing --filter aFullPageLaysOutQuickly`.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_BENCH"] == "1"))
+    func aFullPageLaysOutQuickly() throws {
         var markup = ""
         let examples = Markup.components.map { $0.example.markup }.joined(separator: "\n\n")
         while markup.utf8.count < Markup.Limits.bytes - examples.utf8.count - 2 {

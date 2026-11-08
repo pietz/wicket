@@ -149,28 +149,6 @@ public enum Screen: Sendable, Hashable {
         case .detail(let detail): detail.title
         }
     }
-
-    /// The screen as plain text: a list's summary and one line per row (under its section's title);
-    /// an answer's line; a page's markdown and metadata.
-    public func text(home: URL) -> String {
-        func facts(_ facts: [Detail.Metadata]) -> String? {
-            facts.isEmpty ? nil : facts.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
-        }
-        let blocks: [String?]
-        switch self {
-        case .answer(let item):
-            blocks = [item.line(home: home)]
-        case .list(let list):
-            let rows = list.sections.filter { !$0.items.isEmpty }.map { section in
-                let lines = section.items.map { "- " + $0.line(home: home) }
-                return ([section.title].compactMap { $0 } + lines).joined(separator: "\n")
-            }
-            blocks = [list.summary] + rows
-        case .detail(let detail):
-            blocks = [detail.markdown, facts(detail.metadata)]
-        }
-        return blocks.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
-    }
 }
 
 extension Detail {
