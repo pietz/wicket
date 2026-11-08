@@ -157,3 +157,29 @@ private let mixed = """
     let session = await showing(long)
     #expect(session.top.target?.actions.first == .copy(text: text))
 }
+
+/// A filter that matches none of an answer's rows leaves its screen actions: ⌘↩ still follows up
+/// and ⌘K still copies; clearing the filter brings the rows back, the first selected.
+@MainActor @Test func anAnswersScreenActionsOutliveAFilterThatMatchesNothing() async {
+    let follow = Item.Action.run(
+        command: followUpID, args: ["conversation": .string("t")], title: "Follow Up")
+    let copy = Item.Action.copy(text: "x", title: "Copy Answer")
+    let session = await showing(
+        "<file path=\"/tmp/alpha.txt\"/>\n<file path=\"/tmp/beta.txt\"/>",
+        ScreenContext(authority: .agent, actions: [copy, follow], secondary: 1))
+    #expect(session.top.listing != nil)
+    #expect(session.top.target?.item?.title == "alpha.txt")
+    #expect(session.top.target?.screen == [copy, follow])
+
+    session.query = "zzz"
+    #expect(session.top.list?.items.isEmpty == true)
+    let target = session.top.target
+    #expect(target?.item == nil && target?.actions.isEmpty == true)
+    #expect(target?.screen == [copy, follow])
+    #expect(target?.secondary == .screen(1))
+    #expect(target?.primary == .screen(0))
+
+    session.query = ""
+    #expect(session.top.target?.item?.title == "alpha.txt")
+    #expect(session.top.target?.secondary == .screen(1))
+}

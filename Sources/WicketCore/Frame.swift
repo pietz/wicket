@@ -183,7 +183,8 @@ public struct ScreenFrame: Sendable {
 
     /// What Return acts on; a frame waiting for its text submits `query`, once there is one, as its
     /// own invocation with only the text replaced (the args and revision it was opened with stay).
-    /// On a document, the selected target's actions, or with none selected the page's own.
+    /// On a document, the selected target's actions, or with none selected the page's own; with no
+    /// row at all, the screen's alone.
     func target(query: String) -> ActionTarget? {
         if let run, run.awaitsText {
             guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -198,7 +199,8 @@ public struct ScreenFrame: Sendable {
         if document != nil, case .detail(let detail) = screen {
             return ActionTarget(detail: detail, text: pageText, in: context)
         }
-        return nil
+        // No row (a filter that matches none): the screen's actions stay, Copy Answer and Follow Up.
+        return context.actions.isEmpty ? nil : ActionTarget(actions: [], in: context)
     }
 
     /// Replaces the content with `screen`, which answers `text` (the frame's query when it arrived).
