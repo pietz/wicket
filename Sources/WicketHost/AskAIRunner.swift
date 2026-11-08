@@ -81,8 +81,10 @@ public final class AskAIRunner: CommandRunner {
             ? "" : (invocation.context.map { question + "\n\n" + $0.promptBlock } ?? question)
         var submitted = invocation
         submitted.text = question
+        // A run started for the user, such as Fix with Agent, can name its frame; else the question does.
         return answers.run(
-            submitted, prompt: prompt, title: question, actingIn: Self.folder(for: invocation.context)
+            submitted, prompt: prompt, title: invocation.args?["title"]?.string ?? question,
+            actingIn: Self.folder(for: invocation.context)
         ) { [weak self] in
             self?.saveCommand?(invocation).map { [$0] } ?? []
         }
@@ -250,6 +252,10 @@ final class AnswerStream {
                 output)
         } catch let failure as Failure {
             throttle.cancel()
+            // What a failed or stopped run wrote is offered for review too, once its tree is gone.
+            await run.cancelAndWait()
+            draft.reviews = await reviews(since: before)
+            try Task.checkCancellation()
             draft.failure = failure.description
             output.yield(.show(.detail(draft.detail)))
             Self.logger.notice(
@@ -279,6 +285,8 @@ final class AnswerStream {
             case .activity(let activity):
                 draft.progress.append(activity)
                 throttle.submit()
+            case .acted:
+                draft.acted = true
             case .approvals(let approvals):
                 for (token, _) in draft.approvals { waiting[token] = nil }
                 draft.show(approvals)
@@ -291,13 +299,12 @@ final class AnswerStream {
                 guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
                 draft.approvals = []
                 // The answer comes once the agent's tree is gone, so what it wrote is complete.
-                if let extensionsBefore, let authoring {
-                    draft.reviews = ExtensionAuthoring.reviews(
-                        await authoring.changed(since: extensionsBefore))
-                    try Task.checkCancellation()
-                }
-                // An answer that made a command is no prompt to save as one.
-                draft.finishedActions = draft.reviews.isEmpty ? draft.completedActions() : []
+                draft.reviews = await reviews(since: extensionsBefore)
+                try Task.checkCancellation()
+                // Only a pure answer is a prompt worth saving: not one that made a command, ran one
+                // or changed a file.
+                draft.finishedActions =
+                    draft.reviews.isEmpty && !draft.acted ? draft.completedActions() : []
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
@@ -314,6 +321,13 @@ final class AnswerStream {
         // The agent's stream only ends without a last event when this run was cancelled.
         try Task.checkCancellation()
         throw Failure("\(provider.name) stopped without an answer.")
+    }
+
+    /// Review actions for the extensions an acting run added or changed since `before`; none for
+    /// answer runs.
+    private func reviews(since before: ExtensionAuthoring.Snapshot?) async -> [Item.Action] {
+        guard let before, let authoring else { return [] }
+        return ExtensionAuthoring.reviews(await authoring.changed(since: before))
     }
 
     /// The provider to ask, or an error saying why none can answer.
@@ -383,6 +397,8 @@ private final class Draft {
     var text = ""
     /// What the agent did, one line each ("Ran ls", "Edited notes.md").
     var progress: [String] = []
+    /// Whether the agent ran a command or changed a file.
+    var acted = false
     /// The agent's questions waiting for the user, oldest first, each with its action token.
     var approvals: [(token: String, approval: AgentApproval)] = []
     /// Approvals the user answered, kept out until the agent confirms them resolved.
@@ -443,14 +459,14 @@ private final class Draft {
             args: invocation.args, title: "Retry", revision: invocation.revision)
         guard !text.isEmpty else {
             var detail = Detail.failure("Ask AI Failed", failure, command: invocation.command)
-            detail.actions = [retry]
+            detail.actions = reviews + [retry]
             return detail
         }
         return Detail(
             title: title,
             markdown: (steps + [text + "\n\n---\n\n**The answer is incomplete.** " + failure])
                 .joined(separator: "\n\n"),
-            actions: [retry, copy])
+            actions: reviews + [retry, copy])
     }
 
     /// The progress as a list: the latest steps, and how many came before them.
@@ -474,6 +490,7 @@ private final class Draft {
                 ]
             case .network: ["**The agent asks to reach** " + Self.escaped(approval.subject) + "."]
             case .fileChange: ["**The agent asks to change files:** " + Self.escaped(approval.subject)]
+            case .tool: ["**The agent asks to use** " + Self.escaped(approval.subject) + "."]
             }
         if let root = approval.grantRoot {
             parts.append(
@@ -482,6 +499,7 @@ private final class Draft {
         }
         if let reason = approval.reason, !reason.isEmpty { parts.append(Self.escaped(reason)) }
         if approval.kind == .command { parts.append(Self.fenced(approval.subject)) }
+        if let input = approval.input { parts.append(Self.fenced(input)) }
         if approvals.count > 1 { parts.append("_\(approvals.count - 1) more waiting_") }
         return parts.joined(separator: "\n\n")
     }

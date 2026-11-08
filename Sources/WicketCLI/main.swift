@@ -169,8 +169,8 @@ func ask(_ arguments: [String]) async -> Never {
             write(text)
         case .activity(let activity):
             warn("· \(activity)")
-        case .approvals:
-            break  // Answer runs ask nothing.
+        case .approvals, .acted:
+            break  // Answer runs ask and do nothing.
         case .answer(let answer, let usage):
             write(streamed ? "\n" : answer + "\n")
             if let usage {

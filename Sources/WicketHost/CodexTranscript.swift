@@ -187,7 +187,7 @@ struct CodexTranscript: AgentTranscript {
                 answer = text
             }
             if let activity = activity(completed: item) {
-                return AgentStep(events: [.activity(activity)])
+                return AgentStep(events: [.activity(activity)] + (Self.acted(item) ? [.acted] : []))
             }
         case "thread/tokenUsage/updated":
             if let total = params["tokenUsage"]?["total"] {
@@ -240,10 +240,20 @@ struct CodexTranscript: AgentTranscript {
             let command = summarized(Self.command(item) ?? "")
             return declined ? "Declined " + command : "Ran " + command
         case "fileChange":
-            let names = (item["changes"]?.array ?? []).compactMap { $0["path"]?.string }.map(shown)
+            let names = (item["changes"]?.array ?? []).compactMap { $0["path"]?.string }.map(request.shown)
             guard !names.isEmpty, declined || item["status"]?.string == "completed" else { return nil }
             return (declined ? "Declined changes to " : "Edited ") + names.joined(separator: ", ")
         default: return nil
+        }
+    }
+
+    /// Whether a completed item ran a command or changed files (declined and failed ones count only
+    /// if they ran: a failed command did).
+    private static func acted(_ item: JSONValue) -> Bool {
+        switch (item["type"]?.string, item["status"]?.string) {
+        case ("commandExecution", let status): status != "declined"
+        case ("fileChange", "completed"): true
+        default: false
         }
     }
 
@@ -266,20 +276,9 @@ struct CodexTranscript: AgentTranscript {
     private func changes(_ item: JSONValue) -> String {
         let changes = (item["changes"]?.array ?? []).compactMap { change -> String? in
             guard let path = change["path"]?.string else { return nil }
-            return (change["kind"]?["type"]?.string ?? "change") + " " + shown(path)
+            return (change["kind"]?["type"]?.string ?? "change") + " " + request.shown(path)
         }
         return changes.isEmpty ? "files" : changes.joined(separator: ", ")
-    }
-
-    /// A path as the user can tell it apart: relative to the run's folder when inside it, else
-    /// absolute (a base name alone could be any file of that name).
-    func shown(_ path: String) -> String {
-        let folder = request.workingDirectory.standardizedFileURL.path
-        let file =
-            (path.hasPrefix("/") ? URL(filePath: path) : request.workingDirectory.appending(path: path))
-            .standardizedFileURL.path
-        let prefix = folder.hasSuffix("/") ? folder : folder + "/"
-        return file.hasPrefix(prefix) ? String(file.dropFirst(prefix.count)) : file
     }
 
     private static func request(_ id: ID, _ method: String, _ params: [String: JSONValue]) -> Data {

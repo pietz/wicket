@@ -40,24 +40,31 @@ private final class Requests: Sendable {
     var last: AgentRequest? { all.withLock { $0.last } }
 }
 
-/// An agent that runs `body` (writing files, say) and then answers.
-private func agent(_ requests: Requests, _ body: @escaping @Sendable () throws -> Void) -> AgentBackend {
+/// An agent that runs `body` (writing files, say) and then sends `events`, by default an answer.
+private func agent(
+    _ requests: Requests,
+    events sent: [AgentEvent] = [.answer("Made it; review and enable it in Wicket.", usage: nil)],
+    _ body: @escaping @Sendable () throws -> Void
+) -> AgentBackend {
     AgentBackend(
         status: { AgentStatus(provider: $0, state: .ready) },
         run: { _, request in
             requests.append(request)
             return AgentRun { events in
                 try? body()
-                events.yield(.answer("Made it; review and enable it in Wicket.", usage: nil))
+                for event in sent { events.yield(event) }
                 return .exited(.status(0))
             }
         })
 }
 
 @MainActor
-private func finalDetail(_ runner: AskAIRunner, _ question: String) async throws -> Detail? {
+private func finalDetail(
+    _ runner: AskAIRunner, _ question: String, args: [String: JSONValue]? = nil
+) async throws -> Detail? {
     var last: Detail?
-    for try await result in runner.run(Invocation(command: .askAI, text: question), retry: .never) {
+    for try await result in runner.run(Invocation(command: .askAI, text: question, args: args), retry: .never)
+    {
         if case .show(.detail(let detail)) = result { last = detail }
     }
     return last
@@ -145,12 +152,66 @@ private func finalDetail(_ runner: AskAIRunner, _ question: String) async throws
     #expect(detail.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
 
     // A provider that only answers gets no Wicket instructions.
-    let claude = AskAIRunner(backend: agent(requests) {}, interval: .zero, provider: { .claude })
-    claude.authoring = runner.authoring
-    _ = try await finalDetail(claude, "what can you do?")
+    let apple = AskAIRunner(backend: agent(requests) {}, interval: .zero, provider: { .apple })
+    apple.authoring = runner.authoring
+    _ = try await finalDetail(apple, "what can you do?")
     let last = try #require(requests.last)
     #expect(last.mode == .answer)
     #expect(last.instructions == nil)
+}
+
+@MainActor @Test func aRunThatFailedAfterWritingAnExtensionStillOffersItsReview() async throws {
+    let extensions = try await extensions([])
+    let directory = extensions.directory
+    let made = try plain("weather")
+    let runner = AskAIRunner(
+        backend: agent(Requests(), events: [.text("Writing it"), .error("Claude Code was interrupted")]) {
+            try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
+        }, interval: .zero, provider: { .claude })
+    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    let detail = try #require(try await finalDetail(runner, "build a weather command"))
+    #expect(detail.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry", "Copy Answer"])
+
+    // With nothing streamed, the failure page offers it too.
+    let silent = AskAIRunner(
+        backend: agent(Requests(), events: [.error("stopped")]) {
+            let script = directory.appending(path: "weather/main.sh")
+            try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
+                to: script, atomically: false, encoding: .utf8)
+        }, interval: .zero, provider: { .claude })
+    silent.authoring = runner.authoring
+    let failure = try #require(try await finalDetail(silent, "change it"))
+    #expect(failure.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry"])
+}
+
+@MainActor @Test func onlyAPureAnswerOffersSaveAsCommand() async throws {
+    let extensions = try await extensions([])
+    let runner = AskAIRunner(
+        backend: agent(
+            Requests(), events: [.activity("Ran ls"), .acted, .answer("Three files.", usage: nil)]
+        ) {}, interval: .zero, provider: { .claude })
+    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
+    let acted = try #require(try await finalDetail(runner, "how many files are here?"))
+    #expect(acted.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer"])
+
+    // Reading isn't acting.
+    let reader = AskAIRunner(
+        backend: agent(Requests(), events: [.activity("Read a.txt"), .answer("It says hi.", usage: nil)]) {},
+        interval: .zero, provider: { .claude })
+    reader.authoring = runner.authoring
+    reader.saveCommand = runner.saveCommand
+    let read = try #require(try await finalDetail(reader, "what does a.txt say?"))
+    #expect(read.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
+}
+
+@MainActor @Test func aRunCanNameItsFrame() async throws {
+    let runner = AskAIRunner(backend: agent(Requests()) {}, interval: .zero, provider: { .claude })
+    let detail = try #require(
+        try await finalDetail(
+            runner, "Fix my Wicket extension Test in /tmp/x.\n\nIt failed Wicket's check: a long report",
+            args: ["title": .string("Fix Test")]))
+    #expect(detail.title == "Fix Test")
 }
 
 @MainActor @Test func aFailedCheckOffersToFixItWithTheAgent() async throws {
@@ -166,10 +227,12 @@ private func finalDetail(_ runner: AskAIRunner, _ question: String) async throws
     let detail = try #require(last)
     #expect(!detail.actions.contains { $0.title == "Enable" })
     let fix = try #require(detail.actions.first { $0.title == "Fix with Agent" })
-    guard case .run(.askAI, let text, nil, _, nil) = fix else {
+    guard case .run(.askAI, let text, let args, _, nil) = fix else {
         Issue.record("not an Ask AI run: \(fix)")
         return
     }
+    // The frame is titled by the extension; the whole failure goes to the agent.
+    #expect(args == ["title": .string("Fix Test")])
     #expect(text.hasPrefix("Fix my Wicket extension Test in /"))
     #expect(text.contains("/broken.\n\nIt failed Wicket's check:"))
 }
@@ -195,6 +258,54 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
     )
     .standardizedFileURL
     let runner = AskAIRunner(provider: { .codex })
+    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
+    var last: Detail?
+    for try await result in runner.run(
+        Invocation(
+            command: .askAI, text: "Build an extension that shows the current ISO week number in Wicket.",
+            context: SummonContext(app: "Finder", files: [root])), retry: .never)
+    {
+        if case .show(.detail(let detail)) = result { last = detail }
+    }
+    let detail = try #require(last)
+    print("ANSWER:\n\(detail.markdown)\nACTIONS: \(detail.actions.compactMap(\.title))")
+    let review = try #require(detail.actions.first)
+    guard case .run(.reviewExtension, _, let args?, _, _) = review, case .string(let id)? = args["id"] else {
+        Issue.record("no review offered: \(detail.actions)")
+        return
+    }
+    let consent = ExtensionsRunner(
+        extensions: extensions, checkOptions: checkOptions { $0.requestTimeout = .seconds(30) })
+    var page: Detail?
+    for try await result in consent.run(
+        Invocation(command: .reviewExtension, args: ["id": .string(id)]), retry: .never)
+    {
+        if case .show(.detail(let detail)) = result { page = detail }
+    }
+    print("REVIEW:\n\(page?.markdown ?? "-")\nACTIONS: \(page?.actions.compactMap(\.title) ?? [])")
+    #expect(page?.actions.first?.title == "Enable")
+}
+
+/// The same with Claude Code, on the user's subscription and own settings (read, never changed): its
+/// permission mode must let it write in the folder without asking, as `auto` or `acceptEdits` do.
+/// Opt in with `WICKET_TEST_CLAUDE=1`.
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_TEST_CLAUDE"] == "1"))
+func claudeBuildsACommandThatWicketOffersForReview() async throws {
+    let root = FileManager.default.temporaryDirectory.appending(
+        path: "wicket-tests/claude-\(UUID().uuidString)"
+    )
+    .resolvingSymlinksInPath()
+    let directory = root.appending(path: "Extensions")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
+        testConfiguration()
+    }
+    await extensions.load().value
+    let guide = URL(filePath: #filePath).deletingLastPathComponent().appending(
+        path: "../../docs/extensions.md"
+    )
+    .standardizedFileURL
+    let runner = AskAIRunner(provider: { .claude })
     runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
     var last: Detail?
     for try await result in runner.run(

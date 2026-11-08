@@ -442,7 +442,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(results == [.stay])
 }
 
-@MainActor @Test func codexWorksInTheFinderSelectionsFolderAndOtherProvidersOnlyAnswer() async throws {
+@MainActor @Test func agentCLIsWorkInTheFinderSelectionsFolderAndAppleOnlyAnswers() async throws {
     let folder = FileManager.default.temporaryDirectory.appending(
         path: "wicket-tests/sel-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -461,6 +461,14 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     #expect(agents.runs[0].provider == .claude)
-    #expect(agents.runs[0].request.mode == .answer)
-    #expect(agents.runs[0].request.workingDirectory.lastPathComponent.hasPrefix("wicket-ask-"))
+    #expect(agents.runs[0].request.mode == .act)
+    #expect(agents.runs[0].request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
+
+    let apple = FakeAgents([.apple: .ready])
+    let answering = Palette(apple.backend)
+    answering.ask("hello")
+    #expect(await eventually { apple.runs.count == 1 })
+    #expect(apple.runs[0].provider == .apple)
+    #expect(apple.runs[0].request.mode == .answer)
+    #expect(apple.runs[0].request.workingDirectory.lastPathComponent.hasPrefix("wicket-ask-"))
 }

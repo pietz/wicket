@@ -6,7 +6,7 @@ public enum AgentMode: Sendable, Equatable {
     /// Answer from the model alone: no tools, no commands, no file access.
     case answer
     /// Answer or do what the user asks with the agent's own tools, under the approval policy and
-    /// sandbox the user set in that agent (Codex only for now); requests it sends are approvals.
+    /// sandbox the user set in that agent (Codex and Claude Code); requests it sends are approvals.
     case act
 }
 
@@ -24,6 +24,17 @@ public struct AgentRequest: Sendable {
         self.workingDirectory = workingDirectory
         self.mode = mode
         self.instructions = instructions
+    }
+
+    /// A path as the user can tell it apart: relative to the run's folder when inside it, else
+    /// absolute (a base name alone could be any file of that name).
+    func shown(_ path: String) -> String {
+        let folder = workingDirectory.standardizedFileURL.path
+        let file =
+            (path.hasPrefix("/") ? URL(filePath: path) : workingDirectory.appending(path: path))
+            .standardizedFileURL.path
+        let prefix = folder.hasSuffix("/") ? folder : folder + "/"
+        return file.hasPrefix(prefix) ? String(file.dropFirst(prefix.count)) : file
     }
 }
 
@@ -52,18 +63,25 @@ public enum AgentEvent: Sendable, Equatable {
     /// The agent's questions still waiting for an answer, oldest first, whenever they change (an
     /// empty list once the last one is resolved). Answered with `AgentRun.reply`.
     case approvals([AgentApproval])
+    /// The agent ran a command or changed a file (after the activity saying which); can come more
+    /// than once. Actions the agent's own settings approved come too, never reaching `approvals`.
+    case acted
 }
 
-/// Something an acting agent asks permission for: a command to run, a host to reach or files to
-/// change.
+/// Something an acting agent asks permission for: a command to run, a host to reach, files to
+/// change or another tool to use.
 public struct AgentApproval: Sendable, Hashable {
     public enum Kind: Sendable, Hashable {
         case command
         case network
         case fileChange
+        /// Any other tool (Claude Code's web fetch, MCP tools…): `subject` is its name, `input` what
+        /// it is given.
+        case tool
     }
 
-    /// The agent's own request id, echoed in the reply (a JSON-RPC id keeps its type).
+    /// The agent's own request id, echoed in the reply: a JSON-RPC id keeps its type; Claude Code's
+    /// is an object holding its request id and what an allow must send back (see `ClaudeTranscript`).
     public var id: JSONValue
     public var kind: Kind
     /// The command; the host and protocol, as "api.github.com (https)"; or the changes, as
@@ -76,10 +94,12 @@ public struct AgentApproval: Sendable, Hashable {
     public var workingDirectory: String?
     /// For a file change, a folder the agent asks to write anywhere under for the rest of the run.
     public var grantRoot: String?
+    /// For a tool, its input in brief, one `key: value` per line.
+    public var input: String?
 
     public init(
         id: JSONValue, kind: Kind, subject: String, reason: String? = nil, workingDirectory: String? = nil,
-        grantRoot: String? = nil
+        grantRoot: String? = nil, input: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -87,6 +107,7 @@ public struct AgentApproval: Sendable, Hashable {
         self.reason = reason
         self.workingDirectory = workingDirectory
         self.grantRoot = grantRoot
+        self.input = input
     }
 }
 
@@ -175,8 +196,8 @@ public struct AgentReply: Sendable, Hashable {
 
 extension AgentProvider {
     /// Whether Ask AI runs this provider as an acting agent (`AgentMode.act`) rather than answer-only:
-    /// Codex, whose app-server sends approvals; Claude Code's permission bridge comes next.
-    public var acts: Bool { self == .codex }
+    /// the agent CLIs, whose approvals reach the palette; Apple's model only answers.
+    public var acts: Bool { self != .apple }
 }
 
 /// Whether a provider can run, for the UI to show.
@@ -280,7 +301,7 @@ public struct Agent: Sendable {
                 transcript: CodexTranscript(request: request))
         case .claude:
             AgentProcess.run(
-                executable, arguments: ClaudeTranscript.arguments(for: request.mode), request: request,
+                executable, arguments: ClaudeTranscript.arguments(for: request), request: request,
                 transcript: ClaudeTranscript(request: request))
         }
     }

@@ -232,13 +232,14 @@ public final class ExtensionsRunner: CommandRunner {
         return items
     }
 
-    /// Fix with Agent: an Ask AI run asking to fix the extension in `folder`, told why it fails.
+    /// Fix with Agent: an Ask AI run asking to fix the extension in `folder`, told why it fails, in
+    /// a frame titled by the extension (the failure is too long for a title).
     /// An acting agent fixes it in place, and its answer offers the review again.
     static func fix(_ name: String, folder: URL, failure: String) -> Item.Action {
         .run(
             command: .askAI,
             text: "Fix my Wicket extension \(name) in \(folder.path).\n\n\(failure)",
-            title: "Fix with Agent")
+            args: ["title": .string("Fix \(name)")], title: "Fix with Agent")
     }
 
     /// The rows of `discovered`; an enabled one with `problems` says so.
