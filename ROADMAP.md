@@ -90,6 +90,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ## Cross-cutting rules
 - Every change passes `Scripts/check.sh`; hot-path changes get measured.
 - Design first, then compare with Tinycast before building; record decisions in CONCEPT.md.
+- Product challenge before each new user-facing workstream (owner, 2026-11-08): an advisor gets the problem and the code, never the lead's proposed solution, and answers first what the simplest product for the user is and what should be merged or removed. Distinctions the user sees that only matter to the system's internals (modes, separate commands for one intent) are a design smell. Builders build; this step is where ideas get questioned.
 - Architecture review before each major core workstream, or every few milestones: two independent reviewers, run per [docs/reviews/architecture-review.md](docs/reviews/architecture-review.md).
 - Screen-bound checks (visual, latency harness) are batched into sessions when the owner's Mac is free.
 - No telemetry, no accounts. Queries and file paths never go into public logs.
