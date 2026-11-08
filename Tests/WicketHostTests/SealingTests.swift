@@ -247,10 +247,9 @@ private final class Gate: Sendable {
     let staging = store.root.appending(path: "titled/.staging-crashed")
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
 
-    #expect(store.prune(keeping: [sealed[1].revision, sealed[3].revision]) == ["titled"])
+    store.prune(keeping: [sealed[1].revision, sealed[3].revision])
     let kept = Set(try FileManager.default.contentsOfDirectory(atPath: store.root.path + "/titled"))
     #expect(kept == [sealed[1].revision.sha256, sealed[3].revision.sha256])
-    #expect(store.prune(keeping: [sealed[1].revision, sealed[3].revision]).isEmpty)
 }
 
 @MainActor @Test func discoveryPrunesOldRevisions() async throws {

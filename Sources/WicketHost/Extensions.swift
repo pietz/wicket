@@ -83,8 +83,6 @@ public final class Extensions {
         var active: [SealedRevision]
         var sealed: Int
         var duration: Duration
-        /// The extensions that lost a revision to pruning.
-        var pruned: Set<String>
     }
 
     public let directory: URL
@@ -98,14 +96,10 @@ public final class Extensions {
     public private(set) var discovered: [DiscoveredExtension] = []
     /// Called on the main actor after each published snapshot, when `commands` may have changed.
     public var onChange: (@MainActor () -> Void)?
-    /// Prunes a uv cache after revisions were pruned (`UV.prune`); a seam for tests.
-    var pruneUV: @Sendable (UVStorage) async -> Void = { await UV.prune($0) }
     /// Moves a folder to the Trash; a seam for tests, which delete it instead.
     var trashItem: @Sendable (URL) throws -> Void = {
         try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
     }
-    /// The uv prunes running or waiting, one after another; shutdown cancels them.
-    private var uvPruning: Task<Void, Never>?
     private var active: [String: SealedRevision] = [:]
     private let activate: Activation
     /// The report version each session's diagnostics were last taken at.
@@ -356,7 +350,6 @@ public final class Extensions {
                 directory, store: store, approvals: approvals, touched: touched, previous: previous,
                 inUse: inUse, activate: activate)
             publish(snapshot)
-            if !snapshot.pruned.isEmpty, !isShutDown { pruneUVCaches(of: snapshot.pruned) }
         }
         worker = nil
     }
@@ -397,12 +390,11 @@ public final class Extensions {
         // One revision per extension: the first the activation names.
         var seen: Set<String> = []
         let active = activate(discovered, store).filter { seen.insert($0.revision.extensionID).inserted }
-        let pruned = store.prune(
+        store.prune(
             keeping: Set(active.map(\.revision)).union(discovered.compactMap(\.sealed?.revision)).union(inUse)
                 .union(approved.values).union(approvals.allPrevious.values))
         return Snapshot(
-            discovered: discovered, active: active, sealed: sealed, duration: ContinuousClock.now - start,
-            pruned: pruned)
+            discovered: discovered, active: active, sealed: sealed, duration: ContinuousClock.now - start)
     }
 
     /// A folder's state: its current revision (or why it has none) against the approved one, which
@@ -512,37 +504,16 @@ public final class Extensions {
         }
     }
 
-    /// Prunes the uv caches `ids`' sessions use, after pruning dropped revisions of theirs: a
-    /// removed revision's script environment and packages stay in uv's cache until it is pruned.
-    /// Off the main actor and one prune at a time, after any still running; uv itself waits for
-    /// runs using the cache.
-    private func pruneUVCaches(of ids: Set<String>) {
-        let storages = Set(ids.map { configuration($0).uv })
-        let previous = uvPruning
-        let prune = pruneUV
-        uvPruning = Task.detached {
-            await withTaskCancellationHandler {
-                await previous?.value
-            } onCancel: {
-                previous?.cancel()
-            }
-            for storage in storages where !Task.isCancelled { await prune(storage) }
-        }
-    }
-
     /// Stops every session and returns once their process trees, and those of sessions still being
     /// replaced, are gone; requests from then on fail with `HostError.stopped`. For the app quitting.
     public func shutdown() async {
         isShutDown = true
-        let pruning = uvPruning
-        pruning?.cancel()
         let sessions = Array(self.sessions.values)
         let replaced = Array(stopping.values)
         self.sessions = [:]
         await withDiscardingTaskGroup { group in
             for session in sessions { group.addTask { await session.stop() } }
             for previous in replaced { group.addTask { await previous.value } }
-            if let pruning { group.addTask { await pruning.value } }
         }
     }
 }

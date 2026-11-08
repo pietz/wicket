@@ -60,7 +60,7 @@ Wicket tells you which folder to write into; if nobody did, name the folder afte
 Wicket never runs your folder itself. It seals it: copies it into its own storage, read-only, and identifies the copy by a hash of its files (its revision). `wicket check` checks a revision, the user approves one in Wicket (its "Review and Enable", offered under the AI's answer that wrote it and in the Extensions command, which checks it first), and Wicket runs only that approved, sealed copy. Any change to the folder is a new revision that needs approval again: until the user enables it, the approved revision keeps running, and a folder never approved runs nothing (use `wicket run` to try it meanwhile). The user can move an extension to the Trash from its page in Wicket: its commands go at once and Wicket forgets its approvals and sealed copies, so a folder put back from the Trash needs enabling again (its `WICKET_DATA_DIR` and secrets stay). Nothing in `settings.json` or the `wicket` tool can approve an extension. A row your old code showed never runs your new code (the user sees "the extension changed; run it again"; an open search simply runs again on the new code). So:
 
 - Keep everything your program runs inside the folder, dependencies included: they are sealed with it. A symbolic link must be relative and point inside the folder; a link out of it, an absolute link or a link to nothing makes the folder invalid.
-- Node: `node_modules` in the folder works. Python with packages: use uv with a locked script (see [Python with uv](#python-with-uv)). A virtualenv (`.venv`) doesn't work, since it names absolute paths and can't be moved; packages installed into a folder (`pip install --target vendor requests`) and put on `sys.path` before importing (`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "vendor"))`) still work with plain `python3`.
+- Node: `node_modules` in the folder works. Python with packages: vendor them (see [Python with packages](#python-with-packages)). A virtualenv (`.venv`) doesn't work, since it names absolute paths and can't be moved.
 - `.git`, `__pycache__`, `.claude` and `.DS_Store` are not part of the revision and are not copied, at any depth. Nothing may link into them.
 - The rest of the folder, dependencies included, holds at most 256 MiB in at most 20,000 files.
 - The copy is read-only, and it is the working directory: write state, caches and downloads to `WICKET_DATA_DIR`, never into your folder.
@@ -74,7 +74,7 @@ Wicket never runs your folder itself. It seals it: copies it into its own storag
 | `description` | no | One sentence, shown when the user reviews the extension. |
 | `version` | yes | `major.minor.patch`. Bump it when you change the extension. |
 | `icon` | no | An [icon](#icons) for the extension; commands inherit it. |
-| `run` | yes | Program and arguments, for example `["python3", "main.py"]`, or `["uv", "run", "--script", "main.py"]` for [Python with packages](#python-with-uv). A bare program name is looked up on the user's login-shell `PATH`. Prefer naming the interpreter (`["/bin/sh", "x.sh"]`) over relying on the executable bit. |
+| `run` | yes | Program and arguments, for example `["python3", "main.py"]`. A bare program name is looked up on the user's login-shell `PATH`. Prefer naming the interpreter (`["/bin/sh", "x.sh"]`) over relying on the executable bit. |
 | `secrets` | no | Values the user stores in the Keychain, such as API tokens, passed to your program as environment variables: `[{"name": "GITHUB_TOKEN", "title": "GitHub token"}]`. `name` is uppercase letters, digits and `_`, and not `PATH`, `LANG`, `HOME`, `USER`, `SHELL`, `TMPDIR` or `WICKET_…`; `title` is what the user is asked for. Every declared secret is required: without it the run fails with a message saying how to set it. Never write secrets into your folder or your output. |
 | `capabilities` | no | What your code does beyond computing an answer, for the review screen: `network` (talks to the internet), `clipboard` (reads the clipboard; writing it through a `copy` action needs nothing), `files` (reads or writes files outside its folder and `WICKET_DATA_DIR`), `shell` (runs other programs). Declare every one that applies; it is not enforced but users rely on it. |
 | `commands` | yes | One or more commands, below. |
@@ -293,31 +293,25 @@ Wicket reports these failures itself, the same way: no response within 30 second
 
 Keep answers fast: a `live` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.
 
-## Python with uv
+## Python with packages
 
-Python that needs packages from PyPI runs with [uv](https://docs.astral.sh/uv/) as a locked script; the [slugify sample](../Extensions/slugify) is a complete one. For the standard library alone, plain `python3` is simpler.
+Wicket runs only what is in your folder, so vendor packages into it; the [slugify sample](../Extensions/slugify) is a complete one. For the standard library alone, plain `python3` is all you need.
 
 ```
 slugify/
-  wicket.json      "run": ["uv", "run", "--script", "main.py"]
-  main.py          starts with the header below
-  main.py.lock     written by uv lock --script main.py: ship it
-  session.jsonl
+  wicket.json      "run": ["python3", "main.py"]
+  main.py          puts vendor/ on sys.path before importing
+  vendor/          pip install --target vendor python-slugify
 ```
 
 ```python
-# /// script
-# requires-python = ">=3.12"
-# dependencies = ["python-slugify"]
-# ///
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
+from slugify import slugify
 ```
 
-- Start with `uv init --script main.py --python 3.12`, add packages with `uv add --script main.py python-slugify`, and lock with `uv lock --script main.py`. Lock again after every change to the dependencies or `requires-python`: a missing or stale lock fails the check and the run. Wicket installs exactly what the lock lists, hashes included.
-- `run` is exactly `["uv", "run", "--script", "<script>"]`, then your own arguments if any: `uv` alone (the one on the user's login `PATH`) and no other uv options.
-- No `uvx` or `uv tool run`: they fetch a tool without a lock, so Wicket refuses them. Declare the tool as a dependency instead and start it from your script with `runpy.run_module("<module>", run_name="__main__")`.
-- Wheels only: a package that publishes only a source distribution fails, since building it runs its code. Pick a package, or a version, with a wheel for macOS.
-- Wicket runs uv with its own cache and uv-managed Pythons only (downloaded on first use), ignoring `uv.toml`, `pyproject.toml` and the user's `UV_` variables. The first run downloads the packages; after that a process starts about 10 ms slower than plain `python3`, so keep it running between requests for `live` commands.
-- Test with `uv run --script --locked main.py`, piping in your fixture's requests. `wicket check` installs the locked packages first, then replays the fixtures offline (see [Testing](#testing)).
+- Install with `pip install --target vendor <package>` (or `uv pip install --target vendor <package>`) and delete `vendor/bin`. Prefer pure-Python packages: a compiled one works only for the Python version and architecture it was built for.
+- Don't run `uv`, `uvx` or a virtualenv: `uv` and `uvx` in `run` are refused, since they would install packages outside the folder at run time, and a `.venv` can't be sealed.
 
 ## Example: a persistent extension with a live list and a detail view
 
@@ -477,6 +471,5 @@ When the user asks Wicket's agent to fix or change an extension (Fix with Agent,
 - Every `run` action names a declared command, and your code handles its `args`.
 - `once` commands that only read are `repeatable`; ones that change something are not.
 - Capabilities list everything the code does beyond computing an answer.
-- A uv script ships its current lock (`uv lock --script` after every dependency change), and every package has a wheel.
 - `wicket check` passes.
 - Every command answers right with `wicket run`, its error cases too, and on a first run.

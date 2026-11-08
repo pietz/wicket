@@ -48,7 +48,6 @@ func testConfiguration(
     configuration.requestTimeout = .seconds(1)
     configuration.exitGrace = .milliseconds(300)
     configuration.idleTimeout = nil
-    configuration.uv = UVTest.storage
     configure(&configuration)
     return configuration
 }

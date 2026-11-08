@@ -1,14 +1,12 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = ["python-slugify"]
-# ///
 """Turns text into a URL slug and a snake_case name, transliterating any script to ASCII
-(python-slugify). Persistent: every keystroke is answered by the same process."""
+(python-slugify, vendored in vendor/). Persistent: every keystroke is answered by the same process."""
 
 import json
+import os
 import sys
 
-from slugify import slugify
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
+from slugify import slugify  # noqa: E402
 
 
 def item(kind, text, title):

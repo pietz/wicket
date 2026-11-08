@@ -138,10 +138,8 @@ public struct RevisionStore: Sendable {
 
     /// Deletes every revision not in `keeping` (the caller names what it needs: the active, the
     /// discovered, those still running, and each extension's approved and previous approved one),
-    /// every staging folder a crash left, and an extension's folder once it holds none. Returns the extensions that lost a revision.
-    @discardableResult
-    public func prune(keeping: Set<ExtensionRevision>) -> Set<String> {
-        var pruned: Set<String> = []
+    /// every staging folder a crash left, and an extension's folder once it holds none.
+    public func prune(keeping: Set<ExtensionRevision>) {
         let ids = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         for id in ids where Manifest.isSlug(id) {
             let parent = root.appending(path: id, directoryHint: .isDirectory)
@@ -152,7 +150,6 @@ public struct RevisionStore: Sendable {
                     Self.remove(folder)
                 } else if !keeping.contains(ExtensionRevision(extensionID: id, sha256: name)) {
                     Self.remove(folder)
-                    pruned.insert(id)
                 }
             }
             // An extension with no revision left leaves no folder behind.
@@ -160,7 +157,6 @@ public struct RevisionStore: Sendable {
                 try? FileManager.default.removeItem(at: parent)
             }
         }
-        return pruned
     }
 
     /// Deletes the whole store, for a temporary one.

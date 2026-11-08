@@ -89,39 +89,12 @@ func rejectsInvalidSearchTerms(value: String, expected: String) {
     (#""title": "Done""#, #""title": "Done", "subtitel": "x""#, #"commands[2].subtitel: unknown field"#),
     (#""protocol": 1,"#, #""protocol": 1, "author": "me","#, #"author: unknown field"#),
     (#""run": ["python3", "main.py"],"#, "", #"run: missing required field"#),
-    (
-        #""run": ["python3", "main.py"]"#, #""run": ["uvx", "ruff"]"#,
-        "uvx and uv tool run fetch a tool without a lock"
-    ),
-    (#""run": ["python3", "main.py"]"#, #""run": ["/opt/homebrew/bin/uvx", "ruff"]"#, "runpy.run_module"),
-    (#""run": ["python3", "main.py"]"#, #""run": ["uv", "tool", "run", "ruff"]"#, "without a lock"),
-    (#""run": ["python3", "main.py"]"#, #""run": ["uv", "run", "main.py"]"#, "a uv extension runs"),
-    (
-        #""run": ["python3", "main.py"]"#, #""run": ["uv", "run", "--with", "x", "--script", "m.py"]"#,
-        "a uv extension runs"
-    ),
-    (
-        #""run": ["python3", "main.py"]"#, #""run": ["uv", "run", "--script", "../m.py"]"#,
-        "a uv extension runs"
-    ),
-    (#""run": ["python3", "main.py"]"#, #""run": ["uv", "pip", "install"]"#, "a uv extension runs"),
-    (#""run": ["python3", "main.py"]"#, #""run": ["bin/uv", "run", "--script", "m.py"]"#, "name uv alone"),
+    (#""run": ["python3", "main.py"]"#, #""run": ["uvx", "ruff"]"#, "vendor Python packages"),
+    (#""run": ["python3", "main.py"]"#, #""run": ["/opt/homebrew/bin/uv", "run", "m.py"]"#, "doesn't run uv"),
 ])
 func rejectsInvalidManifests(old: String, new: String, expected: String) {
     let summary = problem(old, new)
     #expect(summary?.contains(expected) == true, "\(summary ?? "accepted")")
-}
-
-/// A uv extension is `uv run --script <script>`, with uv named or given by path; anything else isn't one.
-@Test(arguments: [
-    (#"["uv", "run", "--script", "main.py"]"#, "main.py"),
-    (#"["uv", "run", "--script", "src/app.py", "--verbose"]"#, "src/app.py"),
-    (#"["python3", "main.py"]"#, nil),
-    (#"["/bin/sh", "uv"]"#, nil),
-])
-func recognisesUVScripts(run: String, script: String?) throws {
-    let manifest = try manifest(valid.replacingOccurrences(of: #"["python3", "main.py"]"#, with: run))
-    #expect(manifest.uvScript == script)
 }
 
 @Test func loadNamesTheFile() throws {
