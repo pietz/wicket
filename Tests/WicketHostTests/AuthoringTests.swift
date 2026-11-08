@@ -228,6 +228,41 @@ private func finalDetail(
     #expect(failure.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry"])
 }
 
+/// A run the user stops (Escape, or the palette closing) has no frame left to offer the review on,
+/// but what it wrote is discovered, so the Extensions command offers it, and Fix and Change with
+/// Agent continue its conversation.
+@MainActor @Test func aStoppedRunStillRemembersWhatItWrote() async throws {
+    let extensions = try await extensions([])
+    let directory = extensions.directory
+    let made = try plain("weather")
+    let backend = AgentBackend(
+        status: { AgentStatus(provider: $0, state: .ready) },
+        run: { _, _ in
+            AgentRun { events in
+                try? FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
+                events.yield(.session("s7"))
+                events.yield(.message("Writing it"))
+                // Works until it is stopped.
+                while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+                return .exited(.status(0))
+            }
+        })
+    let runner = AgentRunner(backend: backend, provider: { .claude })
+    runner.authoring = testAuthoring(extensions)
+    for try await result in runner.run(Invocation(command: .runAgent, text: "build a weather command")) {
+        // Leaving the frame once the agent wrote something stops the run.
+        if result.page?.markdown == "Writing it" { break }
+    }
+    let history = try #require(extensions.history)
+    let deadline = ContinuousClock.now + .seconds(5)
+    while await history.conversation(of: "weather") == nil, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await history.conversation(of: "weather")?.session == "s7")
+    let found = try #require(extensions.discovered.first { $0.id == "weather" })
+    #expect(ExtensionsRunner.items([found]) { _ in nil }.first?.actions.first?.title == "Review and Enable")
+}
+
 @MainActor @Test func aRunCanNameItsFrame() async throws {
     let runner = AgentRunner(backend: agent(Requests()) {}, provider: { .claude })
     let detail = try #require(

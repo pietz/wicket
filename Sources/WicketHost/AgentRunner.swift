@@ -215,19 +215,18 @@ public final class AgentRunner: CommandRunner {
             try await show(
                 run, of: provider, in: draft, start: start, extensionsBefore: before,
                 session: &session, conversation: conversation, token: token, output)
-        } catch let failure as Failure {
-            // What a failed or stopped run wrote is offered for review too, once its tree is gone.
+        } catch {
+            // What a failed or stopped run wrote is offered for review too, once its tree is gone: on
+            // the failure page, or, when the user stopped it and its frame is gone, in the Extensions
+            // command, with this conversation remembered for Fix and Change with Agent.
             await run.cancelAndWait()
             draft.reviews = await reviews(since: before, conversation: session.flatMap(conversation))
-            try Task.checkCancellation()
+            guard let failure = error as? Failure else { throw error }
             draft.failure = failure.description
             output.yield(draft.result)
             Self.logger.notice(
                 "agent: \(provider.rawValue, privacy: .public) failed after \(draft.text.count, privacy: .public) chars"
             )
-        } catch {
-            await run.cancelAndWait()
-            throw error
         }
         await run.cancelAndWait()
     }
@@ -270,7 +269,6 @@ public final class AgentRunner: CommandRunner {
                 // The answer comes once the agent's tree is gone, so what it wrote is complete.
                 let conversation = session.flatMap(conversation)
                 draft.reviews = await reviews(since: extensionsBefore, conversation: conversation)
-                try Task.checkCancellation()
                 // Follow Up continues this conversation, under the token its follow-ups keep.
                 draft.followUp = conversation.map { remember($0, as: token ?? UUID().uuidString) }
                 output.yield(draft.result)
