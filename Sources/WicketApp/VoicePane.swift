@@ -29,17 +29,11 @@ struct VoicePane: View {
                 if consent.mode != .off {
                     Picker("Start listening", selection: trigger) {
                         Text("When Wicket opens").tag(VoiceMode.onOpen)
-                        Text("Only with Start Listening").tag(VoiceMode.onCommand)
+                        Text("Only when I ask").tag(VoiceMode.onCommand)
                     }
                 }
             } footer: {
-                Text(
-                    "Speak instead of typing: your words appear in the search field as you say them, "
-                        + "transcribed on this Mac. Return runs the top row as usual; nothing runs by "
-                        + "itself. Typing or Esc stops listening. Give Start Listening a hotkey in "
-                        + "Shortcuts to open Wicket listening."
-                )
-                .foregroundStyle(.secondary)
+                Text(footer).foregroundStyle(.secondary)
             }
             Section("Status") {
                 LabeledContent("Microphone") { microphoneStatus }
@@ -59,6 +53,18 @@ struct VoicePane: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .task { await check() }
+    }
+
+    /// How to start listening comes first: a hotkey-only trigger proved hard to find.
+    private var footer: String {
+        let onOpen =
+            consent.mode == .onOpen
+            ? "When Wicket opens, the microphone turns on quietly: just start talking, or type and it "
+                + "turns off. " : ""
+        return "To start listening, click the microphone in the search field or press ⌘L. " + onOpen
+            + "Your words appear in the search field as you say them, transcribed on this Mac; Return "
+            + "runs the top row, nothing runs by itself. Typing or Esc stops listening. To open Wicket "
+            + "listening, give Start Listening a hotkey in Shortcuts."
     }
 
     @ViewBuilder private var microphoneStatus: some View {

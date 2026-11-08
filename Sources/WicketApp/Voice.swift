@@ -5,9 +5,9 @@ import WicketCore
 /// When Wicket listens. Off until the user turns it on in Settings ▸ Voice.
 enum VoiceMode: String, Codable, CaseIterable, Sendable {
     case off
-    /// Only when the user runs Start Listening (its hotkey, or its row).
+    /// Only when the user asks: the mic button, ⌘L, or Start Listening (its hotkey, or its row).
     case onCommand
-    /// Every time the palette opens, as well as on Start Listening.
+    /// Armed quietly every time the palette opens, as well as when the user asks.
     case onOpen
 }
 
@@ -63,7 +63,17 @@ protocol Transcriber: Sendable {
 @MainActor
 @Observable
 final class VoiceInput {
-    private(set) var isListening = false
+    enum State {
+        case idle
+        /// The microphone is on, quietly, since the palette opened: nothing shows but a mic glyph,
+        /// the first key ends it, and the first words turn it into `listening`.
+        case armed
+        /// Listening in the open: the pill says so and the words go into the field.
+        case listening
+    }
+
+    private(set) var state = State.idle
+    var isListening: Bool { state == .listening }
     /// Puts a transcript into the search field; false when the field no longer takes it (a frame
     /// opened above the root), which stops listening.
     @ObservationIgnored var write: (String) -> Bool = { _ in false }
@@ -97,15 +107,24 @@ final class VoiceInput {
     var isEnabled: Bool { consent.mode != .off }
     var listensOnOpen: Bool { consent.mode == .onOpen }
 
-    /// Starts listening, if voice is on and it isn't listening already.
+    /// Turns the microphone on quietly (on open): see `State.armed`.
+    func arm() {
+        start(.armed)
+    }
+
+    /// Starts listening, if voice is on: in the open at once when armed, else a new session.
     func listen() {
-        guard isEnabled, !isListening else { return }
+        if state == .armed { state = .listening } else { start(.listening) }
+    }
+
+    private func start(_ state: State) {
+        guard isEnabled, self.state == .idle else { return }
         generation += 1
         let current = generation
-        isListening = true
+        self.state = state
         let start = ContinuousClock.now
         let stream = transcriber().transcribe()
-        arm(after: timing.noSpeech)
+        stop(after: timing.noSpeech)
         limit = Task { [weak self, timing] in
             try? await Task.sleep(for: timing.limit)
             guard !Task.isCancelled, let self, generation == current else { return }
@@ -123,7 +142,8 @@ final class VoiceInput {
                     guard !spoken.isEmpty else { continue }
                     if updates == 0 { Perf.log("voice: first words after \(Perf.ms(since: start))") }
                     updates += 1
-                    if write(spoken) { arm(after: timing.silence) } else { stop() }
+                    self.state = .listening
+                    if write(spoken) { stop(after: timing.silence) } else { stop() }
                 }
                 guard let self, generation == current else { return }
                 stop()
@@ -137,9 +157,9 @@ final class VoiceInput {
 
     /// Stops listening; what was said stays in the field.
     func stop() {
-        guard isListening else { return }
+        guard state != .idle else { return }
         generation += 1
-        isListening = false
+        state = .idle
         session?.cancel()
         silence?.cancel()
         limit?.cancel()
@@ -148,17 +168,20 @@ final class VoiceInput {
         limit = nil
     }
 
-    /// A key pressed in the palette: while listening it stops listening. Escape is consumed, so it
-    /// only stops (what was said stays; a second Escape clears it as usual); any other key goes on to
-    /// the field, so typing takes over from speaking. Returns whether the key was consumed.
+    /// A key pressed in the palette stops the microphone, and typing takes over: the key goes on to
+    /// the field. Armed, nothing was heard, so nothing is left behind and Escape does what it always
+    /// does. Listening, Escape is consumed, so it only stops (what was said stays; a second Escape
+    /// clears it as usual). Returns whether the key was consumed.
     func keyPressed(isEscape: Bool) -> Bool {
-        guard isListening else { return false }
+        guard state != .idle else { return false }
+        let consumed = isListening && isEscape
         stop()
-        return isEscape
+        return consumed
     }
 
-    /// Runs Start Listening: listens, or stops if it is listening already. Off, it says where to turn
-    /// voice on rather than asking for the microphone from the palette.
+    /// The mic button, ⌘L and Start Listening: listens (in the open, if it was armed), or stops if it
+    /// is listening already. Off, it says where to turn voice on rather than asking for the
+    /// microphone from the palette.
     func toggle() {
         if isListening {
             stop()
@@ -169,7 +192,7 @@ final class VoiceInput {
         }
     }
 
-    private func arm(after delay: Duration) {
+    private func stop(after delay: Duration) {
         silence?.cancel()
         let current = generation
         silence = Task { [weak self] in

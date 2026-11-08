@@ -140,20 +140,76 @@ struct VoiceInputTests {
         #expect(await soon { harness.session.isStopped })
     }
 
+    /// On open the microphone is armed quietly: nothing is written, and the first key stops it and
+    /// goes on to the field (Escape too, so it still clears or hides), leaving no text; words the
+    /// recognizer delivers afterwards are dropped.
+    @Test func typingWhileArmedStopsQuietly() async throws {
+        let harness = try Harness(timing: patient)
+        harness.voice.arm()
+        #expect(harness.voice.state == .armed)
+        #expect(!harness.voice.isListening)
+        #expect(!harness.voice.keyPressed(isEscape: false))
+        #expect(harness.voice.state == .idle)
+        #expect(await soon { harness.session.isStopped })
+        harness.session.continuation.yield("Safari")
+        await Task.yield()
+        #expect(harness.written.isEmpty)
+
+        harness.voice.arm()
+        #expect(!harness.voice.keyPressed(isEscape: true))
+        #expect(harness.voice.state == .idle)
+    }
+
+    /// The first words heard while armed switch to listening in the open, and go into the field.
+    @Test func firstWordsWhileArmedStartListening() async throws {
+        let harness = try Harness(timing: patient)
+        harness.voice.arm()
+        harness.session.continuation.yield("")
+        await Task.yield()
+        #expect(harness.voice.state == .armed)
+        harness.session.continuation.yield("Weather")
+        #expect(await soon { harness.voice.isListening })
+        #expect(harness.written == ["Weather"])
+    }
+
+    /// Armed, a silence just turns the microphone off: no failure, no text.
+    @Test func armedSilenceStopsQuietly() async throws {
+        let harness = try Harness(timing: .init(silence: .seconds(30), noSpeech: .milliseconds(50)))
+        harness.voice.arm()
+        #expect(await soon { harness.voice.state == .idle })
+        #expect(await soon { harness.session.isStopped })
+        #expect(harness.written.isEmpty)
+        #expect(harness.failures.isEmpty)
+    }
+
+    /// The mic button and ⌘L (both `toggle`) while armed listen in the open on the same session,
+    /// then stop.
+    @Test func startingByHandWhileArmedKeepsTheSession() throws {
+        let harness = try Harness(timing: patient)
+        harness.voice.arm()
+        harness.voice.toggle()
+        #expect(harness.voice.isListening)
+        #expect(harness.sessions.count == 1)
+        harness.voice.toggle()
+        #expect(harness.voice.state == .idle)
+    }
+
     /// Off, nothing listens: not on open, not on Start Listening, which says where to turn it on.
     @Test func offNeverListens() throws {
         let harness = try Harness(mode: .off)
         #expect(!harness.voice.listensOnOpen)
         harness.voice.listen()
-        #expect(!harness.voice.isListening)
+        harness.voice.arm()
+        #expect(harness.voice.state == .idle)
         harness.voice.toggle()
         #expect(!harness.voice.isListening)
         #expect(harness.sessions.isEmpty)
         #expect(harness.failures == ["Voice is off. Turn it on in Settings ▸ Voice."])
     }
 
-    /// Start Listening toggles; "only with Start Listening" doesn't listen on open.
-    @Test func startListeningToggles() throws {
+    /// The mic button, ⌘L and Start Listening toggle, listening in the open at once; "only when
+    /// asked" doesn't arm on open.
+    @Test func startingByHandToggles() throws {
         let harness = try Harness(mode: .onCommand, timing: patient)
         #expect(!harness.voice.listensOnOpen)
         harness.voice.toggle()

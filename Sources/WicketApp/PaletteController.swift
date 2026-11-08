@@ -69,7 +69,7 @@ final class PalettePanel: NSPanel {
     }
 
     /// The chord `event` is, unless an input method is composing with it.
-    private func chord(for event: NSEvent) -> PaletteChord? {
+    func chord(for event: NSEvent) -> PaletteChord? {
         guard (firstResponder as? NSTextView)?.hasMarkedText() != true else { return nil }
         return PaletteChord(
             keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
@@ -138,7 +138,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         let root = NSHostingView(
             rootView: PaletteRootView(
                 model: model, onRun: { [weak self] in self?.run($0, action: $1) },
-                onEscape: { [weak self] in self?.escape() }))
+                onEscape: { [weak self] in self?.escape() },
+                onListen: { [weak self] in self?.listen() }))
         // The controller owns the frame; SwiftUI must never resize the panel.
         root.sizingOptions = []
         panel.contentView = root
@@ -170,7 +171,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         // activate Wicket, so the frontmost app is still the one the user came from.
         capturePreviousApp()
         // Likewise after: the microphone and the analyzer start off the main actor.
-        if let voice = model.voice, voice.listensOnOpen { voice.listen() }
+        if let voice = model.voice, voice.listensOnOpen { voice.arm() }
     }
 
     private func present(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
@@ -317,27 +318,30 @@ final class PaletteController: NSObject, NSWindowDelegate {
         case .open(let run):
             model.session.open(run)
             // A frame waiting for its text (a follow-up, Run Agent's question) is an input like the
-            // opened palette's, so it listens as that does.
-            if run.awaitsText, let voice = model.voice, voice.listensOnOpen { voice.listen() }
+            // opened palette's, so it arms the microphone as that does.
+            if run.awaitsText, let voice = model.voice, voice.listensOnOpen { voice.arm() }
         }
     }
 
     // MARK: Voice
 
-    /// Start Listening (its row or hotkey): shows the palette if a hotkey ran it while hidden
-    /// (`run(bound:)` captured where the user came from already), then listens, or says how to
-    /// turn voice on.
+    /// The mic button, ⌘L and Start Listening (its row or hotkey): shows the palette if a hotkey ran
+    /// it while hidden (`run(bound:)` captured where the user came from already), then listens or
+    /// stops, or says how to turn voice on. Not in a frame that takes no text, where words would
+    /// have nowhere to go.
     func listen() {
         if !panel.isVisible { present() }
-        guard let voice = model.voice else { return }
+        guard let voice = model.voice, model.takesSpeech else { return }
         voice.toggle()
         // From its row, the field still says "listen"; the words replace it.
         if voice.isListening { model.session.setSpokenQuery("") }
     }
 
-    /// While listening, any key stops it (`VoiceInput.keyPressed`).
+    /// While the microphone is on, any key stops it (`VoiceInput.keyPressed`), except ⌘L, whose
+    /// chord does the stopping (or turns an armed microphone into listening).
     private func keyDown(_ event: NSEvent) -> Bool {
-        model.voice?.keyPressed(isEscape: event.keyCode == Self.escapeKeyCode) ?? false
+        guard panel.chord(for: event) != .listen else { return false }
+        return model.voice?.keyPressed(isEscape: event.keyCode == Self.escapeKeyCode) ?? false
     }
 
     private static let escapeKeyCode: UInt16 = 53
@@ -371,6 +375,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
             run(ActionTarget(item: model.results[row]), action: 0)
         case .openSettings:
             perform(.run(command: .settings))
+        case .listen:
+            listen()
         case .move(let delta):
             if model.actionMenu != nil {
                 model.actionMenu?.moveSelection(by: delta)

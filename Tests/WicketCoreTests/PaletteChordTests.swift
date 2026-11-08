@@ -7,6 +7,7 @@ import Testing
     #expect(PaletteChord(keyCode: 0x24, characters: "\r", modifiers: .command) == .runSecondary)
     #expect(PaletteChord(keyCode: 0x4C, characters: "\u{3}", modifiers: .command) == .runSecondary)
     #expect(PaletteChord(keyCode: 0x2B, characters: ",", modifiers: .command) == .openSettings)
+    #expect(PaletteChord(keyCode: 0x25, characters: "l", modifiers: .command) == .listen)
     #expect(PaletteChord(keyCode: 0x2D, characters: "n", modifiers: .control) == .move(1))
     #expect(PaletteChord(keyCode: 0x23, characters: "p", modifiers: .control) == .move(-1))
 }

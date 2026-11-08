@@ -35,6 +35,9 @@ final class PaletteModel {
     var commandHeld = false
     /// Voice input into the search field; nil in tests that don't use it.
     var voice: VoiceInput?
+    /// Whether spoken words have somewhere to go: the root, or a frame waiting for its text (a
+    /// follow-up), as `PaletteSession.setSpokenQuery` writes them.
+    var takesSpeech: Bool { session.frames.count == 1 || top.awaitsText }
     /// The name of the app a paste types into (frontmost at summon), for "Paste to Mail".
     var pasteTarget: String?
     /// The height of the results card under the pill, 0 while there is none. Set by

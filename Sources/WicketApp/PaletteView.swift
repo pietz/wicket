@@ -77,13 +77,15 @@ enum PaletteMetrics {
 /// glass shapes sit in one container, so the card morphs out of the pill; the content is layered
 /// above the container, where a morph can't smear it.
 ///
-/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
+/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌘L, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
 /// plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
     /// Runs the action at a position in a target's actions.
     let onRun: (ActionTarget?, Int) -> Void
     let onEscape: () -> Void
+    /// The mic button: start or stop listening.
+    let onListen: () -> Void
     @FocusState private var focus: PaletteFocus?
     @Namespace private var glass
 
@@ -158,7 +160,7 @@ struct PaletteRootView: View {
     /// screen's title, else its title for a page (which takes no text) or its placeholder; a pushed
     /// page's title. "Listening…" wherever speech goes (the root, a frame waiting for its text).
     private var pill: (icon: Item.Icon, prompt: String) {
-        if model.voice?.isListening == true, model.session.frames.count == 1 || model.top.awaitsText {
+        if model.voice?.isListening == true, model.takesSpeech {
             return (.symbol(name: "waveform"), "Listening…")
         }
         switch model.top.content {
@@ -263,6 +265,9 @@ struct PaletteRootView: View {
             }
             if let context = model.session.context {
                 ContextChip(text: context.summary)
+            }
+            if let voice = model.voice, voice.isEnabled, model.takesSpeech {
+                MicButton(state: voice.state, action: onListen)
             }
         }
         .padding(.horizontal, 18)
@@ -661,6 +666,27 @@ enum IconCache {
         image.size = size
         cache.setObject(image, forKey: key as NSString)
         return image
+    }
+}
+
+/// At the pill's end while voice is on: starts or stops listening, like ⌘L. Armed on open, it is
+/// filled, so the field says the microphone is on without anything else showing.
+private struct MicButton: View {
+    let state: VoiceInput.State
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: state == .idle ? "mic" : "mic.fill")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(state == .listening ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                .frame(width: 24, height: 24)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .help(state == .listening ? "Stop Listening (⌘L)" : "Start Listening (⌘L)")
+        .accessibilityLabel(state == .listening ? "Stop Listening" : "Start Listening")
     }
 }
 

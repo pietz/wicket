@@ -10,6 +10,8 @@ public enum PaletteChord: Equatable, Sendable {
     case runRow(Int)
     /// ⌘,: open the settings window.
     case openSettings
+    /// ⌘L: start or stop listening, like the pill's mic button.
+    case listen
     /// ⌃N and ⌃P: move the selection, like ↓ and ↑.
     case move(Int)
 
@@ -31,6 +33,8 @@ public enum PaletteChord: Equatable, Sendable {
                 self = .toggleActions
             } else if character == "," {
                 self = .openSettings
+            } else if character == "l" {
+                self = .listen
             } else {
                 return nil
             }
