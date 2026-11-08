@@ -12,6 +12,35 @@ struct Quantity {
 
     var value: Double
     var kind: Kind
+    /// Decimal places the exact answer can have, while the value is a typed decimal or a sum,
+    /// difference or product of them (`0.1 + 0.25` has 2); nil after anything inexact.
+    var places: Int? = nil
+
+    /// A typed number: the decimal places of the shortest decimal that reads back as `value`.
+    init(typed value: Double, kind: Kind) {
+        let text = String(describing: abs(value))
+        let parts = text.split(separator: "e")
+        let fraction = parts[0].split(separator: ".").dropFirst().first ?? ""
+        let digits = fraction.reversed().drop { $0 == "0" }.count
+        let exponent = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+        self.init(value: value, kind: kind, places: max(0, digits - exponent))
+    }
+
+    init(value: Double, kind: Kind, places: Int? = nil) {
+        self.value = value
+        self.kind = kind
+        self.places = places
+    }
+
+    /// Rounding noise zeroed: `1 - 0.9 - 0.1` leaves -2.8e-17, but with one decimal place a
+    /// nonzero exact answer is at least 0.1, so anything under half that is noise. A representable
+    /// answer is never lost: `9007199254740991 - 9007199254740990` stays 1.
+    var cleaned: Quantity {
+        guard let places, abs(value) < 0.5 * pow(10, -Double(places)) else { return self }
+        var zero = self
+        zero.value = 0
+        return zero
+    }
 
     /// A percentage as the fraction it stands for; everything else unchanged.
     var scalar: Quantity {
@@ -153,6 +182,7 @@ struct Evaluator {
                 guard case .percent = left.kind else { throw .notACalculation }
                 var right = try unary()
                 right.value *= left.value / 100
+                right.places = nil
                 left = right
             case .open:
                 left = try multiply(left, try power())
@@ -210,7 +240,7 @@ struct Evaluator {
         case .sign(let code, _):
             guard case .number(let value)? = peek else { throw .notACalculation }
             pos += 1
-            return Quantity(value: value, kind: .currency(code))
+            return Quantity(typed: value, kind: .currency(code))
         case .open:
             let inner = try conversion()
             guard case .close? = peek else { throw .notACalculation }
@@ -235,30 +265,31 @@ struct Evaluator {
     private mutating func amount(_ value: Double) -> Quantity {
         if let (unit, length) = unit(at: pos) {
             pos += length
-            var total = value
+            var total = Quantity(typed: value, kind: .unit(unit))
             // A composite tail: `3 ft 2 in`, `1 hr 30 min`. Temperatures don't compose.
             while !(unit is UnitTemperature), case .number(let part)? = peek,
                 let (next, nextLength) = self.unit(at: pos + 1), UnitCatalog.sameKind(next, unit)
             {
                 pos += 1 + nextLength
-                total += Measurement(value: part, unit: next).converted(to: unit).value
+                total.value += Measurement(value: part, unit: next).converted(to: unit).value
+                total.places = nil
                 operations += 1
             }
-            return Quantity(value: total, kind: .unit(unit))
+            return total
         }
         switch peek {
         case .word(let word)?:
             if let code = CurrencyNames.code(word) {
                 pos += 1
-                return Quantity(value: value, kind: .currency(code))
+                return Quantity(typed: value, kind: .currency(code))
             }
         case .sign(let code, _)?:
             pos += 1
-            return Quantity(value: value, kind: .currency(code))
+            return Quantity(typed: value, kind: .currency(code))
         default:
             break
         }
-        return Quantity(value: value, kind: .number)
+        return Quantity(typed: value, kind: .number)
     }
 
     /// The longest run of words from `index` that names a unit, and how many tokens it spans.
@@ -309,30 +340,35 @@ struct Evaluator {
     /// typed last (`5 ft + 1 m` is in metres), and a bare number takes the other side's unit.
     private mutating func add(_ a: Quantity, _ b: Quantity, negate: Bool) throws(CalcError) -> Quantity {
         let sign: Double = negate ? -1 : 1
-        func sum(_ x: Double, _ y: Double) -> Double {
-            Math.denoised(x + sign * y, scale: max(abs(x), abs(y)))
+        /// Exact operands keep their places; a converted one makes the sum inexact.
+        func sum(_ x: Double, _ y: Double, exact: Bool = true) -> Quantity {
+            let places = exact ? a.places.flatMap { p in b.places.map { max(p, $0) } } : nil
+            return Quantity(value: x + sign * y, kind: b.kind, places: places).cleaned
         }
         switch (a.kind, b.kind) {
         case (.percent, .percent), (.number, .number):
-            return Quantity(value: sum(a.value, b.value), kind: a.kind)
+            return sum(a.value, b.value)
         case (.percent, _):
             throw .notACalculation
         case (_, .percent):
             return Quantity(value: a.value * (1 + sign * b.value / 100), kind: a.kind)
         case (.number, _):
-            return Quantity(value: sum(a.value, b.value), kind: b.kind)
+            return sum(a.value, b.value)
         case (_, .number):
-            return Quantity(value: sum(a.value, b.value), kind: a.kind)
+            var result = sum(a.value, b.value)
+            result.kind = a.kind
+            return result
         case (.unit(let u), .unit(let v)):
             guard UnitCatalog.sameKind(u, v) else {
                 throw .incompatible(UnitCatalog.kind(of: u), UnitCatalog.kind(of: v))
             }
             // Absolute temperatures on different scales don't add meaningfully.
             if u is UnitTemperature, u != v { throw .notACalculation }
+            if u == v { return sum(a.value, b.value) }
             let left = Measurement(value: a.value, unit: u).converted(to: v).value
-            return Quantity(value: sum(left, b.value), kind: b.kind)
+            return sum(left, b.value, exact: false)
         case (.currency(let c), .currency(let d)):
-            return Quantity(value: sum(try exchange(a.value, from: c, to: d), b.value), kind: b.kind)
+            return sum(try exchange(a.value, from: c, to: d), b.value, exact: c == d)
         case (.unit(let u), .currency):
             throw .incompatible(UnitCatalog.kind(of: u), "currency")
         case (.currency, .unit(let v)):
@@ -342,9 +378,10 @@ struct Evaluator {
 
     private func multiply(_ a: Quantity, _ b: Quantity) throws(CalcError) -> Quantity {
         let (a, b) = (a.scalar, b.scalar)
+        let places = a.places.flatMap { p in b.places.map { p + $0 } }
         switch (a.kind, b.kind) {
-        case (.number, _): return Quantity(value: a.value * b.value, kind: b.kind)
-        case (_, .number): return Quantity(value: a.value * b.value, kind: a.kind)
+        case (.number, _): return Quantity(value: a.value * b.value, kind: b.kind, places: places)
+        case (_, .number): return Quantity(value: a.value * b.value, kind: a.kind, places: places)
         default: throw .notACalculation  // No derived units (m², km/h from km and h) yet.
         }
     }
@@ -428,9 +465,8 @@ enum Math {
 
     static func isFunction(_ name: String) -> Bool { functions[name] != nil }
 
-    /// Rounding noise left by cancellation is zero: `1 - 0.9 - 0.1` leaves -2.8e-17 and `sin(π)`
-    /// 1.2e-16. Only a result within a few ulps of `scale`, the magnitude of the inputs, counts as
-    /// noise, so a genuinely small result (`10000000000000 - 9999999999999`, `sin(1e-13)`) stays.
+    /// `sin(π)` leaves 1.2e-16 of rounding noise in π. Only a result within a few ulps of `scale`,
+    /// the argument's magnitude, counts as noise, so a genuinely small one (`sin(1e-13)`) stays.
     static func denoised(_ value: Double, scale: Double) -> Double {
         abs(value) <= 4 * scale.ulp ? 0 : value
     }
