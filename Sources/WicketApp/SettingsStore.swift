@@ -39,11 +39,11 @@ final class SettingsStore {
             settings = try Settings.load(from: url)
             diagnostics.set(.settings, of: .settings, .warning, settings.ignored)
             for reason in settings.ignored {
-                Perf.logger.error("settings.json: \(reason, privacy: .public)")
+                Perf.logger.error("settings.json: \(reason, privacy: .private)")
             }
         } catch {
             let reason = error.localizedDescription
-            Perf.logger.error("\(reason, privacy: .public); keeping the last good settings")
+            Perf.logger.error("settings.json unreadable, keeping the last good: \(reason, privacy: .private)")
             diagnostics.set(.settings, of: .settings, .error, [reason])
         }
     }

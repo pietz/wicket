@@ -67,7 +67,7 @@ final class ExchangeRateStore {
             update(fresh)
             return true
         } catch {
-            Self.logger.error("ECB rates fetch failed: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("ECB rates fetch failed: \(error.localizedDescription, privacy: .private)")
             return false
         }
     }
