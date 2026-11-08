@@ -299,26 +299,21 @@ public final class ExtensionsRunner: CommandRunner {
     }
 
     /// An enabled extension's page: its commands, the secrets it declares and whether each is set,
-    /// and its problems; Return runs its first command, then Fix with Agent when a recent run
-    /// failed, Reveal in Finder, Change with Agent, setting a secret (one not set first of all), Copy
-    /// Diagnostics when there is anything to copy (its run history included), Disable, and Move to
-    /// Trash last.
+    /// and its problems. Actions: setting a secret that isn't set first of all (the command would
+    /// only ask for it), running its first command, Fix with Agent when a recent run failed, Reveal
+    /// in Finder, Change with Agent, setting its other secrets, Copy Diagnostics when there is
+    /// anything to copy (its run history included), Disable, and Move to Trash last.
     private func enabled(_ sealed: SealedRevision, folder: URL) async -> Detail {
-        var detail = Self.enabled(sealed, folder: folder)
+        let manifest = sealed.manifest
         let id = sealed.revision.extensionID
         let runs = await extensions.history?.runs(of: id) ?? []
-        if let fix = await extensions.fixAction(for: id) {
-            detail.actions.insert(fix, at: detail.actions.count - 2)
-        }
-        var extra: [Item.Action] = [ExtensionAuthoring.change(id: id)]
-        var sections: [String] = []
-        let secrets = sealed.manifest.secrets.map { ($0, extensions.hasSecret($0.name, of: id)) }
+        var sections = ["**Enabled.** Its commands are in Wicket now:\n\n" + Self.commands(manifest)]
+        let secrets = manifest.secrets.map { ($0, extensions.hasSecret($0.name, of: id)) }
         if !secrets.isEmpty {
             sections.append(
                 "**Secrets**\n\n"
                     + secrets.map { "- \($0.0.title) (`\($0.0.name)`): \($0.1 ? "Set" : "Not set")" }
                     .joined(separator: "\n"))
-            extra += secrets.map { SecretsRunner.action(extension: id, name: $0.0.name) }
         }
         let problems = problems(of: id)
         if !problems.isEmpty {
@@ -335,38 +330,33 @@ public final class ExtensionsRunner: CommandRunner {
                             + (run.message.map(Self.firstLine) ?? run.outcome.rawValue)
                     }.joined(separator: "\n"))
         }
-        let all = extensions.diagnostics.report(forExtension: id)
-        if !all.isEmpty || !runs.isEmpty {
-            extra.append(
-                .copy(text: Self.diagnosticsText(sealed, all, runs: runs), title: "Copy Diagnostics"))
-        }
-        detail.markdown += sections.map { "\n\n" + $0 }.joined()
-        // A secret that isn't set is what the user needs first: the command would only ask for it.
-        if let missing = secrets.firstIndex(where: { !$0.1 }) {
-            detail.actions.insert(extra.remove(at: missing + 1), at: 0)
-        }
-        detail.actions.insert(contentsOf: extra, at: detail.actions.count - 1)
-        detail.actions.append(Self.trash(id))
-        return detail
-    }
 
-    /// An enabled extension: its commands; Return runs the first listed one, then Reveal in Finder
-    /// and Disable last. What a build's frame shows once it is enabled.
-    public static func enabled(_ sealed: SealedRevision, folder: URL) -> Detail {
-        let id = sealed.revision.extensionID
+        var setSecrets = secrets.map { SecretsRunner.action(extension: id, name: $0.0.name) }
         var actions: [Item.Action] = []
-        if let first = sealed.manifest.commands.first(where: { !$0.hidden }) {
+        if let missing = secrets.firstIndex(where: { !$0.1 }) {
+            actions.append(setSecrets.remove(at: missing))
+        }
+        if let first = manifest.commands.first(where: { !$0.hidden }) {
             actions.append(
                 .run(
                     command: .extension(id, first.id), title: "Run \(first.title)", revision: sealed.revision)
             )
         }
-        actions.append(.reveal(url: folder, title: "Reveal in Finder"))
-        actions.append(.run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"))
+        if let fix = await extensions.fixAction(for: id) { actions.append(fix) }
+        actions += [.reveal(url: folder, title: "Reveal in Finder"), ExtensionAuthoring.change(id: id)]
+        actions += setSecrets
+        let all = extensions.diagnostics.report(forExtension: id)
+        if !all.isEmpty || !runs.isEmpty {
+            actions.append(
+                .copy(text: Self.diagnosticsText(sealed, all, runs: runs), title: "Copy Diagnostics"))
+        }
+        actions += [
+            .run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"), Self.trash(id),
+        ]
         return Detail(
-            title: sealed.manifest.name,
-            markdown: "**Enabled.** Its commands are in Wicket now:\n\n" + commands(sealed.manifest),
-            metadata: metadata(sealed), actions: actions)
+            title: manifest.name, markdown: sections.joined(separator: "\n\n"),
+            metadata: Self.metadata(sealed),
+            actions: actions)
     }
 
     /// Everything the diagnostics hold about an extension, then its recorded runs, as plain text to
