@@ -7,9 +7,9 @@ Status: ✅ done · 🔨 in progress · ⏭ next · 💤 later · 👀 watch
 
 ## Plan to 0.0.11 (lead, 2026-11-08; owner away, authorized)
 
-1. Land the markup views (M2) and the scope cleanup.
-2. AI simplification plus markup in the adapters (M3), with agent.md split into built-in rules and the user's own instructions.
-3. Extension refactor: per-run processes, a static check, no root mode, no rollback.
+1. ✅ Scope cleanup landed. 🚧 Markup views (M2) landed locally; the advisor's fixes (image SSRF, full-text copy, actions on an empty filter, scrolling to the selection) are in progress.
+2. ✅ AI simplification, agent.md split. ✅ M3: the agent is told the catalog; evaluation 84/84 clean on both CLIs (docs/reviews/2026-11-08-markup-eval.md).
+3. ✅ Extension refactor: per-run processes (protocol 2), a static check, no root mode, no rollback, after the advisor's fixes.
 4. Palette simplification.
 Advisors along the way (owner): an Astra or Fable check of each refactor's result before it lands, and a big-picture review (product, code, docs) before release, so the codebase, CONCEPT and docs are current and spotless.
 5. Evaluate on both CLIs, do an on-screen check of Wicket Dev (authorized), rewrite CONCEPT.md short and current, release 0.0.11 even if the evaluation falls short, listing the gaps. Keep the Sparkle key file until the owner confirms a backup.
