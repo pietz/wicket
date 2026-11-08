@@ -319,7 +319,7 @@ public final class Extensions {
 
     /// Discovers again with every folder sealed afresh, not only those a file watcher reported, and
     /// returns once that is published: for when folders may have changed faster than the watcher
-    /// reports them (an acting agent run that just ended).
+    /// reports them (an agent run that just ended).
     @discardableResult
     public func reload() -> Task<Void, Never> {
         load(changed: [directory.path])

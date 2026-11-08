@@ -6,7 +6,7 @@ import WicketCore
 final class AnswerDraft {
     let title: String
     let invocation: Invocation
-    /// Continues the conversation, once the answer has come from an acting run whose session the
+    /// Continues the conversation, once the answer has come from a run whose session the
     /// agent kept: second among the actions, so ⌘↩ runs it.
     var followUp: Item.Action?
     /// Reviews of the extensions the run added or changed, first among the finished answer's actions.

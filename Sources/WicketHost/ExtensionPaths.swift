@@ -14,7 +14,7 @@ public enum ExtensionPaths {
     /// extension (`Approvals`), written only by Wicket's UI.
     public static var approvals: URL { support.appending(path: "approvals.json") }
 
-    /// `~/Library/Application Support/Wicket/commands.md`: Wicket's commands, written for each acting
+    /// `~/Library/Application Support/Wicket/commands.md`: Wicket's commands, written for each
     /// run to read on demand (`ExtensionAuthoring`).
     public static var commandList: URL { support.appending(path: "commands.md") }
 

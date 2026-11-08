@@ -8,7 +8,7 @@ extension CommandID {
     /// Opens Settings on its AI pane: the action of a Run Agent frame whose provider isn't ready.
     /// Hidden, reached by id only; the app's table gives it its effect.
     public static let aiSettings = CommandID.builtin("ai-settings")
-    /// Answers an acting agent's approval shown in a Run Agent frame (`token` and `decision` args).
+    /// Answers an agent's approval shown in a Run Agent frame (`token` and `decision` args).
     /// Hidden, reached by id only.
     public static let aiApproval = CommandID.builtin("ai-approval")
     /// Continues the conversation of a Run Agent answer (its `conversation` arg) with the submitted
@@ -72,7 +72,7 @@ public final class AgentRunner: CommandRunner {
             actingIn: Self.folder(for: invocation.context), about: invocation.args?["extension"]?.string)
     }
 
-    /// Where an acting run works: the folder of the Finder selection (a selected folder itself when it
+    /// Where a run works: the folder of the Finder selection (a selected folder itself when it
     /// is the only item), else the home folder.
     static func folder(for context: SummonContext?) -> URL {
         guard let files = context?.files, let first = files.first else {
