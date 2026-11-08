@@ -13,7 +13,7 @@ Legend: ✅ done · 🚧 in progress · ⏭ next · 💤 later, frozen until the
 5. ✅ Big-picture review ([review](docs/reviews/2026-11-08-big-picture.md)); its release fixes: calculator zeroing, home entries in file search, the watcher's root events, private error logs, docs.
 6. ✅ Palette simplification; agent content under agent authority (tested end to end); a stopped run keeps what it wrote for review; AgentRunner absorbed AnswerStream.
 7. ✅ CONCEPT.md rewritten short and current.
-8. 🚧 Final review fixes (Load Images, Run Again, page height), off-screen snapshot check (the screen was locked), then release 0.0.11. Keep the Sparkle key file until the owner confirms a backup.
+8. ✅ Released 0.0.11 (2026-11-08).
 
 ## The core (owner, 2026-11-08)
 

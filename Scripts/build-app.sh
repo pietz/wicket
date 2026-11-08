@@ -48,12 +48,12 @@ cp "$bin/WicketCLI" "$app/Contents/Helpers/wicket"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 # Wicket's default agent instructions and the authoring kit acting AI runs read to build commands
-# (ExtensionAuthoring): the guide, its schema and samples, laid out as in the repository
+# (ExtensionAuthoring): the guide, the markup reference, its schema and samples, laid out as in the repository
 # so the guide's relative links work.
 cp Resources/agent.md "$app/Contents/Resources/agent.md"
 kit="$app/Contents/Resources/Authoring"
 mkdir -p "$kit/docs/examples" "$kit/Extensions"
-cp docs/extensions.md docs/extension.schema.json "$kit/docs/"
+cp docs/extensions.md docs/markup.md docs/extension.schema.json "$kit/docs/"
 for sample in docs/examples/week-number docs/examples/unicode Extensions/slugify Extensions/github-prs Extensions/gallery; do
   ditto "$sample" "$kit/$sample"
 done
