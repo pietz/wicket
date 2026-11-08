@@ -24,7 +24,7 @@ Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/
 ## Privacy
 
 - No accounts, no telemetry, no analytics.
-- Wicket itself only goes online to check for updates (one request for a public file on GitHub, which you can turn off in Settings ▸ General), for currency rates in the calculator, and, if you turn on voice input, to let macOS download Apple's speech model.
+- Wicket itself only goes online to check for updates (one request for a public file on GitHub, which you can turn off in Settings ▸ General), for currency rates in the calculator, and, if you turn on voice input, to let macOS download Apple's speech model. Images in answers and extension pages load from the web too (public addresses only, no cookies); turn off Show online content in Settings ▸ General to stop that.
 - What you send to the AI goes to the agent you chose, under that agent's own terms. Opened from Finder, Wicket tells it which files you had selected, only if you gave it permission to read Finder's selection.
 - Voice input is off until you turn it on, and transcribes on your Mac.
 - Extensions are programs on your Mac. Wicket runs each one, and each change to it, only after you review and enable it. Testing a folder with `wicket run` runs it as it is, unreviewed.
