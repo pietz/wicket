@@ -129,7 +129,6 @@ private final class Harness {
     let menuBar = FakeMenuBar()
     let agent = FakeAgent()
     let askAI: AskAIRunner
-    let buildJobs: BuildJobs
     private(set) var work: [String] = []
     /// The built-ins' effects that ran.
     private(set) var effects: [String] = []
@@ -143,8 +142,6 @@ private final class Harness {
         weak var harness: Harness?
         askAI = AskAIRunner(
             backend: agent.backend, interval: .zero, provider: { harness?.runtime.applied?.ai.provider })
-        buildJobs = BuildJobs(
-            backend: agent.backend, staging: directory.appending(path: "staging"), guide: { "guide" })
         // The table as `live()` composes it, with effects that are only recorded.
         let builtins = [
             Builtin(
@@ -161,11 +158,6 @@ private final class Harness {
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
                     feature: .askAI),
                 runner: askAI),
-            Builtin(
-                RegisteredCommand(
-                    id: .makeCommand, title: "Make a Command", icon: .symbol(name: "hammer"), keyword: "make",
-                    input: .submitText, placeholder: "Describe the command to make"),
-                runner: MakeCommandRunner(jobs: buildJobs)),
         ]
         let apps = StaticSource("apps", items: [item("Safari")])
         let calculator = StaticSource("calculator", items: [])
@@ -188,7 +180,7 @@ private final class Harness {
                 SessionConfiguration(dataDirectory: directory.appending(path: "data/\(id)"), version: "test")
                 { _ in nil }
             },
-            buildJobs: buildJobs, usageURL: directory.appending(path: "usage.json"), system: system.system)
+            usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
         runtime.menuBar = menuBar
         harness = self
@@ -327,25 +319,6 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     #expect(h.agent.ended.withLock { $0 } == 1)
 }
 
-/// Quitting cancels a running build job, which outlives its frame, and waits for its agent.
-@MainActor @Test func shutdownCancelsARunningBuildJob() async throws {
-    let h = try Harness()
-    h.agent.exitDelay.withLock { $0 = .milliseconds(200) }
-    let command = try #require(h.runtime.registry.command(.makeCommand))
-    h.session.open(CommandRun(command, .invoked, text: "show the week number"))
-    #expect(await soon { h.agent.started.withLock { $0 } == 1 })
-    h.session.reset()  // Detached: the job keeps running.
-    let job = try #require(h.buildJobs.current)
-    #expect(job.phase.isRunning)
-
-    await h.runtime.shutdown()
-    #expect(h.agent.ended.withLock { $0 } == 1)
-    guard case .cancelled = job.phase else {
-        Issue.record("ended \(job.phase)")
-        return
-    }
-}
-
 /// A process that won't die doesn't keep the app from quitting.
 @MainActor @Test func shutdownIsBounded() async throws {
     let h = try Harness()
@@ -455,39 +428,6 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     h.runtime.messages.present = { shown.append($0) }
     h.runtime.messages.post(Message("Copied, not pasted", kind: .copied))
     #expect(shown == [Message("Copied, not pasted", kind: .copied)])
-}
-
-/// A build that ends while its frame isn't on screen (the palette closed, another command on top)
-/// tells the user through the message channel; one whose frame is showing doesn't.
-@MainActor @Test func aBuildEndingUnwatchedPostsAMessage() async throws {
-    let h = try Harness()
-    var shown: [Message] = []
-    h.runtime.messages.present = { shown.append($0) }
-    let command = try #require(h.runtime.registry.command(.makeCommand))
-
-    // Watched: the build frame is on top when it fails.
-    h.session.open(CommandRun(command, .invoked, text: "show the week number"))
-    #expect(
-        await soon {
-            if case .screen(let frame) = h.session.top.content {
-                frame.run?.command.id == .makeCommand
-            } else {
-                false
-            }
-        })
-    let watched = try #require(h.buildJobs.current)
-    h.agent.failure.withLock { $0 = "rate limited" }
-    await watched.finished()
-    #expect(shown.isEmpty)
-
-    // Unwatched: the palette was closed.
-    h.agent.failure.withLock { $0 = nil }
-    h.session.reset()
-    let unwatched = try h.buildJobs.start("count my tabs")
-    #expect(await soon { h.agent.started.withLock { $0 } == 2 })
-    h.agent.failure.withLock { $0 = "rate limited" }
-    await unwatched.finished()
-    #expect(shown == [Message("Making the command failed: open Extensions to see why.", kind: .failed)])
 }
 
 /// settings.json's ignored fields and a file that can't be read are diagnostics; the panes read

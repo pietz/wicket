@@ -101,11 +101,6 @@ public final class Extensions {
     public private(set) var discovered: [DiscoveredExtension] = []
     /// Called on the main actor after each published snapshot, when `commands` may have changed.
     public var onChange: (@MainActor () -> Void)?
-    /// Moves a replaced extension folder out of the way when a newer one is installed: to the Trash,
-    /// so nothing the user wrote there is lost.
-    var trash: @Sendable (URL) throws -> Void = {
-        try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
-    }
     /// Prunes a uv cache after revisions were pruned (`UV.prune`); a seam for tests.
     var pruneUV: @Sendable (UVStorage) async -> Void = { await UV.prune($0) }
     /// The uv prunes running or waiting, one after another; shutdown cancels them.
@@ -332,6 +327,15 @@ public final class Extensions {
         return worker
     }
 
+    /// Discovers again with every folder sealed afresh, not only those a file watcher reported, and
+    /// returns once that is published: for when folders may have changed faster than the watcher
+    /// reports them (an acting agent run that just ended).
+    @discardableResult
+    public func reload() -> Task<Void, Never> {
+        touched.formUnion((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+        return load()
+    }
+
     /// Runs discovery passes until no request is left.
     private func discover() async {
         while pending {
@@ -453,7 +457,7 @@ public final class Extensions {
     // MARK: Consent (Wicket's review screens only)
 
     /// Approves `revision` and returns once a discovery pass has published the catalog with it
-    /// (its folder sealed again, so a folder just installed is seen). Only Wicket's own review
+    /// (its folder sealed again, so a folder just written is seen). Only Wicket's own review
     /// screens call this, after a passing check; nothing in settings.json or the CLI reaches it.
     func approve(_ revision: ExtensionRevision) async throws {
         try approvals.approve(revision)
@@ -465,79 +469,6 @@ public final class Extensions {
     func revoke(_ id: String) async throws {
         try approvals.revoke(id)
         await load().value
-    }
-
-    /// Installs a build's folder `work` into the extensions directory as the extension `checked`
-    /// is, and returns it sealed; approving it is the caller's next step. The copy must seal to
-    /// the revision that was checked, or nothing changes. An extension folder of the same id is
-    /// replaced (an update, which needs this approval anyway), the old one moved to the Trash; if
-    /// that fails, the old folder is put back and nothing is installed. A folder of that name that
-    /// holds something else is never touched.
-    func install(_ checked: CheckedRevision, from work: URL) async throws -> SealedRevision {
-        try await Self.install(
-            checked.sealed.revision, from: work, into: directory, store: store, trash: trash)
-    }
-
-    @concurrent
-    private nonisolated static func install(
-        _ revision: ExtensionRevision, from work: URL, into directory: URL, store: RevisionStore,
-        trash: @Sendable (URL) throws -> Void
-    ) async throws -> SealedRevision {
-        let files = FileManager.default
-        let id = revision.extensionID
-        let target = directory.appending(path: id, directoryHint: .isDirectory)
-        if files.fileExists(atPath: target.path), (try? Manifest.load(from: target))?.id != id {
-            throw Refusal(
-                "The extensions folder already has a folder named \(id) that isn't this extension, so nothing was installed. Move it away and enable the extension again."
-            )
-        }
-        // Copied and verified inside a hidden folder, so discovery doesn't see it half done; the
-        // copy keeps the extension's name, so a replaced folder swapped into its place goes to the
-        // Trash under that name.
-        let staging = directory.appending(path: ".install-\(UUID().uuidString)", directoryHint: .isDirectory)
-        var keepStaging = false
-        defer { if !keepStaging { RevisionStore.remove(staging) } }
-        let copy = staging.appending(path: id, directoryHint: .isDirectory)
-        do {
-            try files.createDirectory(at: staging, withIntermediateDirectories: true)
-            try files.copyItem(at: work, to: copy)
-        } catch {
-            throw Refusal("Couldn't copy the extension into place: \(error.localizedDescription)")
-        }
-        let sealed: SealedRevision
-        do {
-            sealed = try store.seal(copy, id: id)
-        } catch {
-            throw Refusal("The installed copy couldn't be sealed: \(error.description)")
-        }
-        guard sealed.revision == revision else {
-            throw Refusal(
-                "The extension's files changed after they were checked, so it wasn't enabled. Make it again to check the new files."
-            )
-        }
-        // One atomic step either way: the new folder takes the name, and a replaced one is swapped
-        // out to where the copy was, never deleted.
-        let replacing = files.fileExists(atPath: target.path)
-        guard renamex_np(copy.path, target.path, replacing ? UInt32(RENAME_SWAP) : UInt32(RENAME_EXCL)) == 0
-        else {
-            throw Refusal("Couldn't move the extension into place: \(String(cString: strerror(errno)))")
-        }
-        guard replacing else { return sealed }
-        do {
-            try trash(copy)
-        } catch {
-            // Put the old folder back rather than lose it: the new one wasn't installed.
-            if renamex_np(copy.path, target.path, UInt32(RENAME_SWAP)) != 0 {
-                keepStaging = true
-                throw Refusal(
-                    "Couldn't move the installed version to the Trash or back into place; it is kept in the hidden folder \(staging.lastPathComponent) in the extensions folder."
-                )
-            }
-            throw Refusal(
-                "Couldn't move the installed version to the Trash, so the new one wasn't installed: \(error.localizedDescription)"
-            )
-        }
-        return sealed
     }
 
     /// Whether the secret `name` of the extension `id` is stored (not its value).

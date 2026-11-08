@@ -4,9 +4,6 @@ import WicketCore
 
 /// Apple's text-only model shares the CLI providers' events, draft rendering and cancellation.
 enum AppleModel {
-    static let buildRefusal =
-        "Apple's on-device model answers questions; choose Codex or Claude to make commands"
-
     static func status(
         for availability: SystemLanguageModel.Availability = SystemLanguageModel.default.availability
     ) -> AgentStatus {
@@ -34,11 +31,6 @@ enum AppleModel {
     static func run(_ request: AgentRequest) -> AgentRun {
         AgentRun { output in
             guard !Task.isCancelled else { return .notRunning }
-            // Refuse before checking availability or creating a session, even on an ineligible Mac.
-            guard request.mode == .answer else {
-                output.yield(.error(buildRefusal))
-                return .notRunning
-            }
             let status = status()
             guard status.state == .ready else {
                 output.yield(.error(status.description))

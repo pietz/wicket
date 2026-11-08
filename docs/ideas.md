@@ -6,7 +6,7 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 
 - **Four pillars:** light and fast (small memory), native and modern (Apple's way, opinionated only in small portions), AI first, hackable.
 - **Hackable like the Pi agent harness:** ask the launcher itself to build an extension, with access to the docs and the extension API, and use it right away without a restart.
-- **Ask Wicket what it can do:** a way to ask the launcher about its own capabilities. Not built yet; cheap.
+- ~~**Ask Wicket what it can do:** a way to ask the launcher about its own capabilities.~~ Done: acting runs are told Wicket's commands (see CONCEPT, AI).
 - **Everything is an extension (direction, not a rewrite):** each functionality, even the calculator, a unit you can switch on or off in settings. Cheap step: list the built-ins in Settings ▸ Features.
 - **Our own extension repository** can still exist, but asking for what you need is the main path.
 - **Compact results mode:** maybe show fewer rows (no files under a strong app match) as an option; a full mode fills the space.
@@ -22,4 +22,4 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Selected text is a nice-to-have, paused (not removed):** don't spend more time on it or its permission flow for now.
 - **Wicket must be findable:** the owner saw no Dock or menu bar presence and no way into Settings (menu bar icon in progress).
 - **A hybrid of launcher and agent harness:** typing finds things instantly like a launcher; anything that needs the AI goes to the agent, without the user choosing. The only routing question is "forward this to the AI or not", decided by a decision model or the local Apple model, quickly, for typed text and for voice.
-- **No keyword for making commands:** "build an extension that shows the weather in Wicket" said to the AI should just work. Make a Command as a separate row/keyword makes no sense.
+- ~~**No keyword for making commands:** "build an extension that shows the weather in Wicket" said to the AI should just work.~~ Decided (CONCEPT, AI): Make a Command is gone.

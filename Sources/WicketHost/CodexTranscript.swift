@@ -3,12 +3,12 @@ import WicketCore
 
 /// Codex through `codex app-server`: JSON-RPC over stdio (lines without the "jsonrpc" field).
 ///
-/// Locked-down runs (answer, build) are initialize, config/read (to learn the user's MCP servers),
-/// thread/start (ephemeral, sandboxed, approval policy "never", those servers disabled), turn/start,
+/// Answer runs are initialize, config/read (to learn the user's MCP servers), thread/start
+/// (ephemeral, read-only, approval policy "never", those servers disabled), turn/start,
 /// then notifications until turn/completed; any request the server still sends is refused. Acting
 /// runs skip config/read and leave approval policy, sandbox, features and MCP servers to the user's
-/// own Codex configuration; their command and file-change approvals become `AgentEvent.approvals`,
-/// answered through `reply(_:)`.
+/// own Codex configuration; their command, network and file-change approvals become
+/// `AgentEvent.approvals`, answered through `reply(_:)`.
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
@@ -30,24 +30,21 @@ struct CodexTranscript: AgentTranscript {
         case readConfig, startThread, startTurn
     }
 
-    /// Features switched off for locked-down runs: anything that reaches outside the sandbox or
-    /// brings the user's own setup along (hooks, plugins, apps, browser and computer use, sub-agents,
-    /// memories). As `-c` overrides, because `--disable` rejects names a later version drops.
+    /// Features switched off for answer runs: anything that reaches outside the sandbox or brings
+    /// the user's own setup along (hooks, plugins, apps, browser and computer use, sub-agents,
+    /// memories), the shell, and the code-mode host every other tool runs through. As `-c`
+    /// overrides, because `--disable` rejects names a later version drops.
     private static let disabled = [
         "apps", "plugins", "browser_use", "computer_use", "in_app_browser", "image_generation", "hooks",
         "multi_agent", "goals", "memories", "tool_suggest", "skill_search", "default_mode_request_user_input",
-    ]
-    /// Also off for answer runs: the shell, and the code-mode host every other tool runs through.
-    private static let answerDisabled = [
         "shell_tool", "unified_exec", "code_mode_host", "js_repl", "view_image", "sleep_tool",
     ]
 
     /// Acting runs override nothing: the user's own Codex configuration is the policy.
     static func arguments(for mode: AgentMode) -> [String] {
-        guard mode != .act else { return ["app-server"] }
-        let features = disabled + (mode == .answer ? answerDisabled : [])
+        guard mode == .answer else { return ["app-server"] }
         let overrides =
-            features.map { "features.\($0)=false" } + [
+            disabled.map { "features.\($0)=false" } + [
                 "features.multi_agent_v2.enabled=false", "agents.enabled=false", #"web_search="disabled""#,
                 "notify=[]", "skills.include_instructions=false", "include_apps_instructions=false",
             ]
@@ -103,26 +100,17 @@ struct CodexTranscript: AgentTranscript {
                 "threadId": thread,
                 "input": .array([.object(["type": .string("text"), "text": .string(request.prompt)])]),
             ]
-            switch request.mode {
-            case .answer:
-                params["effort"] = .string("low")
-            case .act:
-                break
-            case .build:
-                params["sandboxPolicy"] = .object([
-                    "type": .string("workspaceWrite"), "networkAccess": .bool(false),
-                    "writableRoots": .array([]),
-                ])
-            }
+            if request.mode == .answer { params["effort"] = .string("low") }
             return AgentStep(send: [Self.request(.startTurn, "turn/start", params)])
         case .initialize, .startTurn:
             return AgentStep()
         }
     }
 
-    /// thread/start: an ephemeral thread in the working directory. Locked-down runs set their sandbox,
-    /// approval policy "never" and `servers` disabled; acting runs set none of it, so Codex applies the
-    /// user's configuration (verified with 0.167: omitted, both come from config.toml).
+    /// thread/start: an ephemeral thread in the working directory. Answer runs set a read-only
+    /// sandbox, approval policy "never" and `servers` disabled; acting runs set none of it, so Codex
+    /// applies the user's configuration (verified with 0.167: omitted, both come from config.toml),
+    /// and get Wicket's instructions.
     private func startThread(disabling servers: [String]) -> Data {
         var params: [String: JSONValue] = [
             "cwd": .string(request.workingDirectory.path),
@@ -130,33 +118,41 @@ struct CodexTranscript: AgentTranscript {
         ]
         switch request.mode {
         case .act:
-            params["developerInstructions"] = .string(Agent.actInstructions)
-        case .answer, .build:
+            params["developerInstructions"] = .string(
+                [Agent.actInstructions, request.instructions].compactMap { $0 }.joined(separator: "\n\n"))
+        case .answer:
             let off = JSONValue.object(["enabled": .bool(false)])
-            params["sandbox"] = .string(request.mode == .build ? "workspace-write" : "read-only")
+            params["sandbox"] = .string("read-only")
             params["approvalPolicy"] = .string("never")
             params["config"] = .object([
                 "mcp_servers": .object(Dictionary(uniqueKeysWithValues: servers.map { ($0, off) }))
             ])
-            if request.mode == .answer { params["baseInstructions"] = .string(Agent.answerInstructions) }
+            params["baseInstructions"] = .string(Agent.answerInstructions)
         }
         return Self.request(.startThread, "thread/start", params)
     }
 
-    /// A request from the server: in an acting run, a command or file-change approval waits for the
-    /// user; anything else is refused.
+    /// A request from the server: in an acting run, a command, network or file-change approval
+    /// waits for the user; anything else is refused.
     private mutating func serverRequest(_ id: JSONValue, _ method: String, _ params: JSONValue) -> AgentStep {
         let approval: AgentApproval
         switch (request.mode, method) {
         case (.act, "item/commandExecution/requestApproval"):
-            approval = AgentApproval(
-                id: id, kind: .command, subject: Self.fullCommand(params) ?? "a command",
-                reason: params["reason"]?.string)
+            // A managed-network prompt comes as a command approval with the host it wants to reach.
+            if let network = params["networkApprovalContext"], let host = network["host"]?.string {
+                let via = network["protocol"]?.string.map { " (\($0))" } ?? ""
+                approval = AgentApproval(
+                    id: id, kind: .network, subject: host + via, reason: params["reason"]?.string)
+            } else {
+                approval = AgentApproval(
+                    id: id, kind: .command, subject: Self.fullCommand(params) ?? "a command",
+                    reason: params["reason"]?.string, workingDirectory: params["cwd"]?.string)
+            }
         case (.act, "item/fileChange/requestApproval"):
             approval = AgentApproval(
                 id: id, kind: .fileChange,
                 subject: params["itemId"]?.string.flatMap { changes[$0] } ?? "files",
-                reason: params["reason"]?.string)
+                reason: params["reason"]?.string, grantRoot: params["grantRoot"]?.string)
         default:
             return Self.refuse(id, method)
         }
@@ -178,7 +174,7 @@ struct CodexTranscript: AgentTranscript {
             return AgentStep(events: [.text(text)])
         case "item/started":
             if let item = params["item"], item["type"]?.string == "fileChange", let id = item["id"]?.string {
-                changes[id] = Self.changes(item)
+                changes[id] = changes(item)
             }
             if let activity = params["item"].flatMap(Self.activity(started:)) {
                 return AgentStep(events: [.activity(activity)])
@@ -190,7 +186,7 @@ struct CodexTranscript: AgentTranscript {
             {
                 answer = text
             }
-            if let activity = Self.activity(completed: item) {
+            if let activity = activity(completed: item) {
                 return AgentStep(events: [.activity(activity)])
             }
         case "thread/tokenUsage/updated":
@@ -237,15 +233,14 @@ struct CodexTranscript: AgentTranscript {
     }
 
     /// A summary for commands and file changes once done: only then is it known whether they ran.
-    private static func activity(completed item: JSONValue) -> String? {
+    private func activity(completed item: JSONValue) -> String? {
         let declined = item["status"]?.string == "declined"
         switch item["type"]?.string {
         case "commandExecution":
-            let command = summarized(command(item) ?? "")
+            let command = summarized(Self.command(item) ?? "")
             return declined ? "Declined " + command : "Ran " + command
         case "fileChange":
-            let names = (item["changes"]?.array ?? []).compactMap { $0["path"]?.string }
-                .map { URL(filePath: $0).lastPathComponent }
+            let names = (item["changes"]?.array ?? []).compactMap { $0["path"]?.string }.map(shown)
             guard !names.isEmpty, declined || item["status"]?.string == "completed" else { return nil }
             return (declined ? "Declined changes to " : "Edited ") + names.joined(separator: ", ")
         default: return nil
@@ -267,13 +262,24 @@ struct CodexTranscript: AgentTranscript {
         return command
     }
 
-    /// A file-change item's changes, such as "add notes.md, update main.swift".
-    private static func changes(_ item: JSONValue) -> String {
+    /// A file-change item's changes, such as "add notes.md, update Sources/main.swift".
+    private func changes(_ item: JSONValue) -> String {
         let changes = (item["changes"]?.array ?? []).compactMap { change -> String? in
             guard let path = change["path"]?.string else { return nil }
-            return (change["kind"]?["type"]?.string ?? "change") + " " + URL(filePath: path).lastPathComponent
+            return (change["kind"]?["type"]?.string ?? "change") + " " + shown(path)
         }
         return changes.isEmpty ? "files" : changes.joined(separator: ", ")
+    }
+
+    /// A path as the user can tell it apart: relative to the run's folder when inside it, else
+    /// absolute (a base name alone could be any file of that name).
+    func shown(_ path: String) -> String {
+        let folder = request.workingDirectory.standardizedFileURL.path
+        let file =
+            (path.hasPrefix("/") ? URL(filePath: path) : request.workingDirectory.appending(path: path))
+            .standardizedFileURL.path
+        let prefix = folder.hasSuffix("/") ? folder : folder + "/"
+        return file.hasPrefix(prefix) ? String(file.dropFirst(prefix.count)) : file
     }
 
     private static func request(_ id: ID, _ method: String, _ params: [String: JSONValue]) -> Data {

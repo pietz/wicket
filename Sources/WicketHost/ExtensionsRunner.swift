@@ -18,15 +18,14 @@ extension CommandID {
 /// table, reached by `run` actions on the screens it draws):
 ///
 /// - **Extensions** (`builtin:extensions`): every discovered extension with its state (enabled,
-///   problem, changed, not enabled, invalid), then Make a Command. Return on one that isn't enabled
-///   reviews it; on an enabled one it shows it.
+///   problem, changed, not enabled, invalid), then Open Extensions Folder. Return on one that isn't
+///   enabled reviews it; on an enabled one it shows it.
 /// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
 ///   its secrets, its problems, Use Previous Version, Disable last); otherwise runs the isolated
 ///   checker on the extension's current sealed revision and shows the report, and only a passing
-///   check offers Enable.
+///   check offers Enable; a failing one offers Fix with Agent, an Ask AI run with the report.
 /// - **Enable** (`builtin:enable-extension`): approves exactly the revision a screen offered (a
-///   review's checked one, or the previous approved one) and closes with a message, or installs
-///   and approves a build job's, then reloads its frame, which shows it enabled.
+///   review's checked one, or the previous approved one) and closes with a message.
 /// - **Disable** (`builtin:disable-extension`): withdraws the approval; its commands leave the
 ///   palette and its frames stop.
 ///
@@ -36,7 +35,6 @@ extension CommandID {
 @MainActor
 public final class ExtensionsRunner: CommandRunner {
     private let extensions: Extensions
-    private let jobs: BuildJobs?
     private let checkOptions: CheckOptions
     /// Revisions a screen offered to enable, by the token its action carries: one that passed a
     /// check on a review screen, or an extension's previous approved one; with the message
@@ -45,13 +43,10 @@ public final class ExtensionsRunner: CommandRunner {
 
     private static let logger = Logger(subsystem: "app.wicket", category: "consent")
 
-    /// `jobs`' current job can be enabled from its review (Make a Command's frame).
     public init(
-        extensions: Extensions, jobs: BuildJobs?,
-        checkOptions: CheckOptions = CheckOptions(version: Extensions.hostVersion)
+        extensions: Extensions, checkOptions: CheckOptions = CheckOptions(version: Extensions.hostVersion)
     ) {
         self.extensions = extensions
-        self.jobs = jobs
         self.checkOptions = checkOptions
     }
 
@@ -96,17 +91,17 @@ public final class ExtensionsRunner: CommandRunner {
         case .approved(let sealed):
             continuation.yield(.show(.detail(enabled(sealed, folder: found.folder))))
             return
-        case .invalid(let reason, _):
-            guard let previous = previous(id) else { throw Refusal(reason) }
-            continuation.yield(
-                .show(
-                    .detail(
-                        Detail(
-                            title: found.approved?.manifest.name ?? id, markdown: reason,
-                            actions: [
-                                previous, .reveal(url: found.folder, title: "Reveal in Finder"),
-                                .run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"),
-                            ]))))
+        case .invalid(let reason, let approved):
+            let name = approved?.manifest.name ?? id
+            var actions: [Item.Action] = [
+                Self.fix(name, folder: found.folder, failure: reason),
+                .reveal(url: found.folder, title: "Reveal in Finder"),
+            ]
+            if let previous = previous(id) { actions.insert(previous, at: 0) }
+            if approved != nil {
+                actions.append(.run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"))
+            }
+            continuation.yield(.show(.detail(Detail(title: name, markdown: reason, actions: actions))))
             return
         case .unapproved(let sealed), .changed(_, let sealed):
             current = sealed
@@ -144,6 +139,10 @@ public final class ExtensionsRunner: CommandRunner {
                     : "_Enable runs it with your permissions, as any app you install._")
         } else {
             sections.append("_It can't be enabled until it passes its check._")
+            actions.append(
+                Self.fix(
+                    manifest.name, folder: found.folder,
+                    failure: "It failed Wicket's check:\n\n" + Self.report(checked.report)))
         }
         if let previous = previous(id) { actions.append(previous) }
         actions.append(.reveal(url: found.folder, title: "Reveal in Finder"))
@@ -173,17 +172,9 @@ public final class ExtensionsRunner: CommandRunner {
         return .run(command: .enableExtension, args: ["review": .string(token)], title: title)
     }
 
-    /// Approves what the screen that issued `token` offered: a build job's checked revision
-    /// (installed first; reloads its frame, which then shows it enabled), or a review's checked
-    /// revision or an extension's previous one (closes with a message).
+    /// Approves what the screen that issued `token` offered: a review's checked revision or an
+    /// extension's previous one, then closes with a message.
     private func enable(_ token: String) async throws -> RunResult {
-        if let job = jobs?.current, job.reviewToken == token {
-            try await job.enable(in: extensions)
-            guard case .enabled(let sealed, _) = job.phase else {
-                throw Refusal("The command wasn't enabled.")
-            }
-            return .reload(message: "Enabled \(sealed.manifest.name).")
-        }
         guard let offer = offers[token] else {
             throw Refusal("This review is no longer current; review the extension again to enable it.")
         }
@@ -219,28 +210,10 @@ public final class ExtensionsRunner: CommandRunner {
 
     // MARK: What the screens show
 
-    /// The current Make a Command build as the list's first row while it runs, awaits review or
-    /// failed; Return shows its frame (`builtin:current-build`). Enabled, it is one of the rows below.
-    static func build(_ job: BuildJob?) -> [Item] {
-        let state: String
-        switch job?.phase {
-        case .generating, .checking: state = "Making"
-        case .review: state = "Ready for Review"
-        case .failed: state = "Failed"
-        case .enabled, .cancelled, nil: return []
-        }
-        return [
-            Item(
-                id: "extensions:build", title: job?.sentence ?? "", subtitle: "Make a Command",
-                icon: .symbol(name: "hammer"), accessory: state,
-                actions: [.run(command: .currentBuild, title: "Show Build")])
-        ]
-    }
-
-    /// The Extensions list: the current build, a damaged approvals file, then each discovered extension in
-    /// discovery order (by id), then Make a Command, which is all an empty folder shows.
+    /// The Extensions list: a damaged approvals file, then each discovered extension in discovery
+    /// order (by id), then Open Extensions Folder, which is all an empty folder shows.
     private func items() -> [Item] {
-        var items = Self.build(jobs?.current)
+        var items: [Item] = []
         if let problem = extensions.approvals.problem {
             items.append(
                 Item(
@@ -253,13 +226,19 @@ public final class ExtensionsRunner: CommandRunner {
         try? FileManager.default.createDirectory(at: extensions.directory, withIntermediateDirectories: true)
         items.append(
             Item(
-                id: "extensions:make", title: "Make a Command",
-                subtitle: "Describe it in a sentence and your agent builds it", icon: .symbol(name: "hammer"),
-                actions: [
-                    .run(command: .makeCommand, title: "Make a Command"),
-                    .open(url: extensions.directory, title: "Open Extensions Folder"),
-                ]))
+                id: "extensions:folder", title: "Open Extensions Folder",
+                subtitle: "Or ask the AI for the command you want", icon: .symbol(name: "folder"),
+                actions: [.open(url: extensions.directory, title: "Open Extensions Folder")]))
         return items
+    }
+
+    /// Fix with Agent: an Ask AI run asking to fix the extension in `folder`, told why it fails.
+    /// An acting agent fixes it in place, and its answer offers the review again.
+    static func fix(_ name: String, folder: URL, failure: String) -> Item.Action {
+        .run(
+            command: .askAI,
+            text: "Fix my Wicket extension \(name) in \(folder.path).\n\n\(failure)",
+            title: "Fix with Agent")
     }
 
     /// The rows of `discovered`; an enabled one with `problems` says so.
@@ -299,14 +278,13 @@ public final class ExtensionsRunner: CommandRunner {
             case .invalid(let reason, let approved):
                 state = "Invalid"
                 subtitle = reason
-                actions = [.detail(Detail(title: name, markdown: reason, actions: [reveal])), reveal]
+                actions = [
+                    .run(command: .reviewExtension, args: ["id": .string(found.id)], title: "Show Extension"),
+                    reveal,
+                ]
                 if approved != nil { actions.append(disable) }
             }
             if let previous = previous(found.id) {
-                if case .invalid = found.state {
-                    actions[0] = .run(
-                        command: .reviewExtension, args: ["id": .string(found.id)], title: "Show Extension")
-                }
                 let index = actions.last?.title == "Disable" ? actions.count - 1 : actions.count
                 actions.insert(previous, at: index)
             }

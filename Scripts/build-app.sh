@@ -20,7 +20,7 @@ cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
 cp "$bin/WicketCLI" "$app/Contents/Helpers/wicket"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
-# The extension guide, which Make a Command hands the agent (BuildPrompt.bundledGuide).
+# The extension guide, which acting AI runs read to build commands (ExtensionAuthoring.bundledGuide).
 cp docs/extensions.md "$app/Contents/Resources/extensions.md"
 
 identity="${WICKET_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \

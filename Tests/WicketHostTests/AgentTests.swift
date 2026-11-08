@@ -54,8 +54,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ])
     }
 
-    @Test func buildRunReportsActivityAndTheFinalMessage() async throws {
-        let events = await events(try replaying(.codex, "codex-build"), .build)
+    @Test func toolRunReportsActivityAndTheFinalMessage() async throws {
+        let events = await events(try replaying(.codex, "codex-build"))
         #expect(activities(events) == ["Ran printf hi > hello.txt"])
         // Commentary streams too, set apart from the answer by a blank line.
         #expect(
@@ -84,23 +84,22 @@ func activities(_ events: [AgentEvent]) -> [String] {
     @Test func requestsFollowTheProtocol() throws {
         let folder = URL(filePath: "/tmp/stage")
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hello", workingDirectory: folder, mode: .build))
+            request: AgentRequest(prompt: "Hello", workingDirectory: folder, mode: .answer))
         #expect(try methods(transcript.start()) == ["initialize", "initialized", "config/read"])
 
         let thread = try sent(
             transcript.receive(line(#"{"id":2,"result":{"config":{"mcp_servers":{"docs":{"url":"x"}}}}}"#)))
         #expect(thread["method"] == .string("thread/start"))
         #expect(thread["params"]?["cwd"] == .string("/tmp/stage"))
-        #expect(thread["params"]?["sandbox"] == .string("workspace-write"))
+        #expect(thread["params"]?["sandbox"] == .string("read-only"))
         #expect(thread["params"]?["approvalPolicy"] == .string("never"))
         #expect(thread["params"]?["config"]?["mcp_servers"]?["docs"]?["enabled"] == .bool(false))
-        #expect(thread["params"]?["baseInstructions"] == nil)
 
         let turn = try sent(transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#)))
         #expect(turn["method"] == .string("turn/start"))
         #expect(turn["params"]?["threadId"] == .string("t1"))
         #expect(turn["params"]?["input"]?.array?.first?["text"] == .string("Hello"))
-        #expect(turn["params"]?["sandboxPolicy"]?["networkAccess"] == .bool(false))
+        #expect(turn["params"]?["effort"] == .string("low"))
     }
 
     @Test func answerRunsAreReadOnlyWithoutTools() throws {
@@ -109,7 +108,6 @@ func activities(_ events: [AgentEvent]) -> [String] {
         for feature in ["shell_tool", "unified_exec", "code_mode_host", "hooks", "plugins", "apps"] {
             #expect(arguments.contains("features.\(feature)=false"))
         }
-        #expect(!CodexTranscript.arguments(for: .build).contains("features.shell_tool=false"))
 
         var transcript = CodexTranscript(
             request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .answer))
@@ -121,7 +119,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func lockedDownRunsRefuseServerRequests() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .build))
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .answer))
         let step = transcript.receive(
             line(
                 #"{"id":7,"method":"item/commandExecution/requestApproval","params":{"command":"rm -rf /"}}"#)
@@ -206,6 +204,42 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ).events == [.activity("Declined changes to notes.md")])
     }
 
+    @Test func approvalsSayWhereAndWhatUnambiguously() throws {
+        var transcript = CodexTranscript(
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .act))
+        _ = transcript.start()
+        // A managed-network prompt names its host and protocol, not the command behind it.
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/commandExecution/requestApproval","id":1,"params":{"itemId":"c1","command":"curl https://api.github.com","cwd":"/tmp/work","networkApprovalContext":{"host":"api.github.com","protocol":"https"}}}"#
+                )
+            ).events == [
+                .approvals([AgentApproval(id: .integer(1), kind: .network, subject: "api.github.com (https)")]
+                )
+            ])
+        _ = transcript.receive(
+            line(#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":1}}"#))
+        // Paths inside the run's folder are relative to it, others absolute; the root it asks for stays.
+        _ = transcript.receive(
+            line(
+                #"{"method":"item/started","params":{"item":{"type":"fileChange","id":"f1","status":"inProgress","changes":[{"path":"/tmp/work/Sources/a.swift","kind":{"type":"update"}},{"path":"/tmp/workshop/notes.md","kind":{"type":"add"}},{"path":"b.txt","kind":{"type":"delete"}}]}}}"#
+            ))
+        #expect(
+            transcript.receive(
+                line(
+                    #"{"method":"item/fileChange/requestApproval","id":2,"params":{"itemId":"f1","grantRoot":"/tmp/workshop"}}"#
+                )
+            ).events == [
+                .approvals([
+                    AgentApproval(
+                        id: .integer(2), kind: .fileChange,
+                        subject: "update Sources/a.swift, add /tmp/workshop/notes.md, delete b.txt",
+                        grantRoot: "/tmp/workshop")
+                ])
+            ])
+    }
+
     @Test func actingRunsStillRefuseOtherRequests() throws {
         var transcript = CodexTranscript(
             request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .act))
@@ -221,7 +255,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let events = await events(try replaying(.codex, "codex-act-approval"), .act)
         let approval = AgentApproval(
             id: .integer(0), kind: .command, subject: "echo hi > hello.txt",
-            reason: "Allow creating hello.txt with the requested content?")
+            reason: "Allow creating hello.txt with the requested content?", workingDirectory: "/tmp/work")
         #expect(
             events.filter { if case .approvals = $0 { true } else { false } } == [
                 .approvals([approval]), .approvals([]),
@@ -294,8 +328,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ])
     }
 
-    @Test func buildRunReportsActivity() async throws {
-        let events = await events(try replaying(.claude, "claude-build"), .build)
+    @Test func toolRunReportsActivity() async throws {
+        let events = await events(try replaying(.claude, "claude-build"))
         #expect(activities(events) == ["Edited hello.txt", "Ran cat hello.txt && touch ../escape-bash.txt"])
         guard case .answer(let answer, let usage)? = events.last else {
             Issue.record("no answer: \(events)")
@@ -325,9 +359,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let answer = ClaudeTranscript.arguments(for: .answer)
         #expect(answer.firstIndex(of: "--tools").map { answer[$0 + 1] } == "")
         #expect(answer.contains("--safe-mode") && answer.contains("--strict-mcp-config"))
-        let build = ClaudeTranscript.arguments(for: .build)
-        #expect(build.contains("--restricted"))
-        #expect(build.firstIndex(of: "--settings").map { build[$0 + 1].contains(#""enabled":true"#) } == true)
+        #expect(ClaudeTranscript.arguments(for: .act) == answer)
     }
 }
 
@@ -362,7 +394,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             sleep 60
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
         let consumer = Task {
             for await event in agent.run(request) {
                 if case .text = event { return true }
@@ -401,7 +433,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             ' '\(pids.path)' &
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
         let consumer = Task {
             for await event in agent.run(request) {
                 guard case .text = event else { continue }
@@ -434,7 +466,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
         let run = AgentProcess.run(
             agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request))
         var answered = false
@@ -459,7 +491,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
         let start = ContinuousClock.now
         let run = AgentProcess.run(
             agent.executable, arguments: [], request: request, transcript: ClaudeTranscript(request: request),
@@ -491,7 +523,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             sleep 60
             """)
         let request = AgentRequest(
-            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .build)
+            prompt: "test", workingDirectory: FileManager.default.temporaryDirectory, mode: .answer)
         let run = agent.run(request)
         var events: [AgentEvent] = []
         for await event in run {

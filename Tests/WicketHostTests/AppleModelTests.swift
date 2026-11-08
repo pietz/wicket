@@ -34,35 +34,6 @@ import WicketCore
         #expect(AgentProvider.apple.testedVersion == nil)
     }
 
-    @Test func installedBackendRefusesBuildsWithoutLoadingAModel() async {
-        let request = AgentRequest(
-            prompt: "make a command", workingDirectory: URL(filePath: "/must-not-be-used"), mode: .build)
-        let run = await AgentBackend.installed.run(.apple, request)
-        var received: [AgentEvent] = []
-        for await event in run { received.append(event) }
-        #expect(received == [.error(AppleModel.buildRefusal)])
-        #expect(await run.ended == .notRunning)
-        // Direct Agent callers must have the same refusal and never execute a CLI.
-        let agent = Agent(provider: .apple, executable: URL(filePath: "/must-not-be-executed"))
-        #expect(await events(agent, .build) == [.error(AppleModel.buildRefusal)])
-    }
-
-    @MainActor @Test func makeACommandShowsTheBackendRefusal() async throws {
-        let staging = FileManager.default.temporaryDirectory.appending(path: "wicket-apple-build-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: staging) }
-        let backend = AgentBackend(
-            status: { AgentStatus(provider: $0, state: .ready) },
-            run: AgentBackend.installed.run)
-        let jobs = BuildJobs(backend: backend, staging: staging, guide: { "guide" }, provider: { .apple })
-        let job = try jobs.start("make a command")
-        await job.finished()
-        guard case .failed(let reason) = job.phase else {
-            Issue.record("Apple build did not fail.")
-            return
-        }
-        #expect(reason == AppleModel.buildRefusal)
-    }
-
     @Test(
         .enabled(
             if: ProcessInfo.processInfo.environment["WICKET_TEST_APPLE_MODEL"] == "1"

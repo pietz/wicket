@@ -65,8 +65,6 @@ final class AppRuntime {
     /// Discovery and the active catalog: only approved revisions, whose commands the registry
     /// takes on every published snapshot.
     let extensions: Extensions
-    /// Make a Command's jobs, which outlive the frames observing them; `shutdown` cancels them.
-    let buildJobs: BuildJobs
     /// Every command's runner (built-ins and extensions), which `shutdown` stops.
     private let runner: CommandRouter
     /// The one shutdown, once begun.
@@ -83,16 +81,13 @@ final class AppRuntime {
     /// `sources` are the host's own root sources (apps, calculator, files); the runtime adds the
     /// registry's commands, its fallback rows and the approved extensions' root commands.
     /// `builtins` is the table of Wicket's own commands (`live()` composes it): the registry takes
-    /// their commands, the router their runners. `buildJobs` is the one the table's Make a Command
-    /// runner starts jobs in.
+    /// their commands, the router their runners.
     init(
         store: SettingsStore, sources: [any ResultSource], work: [Feature: Work], builtins: [Builtin],
-        extensions: Extensions, buildJobs: BuildJobs, usageURL: URL = PaletteModel.defaultUsageURL,
-        system: System
+        extensions: Extensions, usageURL: URL = PaletteModel.defaultUsageURL, system: System
     ) {
         self.store = store
         self.extensions = extensions
-        self.buildJobs = buildJobs
         registry = CommandRegistry(builtins: builtins.map(\.command))
         self.work = work
         self.system = system
@@ -108,25 +103,6 @@ final class AppRuntime {
         hotKeys.onPalette = { [weak self] in self?.palette?.toggle(eventTime: $0) }
         hotKeys.onCommand = { [weak self] in self?.palette?.run(bound: $0) }
         store.pauseHotKey = { [weak self] in self?.pauseHotKeys($0) }
-        buildJobs.onEnded = { [weak self] in self?.buildEnded($0) }
-    }
-
-    /// Tells the user a build is ready for review or failed, unless its frame is the one on screen:
-    /// a build takes minutes, and its frame is usually closed by then.
-    private func buildEnded(_ job: BuildJob) {
-        if case .screen(let frame) = model.session.top.content,
-            let id = frame.run?.command.id, id == .makeCommand || id == .currentBuild
-        {
-            return
-        }
-        switch job.phase {
-        case .review(let checked):
-            messages.post(Message("\(checked.sealed.manifest.name) is ready: open Extensions to review it."))
-        case .failed:
-            messages.post(Message("Making the command failed: open Extensions to see why.", kind: .failed))
-        default:
-            break
-        }
     }
 
     /// Applies settings.json and keeps applying it as it changes, and loads the extensions.
@@ -141,19 +117,17 @@ final class AppRuntime {
         watch([extensions.directory.path], latency: 0.3) { [weak self] in self?.extensions.load(changed: $0) }
     }
 
-    /// Stops what runs outside the app before it quits: every command's runs, Ask AI's agents, the
-    /// running build job and the extension sessions, each through its process tree. Returns once all
+    /// Stops what runs outside the app before it quits: every command's runs, Ask AI's agents and the
+    /// extension sessions, each through its process tree. Returns once all
     /// are gone, or after `limit` (quitting must not hang on a process that won't die). Runs once
     /// however often it's called.
     func shutdown(within limit: Duration = .seconds(2)) async {
         let start = ContinuousClock.now
         let stopping =
             stopping
-            ?? Task { [model, runner, buildJobs] in
+            ?? Task { [model, runner] in
                 _ = model.session.stopCommands { _ in true }
-                async let runners: Void = runner.shutdown()
-                async let jobs: Void = buildJobs.shutdown()
-                _ = await (runners, jobs)
+                await runner.shutdown()
             }
         self.stopping = stopping
         let done = await stopping.value(within: limit) != nil
@@ -284,13 +258,15 @@ extension AppRuntime {
         let store = SettingsStore(directory: Settings.directory(), diagnostics: diagnostics)
         let settingsWindow = SettingsWindowController(store: store)
         weak var weakRuntime: AppRuntime?
-        let buildJobs = BuildJobs(diagnostics: diagnostics, provider: { weakRuntime?.applied?.ai.provider })
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
             approvals: Approvals(), diagnostics: diagnostics)
-        let consent = ExtensionsRunner(extensions: extensions, jobs: buildJobs)
+        let consent = ExtensionsRunner(extensions: extensions)
         let askAI = AskAIRunner(provider: { weakRuntime?.applied?.ai.provider })
+        // Acting runs know Wicket's commands and write extensions into its folder for review.
+        askAI.authoring = ExtensionAuthoring(
+            extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] })
         let prompts = PromptCommandRunner(answers: askAI, extensions: extensions, reviews: consent)
         extensions.promptRunner = prompts
         askAI.saveCommand = { [weak prompts] in prompts?.offer($0) }
@@ -320,12 +296,13 @@ extension AppRuntime {
                 RegisteredCommand(
                     id: .builtin("quit"), title: "Quit Wicket", icon: .symbol(name: "power"), input: .none),
                 effect: { NSApp.terminate(nil) }),
-            // Answers a question or does what it asks with the user's agent CLI. Its keyword `ai` (a built-in keeps it
-            // against extensions), alias or hotkey open its frame waiting for the question; the root
-            // offers it as a fallback row for whatever was typed.
+            // Answers a question or does what it asks with the user's agent CLI, building or changing
+            // Wicket's own commands included. Its keyword `ai` (a built-in keeps it against
+            // extensions), alias or hotkey open its frame waiting for the question; the root offers it
+            // as a fallback row for whatever was typed.
             Builtin(
                 RegisteredCommand(
-                    id: .builtin("ask-ai"), title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
+                    id: .askAI, title: "Ask AI", icon: .symbol(name: "sparkles"), keyword: "ai",
                     isListed: false, input: .submitText, placeholder: "Ask a question", isFallback: true,
                     feature: .askAI, usesContext: true),
                 runner: askAI),
@@ -353,26 +330,6 @@ extension AppRuntime {
                     keyword: "web", isListed: false, input: .submitText, placeholder: "Search the web",
                     isFallback: true, feature: .webSearch),
                 runner: WebSearchRunner(template: { weakRuntime?.applied?.webSearch.url })),
-            // Builds an extension from a sentence with the user's agent CLI, then checks it for review.
-            // The job belongs to `buildJobs`, so closing its frame leaves it running; submitting
-            // again while it runs shows it.
-            Builtin(
-                RegisteredCommand(
-                    id: .makeCommand, title: "Make a Command", icon: .symbol(name: "hammer"), keyword: "make",
-                    input: .submitText, placeholder: "Describe the command to make", feature: .askAI),
-                runner: MakeCommandRunner(jobs: buildJobs)),
-            // The build frame's Stop action; reached by id only.
-            Builtin(
-                RegisteredCommand(
-                    id: .stopBuild, title: "Stop Making a Command", icon: .symbol(name: "stop.circle"),
-                    isListed: false, input: .none),
-                runner: StopBuildRunner(jobs: buildJobs)),
-            // The current build's frame, from its Extensions row and its Fix with Agent action.
-            Builtin(
-                RegisteredCommand(
-                    id: .currentBuild, title: "Current Build", icon: .symbol(name: "hammer"), isListed: false,
-                    input: .none),
-                runner: MakeCommandRunner(jobs: buildJobs)),
             // Every discovered extension with its state; reviewing, enabling and disabling one are
             // the hidden built-ins below, reached only by the actions its screens draw.
             Builtin(
@@ -403,8 +360,7 @@ extension AppRuntime {
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
-            builtins: builtins,
-            extensions: extensions, buildJobs: buildJobs, system: .live)
+            builtins: builtins, extensions: extensions, system: .live)
         weakRuntime = runtime
         apps.onChange = { [weak runtime] in runtime?.model.refresh() }
 

@@ -8,21 +8,22 @@ public enum AgentMode: Sendable, Equatable {
     /// Answer or do what the user asks with the agent's own tools, under the approval policy and
     /// sandbox the user set in that agent (Codex only for now); requests it sends are approvals.
     case act
-    /// Edit files inside the working directory and run commands to test them, sandboxed to that
-    /// directory (and temporary folders) with no network.
-    case build
 }
 
 public struct AgentRequest: Sendable {
     public var prompt: String
-    /// The folder a build may write to or an acting run works in. Answer runs get an empty folder.
+    /// The folder an acting run works in. Answer runs get an empty folder.
     public var workingDirectory: URL
     public var mode: AgentMode
+    /// For an acting run, what it is told after `Agent.actInstructions`: what Wicket has and how to
+    /// extend it (`ExtensionAuthoring.instructions`).
+    public var instructions: String?
 
-    public init(prompt: String, workingDirectory: URL, mode: AgentMode) {
+    public init(prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil) {
         self.prompt = prompt
         self.workingDirectory = workingDirectory
         self.mode = mode
+        self.instructions = instructions
     }
 }
 
@@ -53,26 +54,39 @@ public enum AgentEvent: Sendable, Equatable {
     case approvals([AgentApproval])
 }
 
-/// Something an acting agent asks permission for: a command to run or files to change.
+/// Something an acting agent asks permission for: a command to run, a host to reach or files to
+/// change.
 public struct AgentApproval: Sendable, Hashable {
     public enum Kind: Sendable, Hashable {
         case command
+        case network
         case fileChange
     }
 
     /// The agent's own request id, echoed in the reply (a JSON-RPC id keeps its type).
     public var id: JSONValue
     public var kind: Kind
-    /// The command, or the changes as "add notes.md, update main.swift".
+    /// The command; the host and protocol, as "api.github.com (https)"; or the changes, as
+    /// "add notes.md, update Sources/main.swift" (paths relative to the run's folder when inside it,
+    /// else absolute).
     public var subject: String
     /// Why the agent asks, when it says.
     public var reason: String?
+    /// The folder a command runs in, as an absolute path, when the agent says.
+    public var workingDirectory: String?
+    /// For a file change, a folder the agent asks to write anywhere under for the rest of the run.
+    public var grantRoot: String?
 
-    public init(id: JSONValue, kind: Kind, subject: String, reason: String? = nil) {
+    public init(
+        id: JSONValue, kind: Kind, subject: String, reason: String? = nil, workingDirectory: String? = nil,
+        grantRoot: String? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.subject = subject
         self.reason = reason
+        self.workingDirectory = workingDirectory
+        self.grantRoot = grantRoot
     }
 }
 
@@ -87,8 +101,8 @@ public enum AgentDecision: String, Sendable, CaseIterable {
 }
 
 /// One agent run: its events, and the means to stop it. The events end after one `.answer` or
-/// `.error`, which comes only once the agent's whole process tree has exited (so a build run's folder
-/// is no longer being written when its answer arrives), or without either if the run was cancelled.
+/// `.error`, which comes only once the agent's whole process tree has exited (so an acting run
+/// has written everything when its answer arrives), or without either if the run was cancelled.
 /// Iterating it iterates the events (once); ending that iteration early cancels the run.
 public final class AgentRun: AsyncSequence, Sendable {
     public typealias Element = AgentEvent

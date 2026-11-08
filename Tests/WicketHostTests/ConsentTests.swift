@@ -319,7 +319,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     await h.extensions.load().value
     let sealed = try #require(h.extensions.discovered.first?.sealed)
     try await h.extensions.approve(sealed.revision)
-    return (h, ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions()))
+    return (h, ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions()))
 }
 
 @MainActor @Test func theExtensionsListShowsEveryStateAndWhatEachOffers() async throws {
@@ -336,7 +336,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     }
     try await h.write("c2", "changed")
 
-    let runner = ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
     guard case .show(.list(let items))? = try await results(runner, .extensions).first else {
         Issue.record("no list")
         return
@@ -344,35 +344,33 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(
         items.map(\.id) == [
             "extensions:approved", "extensions:broken", "extensions:changed", "extensions:unapproved",
-            "extensions:make",
+            "extensions:folder",
         ])
     #expect(items.map(\.accessory) == ["Enabled", "Invalid", "Changed", "Not Enabled", nil])
     // Disable is never what Return does: it comes last.
     #expect(
         items.map { $0.actions.compactMap(\.title) } == [
             ["Show Extension", "Reveal in Finder", "Disable"],
-            ["broken", "Reveal in Finder"],
+            ["Show Extension", "Reveal in Finder"],
             ["Review and Enable", "Reveal in Finder", "Disable"],
             ["Review and Enable", "Reveal in Finder"],
-            ["Make a Command", "Open Extensions Folder"],
+            ["Open Extensions Folder"],
         ])
     #expect(items[2].subtitle == "Changed; review to run the new version")
 }
 
-@MainActor @Test func anEmptyFolderOffersToMakeACommand() async throws {
+@MainActor @Test func anEmptyFolderOffersToOpenIt() async throws {
     let h = try Harness([])
     try FileManager.default.removeItem(at: h.directory)
     await h.extensions.load().value
-    let runner = ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
     guard case .show(.list(let items))? = try await results(runner, .extensions).first else {
         Issue.record("no list")
         return
     }
-    #expect(items.map(\.title) == ["Make a Command"])
-    #expect(items.first?.subtitle == "Describe it in a sentence and your agent builds it")
-    guard case .run(.makeCommand, "", nil, _, nil)? = items.first?.actions.first,
-        case .open(let folder, "Open Extensions Folder")? = items.first?.actions.last
-    else {
+    #expect(items.map(\.title) == ["Open Extensions Folder"])
+    #expect(items.first?.subtitle == "Or ask the AI for the command you want")
+    guard case .open(let folder, "Open Extensions Folder")? = items.first?.actions.first else {
         Issue.record("wrong actions: \(String(describing: items.first?.actions))")
         return
     }
@@ -385,7 +383,7 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     let h = try Harness([try titled("v1", fixture: true), try titled("v1", id: "failing")])
     await h.extensions.load().value
     let runner = ExtensionsRunner(
-        extensions: h.extensions, jobs: nil, checkOptions: checkOptions { $0.requestTimeout = .seconds(30) })
+        extensions: h.extensions, checkOptions: checkOptions { $0.requestTimeout = .seconds(30) })
 
     // No fixture: the check fails, and nothing offers Enable.
     let failing = try await results(runner, .reviewExtension, args: ["id": .string("failing")])
@@ -493,9 +491,9 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     try Data("{".utf8).write(to: damaged.url)
     let h = try Harness([try titled("v1")], approvals: Approvals(url: damaged.url))
     await h.extensions.load().value
-    let runner = ExtensionsRunner(extensions: h.extensions, jobs: nil, checkOptions: checkOptions())
+    let runner = ExtensionsRunner(extensions: h.extensions, checkOptions: checkOptions())
     let items = try await list(runner)
-    #expect(items.map(\.id) == ["extensions:approvals", "extensions:titled", "extensions:make"])
+    #expect(items.map(\.id) == ["extensions:approvals", "extensions:titled", "extensions:folder"])
     #expect(items.first?.accessory == "Problem")
     #expect(items.first?.subtitle == h.approvals.problem)
 }
@@ -645,34 +643,6 @@ private func needsToken() throws -> TestExtension {
     #expect(h.approvals.approved("titled") == v1.revision)
     #expect(h.state() == .changed(approved: v1, current: v2))
     #expect(try await h.title() == "v1")
-}
-
-// MARK: Installing over an earlier version
-
-@MainActor @Test func aReplacedFolderIsRestoredWhenItCantGoToTheTrash() async throws {
-    let h = try Harness([try titled("v1")])
-    await h.extensions.load().value
-    let work = try titled("v2", fixture: true)
-    let checked = await Checker.check(
-        try h.extensions.store.seal(work.folder, id: "titled"), options: checkOptions())
-
-    h.extensions.trash = { _ in throw CocoaError(.fileWriteNoPermission) }
-    await #expect(throws: Refusal.self) { try await h.extensions.install(checked, from: work.folder) }
-    #expect(try String(contentsOf: h.folder().appending(path: "title.txt"), encoding: .utf8) == "v1")
-    #expect(try FileManager.default.contentsOfDirectory(atPath: h.directory.path) == ["titled"])
-
-    // With a Trash that works, the old folder goes there under its own name.
-    let trash = FileManager.default.temporaryDirectory.appending(
-        path: "wicket-tests/trash-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
-    h.extensions.trash = {
-        try FileManager.default.moveItem(at: $0, to: trash.appending(path: $0.lastPathComponent))
-    }
-    let installed = try await h.extensions.install(checked, from: work.folder)
-    #expect(installed.revision == checked.sealed.revision)
-    #expect(try String(contentsOf: h.folder().appending(path: "title.txt"), encoding: .utf8) == "v2")
-    #expect(try String(contentsOf: trash.appending(path: "titled/title.txt"), encoding: .utf8) == "v1")
-    #expect(try FileManager.default.contentsOfDirectory(atPath: h.directory.path) == ["titled"])
 }
 
 @MainActor @Test(arguments: [false, true])

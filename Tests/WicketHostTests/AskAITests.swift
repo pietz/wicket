@@ -378,16 +378,19 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("make hello.txt")
     #expect(await eventually { agents.runs.count == 1 })
     let run = agents.runs[0]
-    let frame = palette.session.top.id
     let command = AgentApproval(
-        id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create it?")
-    let files = AgentApproval(id: .string("r2"), kind: .fileChange, subject: "add notes.md")
+        id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create it?",
+        workingDirectory: "/tmp/work")
+    let files = AgentApproval(
+        id: .string("r2"), kind: .fileChange, subject: "add notes.md", grantRoot: "/tmp/work")
     run.continuation.yield(.approvals([command, files]))
     #expect(await eventually { palette.detail?.actions.count == 3 })
     #expect(palette.detail?.actions.map(\.title) == ["Allow", "Allow for Session", "Deny"])
+    // Captured once the answer's frame is up: it is pushed with the first content, not with the run.
+    let frame = palette.session.top.id
     #expect(
         palette.detail?.markdown
-            == "**The agent asks to run a command.**\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_1 more waiting_\n\n_Asking Codex…_"
+            == "**The agent asks to run a command** in /tmp/work.\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_1 more waiting_\n\n_Asking Codex…_"
     )
 
     // Allow goes to the agent; its frame goes and the answer's frame keeps running.
@@ -400,7 +403,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     // The next one shows at once, even before the agent confirms the first resolved.
     #expect(
         await eventually {
-            palette.detail?.markdown.hasPrefix("**The agent asks to change files:** add notes\\.md") == true
+            palette.detail?.markdown.hasPrefix(
+                "**The agent asks to change files:** add notes\\.md\n\nIt asks to write anywhere in /tmp/work for the rest of this run."
+            ) == true
         })
     run.continuation.yield(.approvals([command, files]))
     try await Task.sleep(for: .milliseconds(20))
@@ -428,14 +433,13 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { agents.wasEnded(0) })
     await palette.runner.shutdown()  // Returns once the run has ended and cleaned up.
 
+    // An expired token changes nothing: the frame beneath stays as it is, never covered by a failure.
     guard case .run(_, _, let args, _, _) = allow else { return }
-    var thrown: (any Error)?
-    do {
-        for try await _ in palette.runner.run(Invocation(command: .aiApproval, args: args), retry: .never) {}
-    } catch { thrown = error }
-    #expect(
-        String(describing: thrown ?? CancellationError())
-            == "This question was already answered or has ended.")
+    var results: [RunResult] = []
+    for try await result in palette.runner.run(Invocation(command: .aiApproval, args: args), retry: .never) {
+        results.append(result)
+    }
+    #expect(results == [.stay])
 }
 
 @MainActor @Test func codexWorksInTheFinderSelectionsFolderAndOtherProvidersOnlyAnswer() async throws {

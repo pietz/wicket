@@ -3,6 +3,8 @@ import WicketCore
 import os
 
 extension CommandID {
+    /// Ask AI: answers a question or does what it asks, the one AI entry.
+    public static let askAI = CommandID.builtin("ask-ai")
     /// Opens Settings on its AI pane: the action of an Ask AI frame whose provider isn't ready.
     /// Hidden, reached by id only; the app's table gives it its effect.
     public static let aiSettings = CommandID.builtin("ai-settings")
@@ -40,7 +42,9 @@ public struct AgentBackend: Sendable {
 
 /// Ask AI and prompt commands share one answer stream, provider selection and process lifetime.
 /// Ask AI acts with a provider that can (`AgentProvider.acts`), in the folder of the Finder
-/// selection or the home folder; its approvals are answered through `builtin:ai-approval`.
+/// selection or the home folder; its approvals are answered through `builtin:ai-approval`. With
+/// `authoring`, an acting run knows Wicket and can add or change its commands, and its answer offers
+/// to review what it wrote.
 @MainActor
 public final class AskAIRunner: CommandRunner {
     let answers: AnswerStream
@@ -51,6 +55,12 @@ public final class AskAIRunner: CommandRunner {
     public var provider: @MainActor () -> AgentProvider? {
         get { answers.provider }
         set { answers.provider = newValue }
+    }
+
+    /// What acting runs are told about Wicket and how their extensions reach review; set by the app.
+    public var authoring: ExtensionAuthoring? {
+        get { answers.authoring }
+        set { answers.authoring = newValue }
     }
 
     public init(
@@ -103,6 +113,8 @@ public final class AskAIRunner: CommandRunner {
 final class AnswerStream {
     /// The settings' `ai.provider`, read when a question is asked; nil for the first ready one.
     public var provider: @MainActor () -> AgentProvider?
+    /// Tells acting runs about Wicket and finds the extensions they wrote.
+    var authoring: ExtensionAuthoring?
     private let backend: AgentBackend
     private let interval: Duration
     private let statusLifetime: Duration
@@ -156,19 +168,19 @@ final class AnswerStream {
     }
 
     /// Answers the approval an `aiApproval` action names, then leaves its frame as it is (`stay`):
-    /// the run's own stream shows what happens next.
+    /// the run's own stream shows what happens next. A token that has expired (the question was
+    /// answered already, by a fast second Return, or its run ended) changes nothing and stays too,
+    /// rather than covering the live answer with a failure.
     func reply(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         AsyncThrowingStream { continuation in
-            guard case .string(let token)? = invocation.args?["token"],
+            if case .string(let token)? = invocation.args?["token"],
                 case .string(let name)? = invocation.args?["decision"],
                 let decision = AgentDecision(rawValue: name),
                 let (run, approval, draft) = waiting.removeValue(forKey: token)
-            else {
-                continuation.finish(throwing: Failure("This question was already answered or has ended."))
-                return
+            {
+                run.reply(to: approval, decision)
+                draft.answer(token, approval)
             }
-            run.reply(to: approval, decision)
-            draft.answer(token, approval)
             continuation.yield(.stay)
             continuation.finish()
         }
@@ -206,8 +218,12 @@ final class AnswerStream {
         output.yield(.show(.detail(draft.detail)))
 
         let request: AgentRequest
+        // What the extensions folder holds before an acting run, to offer what it changes for review.
+        var before: ExtensionAuthoring.Snapshot?
         if let acting, provider.acts {
-            request = AgentRequest(prompt: prompt, workingDirectory: acting, mode: .act)
+            before = authoring?.snapshot()
+            request = AgentRequest(
+                prompt: prompt, workingDirectory: acting, mode: .act, instructions: authoring?.instructions())
         } else {
             // An empty folder, so the agent's working directory holds nothing to read.
             let folder = FileManager.default.temporaryDirectory.appending(
@@ -229,7 +245,9 @@ final class AnswerStream {
         // However this ends (answer, failure, cancellation), it returns only once the agent's
         // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
         do {
-            try await show(run, of: provider, in: draft, start: start, throttle: throttle, output)
+            try await show(
+                run, of: provider, in: draft, start: start, throttle: throttle, extensionsBefore: before,
+                output)
         } catch let failure as Failure {
             throttle.cancel()
             draft.failure = failure.description
@@ -248,7 +266,8 @@ final class AnswerStream {
     /// it throws.
     private func show(
         _ run: AgentRun, of provider: AgentProvider, in draft: Draft, start: ContinuousClock.Instant,
-        throttle: Throttle, _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
+        throttle: Throttle, extensionsBefore: ExtensionAuthoring.Snapshot?,
+        _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         var firstText: Duration?
         for await event in run {
@@ -271,7 +290,14 @@ final class AnswerStream {
                 if !answer.isEmpty { draft.text = answer }
                 guard !draft.text.isEmpty else { throw Failure("\(provider.name) sent an empty answer.") }
                 draft.approvals = []
-                draft.finishedActions = draft.completedActions()
+                // The answer comes once the agent's tree is gone, so what it wrote is complete.
+                if let extensionsBefore, let authoring {
+                    draft.reviews = ExtensionAuthoring.reviews(
+                        await authoring.changed(since: extensionsBefore))
+                    try Task.checkCancellation()
+                }
+                // An answer that made a command is no prompt to save as one.
+                draft.finishedActions = draft.reviews.isEmpty ? draft.completedActions() : []
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
@@ -315,7 +341,7 @@ final class AnswerStream {
         throw Failure(Self.unavailable(statuses, chosen: chosen != nil, uses: "Ask AI"))
     }
 
-    /// What the frame of `feature` (Ask AI, Make a Command) says when no provider can run it.
+    /// What the frame of `feature` (Ask AI) says when no provider can run it.
     static func unavailable(_ statuses: [AgentStatus], chosen: Bool, uses feature: String) -> String {
         let reasons = statuses.map(reason)
         if chosen, let reason = reasons.first {
@@ -350,6 +376,8 @@ private final class Draft {
     let invocation: Invocation
     let completedActions: @MainActor () -> [Item.Action]
     var finishedActions: [Item.Action] = []
+    /// Reviews of the extensions the run added or changed, first among the finished answer's actions.
+    var reviews: [Item.Action] = []
     /// Shown until the first text arrives.
     let status: String
     var text = ""
@@ -408,7 +436,7 @@ private final class Draft {
             if text.isEmpty { return Detail(title: title, markdown: markdown) }
             return Detail(
                 title: title, markdown: markdown,
-                actions: [copy, .paste(text: text, title: "Paste Answer")] + finishedActions)
+                actions: reviews + [copy, .paste(text: text, title: "Paste Answer")] + finishedActions)
         }
         let retry = Item.Action.run(
             command: invocation.command, text: invocation.text,
@@ -438,9 +466,20 @@ private final class Draft {
     private func ask(_ approval: AgentApproval) -> String {
         var parts =
             switch approval.kind {
-            case .command: ["**The agent asks to run a command.**"]
+            case .command:
+                [
+                    approval.workingDirectory.map {
+                        "**The agent asks to run a command** in " + Self.escaped(Self.abbreviated($0)) + "."
+                    } ?? "**The agent asks to run a command.**"
+                ]
+            case .network: ["**The agent asks to reach** " + Self.escaped(approval.subject) + "."]
             case .fileChange: ["**The agent asks to change files:** " + Self.escaped(approval.subject)]
             }
+        if let root = approval.grantRoot {
+            parts.append(
+                "It asks to write anywhere in " + Self.escaped(Self.abbreviated(root))
+                    + " for the rest of this run.")
+        }
         if let reason = approval.reason, !reason.isEmpty { parts.append(Self.escaped(reason)) }
         if approval.kind == .command { parts.append(Self.fenced(approval.subject)) }
         if approvals.count > 1 { parts.append("_\(approvals.count - 1) more waiting_") }
@@ -451,6 +490,13 @@ private final class Draft {
         .run(
             command: .aiApproval, args: ["token": .string(token), "decision": .string(decision.rawValue)],
             title: title)
+    }
+
+    /// An absolute path with the home folder as `~`.
+    static func abbreviated(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == home { return "~" }
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
     /// Text shown as is: Markdown's punctuation escaped.

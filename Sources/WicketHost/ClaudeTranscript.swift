@@ -12,11 +12,6 @@ struct ClaudeTranscript: AgentTranscript {
         self.request = request
     }
 
-    /// Bash runs in Claude Code's own sandbox: writes only inside the working directory (and temp
-    /// folders), no network, and no unsandboxed fallback.
-    private static let sandbox =
-        #"{"sandbox":{"enabled":true,"autoAllowBashIfSandboxed":true,"allowUnsandboxedCommands":false}}"#
-
     static func arguments(for mode: AgentMode) -> [String] {
         // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
         // --permission-prompts none denies anything that would ask.
@@ -24,19 +19,8 @@ struct ClaudeTranscript: AgentTranscript {
             "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--no-session-persistence", "--safe-mode", "--strict-mcp-config", "--permission-prompts", "none",
         ]
-        switch mode {
         // Acting runs stay answer-only until the permission bridge lands.
-        case .answer, .act:
-            return common + ["--tools", "", "--effort", "low", "--system-prompt", Agent.answerInstructions]
-        case .build:
-            // --restricted confines the file tools to the working directory and ignores settings
-            // files other than --settings.
-            return common + [
-                "--restricted", "--tools", "Read,Edit,Write,Glob,Grep,Bash", "--permission-mode",
-                "acceptEdits",
-                "--settings", sandbox,
-            ]
-        }
+        return common + ["--tools", "", "--effort", "low", "--system-prompt", Agent.answerInstructions]
     }
 
     mutating func start() -> AgentStep {

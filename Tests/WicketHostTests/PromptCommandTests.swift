@@ -47,7 +47,7 @@ private struct Prompts {
 
     init() {
         extensions = Extensions(directory: folder, store: testStore(), approvals: testApprovals())
-        reviews = ExtensionsRunner(extensions: extensions, jobs: nil)
+        reviews = ExtensionsRunner(extensions: extensions)
         ask = AskAIRunner(backend: backend.backend, interval: .zero, provider: { .codex })
         runner = PromptCommandRunner(answers: ask, extensions: extensions, reviews: reviews)
         extensions.promptRunner = runner

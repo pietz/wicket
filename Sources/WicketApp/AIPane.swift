@@ -3,7 +3,7 @@ import SwiftUI
 import WicketCore
 import WicketHost
 
-/// Settings ▸ AI: which provider answers Ask AI and builds Make a Command, and whether each one is
+/// Settings ▸ AI: which provider answers Ask AI (and acts, when it can), and whether each one is
 /// ready. The choice is a preference in settings.json (`ai.provider`); the status is checked when the
 /// pane opens.
 struct AIPane: View {
@@ -28,10 +28,10 @@ struct AIPane: View {
                 }
             } footer: {
                 Text(
-                    "Codex and Claude answer questions and build commands on your own subscription. "
-                        + "Automatic uses the first provider that's ready, Codex first. Answers "
-                        + "get no tools and no access to your files; a build writes only into the new "
-                        + "command's own folder."
+                    "Codex and Claude answer on your own subscription. Codex also does what you ask, "
+                        + "building Wicket commands included, under the permissions you set in Codex. "
+                        + "Automatic uses the first provider that's ready, Codex first. Claude only "
+                        + "answers for now, with no tools and no access to your files."
                 )
                 .foregroundStyle(.secondary)
                 Text("Apple Intelligence is a small, free, offline on-device model for quick answers only.")
