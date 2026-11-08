@@ -109,7 +109,7 @@ extension Markup {
         /// The markdown between the tags.
         public func markdown() -> Document.Markdown {
             let text = MarkupBuilder.dedented(builder.body(element))
-            let chunks = builder.prose(text, line: element.line, inner)
+            let chunks = builder.prose(text, inner)
             return Document.Markdown(
                 source: text.trimmingCharacters(in: .whitespacesAndNewlines), blocks: chunks.flatMap(\.blocks)
             )

@@ -16,18 +16,12 @@ final class MarkupBuilder {
 
     /// Prose and file facts already worked out, carried from one parse to the next of a growing text.
     struct Cache: Sendable {
-        /// Runs of prose between tags, by their text (and whether nested), with their issues by line
-        /// offset.
-        fileprivate var prose: [String: Prose] = [:]
+        /// Runs of prose between tags, by their text (and whether nested).
+        fileprivate var prose: [String: [Document.Markdown]] = [:]
         /// Whether a file exists and its canonical id, which cost a trip to the disk.
         fileprivate var files: [URL: (id: String, exists: Bool)] = [:]
         /// Paths as written, read as files (nil if they aren't paths).
         fileprivate var paths: [String: Item.Subject?] = [:]
-    }
-
-    fileprivate struct Prose: Sendable {
-        var chunks: [Document.Markdown]
-        var issues: [(offset: Int, kind: Markup.Issue.Kind, message: String)]
     }
 
     private let bytes: [UInt8]
@@ -52,8 +46,8 @@ final class MarkupBuilder {
         for node in nodes {
             let built: [Document.Block]
             switch node {
-            case .text(let range, let line):
-                built = prose(String(decoding: bytes[range], as: UTF8.self), line: line, scope)
+            case .text(let range):
+                built = prose(String(decoding: bytes[range], as: UTF8.self), scope)
                     .map { .markdown($0) }
             case .element(let element):
                 built = build(element, scope)
@@ -302,67 +296,26 @@ final class MarkupBuilder {
 
     // MARK: Prose
 
-    /// Prose between tags as markdown. A run already parsed (the same text, at any line) is reused,
-    /// with its issues, so a growing text reparses only what changed.
-    func prose(_ text: String, line: Int, _ scope: Scope) -> [Document.Markdown] {
+    /// Prose between tags as markdown. A run already parsed (the same text) is reused, so a growing
+    /// text reparses only what changed.
+    func prose(_ text: String, _ scope: Scope) -> [Document.Markdown] {
         let key = (scope.nested ? "n" : "t") + text
-        let prose: Prose
         if let cached = cache.prose[key] ?? used.prose[key] {
-            prose = cached
-        } else {
-            guard text.contains(where: { !$0.isWhitespace }) else { return [] }
-            let text = scope.nested ? Self.dedented(text) : text
-            let source = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let blocks = MarkdownBlock.parse(text)
-            prose = Prose(
-                chunks: blocks.isEmpty ? [] : [Document.Markdown(source: source, blocks: blocks)],
-                issues: Self.inlineTags(text, indentedCode: !scope.nested))
+            used.prose[key] = cached
+            return cached
         }
-        used.prose[key] = prose
-        issues += prose.issues.map {
-            Markup.Issue(line: line + $0.offset, kind: $0.kind, message: $0.message)
-        }
-        return prose.chunks
-    }
-
-    /// Each `<name` in prose, by line offset: a Wicket tag that doesn't start a line, or a tag Wicket
-    /// doesn't know (real HTML, a misspelling). Both show as text. Only opening tags count, and code
-    /// is skipped: fences, code spans and, at the top level, indented code.
-    private static func inlineTags(_ text: String, indentedCode: Bool)
-        -> [(offset: Int, kind: Markup.Issue.Kind, message: String)]
-    {
-        guard text.contains("<") else { return [] }
-        var found: [(offset: Int, kind: Markup.Issue.Kind, message: String)] = []
-        var fenced = false
-        var blank = true
-        var indented = false
-        for (offset, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            let trimmed = line.drop { $0 == " " || $0 == "\t" }
-            defer { blank = trimmed.isEmpty }
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fenced.toggle() }
-            let indent = line.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
-            indented = indentedCode && !trimmed.isEmpty && indent >= 4 && (blank || indented)
-            guard !fenced, !indented, line.contains("<") else { continue }
-            var code = false
-            var index = line.startIndex
-            while index < line.endIndex {
-                let character = line[index]
-                index = line.index(after: index)
-                if character == "`" { code.toggle() }
-                guard !code, character == "<" else { continue }
-                let name = line[index...]
-                let letters = name.prefix { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
-                guard let first = letters.first, first.isLetter else { continue }
-                let after = name.dropFirst(letters.count).first
-                guard after == nil || after == ">" || after == "/" || after!.isWhitespace else { continue }
-                let tag = letters.lowercased()
-                found.append(
-                    Markup.tags[tag] == nil
-                        ? (offset, .unknownTag, "<\(tag)> isn't a Wicket tag; it shows as text")
-                        : (offset, .misplacedTag, "<\(tag)> must start its own line; here it shows as text"))
-            }
-        }
-        return found
+        guard text.contains(where: { !$0.isWhitespace }) else { return [] }
+        let text = scope.nested ? Self.dedented(text) : text
+        let blocks = MarkdownBlock.parse(text)
+        let chunks =
+            blocks.isEmpty
+            ? []
+            : [
+                Document.Markdown(
+                    source: text.trimmingCharacters(in: .whitespacesAndNewlines), blocks: blocks)
+            ]
+        used.prose[key] = chunks
+        return chunks
     }
 
     /// `text` with the indentation its lines share removed: inside a tag, indentation is layout.
@@ -383,7 +336,7 @@ final class MarkupBuilder {
     /// The text between an element's tags.
     func body(_ element: Markup.Element) -> String {
         var text = ""
-        for case .text(let range, _) in element.children {
+        for case .text(let range) in element.children {
             text += String(decoding: bytes[range], as: UTF8.self)
         }
         return text
@@ -391,7 +344,7 @@ final class MarkupBuilder {
 
     /// Whether a text node holds anything but whitespace.
     func isBlank(_ node: Markup.Node) -> Bool {
-        guard case .text(let range, _) = node else { return false }
+        guard case .text(let range) = node else { return false }
         return bytes[range].allSatisfy(\.isSpace)
     }
 

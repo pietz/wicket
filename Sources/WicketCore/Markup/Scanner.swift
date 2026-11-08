@@ -49,8 +49,8 @@ extension Markup {
 
     enum Node {
         case element(Element)
-        /// Source bytes outside any tag (prose, code, tags that aren't Wicket's), from `line`.
-        case text(Range<Int>, line: Int)
+        /// Source bytes outside any tag (prose, code, tags that aren't Wicket's).
+        case text(Range<Int>)
     }
 }
 
@@ -153,9 +153,9 @@ struct MarkupScanner {
             guard bytes[cursor] == .less, let token = tag(at: cursor) else {
                 // Text, up to a closing tag of an open element on the same line (`Paid</badge>`).
                 guard let close = closingTag(from: cursor, to: end) else {
-                    return wholeLine(textStart..<next)
+                    return wholeLine(prose(textStart..<next))
                 }
-                text(textStart..<close.start)
+                text(prose(textStart..<close.start))
                 _ = closeTag(close.token)
                 cursor = skipSpaces(close.token.end)
                 textStart = cursor
@@ -208,21 +208,55 @@ struct MarkupScanner {
     /// Appends text, joining it to the text just before it.
     private mutating func text(_ range: Range<Int>) {
         guard !range.isEmpty else { return }
-        func join(_ nodes: inout [Markup.Node], line: Int) {
-            if case .text(let previous, let start)? = nodes.last, previous.upperBound == range.lowerBound {
-                nodes[nodes.count - 1] = .text(previous.lowerBound..<range.upperBound, line: start)
+        func join(_ nodes: inout [Markup.Node]) {
+            if case .text(let previous)? = nodes.last, previous.upperBound == range.lowerBound {
+                nodes[nodes.count - 1] = .text(previous.lowerBound..<range.upperBound)
             } else {
-                nodes.append(.text(range, line: line))
+                nodes.append(.text(range))
             }
         }
         if split, open.isEmpty {
             split = false
-            root.append(.text(range, line: line))
+            root.append(.text(range))
         } else if open.isEmpty {
-            join(&root, line: line)
+            join(&root)
         } else {
-            join(&open[open.count - 1].children, line: line)
+            join(&open[open.count - 1].children)
         }
+    }
+
+    /// Prose on the current line: notes each `<name` in it, a Wicket tag that doesn't start a block
+    /// or a tag Wicket doesn't know (real HTML, a misspelling), since both show as text. Code spans
+    /// are skipped, and so is text a tag reads as plain (a badge's) or ignores (a chart's).
+    private mutating func prose(_ range: Range<Int>) -> Range<Int> {
+        if let parent = open.last?.tag, parent.body != .blocks, parent.body != .markdown,
+            parent.role != .wrapper
+        {
+            return range
+        }
+        var code = false
+        var i = range.lowerBound
+        while i < range.upperBound {
+            let byte = bytes[i]
+            i += 1
+            if byte == .backtick { code.toggle() }
+            guard !code, byte == .less, i < range.upperBound, bytes[i].isLetter else { continue }
+            var end = i
+            while end < range.upperBound, bytes[end].isLetter || bytes[end].isDigit || bytes[end] == .dash {
+                end += 1
+            }
+            guard
+                end == range.upperBound || bytes[end].isSpace || bytes[end] == .greater
+                    || bytes[end] == .slash
+            else { continue }
+            let name = String(decoding: bytes[i..<end], as: UTF8.self).lowercased()
+            if Markup.tags[name] == nil {
+                issue(.unknownTag, "<\(name)> isn't a Wicket tag; it shows as text")
+            } else {
+                issue(.misplacedTag, "<\(name)> must start its own line; here it shows as text")
+            }
+        }
+        return range
     }
 
     /// Appends the rest of a line as text; returns the next line's start.
