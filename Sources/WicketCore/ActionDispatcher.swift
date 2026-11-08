@@ -56,7 +56,7 @@ public protocol ActionEffects {
 /// extension commands are invoked the same way, by `CommandID`, and what a command does with its
 /// text comes from the one invocation policy (`CommandRun`). Every
 /// command opens its frame, whose run the palette session owns; one that just does something (Settings,
-/// Quit) answers `close` before a frame shows. What the host does for the user is a built-in reached
+/// Quit) answers `close`, which takes that frame off again as the palette closes. What the host does for the user is a built-in reached
 /// by `run`, so `Item.Action` gains no cases for it. Every action runs under an authority, and
 /// `ActionPolicy` decides what it may do first, so an agent's reply never runs anything whatever
 /// reached the screen.

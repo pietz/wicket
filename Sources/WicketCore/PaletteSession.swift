@@ -95,9 +95,9 @@ public final class PaletteSession {
 
     /// Reconciles runs with the catalog after it changed which revision a command runs: a run whose
     /// bound revision (`Invocation.revision`) is no longer its command's is stale, and stops, its
-    /// frame saying the extension changed, with Run Again (the same command, text and args on the
-    /// new revision); the frames above it, opened from its old content, go. A command that is gone
-    /// is `stopCommands`' job. Returns whether anything changed.
+    /// frame becoming a page with no run that says the extension changed, with Run Again (the same
+    /// command, text and args on the new revision); the frames above it, opened from its old
+    /// content, go. A command that is gone is `stopCommands`' job. Returns whether anything changed.
     @discardableResult
     public func rebind(to current: (CommandID) -> RegisteredCommand?) -> Bool {
         let stale = frames.firstIndex { frame in
@@ -121,8 +121,9 @@ public final class PaletteSession {
             .run(
                 command: invocation.command, text: text, args: invocation.args, title: "Run Again")
         ]
-        let ticket = Ticket(frame: frames[index].id, generation: frames[index].generation)
-        show(.detail(changed), .host, ticket, text: "")
+        // The page retires the stale run, so the next reconcile doesn't find it again under a frame
+        // Run Again opened.
+        frames[index].content = .screen(ScreenFrame(showing: .detail(changed), .host))
         return true
     }
 
@@ -168,9 +169,9 @@ public final class PaletteSession {
         frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail), context))))
     }
 
-    /// Shows `run` in a command frame: at once with its `query` if it has one (a live command, a
-    /// keyword's once command, a command waiting for its text), else once its first result is content
-    /// (a first `close` or `reload` acts on the palette instead).
+    /// Pushes a command frame for `run` at once, its field holding the run's `query`, and starts the
+    /// run; until its first result the frame is starting (`Frame.isStarting`), and a `close`,
+    /// `reload` or `stay` takes it off again.
     public func open(_ run: CommandRun) {
         lastID += 1
         var frame = Frame(id: lastID, content: .screen(ScreenFrame(run: run)))

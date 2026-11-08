@@ -17,7 +17,8 @@ private final class RecordingRunner: CommandRunner {
     }
 }
 
-private struct NoEffects: ActionEffects {
+/// Effects that do nothing, for dispatching actions that only open frames.
+struct NoEffects: ActionEffects {
     func open(_ url: URL) {}
     func copy(_ text: String) {}
     func paste(_ text: String, into app: RunningApp?) {}

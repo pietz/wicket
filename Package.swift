@@ -11,7 +11,8 @@ let package = Package(
     targets: [
         // Pure, Foundation-only logic (matching, ranking, usage). Unit-tested.
         .target(name: "WicketCore"),
-        // Runs extensions: processes, sessions, the checker. Shared by the app and the CLI.
+        // Runs extensions and agents: processes, revisions, approvals, the checker. Shared by the
+        // app and the CLI.
         .target(name: "WicketHost", dependencies: ["WicketCore"]),
         // The app: AppKit shell, panel, hotkeys, app index, settings. A library, so its tests can
         // `@testable import` it; the `Wicket` executable is only its `main.swift`.

@@ -69,11 +69,23 @@ final class AppRuntime {
     /// `sources` are the host's own root sources (apps, calculator, files); the runtime adds the
     /// registry's commands and its fallback rows.
     /// `builtins` is the table of Wicket's own commands (`live()` composes it): the registry takes
-    /// their commands, the router their runners.
+    /// their commands, the router their runners. The runtime adds Load Images, which acts on its
+    /// palette model.
     init(
         store: SettingsStore, sources: [any ResultSource], work: [@MainActor () -> Void], builtins: [Builtin],
         extensions: Extensions, usageURL: URL = PaletteModel.defaultUsageURL, system: System
     ) {
+        weak var weakModel: PaletteModel?
+        // Load Images on a page while "Show online content" is off: the page its args name loads
+        // its web images; reached by id only, from the screen's actions (`PaletteModel.target`).
+        let builtins =
+            builtins + [
+                Builtin(
+                    RegisteredCommand(
+                        id: .loadImages, title: "Load Images", icon: .symbol(name: "photo"), isListed: false,
+                        input: .none),
+                    staying: { weakModel?.loadImages($0) })
+            ]
         self.store = store
         self.extensions = extensions
         registry = CommandRegistry(builtins: builtins.map(\.command))
@@ -85,6 +97,7 @@ final class AppRuntime {
         self.runner = runner
         model = PaletteModel(
             sources: sources, runner: runner, registry: registry, messages: messages, usageURL: usageURL)
+        weakModel = model
         hotKey = PaletteHotKey(register: system.registerHotKey)
         hotKey.onPress = { [weak self] in self?.palette?.toggle(eventTime: $0) }
         store.pauseHotKey = { [weak self] in self?.pauseHotKey($0) }
@@ -324,13 +337,6 @@ extension AppRuntime {
                     id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
                     input: .submitText, placeholder: "Paste the value and press Return"),
                 runner: SecretsRunner(extensions: extensions)),
-            // Load Images on a page while "Show online content" is off: that page loads its web
-            // images; reached by id only, from the screen's actions.
-            Builtin(
-                RegisteredCommand(
-                    id: .loadImages, title: "Load Images", icon: .symbol(name: "photo"), isListed: false,
-                    input: .none),
-                staying: { weakRuntime?.model.loadImages() }),
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
@@ -356,6 +362,6 @@ extension AppRuntime {
 extension CommandID {
     /// Wicket Settings, a built-in in `live()`'s table, which ⌘, in the palette runs.
     static let settings = CommandID.builtin("settings")
-    /// Loads the web images of the page on top (`PaletteModel.loadImages`).
+    /// Loads the web images of the page its args name (`PaletteModel.loadImages`).
     static let loadImages = CommandID.builtin("load-images")
 }

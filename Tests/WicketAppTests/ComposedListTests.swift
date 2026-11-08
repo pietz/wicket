@@ -71,7 +71,8 @@ struct ComposedListTests {
     }
 
     /// With online content off, a page holding web images offers Load Images among the screen's
-    /// actions, until it is run for that page; with it on, never.
+    /// actions, naming the page; with it on, never. Running it is
+    /// `AppRuntimeTests.loadImagesLoadsThePageItWasOfferedOn`.
     @Test func loadImagesIsOfferedWhileOnlineContentIsOff() async {
         let model = PaletteModel(sources: [], runner: runner, usageURL: scratchUsage())
         let once = command("show")
@@ -84,10 +85,23 @@ struct ComposedListTests {
         model.blockImages(1, of: model.top.id)
         #expect(model.target?.screen.isEmpty == true)
         model.showsOnlineContent = false
-        #expect(model.target?.screen == [.run(command: .loadImages, title: "Load Images")])
-        model.loadImages()
-        #expect(model.loadsOnlineContent)
-        #expect(model.target?.screen.isEmpty == true)
+        let load = Item.Action.run(
+            command: .loadImages, args: [PaletteModel.pageArg: .integer(model.top.id)], title: "Load Images")
+        #expect(model.target?.screen == [load])
+    }
+
+    /// A page keeps the tallest it was laid out in its generation across a child page: going back
+    /// and measuring shorter still sizes it by its tallest.
+    @Test func aPageKeepsItsHeightAcrossAChildPage() async {
+        let model = await model(showing: .detail(Detail(markdown: "Parent")))
+        let parent = model.top.id
+        model.measureDetail(300, of: parent)
+        model.session.push(Detail(markdown: "Child"), from: .host)
+        model.measureDetail(120, of: model.top.id)
+        #expect(model.detailHeight == 120)
+        model.session.back()
+        model.measureDetail(200, of: parent)
+        #expect(model.detailHeight == 300)
     }
 
     /// A model showing `screen`, as a command's run would.

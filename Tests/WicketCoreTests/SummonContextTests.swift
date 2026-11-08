@@ -144,14 +144,6 @@ private func session(wait: Duration = .seconds(5)) -> (PaletteSession, Recording
     #expect(session.context == nil)
 }
 
-private struct NoEffects: ActionEffects {
-    func open(_ url: URL) {}
-    func copy(_ text: String) {}
-    func paste(_ text: String, into app: RunningApp?) {}
-    func reveal(_ url: URL) {}
-    func inspect(_ file: URL) -> LinkedFile? { nil }
-}
-
 @MainActor @Test func aQuestionTypedAfterItsKeywordGetsTheContext() async throws {
     let runner = RecordingRunner()
     let registry = CommandRegistry(builtins: builtins)

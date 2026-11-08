@@ -208,14 +208,16 @@ public struct Builtin {
     }
 
     /// A built-in that just does something (open the settings window, quit): `effect` runs when it
-    /// is run, and the palette closes without a frame ever showing.
+    /// is run, and the palette closes, taking the built-in's starting frame with it.
     public init(_ command: RegisteredCommand, effect: @escaping @MainActor () -> Void) {
-        self.init(command, runner: EffectRunner(effect, then: .close(message: nil)))
+        self.init(command, runner: EffectRunner({ _ in effect() }, then: .close(message: nil)))
     }
 
     /// A built-in that does something to the palette itself (load a page's images): `effect` runs
-    /// when it is run, and the palette stays as it was, no frame showing.
-    public init(_ command: RegisteredCommand, staying effect: @escaping @MainActor () -> Void) {
+    /// with the invocation when it is run, and its frame goes again, leaving the palette as it was.
+    /// The frame is on top while the effect runs, so what the effect acts on comes in the action's
+    /// args, named before the frame opened.
+    public init(_ command: RegisteredCommand, staying effect: @escaping @MainActor (Invocation) -> Void) {
         self.init(command, runner: EffectRunner(effect, then: .stay))
     }
 }
@@ -223,16 +225,16 @@ public struct Builtin {
 /// Runs a built-in that just does something: its effect, then `close` or `stay`.
 @MainActor
 final class EffectRunner: CommandRunner {
-    private let effect: @MainActor () -> Void
+    private let effect: @MainActor (Invocation) -> Void
     private let result: RunResult
 
-    init(_ effect: @escaping @MainActor () -> Void, then result: RunResult) {
+    init(_ effect: @escaping @MainActor (Invocation) -> Void, then result: RunResult) {
         self.effect = effect
         self.result = result
     }
 
     func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
-        effect()
+        effect(invocation)
         let result = result
         return AsyncThrowingStream {
             $0.yield(result)

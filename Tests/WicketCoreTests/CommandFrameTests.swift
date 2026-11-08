@@ -540,6 +540,47 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(titles(session).isEmpty)
 }
 
+/// The changed-extension page retires the stale run: Run Again's frame, on the new revision, survives
+/// the next catalog change, even one to another extension.
+@MainActor @Test func runAgainSurvivesTheNextCatalogChange() async throws {
+    var once = reviews
+    once.revision = revision("a")
+    var other = search
+    other.revision = revision("a")
+    let registry = CommandRegistry()
+    registry.setExtensionCommands([once, other])
+    let runner = FakeRunner()
+    let session = PaletteSession(sources: [], runner: runner, registry: registry)
+    session.open(CommandRun(once, .invoked))
+    #expect(await eventually { runner.runs.count == 1 })
+    runner.runs[0].continuation.yield(.show(.list([row("PR 1")])))
+    #expect(await eventually { titles(session) == ["PR 1"] })
+
+    once.revision = revision("b")
+    registry.setExtensionCommands([once, other])
+    #expect(session.rebind { registry.command($0) })
+    #expect(session.top.run == nil)
+
+    // Run Again, through the dispatcher as Return runs it.
+    let dispatcher = ActionDispatcher(registry: registry, effects: NoEffects())
+    let target = try #require(session.top.target)
+    guard case .open(let again)? = dispatcher.perform(target, at: .action(0), in: ActionContext()) else {
+        Issue.record("Run Again opened nothing")
+        return
+    }
+    session.open(again)
+    #expect(await eventually { runner.runs.count == 2 })
+    #expect(runner.runs[1].invocation.revision == revision("b"))
+    #expect(session.frames.count == 3)
+
+    #expect(!session.rebind { registry.command($0) })
+    other.revision = revision("b")
+    registry.setExtensionCommands([once, other])
+    #expect(!session.rebind { registry.command($0) })
+    #expect(session.frames.count == 3)
+    #expect(session.top.run?.invocation.revision == revision("b"))
+}
+
 @MainActor @Test func aChangedRevisionStopsACommandStillStarting() async {
     var once = reviews
     once.revision = revision("a")

@@ -16,11 +16,13 @@ final class PaletteModel {
     var results: [Item] { top.list?.items ?? [] }
     var selection: Int { top.list?.selection ?? 0 }
     /// What Return, ⌘↩ and ⌘K act on: the top frame's target, with Load Images among the screen's
-    /// actions while its page holds images that wait for online content.
+    /// actions while its page holds images that wait for online content. Load Images names the page
+    /// in its args, since its own frame is on top while it runs.
     var target: ActionTarget? {
         guard var target = top.target else { return nil }
         if !loadsOnlineContent, blockedImages?.frame == top.id, blockedImages?.count ?? 0 > 0 {
-            target.screen.append(.run(command: .loadImages, title: "Load Images"))
+            target.screen.append(
+                .run(command: .loadImages, args: [Self.pageArg: .integer(top.id)], title: "Load Images"))
         }
         return target
     }
@@ -65,10 +67,11 @@ final class PaletteModel {
     /// `PaletteController`, which sizes the window to match.
     var cardHeight: CGFloat = 0
     var isExpanded: Bool { cardHeight > 0 }
-    /// The tallest the top frame's page has been laid out in its current generation, which sizes
-    /// its card: a streaming answer's card grows with the text and never shrinks mid-stream (a
-    /// closing `**` can briefly reflow it shorter), while a new query or reload starts over.
-    private var pageHeight: (frame: Frame.ID, generation: Int, height: CGFloat)?
+    /// The tallest each frame's page has been laid out in its current generation, which sizes its
+    /// card: a streaming answer's card grows with the text and never shrinks mid-stream (a closing
+    /// `**` can briefly reflow it shorter), while a new query or reload starts over. Kept per frame,
+    /// so going back to a page keeps its height; a popped frame's goes at the next measurement.
+    private var pageHeights: [Frame.ID: (generation: Int, height: CGFloat)] = [:]
     /// The height of a list's summary as last laid out.
     private var listTop: (frame: Frame.ID, height: CGFloat)?
     /// The height of the top frame's list top; nil before it is laid out.
@@ -78,10 +81,8 @@ final class PaletteModel {
     var resolve: (Item.Action, Authority) -> ActionPolicy.Resolution = { action, _ in .perform(action) }
     /// The height the top frame's page content needs; nil for rows, or before it is laid out.
     var detailHeight: CGFloat? {
-        guard let pageHeight, pageHeight.frame == top.id, pageHeight.generation == top.generation else {
-            return nil
-        }
-        return pageHeight.height
+        guard let measured = pageHeights[top.id], measured.generation == top.generation else { return nil }
+        return measured.height
     }
     /// The top frame's command is running (the root's slow sources don't count). The pill spins.
     var isBusy: Bool { top.run != nil && top.isLoading }
@@ -116,7 +117,9 @@ final class PaletteModel {
     /// The detail view of `frame` was laid out with its content `height` tall.
     func measureDetail(_ height: CGFloat, of frame: Frame.ID) {
         guard frame == top.id else { return }
-        pageHeight = (frame, top.generation, max(height, detailHeight ?? 0))
+        let onStack = Set(session.frames.map(\.id))
+        pageHeights = pageHeights.filter { onStack.contains($0.key) }
+        pageHeights[frame] = (top.generation, max(height, detailHeight ?? 0))
     }
 
     /// The list summary of `frame` was laid out `height` tall.
@@ -131,15 +134,20 @@ final class PaletteModel {
         blockedImages = (frame, count)
     }
 
-    /// Load Images: the top frame's page loads its web images, this once.
-    func loadImages() {
-        imagesLoaded.insert(top.id)
+    /// The arg of a Load Images action naming the page it loads.
+    static let pageArg = "page"
+
+    /// Load Images ran: the page its args name (`target`) loads its web images, this once.
+    func loadImages(_ invocation: Invocation) {
+        guard case .integer(let page) = invocation.args?[Self.pageArg] else { return }
+        imagesLoaded.insert(page)
     }
 
     /// Forgets what the last summon's pages loaded, for when the palette is dismissed.
     func forgetPages() {
         imagesLoaded = []
         blockedImages = nil
+        pageHeights = [:]
         navigation = nil
     }
 

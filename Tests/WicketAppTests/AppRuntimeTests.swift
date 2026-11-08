@@ -456,6 +456,41 @@ private func addHello(_ h: Harness) async throws {
     #expect(h.runtime.model.textSize == .medium)
 }
 
+private struct NoEffects: ActionEffects {
+    func open(_ url: URL) {}
+    func copy(_ text: String) {}
+    func paste(_ text: String, into app: RunningApp?) {}
+    func reveal(_ url: URL) {}
+    func inspect(_ file: URL) -> LinkedFile? { nil }
+}
+
+/// With online content off, a page holding web images offers Load Images among the screen's
+/// actions; run as ⌘K runs it, through the dispatcher and the runtime's built-in, its own frame
+/// comes and goes, and the page it came from loads its images and stops offering it.
+@MainActor @Test func loadImagesLoadsThePageItWasOfferedOn() async throws {
+    let h = try Harness(settings: #"{"showOnlineContent": false}"#)
+    let model = h.runtime.model
+    #expect(!model.showsOnlineContent)
+    h.session.push(Detail(markdown: "<image src=\"https://example.com/a.png\"/>\n\nText"), from: .host)
+    let page = model.top.id
+    model.blockImages(1, of: page)
+    let target = try #require(model.target)
+    let index = try #require(target.screen.firstIndex { $0.title == "Load Images" })
+
+    let dispatcher = ActionDispatcher(registry: h.runtime.registry, effects: NoEffects())
+    guard
+        case .open(let run) = try #require(
+            dispatcher.perform(target, at: .screen(index), in: ActionContext()))
+    else {
+        Issue.record("Load Images opened no frame")
+        return
+    }
+    h.session.open(run)
+    #expect(await eventually { h.session.frames.count == 2 && model.loadsOnlineContent })
+    #expect(model.top.id == page)
+    #expect(model.target?.screen.contains { $0.title == "Load Images" } == false)
+}
+
 /// The menu shows the hotkey as a key equivalent: the key as AppKit spells it, Carbon's modifiers
 /// as AppKit's.
 @Test func shortcutAsMenuKeyEquivalent() throws {
