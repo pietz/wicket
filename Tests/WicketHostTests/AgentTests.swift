@@ -418,8 +418,13 @@ func activities(_ events: [AgentEvent]) -> [String] {
         }
         #expect(command.kind == .command)
         #expect(command.subject == "echo one > a.txt")
-        #expect(command.reason == "Write \"one\" to a.txt")
-        #expect(command.workingDirectory == "/tmp/work")
+        // What Allow for Session grants beyond this call is spelled out; no folder is claimed,
+        // since Claude Code's shell keeps its `cd`s.
+        #expect(
+            command.reason
+                == "Write \"one\" to a.txt\n\nAllow for Session also allows, until this run ends: Bash(echo one *), files in /tmp/work."
+        )
+        #expect(command.workingDirectory == nil)
         #expect(bash.send.isEmpty)
 
         _ = transcript.receive(
@@ -436,6 +441,11 @@ func activities(_ events: [AgentEvent]) -> [String] {
         }
         #expect(both[1].kind == .fileChange)
         #expect(both[1].subject == "write notes/b.txt")
+        // A suggested mode change (accept every edit) is never offered or applied.
+        #expect(both[1].reason == nil)
+        let session = try decoded(
+            try #require(ClaudeTranscript.reply(AgentReply(approval: both[1], decision: .acceptForSession))))
+        #expect(session["response"]?["response"]?["updatedPermissions"] == .array([]))
 
         // Allow echoes the input; for the session, every suggestion stays in this session (as
         // suggested, the rule would be saved to the folder's .claude/settings.local.json).
@@ -475,6 +485,19 @@ func activities(_ events: [AgentEvent]) -> [String] {
                     #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"The user declined this in Wicket.","is_error":true,"tool_use_id":"toolu_2"}]},"parent_tool_use_id":null,"tool_result_meta":[{"id":"toolu_2","non_execution_kind":"permission-rule","permission_decision":{"decision":"reject","source":"user_reject"}}]}"#
                 )
             ).events == [.approvals([]), .activity("Declined changes to notes/b.txt")])
+    }
+
+    @Test func subAgentsAndUnknownToolsCountAsActing() {
+        var transcript = ClaudeTranscript(request: request(.act))
+        _ = transcript.receive(
+            line(
+                #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s","name":"Write","input":{"file_path":"/tmp/work/a.txt","content":"x"}},{"type":"tool_use","id":"toolu_m","name":"mcp__notes__update","input":{}},{"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/tmp/work/a.txt"}}]},"parent_tool_use_id":"toolu_task"}"#
+            ))
+        let done = transcript.receive(
+            line(
+                #"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_s","type":"tool_result","content":"ok"},{"tool_use_id":"toolu_m","type":"tool_result","content":"ok"},{"tool_use_id":"toolu_r","type":"tool_result","content":"x"}]},"parent_tool_use_id":"toolu_task"}"#
+            ))
+        #expect(done.events.filter { $0 == .acted }.count == 2)
     }
 
     @Test func otherToolsShowTheirInputAndCancelledPromptsGo() throws {

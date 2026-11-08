@@ -113,6 +113,11 @@ struct ClaudeTranscript: AgentTranscript {
             return resolve { $0.approval.id["request_id"] == message["request_id"] }
         case "user":
             return results(message["message"]?["content"]?.array ?? [], meta: message["tool_result_meta"])
+        case "assistant":
+            // Every agent's calls, sub-agents' included, so what they did counts as acting.
+            for call in message["message"]?["content"]?.array ?? [] where call["type"]?.string == "tool_use" {
+                if let id = call["id"]?.string { calls[id] = call }
+            }
         default:
             break
         }
@@ -134,10 +139,6 @@ struct ClaudeTranscript: AgentTranscript {
                 return AgentStep(events: [.text(text)])
             default:
                 break
-            }
-        case "assistant":
-            for call in message["message"]?["content"]?.array ?? [] where call["type"]?.string == "tool_use" {
-                if let id = call["id"]?.string { calls[id] = call }
             }
         case "result":
             // With stream-json input the CLI waits for more until stdin closes.
@@ -164,28 +165,33 @@ struct ClaudeTranscript: AgentTranscript {
             return AgentStep(
                 events: [.activity("Declined a question")], send: [Self.response(id, Self.deny)])
         }
+        // A mode change would approve far more than the call shown, so it is never applied.
+        let suggestions = (body["permission_suggestions"]?.array ?? []).filter {
+            $0["type"]?.string != "setMode"
+        }
         let approvalID = JSONValue.object([
-            "request_id": id, "input": input, "suggestions": body["permission_suggestions"] ?? .array([]),
+            "request_id": id, "input": input, "suggestions": .array(suggestions),
         ])
         let name = body["display_name"]?.string ?? tool
         let reason = body["decision_reason"]?.string
+        let session = Self.sessionScope(suggestions, shown: request.shown)
         let approval: AgentApproval
         switch tool {
         case "Bash":
             approval = AgentApproval(
                 id: approvalID, kind: .command, subject: input["command"]?.string ?? "a command",
-                reason: input["description"]?.string ?? reason,
-                // Claude Code's shell starts in the run's folder; the prompt doesn't say where it is now.
-                workingDirectory: request.workingDirectory.path)
+                // No folder: Claude Code's shell keeps its `cd`s and the prompt doesn't say where it is.
+                reason: Self.joined(input["description"]?.string ?? reason, session))
         case "Edit", "MultiEdit", "Write", "NotebookEdit":
             let path = (input["file_path"] ?? input["notebook_path"])?.string
             approval = AgentApproval(
                 id: approvalID, kind: .fileChange,
                 subject: path.map { (tool == "Write" ? "write " : "edit ") + request.shown($0) } ?? "files",
-                reason: reason)
+                reason: Self.joined(reason, session))
         default:
             approval = AgentApproval(
-                id: approvalID, kind: .tool, subject: name, reason: reason, input: Self.brief(input))
+                id: approvalID, kind: .tool, subject: name, reason: Self.joined(reason, session),
+                input: Self.brief(input))
         }
         pending.append((body["tool_use_id"]?.string, approval))
         return AgentStep(events: [.approvals(pending.map(\.approval))])
@@ -204,15 +210,47 @@ struct ClaudeTranscript: AgentTranscript {
                     $0["id"]?.string == id && $0["permission_decision"]?["decision"]?.string == "reject"
                 } ?? false
             step.events.append(.activity(activity(call, declined: rejected)))
-            if !rejected,
-                ["Bash", "Edit", "MultiEdit", "Write", "NotebookEdit"].contains(call["name"]?.string)
-            {
+            if !rejected, !Self.readOnly.contains(call["name"]?.string ?? "") {
                 step.events.append(.acted)
             }
         }
         if pending.count != count { step.events.insert(.approvals(pending.map(\.approval)), at: 0) }
         return step
     }
+
+    /// What Allow for Session grants beyond this call, in words; nil when it grants nothing more.
+    static func sessionScope(_ suggestions: [JSONValue], shown: (String) -> String) -> String? {
+        var grants: [String] = []
+        for suggestion in suggestions {
+            switch suggestion["type"]?.string {
+            case "addRules", "replaceRules":
+                for rule in suggestion["rules"]?.array ?? [] {
+                    let tool = rule["toolName"]?.string ?? "a tool"
+                    grants.append(rule["ruleContent"]?.string.map { "\(tool)(\($0))" } ?? "any \(tool) call")
+                }
+            case "addDirectories":
+                grants += (suggestion["directories"]?.array ?? []).compactMap {
+                    $0.string.map { "files in " + shown($0) }
+                }
+            default:
+                break
+            }
+        }
+        return grants.isEmpty
+            ? nil
+            : "Allow for Session also allows, until this run ends: " + grants.joined(separator: ", ") + "."
+    }
+
+    private static func joined(_ a: String?, _ b: String?) -> String? {
+        let parts = [a, b].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
+
+    /// Tools known not to change anything; any other call (MCP tools included) counts as acting.
+    static let readOnly: Set<String> = [
+        "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite", "Task", "Agent", "ToolSearch",
+        "AskUserQuestion", "ExitPlanMode", "BashOutput",
+    ]
 
     private mutating func resolve(_ matches: ((call: String?, approval: AgentApproval)) -> Bool) -> AgentStep
     {
