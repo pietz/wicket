@@ -163,6 +163,33 @@ struct MarkupViewTests {
         return host.hasSuffix(".example") ? [[93, 184, 216, 34]] : await RemoteImages.resolve(host)
     }
 
+    /// Loads run a few at a time, and one whose every viewer went away stops.
+    @Test func loadsAreBoundedAndStopWhenNobodyWaits() async throws {
+        let gate = ImageLoader.Gate(limit: 2)
+        await gate.enter()
+        await gate.enter()
+        let third = Task { await gate.enter() }
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await gate.running == 2)
+        await gate.leave()
+        await third.value
+        #expect(await gate.running == 2)
+
+        let hanging = RemoteImages(resolve: { _ in
+            try? await Task.sleep(for: .seconds(60))
+            return []
+        })
+        let loader = ImageLoader(remote: hanging)
+        let url = URL(string: "https://slow.example/a.png")!
+        let viewer = Task { await loader.load(url) }
+        #expect(await eventually { loader.isLoading(url) })
+        let start = ContinuousClock.now
+        viewer.cancel()
+        #expect(await viewer.value == nil)
+        #expect(ContinuousClock.now - start < .seconds(5))
+        #expect(await eventually { !loader.isLoading(url) })
+    }
+
     // MARK: Performance
 
     /// Lays out a 64 KiB page (every gallery example repeated) at the palette's width, as the card

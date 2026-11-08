@@ -183,3 +183,15 @@ private let mixed = """
     #expect(session.top.target?.item?.title == "alpha.txt")
     #expect(session.top.target?.secondary == .screen(1))
 }
+
+/// A page pushed from an answer keeps the answer's screen actions and which of them ⌘↩ runs.
+@MainActor @Test func aPushedPageKeepsTheAnswersSecondary() async {
+    let follow = Item.Action.run(
+        command: followUpID, args: ["conversation": .string("t")], title: "Follow Up")
+    let copy = Item.Action.copy(text: "x", title: "Copy Answer")
+    let session = await showing(
+        mixed, ScreenContext(authority: .agent, actions: [copy, follow], secondary: 1))
+    session.push(Detail(markdown: "More."), from: .agent)
+    #expect(session.top.target?.screen == [copy, follow])
+    #expect(session.top.target?.secondary == .screen(1))
+}

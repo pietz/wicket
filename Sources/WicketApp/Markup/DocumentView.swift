@@ -107,6 +107,10 @@ struct DocumentView: View {
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { offset = $1 }
             // The system's soft edge where the page passes under the footer.
             .scrollEdgeEffectStyle(.soft, for: .bottom)
+            // Back from a pushed page, or redrawn in the other layout: the selection stays in view.
+            .onAppear {
+                if let selected = focus.selected { proxy.scrollTo(selected) }
+            }
             .onChange(of: focus.selected) { _, selected in
                 withAnimation(.snappy(duration: 0.2)) {
                     if let selected { proxy.scrollTo(selected) } else { position.scrollTo(edge: .top) }

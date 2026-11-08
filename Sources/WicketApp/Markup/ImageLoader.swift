@@ -10,36 +10,94 @@ import UniformTypeIdentifiers
 final class ImageLoader {
     static let shared = ImageLoader()
 
+    /// Decoded images, charged by their bitmap's bytes.
     private let cache = NSCache<NSURL, NSImage>()
-    private var loading: [URL: Task<NSImage?, Never>] = [:]
+    /// The loads under way: one per URL however many views wait, cancelled when the last leaves.
+    private var loading: [URL: (id: UUID, task: Task<NSImage?, Never>, waiting: Int)] = [:]
     private let remote: RemoteImages
+    /// At most this many loads at once; the rest wait their turn.
+    let gate = Gate(limit: 4)
 
     init(remote: RemoteImages = RemoteImages()) {
         self.remote = remote
-        cache.countLimit = 64
+        cache.totalCostLimit = 128 * 1024 * 1024
     }
 
     /// The image if it is loaded already.
     func cached(_ url: URL) -> NSImage? { cache.object(forKey: url as NSURL) }
 
-    /// The image at `url` (a file or an https URL); nil if it can't be had. One load per URL at a
-    /// time, however many views ask.
+    /// Whether `url` is being loaded.
+    func isLoading(_ url: URL) -> Bool { loading[url] != nil }
+
+    /// The image at `url` (a file or an https URL); nil if it can't be had, or every view that
+    /// asked for it went away first, which stops the load.
     func load(_ url: URL) async -> NSImage? {
         if let image = cached(url) { return image }
-        if let task = loading[url] { return await task.value }
-        let remote = remote
-        let task = Task<NSImage?, Never> {
+        let id: UUID
+        let task: Task<NSImage?, Never>
+        if let entry = loading[url] {
+            (id, task) = (entry.id, entry.task)
+            loading[url]?.waiting += 1
+        } else {
+            id = UUID()
+            task = start(url, id)
+            loading[url] = (id, task, 1)
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            Task { @MainActor in self.leave(url, id) }
+        }
+    }
+
+    private func start(_ url: URL, _ id: UUID) -> Task<NSImage?, Never> {
+        let (remote, gate) = (remote, gate)
+        return Task {
+            await gate.enter()
             let start = ContinuousClock.now
             let bitmap =
-                url.isFileURL ? await LocalImages.thumbnail(url) : try? await remote.fetch(url)
+                Task.isCancelled
+                ? nil : url.isFileURL ? await LocalImages.thumbnail(url) : try? await remote.fetch(url)
+            await gate.leave()
             Perf.log("image (\(url.isFileURL ? "local" : "remote")): \(Perf.ms(since: start))")
-            return bitmap.map { NSImage(cgImage: $0.image, size: .zero) }
+            if loading[url]?.id == id { loading[url] = nil }
+            guard let bitmap, !Task.isCancelled else { return nil }
+            let image = NSImage(cgImage: bitmap.image, size: .zero)
+            cache.setObject(image, forKey: url as NSURL, cost: bitmap.image.bytesPerRow * bitmap.image.height)
+            return image
         }
-        loading[url] = task
-        let image = await task.value
-        loading[url] = nil
-        if let image { cache.setObject(image, forKey: url as NSURL) }
-        return image
+    }
+
+    /// One view stopped waiting for `url`; the last one cancels the load.
+    private func leave(_ url: URL, _ id: UUID) {
+        guard let entry = loading[url], entry.id == id else { return }
+        if entry.waiting > 1 {
+            loading[url]?.waiting -= 1
+        } else {
+            entry.task.cancel()
+            loading[url] = nil
+        }
+    }
+
+    /// Lets `limit` callers in at a time, the rest in the order they came.
+    actor Gate {
+        let limit: Int
+        private(set) var running = 0
+        private var queue: [CheckedContinuation<Void, Never>] = []
+
+        init(limit: Int) { self.limit = limit }
+
+        func enter() async {
+            guard running >= limit else {
+                running += 1
+                return
+            }
+            await withCheckedContinuation { queue.append($0) }
+        }
+
+        func leave() {
+            if queue.isEmpty { running -= 1 } else { queue.removeFirst().resume() }
+        }
     }
 }
 

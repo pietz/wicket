@@ -192,7 +192,10 @@ public final class PaletteSession {
     /// on a page an agent's row opened.
     public func push(_ detail: Detail, from authority: Authority) {
         var context = ScreenContext(authority: authority)
-        if case .screen(let below) = top.content { context.actions = below.context.actions }
+        if case .screen(let below) = top.content {
+            context.actions = below.context.actions
+            context.secondary = below.context.secondary
+        }
         lastID += 1
         frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail), context))))
     }

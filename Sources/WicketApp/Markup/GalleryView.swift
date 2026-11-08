@@ -77,7 +77,9 @@ private struct ImageTile: View {
         .target(image.item, radius: 13)
         .padding(-4)
         .preference(key: BlockedImagesKey.self, value: blocked ? 1 : 0)
-        .task(id: online ? image.source : nil) {
+        // Keyed by the image and whether it may load: a local image loads with online content off,
+        // and turning it on starts a held web image.
+        .task(id: blocked ? nil : image.source) {
             guard !blocked, loaded?.url != image.source else { return }
             if let cached = ImageLoader.shared.cached(image.source) {
                 loaded = (image.source, cached)
