@@ -105,9 +105,44 @@ struct ModelListing: AgentTranscript {
         return AgentStep(events: [.answer(result.json)], closeInput: true)
     }
 
-    /// The models in a `model/list` result or an `initialize` response, in the CLI's order. Claude
-    /// Code's "default" entry is left out: Wicket always names a model.
+    /// The models in a `model/list` result or an `initialize` response, newest of each family only.
+    /// Claude Code's "default" entry is left out: Wicket always names a model.
     static func models(_ provider: AgentProvider, from result: JSONValue) -> [AgentModel] {
+        newestPerFamily(listed(provider, from: result), families: families[provider] ?? [])
+    }
+
+    /// Model families largest first (owner): the picker shows the newest of each in this order.
+    static let families: [AgentProvider: [String]] = [
+        .codex: ["astra", "sol", "terra", "luna"], .claude: ["fable", "opus", "sonnet", "haiku"],
+    ]
+
+    /// The newest model of each known family, largest family first, then models of no known family
+    /// in the CLI's order. A plain alias (Claude's `opus`) names the newest of its family, so it wins;
+    /// otherwise the higher version (`gpt-6.1-sol` over `gpt-6-sol`) does.
+    static func newestPerFamily(_ models: [AgentModel], families: [String]) -> [AgentModel] {
+        func parts(_ id: String) -> [Substring] { id.lowercased().split { $0 == "-" || $0 == "_" } }
+        func version(_ id: String) -> [Int] {
+            let numbers = parts(id).flatMap { $0.split(separator: ".") }.compactMap { Int($0) }
+            return numbers.isEmpty ? [Int.max] : numbers
+        }
+        var newest: [String: AgentModel] = [:]
+        var others: [AgentModel] = []
+        for model in models {
+            guard let family = parts(model.id).lazy.map(String.init).first(where: families.contains) else {
+                others.append(model)
+                continue
+            }
+            // Keep the first listed unless this one is newer.
+            if let current = newest[family], !version(current.id).lexicographicallyPrecedes(version(model.id))
+            {
+                continue
+            }
+            newest[family] = model
+        }
+        return families.compactMap { newest[$0] } + others
+    }
+
+    private static func listed(_ provider: AgentProvider, from result: JSONValue) -> [AgentModel] {
         switch provider {
         case .codex:
             return (result["data"]?.array ?? []).compactMap { model in

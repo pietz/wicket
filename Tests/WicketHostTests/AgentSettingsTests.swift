@@ -149,6 +149,36 @@ private final class RequestLog: @unchecked Sendable {
         ])
 }
 
+/// The pickers show the newest model of each family, largest first (owner), as the CLIs listed them
+/// with Codex 0.167 and Claude Code 2.1.319.
+@Test func onlyTheNewestOfEachFamilyLargestFirst() {
+    func models(_ ids: [String]) -> [AgentModel] {
+        ids.map { AgentModel(id: $0, name: $0, efforts: [], fast: false) }
+    }
+    let codex = [
+        "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+    ]
+    #expect(
+        ModelListing.newestPerFamily(models(codex), families: ModelListing.families[.codex]!).map(\.id) == [
+            "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna",
+        ])
+    let claude = [
+        "opus", "fable", "sonnet", "haiku", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5",
+        "claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6",
+    ]
+    #expect(
+        ModelListing.newestPerFamily(models(claude), families: ModelListing.families[.claude]!).map(\.id) == [
+            "fable", "opus", "sonnet", "haiku",
+        ])
+    // A model of no known family stays, after the families.
+    #expect(
+        ModelListing.newestPerFamily(models(["gpt-7-nova", "gpt-6-luna"]), families: ["luna"]).map(\.id) == [
+            "gpt-6-luna", "gpt-7-nova",
+        ])
+}
+
 @Test func listingAsksTheCLIAndEnds() async throws {
     // Answers model/list as Codex would, once asked, and exits when its input closes.
     let codex = try fakeAgent(
