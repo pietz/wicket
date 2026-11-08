@@ -421,7 +421,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         .approvals([AgentApproval(id: .integer(0), kind: .command, subject: "rm *.log")]))
     #expect(await eventually { palette.detail?.actions.first?.title == "Allow" })
     let allow = try #require(palette.detail?.actions.first)
-    palette.session.reset()  // Escape closes the palette.
+    palette.session.reset()  // The palette closes.
     #expect(await eventually { agents.wasEnded(0) })
     await palette.runner.shutdown()  // Returns once the run has ended and cleaned up.
 
@@ -491,7 +491,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     }
     #expect(command == .followUp && text.isEmpty)
 
-    // It opens the input waiting for the question, as the pill; ⌘[ there goes back to the answer.
+    // It opens the input waiting for the question, as the pill; Escape there goes back to the answer.
     let answer = palette.session.top.id
     palette.session.open(CommandRun(followUp, .invoked, args: args))
     #expect(palette.session.top.awaitsText && palette.session.top.isCompact)

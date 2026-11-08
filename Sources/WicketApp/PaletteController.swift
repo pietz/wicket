@@ -307,10 +307,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Escape in the search field closes the palette from any depth; a command still being opened
-    /// is only stopped, leaving the frame it was picked on.
+    /// Escape in the search field goes back one layer (`PaletteSession.back`), so repeated presses
+    /// end at an empty root search and then close the palette.
     func escape() {
-        if !model.session.cancelOpening() { hide() }
+        if !model.session.back() { hide() }
     }
 
     /// Runs the action at `position` in the target's actions (`.action(0)` is the primary) or its
@@ -405,12 +405,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
             perform(.run(command: .settings), as: .host)
         case .listen:
             listen()
-        case .back:
-            if model.actionMenu != nil {
-                model.actionMenu = nil
-            } else {
-                model.session.back()
-            }
         case .move(let delta):
             if model.actionMenu != nil {
                 model.actionMenu?.moveSelection(by: delta)

@@ -91,7 +91,9 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     #expect(session.top.isLoading)
 }
 
-@MainActor @Test func backPopsAFrameWhateverItsText() {
+/// Escape goes up one layer: a pushed frame pops whatever its text, then the root's text clears,
+/// and only at an empty root is there nothing left (the palette closes).
+@MainActor @Test func backGoesUpOneLayerAtATime() {
     let session = PaletteSession(sources: [FakeSource("apps", instant: ["a": [item("A")]])])
     session.query = "a"
     session.push(page, from: .host)
@@ -101,8 +103,9 @@ private let page = Detail(title: "Page", markdown: "# Page", actions: [.copy(tex
     #expect(session.frames.count == 1)
     #expect(session.query == "a")
     #expect(titles(session) == ["A"])
+    #expect(session.back())
+    #expect(session.query == "")
     #expect(!session.back())
-    #expect(session.query == "a")
 }
 
 @MainActor @Test func aPushedFrameIsNeverCompact() {

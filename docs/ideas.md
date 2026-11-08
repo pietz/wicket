@@ -40,6 +40,6 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Voice when Wicket opens should stay quiet:** arm the mic without showing the voice UI; typing stops it, and the live transcript appears only once speech is heard. In Start Listening mode, make it obvious what to press (done).
 - **Streaming answers as a setting, off by default** (done).
 - **Answers that list things use Wicket's native list:** when the agent lists files or links, show them as real rows (icon, Return opens, the usual actions) instead of text. Maybe later, a small structured format the agent can answer in, which Wicket draws natively. Lead's take: start without a protocol, so markdown list items whose link is a file or URL become rows; add a format only when a second component needs one.
-- **Escape should close, not go back:** a different key for back (done: ⌘[).
+- **Escape should close, not go back:** a different key for back (done with ⌘[, then reversed: with no visible way back from a pushed page, Escape goes up one layer like Raycast).
 - **Delete an extension, not only disable it** (done: Move to Trash).
 - **One well-designed vocabulary for agent output and extensions:** flexible for rich UI, Wicket in control, unambiguous for the agent; consider the harnesses' structured-output (JSON schema) features (in research, high priority).

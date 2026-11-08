@@ -26,7 +26,7 @@ struct PaletteShellTests {
         #expect(model.toast == nil)
     }
 
-    /// With nothing to run in a pushed frame the footer says ⌘[ goes back; the root has no hint.
+    /// With nothing to run in a pushed frame the footer says Escape goes back; the root has no hint.
     @Test func pushedFrameFooterHintsAtBack() {
         model.query = "zzz"
         #expect(model.target == nil)

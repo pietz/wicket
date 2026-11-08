@@ -15,14 +15,11 @@ public enum PaletteChord: Equatable, Sendable {
     case listen
     /// ⌃N and ⌃P: move the selection, like ↓ and ↑.
     case move(Int)
-    /// ⌘[: go back a frame, the system's Back (Safari, Finder, Xcode).
-    case back
 
     /// The physical number row, by key code, so ⌘1 works on layouts that need Shift for digits.
     private static let numberRow = (1...9).map { Shortcut.keyCodes[String($0)]! }
     private static let returnKey = Shortcut.keyCodes["return"]!
     private static let keypadEnter = 0x4C
-    private static let leftBracket = 0x21
 
     /// `characters` is the key's text ignoring modifiers, so letters follow the keyboard layout.
     public init?(keyCode: Int, characters: String?, modifiers: Shortcut.Modifiers) {
@@ -39,9 +36,6 @@ public enum PaletteChord: Equatable, Sendable {
                 self = .openSettings
             } else if character == "l" {
                 self = .listen
-            } else if character == "[" || keyCode == Self.leftBracket {
-                // By key code too: on layouts that need ⌥ for "[" (German), it is the key where US has it.
-                self = .back
             } else {
                 return nil
             }

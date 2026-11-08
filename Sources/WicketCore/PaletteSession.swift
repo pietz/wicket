@@ -236,13 +236,18 @@ public final class PaletteSession {
         }
     }
 
-    /// Back (⌘[): stops a command being opened, else pops the top frame, whatever its text. False at
-    /// the root with nothing opening.
+    /// Back one layer (Escape): stops a command being opened, else pops the top frame whatever its
+    /// text, else clears the root's text. False at an empty root with nothing opening: nothing is
+    /// left to go back from, so the palette closes.
     @discardableResult public func back() -> Bool {
         if cancelOpening() { return true }
-        guard frames.count > 1 else { return false }
-        let popped = frames.removeLast()
-        cancel(popped.id)
+        if frames.count > 1 {
+            let popped = frames.removeLast()
+            cancel(popped.id)
+            return true
+        }
+        guard !query.isEmpty else { return false }
+        query = ""
         return true
     }
 
@@ -313,7 +318,7 @@ public final class PaletteSession {
         start(0)
     }
 
-    /// Stops a command an action is opening (Escape does this before closing); false if none was.
+    /// Stops a command an action is opening (Escape does this before going back); false if none was.
     @discardableResult public func cancelOpening() -> Bool {
         guard let frame = openingFrame else { return false }
         cancel(frame.id)

@@ -103,7 +103,7 @@ enum PaletteMetrics {
 /// glass shapes sit in one container, so the card morphs out of the pill; the content is layered
 /// above the container, where a morph can't smear it.
 ///
-/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌘L, ⌘[, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
+/// Chords (⌘K, ⌘↩, ⌘1 to ⌘9, ⌘L, ⌃N, ⌃P) are handled by `PalettePanel` before these fields see them;
 /// plain keys are handled here, by whichever field has focus.
 struct PaletteRootView: View {
     @Bindable var model: PaletteModel
@@ -450,7 +450,7 @@ struct FooterBar: View {
     /// The screen action ⌘↩ runs, if ⌘↩ runs one.
     var secondary: String?
     var toast: Message?
-    /// A frame is pushed: ⌘[ goes back, shown when there is no action to hint at.
+    /// A frame is pushed: Escape goes back, shown when there is no action to hint at.
     var canGoBack = false
 
     var body: some View {
@@ -469,7 +469,7 @@ struct FooterBar: View {
                 Divider().frame(height: 14)
                 KeyHint(title: "Actions", keys: "⌘K")
             } else if canGoBack {
-                KeyHint(title: "Back", keys: "⌘[")
+                KeyHint(title: "Back", keys: "esc")
             }
         }
         .padding(.horizontal, 14)

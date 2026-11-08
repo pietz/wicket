@@ -152,7 +152,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(detail.title == "Fix login timeout")
     #expect(detail.metadata.contains(.init(label: "Repository", value: "acme/web")))
 
-    // ⌘[: back to the list, then back to the root as it was, whatever the list's filter.
+    // Escape: back to the list, then back to the root as it was, whatever the list's filter.
     #expect(session.back())
     #expect(palette.titles == ["Fix login timeout"])
     #expect(session.back())
