@@ -11,8 +11,9 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 ### Core
 - ✅ Architecture checkpoint: independent reviews (Fable, Astra), merged into [docs/architecture.md](docs/architecture.md)
 - ✅ Architecture refactor (docs/architecture.md): value model, root versus list, frames, registry and dispatcher, process lifecycle, stream-fed command frames
-- ✅ Phase 2 refactor from the second architecture review (docs/architecture.md): ✅ A testable app runtime; ✅ F isolated checker; ✅ D process ownership; ✅ B invocation policy; ✅ C one content model; ✅ E diagnostics and revisions
-- ✅ Phase 3 from the third architecture review (docs/architecture.md): ✅ H built-ins as data; ✅ G contract holes; ✅ J1 process completion; ✅ I sealed revisions and an active catalog; ✅ J2 build jobs; ✅ the consent store
+- ✅ Phase 2 refactor from the second architecture review (plans done and removed from docs): ✅ A testable app runtime; ✅ F isolated checker; ✅ D process ownership; ✅ B invocation policy; ✅ C one content model; ✅ E diagnostics and revisions
+- ✅ Phase 3 from the third architecture review (plans done and removed from docs): ✅ H built-ins as data; ✅ G contract holes; ✅ J1 process completion; ✅ I sealed revisions and an active catalog; ✅ J2 build jobs (later removed: the agent builds commands); ✅ the consent store
+- ✅ Cleanup after the agent pivot (2026-11-08): AI off covers prompt commands; one answer stream and one provider choice shared by app and CLI; readiness checked before every run (cache removed); build-pipeline leftovers deleted; docs trimmed
 - ✅ Consent store: each extension revision approved once in Wicket's UI; extension commands appear exactly when approved
 - ✅ Palette: hotkey, non-activating glass panel, all-SwiftUI search and results
 - ✅ Result-source architecture: shared item model, relevance tiers, action runner, stable selection
