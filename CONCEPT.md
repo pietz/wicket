@@ -78,7 +78,7 @@ Each is the call and its reason; the mechanism is in docs/architecture.md. All d
 ### Settings
 
 - **`~/.config/wicket/settings.json` is the truth, reloaded live.** Plain JSON that people and agents edit. The app never creates it on its own; unknown keys are kept, so newer files work in older builds.
-- **Settings window writes only the file.** It reads what the app applied and writes changed fields; the reload then applies them, so there is no second path into app state. AppKit window with SwiftUI panes, because SwiftUI's `Settings` scene needs a SwiftUI `App`. Launch at login stays with the system (`SMAppService`), never mirrored into the file.
+- **Settings window writes only the file, plus the consent stores (permission levels, voice).** It reads what the app applied and writes changed fields; the reload then applies them, so there is no second path into app state. AppKit window with SwiftUI panes, because SwiftUI's `Settings` scene needs a SwiftUI `App`. Launch at login stays with the system (`SMAppService`), never mirrored into the file.
 - **Features can be turned off** (`"features": {"files": false}`), keyed by source id. A feature that is off does no work at all. Commands are not a feature, since Settings and Quit live there and hiding them hides the way back. Tinycast has a flag per feature; ours is the same effect from one filter, since every source already has a stable id.
 
 - **Every field fails alone; a broken file changes nothing (2026-11-06).** A bad value, including the main hotkey, is ignored with a logged reason and its default stands. A file that isn't valid JSON (often an agent mid-write) keeps the last good settings rather than resetting everything and restarting feature work.

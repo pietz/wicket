@@ -20,7 +20,7 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **The AI is what has to be new.** Launcher basics can borrow freely from Raycast, Alfred and the others we watch; the AI part is where to think outside the box: AI native, future proof, making people more capable. This is the thing to get right.
 - **Automatic intent, no manual choice:** a cheap decision model in the background reads what's typed and decides the intent, e.g. switches to AI for a question or a phrase, stays out of the way for an equation or a file name; maybe a hybrid engine. The user types or speaks and gets the right response without picking Run Agent or Search the Web. (Overnight Sol verdict: only as a suggestion after submit, measure search-phrase misses first, label ~500 queries before building.)
 - **Selected text is a nice-to-have, paused (not removed):** don't spend more time on it or its permission flow for now.
-- **Wicket must be findable:** the owner saw no Dock or menu bar presence and no way into Settings (menu bar icon in progress).
+- **Wicket must be findable:** the owner saw no Dock or menu bar presence and no way into Settings (done: menu bar icon).
 - **A hybrid of launcher and agent harness:** typing finds things instantly like a launcher; anything that needs the AI goes to the agent, without the user choosing. The only routing question is "forward this to the AI or not", decided by a decision model or the local Apple model, quickly, for typed text and for voice.
 - ~~**No keyword for making commands:** "build an extension that shows the weather in Wicket" said to the AI should just work.~~ Decided (CONCEPT, AI): Make a Command is gone.
 - ~~**Call it Run Agent, not Ask AI.**~~ Done (CONCEPT, AI).
@@ -32,7 +32,7 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **No harness of our own:** a thin wrapper that maps Wicket's own understanding onto each agent harness, like T3 Code. The harnesses can already do anything on the computer; Wicket adds context on how to do things inside Wicket.
 - **Wicket's agent instructions as an editable Markdown file** the user can change.
 - **Richer agent replies using Wicket components** instead of text only (later).
-- **Settings ▸ AI much simpler:** one provider dropdown (Claude, ChatGPT), only ready ones selectable, one set of fields; real defaults (Claude sonnet, ChatGPT gpt-6.1-terra, effort medium, speed regular, permissions Auto); four permission levels, no "default"; Apple Intelligence out of the picker (in progress).
+- **Settings ▸ AI much simpler:** one provider dropdown (Claude, ChatGPT), only ready ones selectable, one set of fields; real defaults (Claude sonnet, ChatGPT gpt-6.1-terra, effort medium, speed regular, permissions Auto); four permission levels, no "default"; Apple Intelligence out of the picker (done, 0.0.2).
 - ~~**Continue a conversation:** a short button under an answer ("Follow Up") returns to the normal input (type or speak), keeping the first question and answer so the agent has the context.~~ Done (CONCEPT, AI).
 - **Answer text size as a setting:** today's size is close to the smallest; default bigger (in progress).
 - **Remove Search the Web:** with an agent that answers, a native web search row isn't wanted; keep opening typed links (in progress).
