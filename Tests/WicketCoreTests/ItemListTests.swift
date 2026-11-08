@@ -33,6 +33,13 @@ private func titles(_ list: ItemList) -> [String] { list.items.map(\.title) }
     #expect(list.selectedItem?.title == "Y")
 }
 
+@Test func anUntouchedSelectionStaysOnTop() {
+    // A late, better result takes the highlight unless the user chose a row.
+    var list = ItemList(items("Ask AI"))
+    list.replace(with: items("AGENTS.md", "Ask AI"))
+    #expect(list.selectedItem?.title == "AGENTS.md")
+}
+
 @Test func resettingStartsAtTheTop() {
     var list = ItemList(items("A", "B"))
     list.moveSelection(by: 1)

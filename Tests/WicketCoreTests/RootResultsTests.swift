@@ -29,17 +29,24 @@ private func noUsage(_ id: String) -> Double { 0 }
     #expect(results.items.map(\.title) == ["A", "Fresh"])
 }
 
-@Test func lateResultsKeepTheSelectedItem() {
+@Test func lateResultsKeepAChosenItem() {
     var results = RootResults()
-    results.start(Query(text: "a", generation: 1), results: ["fast": [item("A", score: 5)]], usage: noUsage)
+    results.start(
+        Query(text: "a", generation: 1), results: ["fast": [item("A", score: 5), item("B", score: 4)]],
+        usage: noUsage)
     #expect(results.selectedItem?.title == "A")
-    // A better result arriving later goes above the selection without taking it.
+    // Untouched, the highlight stays on top, so a better late result takes it.
     results.update("slow", items: [item("Better", score: 50)], generation: 1, usage: noUsage)
-    #expect(results.items.first?.title == "Better")
-    #expect(results.selectedItem?.title == "A")
+    #expect(results.selectedItem?.title == "Better")
+    // Chosen, the item keeps it when a better result arrives above.
+    results.moveSelection(by: 2)
+    #expect(results.selectedItem?.title == "B")
+    results.update("slow", items: [item("Best", score: 60)], generation: 1, usage: noUsage)
+    #expect(results.items.first?.title == "Best")
+    #expect(results.selectedItem?.title == "B")
     // An update replaces what the source sent before.
     results.update("slow", items: [item("Other", score: 1)], generation: 1, usage: noUsage)
-    #expect(results.items.map(\.title) == ["A", "Other"])
+    #expect(results.items.map(\.title) == ["A", "B", "Other"])
 }
 
 @Test func selectionResetsOnlyWhenTheTextChanges() {

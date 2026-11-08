@@ -3,8 +3,10 @@ import Foundation
 /// Items on screen and the selected one: the selection state any list shares, whoever orders it
 /// (the root search ranks its items, a command's list keeps the command's order).
 ///
-/// The selection follows the selected item's id when the items change, so a late result never
-/// changes what Return runs. Two rules cover the cases where it can't:
+/// Until the user moves it, the selection is the top row, so the best result is always the one
+/// highlighted, even when better results arrive late. Once moved, it follows the chosen item's id
+/// when the items change, so a late result never changes what Return runs. Two rules cover the
+/// cases where it can't:
 /// - The selected item disappeared: the selection stays on the same row, clamped to the last one,
 ///   so the highlight never jumps (an emptied list selects nothing).
 /// - Truncation never drops the selected item: if it would fall past `limit`, it takes the last
@@ -14,6 +16,8 @@ public struct ItemList: Sendable, Hashable {
     /// Row of the selected item; 0 while the list is empty.
     public private(set) var selection = 0
     public let limit: Int
+    /// Whether the user moved the selection since the last reset; until then it stays on the top row.
+    private var moved = false
 
     public init(_ items: [Item] = [], limit: Int = .max) {
         self.limit = limit
@@ -27,7 +31,8 @@ public struct ItemList: Sendable, Hashable {
     /// Replaces the items, in order, keeping at most `limit`. The selection follows its item unless
     /// `resettingSelection`, which starts at the top (the user typed something new).
     public mutating func replace(with items: [Item], resettingSelection: Bool = false) {
-        let keep = resettingSelection ? nil : selectedItem?.id
+        if resettingSelection { moved = false }
+        let keep = moved ? selectedItem?.id : nil
         var shown = Array(items.prefix(limit))
         if let keep, !shown.isEmpty, !shown.contains(where: { $0.id == keep }),
             let pinned = items.dropFirst(limit).first(where: { $0.id == keep })
@@ -39,12 +44,13 @@ public struct ItemList: Sendable, Hashable {
         if let keep, let index = shown.firstIndex(where: { $0.id == keep }) {
             selection = index
         } else {
-            selection = resettingSelection ? 0 : min(row, max(shown.count - 1, 0))
+            selection = moved ? min(row, max(shown.count - 1, 0)) : 0
         }
     }
 
     public mutating func moveSelection(by delta: Int) {
         guard !items.isEmpty else { return }
+        moved = true
         selection = min(max(selection + delta, 0), items.count - 1)
     }
 }
