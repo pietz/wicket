@@ -16,3 +16,4 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Permissions like agent harnesses, not a plan-and-Run gate every time:** reads allowed by default; writes under explicit user control, per write operation or for the whole task, with a setting for how strict. Avoid the overhead of always accepting something; agents are good now.
 - **Lean on Claude Code and Codex:** use their permission systems and auto mode (hook their permission prompts and ask the user in Wicket), and their subscriptions instead of API billing. Speech to text through Apple's on-device transcription, so the harness doesn't need it.
 - **Keep macOS 27.3's coming AI options in mind**, and the on-device transcription model.
+- **The AI is what has to be new.** Launcher basics can borrow freely from Raycast, Alfred and the others we watch; the AI part is where to think outside the box: AI native, future proof, making people more capable. This is the thing to get right.
