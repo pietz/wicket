@@ -27,6 +27,7 @@ identity="${WICKET_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/
   | awk '/Apple Development/ {print $2; exit}')}"
 codesign --force --sign "${identity:--}" --options runtime "$app/Contents/Helpers/wicket" >/dev/null
 # Apple events: reading Finder's selection for Ask AI (ContextCapture), once the user allows it.
+# Audio input: the hardened runtime blocks the microphone without it (voice input).
 codesign --force --sign "${identity:--}" --options runtime --entitlements Resources/Wicket.entitlements \
   "$app" >/dev/null
 echo "built $app ($config, signed: ${identity:-ad hoc})"

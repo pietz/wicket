@@ -256,8 +256,12 @@ extension AppRuntime {
         let calculator = CalculatorSource()
         let diagnostics = Diagnostics()
         let store = SettingsStore(directory: Settings.directory(), diagnostics: diagnostics)
-        let settingsWindow = SettingsWindowController(store: store)
+        // Whether Wicket may listen is consent, kept outside settings.json (VoiceConsent).
+        let voiceConsent = VoiceConsent()
+        let voice = VoiceInput(consent: voiceConsent) { AppleTranscriber() }
+        let settingsWindow = SettingsWindowController(store: store, voice: voiceConsent)
         weak var weakRuntime: AppRuntime?
+        weak var weakPalette: PaletteController?
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
             directory: ExtensionPaths.extensions, store: RevisionStore(root: ExtensionPaths.revisions),
@@ -357,6 +361,12 @@ extension AppRuntime {
                     id: .setSecret, title: "Set Secret", icon: .symbol(name: "key"), isListed: false,
                     input: .submitText, placeholder: "Paste the value and press Return"),
                 runner: SecretsRunner(extensions: extensions)),
+            // Listens for a query (Settings ▸ Voice); its hotkey opens Wicket listening.
+            Builtin(
+                RegisteredCommand(
+                    id: .listen, title: "Start Listening", icon: .symbol(name: "waveform"),
+                    search: ["voice", "dictate", "speak", "microphone"], input: .none),
+                runner: ListenRunner { weakPalette?.listen() }),
         ]
         let runtime = AppRuntime(
             store: store, sources: [apps, calculator, FilesSource(), LinkSource()], work: work,
@@ -368,6 +378,10 @@ extension AppRuntime {
         let palette = PaletteController(
             model: runtime.model, dispatcher: ActionDispatcher(registry: runtime.registry, effects: effects))
         runtime.palette = palette
+        weakPalette = palette
+        runtime.model.voice = voice
+        voice.write = { [weak runtime] in runtime?.model.session.setSpokenQuery($0) ?? false }
+        voice.fail = { [weak runtime] in runtime?.messages.post(Message($0, kind: .failed)) }
         runtime.showSettings = { settingsWindow.show() }
         runtime.menuBar = MenuBarItem(
             onOpen: { [weak runtime] in runtime?.showPalette() },

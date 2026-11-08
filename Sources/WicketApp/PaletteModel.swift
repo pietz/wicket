@@ -31,6 +31,8 @@ final class PaletteModel {
     var actionMenu: ActionMenu?
     /// ⌘ is held, so rows show their ⌘1 to ⌘9 hints.
     var commandHeld = false
+    /// Voice input into the search field; nil in tests that don't use it.
+    var voice: VoiceInput?
     /// The name of the app a paste types into (frontmost at summon), for "Paste to Mail".
     var pasteTarget: String?
     /// The height of the results card under the pill, 0 while there is none. Set by

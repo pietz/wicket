@@ -199,6 +199,16 @@ public final class PaletteSession {
         frames[frames.count - 1].moveSelection(by: delta)
     }
 
+    /// Sets the root search's text from speech: like typing it, except a leading keyword never opens
+    /// its command, since a transcript grows word by word and would be routed halfway through.
+    /// Returns false, changing nothing, when a frame is open above the root.
+    @discardableResult
+    public func setSpokenQuery(_ text: String) -> Bool {
+        guard frames.count == 1 else { return false }
+        setRootQuery(text)
+        return true
+    }
+
     public func push(_ detail: Detail) {
         lastID += 1
         frames.append(Frame(id: lastID, content: .screen(ScreenFrame(showing: .detail(detail)))))

@@ -10,10 +10,12 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: SettingsStore
+    private let voice: VoiceConsent
     private var window: NSWindow?
 
-    init(store: SettingsStore) {
+    init(store: SettingsStore, voice: VoiceConsent) {
         self.store = store
+        self.voice = voice
     }
 
     /// Shows the window, on the pane titled `pane` if given, else on the one it shows.
@@ -44,6 +46,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store)))
         tabs.addTabViewItem(pane("Features", symbol: "square.grid.2x2", FeaturesPane(store: store)))
         tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store)))
+        tabs.addTabViewItem(pane("Voice", symbol: "waveform", VoicePane(consent: voice)))
         tabs.addTabViewItem(pane("Shortcuts", symbol: "command", ShortcutsPane(store: store)))
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable]

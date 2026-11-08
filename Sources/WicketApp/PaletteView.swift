@@ -160,6 +160,7 @@ struct PaletteRootView: View {
     private var pill: (icon: Item.Icon, prompt: String) {
         switch model.top.content {
         case .search:
+            if model.voice?.isListening == true { return (.symbol(name: "waveform"), "Listening…") }
             return (.symbol(name: "magnifyingglass"), "Search or run a command")
         case .screen(let frame):
             let title = frame.screen?.title
@@ -171,10 +172,16 @@ struct PaletteRootView: View {
         }
     }
 
-    /// A spinner while a command runs, else the pill's icon.
+    /// A spinner while a command runs, a moving waveform while listening, else the pill's icon.
     @ViewBuilder private var pillGlyph: some View {
         if model.isBusy {
             ProgressView().controlSize(.small)
+        } else if model.voice?.isListening == true {
+            Image(systemName: "waveform")
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(.tint)
+                .symbolEffect(.variableColor.iterative, options: .repeat(.continuous))
+                .accessibilityLabel("Listening")
         } else {
             switch pill.icon {
             case .symbol(let name):

@@ -8,6 +8,8 @@ final class PalettePanel: NSPanel {
     /// Handles the palette's chords. Each one is consumed, even when it does nothing at the moment,
     /// so none ever reaches a text field.
     var onChord: (PaletteChord) -> Void = { _ in }
+    /// Sees every key press first; true consumes it. Voice input stops on any key here.
+    var onKeyDown: (NSEvent) -> Bool = { _ in false }
 
     init(contentRect: NSRect) {
         super.init(
@@ -31,6 +33,7 @@ final class PalettePanel: NSPanel {
     /// (⌃N, ⌃P), and SwiftUI's `onKeyPress` never sees those. ⌘ chords usually arrive in
     /// `performKeyEquivalent` first, which AppKit calls before this.
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, onKeyDown(event) { return }
         if event.type == .keyDown, let chord = chord(for: event) {
             onChord(chord)
             return
@@ -50,6 +53,7 @@ final class PalettePanel: NSPanel {
     /// shortcuts go straight to the focused field, and any other key the main menu binds (⌘Q, ⌘W,
     /// ⌘H, ⌘M) is swallowed: the menu is for the settings window and never acts from the palette.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if onKeyDown(event) { return true }
         if let chord = chord(for: event) {
             onChord(chord)
             return true
@@ -128,6 +132,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         super.init()
         panel.delegate = self
         panel.onChord = { [weak self] in self?.handle($0) }
+        panel.onKeyDown = { [weak self] in self?.keyDown($0) ?? false }
         model.session.onClose = { [weak self] in self?.hide() }
         model.session.messages.present = { [weak self] in self?.present($0) }
         let root = NSHostingView(
@@ -164,6 +169,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
         // activate Wicket, so the frontmost app is still the one the user came from.
         capturePreviousApp()
+        // Likewise after: the microphone and the analyzer start off the main actor.
+        if let voice = model.voice, voice.listensOnOpen { voice.listen() }
     }
 
     private func present(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
@@ -198,6 +205,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     func hide() {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
+        model.voice?.stop()
         // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
         // cancels every command run, including one an action is still opening.
         pendingShrink?.cancel()
@@ -222,6 +230,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
     func run(bound id: CommandID) {
         if panel.isVisible, case .screen(let frame) = model.top.content, frame.run?.command.id == id {
             hide()
+            return
+        }
+        // Start Listening's hotkey while listening stops it and keeps what was said, rather than
+        // resetting the palette first like any other command's hotkey.
+        if id == .listen, let voice = model.voice, voice.isListening {
+            voice.stop()
             return
         }
         pendingReveal?.cancel()
@@ -296,12 +310,33 @@ final class PaletteController: NSObject, NSWindowDelegate {
     private func perform(_ action: Item.Action) {
         guard model.session.opening == nil else { return }
         model.actionMenu = nil
+        model.voice?.stop()
         switch dispatcher.perform(action, in: ActionContext(previousApp: previousApp)) {
         case .close: hide()
         case .push(let detail): model.session.push(detail)
         case .open(let run): model.session.open(run)
         }
     }
+
+    // MARK: Voice
+
+    /// Start Listening (its row or hotkey): shows the palette if a hotkey ran it while hidden
+    /// (`run(bound:)` captured where the user came from already), then listens, or says how to
+    /// turn voice on.
+    func listen() {
+        if !panel.isVisible { present() }
+        guard let voice = model.voice else { return }
+        voice.toggle()
+        // From its row, the field still says "listen"; the words replace it.
+        if voice.isListening { model.session.setSpokenQuery("") }
+    }
+
+    /// While listening, any key stops it (`VoiceInput.keyPressed`).
+    private func keyDown(_ event: NSEvent) -> Bool {
+        model.voice?.keyPressed(isEscape: event.keyCode == Self.escapeKeyCode) ?? false
+    }
+
+    private static let escapeKeyCode: UInt16 = 53
 
     /// Every message (`Messages`) shows here: in the footer while the card is up, else in the HUD
     /// where the pill is or was (a command that closed the palette, a paste that only copied).
