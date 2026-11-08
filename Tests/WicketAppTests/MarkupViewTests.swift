@@ -66,18 +66,34 @@ struct MarkupViewTests {
 
     // MARK: Images
 
-    @Test func onlyHTTPSToPublicHostsIsFetched() {
-        #expect(RemoteImages.allows(URL(string: "https://upload.wikimedia.org/a.jpg")!))
-        #expect(RemoteImages.allows(URL(string: "https://8.8.8.8/a.png")!))
-        #expect(!RemoteImages.allows(URL(string: "http://example.com/a.png")!))
-        #expect(!RemoteImages.allows(URL(string: "file:///tmp/a.png")!))
+    /// Every spelling of this Mac or the local network is refused, by what the host resolves to.
+    @Test func onlyHTTPSToPublicAddressesIsFetched() async {
+        #expect(await RemoteImages.allows(URL(string: "https://8.8.8.8/a.png")!))
+        #expect(await RemoteImages.allows(URL(string: "https://[2606:4700:4700::1111]/a.png")!))
+        #expect(!(await RemoteImages.allows(URL(string: "http://8.8.8.8/a.png")!)))
+        #expect(!(await RemoteImages.allows(URL(string: "file:///tmp/a.png")!)))
         for local in [
-            "https://localhost/a", "https://printer.local/a", "https://127.0.0.1/a", "https://10.0.0.2/a",
-            "https://192.168.1.1/a", "https://172.20.0.1/a", "https://169.254.1.1/a", "https://[::1]/a",
-            "https://[fe80::1]/a", "https://[fd00::1]/a",
+            "https://localhost/a", "https://localhost./a", "https://127.0.0.1/a", "https://127.1/a",
+            "https://2130706433/a", "https://0x7f000001/a", "https://0/a", "https://10.0.0.2/a",
+            "https://192.168.1.1/a", "https://172.20.0.1/a", "https://169.254.1.1/a", "https://100.64.0.1/a",
+            "https://224.0.0.1/a", "https://255.255.255.255/a", "https://[::1]/a",
+            "https://[0:0:0:0:0:0:0:1]/a", "https://[::]/a", "https://[::ffff:127.0.0.1]/a",
+            "https://[::ffff:7f00:1]/a", "https://[fe80::1]/a", "https://[fd00::1]/a", "https://[ff02::1]/a",
+            "https://[64:ff9b::a00:1]/a", "https://[2002:a00:1::]/a",
         ] {
-            #expect(!RemoteImages.allows(URL(string: local)!), "\(local)")
+            #expect(!(await RemoteImages.allows(URL(string: local)!)), "\(local)")
         }
+    }
+
+    /// A public name that resolves to a private address is refused like the address.
+    @Test func aNameResolvingToThePrivateNetworkIsRefused() async {
+        let resolve: RemoteImages.Resolver = { host in
+            host == "intranet.example" ? [[93, 184, 216, 34], [10, 0, 0, 7]] : [[93, 184, 216, 34]]
+        }
+        #expect(await RemoteImages.allows(URL(string: "https://img.example/a.png")!, resolve: resolve))
+        #expect(
+            !(await RemoteImages.allows(URL(string: "https://intranet.example/a.png")!, resolve: resolve)))
+        #expect(!(await RemoteImages.allows(URL(string: "https://nowhere.example/a")!, resolve: { _ in [] })))
     }
 
     @Test func aSessionKeepsAndSendsNothing() {
@@ -98,7 +114,8 @@ struct MarkupViewTests {
     }
 
     @Test func fetchesStopAtTheByteLimitAndOnErrors() async throws {
-        let remote = RemoteImages(configuration: StubProtocol.configuration())
+        let remote = RemoteImages(
+            configuration: StubProtocol.configuration(), resolve: Self.publicExceptIntranet)
         let small = try #require(Self.png(width: 10, height: 10))
         StubProtocol.serve("https://img.example/ok.png", body: small)
         let ok = try await remote.fetch(URL(string: "https://img.example/ok.png")!)
@@ -115,6 +132,35 @@ struct MarkupViewTests {
         await #expect(throws: RemoteImages.Failure.refused) {
             try await remote.fetch(URL(string: "http://img.example/ok.png")!)
         }
+        await #expect(throws: RemoteImages.Failure.refused) {
+            try await remote.fetch(URL(string: "https://intranet.example/ok.png")!)
+        }
+    }
+
+    /// A redirect is held to the same rule: to a public host it is followed, to this Mac, the local
+    /// network or a name resolving there it is not.
+    @Test func redirectsAreCheckedLikeTheFirstRequest() async throws {
+        let remote = RemoteImages(
+            configuration: StubProtocol.configuration(), resolve: Self.publicExceptIntranet)
+        let small = try #require(Self.png(width: 12, height: 12))
+        StubProtocol.serve("https://cdn.example/img.png", body: small)
+        StubProtocol.redirect("https://img.example/moved.png", to: "https://cdn.example/img.png")
+        #expect(try await remote.fetch(URL(string: "https://img.example/moved.png")!).image.width == 12)
+        for target in [
+            "https://127.0.0.1/img.png", "https://intranet.example/img.png", "http://cdn.example/img.png",
+        ] {
+            StubProtocol.serve(target, body: small)
+            StubProtocol.redirect("https://img.example/sneaky.png", to: target)
+            await #expect(throws: RemoteImages.Failure.status(302), "\(target)") {
+                try await remote.fetch(URL(string: "https://img.example/sneaky.png")!)
+            }
+        }
+    }
+
+    /// Example names resolve to a public address, except `intranet.example`; literals as written.
+    private static let publicExceptIntranet: RemoteImages.Resolver = { host in
+        if host == "intranet.example" { return [[192, 168, 1, 20]] }
+        return host.hasSuffix(".example") ? [[93, 184, 216, 34]] : await RemoteImages.resolve(host)
     }
 
     // MARK: Performance
@@ -169,10 +215,15 @@ struct MarkupViewTests {
 /// Answers requests from canned bodies, so fetches run without the network.
 private final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var responses: [String: (Data, Int)] = [:]
+    nonisolated(unsafe) private static var redirects: [String: String] = [:]
     private static let lock = NSLock()
 
     static func serve(_ url: String, body: Data, status: Int = 200) {
         lock.withLock { responses[url] = (body, status) }
+    }
+
+    static func redirect(_ url: String, to target: String) {
+        lock.withLock { redirects[url] = target }
     }
 
     static func configuration() -> URLSessionConfiguration {
@@ -186,6 +237,16 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let url = request.url!
+        if let target = Self.lock.withLock({ Self.redirects[url.absoluteString] }) {
+            let response = HTTPURLResponse(
+                url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": target])!
+            client?.urlProtocol(
+                self, wasRedirectedTo: URLRequest(url: URL(string: target)!), redirectResponse: response)
+            // A declined redirect leaves the 302 itself as the response, as HTTP does.
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         let (body, status) = Self.lock.withLock { Self.responses[url.absoluteString] } ?? (Data(), 404)
         let response = HTTPURLResponse(
             url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!

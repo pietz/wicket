@@ -60,7 +60,9 @@ enum LocalImages {
     }
 }
 
-/// Web images, fetched under fixed rules: https only and never to the local network, an ephemeral
+/// Web images, fetched under fixed rules: https only and never to a host that resolves to this Mac
+/// or the local network (checked before the connection, so DNS rebinding in between is possible; an
+/// accepted risk), an ephemeral
 /// session without cookies, cache or credentials, a redirect only to another allowed URL, at most
 /// `Limits.bytes` within `Limits.seconds`, raster formats only, decoded off the main actor to at
 /// most `Limits.pixels` on a side.
@@ -85,9 +87,14 @@ struct RemoteImages: Sendable {
     }
 
     private let session: URLSession
+    private let resolve: Resolver
 
-    init(configuration: URLSessionConfiguration = Self.configuration()) {
+    init(
+        configuration: URLSessionConfiguration = Self.configuration(),
+        resolve: @escaping Resolver = Self.resolve
+    ) {
         session = URLSession(configuration: configuration)
+        self.resolve = resolve
     }
 
     /// An ephemeral session that keeps and sends nothing: no cookies, cache or credentials.
@@ -107,35 +114,77 @@ struct RemoteImages: Sendable {
         return configuration
     }
 
-    /// Whether Wicket fetches `url`: https to a named or public host, never this Mac or the local
-    /// network by its literal address.
-    static func allows(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "https", let host = url.host()?.lowercased(), !host.isEmpty else {
+    /// The addresses a host name or literal (in any spelling) stands for, as 4 or 16 bytes each.
+    typealias Resolver = @Sendable (String) async -> [[UInt8]]
+
+    /// Whether Wicket fetches `url`: https to a host whose every address is public unicast. The
+    /// host is resolved, so no spelling of this Mac or the local network gets through (`127.1`,
+    /// `localhost.`, `[::ffff:127.0.0.1]`, a public name pointing at a private address).
+    static func allows(_ url: URL, resolve: Resolver = Self.resolve) async -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host(), !host.isEmpty else { return false }
+        let addresses = await resolve(host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")))
+        return !addresses.isEmpty && addresses.allSatisfy(isPublic)
+    }
+
+    /// Whether `address` is public unicast: not this Mac, the local network, a shared or reserved
+    /// range, multicast or broadcast. IPv6 only in global unicast (2000::/3), so mapped, translated
+    /// and tunnelled IPv4 forms are refused with it.
+    static func isPublic(_ address: [UInt8]) -> Bool {
+        switch address.count {
+        case 4:
+            let (a, b, c) = (address[0], address[1], address[2])
+            return
+                !(a == 0 || a == 10 || a == 127 || a >= 224 || (a == 100 && b & 0xC0 == 64)
+                || (a == 169 && b == 254) || (a == 172 && b & 0xF0 == 16) || (a == 192 && b == 168)
+                || (a == 192 && b == 0 && (c == 0 || c == 2)) || (a == 198 && b & 0xFE == 18)
+                || (a == 198 && b == 51 && c == 100) || (a == 203 && b == 0 && c == 113))
+        case 16:
+            // 2000::/3, less Teredo (2001::/32), documentation (2001:db8::/32) and 6to4 (2002::/16).
+            guard address[0] & 0xE0 == 0x20 else { return false }
+            let prefix =
+                UInt32(address[0]) << 24 | UInt32(address[1]) << 16 | UInt32(address[2]) << 8
+                | UInt32(address[3])
+            return prefix != 0x2001_0000 && prefix != 0x2001_0DB8 && prefix >> 16 != 0x2002
+        default:
             return false
         }
-        if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") { return false }
-        let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if bare.contains(":") {
-            // IPv6: loopback, unique local (fc00::/7), link local (fe80::/10), unspecified.
-            return
-                !(bare == "::1" || bare == "::" || bare.hasPrefix("fc") || bare.hasPrefix("fd")
-                || bare.hasPrefix("fe8") || bare.hasPrefix("fe9") || bare.hasPrefix("fea")
-                || bare.hasPrefix("feb"))
+    }
+
+    /// The system's resolver (`getaddrinfo`), which also reads every literal spelling; never on
+    /// the main actor.
+    @concurrent static func resolve(_ host: String) async -> [[UInt8]] {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        var list: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &list) == 0 else { return [] }
+        defer { freeaddrinfo(list) }
+        var addresses: [[UInt8]] = []
+        var next = list
+        while let info = next?.pointee {
+            next = info.ai_next
+            guard let address = info.ai_addr else { continue }
+            switch Int32(address.pointee.sa_family) {
+            case AF_INET:
+                address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+                    addresses.append(withUnsafeBytes(of: $0.pointee.sin_addr) { Array($0) })
+                }
+            case AF_INET6:
+                address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) {
+                    addresses.append(withUnsafeBytes(of: $0.pointee.sin6_addr) { Array($0) })
+                }
+            default:
+                continue
+            }
         }
-        let octets = bare.split(separator: ".").compactMap { UInt8($0) }
-        guard octets.count == 4, bare.split(separator: ".").count == 4 else { return true }
-        switch (octets[0], octets[1]) {
-        case (0, _), (10, _), (127, _), (169, 254), (192, 168): return false
-        case (172, 16...31), (100, 64...127): return false
-        default: return true
-        }
+        return addresses
     }
 
     /// The image at `url`, decoded.
     @concurrent func fetch(_ url: URL) async throws -> Bitmap {
-        guard Self.allows(url) else { throw Failure.refused }
+        guard await Self.allows(url, resolve: resolve) else { throw Failure.refused }
         let task = session.dataTask(with: url)
-        let collector = Collector()
+        let collector = Collector(resolve: resolve)
         task.delegate = collector
         let data = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -167,13 +216,16 @@ struct RemoteImages: Sendable {
     }
 
     /// Gathers one fetch's bytes, stopping it as soon as it is refused or grows past the limit, and
-    /// follows a redirect only to a URL Wicket would fetch itself. URLSession calls it on its own
-    /// serial queue; the lock covers the hand-off from `fetch`.
+    /// follows a redirect only to a URL Wicket would fetch itself, checked the same way. URLSession
+    /// calls it on its own serial queue; the lock covers the hand-off from `fetch`.
     private final class Collector: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        private let resolve: Resolver
         private let lock = NSLock()
         private var data = Data()
         private var failure: Failure?
         private var continuation: CheckedContinuation<Data, any Error>?
+
+        init(resolve: @escaping Resolver) { self.resolve = resolve }
 
         func start(_ continuation: CheckedContinuation<Data, any Error>) {
             lock.withLock { self.continuation = continuation }
@@ -219,7 +271,15 @@ struct RemoteImages: Sendable {
             _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
             newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
         ) {
-            completionHandler(request.url.map(RemoteImages.allows) == true ? request : nil)
+            let resolve = resolve
+            // Resolved off the session's queue, which other fetches share.
+            Task {
+                let allowed =
+                    if let url = request.url { await RemoteImages.allows(url, resolve: resolve) } else {
+                        false
+                    }
+                completionHandler(allowed ? request : nil)
+            }
         }
     }
 }
