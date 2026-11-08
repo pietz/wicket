@@ -29,3 +29,6 @@ The owner's ideas and suggestions from conversations, kept short so they're not 
 - **Voice:** summon and just start speaking, no typing: transcribe automatically (Apple on-device), with a simple waveform or, if transcription is live, the text as it comes. Configurable: on/off, and the trigger (listen automatically on summon, or a separate hotkey).
 - **Switch features on and off,** so the user can turn off what the app does that they don't want, especially as the agent can do more.
 - **Research:** what an AI-first launcher should be in early 2027; minimal yet powerful agent inside a launcher.
+- **No harness of our own:** a thin wrapper that maps Wicket's own understanding onto each agent harness, like T3 Code. The harnesses can already do anything on the computer; Wicket adds context on how to do things inside Wicket.
+- **Wicket's agent instructions as an editable Markdown file** the user can change.
+- **Richer agent replies using Wicket components** instead of text only (later).
