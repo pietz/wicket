@@ -143,8 +143,7 @@ struct CodexTranscript: AgentTranscript {
         ]
         switch request.mode {
         case .act:
-            params["developerInstructions"] = .string(
-                [Agent.actInstructions, request.instructions].compactMap { $0 }.joined(separator: "\n\n"))
+            params["developerInstructions"] = request.instructions.map(JSONValue.string)
         case .answer:
             let off = JSONValue.object(["enabled": .bool(false)])
             params["sandbox"] = .string("read-only")

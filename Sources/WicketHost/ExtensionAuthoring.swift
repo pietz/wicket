@@ -1,34 +1,55 @@
 import Foundation
 import WicketCore
 
-/// How Wicket extends itself through the user's agent. An acting run is told what Wicket has (its
-/// commands, for "what can you do?") and how to add or change a command: an extension in the
-/// extensions folder, written per the bundled authoring guide. Once the run has ended, the extensions
-/// it added or changed are offered for review: the same review, check and Enable as any other, so
+/// How Wicket extends itself through the user's agent. An acting run is told Wicket's agent
+/// instructions (`agent.md`, the user's copy or the bundled default) followed by what only this run
+/// can know: where the extensions folder, the authoring kit and the `wicket` tool are, and a list of
+/// Wicket's commands written for it to read on demand. Once the run has ended, the extensions it
+/// added or changed are offered for review: the same review, check and Enable as any other, so
 /// nothing it wrote runs before the user enables it.
 @MainActor
 public final class ExtensionAuthoring {
     let extensions: Extensions
     /// The commands Wicket has now (the registry's).
     let commands: @MainActor () -> [RegisteredCommand]
-    /// The extension authoring guide; nil when this build doesn't bundle it.
-    let guide: URL?
+    /// The user's agent instructions; while it doesn't exist, `defaultInstructions` apply.
+    let instructionsFile: URL
+    /// The instructions Wicket ships; nil when this build doesn't bundle them.
+    let defaultInstructions: URL?
+    /// The authoring kit (guide, schema, samples); nil when this build doesn't bundle it.
+    let kit: URL?
     /// The `wicket` tool, whose `check` the agent can run on its work; nil outside the app.
     let tool: URL?
+    /// Where each acting run's command list is written.
+    let commandList: URL
 
     public init(
         extensions: Extensions, commands: @escaping @MainActor () -> [RegisteredCommand],
-        guide: URL? = ExtensionAuthoring.bundledGuide, tool: URL? = ExtensionAuthoring.bundledTool
+        instructionsFile: URL, commandList: URL,
+        defaultInstructions: URL? = ExtensionAuthoring.bundledInstructions,
+        kit: URL? = ExtensionAuthoring.bundledKit, tool: URL? = ExtensionAuthoring.bundledTool
     ) {
         self.extensions = extensions
         self.commands = commands
-        self.guide = guide
+        self.instructionsFile = instructionsFile
+        self.defaultInstructions = defaultInstructions
+        self.kit = kit
         self.tool = tool
+        self.commandList = commandList
     }
 
-    /// docs/extensions.md as `Scripts/build-app.sh` bundles it (`Contents/Resources/extensions.md`).
-    public static var bundledGuide: URL? {
-        Bundle.main.url(forResource: "extensions", withExtension: "md")
+    /// `agent.md` in the settings folder (`~/.config/wicket`, or Wicket Dev's), next to settings.json.
+    public static var instructionsFile: URL { Settings.directory().appending(path: "agent.md") }
+
+    /// Resources/agent.md as `Scripts/build-app.sh` bundles it (`Contents/Resources/agent.md`).
+    public static var bundledInstructions: URL? {
+        Bundle.main.url(forResource: "agent", withExtension: "md")
+    }
+
+    /// `Contents/Resources/Authoring`: docs/extensions.md, its schema and samples, laid out as in the
+    /// repository so the guide's relative links work.
+    public static var bundledKit: URL? {
+        Bundle.main.url(forResource: "Authoring", withExtension: nil)
     }
 
     /// `Contents/Helpers/wicket` in the app bundle, if it is there.
@@ -37,42 +58,114 @@ public final class ExtensionAuthoring {
         return FileManager.default.isExecutableFile(atPath: tool.path) ? tool : nil
     }
 
-    /// The most commands an acting run is told about; the rest are counted.
-    static let commandLimit = 60
-    /// The longest title or keyword shown, so one odd manifest can't inflate every run.
+    /// The user's instructions file, written from the default first if it doesn't exist, for
+    /// Settings ▸ AI to open. Deleting it goes back to the default.
+    public static func editableInstructions(
+        file: URL = instructionsFile, default bundled: URL? = bundledInstructions
+    ) throws -> URL {
+        guard !FileManager.default.fileExists(atPath: file.path) else { return file }
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let text = try bundled.map { try String(contentsOf: $0, encoding: .utf8) } ?? ""
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        return file
+    }
+
+    /// The most commands the command list holds; the rest are counted.
+    static let commandLimit = 300
+    /// The longest title, keyword or subtitle listed, so one odd manifest can't inflate the list.
     static let fieldLimit = 80
 
-    /// What an acting run is told after Wicket's own instructions. Short, since it ships with every
-    /// run: the guide is a path to read, not pasted in.
+    /// What an acting run is told, read again for every run so an edit applies to the next one: the
+    /// user's instructions (an empty file means none), else the default, then the live part. Writes
+    /// the run's command list.
     func instructions() -> String {
-        let offered = commands().filter(\.isOffered)
-        var lines = offered.prefix(Self.commandLimit).map { command in
-            var line = "- " + Self.clipped(command.title)
-            if let keyword = command.keyword { line += ", keyword `\(Self.clipped(keyword))`" }
-            if case .extension(let id) = command.id.owner { line += " (extension `\(id)`)" }
-            return line
-        }
-        if offered.count > Self.commandLimit {
-            lines.append("- and \(offered.count - Self.commandLimit) more")
-        }
-        let guide =
-            self.guide.map {
-                "Before writing one, read the authoring guide at \($0.path): it is the whole contract (manifest, protocol, the `session.jsonl` fixture its check replays, canned data under `WICKET_CHECK`)."
-            } ?? "Follow an existing extension in that folder: this build of Wicket has no authoring guide."
-        let check = tool.map { " Wicket's check is `\($0.path) check <folder>`." } ?? ""
-        return """
-            About Wicket itself: it is a native macOS launcher. Typing finds apps and files and does \
-            maths, units and currencies; any text can go to you (the AI) or to a web search. Its commands \
-            now:
-            \(lines.joined(separator: "\n"))
+        let text =
+            (try? String(contentsOf: instructionsFile, encoding: .utf8))
+            ?? defaultInstructions.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        return [text.trimmingCharacters(in: .whitespacesAndNewlines), live()].filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
 
-            Commands come from extensions, one folder per extension named by its id, in \
-            \(extensions.directory.path). To add a command or change one (when the user asks for a \
-            command, an extension or a feature in Wicket), write or edit an extension folder there. \
-            \(guide) Test it as the guide says.\(check) Wicket runs nothing new or changed until the user \
-            reviews and enables it in Wicket, which offers that under your reply, so end by saying what \
-            you made and that it is ready to review and enable. Don't touch Wicket's own files elsewhere.
-            """
+    /// The paths an acting run needs, absolute, since they differ per Mac and edition.
+    private func live() -> String {
+        var lines = ["## This Wicket", "", "- Extensions folder: \(extensions.directory.path)"]
+        if let kit {
+            let docs = kit.appending(path: "docs")
+            lines.append("- Authoring guide: \(docs.appending(path: "extensions.md").path)")
+            lines.append("- Schema: \(docs.appending(path: "extension.schema.json").path)")
+            let samples = [docs.appending(path: "examples"), kit.appending(path: "Extensions")].flatMap(
+                Self.folders)
+            if !samples.isEmpty {
+                lines.append(
+                    "- Samples, each with its fixture: " + samples.map(\.path).joined(separator: ", "))
+            }
+        } else {
+            lines.append("- Authoring guide: none in this build; follow an existing extension.")
+        }
+        if let tool {
+            lines.append(
+                "- `wicket` tool: \(tool.path) (so `wicket check <folder>` is `\(tool.path) check <folder>`)")
+        }
+        if writeCommandList() {
+            lines.append("- Command list: \(commandList.path)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The subfolders of `folder`, by name.
+    private static func folders(in folder: URL) -> [URL] {
+        let found = try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
+        return (found ?? []).filter { $0.hasDirectoryPath }.sorted {
+            $0.lastPathComponent < $1.lastPathComponent
+        }
+    }
+
+    /// Writes every command Wicket has now to `commandList`, with what an agent needs to name, run or
+    /// change it; false if it couldn't.
+    private func writeCommandList() -> Bool {
+        let all = commands().sorted { $0.id.description < $1.id.description }
+        var lines = [
+            "# Wicket's commands", "",
+            "Every command Wicket has now. Ids are stable: `builtin:<name>` for Wicket's own, "
+                + "`ext:<extension>/<command>` for an extension's.", "",
+        ]
+        lines += all.prefix(Self.commandLimit).map(line)
+        if all.count > Self.commandLimit { lines.append("- and \(all.count - Self.commandLimit) more") }
+        do {
+            try FileManager.default.createDirectory(
+                at: commandList.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try (lines.joined(separator: "\n") + "\n").write(
+                to: commandList, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// One command: id, title, subtitle, keyword, how it takes input, and its extension's folder.
+    private func line(_ command: RegisteredCommand) -> String {
+        var line = "- `\(command.id)` \(Self.clipped(command.title))"
+        if let subtitle = command.subtitle { line += ": " + Self.clipped(subtitle) }
+        line += "."
+        if let keyword = command.keyword { line += " Keyword `\(Self.clipped(keyword))`." }
+        line += " " + Self.input(command.input)
+        if !command.isOffered { line += " Not in search: reached by its id only." }
+        if case .extension(let id) = command.id.owner {
+            line += " Folder: \(extensions.directory.appending(path: id).path)"
+        }
+        return line
+    }
+
+    private static func input(_ input: CommandInput) -> String {
+        switch input {
+        case .none: "Takes no text."
+        case .immediateText: "Runs at once (mode `once`)."
+        case .submitText: "Runs on the text it is given, when submitted."
+        case .submitOptionalText: "Runs on Return, with or without text (a prompt)."
+        case .liveText: "Runs again as the text changes (mode `live`)."
+        }
     }
 
     private static func clipped(_ text: String) -> String {

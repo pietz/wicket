@@ -28,6 +28,24 @@ private func extensions(_ folders: [TestExtension], approved: Set<String> = []) 
     return extensions
 }
 
+/// The repository: its layout is the bundled authoring kit's (docs/…, Extensions/…).
+private let repository = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../..")
+    .standardizedFileURL
+
+/// Authoring over `extensions` with the repository's default instructions, its own instructions
+/// file and command list in a folder beside the extensions folder, and no kit or tool unless given.
+@MainActor
+private func testAuthoring(
+    _ extensions: Extensions, commands: [RegisteredCommand] = [], kit: URL? = nil, tool: URL? = nil
+) -> ExtensionAuthoring {
+    let host = extensions.directory.deletingLastPathComponent().appending(
+        path: extensions.directory.lastPathComponent + "-host")
+    return ExtensionAuthoring(
+        extensions: extensions, commands: { commands }, instructionsFile: host.appending(path: "agent.md"),
+        commandList: host.appending(path: "commands.md"),
+        defaultInstructions: repository.appending(path: "Resources/agent.md"), kit: kit, tool: tool)
+}
+
 private func plain(_ id: String) throws -> TestExtension {
     try TestExtension(id: id, script: answering(#"{"answer":{"title":"hi"}}"#))
 }
@@ -71,34 +89,44 @@ private func finalDetail(
     return last
 }
 
-@MainActor @Test func actingRunsAreToldWicketsCommandsAndWhereExtensionsGo() async throws {
+@MainActor @Test func actingRunsAreToldTheInstructionsThenTheirPaths() async throws {
     let extensions = try await extensions([])
     let commands = [
         RegisteredCommand(id: .builtin("settings"), title: "Wicket Settings", icon: .symbol(name: "gear")),
         RegisteredCommand(
-            id: .extension("weather", "today"), title: "Weather", icon: .symbol(name: "sun.max"), keyword: "w"
-        ),
+            id: .extension("weather", "today"), title: "Weather", subtitle: "Today's forecast",
+            icon: .symbol(name: "sun.max"), keyword: "w", input: .liveText),
         RegisteredCommand(
             id: .builtin("hidden"), title: "Hidden Thing", icon: .symbol(name: "eye"), isListed: false),
     ]
-    let guide = URL(filePath: "/Applications/Wicket.app/Contents/Resources/extensions.md")
-    let authoring = ExtensionAuthoring(
-        extensions: extensions, commands: { commands }, guide: guide, tool: nil)
+    let tool = URL(filePath: "/W.app/Contents/Helpers/wicket")
+    let authoring = testAuthoring(extensions, commands: commands, kit: repository, tool: tool)
     let text = authoring.instructions()
-    #expect(text.contains("- Wicket Settings\n- Weather, keyword `w` (extension `weather`)\n"))
-    #expect(!text.contains("Hidden Thing"))
-    #expect(text.contains(extensions.directory.path))
-    #expect(text.contains("read the authoring guide at \(guide.path)"))
-    #expect(text.contains("ready to review and enable"))
-    #expect(!text.contains("Wicket's check is"))
-    let without = ExtensionAuthoring(
-        extensions: extensions, commands: { [] }, guide: nil,
-        tool: URL(filePath: "/W.app/Contents/Helpers/wicket")
-    ).instructions()
-    #expect(without.contains("Follow an existing extension in that folder"))
-    #expect(without.contains("Wicket's check is `/W.app/Contents/Helpers/wicket check <folder>`."))
+    let bundled = try String(contentsOf: repository.appending(path: "Resources/agent.md"), encoding: .utf8)
+    #expect(text.hasPrefix(bundled.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n## This Wicket\n"))
+    #expect(text.contains("- Extensions folder: \(extensions.directory.path)\n"))
+    #expect(text.contains("- Authoring guide: \(repository.path)/docs/extensions.md\n"))
+    #expect(text.contains("- Schema: \(repository.path)/docs/extension.schema.json\n"))
+    #expect(
+        text.contains(
+            "\(repository.path)/docs/examples/unicode, \(repository.path)/docs/examples/week-number"))
+    #expect(text.contains("`\(tool.path) check <folder>`"))
+    #expect(text.contains("- Command list: \(authoring.commandList.path)"))
 
-    // The instructions go to Codex after Wicket's own, as its developer instructions.
+    // The command list holds every command, hidden ones too, with its id, input and folder.
+    let list = try String(contentsOf: authoring.commandList, encoding: .utf8)
+    #expect(list.contains("- `builtin:hidden` Hidden Thing. Runs at once (mode `once`). Not in search"))
+    #expect(
+        list.contains(
+            "- `ext:weather/today` Weather: Today's forecast. Keyword `w`. Runs again as the text changes "
+                + "(mode `live`). Folder: \(extensions.directory.appending(path: "weather").path)\n"))
+
+    // Without a kit or tool, the paths say so rather than naming files that aren't there.
+    let without = testAuthoring(extensions).instructions()
+    #expect(without.contains("- Authoring guide: none in this build"))
+    #expect(!without.contains("`wicket` tool:"))
+
+    // The instructions go to Codex as its developer instructions.
     var transcript = CodexTranscript(
         request: AgentRequest(
             prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .acting, instructions: text))
@@ -107,7 +135,34 @@ private func finalDetail(
         Issue.record("no thread/start")
         return
     }
-    #expect(thread["params"]?["developerInstructions"] == .string(Agent.actInstructions + "\n\n" + text))
+    #expect(thread["params"]?["developerInstructions"] == .string(text))
+}
+
+/// The user's agent.md replaces the default and is read again for every run; deleting it restores the
+/// default, and opening it from Settings writes the default there first.
+@MainActor @Test func theUsersInstructionsFileReplacesTheDefault() async throws {
+    let extensions = try await extensions([])
+    let authoring = testAuthoring(extensions)
+    let file = authoring.instructionsFile
+    #expect(authoring.instructions().hasPrefix("<!-- Wicket's instructions"))
+
+    #expect(
+        try ExtensionAuthoring.editableInstructions(file: file, default: authoring.defaultInstructions)
+            == file)
+    let written = try String(contentsOf: file, encoding: .utf8)
+    #expect(written == (try String(contentsOf: try #require(authoring.defaultInstructions), encoding: .utf8)))
+
+    try "Always answer in French.".write(to: file, atomically: true, encoding: .utf8)
+    #expect(authoring.instructions().hasPrefix("Always answer in French.\n\n## This Wicket"))
+    // An existing file is opened as it is, never overwritten.
+    _ = try ExtensionAuthoring.editableInstructions(file: file, default: authoring.defaultInstructions)
+    #expect(try String(contentsOf: file, encoding: .utf8) == "Always answer in French.")
+
+    try "".write(to: file, atomically: true, encoding: .utf8)
+    #expect(authoring.instructions().hasPrefix("## This Wicket"))
+
+    try FileManager.default.removeItem(at: file)
+    #expect(authoring.instructions().hasPrefix("<!-- Wicket's instructions"))
 }
 
 @MainActor @Test func anActingRunOffersToReviewTheExtensionsItWrote() async throws {
@@ -124,7 +179,7 @@ private func finalDetail(
                 try (String(contentsOf: script, encoding: .utf8) + "\n# v2\n").write(
                     to: script, atomically: false, encoding: .utf8)
             }, interval: .zero, provider: { .codex }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.answers.authoring = testAuthoring(extensions)
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
 
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
@@ -149,7 +204,7 @@ private func finalDetail(
     let requests = Requests()
     let runner = AgentRunner(
         answers: AnswerStream(backend: agent(requests) {}, interval: .zero, provider: { .codex }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.answers.authoring = testAuthoring(extensions)
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
     let detail = try #require(try await finalDetail(runner, "what can you do?"))
     #expect(detail.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
@@ -164,7 +219,7 @@ private func finalDetail(
             backend: agent(Requests(), events: [.text("Writing it"), .error("Claude Code was interrupted")]) {
                 try FileManager.default.copyItem(at: made.folder, to: directory.appending(path: "weather"))
             }, interval: .zero, provider: { .claude }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.answers.authoring = testAuthoring(extensions)
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
     #expect(detail.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry", "Copy Answer"])
 
@@ -188,7 +243,7 @@ private func finalDetail(
             backend: agent(
                 Requests(), events: [.activity("Ran ls"), .acted, .answer("Three files.", usage: nil)]
             ) {}, interval: .zero, provider: { .claude }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.answers.authoring = testAuthoring(extensions)
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
     let acted = try #require(try await finalDetail(runner, "how many files are here?"))
     #expect(acted.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer"])
@@ -254,12 +309,8 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
         testConfiguration()
     }
     await extensions.load().value
-    let guide = URL(filePath: #filePath).deletingLastPathComponent().appending(
-        path: "../../docs/extensions.md"
-    )
-    .standardizedFileURL
     let runner = AgentRunner(answers: AnswerStream(provider: { .codex }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
+    runner.answers.authoring = testAuthoring(extensions, kit: repository)
     var last: Detail?
     for try await result in runner.run(
         Invocation(
@@ -302,12 +353,8 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
         testConfiguration()
     }
     await extensions.load().value
-    let guide = URL(filePath: #filePath).deletingLastPathComponent().appending(
-        path: "../../docs/extensions.md"
-    )
-    .standardizedFileURL
     let runner = AgentRunner(answers: AnswerStream(provider: { .claude }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: guide)
+    runner.answers.authoring = testAuthoring(extensions, kit: repository)
     var last: Detail?
     for try await result in runner.run(
         Invocation(
@@ -347,7 +394,7 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
                 try "echo v2".write(
                     to: directory.appending(path: "broken/main.sh"), atomically: false, encoding: .utf8)
             }, interval: .zero, provider: { .codex }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.answers.authoring = testAuthoring(extensions)
     let detail = try #require(try await finalDetail(runner, "fix it"))
     #expect(detail.actions.first?.title == "Review and Enable broken")
 }
@@ -359,17 +406,18 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
         at: try plain("earlier").folder, to: extensions.directory.appending(path: "earlier"))
     let runner = AgentRunner(
         answers: AnswerStream(backend: agent(Requests()) {}, interval: .zero, provider: { .codex }))
-    runner.answers.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    runner.answers.authoring = testAuthoring(extensions)
     let detail = try #require(try await finalDetail(runner, "what's the time?"))
     #expect(!detail.actions.contains { $0.title?.hasPrefix("Review") == true })
 }
 
-@MainActor @Test func longTitlesAreClippedInTheInstructions() async throws {
+@MainActor @Test func longTitlesAreClippedInTheCommandList() async throws {
     let extensions = try await extensions([])
     let long = String(repeating: "x", count: 5000)
     let commands = [
         RegisteredCommand(id: .builtin("odd"), title: long, icon: .symbol(name: "gear"), keyword: long)
     ]
-    let text = ExtensionAuthoring(extensions: extensions, commands: { commands }, guide: nil).instructions()
-    #expect(text.count < 1500)
+    let authoring = testAuthoring(extensions, commands: commands)
+    _ = authoring.instructions()
+    #expect(try String(contentsOf: authoring.commandList, encoding: .utf8).count < 1500)
 }

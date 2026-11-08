@@ -147,8 +147,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let thread = try decoded(start.send[2])["params"]
         #expect(thread?["cwd"] == .string("/tmp/work"))
         #expect(thread?["ephemeral"] == .bool(true))
-        #expect(thread?["developerInstructions"] == .string(Agent.actInstructions))
-        for omitted in ["approvalPolicy", "sandbox", "config", "baseInstructions"] {
+        for omitted in ["developerInstructions", "approvalPolicy", "sandbox", "config", "baseInstructions"] {
             #expect(thread?[omitted] == nil)
         }
         let turn = try sent(transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#)))
@@ -390,7 +389,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(arguments.firstIndex(of: "--permission-prompt-tool").map { arguments[$0 + 1] } == "stdio")
         #expect(
             arguments.firstIndex(of: "--append-system-prompt").map { arguments[$0 + 1] }
-                == Agent.actInstructions + "\n\nAbout Wicket.")
+                == "About Wicket.")
 
         var transcript = ClaudeTranscript(request: acting)
         let start = transcript.start()

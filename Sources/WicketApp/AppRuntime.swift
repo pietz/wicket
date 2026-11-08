@@ -276,7 +276,8 @@ extension AppRuntime {
         let answers = AnswerStream(provider: { weakRuntime?.applied?.ai.provider })
         // Acting runs know Wicket's commands and write extensions into its folder for review.
         answers.authoring = ExtensionAuthoring(
-            extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] })
+            extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] },
+            instructionsFile: ExtensionAuthoring.instructionsFile, commandList: ExtensionPaths.commandList)
         answers.configuration = { provider in
             AgentConfiguration(
                 options: weakRuntime?.applied?.ai[provider] ?? provider.defaultOptions,

@@ -26,8 +26,8 @@ public struct AgentRequest: Sendable {
     /// The folder an acting run works in. Answer runs get an empty folder.
     public var workingDirectory: URL
     public var mode: AgentMode
-    /// For an acting run, what it is told after `Agent.actInstructions`: what Wicket has and how to
-    /// extend it (`ExtensionAuthoring.instructions`).
+    /// For an acting run, what it is told on top of the agent's own prompt: Wicket's agent
+    /// instructions and the run's paths (`ExtensionAuthoring.instructions`).
     public var instructions: String?
 
     public init(prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil) {
@@ -314,13 +314,4 @@ public struct Agent: Sendable {
         + "no preamble, no restating the question, no closing offers. Be brief and direct; the reply "
         + "renders as Markdown, so use it when it helps (lists, code, tables). You have no tools and "
         + "no access to the user's files."
-
-    /// Added to the agent's own instructions for acting runs, which keep its coding-agent prompt
-    /// (it is what teaches the tools).
-    static let actInstructions =
-        "The user is asking from Wicket, a macOS command palette, not a terminal or editor. Answer "
-        + "questions directly; when they ask you to do something, do it with your tools, in the "
-        + "working directory unless they say otherwise (it is the folder of their Finder selection, "
-        + "or their home folder). Your final reply shows in a small panel and renders as Markdown: "
-        + "start with the answer or with what you did, be brief, no closing offers."
 }

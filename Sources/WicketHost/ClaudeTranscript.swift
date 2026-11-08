@@ -31,12 +31,9 @@ struct ClaudeTranscript: AgentTranscript {
         switch request.mode {
         case .act(let configuration):
             // The user's choices from Settings ▸ AI; what would prompt comes to Wicket over stdio.
-            let instructions = [Agent.actInstructions, request.instructions].compactMap { $0 }
-                .joined(separator: "\n\n")
-            return output + [
-                "--input-format", "stream-json", "--permission-prompt-tool", "stdio",
-                "--append-system-prompt", instructions,
-            ] + settings(configuration)
+            let instructions = request.instructions.map { ["--append-system-prompt", $0] } ?? []
+            return output + ["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]
+                + instructions + settings(configuration)
         case .answer:
             // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
             // --permission-prompts none denies anything that would ask.

@@ -47,8 +47,16 @@ cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
 cp "$bin/WicketCLI" "$app/Contents/Helpers/wicket"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$app/Contents/Info.plist"
-# The extension guide, which acting AI runs read to build commands (ExtensionAuthoring.bundledGuide).
-cp docs/extensions.md "$app/Contents/Resources/extensions.md"
+# Wicket's default agent instructions and the authoring kit acting AI runs read to build commands
+# (ExtensionAuthoring): the guide, its schema and samples with fixtures, laid out as in the repository
+# so the guide's relative links work.
+cp Resources/agent.md "$app/Contents/Resources/agent.md"
+kit="$app/Contents/Resources/Authoring"
+mkdir -p "$kit/docs/examples" "$kit/Extensions"
+cp docs/extensions.md docs/extension.schema.json "$kit/docs/"
+for sample in docs/examples/week-number docs/examples/unicode Extensions/slugify Extensions/github-prs; do
+  ditto "$sample" "$kit/$sample"
+done
 
 # SwiftPM links the executable against Sparkle at an absolute .build path; point it at the bundle.
 exe="$app/Contents/MacOS/Wicket"

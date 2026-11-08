@@ -18,6 +18,10 @@ public enum ExtensionPaths {
     /// each agent (`AgentPermissions`), written only by Settings ▸ AI.
     public static var agentPermissions: URL { support.appending(path: "agent-permissions.json") }
 
+    /// `~/Library/Application Support/Wicket/commands.md`: Wicket's commands, written for each acting
+    /// run to read on demand (`ExtensionAuthoring`).
+    public static var commandList: URL { support.appending(path: "commands.md") }
+
     /// `~/Library/Application Support/Wicket/uv`: uv's cache and Pythons for uv extensions
     /// (`UVStorage`), Wicket's own rather than the user's.
     public static var uv: URL { support.appending(path: "uv", directoryHint: .isDirectory) }

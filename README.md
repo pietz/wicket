@@ -31,7 +31,7 @@ Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/
 
 ## Settings and extensions
 
-Settings live in `~/.config/wicket/settings.json`, plain JSON that you or an agent can edit; the Settings window writes the same file. Extensions live in `~/Library/Application Support/Wicket/Extensions`. To write one by hand, see [docs/extensions.md](docs/extensions.md).
+Settings live in `~/.config/wicket/settings.json`, plain JSON that you or an agent can edit; the Settings window writes the same file. Extensions live in `~/Library/Application Support/Wicket/Extensions`. To write one by hand, see [docs/extensions.md](docs/extensions.md). What Run Agent tells your agent about Wicket is `~/.config/wicket/agent.md`: Settings ▸ AI ▸ Edit Agent Instructions opens it, and deleting it restores the default ([Resources/agent.md](Resources/agent.md)).
 
 ## Build from source
 

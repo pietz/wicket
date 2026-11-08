@@ -32,6 +32,15 @@ struct AIPane: View {
             providerSection(current)
             optionsSection(current)
             Section {
+                Button("Edit Agent Instructions…") { editInstructions() }
+            } footer: {
+                Text(
+                    "What Run Agent tells your agent about Wicket, in agent.md next to settings.json. "
+                        + "Delete the file to go back to Wicket's default."
+                )
+                .foregroundStyle(.secondary)
+            }
+            Section {
                 LabeledContent("Selected text") {
                     if textAccess {
                         allowed
@@ -215,6 +224,18 @@ struct AIPane: View {
             } catch {
                 self.error = error.localizedDescription
             }
+        }
+    }
+
+    /// Opens agent.md in the user's editor (or reveals it if nothing opens Markdown), writing the
+    /// default there first if it doesn't exist.
+    private func editInstructions() {
+        do {
+            let file = try ExtensionAuthoring.editableInstructions()
+            if !NSWorkspace.shared.open(file) { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
