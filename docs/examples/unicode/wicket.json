@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "unicode",
   "name": "Unicode",
   "description": "Finds Unicode characters by name and pastes them.",

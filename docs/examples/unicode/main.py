@@ -1,12 +1,21 @@
-"""Finds Unicode characters by name. Persistent: the name table is built once, then every
-keystroke is answered from memory."""
+"""Finds Unicode characters by name. Wicket starts it once per keystroke, so the name table is
+built on the first run and cached in WICKET_DATA_DIR; later runs read it in a few milliseconds."""
 
 import json
+import os
 import sys
 import unicodedata
 
-NAMES = [(cp, unicodedata.name(chr(cp), "")) for cp in range(0x110000)]
-NAMES = [(cp, name) for cp, name in NAMES if name]
+
+def names():
+    cache = os.path.join(os.environ["WICKET_DATA_DIR"], f"names-{unicodedata.unidata_version}.txt")
+    if not os.path.exists(cache):
+        table = ((cp, unicodedata.name(chr(cp), "")) for cp in range(0x110000))
+        with open(cache + ".tmp", "w") as file:
+            file.writelines(f"{cp:X}\t{name}\n" for cp, name in table if name)
+        os.replace(cache + ".tmp", cache)
+    with open(cache) as file:
+        return [(int(cp, 16), name) for cp, name in (line.rstrip("\n").split("\t") for line in file)]
 
 
 def item(cp, name):
@@ -28,7 +37,7 @@ def search(text):
     words = text.upper().split()
     if not words:
         return {"list": {"items": []}}
-    hits = sorted((h for h in NAMES if all(w in h[1] for w in words)), key=lambda h: len(h[1]))
+    hits = sorted((h for h in names() if all(w in h[1] for w in words)), key=lambda h: len(h[1]))
     return {"list": {"items": [item(cp, name) for cp, name in hits[:100]]}}
 
 
@@ -56,13 +65,9 @@ def run(params):
     raise ValueError(f"Unknown command {params['command']}")
 
 
-for line in sys.stdin:  # ends when Wicket closes stdin
-    message = json.loads(line)
-    if "id" not in message:
-        continue  # a notification, such as cancel; this extension answers fast enough to ignore it
-    try:
-        reply = {"result": run(message["params"])}
-    except Exception as error:
-        print(f"run failed: {error!r}", file=sys.stderr)
-        reply = {"error": {"code": 1, "message": str(error)}}
-    print(json.dumps({"jsonrpc": "2.0", "id": message["id"], **reply}), flush=True)
+try:
+    response = run(json.load(sys.stdin))
+except Exception as error:
+    print(f"run failed: {error!r}", file=sys.stderr)
+    response = {"error": {"message": str(error)}}
+print(json.dumps(response))

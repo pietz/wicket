@@ -131,11 +131,6 @@ public struct ScreenFrame: Sendable {
 
     var isLive: Bool { run?.command.input == .liveText }
 
-    /// Feeds the frame from `run` from now on, keeping what it shows until that sends something.
-    mutating func rebind(_ run: CommandRun) {
-        self.run = run
-    }
-
     /// What Return acts on; a frame waiting for its text submits `query`, once there is one, as its
     /// own invocation with only the text replaced (the args and revision it was opened with stay).
     func target(query: String) -> ActionTarget? {

@@ -54,7 +54,7 @@ public protocol ActionEffects {
 /// Turns an action and its context into an outcome: the one place where activating something
 /// reaches past the palette. `run` actions resolve through the command registry, so built-ins and
 /// extension commands are invoked the same way, by `CommandID`, and what a command does with its
-/// text and whether a run may be resent come from the one invocation policy (`CommandRun`). Every
+/// text comes from the one invocation policy (`CommandRun`). Every
 /// command opens its frame, whose run the palette session owns; one that just does something (Settings,
 /// Quit) answers `close` before a frame shows. What the host does for the user is a built-in reached
 /// by `run`, so `Item.Action` gains no cases for it. Every action runs under an authority, and

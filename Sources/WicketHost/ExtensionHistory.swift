@@ -10,8 +10,7 @@ import os
 /// deletes it (`forget`).
 ///
 /// A run records what is needed to tell what happened and to reproduce it: when, the revision, the
-/// command, the outcome and why, how long it took, and the stderr tail (redacted as the diagnostics
-/// are). The text and args it was sent are kept for failed runs only: a failure often depends on
+/// command, the outcome and why, how long it took, and the stderr tail (secrets redacted). The text and args it was sent are kept for failed runs only: a failure often depends on
 /// the input ("Berlin" works, "" doesn't), while a successful run's input helps no one, and a live
 /// command is sent every keystroke. Consecutive successful runs of one command and revision fold
 /// into one entry with a count, so a burst of searches never pushes a failure out.
@@ -20,7 +19,7 @@ public actor ExtensionHistory {
     public enum Outcome: String, Codable, Sendable {
         /// It answered.
         case ok
-        /// It answered with an error of its own (a JSON-RPC error response).
+        /// It answered with an error of its own.
         case error
         /// It answered, and Wicket rejected the answer (not valid by the protocol, or too long).
         case rejected
@@ -35,9 +34,9 @@ public actor ExtensionHistory {
         public init(_ error: any Error) {
             switch error {
             case is ExtensionError: self = .error
-            case HostError.invalidResponse, HostError.lineTooLong: self = .rejected
+            case HostError.invalidResponse, HostError.outputTooLong: self = .rejected
             case HostError.timeout: self = .timeout
-            case HostError.exited, HostError.notResent, HostError.launch: self = .crashed
+            case HostError.exited, HostError.launch: self = .crashed
             default: self = .refused
             }
         }
@@ -58,7 +57,7 @@ public actor ExtensionHistory {
         public var milliseconds: Int
         /// How many successful runs in a row this entry stands for; nil for one.
         public var count: Int?
-        /// Why it failed, redacted like the diagnostics.
+        /// Why it failed, secrets redacted.
         public var message: String?
         /// What it was sent; failed runs only.
         public var text: String?
@@ -119,8 +118,8 @@ public actor ExtensionHistory {
             run.args = nil
             run.stderr = nil
         } else {
-            run.message = run.message.map { Diagnostics.bound($0, kind: .run, limit: Self.messageLimit) }
-            run.stderr = run.stderr.map { Diagnostics.bound($0, kind: .stderr, limit: Self.stderrLimit) }
+            run.message = run.message.map { Diagnostics.bound($0, limit: Self.messageLimit) }
+            run.stderr = run.stderr.map { Diagnostics.bound($0, limit: Self.stderrLimit, tail: true) }
                 .flatMap { $0.isEmpty ? nil : $0 }
             run.text = run.text.map { $0.count > Self.textLimit ? $0.prefix(Self.textLimit) + "…" : $0 }
             if let args = run.args, (try? JSONEncoder().encode(args))?.count ?? .max > Self.argsLimit {

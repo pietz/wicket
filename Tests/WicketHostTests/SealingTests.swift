@@ -17,15 +17,14 @@ private func mode(_ path: String) -> mode_t {
     return info.st_mode & 0o777
 }
 
-/// A one-shot extension: answers one request with the contents of `title.txt` as an answer's
-/// title, then exits, so every run starts a fresh process from whatever folder the session runs.
+/// Answers with the contents of `title.txt` as an answer's title, read from the folder the run
+/// starts in.
 private func titled(_ title: String, id: String = "titled") throws -> TestExtension {
     let ext = try TestExtension(
-        id: id, commands: #"[{"id":"go","title":"Go","repeatable":true}]"#,
+        id: id, commands: #"[{"id":"go","title":"Go"}]"#,
         script: #"""
-            read -r line
-            id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-            printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"%s"}}}\n' "$id" "$(cat title.txt)"
+            cat >/dev/null
+            printf '{"answer":{"title":"%s"}}\n' "$(cat title.txt)"
             """#)
     try Data(title.utf8).write(to: ext.folder.appending(path: "title.txt"))
     return ext
@@ -34,7 +33,7 @@ private func titled(_ title: String, id: String = "titled") throws -> TestExtens
 @MainActor
 private func title(_ extensions: Extensions, _ id: String = "titled") async throws -> String? {
     let result = try await extensions.result(
-        of: Invocation(command: .extension(id, "go")), retry: .safeToRepeat)
+        of: Invocation(command: .extension(id, "go")))
     guard case .show(.answer(let item), _) = result else { return nil }
     return item.title
 }

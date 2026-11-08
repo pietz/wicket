@@ -9,17 +9,15 @@ import WicketCore
 // The consent store and its gate: approvals are per revision, live in a host file that fails
 // closed, and decide the active catalog, so nothing unapproved runs however it is asked for.
 
-/// A persistent extension answering every run with the contents of `title.txt`; each process it
-/// starts appends its pid to `pids` in its data folder.
+/// An extension answering every run with the contents of `title.txt`; each process it starts
+/// appends its pid to `pids` in its data folder.
 private func titled(_ title: String, id: String = "titled") throws -> TestExtension {
     let ext = try TestExtension(
-        id: id, commands: #"[{"id":"go","title":"Go","repeatable":true}]"#,
+        id: id, commands: #"[{"id":"go","title":"Go"}]"#,
         script: #"""
             mkdir -p "$WICKET_DATA_DIR" && echo $$ >> "$WICKET_DATA_DIR/pids"
-            while read -r line; do
-              id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-              printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"%s"}}}\n' "$id" "$(cat title.txt)"
-            done
+            cat >/dev/null
+            printf '{"answer":{"title":"%s"}}\n' "$(cat title.txt)"
             """#)
     try Data(title.utf8).write(to: ext.folder.appending(path: "title.txt"))
     return ext
@@ -64,7 +62,7 @@ private struct Harness {
 
     func title(_ id: String = "titled", bound revision: ExtensionRevision? = nil) async throws -> String? {
         let result = try await extensions.result(
-            of: Invocation(command: .extension(id, "go"), revision: revision), retry: .safeToRepeat)
+            of: Invocation(command: .extension(id, "go"), revision: revision))
         guard case .show(.answer(let item), _) = result else { return nil }
         return item.title
     }
@@ -256,14 +254,12 @@ func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
     #expect(try await h.title() == "v1")
 }
 
-@MainActor @Test func revokingRemovesTheCommandsAndStopsTheProcess() async throws {
+@MainActor @Test func revokingRemovesTheCommands() async throws {
     let h = try Harness([try titled("v1")])
     await h.extensions.load().value
     let sealed = try #require(h.extensions.discovered.first?.sealed)
     try await h.extensions.approve(sealed.revision)
     #expect(try await h.title() == "v1")
-    let pid = try #require(h.pids().first)
-    #expect(kill(pid, 0) == 0)
 
     var published = 0
     h.extensions.onChange = { published += 1 }
@@ -272,7 +268,6 @@ func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
     #expect(h.state() == .unapproved(sealed))
     #expect(h.extensions.commands.isEmpty)
     await #expect(throws: HostError.notApproved) { try await h.title() }
-    #expect(await eventually { kill(pid, 0) != 0 })
     #expect(h.approvals.approved("titled") == nil)
 }
 
@@ -283,7 +278,7 @@ private func results(_ runner: ExtensionsRunner, _ command: CommandID, args: [St
     async throws -> [RunResult]
 {
     var results: [RunResult] = []
-    for try await result in runner.run(Invocation(command: command, args: args), retry: .never) {
+    for try await result in runner.run(Invocation(command: command, args: args)) {
         results.append(result)
     }
     return results
@@ -461,7 +456,6 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
         .conflict, of: .command(.extension("titled", "go")), .warning,
         ["The keyword go is taken by Other; this command has none."])
     diagnostics.set(.run, of: .command(.extension("titled", "go")), .error, ["it broke\n{\"code\":1}"])
-    diagnostics.set(.stderr, of: .extension("titled"), .info, ["a log line"])
 
     let row = try #require(try await list(runner).first)
     #expect(row.accessory == "Problem")
@@ -470,7 +464,6 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(
         detail.markdown.contains(
             "**Problems**\n\n- The keyword go is taken by Other; this command has none.\n- it broke"))
-    #expect(!detail.markdown.contains("a log line"))
     #expect(detail.actions.last?.title == "Move to Trash")
     guard
         case .copy(let text, "Copy Diagnostics")? = detail.actions.first(where: {
@@ -482,7 +475,6 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     }
     #expect(text.hasPrefix("Wicket diagnostics for Test (titled 1.0.0, revision "))
     #expect(text.contains("[error] run go:\nit broke\n{\"code\":1}"))
-    #expect(text.contains("[info] stderr:\na log line"))
 }
 
 @MainActor @Test func aDamagedApprovalsFileIsTheListsFirstRow() async throws {
@@ -504,13 +496,11 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
 /// Answers every run with the value of its secret TOKEN.
 private func needsToken() throws -> TestExtension {
     try TestExtension(
-        id: "titled", commands: #"[{"id":"go","title":"Go","repeatable":true}]"#,
+        id: "titled", commands: #"[{"id":"go","title":"Go"}]"#,
         secrets: #"[{"name":"TOKEN","title":"API token"}]"#,
         script: #"""
-            while read -r line; do
-              id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-              printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"%s"}}}\n' "$id" "$TOKEN"
-            done
+            cat >/dev/null
+            printf '{"answer":{"title":"%s"}}\n' "$TOKEN"
             """#)
 }
 
@@ -543,7 +533,7 @@ private func needsToken() throws -> TestExtension {
     let (h, _) = try await enabled(try needsToken())
     var shown: [RunResult] = []
     for try await result in h.extensions.run(
-        Invocation(command: .extension("titled", "go")), retry: .never)
+        Invocation(command: .extension("titled", "go")))
     {
         shown.append(result)
     }
@@ -562,7 +552,7 @@ private func needsToken() throws -> TestExtension {
     func set(_ text: String, _ args: [String: JSONValue]?) async throws -> [RunResult] {
         var results: [RunResult] = []
         for try await result in runner.run(
-            Invocation(command: .setSecret, text: text, args: args), retry: .never)
+            Invocation(command: .setSecret, text: text, args: args))
         {
             results.append(result)
         }

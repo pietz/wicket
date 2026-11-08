@@ -292,3 +292,77 @@ extension Task where Failure == Never {
         return nil
     }
 }
+
+public enum Exit: Sendable, Equatable, CustomStringConvertible {
+    case status(Int32)
+    case signal(Int32)
+
+    init(_ process: Process) {
+        let code = process.terminationStatus
+        self = process.terminationReason == .uncaughtSignal ? .signal(code) : .status(code)
+    }
+
+    public var isClean: Bool { self == .status(0) }
+
+    public var description: String {
+        switch self {
+        case .status(let code): "exited with status \(code)"
+        case .signal(let signal): "was killed by signal \(signal) (\(String(cString: strsignal(signal))))"
+        }
+    }
+}
+
+/// How a process and everything it started ended after their stdin closed.
+public enum Shutdown: Sendable, Equatable {
+    case notRunning
+    /// They exited by themselves; this is how the process itself did.
+    case exited(Exit)
+    /// One of them needed SIGTERM.
+    case terminated
+    /// One of them needed SIGKILL.
+    case killed
+}
+
+/// The last `limit` bytes of a stream, readable from any thread.
+final class OutputTail: Sendable {
+    private let data = Mutex((tail: Data(), written: 0))
+    private let limit: Int
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    var text: String { data.withLock { String(decoding: $0.tail, as: UTF8.self) } }
+    /// Every byte written so far, kept or not.
+    var written: Int { data.withLock { $0.written } }
+
+    func drain(_ handle: FileHandle) async {
+        for await chunk in handle.chunks() { append(chunk) }
+    }
+
+    private func append(_ chunk: Data) {
+        data.withLock {
+            $0.tail.append(chunk)
+            $0.written += chunk.count
+            if $0.tail.count > limit { $0.tail.removeFirst($0.tail.count - limit) }
+        }
+    }
+}
+
+extension FileHandle {
+    /// What the other end writes, as it arrives, until EOF. A readability handler rather than
+    /// `bytes`, which holds back pipe output and blocks a cooperative thread while it waits.
+    func chunks() -> AsyncStream<Data> {
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                continuation.finish()
+            } else {
+                continuation.yield(data)
+            }
+        }
+        return stream
+    }
+}

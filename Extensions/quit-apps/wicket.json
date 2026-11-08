@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "quit-apps",
   "name": "Quit Apps",
   "description": "Lists running apps by memory use and quits or force quits them.",
@@ -12,10 +12,9 @@
       "id": "quit-apps",
       "title": "Quit Apps",
       "subtitle": "Running apps by memory use",
-      "keyword": "quit",
-      "repeatable": true
+      "keyword": "quit"
     },
-    { "id": "app", "title": "App Details", "hidden": true, "repeatable": true },
+    { "id": "app", "title": "App Details", "hidden": true },
     { "id": "quit", "title": "Quit App", "hidden": true },
     { "id": "force-quit", "title": "Force Quit App", "hidden": true }
   ]

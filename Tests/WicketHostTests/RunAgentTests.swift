@@ -107,8 +107,7 @@ private struct Palette {
         #expect(command == aiApproval.id)
         session.open(
             CommandRun(
-                command: aiApproval, invocation: Invocation(command: command, text: text, args: args),
-                retry: .never))
+                command: aiApproval, invocation: Invocation(command: command, text: text, args: args)))
     }
 
     var detail: Detail? {
@@ -310,7 +309,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let context = try #require(SummonContext(files: [URL(filePath: "/Users/me/Letters/anna.txt")]))
     var shown: [RunResult] = []
     let stream = runner.run(
-        Invocation(command: runAgent.id, text: "translate this to German", context: context), retry: .never)
+        Invocation(command: runAgent.id, text: "translate this to German", context: context))
     let reading = Task {
         for try await result in stream { shown.append(result) }
     }
@@ -389,7 +388,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     // An expired token changes nothing: the frame beneath stays as it is, never covered by a failure.
     guard case .run(_, _, let args, _, _) = allow else { return }
     var results: [RunResult] = []
-    for try await result in palette.runner.run(Invocation(command: .aiApproval, args: args), retry: .never) {
+    for try await result in palette.runner.run(Invocation(command: .aiApproval, args: args)) {
         results.append(result)
     }
     #expect(results == [.stay])

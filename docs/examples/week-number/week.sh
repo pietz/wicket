@@ -1,7 +1,5 @@
 #!/bin/sh
-# Answers with the current ISO week number, then exits; Wicket starts it again next time.
-read -r request
-id=$(printf '%s' "$request" | jq '.id')
+# Answers with the current ISO week number. Wicket starts it for every run and writes the request
+# to stdin; this command needs nothing from it.
 week="Week $(date +%V)"
-jq -nc --argjson id "$id" --arg week "$week" \
-  '{jsonrpc: "2.0", id: $id, result: {answer: {title: $week, subtitle: "ISO week number"}}}'
+jq -nc --arg week "$week" '{answer: {title: $week, subtitle: "ISO week number"}}'

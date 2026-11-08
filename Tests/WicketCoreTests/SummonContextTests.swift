@@ -34,7 +34,7 @@ import Testing
 private final class RecordingRunner: CommandRunner {
     var runs: [Invocation] = []
 
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         runs.append(invocation)
         return AsyncThrowingStream { _ in }
     }

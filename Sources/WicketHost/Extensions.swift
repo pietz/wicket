@@ -51,30 +51,28 @@ public struct DiscoveredExtension: Sendable, Hashable {
 typealias Activation =
     @Sendable (_ discovered: [DiscoveredExtension], _ store: RevisionStore) -> [SealedRevision]
 
-/// Discovery and the active catalog of extensions, and their sessions.
+/// Discovery and the active catalog of extensions, and their runs.
 ///
 /// Discovery (`discovered`) is every folder in `directory`, each sealed into `store` when new or
 /// changed: a read-only copy whose hash is its revision, with its state against `approvals`. The
 /// **active catalog** is the approved revisions the store keeps, one per discovered extension (a
 /// folder changed since approval keeps running its approved revision until the new one is
-/// approved); `commands` and sessions come from it alone, a session runs its sealed
-/// folder, never the authoring one, and `result(of:)` refuses anything else before a session
-/// exists. Scanning, copying and hashing run off the main actor; each pass publishes one snapshot
-/// (discovery, catalog, sessions retired, diagnostics) in one main-actor step and then calls
+/// approved); `commands` and runs come from it alone, a run uses its sealed folder, never the
+/// authoring one, and `result(of:)` refuses anything else before a process starts. Scanning,
+/// copying and hashing run off the main actor; each pass publishes one snapshot (discovery,
+/// catalog, runs of replaced revisions stopped, diagnostics) in one main-actor step and then calls
 /// `onChange`. FSEvents bursts coalesce: a `load` while one runs is folded into one more pass.
 /// Approving, revoking or trashing (`approve`, `revoke`, `trash`, internal to Host: only Wicket's
 /// review screens call them) writes `approvals` and runs a pass, so the catalog, the registry and
 /// open frames follow.
 ///
-/// Replacement is serialised: a new session for an extension starts only after the one it replaces
-/// has fully shut down, so two processes never share its data directory (one per extension id, not
-/// per revision). A session is replaced when its extension's active revision changes.
+/// Each run is one process (`ExtensionProcess`), and an extension's runs are serialised: one
+/// starts only after the previous one, cleanup included, has ended, so two never share its data
+/// directory.
 ///
 /// What goes wrong goes to `diagnostics`: folders that hold no valid extension (`discovery`), an
-/// approvals file that can't be used (`approvals`), each session's protocol issues, setup warnings
-/// and stderr tail (after each run, when they changed), and each command's last failed run
-/// (cleared by its next answer). A changed or removed extension's session reports go with its old
-/// revision.
+/// approvals file that can't be used (`approvals`), and each command's last failed run (cleared by
+/// its next answer); a replaced revision's reports go with it.
 @MainActor
 public final class Extensions {
     /// What one discovery pass found, published at once.
@@ -102,16 +100,14 @@ public final class Extensions {
     }
     private var active: [String: SealedRevision] = [:]
     private let activate: Activation
-    /// The report version each session's diagnostics were last taken at.
-    private var reported: [ObjectIdentifier: Int] = [:]
-    private var sessions: [String: ExtensionSession] = [:]
-    /// The shutdown of each extension's replaced sessions, chained in order; a new session waits
-    /// for it.
-    private var stopping: [String: Task<Void, Never>] = [:]
-    /// Revisions of sessions still shutting down, which pruning keeps.
-    private var retiring: [ExtensionRevision: Int] = [:]
-    private let configuration: @Sendable (String) -> SessionConfiguration
-    /// Set by `shutdown`: no session starts again.
+    /// Each extension's runs in flight (waiting or running), by a token; `stop` cancels them.
+    private var running: [String: [UUID: Task<ExtensionProcess.Run, Never>]] = [:]
+    /// The end of each extension's latest run, cleanup included, which the next one waits for.
+    private var tails: [String: Task<Void, Never>] = [:]
+    /// Revisions of runs in flight, which pruning keeps: their folder is a working directory.
+    private var inUse: [ExtensionRevision: Int] = [:]
+    private let configuration: @Sendable (String) -> RunConfiguration
+    /// Set by `shutdown`: nothing runs again.
     private var isShutDown = false
     /// The discovery pass running, and what the next one must look at again.
     private var worker: Task<Void, Never>?
@@ -121,12 +117,12 @@ public final class Extensions {
     private static let logger = Logger(subsystem: "app.wicket", category: "extensions")
 
     /// `approvals` decides what may run: each extension's approved revision, if the store keeps it.
-    /// `configuration` makes a session's configuration from the extension id; the default uses
+    /// `configuration` makes a run's configuration from the extension id; the default uses
     /// `ExtensionPaths`, the app version and the Keychain.
     public convenience init(
         directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
         history: ExtensionHistory? = nil,
-        configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration
+        configuration: @escaping @Sendable (String) -> RunConfiguration = Extensions.configuration
     ) {
         self.init(
             directory: directory, store: store, approvals: approvals, diagnostics: diagnostics,
@@ -137,7 +133,7 @@ public final class Extensions {
     init(
         directory: URL, store: RevisionStore, approvals: Approvals, diagnostics: Diagnostics = Diagnostics(),
         history: ExtensionHistory? = nil, activate: @escaping Activation,
-        configuration: @escaping @Sendable (String) -> SessionConfiguration = Extensions.configuration
+        configuration: @escaping @Sendable (String) -> RunConfiguration = Extensions.configuration
     ) {
         self.directory = directory.standardizedFileURL
         self.store = store
@@ -169,8 +165,8 @@ public final class Extensions {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
 
-    public nonisolated static func configuration(for id: String) -> SessionConfiguration {
-        SessionConfiguration(dataDirectory: ExtensionPaths.data(for: id), version: hostVersion) {
+    public nonisolated static func configuration(for id: String) -> RunConfiguration {
+        RunConfiguration(dataDirectory: ExtensionPaths.data(for: id), version: hostVersion) {
             Keychain.secret($0, extension: id)
         }
     }
@@ -192,60 +188,94 @@ public final class Extensions {
             revision: sealed.revision)
     }
 
-    /// Runs `invocation`'s command (its `text` and `args`), resent after a clean exit only if `retry`
-    /// allows, and returns its result. Cancelling the calling task cancels the request. Throws
-    /// `ExtensionError` for an error response and `HostError` otherwise, before any session starts
-    /// for what may not run: `.notApproved` if the extension is discovered but not in the active
-    /// catalog, `.unknownCommand` if no extension has it, `.extensionChanged` if the invocation is
-    /// bound to a revision of the extension other than the active one, which would run it. Every
-    /// run of a discovered extension, however it ends but cancelled, goes into its `history`.
-    public func result(of invocation: Invocation, retry: RetryPolicy) async throws -> RunResult {
+    /// Runs `invocation`'s command (its `text` and `args`) and returns its result. Cancelling the
+    /// calling task stops the process. Throws `ExtensionError` for an error response and `HostError`
+    /// otherwise, before any process starts for what may not run: `.notApproved` if the extension
+    /// is discovered but not in the active catalog, `.unknownCommand` if no extension has it,
+    /// `.extensionChanged` if the invocation is bound to a revision other than the active one.
+    /// Every run of a discovered extension, however it ends but cancelled, goes into its `history`.
+    public func result(of invocation: Invocation) async throws -> RunResult {
         let start = ContinuousClock.now
         let command = invocation.command
-        var session: ExtensionSession?
+        var revision = invocation.revision
+        var run: ExtensionProcess.Run?
         do {
-            guard case .extension(let id) = command.owner else { throw HostError.unknownCommand }
-            guard let current = active[id] else {
-                throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
-            }
-            guard current.manifest.command(command.name) != nil else { throw HostError.unknownCommand }
-            if let expected = invocation.revision, expected != current.revision {
-                throw HostError.extensionChanged
-            }
-            guard !isShutDown else { throw HostError.stopped }
-            let running = try await self.session(for: id)
-            session = running
-            // Checked against the session, the code that would run, after any replacement finished.
-            if let expected = invocation.revision, expected != running.revision {
-                throw HostError.extensionChanged
-            }
-            let result = try await running.run(
-                command.name, text: invocation.text, args: invocation.args, retry: retry)
+            let sealed = try runnable(invocation)
+            revision = sealed.revision
+            let finished = await enqueue(invocation, on: sealed)
+            run = finished
+            let result = try finished.result.get()
             diagnostics.set(.run, of: .command(command), .error, [])
-            await collect(running)
-            await record(invocation, .ok, since: start, revision: running.revision)
+            await record(invocation, .ok, since: start, revision: revision)
             return result
-        } catch is CancellationError {
-            if let session { await collect(session) }
-            throw CancellationError()
+        } catch let error as CancellationError where Task.isCancelled {
+            throw error
         } catch {
+            // Cancelled by `stop`, not by the caller.
+            let error = error is CancellationError ? HostError.stopped : error
             let outcome = ExtensionHistory.Outcome(error)
-            var text = Self.diagnostic(for: error)
-            if let session {
-                text = await session.redact(text)
-                if sessions[session.manifest.id] === session {
-                    diagnostics.set(.run, of: .command(command), .error, [text])
-                }
-                await collect(session)
+            let secrets = run?.secrets ?? []
+            let text = Redaction.redact(Self.diagnostic(for: error), secrets: secrets)
+            if case .extension(let id) = command.owner, revision != nil, active[id]?.revision == revision {
+                diagnostics.set(.run, of: .command(command), .error, [text])
             }
             Self.logger.error(
                 "command \(command, privacy: .public) failed: \(outcome.rawValue, privacy: .public)")
             await record(
-                invocation, outcome, since: start, revision: session?.revision ?? invocation.revision,
-                message: text, stderr: await session?.report(stderrBytes: ExtensionHistory.stderrLimit).stderr
-            )
+                invocation, outcome, since: start, revision: revision, message: text,
+                stderr: run.map { Redaction.redact($0.stderr, secrets: secrets) })
             throw error
         }
+    }
+
+    /// The active sealed revision that would run `invocation`, or why none may.
+    private func runnable(_ invocation: Invocation) throws -> SealedRevision {
+        guard case .extension(let id) = invocation.command.owner else { throw HostError.unknownCommand }
+        guard let sealed = active[id] else {
+            throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
+        }
+        guard sealed.manifest.command(invocation.command.name) != nil else { throw HostError.unknownCommand }
+        if let expected = invocation.revision, expected != sealed.revision {
+            throw HostError.extensionChanged
+        }
+        guard !isShutDown else { throw HostError.stopped }
+        return sealed
+    }
+
+    /// Runs `invocation` on `sealed` once the extension's previous run has ended, cleanup included.
+    /// Cancelling the caller cancels it, and so does `stop`.
+    private func enqueue(_ invocation: Invocation, on sealed: SealedRevision) async -> ExtensionProcess.Run {
+        let id = sealed.revision.extensionID
+        let token = UUID()
+        let previous = tails[id]
+        let configuration = configuration(id)
+        let request = Request(command: invocation.command.name, text: invocation.text, args: invocation.args)
+        let task = Task {
+            await previous?.value
+            guard !Task.isCancelled else {
+                return ExtensionProcess.Run(result: .failure(CancellationError()))
+            }
+            return await ExtensionProcess.run(
+                request, manifest: sealed.manifest, folder: sealed.folder, revision: sealed.revision,
+                configuration: configuration)
+        }
+        running[id, default: [:]][token] = task
+        tails[id] = Task { _ = await task.value }
+        inUse[sealed.revision, default: 0] += 1
+        let run = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        running[id]?[token] = nil
+        inUse[sealed.revision, default: 1] -= 1
+        if inUse[sealed.revision] == 0 { inUse[sealed.revision] = nil }
+        return run
+    }
+
+    /// Stops the extension `id`'s runs in flight; their callers get `HostError.stopped`.
+    private func stop(_ id: String) {
+        for task in running[id]?.values ?? [:].values { task.cancel() }
     }
 
     /// Adds a run of `invocation` to its extension's history, if the extension is discovered (a
@@ -276,37 +306,6 @@ public final class Extensions {
             let json = try? JSONEncoder().encode(data)
         else { return String(describing: error) }
         return error.message + "\n" + String(decoding: json, as: UTF8.self)
-    }
-
-    /// Takes the session's protocol issues, setup warnings and stderr tail into the diagnostics if
-    /// they changed since last time, unless the session was replaced meanwhile.
-    private func collect(_ session: ExtensionSession) async {
-        let report = await session.report(stderrBytes: Diagnostics.stderrLimit)
-        let id = session.manifest.id
-        guard sessions[id] === session, reported[ObjectIdentifier(session)] != report.version else { return }
-        reported[ObjectIdentifier(session)] = report.version
-        diagnostics.set(.protocol, of: .extension(id), .error, report.issues)
-        diagnostics.set(.setup, of: .extension(id), .warning, report.warnings)
-        diagnostics.set(.stderr, of: .extension(id), .info, report.stderr.isEmpty ? [] : [report.stderr])
-    }
-
-    /// The extension's session, created once the sessions it replaces have shut down, running its
-    /// active sealed folder.
-    private func session(for id: String) async throws -> ExtensionSession {
-        while true {
-            if let session = sessions[id] { return session }
-            guard active[id] != nil else { throw HostError.stopped }
-            guard let previous = stopping[id] else { break }
-            await previous.value
-            // Another replacement may have been chained on meanwhile; only a finished chain counts.
-            if stopping[id] == previous { stopping[id] = nil }
-        }
-        guard let sealed = active[id], !isShutDown else { throw HostError.stopped }
-        let session = ExtensionSession(
-            manifest: sealed.manifest, folder: sealed.folder, revision: sealed.revision,
-            configuration: configuration(id))
-        sessions[id] = session
-        return session
     }
 
     /// Discovers the extensions again, off the main actor, and publishes what it found. Folders
@@ -345,7 +344,7 @@ public final class Extensions {
             let touched = touched
             self.touched = []
             let previous = Dictionary(discovered.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            let inUse = Set(sessions.values.compactMap(\.revision)).union(retiring.keys)
+            let inUse = Set(inUse.keys)
             let snapshot = await Self.scan(
                 directory, store: store, approvals: approvals, touched: touched, previous: previous,
                 inUse: inUse, activate: activate)
@@ -412,16 +411,13 @@ public final class Extensions {
         }
     }
 
-    /// Makes `snapshot` current in one step: discovery, the active catalog, the sessions of
-    /// revisions no longer active (stopped, the next request starts the active one once they have
-    /// exited) and the diagnostics; then tells `onChange`.
+    /// Makes `snapshot` current in one step: discovery, the active catalog, the runs of revisions no
+    /// longer active (stopped) and the diagnostics; then tells `onChange`.
     private func publish(_ snapshot: Snapshot) {
         let next = Dictionary(snapshot.active.map { ($0.revision.extensionID, $0) }) { a, _ in a }
-        for (id, session) in sessions where next[id]?.revision != session.revision {
-            retire(session, of: id)
-        }
-        // Reports about the old code go with it: a changed revision's, and everything of a removed one.
+        // Runs and reports of the old code go with it: a changed revision's, and a removed one's.
         let replaced = Set(active.keys).filter { next[$0]?.revision != active[$0]?.revision }
+        for id in replaced { stop(id) }
         diagnostics.remove { diagnostic in
             replaced.contains { diagnostic.concerns(extension: $0) } && diagnostic.kind != .discovery
         }
@@ -453,15 +449,16 @@ public final class Extensions {
     }
 
     /// Withdraws the approval of the extension `id` and returns once the catalog no longer has it:
-    /// its commands leave the registry, its frames stop and its session is stopped.
+    /// its commands leave the registry, its frames stop and its runs are stopped.
     func revoke(_ id: String) async throws {
         try approvals.revoke(id)
         await load().value
     }
 
     /// Moves the folder of the discovered extension `id` to the Trash and forgets its approvals
-    /// (so restoring it means enabling it again) and its history (runs and build conversation), then returns once the catalog no longer has it,
-    /// its session has stopped and the store has dropped its revisions. Its data directory and
+    /// (so restoring it means enabling it again) and its history (runs and build conversation), then
+    /// returns once the catalog no longer has it, its runs have ended and the store has dropped its
+    /// revisions. Its data directory and
     /// Keychain secrets stay, so a folder put back from the Trash works as before. Refuses an id
     /// that isn't a folder in `directory`.
     func trash(_ id: String) async throws {
@@ -472,8 +469,8 @@ public final class Extensions {
         try trashItem(found.folder)
         await history?.forget(id)
         await load().value
-        // Pruning keeps a revision while its session stops; the next pass drops it.
-        await stopping[id]?.value
+        // Pruning keeps a revision while a run of it ends; the next pass drops it.
+        await tails[id]?.value
         await load().value
     }
 
@@ -482,39 +479,12 @@ public final class Extensions {
         configuration(id).secret(name).map { !$0.isEmpty } ?? false
     }
 
-    /// The extension `id`'s secrets changed: its process, which has the old values, is stopped,
-    /// and the next run starts one with the new ones.
-    func secretsChanged(of id: String) {
-        if let session = sessions[id] { retire(session, of: id) }
-    }
-
-    /// Stops `session` after any replacement before it; pruning keeps its revision until it is gone.
-    private func retire(_ session: ExtensionSession, of id: String) {
-        sessions[id] = nil
-        reported[ObjectIdentifier(session)] = nil
-        let revision = session.revision
-        if let revision { retiring[revision, default: 0] += 1 }
-        stopping[id] = Task { [previous = stopping[id]] in
-            await previous?.value
-            await session.stop()
-            if let revision {
-                self.retiring[revision, default: 1] -= 1
-                if self.retiring[revision] == 0 { self.retiring[revision] = nil }
-            }
-        }
-    }
-
-    /// Stops every session and returns once their process trees, and those of sessions still being
-    /// replaced, are gone; requests from then on fail with `HostError.stopped`. For the app quitting.
+    /// Stops every run and returns once their process trees are gone; runs asked for from then on
+    /// fail with `HostError.stopped`. For the app quitting.
     public func shutdown() async {
         isShutDown = true
-        let sessions = Array(self.sessions.values)
-        let replaced = Array(stopping.values)
-        self.sessions = [:]
-        await withDiscardingTaskGroup { group in
-            for session in sessions { group.addTask { await session.stop() } }
-            for previous in replaced { group.addTask { await previous.value } }
-        }
+        for id in running.keys { stop(id) }
+        for tail in tails.values { await tail.value }
     }
 }
 
@@ -526,14 +496,13 @@ struct Refusal: Error, CustomStringConvertible {
 
 /// Extension commands feed their frames with one result per run.
 extension Extensions: CommandRunner {
-    /// One element, `result(of:retry:)`'s; ending the iteration cancels the request. A secret the
+    /// One element, `result(of:)`'s; ending the iteration stops the run. A secret the
     /// extension needs and doesn't have shows a page that offers to set it, rather than a failure.
-    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
-    {
+    public func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    continuation.yield(try await result(of: invocation, retry: retry))
+                    continuation.yield(try await result(of: invocation))
                     continuation.finish()
                 } catch HostError.missingSecret(let id, let name, let title) {
                     let manifest = activeRevision(of: id)?.manifest

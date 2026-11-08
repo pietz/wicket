@@ -1,8 +1,8 @@
 # Writing a Wicket extension
 
-Wicket is a native macOS command palette. An extension adds commands to it. It is a folder holding a manifest (`wicket.json`) and a program in any language. Wicket starts the program, writes requests to its stdin and reads replies from its stdout, one JSON object per line ([JSON-RPC 2.0](https://www.jsonrpc.org/specification)). Your program never draws UI: it returns data and Wicket renders it natively.
+Wicket is a native macOS command palette. An extension adds commands to it. It is a folder holding a manifest (`wicket.json`) and a program in any language. For every run of a command, Wicket starts the program, writes one JSON request to its stdin and closes it, and reads one JSON response from its stdout. Your program never draws UI: it returns data and Wicket renders it natively.
 
-This page is the whole contract. The JSON Schema in [extension.schema.json](extension.schema.json) checks the structure: the document validates `wicket.json`, `#/$defs/HostMessage` validates what Wicket sends and `#/$defs/ExtensionMessage` validates what you send back. Rules that depend on the command's mode are stated here and checked by Wicket at runtime. What you send is strict: unknown fields are rejected, so a typo fails loudly instead of silently. What Wicket sends may grow: ignore fields you don't know.
+This page is the whole contract. The JSON Schema in [extension.schema.json](extension.schema.json) checks the structure: the document validates `wicket.json`, `#/$defs/Request` validates what Wicket sends and `#/$defs/Response` validates what you send back. Rules that depend on the command's mode are stated here and checked by Wicket at runtime. What you send is strict: unknown fields are rejected, so a typo fails loudly instead of silently. What Wicket sends may grow: ignore fields you don't know.
 
 ## Quick start: a complete extension
 
@@ -10,14 +10,14 @@ This page is the whole contract. The JSON Schema in [extension.schema.json](exte
 
 ```json
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "week-number",
   "name": "Week Number",
   "description": "Shows the current ISO week number.",
   "version": "1.0.0",
   "run": ["/bin/sh", "week.sh"],
   "commands": [
-    { "id": "week", "title": "Week Number", "keyword": "week", "repeatable": true }
+    { "id": "week", "title": "Week Number", "keyword": "week" }
   ]
 }
 ```
@@ -26,19 +26,17 @@ This page is the whole contract. The JSON Schema in [extension.schema.json](exte
 
 ```sh
 #!/bin/sh
-# Answers with the current ISO week number, then exits; Wicket starts it again next time.
-read -r request
-id=$(printf '%s' "$request" | jq '.id')
+# Answers with the current ISO week number. Wicket starts it for every run and writes the request
+# to stdin; this command needs nothing from it.
 week="Week $(date +%V)"
-jq -nc --argjson id "$id" --arg week "$week" \
-  '{jsonrpc: "2.0", id: $id, result: {answer: {title: $week, subtitle: "ISO week number"}}}'
+jq -nc --arg week "$week" '{answer: {title: $week, subtitle: "ISO week number"}}'
 ```
 
-The user types "week" and presses Return. Wicket sends one line and the script answers with one line (`repeatable` says running it twice does no harm, which a one-shot script needs, see [The session](#the-session)):
+The user types "week" and presses Return. Wicket starts the script, writes the request to its stdin, and the script prints its response and exits:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"run","params":{"command":"week","text":"","revision":1}}
-{"jsonrpc":"2.0","id":1,"result":{"answer":{"title":"Week 45","subtitle":"ISO week number"}}}
+{"command":"week","text":""}
+{"answer":{"title":"Week 45","subtitle":"ISO week number"}}
 ```
 
 Try it with the `wicket` tool, which runs the extension exactly as Wicket does and checks the response (see [Testing](#testing)):
@@ -57,7 +55,7 @@ week-number/          the folder name equals the manifest id
 
 Wicket tells you which folder to write into; if nobody did, name the folder after the id. Paths inside the folder are relative to it, and it is the working directory when your program runs.
 
-Wicket never runs your folder itself. It seals it: copies it into its own storage, read-only, and identifies the copy by a hash of its files (its revision). `wicket check` checks a revision, the user approves one in Wicket (its "Review and Enable", offered under the AI's answer that wrote it and in the Extensions command, which checks it first), and Wicket runs only that approved, sealed copy. Any change to the folder is a new revision that needs approval again: until the user enables it, the approved revision keeps running, and a folder never approved runs nothing (use `wicket run` to try it meanwhile). The user can move an extension to the Trash from its page in Wicket: its commands go at once and Wicket forgets its approvals and sealed copies, so a folder put back from the Trash needs enabling again (its `WICKET_DATA_DIR` and secrets stay). Nothing in `settings.json` or the `wicket` tool can approve an extension. A row your old code showed never runs your new code (the user sees "the extension changed; run it again"; an open search simply runs again on the new code). So:
+Wicket never runs your folder itself. It seals it: copies it into its own storage, read-only, and identifies the copy by a hash of its files (its revision). `wicket check` checks a revision, the user approves one in Wicket (its "Review and Enable", offered under the AI's answer that wrote it and in the Extensions command, which checks it first), and Wicket runs only that approved, sealed copy. Any change to the folder is a new revision that needs approval again: until the user enables it, the approved revision keeps running, and a folder never approved runs nothing (use `wicket run` to try it meanwhile). The user can move an extension to the Trash from its page in Wicket: its commands go at once and Wicket forgets its approvals and sealed copies, so a folder put back from the Trash needs enabling again (its `WICKET_DATA_DIR` and secrets stay). Nothing in `settings.json` or the `wicket` tool can approve an extension. A row your old code showed never runs your new code (the user sees "the extension changed; run it again"). So:
 
 - Keep everything your program runs inside the folder, dependencies included: they are sealed with it. A symbolic link must be relative and point inside the folder; a link out of it, an absolute link or a link to nothing makes the folder invalid.
 - Node: `node_modules` in the folder works. Python with packages: vendor them (see [Python with packages](#python-with-packages)). A virtualenv (`.venv`) doesn't work, since it names absolute paths and can't be moved.
@@ -67,7 +65,7 @@ Wicket never runs your folder itself. It seals it: copies it into its own storag
 
 | Field | Required | Meaning |
 |---|---|---|
-| `protocol` | yes | Always `1`. |
+| `protocol` | yes | Always `2`. |
 | `$schema` | no | Allowed, for editors; ignored. |
 | `id` | yes | Lowercase letters, digits and single hyphens, at most 64 characters, for example `github-prs`. Never change it. |
 | `name` | yes | Display name. |
@@ -83,7 +81,7 @@ Each command:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `id` | yes | Same format as the extension id; unique within the extension. Sent back to you in every `run`. |
+| `id` | yes | Same format as the extension id; unique within the extension. Sent to you in every request. |
 | `title` | yes | What the user searches for, and the title of the command's view (also for `hidden` commands). |
 | `subtitle`, `icon` | no | Shown in the search result row. |
 | `mode` | no | `once` (default) or `live`, below. |
@@ -91,62 +89,50 @@ Each command:
 | `search` | no | Up to 16 words or phrases a person would type, each with non-whitespace text and at most 128 Unicode characters, e.g. `["wifi", "wireless", "turn off wifi"]`. Matched locally; equivalent title matches rank higher. A listed command without terms gets a checker warning. |
 | `placeholder` | no | Search field hint for a `live` command. |
 | `hidden` | no | `true` keeps the command out of search; it can then only be reached by a [`run` action](#actions). |
-| `repeatable` | no | `once` only: `true` if running the command twice does no harm because it only reads (an answer, a list, a detail). Wicket may then send a run again after your program exits (see [The session](#the-session)). Leave it out for anything that changes something (a toggle, a write, a request that posts). `live` runs are searches, so they always may be resent. |
 
 The two modes:
 
 - **`once`**: runs when the user presses Return on the command or types its keyword and a space. `text` is what followed the keyword at that moment: `""` when they typed it, the rest of the line when they pasted one (`todo buy milk` gives `buy milk`). If you return a list, it opens with an empty search field that filters it locally (by title, best match first); you are not asked again. Use it for answers, actions and lists that fit in memory (bookmarks, tasks, hosts). A command that needs what the user types next is `live`.
-- **`live`**: Return on the command, or typing its keyword and a space, opens a view with its own search field. Wicket sends a `run` for every change of the text (rapid keystrokes may be coalesced, and a newer text cancels the request for an older one), starting with the initial text (`""` or what followed the keyword). Wicket shows your items in your order and does no filtering. While the field is empty and your list is too, the view is just the field with your `placeholder`. Use it when the search itself is your job (an API, a large index), or to act on what the user types: answer `add buy milk` with an item whose `run` action adds it.
+- **`live`**: Return on the command, or typing its keyword and a space, opens a view with its own search field. Wicket runs your program for every change of the text (rapid keystrokes are coalesced, and a newer text stops the run for an older one before the next starts), starting with the initial text (`""` or what followed the keyword). Wicket shows your items in your order and does no filtering. While the field is empty and your list is too, the view is just the field with your `placeholder`. Use it when the search itself is your job (an API, a large index), or to act on what the user types: answer `add buy milk` with an item whose `run` action adds it.
 
-## The session
+## How a run works
 
-Wicket starts your program the first time one of its commands is needed and keeps it running between requests. There is no handshake: the first line you receive is a request.
+Wicket starts your program for every run of one of its commands: Return on its row, its keyword, a keystroke in a `live` view, a `run` action. Nothing stays running between runs.
 
-- **Wicket to you, on stdin:** `run` requests and `cancel` notifications.
-- **You to Wicket, on stdout:** exactly one response per request. You never send requests or notifications.
-- **One message per line**, UTF-8, no newlines inside a message (every JSON library's compact output is fine), and flush after each line. stdout carries protocol messages only; a stray `print` breaks the response. Write logs and debugging output to **stderr**: Wicket keeps the end of it for diagnostics and never shows it unless something fails.
-- **One process at a time.** Wicket never runs two processes of your extension at once, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
-- **Requests may overlap.** A new `run` can arrive before you answered the previous one. Answering one at a time, in order, is fine; you may also answer out of order, since the `id` ties each response to its request.
-- **Exiting is always allowed** after you have answered. If your program exits cleanly (status 0) with requests unanswered, Wicket resends the ones that are safe to repeat to a fresh process: every run of a `live` command, and runs of a `once` command marked `repeatable`. Every other run (any `once` command not marked, however it was started: Return on its row, its keyword, a hotkey or a `run` action, with or without `args`) fails instead, since your program may have read it and changed something before exiting, and the user sees the error. If your program exits with an error, every unanswered request fails. So a one-shot script can answer and quit, provided its `once` commands only read and say `repeatable` (a request written while it was exiting goes to the next process), while a persistent program pays its start-up cost once and answers later keystrokes from memory.
-- **Shutdown:** after about a minute without requests, or when the extension is disabled or updated, Wicket closes your stdin. Exit then (a `for line in stdin` loop ends by itself). Wicket sends SIGTERM if you are still running 2 seconds later, and SIGKILL 2 seconds after that.
-- **What you start ends with you.** Processes your program starts belong to it, even in the background or in a session of their own: when your program exits (by itself or at shutdown), they get the same 2 seconds, then SIGTERM, then SIGKILL, and Wicket starts your next process only after they are gone. Don't leave work running in the background after answering; do it before answering, or in a persistent program.
+1. Wicket starts `run` in your sealed folder, writes one request (a JSON object and a newline) to stdin and closes it.
+2. Your program writes one response, a JSON object, to stdout and exits. stdout carries the response only; a stray `print` breaks it. Write logs and debugging output to **stderr**: Wicket keeps the end of it in the run's history and never shows it in a view.
+3. Wicket reads stdout to its end, waits for your program to exit, and then gives what it started 2 seconds before SIGTERM, then SIGKILL after 2 more. Processes you start belong to the run, even in the background or in a session of their own; do all your work before answering.
+
+- **One run at a time.** Wicket never runs two processes of your extension at once, cleanup included, so plain file writes in `WICKET_DATA_DIR` are safe from each other.
+- **Stopping.** When the user moves on (a newer keystroke in a `live` view, Escape, the extension disabled or updated), Wicket sends SIGTERM to your program and everything it started, and SIGKILL 2 seconds later; the next run starts once they are gone. Never install a SIGTERM handler that keeps working.
+- **Each run happens once.** Wicket never sends a request again, so a toggle or a write runs exactly as often as the user asked.
+- **Start-up is per run.** Keep it light: import only what you need, and cache what is slow to build (an index, a downloaded table) in `WICKET_DATA_DIR`, as the [example below](#example-a-live-list-and-a-detail-view) does.
+
+The request:
+
+```json
+{"command":"search","text":"heart","args":{"repo":"acme/web"}}
+```
+
+| Field | Meaning |
+|---|---|
+| `command` | A command id from your manifest. |
+| `text` | What the user typed: after the keyword, or in the command's own search field. May be `""`. |
+| `args` | Present when a [`run` action](#actions) started the command: the `args` object from that action, unchanged. Only your own actions produce `args`, so bad `args` are a bug in your code. |
+
+Respond with one of the [results](#results) below, or an [error](#errors). Ignore fields you don't know; newer Wicket versions may add some.
 
 Environment of the process:
 
 | Variable | Meaning |
 |---|---|
-| `WICKET_PROTOCOL` | `1` |
+| `WICKET_PROTOCOL` | `2` |
 | `LANG` | The user's locale, always with UTF-8 encoding, for example `en_US.UTF-8`. |
 | `WICKET_VERSION` | Wicket's version. |
 | `WICKET_EXTENSION_ID` | Your manifest id. |
 | `WICKET_DATA_DIR` | A folder that exists and is yours to keep state, caches and settings in. It survives updates; your extension folder may be replaced. |
 | `PATH` | The user's login-shell `PATH`, so `python3`, `node` and Homebrew tools resolve as in Terminal. |
 | each secret's `name` | The value the user stored for it. |
-
-### `run` (request)
-
-The only request. It means: show this command for this text. The `id` is a number or a string; echo it back unchanged.
-
-```json
-{"jsonrpc":"2.0","id":7,"method":"run","params":{"command":"search","text":"heart","revision":7}}
-```
-
-| Param | Meaning |
-|---|---|
-| `command` | A command id from your manifest. |
-| `text` | What the user typed: after the keywordor in the command's own search field. May be `""`. |
-| `revision` | Grows with every query in a session. A higher revision makes a lower one obsolete; Wicket drops late answers. |
-| `args` | Present when a [`run` action](#actions) started the command: the `args` object from that action, unchanged. Only your own actions produce `args`, so bad `args` are a bug in your code. |
-
-Respond with a `result` holding one of the [results](#results) below, or an [error](#errors). Ignore params you don't know; newer Wicket versions may add some.
-
-### `cancel` (notification)
-
-```json
-{"jsonrpc":"2.0","method":"cancel","params":{"id":7}}
-```
-
-The user moved on, so request `7` no longer matters. Stop working on it if you can. Any response you still send is ignored, and you may skip it. Ignore cancels for requests you have already answered. Ignore notifications you don't know.
 
 ## Results
 
@@ -267,31 +253,29 @@ Each action is an object with exactly one key. Each takes an optional `title` fo
 
 ## Errors
 
-If you can't produce a result, answer with a JSON-RPC error:
+If you can't produce a result, answer with an error instead:
 
 ```json
-{"jsonrpc":"2.0","id":7,"error":{"code":1,"message":"GitHub token expired"}}
+{"error":{"message":"GitHub token expired"}}
 ```
 
-- `message` is shown to the user as is: one short, plain sentence. Put details (stack traces, HTTP bodies) in `data` or on stderr; both go to the diagnostics, never into the view.
-- The `code` is an integer and doesn't change how the error is shown. Use `1` for your own errors, including an unknown `command`. Codes from -32768 to -32000 are JSON-RPC's: send -32601 for a method you don't know, and if you can't parse a line, reply with `"id":null` and -32700.
-- `error` holds only `code`, `message` and `data`.
+- `message` is shown to the user as is: one short, plain sentence. Put details (stack traces, HTTP bodies) in `data` (any JSON value) or on stderr; both go to the run's history, never into the view.
+- `error` holds only `message` and `data`. Answer an unknown `command` with an error too.
 - In a view, Wicket shows the message in place of the view's content (in a `live` view, until the next keystroke's answer), with Fix with Agent (⌘↩). The run is recorded in the extension's history (see Debugging), and the extension's page in Extensions lists recent failures with Fix with Agent.
 
-Wicket reports these failures itself, the same way: no response within 30 seconds (the request is cancelled), an invalid response, a line over the size limit, or an exit with an error status while a request was pending.
+Wicket reports these failures itself, the same way: no response within 30 seconds (the run is stopped), an invalid response, a response over the size limit, or an exit without a response.
 
 ## Limits
 
 | Limit | Value |
 |---|---|
-| One message (one line) | 1 MiB |
+| The response | 1 MiB |
 | Items in a list | 500, across all its sections |
-| Time to answer a request | 30 seconds, measured from when it was sent (including start-up) |
-| Idle time before stdin is closed | about 60 seconds |
-| Exit after stdin closes (you and what you started) | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
-| stderr kept for diagnostics | last 16 KiB (secret values and recent queries removed; anything else kept as written) |
+| Time to answer | 30 seconds from the start, start-up included |
+| What you started, after you exit | 2 seconds, then SIGTERM, then SIGKILL after 2 more |
+| stderr kept in the history | the last 2 KiB of a failed run (secret values removed; anything else kept as written) |
 
-Keep answers fast: a `live` command should answer in well under 100 ms. Load data once at start-up and answer from memory, as in the example below.
+Keep answers fast: a `live` command runs on every keystroke, so it should answer in well under 100 ms, start-up included.
 
 ## Python with packages
 
@@ -313,15 +297,15 @@ from slugify import slugify
 - Install with `pip install --target vendor <package>` (or `uv pip install --target vendor <package>`) and delete `vendor/bin`. Prefer pure-Python packages: a compiled one works only for the Python version and architecture it was built for.
 - Don't run `uv`, `uvx` or a virtualenv: `uv` and `uvx` in `run` are refused, since they would install packages outside the folder at run time, and a `.venv` can't be sealed.
 
-## Example: a persistent extension with a live list and a detail view
+## Example: a live list and a detail view
 
-Search Unicode characters by name. The table is built once at start-up, then every keystroke is answered from memory. Each result pastes or copies its character, and "Show Details" opens a detail view through a hidden command.
+Search Unicode characters by name. The first run builds the name table and caches it in `WICKET_DATA_DIR`; every later keystroke reads it in a few milliseconds. Each result pastes or copies its character, and "Show Details" opens a detail view through a hidden command. The files are in [examples/unicode](examples/unicode).
 
 `wicket.json`:
 
 ```json
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "unicode",
   "name": "Unicode",
   "description": "Finds Unicode characters by name and pastes them.",
@@ -344,15 +328,24 @@ Search Unicode characters by name. The table is built once at start-up, then eve
 `main.py`:
 
 ```python
-"""Finds Unicode characters by name. Persistent: the name table is built once, then every
-keystroke is answered from memory."""
+"""Finds Unicode characters by name. Wicket starts it once per keystroke, so the name table is
+built on the first run and cached in WICKET_DATA_DIR; later runs read it in a few milliseconds."""
 
 import json
+import os
 import sys
 import unicodedata
 
-NAMES = [(cp, unicodedata.name(chr(cp), "")) for cp in range(0x110000)]
-NAMES = [(cp, name) for cp, name in NAMES if name]
+
+def names():
+    cache = os.path.join(os.environ["WICKET_DATA_DIR"], f"names-{unicodedata.unidata_version}.txt")
+    if not os.path.exists(cache):
+        table = ((cp, unicodedata.name(chr(cp), "")) for cp in range(0x110000))
+        with open(cache + ".tmp", "w") as file:
+            file.writelines(f"{cp:X}\t{name}\n" for cp, name in table if name)
+        os.replace(cache + ".tmp", cache)
+    with open(cache) as file:
+        return [(int(cp, 16), name) for cp, name in (line.rstrip("\n").split("\t") for line in file)]
 
 
 def item(cp, name):
@@ -374,7 +367,7 @@ def search(text):
     words = text.upper().split()
     if not words:
         return {"list": {"items": []}}
-    hits = sorted((h for h in NAMES if all(w in h[1] for w in words)), key=lambda h: len(h[1]))
+    hits = sorted((h for h in names() if all(w in h[1] for w in words)), key=lambda h: len(h[1]))
     return {"list": {"items": [item(cp, name) for cp, name in hits[:100]]}}
 
 
@@ -402,25 +395,21 @@ def run(params):
     raise ValueError(f"Unknown command {params['command']}")
 
 
-for line in sys.stdin:  # ends when Wicket closes stdin
-    message = json.loads(line)
-    if "id" not in message:
-        continue  # a notification, such as cancel; this extension answers fast enough to ignore it
-    try:
-        reply = {"result": run(message["params"])}
-    except Exception as error:
-        print(f"run failed: {error!r}", file=sys.stderr)
-        reply = {"error": {"code": 1, "message": str(error)}}
-    print(json.dumps({"jsonrpc": "2.0", "id": message["id"], **reply}), flush=True)
+try:
+    response = run(json.load(sys.stdin))
+except Exception as error:
+    print(f"run failed: {error!r}", file=sys.stderr)
+    response = {"error": {"message": str(error)}}
+print(json.dumps(response))
 ```
 
-A session (the user types "uc grinning cat", then opens the details):
+Two runs (the user types "uc grinning cat", then opens the details), each a request and its response:
 
 ```json
-{"jsonrpc":"2.0","id":2,"method":"run","params":{"command":"search","text":"grinning cat","revision":2}}
-{"jsonrpc":"2.0","id":2,"result":{"list":{"items":[{"id":"U+1F638","title":"Grinning Cat Face With Smiling Eyes","subtitle":"U+1F638","accessory":"😸","actions":[{"paste":{"text":"😸"}},{"copy":{"text":"😸"}},{"run":{"command":"character","args":{"codepoint":128568},"title":"Show Details"}}]}]}}}
-{"jsonrpc":"2.0","id":3,"method":"run","params":{"command":"character","text":"","revision":3,"args":{"codepoint":128568}}}
-{"jsonrpc":"2.0","id":3,"result":{"detail":{"title":"Grinning Cat Face With Smiling Eyes","markdown":"# 😸\n\n`U+1F638` GRINNING CAT FACE WITH SMILING EYES","metadata":[{"label":"Code point","value":"U+1F638"},{"label":"Category","value":"So"},{"label":"UTF-8","value":"F0 9F 98 B8"}],"actions":[{"copy":{"text":"😸"}},{"copy":{"text":"U+1F638","title":"Copy Code Point"}}]}}}
+{"command":"search","text":"grinning cat"}
+{"list":{"items":[{"id":"U+1F638","title":"Grinning Cat Face With Smiling Eyes","subtitle":"U+1F638","accessory":"😸","actions":[{"paste":{"text":"😸"}},{"copy":{"text":"😸"}},{"run":{"command":"character","args":{"codepoint":128568},"title":"Show Details"}}]}]}}
+{"command":"character","text":"","args":{"codepoint":128568}}
+{"detail":{"title":"Grinning Cat Face With Smiling Eyes","markdown":"# 😸\n\n`U+1F638` GRINNING CAT FACE WITH SMILING EYES","metadata":[{"label":"Code point","value":"U+1F638"},{"label":"Category","value":"So"},{"label":"UTF-8","value":"F0 9F 98 B8"}],"actions":[{"copy":{"text":"😸"}},{"copy":{"text":"U+1F638","title":"Copy Code Point"}}]}}
 ```
 
 ## Testing
@@ -428,7 +417,7 @@ A session (the user types "uc grinning cat", then opens the details):
 The `wicket` tool ships inside the app at `/Applications/Wicket.app/Contents/Helpers/wicket`.
 
 - `wicket check <folder>` reviews the extension the way Wicket does before the user enables it: it seals the folder (so a bad link or a virtualenv fails here), validates `wicket.json` and finds the program `run` names. It runs none of your code. It prints one `ok:`, `warning:` or `error:` line per finding and exits 1 on any error.
-- `wicket run <folder> <command> [text] [--args '<json object>']` runs one command exactly as Wicket does and prints the response line as your program wrote it. It exits 1 unless the response is a valid result by this page, its [markup](markup.md) included (Wicket itself draws imperfect markup as best it can; `wicket run` is strict), and on an error response. It runs your folder itself, with your environment and your real secrets.
+- `wicket run <folder> <command> [text] [--args '<json object>']` runs one command exactly as Wicket does and prints the response as your program wrote it. It exits 1 unless the response is a valid result by this page, its [markup](markup.md) included (Wicket itself draws imperfect markup as best it can; `wicket run` is strict), and on an error response. It runs your folder itself, with your environment and your real secrets.
 - `wicket secret set <extension-id> <NAME>` stores a secret, reading the value from stdin. For `run`, an environment variable of the same name takes precedence over the Keychain.
 - `wicket log <extension-id>` prints the extension's recent runs in Wicket (see Debugging).
 
@@ -452,24 +441,23 @@ Each run says how it ended:
 | Outcome | Meaning |
 |---|---|
 | `ok` | It answered. Successful runs in a row of one command and revision are one line. |
-| `error` | Your program answered with a JSON-RPC error; `message` is yours, with `data` after it. |
+| `error` | Your program answered with an error; `message` is yours, with `data` after it. |
 | `rejected` | Your program answered, but Wicket refused the answer: not valid by this page (`message` names the field) or over the size limit. |
-| `crashed` | It couldn't start, or exited before answering. |
+| `crashed` | It couldn't start, or exited without answering. |
 | `timeout` | No answer within 30 seconds. |
 | `refused` | Wicket didn't run it: not enabled, a secret not set, or changed since the row was shown. |
 
-A failed run also has the text and args it was sent (to reproduce it with `wicket run`) and the end of what you wrote to stderr, with secret values and recent queries removed. The newest 50 entries are kept, at most 128 KiB.
+A failed run also has the text and args it was sent (to reproduce it with `wicket run`) and the end of what you wrote to stderr, with secret values removed. The newest 50 entries are kept, at most 128 KiB.
 
 When the user asks Wicket's agent to fix or change an extension (Fix with Agent, Change with Agent), it continues the conversation that built the extension when Wicket remembers it, and is told the log command. So write enough to stderr that a failure explains itself: the URL you called and the status you got, not just "failed".
 
 ## Checklist
 
 - `wicket.json` validates against the schema, and every command id you handle is declared in it.
-- stdout carries only one-line JSON responses, flushed; everything else goes to stderr.
-- Every request gets exactly one response with the same `id`, either `result` or `error`.
-- The program exits when stdin closes.
+- The program reads one request from stdin, writes one result or `error` object to stdout and exits; everything else goes to stderr.
+- Nothing keeps running after it answers.
 - Every `run` action names a declared command, and your code handles its `args`.
-- `once` commands that only read are `repeatable`; ones that change something are not.
+- A `live` command answers fast, start-up included; slow set-up is cached in `WICKET_DATA_DIR`.
 - Capabilities list everything the code does beyond computing an answer.
 - `wicket check` passes.
 - Every command answers right with `wicket run`, its error cases too, and on a first run.

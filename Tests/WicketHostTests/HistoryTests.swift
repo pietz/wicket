@@ -19,7 +19,7 @@ private func extensions(_ ext: TestExtension, timeout: Duration = .seconds(2)) a
     let extensions = Extensions(
         directory: directory, store: testStore(), approvals: testApprovals(), history: testHistory(),
         activate: Extensions.currentRevisions
-    ) { _ in testConfiguration { $0.requestTimeout = timeout } }
+    ) { _ in testConfiguration { $0.timeout = timeout } }
     await extensions.load().value
     return extensions
 }
@@ -27,18 +27,16 @@ private func extensions(_ ext: TestExtension, timeout: Duration = .seconds(2)) a
 /// A script that writes `stderr` to stderr and answers every run with an error saying `message`.
 private func failing(_ message: String, stderr: String) -> String {
     #"""
-    while read -r line; do
-      id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-      echo "\#(stderr)" >&2
-      printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32000,"message":"\#(message)"}}\n' "$id"
-    done
+    cat >/dev/null
+    echo "\#(stderr)" >&2
+    printf '{"error":{"message":"\#(message)"}}\n'
     """#
 }
 
 private func run(_ extensions: Extensions, text: String = "Berlin", revision: ExtensionRevision? = nil) async
 {
     _ = try? await extensions.result(
-        of: Invocation(command: .extension("test", "go"), text: text, revision: revision), retry: .never)
+        of: Invocation(command: .extension("test", "go"), text: text, revision: revision))
 }
 
 @Test func theLogFoldsSuccessesAndKeepsTheNewestRunsWithinItsCaps() async throws {
@@ -104,7 +102,7 @@ private func run(_ extensions: Extensions, text: String = "Berlin", revision: Ex
         ),
         (answering(#"{"answer":{"title":"hi","bogus":1}}"#), .rejected, #"unknown field "bogus""#),
         ("read -r line; exit 3", .crashed, "status 3"),
-        ("while read -r line; do :; done", .timeout, "no response within"),
+        ("exec /bin/sleep 30", .timeout, "no response within"),
         (answering(#"{"answer":{"title":"hi"}}"#), .ok, ""),
     ])
 func everyWayARunEndsIsRecordedWithItsReason(
@@ -153,7 +151,7 @@ func everyWayARunEndsIsRecordedWithItsReason(
         try TestExtension(script: failing("no network", stderr: "Traceback: could not reach api")))
     var shown: [RunResult] = []
     for try await result in extensions.run(
-        Invocation(command: .extension("test", "go"), text: "Berlin"), retry: .never)
+        Invocation(command: .extension("test", "go"), text: "Berlin"))
     {
         shown.append(result)
     }
@@ -178,8 +176,7 @@ func everyWayARunEndsIsRecordedWithItsReason(
         for try await _ in extensions.run(
             Invocation(
                 command: .extension("test", "go"),
-                revision: ExtensionRevision(extensionID: "test", sha256: String(repeating: "0", count: 64))),
-            retry: .never)
+                revision: ExtensionRevision(extensionID: "test", sha256: String(repeating: "0", count: 64))))
         {}
     }
     await extensions.shutdown()
@@ -200,7 +197,7 @@ func everyWayARunEndsIsRecordedWithItsReason(
     func page() async throws -> Detail? {
         var last: Detail?
         for try await result in runner.run(
-            Invocation(command: .reviewExtension, args: ["id": .string("test")]), retry: .never)
+            Invocation(command: .reviewExtension, args: ["id": .string("test")]))
         {
             if case .show(.detail(let detail), _) = result { last = detail }
         }

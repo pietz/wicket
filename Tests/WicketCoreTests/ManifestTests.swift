@@ -6,7 +6,7 @@ import Testing
 private let valid = #"""
     {
       "$schema": "../extension.schema.json",
-      "protocol": 1, "id": "github-prs", "name": "GitHub", "version": "1.2.3",
+      "protocol": 2, "id": "github-prs", "name": "GitHub", "version": "1.2.3",
       "icon": {"symbol": {"name": "cloud"}},
       "run": ["python3", "main.py"], "capabilities": ["network"],
       "secrets": [{"name": "GITHUB_TOKEN", "title": "GitHub token"}],
@@ -71,7 +71,7 @@ func rejectsInvalidSearchTerms(value: String, expected: String) {
 }
 
 @Test(arguments: [
-    (#""protocol": 1"#, #""protocol": 2"#, "this Wicket speaks protocol 1"),
+    (#""protocol": 2"#, #""protocol": 1"#, "this Wicket speaks protocol 2"),
     (#""id": "github-prs""#, #""id": "GitHub""#, "is not a valid id"),
     (#""id": "github-prs""#, #""id": "a--b""#, "is not a valid id"),
     (#""name": "GitHub""#, #""name": """#, "name: must not be empty"),
@@ -87,7 +87,7 @@ func rejectsInvalidSearchTerms(value: String, expected: String) {
     (#""hidden": true"#, #""hidden": true, "pattern": "x""#, "commands[2].pattern: unknown field"),
     (#""id": "done""#, #""id": "prs""#, "two commands with the id \"prs\""),
     (#""title": "Done""#, #""title": "Done", "subtitel": "x""#, #"commands[2].subtitel: unknown field"#),
-    (#""protocol": 1,"#, #""protocol": 1, "author": "me","#, #"author: unknown field"#),
+    (#""protocol": 2,"#, #""protocol": 2, "author": "me","#, #"author: unknown field"#),
     (#""run": ["python3", "main.py"],"#, "", #"run: missing required field"#),
     (#""run": ["python3", "main.py"]"#, #""run": ["uvx", "ruff"]"#, "vendor Python packages"),
     (#""run": ["python3", "main.py"]"#, #""run": ["/opt/homebrew/bin/uv", "run", "m.py"]"#, "doesn't run uv"),
@@ -102,7 +102,7 @@ func rejectsInvalidManifests(old: String, new: String, expected: String) {
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
     #expect(throws: ManifestError.self) { try Manifest.load(from: folder) }
-    try Data(#"{"protocol":1}"#.utf8).write(to: folder.appending(path: "wicket.json"))
+    try Data(#"{"protocol":2}"#.utf8).write(to: folder.appending(path: "wicket.json"))
     #expect(throws: ManifestError(description: #"wicket.json: id: missing required field "id""#)) {
         try Manifest.load(from: folder)
     }

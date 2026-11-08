@@ -54,14 +54,10 @@ public struct Manifest: Sendable, Hashable, Decodable {
         public var search: [String]
         public var placeholder: String?
         public var hidden: Bool
-        /// Once only: running it twice does no harm, so a run its process left unanswered at a clean
-        /// exit may be resent (`retry`). Live runs always may.
-        public var repeatable: Bool
 
         public init(from decoder: any Decoder) throws {
             let object = try decoder.object([
-                "id", "title", "subtitle", "icon", "mode", "keyword", "placeholder", "hidden", "repeatable",
-                "search",
+                "id", "title", "subtitle", "icon", "mode", "keyword", "placeholder", "hidden", "search",
             ])
             id = try object.slug("id")
             title = try object.nonEmpty("title")
@@ -88,17 +84,13 @@ public struct Manifest: Sendable, Hashable, Decodable {
             }
             placeholder = try object.optional("placeholder")
             hidden = try object.optional("hidden") ?? false
-            repeatable = try object.optional("repeatable") ?? false
             if let keyword, keyword.isEmpty || keyword.contains(where: \.isWhitespace) {
                 throw object.invalid("keyword", "\"\(keyword)\" must be one word without spaces")
-            }
-            if parsed != .once, object.has("repeatable") {
-                throw object.invalid("repeatable", "is only for once commands; live runs always are")
             }
         }
     }
 
-    public static let protocolVersion = 1
+    public static let protocolVersion = 2
     public static let fileName = "wicket.json"
 
     public var id: String

@@ -10,11 +10,9 @@ import Testing
 @MainActor
 private final class RecordingRunner: CommandRunner {
     var runs: [Invocation] = []
-    var retries: [RetryPolicy] = []
 
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         runs.append(invocation)
-        retries.append(retry)
         return AsyncThrowingStream { _ in }
     }
 }
@@ -111,7 +109,6 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     #expect(session.opening == run)
     #expect(await eventually { !runAgent.runs.isEmpty })
     #expect(runAgent.runs.map(\.text) == ["capital of peru"])
-    #expect(runAgent.retries == [.never])
     #expect(extensions.runs.isEmpty)
 }
 
@@ -119,15 +116,15 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
     let runAgent = RecordingRunner()
     let extensions = RecordingRunner()
     let router = CommandRouter(builtins: [Builtin(.runAgent, runner: runAgent)], extensions: extensions)
-    _ = router.run(Invocation(command: CommandID.runAgent, text: "why"), retry: .never)
-    _ = router.run(Invocation(command: .extension("unicode", "search"), text: "x"), retry: .safeToRepeat)
+    _ = router.run(Invocation(command: CommandID.runAgent, text: "why"))
+    _ = router.run(Invocation(command: .extension("unicode", "search"), text: "x"))
     #expect(runAgent.runs.map(\.command) == [CommandID.runAgent])
     #expect(extensions.runs.map(\.text) == ["x"])
 
     // A built-in nothing runs fails its frame rather than hanging it.
     var failure: (any Error)?
     do {
-        for try await _ in router.run(Invocation(command: .builtin("nothing")), retry: .never) {}
+        for try await _ in router.run(Invocation(command: .builtin("nothing"))) {}
     } catch {
         failure = error
     }

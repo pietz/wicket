@@ -105,13 +105,12 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let add = actions.perform(.run(command: todoAdd), as: .host, in: ActionContext())
     #expect(add == .open(CommandRun(addTodo, .invoked)))
     #expect(
-        add == .open(CommandRun(command: addTodo, invocation: Invocation(command: todoAdd), retry: .never)))
+        add == .open(CommandRun(command: addTodo, invocation: Invocation(command: todoAdd))))
     #expect(
         actions.perform(.run(command: todoAdd, args: ["id": .integer(12)]), as: .host, in: ActionContext())
             == .open(
                 CommandRun(
-                    command: addTodo, invocation: Invocation(command: todoAdd, args: ["id": .integer(12)]),
-                    retry: .never)))
+                    command: addTodo, invocation: Invocation(command: todoAdd, args: ["id": .integer(12)]))))
     #expect(
         actions.perform(.run(command: todoDone), as: .host, in: ActionContext())
             == .open(CommandRun(markDone, .invoked)))
@@ -129,7 +128,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let question = Invocation(command: ask.id, text: "Capital of France?")
     #expect(
         actions.perform(.run(command: ask.id, text: question.text), as: .host, in: ActionContext())
-            == .open(CommandRun(command: ask, invocation: question, retry: .never)))
+            == .open(CommandRun(command: ask, invocation: question)))
 }
 
 @MainActor

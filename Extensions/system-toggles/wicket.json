@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "system-toggles",
   "name": "System Toggles",
   "description": "Switches dark mode, mutes the sound and puts the displays to sleep.",

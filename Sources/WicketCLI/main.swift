@@ -39,12 +39,10 @@ func appVersion() -> String {
 }
 
 /// `wicket run`: the developer's own run, with their environment and real secrets.
-func configuration(for id: String, dataDirectory: URL) -> SessionConfiguration {
-    var configuration = SessionConfiguration(dataDirectory: dataDirectory, version: appVersion()) { name in
+func configuration(for id: String) -> RunConfiguration {
+    RunConfiguration(dataDirectory: ExtensionPaths.data(for: id), version: appVersion()) { name in
         ProcessInfo.processInfo.environment[name] ?? Keychain.secret(name, extension: id)
     }
-    configuration.idleTimeout = nil
-    return configuration
 }
 
 func folder(_ path: String) -> URL {
@@ -83,41 +81,26 @@ func run(_ arguments: [String]) async -> Never {
         let ids = manifest.commands.map(\.id).joined(separator: ", ")
         fail("error: wicket.json declares no command \"\(command)\"; its commands are \(ids)", status: 2)
     }
-    let session = ExtensionSession(
-        manifest: manifest, folder: folder,
-        configuration: configuration(for: manifest.id, dataDirectory: ExtensionPaths.data(for: manifest.id)))
-    // Through the same invocation policy as a row, a keyword or a hotkey in the app.
-    let run = CommandRun(
+    // Through the same invocation policy as a row, a keyword or a run action in the app.
+    let invocation = CommandRun(
         RegisteredCommand(extension: manifest.id, command: declared, icon: nil), .invoked,
-        text: arguments.count == 3 ? arguments[2] : "", args: args)
-    let params = RunParams(
-        command: command, text: run.invocation.text, revision: 1, args: run.invocation.args)
-    let result: Result<Reply, any Error>
-    do {
-        result = .success(try await session.submit(.number(1), params, retry: run.retry).value)
-    } catch {
-        result = .failure(error)
-    }
-    for warning in await session.warnings {
-        FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
-    }
-    for issue in await session.issues { FileHandle.standardError.write(Data("error: \(issue)\n".utf8)) }
-    _ = await session.shutdown()
-    switch result {
-    case .success(let reply):
-        print(reply.line)
-        switch reply.outcome {
-        case .success(let result):
-            let problems = result.markupProblems
-            guard !problems.isEmpty else { exit(0) }
-            fail(problems.map { "error: \($0)" }.joined(separator: "\n"))
-        case .failure(let error):
-            fail("error: the extension answered with an error: \(error.message)")
-        }
+        text: arguments.count == 3 ? arguments[2] : "", args: args
+    ).invocation
+    let run = await ExtensionProcess.run(
+        Request(command: command, text: invocation.text, args: invocation.args), manifest: manifest,
+        folder: folder, configuration: configuration(for: manifest.id))
+    if let output = run.output { print(output) }
+    let stderr = run.stderr.split(separator: "\n").suffix(20)
+    let tail =
+        stderr.isEmpty ? "" : "\nthe last stderr lines were:\n    " + stderr.joined(separator: "\n    ")
+    switch run.result {
+    case .success(let result):
+        let problems = result.markupProblems
+        guard !problems.isEmpty else { exit(0) }
+        fail(problems.map { "error: \($0)" }.joined(separator: "\n"))
+    case .failure(let error as ExtensionError):
+        fail("error: the extension answered with an error: \(error.message)\(tail)")
     case .failure(let error):
-        let stderr = session.stderrTail.split(separator: "\n").suffix(20)
-        let tail =
-            stderr.isEmpty ? "" : "\nthe last stderr lines were:\n    " + stderr.joined(separator: "\n    ")
         fail("error: \(error)\(tail)")
     }
 }

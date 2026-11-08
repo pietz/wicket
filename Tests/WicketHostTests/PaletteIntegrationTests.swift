@@ -55,8 +55,7 @@ private struct Palette {
         }
         extensions = Extensions(directory: directory, store: testStore(), approvals: testApprovals()) { _ in
             testConfiguration(secrets: ["GITHUB_TOKEN": "unused"]) {
-                $0.requestTimeout = .seconds(30)
-                $0.idleTimeout = .seconds(2)
+                $0.timeout = .seconds(30)
                 if let data { $0.dataDirectory = data }
             }
         }
@@ -241,7 +240,6 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         "pid": .integer(99_999_999), "name": .string("Ghost"), "after": .string("reload"),
     ]
     palette.perform(.run(command: .extension("quit-apps", "quit"), args: ghost))
-    #expect(session.opening?.retry == .never)
     #expect(await eventually { session.frames.count == 3 })
     guard case .detail(let failure) = palette.screen else {
         Issue.record("expected the failure")
@@ -260,5 +258,5 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         Issue.record("expected the app's details, got \(String(describing: palette.screen))")
         return
     }
-    #expect(detail.metadata.contains { $0.label == "Process ID" })
+    #expect(detail.metadata.contains { $0.label == "Process ID" }, "\(detail)")
 }

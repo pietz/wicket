@@ -1,9 +1,8 @@
 import Foundation
 
 /// One entry of the command registry: what the root search lists and what a keyword or an id (and
-/// later a deeplink or MCP call) resolves to. How it takes text and whether a
-/// run may be resent are the command's own declarations; `CommandRun(_:_:text:args:)` applies them
-/// the same way for every way in.
+/// later a deeplink or MCP call) resolves to. How it takes text is the command's own declaration;
+/// `CommandRun(_:_:text:args:)` applies it the same way for every way in.
 public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     public var id: CommandID
     public var title: String
@@ -17,7 +16,6 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// Whether the root search lists it. Hidden commands are reachable by id only.
     public var isListed: Bool
     public var input: CommandInput
-    public var retry: RetryPolicy
     /// The search field's hint in its frame: a live command's, or one waiting for its text.
     public var placeholder: String?
     /// Offered as a row in the root's fallback tier for any query, which it is run on (`FallbackSource`).
@@ -36,7 +34,6 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     public init(
         id: CommandID, title: String, subtitle: String? = nil, icon: Item.Icon, keyword: String? = nil,
         search: [String] = [], isListed: Bool = true, input: CommandInput = .immediateText,
-        retry: RetryPolicy = .never,
         placeholder: String? = nil, isFallback: Bool = false, usesAI: Bool = false,
         revision: ExtensionRevision? = nil, usesContext: Bool = false
     ) {
@@ -48,7 +45,6 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
         self.search = search
         self.isListed = isListed
         self.input = input
-        self.retry = retry
         self.placeholder = placeholder
         self.isFallback = isFallback
         self.usesAI = usesAI
@@ -66,7 +62,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
             id: .extension(extensionID, command.id), title: command.title, subtitle: command.subtitle,
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
             search: command.search,
-            isListed: !command.hidden, input: command.input, retry: command.retry,
+            isListed: !command.hidden, input: command.input,
             placeholder: command.placeholder, revision: revision)
     }
 
@@ -79,12 +75,6 @@ extension Manifest.Command {
     /// `once` runs on its text when invoked; `live` searches as the user types.
     public var input: CommandInput {
         mode == .live ? .liveText : .immediateText
-    }
-
-    /// Live runs are searches, so they may be resent; a once command only if its manifest says it
-    /// is `repeatable`.
-    public var retry: RetryPolicy {
-        mode != .once || repeatable ? .safeToRepeat : .never
     }
 }
 

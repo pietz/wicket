@@ -126,53 +126,36 @@ public final class PaletteSession {
     }
 
     /// Reconciles runs with the catalog after it changed which revision a command runs: a run whose
-    /// bound revision (`Invocation.revision`) is no longer its command's (`current`) is stale. A
-    /// stale run that is safe to repeat (a search, a repeatable read) starts again on the command
-    /// as it is now, keeping its text and args; any other stops, its frame saying the extension
-    /// changed, since running it again could change something twice. Either way the frames above
+    /// bound revision (`Invocation.revision`) is no longer its command's is stale, and stops, its
+    /// frame saying the extension changed, so the user runs it again explicitly; the frames above
     /// it, opened from its old content, go. A command that is gone is `stopCommands`' job. Returns
     /// whether anything changed.
     @discardableResult
     public func rebind(to current: (CommandID) -> RegisteredCommand?) -> Bool {
-        func stale(_ run: CommandRun) -> RegisteredCommand? {
-            guard let revision = run.invocation.revision, let command = current(run.command.id),
-                command.revision != revision
-            else { return nil }
-            return command
-        }
-        func repeatable(_ run: CommandRun, as command: RegisteredCommand) -> Bool {
-            run.retry == .safeToRepeat && command.retry == .safeToRepeat && command.input == run.command.input
+        func stale(_ run: CommandRun) -> Bool {
+            guard let revision = run.invocation.revision, let command = current(run.command.id) else {
+                return false
+            }
+            return command.revision != revision
         }
         var changed = false
-        if let run = opening, let command = stale(run) {
+        if let run = opening, stale(run), var frame = openingFrame {
             changed = true
-            if repeatable(run, as: command) {
-                open(run.rebound(to: command))
-            } else if var frame = openingFrame {
-                cancel(frame.id)
-                frame.generation += 1
-                openingFrame = frame
-                fail(Ticket(frame: frame.id, generation: frame.generation), Self.changedMessage)
-            }
+            cancel(frame.id)
+            frame.generation += 1
+            openingFrame = frame
+            fail(Ticket(frame: frame.id, generation: frame.generation), Self.changedMessage)
         }
         let index = frames.firstIndex { frame in
             guard case .screen(let screen) = frame.content, let run = screen.run else { return false }
-            return stale(run) != nil
+            return stale(run)
         }
-        guard let index, case .screen(var screen) = frames[index].content, let run = screen.run,
-            let command = stale(run)
-        else { return changed }
+        guard let index else { return changed }
         for frame in frames[(index + 1)...] { cancel(frame.id) }
         frames.removeSubrange((index + 1)...)
-        if repeatable(run, as: command) {
-            screen.rebind(run.rebound(to: command))
-            frames[index].content = .screen(screen)
-            start(index)
-        } else {
-            cancel(frames[index].id)
-            frames[index].generation += 1
-            fail(Ticket(frame: frames[index].id, generation: frames[index].generation), Self.changedMessage)
-        }
+        cancel(frames[index].id)
+        frames[index].generation += 1
+        fail(Ticket(frame: frames[index].id, generation: frames[index].generation), Self.changedMessage)
         return true
     }
 
@@ -374,7 +357,6 @@ public final class PaletteSession {
         frame.generation += 1
         frame.pending = 1
         var invocation = run.invocation
-        let retry = run.retry
         let usesContext = run.command.usesContext
         if screen.isLive { invocation.text = frame.query }
         let ticket = Ticket(frame: frame.id, generation: frame.generation)
@@ -396,7 +378,7 @@ public final class PaletteSession {
                     guard !Task.isCancelled else { return }
                 }
                 do {
-                    for try await result in runner.run(invocation, retry: retry) {
+                    for try await result in runner.run(invocation) {
                         guard let self, !Task.isCancelled else { return }
                         receive(result, ticket, text: invocation.text)
                     }

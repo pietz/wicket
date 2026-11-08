@@ -1,10 +1,9 @@
 #!/bin/sh
 # Quit Apps: lists running apps by memory, quits or force quits them, and shows details.
-# Persistent loop: answers every request on stdin and exits when Wicket closes it.
+# Wicket starts it once per run: it reads one request from stdin, prints one response and exits.
 # apps.js talks to AppKit (NSWorkspace, NSRunningApplication); ps adds memory and CPU.
 
-reply() { jq -nc --argjson id "$1" --argjson result "$2" '{jsonrpc: "2.0", id: $id, result: $result}'; }
-fail() { jq -nc --argjson id "$1" --argjson code "$2" --arg message "$3" '{jsonrpc: "2.0", id: $id, error: {code: $code, message: $message}}'; }
+fail() { jq -nc --arg message "$1" '{error: {message: $message}}'; }
 apps() { osascript -l JavaScript apps.js "$@"; }
 
 # Resident memory (KiB) and CPU per pid, as a JSON object keyed by pid.
@@ -82,32 +81,24 @@ stop() {
   jq -nc --arg after "$after" --arg message "$message" '{($after): {message: $message}}'
 }
 
-while IFS= read -r line; do
-  {
-    read -r id
-    read -r method
-    read -r command
-    read -r pid
-    read -r name
-    read -r after
-  } <<JSON
-$(printf '%s\n' "$line" | jq -r '(.id | tojson), (.method // ""), (.params.command // ""),
-  (.params.args.pid // 0 | tostring), (.params.args.name // "The app"), (.params.args.after // "reload")' 2>/dev/null)
+{
+  read -r command
+  read -r pid
+  read -r name
+  read -r after
+} <<JSON
+$(jq -r '.command, (.args.pid // 0 | tostring), (.args.name // "The app"), (.args.after // "reload")')
 JSON
-  if [ -z "$id" ]; then fail null -32700 "Could not parse the request."; continue; fi
-  [ "$id" = null ] && continue # a notification, such as cancel: nothing here is slow enough to stop
-  if [ "$method" != run ]; then fail "$id" -32601 "Unknown method $method"; continue; fi
 
-  case $command in
-    quit-apps) result=$(list) ;;
-    app) result=$(detail "$pid") ;;
-    quit) result=$(stop quit "$pid" "$name" "$after") ;;
-    force-quit) result=$(stop force "$pid" "$name" "$after") ;;
-    *) result="Unknown command $command" && false ;;
-  esac
-  if [ $? = 0 ] && [ -n "$result" ]; then
-    reply "$id" "$result"
-  else
-    fail "$id" 1 "${result:-Could not read the running apps.}"
-  fi
-done
+case $command in
+  quit-apps) result=$(list) ;;
+  app) result=$(detail "$pid") ;;
+  quit) result=$(stop quit "$pid" "$name" "$after") ;;
+  force-quit) result=$(stop force "$pid" "$name" "$after") ;;
+  *) result="Unknown command $command" && false ;;
+esac
+if [ $? = 0 ] && [ -n "$result" ]; then
+  printf '%s\n' "$result"
+else
+  fail "${result:-Could not read the running apps.}"
+fi

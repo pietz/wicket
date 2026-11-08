@@ -30,8 +30,7 @@ public final class AgentRunner: CommandRunner {
         self.answers = answers
     }
 
-    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
-    {
+    public func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         if invocation.command == .aiApproval { return answers.reply(invocation) }
         let question = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt =

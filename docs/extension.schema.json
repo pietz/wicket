@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Wicket extension protocol 1",
-  "description": "The whole document validates wicket.json. Messages are validated against #/$defs/HostMessage (Wicket to extension, one per line on stdin) and #/$defs/ExtensionMessage (extension to Wicket, one per line on stdout). See docs/extensions.md.",
+  "title": "Wicket extension protocol 2",
+  "description": "The whole document validates wicket.json. Each run is validated against #/$defs/Request (Wicket to extension, on stdin) and #/$defs/Response (extension to Wicket, on stdout). See docs/extensions.md.",
   "$ref": "#/$defs/Manifest",
   "$defs": {
     "Manifest": {
@@ -10,7 +10,7 @@
       "additionalProperties": false,
       "properties": {
         "$schema": { "type": "string" },
-        "protocol": { "const": 1, "description": "Protocol version this extension speaks." },
+        "protocol": { "const": 2, "description": "Protocol version this extension speaks." },
         "id": { "$ref": "#/$defs/Slug", "description": "Unique, stable id; also the folder name." },
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string", "description": "One sentence, shown on the review screen." },
@@ -62,15 +62,8 @@
         "keyword": { "type": "string", "pattern": "^\\S+$" },
         "search": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" }, "description": "Words and phrases a person would type to find this command locally; equivalent title matches rank higher." },
         "placeholder": { "type": "string" },
-        "hidden": { "type": "boolean", "default": false },
-        "repeatable": {
-          "type": "boolean",
-          "default": false,
-          "description": "Once only: running it twice does no harm, so Wicket may resend it after a clean exit."
-        }
-      },
-      "if": { "required": ["mode"], "properties": { "mode": { "const": "live" } } },
-      "then": { "not": { "required": ["repeatable"] } }
+        "hidden": { "type": "boolean", "default": false }
+      }
     },
     "Slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 64 },
     "Icon": {
@@ -279,73 +272,36 @@
       "additionalProperties": false,
       "properties": { "message": { "type": "string", "description": "Shown briefly, then fades." } }
     },
-    "RequestId": { "type": ["integer", "string"] },
-    "RunRequest": {
+    "Request": {
       "type": "object",
-      "required": ["jsonrpc", "id", "method", "params"],
+      "required": ["command", "text"],
       "additionalProperties": false,
       "properties": {
-        "jsonrpc": { "const": "2.0" },
-        "id": { "$ref": "#/$defs/RequestId" },
-        "method": { "const": "run" },
-        "params": {
+        "command": { "$ref": "#/$defs/Slug" },
+        "text": { "type": "string" },
+        "args": { "type": "object" }
+      }
+    },
+    "Response": {
+      "oneOf": [
+        { "$ref": "#/$defs/Result" },
+        {
           "type": "object",
-          "required": ["command", "text", "revision"],
+          "required": ["error"],
           "additionalProperties": false,
           "properties": {
-            "command": { "$ref": "#/$defs/Slug" },
-            "text": { "type": "string" },
-            "revision": { "type": "integer", "minimum": 0 },
-            "args": { "type": "object" }
+            "error": {
+              "type": "object",
+              "required": ["message"],
+              "additionalProperties": false,
+              "properties": {
+                "message": { "type": "string", "minLength": 1, "description": "One short line, shown to the user." },
+                "data": { "description": "Anything; kept in the run's history, never shown inline." }
+              }
+            }
           }
         }
-      }
-    },
-    "CancelNotification": {
-      "type": "object",
-      "required": ["jsonrpc", "method", "params"],
-      "additionalProperties": false,
-      "properties": {
-        "jsonrpc": { "const": "2.0" },
-        "method": { "const": "cancel" },
-        "params": {
-          "type": "object",
-          "required": ["id"],
-          "additionalProperties": false,
-          "properties": { "id": { "$ref": "#/$defs/RequestId" } }
-        }
-      }
-    },
-    "ResultResponse": {
-      "type": "object",
-      "required": ["jsonrpc", "id", "result"],
-      "additionalProperties": false,
-      "properties": {
-        "jsonrpc": { "const": "2.0" },
-        "id": { "$ref": "#/$defs/RequestId" },
-        "result": { "$ref": "#/$defs/Result" }
-      }
-    },
-    "ErrorResponse": {
-      "type": "object",
-      "required": ["jsonrpc", "id", "error"],
-      "additionalProperties": false,
-      "properties": {
-        "jsonrpc": { "const": "2.0" },
-        "id": { "type": ["integer", "string", "null"] },
-        "error": {
-          "type": "object",
-          "required": ["code", "message"],
-          "additionalProperties": false,
-          "properties": {
-            "code": { "type": "integer" },
-            "message": { "type": "string", "minLength": 1, "description": "One short line, shown to the user." },
-            "data": { "description": "Anything; kept with the diagnostics, never shown inline." }
-          }
-        }
-      }
-    },
-    "HostMessage": { "oneOf": [{ "$ref": "#/$defs/RunRequest" }, { "$ref": "#/$defs/CancelNotification" }] },
-    "ExtensionMessage": { "oneOf": [{ "$ref": "#/$defs/ResultResponse" }, { "$ref": "#/$defs/ErrorResponse" }] }
+      ]
+    }
   }
 }

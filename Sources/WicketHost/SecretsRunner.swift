@@ -9,8 +9,8 @@ extension CommandID {
 }
 
 /// Sets an extension's secret from the palette: its frame waits for the value, and Return stores it
-/// in the Keychain (the same item `wicket secret set` writes), restarts the extension's process so
-/// the next run has it, and closes with "Stored NAME". Only a secret the extension declares is
+/// in the Keychain (the same item `wicket secret set` writes), which the next run reads, and closes
+/// with "Stored NAME". Only a secret the extension declares is
 /// stored. The value is never logged, shown or kept anywhere else.
 @MainActor
 public final class SecretsRunner: CommandRunner {
@@ -35,8 +35,7 @@ public final class SecretsRunner: CommandRunner {
         .run(command: .setSecret, args: ["id": .string(id), "name": .string(name)], title: "Set \(name)…")
     }
 
-    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
-    {
+    public func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         AsyncThrowingStream { continuation in
             do {
                 continuation.yield(try set(invocation))
@@ -60,7 +59,6 @@ public final class SecretsRunner: CommandRunner {
         let value = invocation.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw Refusal("Paste the value of \(name), then press Return.") }
         try store(value, name, id)
-        extensions.secretsChanged(of: id)
         Self.logger.notice("secret stored")
         return .close(message: "Stored \(name).")
     }

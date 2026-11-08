@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "slugify",
   "name": "Slugify",
   "description": "Turns text in any script into a URL slug or a snake_case name.",

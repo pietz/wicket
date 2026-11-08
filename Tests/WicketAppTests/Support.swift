@@ -29,7 +29,7 @@ final class FakeRunner: CommandRunner {
     /// How many runs each command has had.
     private(set) var count: [CommandID: Int] = [:]
 
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         let id = invocation.command
         continuation.onTermination = { [weak self] termination in
@@ -52,12 +52,11 @@ func eventually(_ condition: () -> Bool) async -> Bool {
     return condition()
 }
 
-func command(_ name: String, input: CommandInput = .immediateText, retry: RetryPolicy = .never)
+func command(_ name: String, input: CommandInput = .immediateText)
     -> RegisteredCommand
 {
     RegisteredCommand(
-        id: .extension("test", name), title: name.capitalized, icon: .symbol(name: "doc"), input: input,
-        retry: retry)
+        id: .extension("test", name), title: name.capitalized, icon: .symbol(name: "doc"), input: input)
 }
 
 /// A root source with only slow results: each query's stream stays open until the test answers it.

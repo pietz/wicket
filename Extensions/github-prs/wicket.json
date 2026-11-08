@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "github-prs",
   "name": "GitHub Pull Requests",
   "description": "Lists open pull requests waiting for your review, and your own.",
@@ -13,15 +13,13 @@
       "id": "review-requests",
       "title": "GitHub Review Requests",
       "subtitle": "Open pull requests waiting for your review",
-      "keyword": "prr",
-      "repeatable": true
+      "keyword": "prr"
     },
     {
       "id": "my-prs",
       "title": "My Pull Requests",
       "subtitle": "Your open pull requests on GitHub",
-      "keyword": "prs",
-      "repeatable": true
+      "keyword": "prs"
     }
   ]
 }

@@ -3,18 +3,20 @@ import Testing
 
 @testable import WicketCore
 
-private func response(_ json: String, _ context: WireContext = WireContext()) throws -> Response {
+private func response(_ json: String, _ context: WireContext = WireContext()) throws -> Result<
+    RunResult, ExtensionError
+> {
     try Response.decode(Data(json.utf8), context: context)
 }
 
 private func result(_ json: String, _ context: WireContext = WireContext()) throws -> RunResult {
-    try response(#"{"jsonrpc":"2.0","id":1,"result":"# + json + "}", context).outcome.get()
+    try response(json, context).get()
 }
 
 /// The summary of the decoding error `json` causes.
 private func problem(_ json: String, _ context: WireContext = WireContext()) -> String? {
     do {
-        _ = try response(#"{"jsonrpc":"2.0","id":1,"result":"# + json + "}", context)
+        _ = try response(json, context)
         return nil
     } catch let error as DecodingError {
         return error.summary
@@ -194,45 +196,36 @@ func rejectsWhatTheSpecForbids(json: String, expected: String) {
 private func manifest(_ id: String, commands: [String]) throws -> Manifest {
     let list = commands.map { #"{"id":"\#($0)","title":"\#($0)"}"# }.joined(separator: ",")
     let json =
-        #"{"protocol":1,"id":"\#(id)","name":"\#(id)","version":"1.0.0","run":["./x"],"commands":[\#(list)]}"#
+        #"{"protocol":2,"id":"\#(id)","name":"\#(id)","version":"1.0.0","run":["./x"],"commands":[\#(list)]}"#
     return try JSONDecoder().decode(Manifest.self, from: Data(json.utf8))
 }
 
-@Test func responsesFollowJSONRPC() throws {
-    let error = try response(
-        #"{"jsonrpc":"2.0","id":"a","error":{"code":1,"message":"Token expired","data":{"x":1}}}"#)
-    #expect(error.id == .string("a"))
-    #expect(throws: ExtensionError.self) { try error.outcome.get() }
-    #expect(
-        try response(#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}"#).id
-            == nil)
-
+@Test func aResponseIsAResultOrAnError() throws {
+    guard case .failure(let error) = try response(#"{"error":{"message":"Token expired","data":{"x":1}}}"#)
+    else {
+        Issue.record("not an error")
+        return
+    }
+    #expect(error.message == "Token expired")
+    #expect(error.data == ["x": .integer(1)])
     for bad in [
-        #"{"jsonrpc":"1.0","id":1,"result":{"close":{}}}"#,
-        #"{"id":1,"result":{"close":{}}}"#,
-        #"{"jsonrpc":"2.0","result":{"close":{}}}"#,
-        #"{"jsonrpc":"2.0","id":null,"result":{"close":{}}}"#,
-        #"{"jsonrpc":"2.0","id":1}"#,
-        #"{"jsonrpc":"2.0","id":1,"result":{"close":{}},"error":{"code":1,"message":"x"}}"#,
-        #"{"jsonrpc":"2.0","id":1,"error":{"code":1,"message":""}}"#,
-        #"{"jsonrpc":"2.0","id":1.5,"result":{"close":{}}}"#,
-        #"{"jsonrpc":"2.0","id":1,"result":{"close":{}},"extra":true}"#,
+        #"{"error":{"message":""}}"#,
+        #"{"error":{"code":1,"message":"x"}}"#,
+        #"{"error":{"message":"x"},"close":{}}"#,
+        #"{"jsonrpc":"2.0","id":1,"result":{"close":{}}}"#,
+        #"{}"#,
     ] {
         #expect(throws: DecodingError.self, "\(bad)") { try response(bad) }
     }
 }
 
-@Test func hostMessagesEncodeAsOneLine() throws {
-    let run = HostMessage.run(
-        id: .number(7), RunParams(command: "search", text: "a\nb", revision: 7, args: ["k": .string("v/w")]))
-    let line = String(decoding: run.line, as: UTF8.self)
-    #expect(line.hasSuffix("\n"))
-    #expect(line.dropLast().contains("\n") == false)
-    let decoded = try JSONDecoder().decode(HostMessage.self, from: run.line)
-    #expect(decoded == run)
-    let cancel = HostMessage.cancel(id: .string("x"))
-    #expect(try JSONDecoder().decode(HostMessage.self, from: cancel.line) == cancel)
-    #expect(String(decoding: cancel.line, as: UTF8.self).contains(#""params":{"id":"x"}"#))
+@Test func requestsAreOneLine() throws {
+    let request = Request(command: "search", text: "a\nb", args: ["k": .string("v/w")])
+    let line = String(decoding: request.line, as: UTF8.self)
+    #expect(line == #"{"args":{"k":"v/w"},"command":"search","text":"a\nb"}"# + "\n")
+    #expect(
+        String(decoding: Request(command: "go", text: "").line, as: UTF8.self)
+            == #"{"command":"go","text":""}"# + "\n")
 }
 
 /// Every `run` action an extension sends carries the revision it came from, a detail's too, so a

@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "gallery",
   "name": "Gallery",
   "description": "One of each screen Wicket draws: an answer, composed lists, file and link rows, and pages.",
@@ -12,15 +12,14 @@
       "title": "Gallery",
       "subtitle": "One of each screen Wicket draws",
       "keyword": "gallery",
-      "search": ["screens", "samples"],
-      "repeatable": true
+      "search": ["screens", "samples"]
     },
-    { "id": "answer", "title": "Gallery: Answer", "hidden": true, "repeatable": true },
-    { "id": "composed", "title": "Gallery: Composed List", "hidden": true, "repeatable": true },
-    { "id": "long-summary", "title": "Gallery: Long Summary", "hidden": true, "repeatable": true },
-    { "id": "files", "title": "Gallery: Files", "hidden": true, "repeatable": true },
-    { "id": "links", "title": "Gallery: Links", "hidden": true, "repeatable": true },
-    { "id": "short-page", "title": "Gallery: Short Page", "hidden": true, "repeatable": true },
-    { "id": "long-page", "title": "Gallery: Long Page", "hidden": true, "repeatable": true }
+    { "id": "answer", "title": "Gallery: Answer", "hidden": true },
+    { "id": "composed", "title": "Gallery: Composed List", "hidden": true },
+    { "id": "long-summary", "title": "Gallery: Long Summary", "hidden": true },
+    { "id": "files", "title": "Gallery: Files", "hidden": true },
+    { "id": "links", "title": "Gallery: Links", "hidden": true },
+    { "id": "short-page", "title": "Gallery: Short Page", "hidden": true },
+    { "id": "long-page", "title": "Gallery: Long Page", "hidden": true }
   ]
 }

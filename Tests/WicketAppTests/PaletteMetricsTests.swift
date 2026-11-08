@@ -121,7 +121,7 @@ struct PaletteMetricsTests {
     }
 
     @Test func commandFrameWaitsForContent() async {
-        let live = command("search", input: .liveText, retry: .safeToRepeat)
+        let live = command("search", input: .liveText)
         session.open(CommandRun(live, .invoked))
         #expect(card(session.top) == nil)
         #expect(await eventually { runner.count[live.id] == 1 })

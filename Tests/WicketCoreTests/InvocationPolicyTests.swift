@@ -10,11 +10,9 @@ import Testing
 @MainActor
 private final class Recorder: CommandRunner {
     var runs: [Invocation] = []
-    var retries: [RetryPolicy] = []
 
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         runs.append(invocation)
-        retries.append(retry)
         return AsyncThrowingStream { _ in }
     }
 }
@@ -42,9 +40,9 @@ private func settle(_ condition: () -> Bool) async -> Bool {
 /// Commands from manifests, so the translation is part of what is checked.
 private func manifestCommands() throws -> [RegisteredCommand] {
     let json = #"""
-        {"protocol":1,"id":"todo","name":"Todo","version":"1.0.0","run":["/bin/sh","x.sh"],"commands":[
+        {"protocol":2,"id":"todo","name":"Todo","version":"1.0.0","run":["/bin/sh","x.sh"],"commands":[
           {"id":"toggle","title":"Toggle Dark Mode","keyword":"dark"},
-          {"id":"list","title":"List Todos","keyword":"todos","repeatable":true},
+          {"id":"list","title":"List Todos","keyword":"todos"},
           {"id":"find","title":"Find Todos","keyword":"find","mode":"live"},
           {"id":"done","title":"Mark Done","hidden":true}
         ]}
@@ -97,19 +95,10 @@ private let toggle = CommandID.extension("todo", "toggle")
 private let list = CommandID.extension("todo", "list")
 private let find = CommandID.extension("todo", "find")
 
-@MainActor @Test func manifestsTranslateIntoInputAndRetry() throws {
+@MainActor @Test func manifestsTranslateIntoInput() throws {
     let commands = Dictionary(uniqueKeysWithValues: try manifestCommands().map { ($0.id.name, $0) })
     #expect(commands["toggle"]?.input == .immediateText)
-    #expect(commands["toggle"]?.retry == .never)
-    #expect(commands["list"]?.retry == .safeToRepeat)
     #expect(commands["find"]?.input == .liveText)
-    #expect(commands["find"]?.retry == .safeToRepeat)
-    #expect(commands["done"]?.retry == .never)
-
-    // `repeatable` is a once command's contract; live runs always are.
-    let live =
-        #"{"protocol":1,"id":"x","name":"X","version":"1.0.0","run":["x"],"commands":[{"id":"a","title":"A","mode":"live","repeatable":true}]}"#
-    #expect(throws: DecodingError.self) { try JSONDecoder().decode(Manifest.self, from: Data(live.utf8)) }
 }
 
 @MainActor @Test func aCommandWithoutTextRunsTheSameFromItsRowAndARunAction() throws {
@@ -123,7 +112,7 @@ private let find = CommandID.extension("todo", "find")
 @MainActor @Test func anImmediateCommandRunsNowFromEveryWayIn() async throws {
     let palette = try Palette()
     let expected = CommandRun(
-        command: try palette.command(toggle), invocation: Invocation(command: toggle), retry: .never)
+        command: try palette.command(toggle), invocation: Invocation(command: toggle))
     #expect(try palette.row(toggle) == .open(expected))
     #expect(palette.runAction(toggle) == .open(expected))
     #expect(try palette.cli(toggle) == expected)
@@ -137,13 +126,12 @@ private let find = CommandID.extension("todo", "find")
     #expect(palette.commandFrame?.run?.invocation == Invocation(command: toggle, text: "now"))
     #expect(palette.session.query == "")
     #expect(await settle { palette.runner.runs.last == Invocation(command: toggle, text: "now") })
-    #expect(palette.runner.retries.last == .never)
 }
 
 @MainActor @Test func aLiveCommandShowsItsFrameAtOnceFromEveryWayIn() async throws {
     let palette = try Palette()
     let expected = CommandRun(
-        command: try palette.command(find), invocation: Invocation(command: find), retry: .safeToRepeat,
+        command: try palette.command(find), invocation: Invocation(command: find),
         query: "")
     #expect(try palette.row(find) == .open(expected))
     #expect(palette.runAction(find) == .open(expected))
@@ -153,14 +141,13 @@ private let find = CommandID.extension("todo", "find")
     #expect(palette.commandFrame?.run?.command.id == find)
     #expect(palette.session.query == "milk")
     #expect(await settle { palette.runner.runs.last?.text == "milk" })
-    #expect(palette.runner.retries.last == .safeToRepeat)
 }
 
 @MainActor @Test func aSubmitTextCommandWaitsForItsTextUnlessItWasSubmitted() async throws {
     let palette = try Palette()
     let ask = try palette.command(CommandID.runAgent)
     let waiting = CommandRun(
-        command: ask, invocation: Invocation(command: CommandID.runAgent), retry: .never, query: "")
+        command: ask, invocation: Invocation(command: CommandID.runAgent), query: "")
     // A `run` without text opens its frame waiting for the text; nothing runs.
     #expect(palette.runAction(CommandID.runAgent) == .open(waiting))
     #expect(waiting.awaitsText)
@@ -169,7 +156,7 @@ private let find = CommandID.extension("todo", "find")
     #expect(
         CommandRun(ask, .invoked, text: "why")
             == CommandRun(
-                command: ask, invocation: Invocation(command: CommandID.runAgent, text: "why"), retry: .never)
+                command: ask, invocation: Invocation(command: CommandID.runAgent, text: "why"))
     )
 
     // Its keyword puts what followed it in the waiting frame's field; never runs it.
@@ -239,7 +226,7 @@ private let find = CommandID.extension("todo", "find")
     let revision = ExtensionRevision(extensionID: "notes", sha256: "abc")
     let invocation = Invocation(command: id, args: ["folder": .string("work")], revision: revision)
     let frame = ScreenFrame(
-        run: CommandRun(command: command, invocation: invocation, retry: .never, query: ""))
+        run: CommandRun(command: command, invocation: invocation, query: ""))
     #expect(frame.run?.awaitsText == true)
     #expect(
         frame.target(query: "buy milk")?.actions == [

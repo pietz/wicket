@@ -104,9 +104,8 @@ final class AppRuntime {
         watch([extensions.directory.path], latency: 0.3) { [weak self] in self?.extensions.load(changed: $0) }
     }
 
-    /// Stops what runs outside the app before it quits: every command's runs, Run Agent's agents and the
-    /// extension sessions, each through its process tree. Returns once all
-    /// are gone, or after `limit` (quitting must not hang on a process that won't die). Runs once
+    /// Stops what runs outside the app before it quits: every command's runs, Run Agent's agents and
+    /// extension runs, each through its process tree. Returns once all are gone, or after `limit` (quitting must not hang on a process that won't die). Runs once
     /// however often it's called.
     func shutdown(within limit: Duration = .seconds(2)) async {
         let start = ContinuousClock.now
@@ -299,7 +298,7 @@ extension AppRuntime {
             Builtin(
                 RegisteredCommand(
                     id: .extensions, title: "Extensions", icon: .symbol(name: "puzzlepiece.extension"),
-                    keyword: "extensions", retry: .safeToRepeat),
+                    keyword: "extensions"),
                 runner: consent),
             Builtin(
                 RegisteredCommand(

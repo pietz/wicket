@@ -1,5 +1,6 @@
 """Turns text into a URL slug and a snake_case name, transliterating any script to ASCII
-(python-slugify, vendored in vendor/). Persistent: every keystroke is answered by the same process."""
+(python-slugify, vendored in vendor/). Wicket starts it once per keystroke: it reads one request
+from stdin and prints one response."""
 
 import json
 import os
@@ -34,13 +35,9 @@ def run(params):
     raise ValueError(f"Unknown command {params['command']}")
 
 
-for line in sys.stdin:  # ends when Wicket closes stdin
-    message = json.loads(line)
-    if "id" not in message:
-        continue  # a notification, such as cancel; every answer is immediate
-    try:
-        reply = {"result": run(message["params"])}
-    except Exception as error:
-        print(f"run failed: {error!r}", file=sys.stderr)
-        reply = {"error": {"code": 1, "message": str(error)}}
-    print(json.dumps({"jsonrpc": "2.0", "id": message["id"], **reply}), flush=True)
+try:
+    response = run(json.load(sys.stdin))
+except Exception as error:
+    print(f"run failed: {error!r}", file=sys.stderr)
+    response = {"error": {"message": str(error)}}
+print(json.dumps(response))

@@ -83,7 +83,7 @@ private func finalDetail(
 ) async throws -> Detail? {
     var last: Detail?
     for try await result in runner.run(
-        Invocation(command: .runAgent, text: question, args: args), retry: .never)
+        Invocation(command: .runAgent, text: question, args: args))
     {
         if case .show(.detail(let detail), _) = result { last = detail }
     }
@@ -241,7 +241,7 @@ private func finalDetail(
     let runner = ExtensionsRunner(extensions: extensions)
     var last: Detail?
     for try await result in runner.run(
-        Invocation(command: .reviewExtension, args: ["id": .string("broken")]), retry: .never)
+        Invocation(command: .reviewExtension, args: ["id": .string("broken")]))
     {
         if case .show(.detail(let detail), _) = result { last = detail }
     }
@@ -284,7 +284,7 @@ func theAgentBuildsACommandThatWicketOffersForReview(provider: AgentProvider) as
     for try await result in runner.run(
         Invocation(
             command: .runAgent, text: "Build an extension that shows the current ISO week number in Wicket.",
-            context: SummonContext(files: [root])), retry: .never)
+            context: SummonContext(files: [root])))
     {
         if case .show(.detail(let detail), _) = result { last = detail }
     }
@@ -299,7 +299,7 @@ func theAgentBuildsACommandThatWicketOffersForReview(provider: AgentProvider) as
     let consent = ExtensionsRunner(extensions: extensions)
     var page: Detail?
     for try await result in consent.run(
-        Invocation(command: .reviewExtension, args: ["id": .string(id)]), retry: .never)
+        Invocation(command: .reviewExtension, args: ["id": .string(id)]))
     {
         if case .show(.detail(let detail), _) = result { page = detail }
     }

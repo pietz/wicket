@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "id": "week-number",
   "name": "Week Number",
   "description": "Shows the current ISO week number.",

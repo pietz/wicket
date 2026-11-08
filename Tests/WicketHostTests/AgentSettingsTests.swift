@@ -90,7 +90,7 @@ private let policyFields = ["approvalPolicy", "sandbox", "sandboxPolicy", "appro
     let runner = AgentRunner(answers: AnswerStream(backend: backend, provider: { .codex }))
     runner.answers.options = { _ in AgentOptions(model: "gpt-6-astra", effort: "max") }
     var details: [Detail] = []
-    for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt"), retry: .never) {
+    for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt")) {
         guard case .show(.detail(let detail), _) = result else { continue }
         details.append(detail)
         if !detail.actions.isEmpty { break }

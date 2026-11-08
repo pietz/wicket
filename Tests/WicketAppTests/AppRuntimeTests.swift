@@ -172,8 +172,9 @@ private final class Harness {
                 approvals: Approvals(url: directory.appending(path: "approvals.json")),
                 diagnostics: diagnostics
             ) { [directory] id in
-                SessionConfiguration(dataDirectory: directory.appending(path: "data/\(id)"), version: "test")
-                { _ in nil }
+                RunConfiguration(dataDirectory: directory.appending(path: "data/\(id)"), version: "test") {
+                    _ in nil
+                }
             },
             usageURL: directory.appending(path: "usage.json"), system: system.system)
         runtime.palette = palette
@@ -383,24 +384,21 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
 
 // MARK: Extensions and consent
 
-/// Writes an extension `hello` with one once command (keyword `hello`) that answers "Hi" and keeps
-/// running, into the harness's extensions folder, and discovers it.
+/// Writes an extension `hello` with one once command (keyword `hello`) that answers "Hi", into the harness's extensions folder, and discovers it.
 @MainActor
 private func addHello(_ h: Harness) async throws {
     let folder = h.directory.appending(path: "extensions/hello")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try Data(
         #"""
-        {"protocol":1,"id":"hello","name":"Hello","version":"1.0.0","run":["/bin/sh","main.sh"],
+        {"protocol":2,"id":"hello","name":"Hello","version":"1.0.0","run":["/bin/sh","main.sh"],
          "commands":[{"id":"go","title":"Say Hello","keyword":"hello"}]}
         """#.utf8
     ).write(to: folder.appending(path: "wicket.json"))
     try Data(
         #"""
-        while read -r line; do
-          id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-          printf '{"jsonrpc":"2.0","id":%s,"result":{"answer":{"title":"Hi"}}}\n' "$id"
-        done
+        cat >/dev/null
+        printf '{"answer":{"title":"Hi"}}\n'
         """#.utf8
     ).write(to: folder.appending(path: "main.sh"))
     await h.runtime.extensions.load(changed: [folder.path]).value

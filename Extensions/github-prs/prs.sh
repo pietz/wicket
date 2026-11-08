@@ -1,15 +1,14 @@
 #!/bin/sh
 # GitHub pull requests: review requests and your own open PRs, through the search API.
-# Persistent loop: answers every request on stdin and exits when Wicket closes it.
+# Wicket starts it once per run: it reads one request from stdin, prints one response and exits.
 #
 # Testing: when GITHUB_PRS_FIXTURE_DIR is set, the API is not called. Each command reads
 # $GITHUB_PRS_FIXTURE_DIR/<command>.json instead, shaped {"status": <HTTP status>, "body": <JSON>}:
 # `GITHUB_PRS_FIXTURE_DIR=fixture wicket run . my-prs`
 
-reply() { jq -nc --argjson id "$1" --argjson result "$2" '{jsonrpc: "2.0", id: $id, result: $result}'; }
 fail() {
-  jq -nc --argjson id "$1" --argjson code "$2" --arg message "$3" --arg data "${4:-}" \
-    '{jsonrpc: "2.0", id: $id, error: ({code: $code, message: $message} + if $data == "" then {} else {data: $data} end)}'
+  jq -nc --arg message "$1" --arg data "${2:-}" \
+    '{error: ({message: $message} + if $data == "" then {} else {data: $data} end)}'
 }
 
 # Searches GitHub; sets $status (HTTP status, or 0 when GitHub can't be reached) and $body.
@@ -64,35 +63,24 @@ items() {
       })}}'
 }
 
-while IFS= read -r line; do
-  {
-    read -r id
-    read -r method
-    read -r command
-  } <<JSON
-$(printf '%s\n' "$line" | jq -r '(.id | tojson), (.method // ""), (.params.command // "")' 2>/dev/null)
-JSON
-  if [ -z "$id" ]; then fail null -32700 "Could not parse the request."; continue; fi
-  [ "$id" = null ] && continue # a notification, such as cancel: requests are answered in order
-  if [ "$method" != run ]; then fail "$id" -32601 "Unknown method $method"; continue; fi
+command=$(jq -r '.command')
 
-  case $command in
-    review-requests) query="review-requested:@me" ;;
-    my-prs) query="author:@me" ;;
-    *) fail "$id" 1 "Unknown command $command"; continue ;;
-  esac
-  if [ -z "${GITHUB_TOKEN:-}" ]; then
-    fail "$id" 1 "No GitHub token; store one with: wicket secret set github-prs GITHUB_TOKEN"
-    continue
-  fi
+case $command in
+  review-requests) query="review-requested:@me" ;;
+  my-prs) query="author:@me" ;;
+  *) fail "Unknown command $command"; exit ;;
+esac
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  fail "No GitHub token; store one with: wicket secret set github-prs GITHUB_TOKEN"
+  exit
+fi
 
-  search "$command" "$query"
-  detail=$(printf '%s' "$body" | jq -r '.message? // empty' 2>/dev/null)
-  case $status in
-    200) if result=$(items) && [ -n "$result" ]; then reply "$id" "$result"; else fail "$id" 1 "GitHub sent an answer this extension doesn't understand."; fi ;;
-    0) fail "$id" 1 "Can't reach GitHub; check the network connection." ;;
-    401) fail "$id" 1 "GitHub rejected the token; store a new one with: wicket secret set github-prs GITHUB_TOKEN" "$detail" ;;
-    403 | 429) fail "$id" 1 "GitHub refused the request, probably its rate limit; try again in a few minutes." "$detail" ;;
-    *) fail "$id" 1 "GitHub answered with HTTP $status." "$detail" ;;
-  esac
-done
+search "$command" "$query"
+detail=$(printf '%s' "$body" | jq -r '.message? // empty' 2>/dev/null)
+case $status in
+  200) if result=$(items) && [ -n "$result" ]; then printf '%s\n' "$result"; else fail "GitHub sent an answer this extension doesn't understand."; fi ;;
+  0) fail "Can't reach GitHub; check the network connection." ;;
+  401) fail "GitHub rejected the token; store a new one with: wicket secret set github-prs GITHUB_TOKEN" "$detail" ;;
+  403 | 429) fail "GitHub refused the request, probably its rate limit; try again in a few minutes." "$detail" ;;
+  *) fail "GitHub answered with HTTP $status." "$detail" ;;
+esac

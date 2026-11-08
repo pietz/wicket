@@ -12,18 +12,17 @@ import Testing
 private final class FakeRunner: CommandRunner {
     struct Run {
         let invocation: Invocation
-        let retry: RetryPolicy
         let continuation: AsyncThrowingStream<RunResult, any Error>.Continuation
     }
 
     private(set) var runs: [Run] = []
     private let ended = Mutex<Set<Int>>([])
 
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         let index = runs.count
         continuation.onTermination = { [self] _ in ended.withLock { _ = $0.insert(index) } }
-        runs.append(Run(invocation: invocation, retry: retry, continuation: continuation))
+        runs.append(Run(invocation: invocation, continuation: continuation))
         return stream
     }
 
@@ -54,7 +53,7 @@ private func row(_ title: String, actions: [Item.Action] = []) -> Item {
 
 private let search = RegisteredCommand(
     id: .extension("unicode", "search"), title: "Search Unicode Characters", icon: .symbol(name: "character"),
-    keyword: "uc", input: .liveText, retry: .safeToRepeat, placeholder: "Character name")
+    keyword: "uc", input: .liveText, placeholder: "Character name")
 private let reviews = RegisteredCommand(
     id: .extension("github-prs", "review-requests"), title: "GitHub Review Requests",
     icon: .symbol(name: "arrow.triangle.pull"), keyword: "prr")
@@ -93,7 +92,6 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(content(session)?.screen == nil)
     #expect(await eventually { runner.runs.count == 1 })
     #expect(runner.texts == ["heart"])
-    #expect(runner.runs[0].retry == .safeToRepeat)
 
     runner.runs[0].continuation.yield(.show(.list([row("Heavy Black Heart")])))
     runner.runs[0].continuation.finish()
@@ -200,7 +198,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(session.frames.count == 2)
     session.query = "x"
     #expect(await eventually { runner.texts.last == "x" })
-    #expect(runner.runs.allSatisfy { $0.invocation.args == args && $0.retry == .safeToRepeat })
+    #expect(runner.runs.allSatisfy { $0.invocation.args == args })
 }
 
 @MainActor @Test func aFirstCloseClosesThePaletteWithoutAFrame() async {
@@ -231,7 +229,6 @@ private func titles(_ session: PaletteSession) -> [String] {
 
     session.open(CommandRun(quit, .invoked, args: ["pid": .integer(7)]))
     #expect(await eventually { runner.runs.count == 2 })
-    #expect(runner.runs[1].retry == .never)
     runner.runs[1].continuation.yield(.reload(message: "Quit Safari"))
     #expect(await eventually { runner.runs.count == 3 })
     #expect(requests == ["done: Quit Safari"])
@@ -486,7 +483,7 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(CommandRun(command, .invoked, revision: revision("old")).invocation.revision == revision("old"))
 }
 
-@MainActor @Test func aChangedRevisionRerunsASearchAndStopsAnythingElse() async {
+@MainActor @Test func aChangedRevisionStopsItsRunsSayingWhy() async {
     var live = search
     live.revision = revision("a")
     var once = reviews
@@ -510,37 +507,40 @@ private func revision(_ sha: String) -> ExtensionRevision {
     live.revision = revision("b")
     registry.setExtensionCommands([live, once])
     #expect(session.rebind { registry.command($0) })
-    // The search runs again on the new revision with the same text; the detail from its old
-    // content goes, and the old run ends.
+    // Even a search isn't run again by itself: the detail from its old content goes, the old run
+    // ends, and its frame says why; the next keystroke runs the new code.
     #expect(session.frames.count == 2)
-    #expect(await eventually { runner.runs.count == 2 })
-    #expect(runner.runs[1].invocation.revision == revision("b"))
-    #expect(runner.runs[1].invocation.text == "heart")
     #expect(await eventually { runner.wasEnded(0) })
+    #expect(runner.runs.count == 1)
+    guard case .detail(let changed)? = content(session)?.screen else {
+        Issue.record("no failure shown")
+        return
+    }
+    #expect(changed.markdown.contains("changed since this was opened"))
 
-    // A once command that may change something stops, saying why.
+    // So does a once command.
     session.reset()
     session.open(CommandRun(once, .invoked))
-    #expect(await eventually { runner.runs.count == 3 })
-    runner.runs[2].continuation.yield(.show(.list([row("PR 1")])))
+    #expect(await eventually { runner.runs.count == 2 })
+    runner.runs[1].continuation.yield(.show(.list([row("PR 1")])))
     #expect(await eventually { session.frames.count == 2 })
     once.revision = revision("b")
     registry.setExtensionCommands([live, once])
     #expect(session.rebind { registry.command($0) })
-    #expect(runner.runs.count == 3)
+    #expect(runner.runs.count == 2)
     guard case .detail(let failure)? = content(session)?.screen else {
         Issue.record("no failure shown")
         return
     }
     #expect(failure.markdown.contains("changed since this was opened"))
-    #expect(await eventually { runner.wasEnded(2) })
+    #expect(await eventually { runner.wasEnded(1) })
     // A late answer of the stopped run shows nothing.
-    runner.runs[2].continuation.yield(.show(.list([row("late")])))
+    runner.runs[1].continuation.yield(.show(.list([row("late")])))
     try? await Task.sleep(for: .milliseconds(20))
     #expect(titles(session).isEmpty)
 }
 
-@MainActor @Test func aChangedRevisionStopsAnOpeningThatMayNotRepeat() async {
+@MainActor @Test func aChangedRevisionStopsAnOpening() async {
     var once = reviews
     once.revision = revision("a")
     let registry = CommandRegistry()

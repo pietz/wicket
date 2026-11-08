@@ -103,17 +103,6 @@ public enum CommandInput: Sendable, Hashable {
     case liveText
 }
 
-/// Whether a run may be sent again to a fresh process when the one that had it exits cleanly before
-/// answering: the host can't tell whether the process read it, so only a run that does no harm twice
-/// may be.
-public enum RetryPolicy: Sendable, Hashable {
-    /// It may already have changed something: never resent, it fails instead. The default.
-    case never
-    /// Its contract says running it twice is harmless: a search (live and root commands) or a once
-    /// command whose manifest says `repeatable`.
-    case safeToRepeat
-}
-
 /// How a command was reached, which decides whether text that came with it was submitted or only
 /// typed.
 public enum CommandTrigger: Sendable, Hashable {
@@ -125,24 +114,20 @@ public enum CommandTrigger: Sendable, Hashable {
     case keyword
 }
 
-/// A command to show in a frame: the command, what to run it on, whether a run may be resent, and
-/// how its frame starts. A command frame runs `invocation` on open and on reload (a live command with
+/// A command to show in a frame: the command, what to run it on, and how its frame starts. A command frame runs `invocation` on open and on reload (a live command with
 /// the frame's query as its text); a frame waiting for text runs nothing until it is submitted.
 public struct CommandRun: Sendable, Hashable {
     public var command: RegisteredCommand
     public var invocation: Invocation
-    public var retry: RetryPolicy
     /// Nil: the command runs now and its frame shows once the first result is content, so a command
     /// that just does something and closes never flashes one. Otherwise its frame shows at once with
     /// this text in its field: a live command searching it, a once command from its keyword (the
     /// field filters its list), a command waiting for its text.
     public var query: String?
 
-    public init(command: RegisteredCommand, invocation: Invocation, retry: RetryPolicy, query: String? = nil)
-    {
+    public init(command: RegisteredCommand, invocation: Invocation, query: String? = nil) {
         self.command = command
         self.invocation = invocation
-        self.retry = retry
         self.query = query
     }
 
@@ -154,7 +139,6 @@ public struct CommandRun: Sendable, Hashable {
     /// - `submitText` runs now on submitted text, and otherwise shows its frame waiting for the text
     ///   (a keyword's rest of the line is put in the field, never run);
     /// - `liveText` shows its frame at once, searching the text.
-    /// A run may be resent only if the command says so (`RegisteredCommand.retry`), however it came.
     /// It is bound to `revision` (a `run` action's) or else the command's own: the revision active
     /// when it starts, so a change of the extension afterwards never runs it on other code.
     public init(
@@ -185,15 +169,7 @@ public struct CommandRun: Sendable, Hashable {
             command: command,
             invocation: Invocation(
                 command: command.id, text: runText, args: args, revision: revision ?? command.revision),
-            retry: command.retry, query: query)
-    }
-
-    /// This run bound to `command`'s registration as it is now (its revision, title, retry), with
-    /// the same text, args and query: what a frame safe to repeat runs after its extension changed.
-    public func rebound(to command: RegisteredCommand) -> CommandRun {
-        var invocation = invocation
-        invocation.revision = command.revision
-        return CommandRun(command: command, invocation: invocation, retry: command.retry, query: query)
+            query: query)
     }
 
     /// A submit-text command reached without text: its frame runs nothing until the text is
@@ -211,7 +187,7 @@ public struct CommandRun: Sendable, Hashable {
 /// frame's work.
 @MainActor
 public protocol CommandRunner: AnyObject {
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error>
     /// Ends every run and returns once their work has stopped (processes included), for the app
     /// quitting. Runs asked for after it fail. Nothing by default.
     func shutdown() async
@@ -253,7 +229,7 @@ final class EffectRunner: CommandRunner {
         self.effect = effect
     }
 
-    func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error> {
+    func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         effect()
         return AsyncThrowingStream {
             $0.yield(.close(message: nil))
@@ -275,8 +251,7 @@ public final class CommandRouter: CommandRunner {
         self.extensions = extensions
     }
 
-    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
-    {
+    public func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         let runner =
             switch invocation.command.owner {
             case .builtin: builtins[invocation.command]
@@ -285,7 +260,7 @@ public final class CommandRouter: CommandRunner {
         guard let runner else {
             return AsyncThrowingStream { $0.finish(throwing: Unrouted()) }
         }
-        return runner.run(invocation, retry: retry)
+        return runner.run(invocation)
     }
 
     /// Shuts every runner down at once and returns when all are done.

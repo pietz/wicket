@@ -52,8 +52,7 @@ public final class ExtensionsRunner: CommandRunner {
         self.extensions = extensions
     }
 
-    public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
-    {
+    public func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         let task = Task {
             do {

@@ -16,7 +16,7 @@ struct TestExtension {
             path: "wicket-tests/\(UUID().uuidString)/\(id)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let manifest = """
-            {"protocol":1,"id":"\(id)","name":"Test","version":"1.0.0","run":\(run),
+            {"protocol":2,"id":"\(id)","name":"Test","version":"1.0.0","run":\(run),
              "secrets":\(secrets),"commands":\(commands)}
             """
         try Data(manifest.utf8).write(to: folder.appending(path: "wicket.json"))
@@ -32,33 +32,36 @@ struct TestExtension {
             to: url, atomically: false, encoding: .utf8)
     }
 
-    func session(_ configure: (inout SessionConfiguration) -> Void = { _ in }) throws -> ExtensionSession {
-        try ExtensionSession(manifest: manifest, folder: folder, configuration: testConfiguration(configure))
+    /// One run of `command` through `ExtensionProcess`, as Wicket and `wicket run` start it.
+    func run(
+        _ command: String = "go", text: String = "", args: [String: JSONValue]? = nil,
+        _ configure: (inout RunConfiguration) -> Void = { _ in }
+    ) async throws -> ExtensionProcess.Run {
+        await ExtensionProcess.run(
+            Request(command: command, text: text, args: args), manifest: try manifest, folder: folder,
+            configuration: testConfiguration(configure))
     }
 }
 
 func testConfiguration(
-    secrets: [String: String] = [:], _ configure: (inout SessionConfiguration) -> Void = { _ in }
-) -> SessionConfiguration {
-    var configuration = SessionConfiguration(
+    secrets: [String: String] = [:], _ configure: (inout RunConfiguration) -> Void = { _ in }
+) -> RunConfiguration {
+    var configuration = RunConfiguration(
         dataDirectory: FileManager.default.temporaryDirectory.appending(
             path: "wicket-tests/data-\(UUID().uuidString)"),
         version: "test"
     ) { secrets[$0] }
-    configuration.requestTimeout = .seconds(1)
+    configuration.timeout = .seconds(2)
     configuration.exitGrace = .milliseconds(300)
-    configuration.idleTimeout = nil
     configure(&configuration)
     return configuration
 }
 
-/// A persistent extension in shell: answers every request with `result`.
+/// An extension in shell that reads its request and answers with `result`.
 func answering(_ result: String) -> String {
     """
-    while read -r line; do
-      id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9]*\\).*/\\1/p')
-      case "$line" in *'"method":"run"'*) printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" '\(result)';; esac
-    done
+    cat >/dev/null
+    printf '%s\\n' '\(result)'
     """
 }
 

@@ -3,10 +3,9 @@ import Observation
 import WicketCore
 
 /// Something wrong (or worth knowing) about one part of Wicket, for the panes, the Extensions screen
-/// and later "Fix with agent". Wicket's own texts never quote a query. What an extension wrote
-/// (stderr, protocol issues, error messages) is its own text with the secret values its session
-/// passed and the queries the session was recently sent replaced (see `Redaction`); whatever else it
-/// wrote is kept, and nothing here is logged.
+/// and later "Fix with agent". Wicket's own texts never quote a query. An extension's error messages
+/// are its own text with the secret values its run was given replaced (see `Redaction`); whatever
+/// else it wrote is kept, and nothing here is logged.
 public struct Diagnostic: Hashable, Sendable {
     public enum Subject: Hashable, Sendable {
         case `extension`(String)
@@ -23,12 +22,6 @@ public struct Diagnostic: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         /// A folder in the extensions directory holds no valid extension.
         case discovery
-        /// Protocol slips a session recorded, such as a stray stdout line.
-        case `protocol`
-        /// A setup problem that doesn't stop the extension, such as the Command Line Tools python3.
-        case setup
-        /// The tail of what the extension wrote to stderr.
-        case stderr
         /// The command's last run failed; cleared by its next answer.
         case run
         /// The hotkey from settings.json isn't in effect.
@@ -72,20 +65,18 @@ public struct Diagnostic: Hashable, Sendable {
     }
 }
 
-/// Every diagnostic Wicket holds, from every producer: extension discovery, sessions (protocol
-/// issues, setup warnings, the stderr tail), failed runs (root searches and command frames alike),
-/// the hotkey, keyword conflicts, and settings.json. Producers replace their own
-/// reports (`set`, `replace`); readers ask by subject (`entries(for:)`, `text(for:kind:)`) or for one
-/// extension's whole picture (`report(forExtension:)`).
+/// Every diagnostic Wicket holds, from every producer: extension discovery, failed runs, the
+/// hotkey, keyword conflicts, and settings.json. Producers replace their own reports (`set`,
+/// `replace`); readers ask by subject (`entries(for:)`, `text(for:kind:)`) or for one extension's
+/// whole picture (`report(forExtension:)`).
 ///
 /// Bounded: each subject keeps at most `perKind` reports of each kind (the newest), and each text
-/// at most `textLimit` bytes (a stderr tail `stderrLimit`, its end kept on a line boundary).
+/// at most `textLimit` bytes.
 @MainActor
 @Observable
 public final class Diagnostics {
     public nonisolated static let perKind = 10
     public nonisolated static let textLimit = 4 << 10
-    public nonisolated static let stderrLimit = 16 << 10
 
     /// Oldest first.
     public private(set) var all: [Diagnostic] = []
@@ -145,7 +136,7 @@ public final class Diagnostics {
             return counts[key, default: 0] <= Self.perKind
         }.reversed().map { diagnostic in
             var diagnostic = diagnostic
-            diagnostic.text = Self.bound(diagnostic.text, kind: diagnostic.kind)
+            diagnostic.text = Self.bound(diagnostic.text, limit: Self.textLimit)
             if let old = removed.first(where: { $0.same(as: diagnostic) }) { diagnostic.at = old.at }
             return diagnostic
         }
@@ -159,20 +150,16 @@ public final class Diagnostics {
         let kind: Diagnostic.Kind
     }
 
-    /// A text within its limit (by default its kind's): a stderr tail keeps its end from a line
-    /// start (or a cut-off line, if the end has no newline); anything else keeps its beginning.
-    /// Redact before bounding: a cut can split a secret so redaction no longer matches it.
-    nonisolated static func bound(_ text: String, kind: Diagnostic.Kind, limit: Int? = nil) -> String {
-        let limit = limit ?? (kind == .stderr ? stderrLimit : textLimit)
+    /// `text` within `limit` bytes: its beginning, or with `tail` its end from a line start (or a
+    /// cut-off line, if the end has no newline). Redact before bounding: a cut can split a secret so
+    /// redaction no longer matches it.
+    nonisolated static func bound(_ text: String, limit: Int, tail: Bool = false) -> String {
         let utf8 = text.utf8
         guard utf8.count > limit else { return text }
-        if kind == .stderr {
-            let tail = utf8.suffix(limit)
-            let start =
-                tail.firstIndex(of: UInt8(ascii: "\n")).map { tail.index(after: $0) } ?? tail.startIndex
-            return String(decoding: tail[start...], as: UTF8.self)
-        }
-        return String(decoding: utf8.prefix(limit), as: UTF8.self) + "…"
+        guard tail else { return String(decoding: utf8.prefix(limit), as: UTF8.self) + "…" }
+        let end = utf8.suffix(limit)
+        let start = end.firstIndex(of: UInt8(ascii: "\n")).map { end.index(after: $0) } ?? end.startIndex
+        return String(decoding: end[start...], as: UTF8.self)
     }
 }
 
@@ -183,26 +170,20 @@ extension Diagnostic {
     }
 }
 
-/// Redaction for text an extension wrote before it becomes a diagnostic. It replaces only values
-/// the host knows (secrets it passed, texts it sent); anything else the extension writes, such as
-/// file contents or what an API returned, is kept as written.
+/// Redaction for text an extension wrote before it is kept. It replaces only the secret values the
+/// host passed; anything else the extension writes, such as file contents or what an API returned,
+/// is kept as written.
 enum Redaction {
-    /// Shorter secrets aren't tokens anyone would store; shorter queries would blank out ordinary
-    /// words. Both are left alone.
+    /// Shorter secrets aren't tokens anyone would store, and would blank out ordinary words.
     static let minimumSecretLength = 4
-    static let minimumQueryLength = 3
 
-    /// `text` with every value of `secrets` and `queries` (each long enough) replaced, longest
-    /// first, so a value that contains another is replaced whole.
-    static func redact(_ text: String, secrets: some Sequence<String>, queries: some Sequence<String>)
-        -> String
-    {
-        let values =
-            secrets.filter { $0.count >= minimumSecretLength }.map { ($0, "‹secret›") }
-            + queries.filter { $0.count >= minimumQueryLength }.map { ($0, "‹query›") }
+    /// `text` with every value of `secrets` (each long enough) replaced, longest first, so a value
+    /// that contains another is replaced whole.
+    static func redact(_ text: String, secrets: some Sequence<String>) -> String {
         var text = text
-        for (value, marker) in values.sorted(by: { $0.0.count > $1.0.count }) {
-            text = text.replacingOccurrences(of: value, with: marker)
+        for secret in secrets.filter({ $0.count >= minimumSecretLength }).sorted(by: { $0.count > $1.count })
+        {
+            text = text.replacingOccurrences(of: secret, with: "‹secret›")
         }
         return text
     }

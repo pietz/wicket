@@ -43,7 +43,7 @@ public enum Checker {
         }
         let path = await LoginShell.path()
         do {
-            let program = try ExtensionSession.resolve(manifest.run[0], in: sealed.folder, path: path)
+            let program = try ExtensionProcess.resolve(manifest.run[0], in: sealed.folder, path: path)
             if program.path == "/usr/bin/python3" {
                 report.add(
                     .warning,
