@@ -19,12 +19,13 @@ A launcher should be a tiny, very fast native core plus **one extension protocol
 
 ## The core, and nothing else for now (owner, 2026-11-08)
 
-Get the core idea right before adding anything: **a simple, fast, AI-native launcher.** Five things:
+Get the core idea right before adding anything: **a simple, fast, AI-native launcher.** Six things:
 1. **AI through the harnesses we wrap** (Claude Code, Codex), with replies drawn natively.
 2. **File search.**
 3. **Calculator.**
 4. **App launcher.**
 5. **Extensions the agent builds on request.**
+6. **Voice input:** speaking instead of typing is part of the experience.
 
 Anything else waits until these are on point. That includes new features and polish on what isn't on this list. Existing extras are judged against this list in a scope audit.
 
