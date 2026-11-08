@@ -37,16 +37,20 @@ public enum MarkdownBlock: Sendable, Hashable {
             let kinds = intent?.components ?? []
 
             if let cell = kinds.firstIndex(where: { if case .tableCell = $0.kind { true } else { false } }),
-                let tableID = kinds.first(where: { if case .table = $0.kind { true } else { false } })?
-                    .identity
+                case .tableCell(let column) = kinds[cell].kind,
+                let tableIntent = kinds.first(where: { if case .table = $0.kind { true } else { false } }),
+                case .table(let columns) = tableIntent.kind
             {
                 let row = kinds[(cell + 1)...].first?.identity ?? 0
-                if table?.id != tableID { flushTable() }
-                if table?.id != tableID || table?.row != row {
-                    rows.append([])
-                    table = (tableID, row)
+                if table?.id != tableIntent.identity { flushTable() }
+                if table?.id != tableIntent.identity || table?.row != row {
+                    // Empty cells have no runs, so every cell is placed by its column, blanks kept.
+                    rows.append(Array(repeating: AttributedString(), count: max(columns.count, column + 1)))
+                    table = (tableIntent.identity, row)
                 }
-                rows[rows.count - 1].append(text)
+                if column >= rows[rows.count - 1].count { rows[rows.count - 1].append(AttributedString()) }
+                // A cell with styled text comes as several runs.
+                rows[rows.count - 1][column] += text
                 continue
             }
             flushTable()

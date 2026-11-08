@@ -3,10 +3,12 @@ import WicketCore
 
 /// `<image>`s: one alone, or a gallery of adjacent ones, up to three a line. Each is a target whose
 /// Return opens its source; its alt text is what VoiceOver reads and its caption and web host sit
-/// under it. The space is kept while it loads, so the page doesn't jump.
+/// under it. The space is kept while it loads, so the page doesn't jump. One image beside other
+/// columns (a portrait by its facts) is as tall as a gallery's and shown whole, at its own aspect.
 struct GalleryView: ComponentView {
     let node: Gallery
     @Environment(\.textSize) private var textSize
+    @Environment(\.inColumn) private var inColumn
 
     init(_ node: Gallery) { self.node = node }
 
@@ -15,14 +17,14 @@ struct GalleryView: ComponentView {
 
     var body: some View {
         if node.images.count == 1 {
-            ImageTile(image: node.images[0], height: 200 * textSize.scale)
+            ImageTile(image: node.images[0], height: (inColumn ? 130 : 200) * textSize.scale, fits: inColumn)
         } else {
             let columns = Array(
                 repeating: GridItem(.flexible(), spacing: 8, alignment: .top),
                 count: min(node.images.count, Self.perLine))
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                 ForEach(Array(node.images.enumerated()), id: \.offset) { _, image in
-                    ImageTile(image: image, height: 130 * textSize.scale)
+                    ImageTile(image: image, height: 130 * textSize.scale, fits: false)
                 }
             }
         }
@@ -38,6 +40,8 @@ struct BlockedImagesKey: PreferenceKey {
 private struct ImageTile: View {
     let image: Gallery.Image
     let height: CGFloat
+    /// Shown whole at its aspect, as wide as the height allows, rather than filling the tile.
+    let fits: Bool
     @Environment(\.textSize) private var textSize
     @Environment(\.loadsOnlineContent) private var online
     @State private var loaded: (url: URL, image: NSImage?)?
@@ -48,13 +52,15 @@ private struct ImageTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             picture
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: fits && shown != nil ? nil : .infinity)
                 .frame(height: height)
                 .background(.primary.opacity(0.05))
                 .clipShape(.rect(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
+                        .strokeBorder(.separator.opacity(0.5), lineWidth: 0.5)
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             if image.caption != nil || isRemote {
                 HStack(spacing: 6) {
                     if let caption = image.caption { Text(caption).lineLimit(2) }
@@ -91,12 +97,17 @@ private struct ImageTile: View {
         }
     }
 
+    /// The loaded image, if it is.
+    private var shown: NSImage? {
+        loaded?.url == image.source ? loaded?.image : ImageLoader.shared.cached(image.source)
+    }
+
     @ViewBuilder private var picture: some View {
-        if let shown = loaded?.url == image.source ? loaded?.image : ImageLoader.shared.cached(image.source) {
+        if let shown {
             Image(nsImage: shown)
                 .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(maxWidth: .infinity, maxHeight: height)
+                .aspectRatio(contentMode: fits ? .fit : .fill)
+                .frame(maxWidth: fits ? nil : .infinity, maxHeight: height)
                 .clipped()
         } else if blocked || loaded?.url == image.source {
             // Not loaded while online content is off, or it couldn't be had.

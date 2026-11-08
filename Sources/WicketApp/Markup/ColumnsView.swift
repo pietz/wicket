@@ -15,6 +15,7 @@ struct ColumnsView: ComponentView {
                 DocumentBlocks(blocks: blocks, spacing: 12)
             }
         }
+        .environment(\.inColumn, true)
     }
 }
 

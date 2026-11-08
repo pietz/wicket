@@ -69,6 +69,49 @@ struct SnapshotTests {
         }
     }
 
+    /// A card with a local image beside facts, portrait and landscape: how an image in a column is
+    /// sized once it has loaded.
+    @Test func imagesBesideFacts() async throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for (name, width, height) in [("card-portrait", 600, 800), ("card-landscape", 1200, 700)] {
+            let file = folder.appending(path: ".\(name)-source.png")
+            try Self.picture(width: width, height: height).write(to: file)
+            let markup = """
+                <card title="Ada Lovelace">
+                <columns>
+                <image src="\(file.path)" alt="A picture"/>
+                <facts>
+                <fact label="Born" value="10 Dec 1815"/>
+                <fact label="Known for" value="The first program"/>
+                </facts>
+                </columns>
+                </card>
+                """
+            _ = await ImageLoader.shared.load(file)
+            try await snapshot(
+                name, .detail(Detail(title: "Who was Ada Lovelace?", markdown: markup)), .host, title: "Ask",
+                dark: false, size: .medium)
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    /// A PNG of a vertical gradient, `width` by `height` pixels.
+    private static func picture(width: Int, height: Int) throws -> Data {
+        let context = try #require(
+            CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        )
+        let colors = [
+            CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1),
+            CGColor(red: 0.9, green: 0.6, blue: 0.3, alpha: 1),
+        ]
+        let gradient = try #require(CGGradient(colorsSpace: nil, colors: colors as CFArray, locations: nil))
+        context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: height), options: [])
+        let image = try #require(context.makeImage())
+        return try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+    }
+
     static let oneValue = """
         <answer value="62" detail="Born September 2, 1964, in Beirut"/>
         """
@@ -78,7 +121,7 @@ struct SnapshotTests {
         Revenue grew every quarter this year, with the strongest jump in Q3 after the price change. \
         The full figures are in the reports below.
 
-        <stat label="Revenue" value="€1.42M" detail="+18% on last year" tone="positive" symbol="eurosign"/>
+        <stat label="Revenue" value="€1.42M" detail="+18% on last year" tone="positive" icon="eurosign"/>
         <stat label="Best quarter" value="Q3" detail="€412K"/>
         <stat label="Churn" value="2.1%" detail="+0.4 pt" tone="negative"/>
 

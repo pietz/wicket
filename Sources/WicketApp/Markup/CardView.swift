@@ -14,7 +14,6 @@ struct CardView: ComponentView {
             if node.title != nil || node.subtitle != nil || node.icon != nil {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     SymbolImage(name: node.icon)
-                        .symbolRenderingMode(.multicolor)
                     VStack(alignment: .leading, spacing: 1) {
                         if let title = node.title {
                             Text(title)

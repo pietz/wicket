@@ -60,6 +60,8 @@ extension EnvironmentValues {
     @Entry var textSize = TextSize.medium
     /// Whether images from the network load ("Show online content", or Load Images on this page).
     @Entry var loadsOnlineContent = true
+    /// Whether the blocks sit in a column beside others, where an image is drawn smaller.
+    @Entry var inColumn = false
 }
 
 extension TextSize {
@@ -90,13 +92,17 @@ enum ToneStyle {
 }
 
 /// An SF Symbol a producer named, or nothing when the system has no such symbol: a made-up name
-/// never shows a blank square.
+/// never shows a blank square. Hierarchical in one color, the secondary style or a tone's: legible
+/// on light and dark surfaces alike, where multicolor draws a cloud white.
 struct SymbolImage: View {
     let name: String?
+    var tone: WicketCore.Document.Tone? = nil
 
     var body: some View {
         if let name, Self.exists(name) {
             Image(systemName: name)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(ToneStyle.style(tone, else: .secondary))
         }
     }
 

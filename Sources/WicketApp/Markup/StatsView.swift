@@ -45,15 +45,14 @@ private struct StatCell: View {
         VStack(alignment: .leading, spacing: 2) {
             if let label = stat.label {
                 HStack(spacing: 4) {
-                    SymbolImage(name: stat.icon)
-                        .symbolRenderingMode(.multicolor)
+                    SymbolImage(name: stat.icon, tone: stat.tone)
                     Text(label)
                 }
                 .font(.system(size: textSize.points(11)))
                 .foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
-                if stat.label == nil { SymbolImage(name: stat.icon).symbolRenderingMode(.multicolor) }
+                if stat.label == nil { SymbolImage(name: stat.icon, tone: stat.tone) }
                 Text(stat.value)
                     .foregroundStyle(ToneStyle.style(stat.tone, else: .primary))
             }

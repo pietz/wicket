@@ -13,7 +13,6 @@ struct AnswerView: ComponentView {
             if case .symbol(let name) = node.item.icon, name != Answer.tags[0].icon {
                 SymbolImage(name: name)
                     .font(.system(size: textSize.points(22)))
-                    .foregroundStyle(.secondary)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.item.title)

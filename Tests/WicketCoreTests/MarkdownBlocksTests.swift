@@ -72,3 +72,15 @@ private func outline(_ markdown: String) -> [String] {
     #expect(outline("just text") == ["p just text"])
     #expect(outline("").isEmpty)
 }
+
+/// Every cell keeps its column: an empty one (the corner above a comparison's labels, a blank in
+/// the middle) stays blank, and a cell with styled text stays one cell.
+@Test func tableCellsKeepTheirColumns() {
+    let markdown = """
+        |         | iPhone 17 | Pixel 11 |
+        |---------|-----------|----------|
+        | Chip    | **A19**   | Tensor G6 |
+        | Storage |           | 128 GB   |
+        """
+    #expect(outline(markdown) == ["table |iPhone 17|Pixel 11/Chip|A19|Tensor G6/Storage||128 GB"])
+}
