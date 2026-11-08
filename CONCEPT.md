@@ -34,6 +34,11 @@ Anything else waits until these are on point. That includes new features and pol
 - **Removed: selected-text capture.** It was paused and unreliable, and it needed Accessibility. Passing the Finder folder to the agent stays.
 - **Removed: the Shortcuts pane, aliases and per-command global hotkeys,** including Start Listening's. The mic button and ⌘L remain. They come back when there's a real need.
 - **Simplified: feature switches.** Only the AI and Voice switches remain, each in its own pane. The Features pane goes.
+- **Simplification (owner and lead, 2026-11-08):** see docs/reviews/2026-11-08-simplify.md.
+  - **Extensions:** one process per run instead of sessions, no root mode, a static `wicket check`, no rollback, and dependencies vendored instead of managed by Wicket.
+  - **Agents:** the harness's own permission policy replaces Wicket's four levels; Allow once or Deny; whole messages only, so no streaming setting; no answer-only mode. The model, effort and speed pickers stay.
+  - **Palette:** fixed-height documents and an explicit rerun after an extension changes.
+  - **Unchanged:** consent to the exact reviewed snapshot, secrets, and process cleanup.
 - **Kept:**
   - Currency and unit conversion (part of the calculator).
   - Links.
