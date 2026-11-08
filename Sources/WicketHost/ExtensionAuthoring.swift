@@ -76,13 +76,11 @@ public final class ExtensionAuthoring {
 
     /// What a run is told, read again for every run so an edit applies to the next one: the rules,
     /// the user's instructions (without HTML comments), then the live part. Writes the run's
-    /// command list. A user file holding a full copy of the rules, as builds before 2026-11-08
-    /// wrote it, is ignored rather than repeating rules that may be stale.
+    /// command list.
     func instructions() -> String {
         let rules = self.rules.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-        var own = (try? String(contentsOf: instructionsFile, encoding: .utf8)) ?? ""
-        if own.hasPrefix("<!-- Wicket's instructions for your agent.") { own = "" }
-        own = own.replacing(/<!--[\s\S]*?-->/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let own = ((try? String(contentsOf: instructionsFile, encoding: .utf8)) ?? "")
+            .replacing(/<!--[\s\S]*?-->/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         return [
             rules.trimmingCharacters(in: .whitespacesAndNewlines),
             own.isEmpty ? "" : "## The user's own instructions\n\n" + own, live(),

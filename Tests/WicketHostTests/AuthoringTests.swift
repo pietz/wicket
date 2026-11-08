@@ -142,7 +142,7 @@ private func finalDetail(
 
 /// Wicket's rules always come first and current; the user's agent.md adds their own instructions
 /// after them, read again for every run. Opened from Settings it starts as a one-line comment, which
-/// adds nothing; an old full copy of the rules is ignored.
+/// adds nothing.
 @MainActor @Test func theUsersInstructionsFollowTheRules() async throws {
     let extensions = try await extensions([])
     let authoring = testAuthoring(extensions)
@@ -162,10 +162,6 @@ private func finalDetail(
     // An existing file is opened as it is, never overwritten.
     _ = try ExtensionAuthoring.editableInstructions(file: file)
     #expect(try String(contentsOf: file, encoding: .utf8) == "Always answer in French.")
-
-    try "<!-- Wicket's instructions for your agent. Edit it freely. -->\n\n# Wicket\n\nOld rules.".write(
-        to: file, atomically: true, encoding: .utf8)
-    #expect(authoring.instructions() == bare)
 }
 
 @MainActor @Test func anActingRunOffersToReviewTheExtensionsItWrote() async throws {

@@ -1,5 +1,6 @@
 import Foundation
 import WicketCore
+import os
 
 /// What Wicket remembers about each extension besides its code, so a failure can be debugged after
 /// the fact and the agent that built it can be asked again: its recent runs, and the agent
@@ -179,13 +180,20 @@ public actor ExtensionHistory {
         try? data.write(to: file, options: .atomic)
     }
 
-    /// The conversation that last built or changed the extension `id`, if one is remembered.
+    /// The conversation that last built or changed the extension `id`, if one is remembered. One
+    /// this build can't read (an older shape) counts as none.
     func conversation(of id: String) -> AnswerStream.Conversation? {
         guard let file = folder(of: id)?.appending(path: "conversation.json"),
             let data = try? Data(contentsOf: file)
         else { return nil }
-        return try? Self.decoder.decode(AnswerStream.Conversation.self, from: data)
+        guard let conversation = try? Self.decoder.decode(AnswerStream.Conversation.self, from: data) else {
+            Self.logger.notice("history: 1 unreadable conversation, ignored")
+            return nil
+        }
+        return conversation
     }
+
+    private static let logger = Logger(subsystem: "app.wicket", category: "history")
 
     /// Deletes everything remembered about the extension `id`: for Move to Trash.
     public func forget(_ id: String) {

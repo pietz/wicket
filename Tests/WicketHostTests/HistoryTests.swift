@@ -271,3 +271,16 @@ func everyWayARunEndsIsRecordedWithItsReason(
             \(stamp) weather ok in 85 ms (3 runs in a row), revision 1a2b3c4d5e6f
             """)
 }
+
+/// A conversation an older build remembered, in a shape this one can't read, is no conversation.
+@MainActor @Test func anUnreadableConversationIsNone() async throws {
+    let extensions = try await extensions(try TestExtension(script: failing("no network", stderr: "")))
+    let history = try #require(extensions.history)
+    let file = try #require(history.folder(of: "test")).appending(path: "conversation.json")
+    try FileManager.default.createDirectory(
+        at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try #"{"provider":"codex","folder":"file:///tmp/","configuration":{"permission":"auto"},"session":"t1"}"#
+        .write(to: file, atomically: true, encoding: .utf8)
+    #expect(await history.conversation(of: "test") == nil)
+    await extensions.shutdown()
+}
