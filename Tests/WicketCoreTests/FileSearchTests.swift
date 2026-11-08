@@ -57,6 +57,25 @@ func exclusion(path: String, excluded: Bool) {
     #expect(first.actions == Item.Action.forFile(URL(filePath: home + "/Documents/Invoice.pdf")))
 }
 
+@Test func itemsIncludeHomeEntriesAndScopeRoots() {
+    let hits = [
+        FileSearch.Hit(path: home + "/report.pdf", isFolder: false),
+        FileSearch.Hit(path: home + "/.report", isFolder: false),
+        FileSearch.Hit(path: home + "/Documents", isFolder: true),
+        FileSearch.Hit(path: home + "/Documents", isFolder: true),
+        FileSearch.Hit(path: "/Volumes/Backup", isFolder: true),
+        FileSearch.Hit(path: "/Users/other/report.pdf", isFolder: false),
+    ]
+    let reports = FileSearch.items(hits, query: "report", scopes: scopes, home: home)
+    #expect(reports.map(\.id) == ["files:/Users/me/report.pdf"])
+    #expect(reports.first?.subtitle == "~")
+    let documents = FileSearch.items(hits, query: "documents", scopes: scopes, home: home)
+    #expect(documents.map(\.id) == ["files:/Users/me/Documents"])
+    #expect(documents.first?.accessory == "Folder")
+    let backup = FileSearch.items(hits, query: "backup", scopes: scopes, home: home)
+    #expect(backup.map(\.id) == ["files:/Volumes/Backup"])
+}
+
 @Test func itemsRankByNameAndCap() {
     let paths = (0..<30).map { home + "/Documents/report \($0).txt" } + [home + "/Documents/report.txt"]
     let found = items(paths, "report")

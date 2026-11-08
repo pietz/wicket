@@ -49,15 +49,17 @@ public enum FileSearch {
         }
     }
 
-    /// The best `limit` hits as items: noise dropped, scored on the file name (`score`) minus
-    /// `penalty`, so they rank fairly against other `.match` items.
+    /// The best `limit` hits as items: noise and duplicates dropped, scored on the file name
+    /// (`score`) minus `penalty`, so they rank fairly against other `.match` items. A hit counts if
+    /// it is a scope or lies below one, or sits directly in `home`: Spotlight only searches folders,
+    /// so the caller adds home's own entries (`~/report.pdf`, `~/Documents`) as hits itself.
     public static func items(_ hits: [Hit], query: String, scopes: [String], home: String) -> [Item] {
         let folded = Fold.query(query)
         let words = query.split(whereSeparator: \.isWhitespace).map { Fold.query(String($0)) }
         var scored: [(hit: Hit, name: String, score: Int)] = []
+        var seen: Set<String> = []
         for hit in hits {
-            guard let scope = scopes.first(where: { hit.path.hasPrefix($0 + "/") }),
-                !isExcluded(hit.path.dropFirst(scope.count))
+            guard isInScope(hit.path, scopes: scopes, home: home), seen.insert(hit.path).inserted
             else { continue }
             let name = (hit.path as NSString).lastPathComponent
             guard let score = score(folded, words: words, name: SearchKey(name)) else { continue }
@@ -74,6 +76,15 @@ public enum FileSearch {
                 id: "files:" + hit.path, title: name, subtitle: displayFolder(of: hit.path, home: home),
                 icon: .file(url: url), accessory: hit.isFolder ? "Folder" : "File",
                 score: Double(score) - penalty, actions: Item.Action.forFile(url))
+        }
+    }
+
+    private static func isInScope(_ path: String, scopes: [String], home: String) -> Bool {
+        if (path as NSString).deletingLastPathComponent == home {
+            return !isExcluded((path as NSString).lastPathComponent)
+        }
+        return scopes.contains { scope in
+            path == scope || path.hasPrefix(scope + "/") && !isExcluded(path.dropFirst(scope.count))
         }
     }
 
