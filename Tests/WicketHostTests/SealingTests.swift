@@ -141,6 +141,20 @@ private func title(_ extensions: Extensions, _ id: String = "titled") async thro
     #expect(try await title(extensions) == "v2")
 }
 
+@MainActor @Test func aChangeAtTheRootSealsEveryFolderAgain() async throws {
+    let ext = try titled("v1")
+    let directory = ext.folder.deletingLastPathComponent()
+    let extensions = try await enabledExtensions(directory, store: testStore())
+    let sealed = try #require(extensions.activeRevision(of: "titled"))
+
+    // FSEvents reports the directory itself (a rescan, dropped events), not the edited file.
+    try Data("v2".utf8).write(to: ext.folder.appending(path: "title.txt"))
+    await extensions.load(changed: [directory.path + "/"]).value
+    try await extensions.enableAll()
+    #expect(extensions.revisions["titled"] != sealed.revision)
+    #expect(try await title(extensions) == "v2")
+}
+
 @MainActor @Test func discoveryShowsEveryFolderButOnlyTheActiveCatalogRuns() async throws {
     let good = try titled("v1", id: "good")
     let directory = good.folder.deletingLastPathComponent()

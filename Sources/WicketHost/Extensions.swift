@@ -293,14 +293,20 @@ public final class Extensions {
 
     /// Discovers the extensions again, off the main actor, and publishes what it found. Folders
     /// among `changed` (paths from a file watcher), and new ones, are sealed again (a revision
-    /// already retained isn't copied twice); the others keep their revision. A pass running already
+    /// already retained isn't copied twice); the others keep their revision. A change reported at
+    /// the extensions directory or above it says nothing about which folder changed, so it seals
+    /// every folder again. A pass running already
     /// takes this request in one more pass. The returned task ends once a published snapshot covers
     /// this request; the keystroke path never waits for it.
     @discardableResult
     public func load(changed: [String] = []) -> Task<Void, Never> {
-        let prefix = directory.path + "/"
-        for path in changed where path.hasPrefix(prefix) {
-            if let id = path.dropFirst(prefix.count).split(separator: "/").first {
+        let root = directory.path
+        for path in changed.map({ $0.hasSuffix("/") ? String($0.dropLast()) : $0 }) {
+            if path == root || root.hasPrefix(path + "/") {
+                touched.formUnion((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [])
+            } else if path.hasPrefix(root + "/"),
+                let id = path.dropFirst(root.count + 1).split(separator: "/").first
+            {
                 touched.insert(String(id))
             }
         }
@@ -316,8 +322,7 @@ public final class Extensions {
     /// reports them (an acting agent run that just ended).
     @discardableResult
     public func reload() -> Task<Void, Never> {
-        touched.formUnion((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
-        return load()
+        load(changed: [directory.path])
     }
 
     /// Runs discovery passes until no request is left.
