@@ -107,7 +107,8 @@ func run(_ arguments: [String]) async -> Never {
     switch result {
     case .success(let reply):
         print(reply.line)
-        exit(0)
+        guard case .failure(let error) = reply.outcome else { exit(0) }
+        fail("error: the extension answered with an error: \(error.message)")
     case .failure(let error):
         let stderr = session.stderrTail.split(separator: "\n").suffix(20)
         let tail =
