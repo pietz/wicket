@@ -12,8 +12,8 @@ final class AnswerDraft {
     var reviews: [Item.Action] = []
     /// Shown until the first text arrives.
     let status: String
-    /// The permission level the run was started with, said under each question; nil when the
-    /// agent's own settings decide.
+    /// The permission level the run was started with, said under each question; nil for an
+    /// answer run, which never asks.
     let permission: AgentPermission?
     /// Everything the agent wrote, in order: its messages along the way, then its final answer.
     /// Tools it used and its thinking aren't shown.

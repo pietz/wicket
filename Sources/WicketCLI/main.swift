@@ -17,8 +17,8 @@ let usage = """
            wicket secret set <extension-id> <NAME>
                Store a secret declared in wicket.json in the Keychain; the value is read from stdin.
            wicket agent status
-               Show whether Codex, Claude Code and Apple Intelligence are ready to answer.
-           wicket agent ask <prompt> [--provider codex|claude|apple]
+               Show whether Claude Code and Codex are ready to answer.
+           wicket agent ask <prompt> [--provider claude|codex]
                Stream a quick answer (no tools, no file access) to stdout; tool activity and token
                usage go to stderr. Uses the first ready provider unless one is named.
 
@@ -141,7 +141,7 @@ func ask(_ arguments: [String]) async -> Never {
     var provider: AgentProvider?
     if let index = arguments.firstIndex(of: "--provider") {
         guard index + 1 < arguments.count, let named = AgentProvider(rawValue: arguments[index + 1]) else {
-            fail("--provider needs codex, claude or apple", status: 2)
+            fail("--provider needs claude or codex", status: 2)
         }
         provider = named
         arguments.removeSubrange(index...index + 1)

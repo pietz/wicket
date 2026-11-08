@@ -101,7 +101,7 @@ private func finalDetail(
     // The instructions go to Codex after Wicket's own, as its developer instructions.
     var transcript = CodexTranscript(
         request: AgentRequest(
-            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .act, instructions: text))
+            prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .acting, instructions: text))
     let start = transcript.start()
     guard case .object(let thread)? = try? JSONDecoder().decode(JSONValue.self, from: start.send[2]) else {
         Issue.record("no thread/start")
@@ -140,7 +140,7 @@ private func finalDetail(
     }
     #expect(ids == ["edited", "weather"])
     let request = try #require(requests.first)
-    #expect(request.mode == .act)
+    #expect(request.configuration != nil)
     #expect(request.instructions?.contains(directory.path) == true)
 }
 
@@ -153,15 +153,6 @@ private func finalDetail(
     runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
     let detail = try #require(try await finalDetail(runner, "what can you do?"))
     #expect(detail.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
-
-    // A provider that only answers gets no Wicket instructions.
-    let apple = AgentRunner(
-        answers: AnswerStream(backend: agent(requests) {}, interval: .zero, provider: { .apple }))
-    apple.answers.authoring = runner.answers.authoring
-    _ = try await finalDetail(apple, "what can you do?")
-    let last = try #require(requests.last)
-    #expect(last.mode == .answer)
-    #expect(last.instructions == nil)
 }
 
 @MainActor @Test func aRunThatFailedAfterWritingAnExtensionStillOffersItsReview() async throws {
@@ -296,8 +287,8 @@ func codexBuildsACommandThatWicketOffersForReview() async throws {
     #expect(page?.actions.first?.title == "Enable")
 }
 
-/// The same with Claude Code, on the user's subscription and own settings (read, never changed): its
-/// permission mode must let it write in the folder without asking, as `auto` or `acceptEdits` do.
+/// The same with Claude Code, on the user's subscription with Wicket's defaults (Sonnet on Auto, which
+/// lets it write in the folder without asking).
 /// Opt in with `WICKET_TEST_CLAUDE=1`.
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_TEST_CLAUDE"] == "1"))
 func claudeBuildsACommandThatWicketOffersForReview() async throws {

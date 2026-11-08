@@ -131,7 +131,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     // The frame opens with the question as its title and a status until the text comes.
     #expect(await eventually { palette.detail != nil })
     #expect(palette.detail?.title == "capital of France?")
-    #expect(palette.detail?.markdown == "_Asking Codex…_")
+    #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
     #expect(palette.session.top.isLoading)
     // Nothing to copy or paste yet: Return does nothing rather than clear the clipboard.
     #expect(palette.detail?.actions == [])
@@ -142,14 +142,14 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let run = try #require(agents.runs.first)
     #expect(run.provider == .codex)
     // Codex acts, in the home folder when nothing was selected in Finder.
-    #expect(run.request.mode == .act)
+    #expect(run.request.configuration != nil)
     #expect(run.request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
     #expect(run.request.prompt == "capital of France?")
 
     // Tool use isn't shown.
     run.continuation.yield(.activity("Ran ls *.md"))
     try await Task.sleep(for: .milliseconds(50))
-    #expect(palette.detail?.markdown == "_Asking Codex…_")
+    #expect(palette.detail?.markdown == "_Asking ChatGPT…_")
     var text = ""
     for delta in ["**Paris**", " is the", " capital."] {
         text += delta
@@ -224,15 +224,16 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 }
 
 @MainActor @Test func aProviderThatIsNotReadySaysWhatToDo() async throws {
-    // Automatic: the first ready one, Codex first.
-    let agents = FakeAgents([.codex: .notInstalled, .claude: .ready])
+    // None chosen: the first ready one, Claude first.
+    let agents = FakeAgents([.claude: .notInstalled, .codex: .ready])
     let palette = Palette(agents.backend)
     palette.ask("hi")
     #expect(await eventually { agents.runs.count == 1 })
-    #expect(agents.runs[0].provider == .claude)
-    #expect(agents.checks == [.codex, .claude])
+    #expect(agents.runs[0].provider == .codex)
+    #expect(agents.checks == [.claude, .codex])
 
     // Chosen in settings: that one or nothing, never another.
+    agents.set(.claude, .ready)
     agents.set(.codex, .loggedOut)
     palette.runner.answers.provider = { .codex }
     palette.ask("hi")
@@ -247,17 +248,15 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
     // None ready.
     agents.set(.claude, .loggedOut)
-    agents.set(.apple, .unavailable("The on-device model is not ready."))
     let fresh = Palette(agents.backend)
     fresh.ask("hi")
     #expect(await eventually { fresh.detail?.title == "Run Agent Failed" })
     #expect(
         fresh.detail?.markdown == """
-            Run Agent uses Codex or Claude Code or Apple Intelligence (on device), and none is ready:
+            Run Agent uses Claude or ChatGPT, and none is ready:
 
-            - Codex isn't signed in: run `codex login` in Terminal to sign in.
             - Claude Code isn't signed in: run `claude auth login` in Terminal to sign in.
-            - Apple Intelligence (on device) is unavailable: The on-device model is not ready.
+            - Codex isn't signed in: run `codex login` in Terminal to sign in.
             """)
 }
 
@@ -301,7 +300,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     }
     try await feed.value
     // The status, the first text at once, then nothing until the interval is up: the answer ended it.
-    #expect(shown == ["_Asking Codex…_", "1", "1 2 3"])
+    #expect(shown == ["_Asking ChatGPT…_", "1", "1 2 3"])
 }
 
 @MainActor @Test func aRecordedCodexAnswerThroughTheRealAdapter() async throws {
@@ -314,44 +313,22 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.title == "What is the capital of France?")
 }
 
-@MainActor @Test func appleAnswersUseTheExistingStreamingDraft() async throws {
-    let agents = FakeAgents([.codex: .loggedOut, .claude: .loggedOut, .apple: .ready])
+@MainActor @Test func aChosenProviderIsRecheckedAndNeverFallsBack() async throws {
+    let agents = FakeAgents([.codex: .ready, .claude: .ready])
     let palette = Palette(agents.backend)
-    palette.ask("hello")
-    #expect(await eventually { agents.runs.count == 1 })
-    let run = try #require(agents.runs.first)
-    #expect(run.provider == .apple)
-    #expect(run.request.mode == .answer)
-    #expect(agents.checks == [.codex, .claude, .apple])
-    run.continuation.yield(.text("Hello"))
-    #expect(await eventually { palette.detail?.markdown == "Hello" })
-    run.continuation.yield(.answer("Hello!", usage: nil))
-    #expect(await eventually { !palette.session.top.isLoading })
-    #expect(palette.detail?.markdown == "Hello!")
-    #expect(
-        palette.detail?.actions == [
-            .copy(text: "Hello!", title: "Copy Answer"),
-            .paste(text: "Hello!", title: "Paste Answer"),
-        ])
-}
-
-@MainActor @Test func appleAvailabilityIsRecheckedAndNeverFallsBack() async throws {
-    let agents = FakeAgents([.codex: .ready, .apple: .ready])
-    let palette = Palette(agents.backend)
-    palette.runner.answers.provider = { .apple }
+    palette.runner.answers.provider = { .claude }
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.answer("Hello!", usage: nil))
     #expect(await eventually { !palette.session.top.isLoading })
     palette.session.reset()
 
-    let reason = "Enable Apple Intelligence in System Settings ▸ Apple Intelligence & Siri."
-    agents.set(.apple, .unavailable(reason))
+    agents.set(.claude, .loggedOut)
     palette.ask("hello again")
     #expect(await eventually { palette.detail?.title == "Run Agent Failed" })
-    #expect(palette.detail?.markdown.contains(reason) == true)
+    #expect(palette.detail?.markdown.contains("claude auth login") == true)
     #expect(palette.detail?.actions == [.run(command: .aiSettings, title: "Open AI Settings")])
-    #expect(agents.checks == [.apple, .apple])
+    #expect(agents.checks == [.claude, .claude])
     #expect(agents.runs.count == 1)
 }
 
@@ -394,7 +371,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let frame = palette.session.top.id
     #expect(
         palette.detail?.markdown
-            == "**The agent asks to run a command** in /tmp/work.\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_1 more waiting_\n\n_Asking Codex…_"
+            == "**The agent asks to run a command** in /tmp/work.\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_Auto: approves routine actions, asks about the rest._\n\n_1 more waiting_\n\n_Asking ChatGPT…_"
     )
 
     // Allow goes to the agent; its frame goes and the answer's frame keeps running.
@@ -465,16 +442,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     #expect(agents.runs[0].provider == .claude)
-    #expect(agents.runs[0].request.mode == .act)
+    #expect(agents.runs[0].request.configuration != nil)
     #expect(agents.runs[0].request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
-
-    let apple = FakeAgents([.apple: .ready])
-    let answering = Palette(apple.backend)
-    answering.ask("hello")
-    #expect(await eventually { apple.runs.count == 1 })
-    #expect(apple.runs[0].provider == .apple)
-    #expect(apple.runs[0].request.mode == .answer)
-    #expect(apple.runs[0].request.workingDirectory.lastPathComponent.hasPrefix("wicket-ask-"))
 }
 
 @MainActor @Test func messagesAlongTheWayStayAboveTheFinalAnswer() async throws {

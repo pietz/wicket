@@ -15,6 +15,10 @@ private func decoded(_ data: Data) throws -> JSONValue {
     try JSONDecoder().decode(JSONValue.self, from: data)
 }
 
+private func act(_ options: AgentOptions, _ permission: AgentPermission = .auto) -> AgentMode {
+    .act(AgentConfiguration(options: options, permission: permission))
+}
+
 // MARK: Codex
 
 /// Verified against Codex 0.167's app-server: each turn/start below was accepted (and an unknown
@@ -26,31 +30,34 @@ private func decoded(_ data: Data) throws -> JSONValue {
     (.fullAccess, "never", "dangerFullAccess", "user"),
 ])
 func codexPermissionLevels(level: AgentPermission, policy: String, sandbox: String, reviewer: String) {
-    let settings = CodexTranscript.turnSettings(AgentOptions(), level)
+    let settings = CodexTranscript.turnSettings(
+        AgentConfiguration(options: AgentProvider.codex.defaultOptions, permission: level))
     #expect(settings["approvalPolicy"] == .string(policy))
     #expect(settings["sandboxPolicy"] == .object(["type": .string(sandbox)]))
     #expect(settings["approvalsReviewer"] == .string(reviewer))
 }
 
-@Test func codexWithoutChoicesKeepsItsConfigButRunsAtRegularSpeed() {
-    #expect(
-        CodexTranscript.turnSettings(AgentOptions(), nil) == ["serviceTierForTurn": .string("default")])
+@Test func codexDefaultsNameTheModelAndEffortAtRegularSpeed() {
+    let settings = CodexTranscript.turnSettings(
+        AgentConfiguration(options: AgentProvider.codex.defaultOptions, permission: .auto))
+    #expect(settings["model"] == .string("gpt-6.1-terra"))
+    #expect(settings["effort"] == .string("medium"))
+    #expect(settings["serviceTierForTurn"] == .string("default"))
 }
 
 @Test func codexModelEffortAndSpeed() {
-    #expect(
-        CodexTranscript.turnSettings(AgentOptions(model: "gpt-6-astra", effort: "high", speed: .fast), nil)
-            == [
-                "model": .string("gpt-6-astra"), "effort": .string("high"),
-                "serviceTierForTurn": .string("priority"),
-            ])
+    let settings = CodexTranscript.turnSettings(
+        AgentConfiguration(
+            options: AgentOptions(model: "gpt-6-astra", effort: "high", speed: .fast), permission: .auto))
+    #expect(settings["model"] == .string("gpt-6-astra"))
+    #expect(settings["effort"] == .string("high"))
+    #expect(settings["serviceTierForTurn"] == .string("priority"))
 }
 
 /// The reviewer resets on every turn/start, so the choices go there, not on the thread.
 @Test func codexSetsTheChoicesOnTheTurn() throws {
     let request = AgentRequest(
-        prompt: "Tidy up", workingDirectory: folder, mode: .act,
-        options: AgentOptions(model: "gpt-6-luna"), permission: .auto)
+        prompt: "Tidy up", workingDirectory: folder, mode: act(AgentOptions(model: "gpt-6-luna")))
     var transcript = CodexTranscript(request: request)
     let thread = try decoded(transcript.start().send[2])["params"]
     for field in ["approvalPolicy", "sandbox", "sandboxPolicy", "approvalsReviewer", "model"] {
@@ -63,10 +70,8 @@ func codexPermissionLevels(level: AgentPermission, policy: String, sandbox: Stri
     #expect(turn?["approvalPolicy"] == .string("on-request"))
 }
 
-@Test func codexAnswerRunsIgnoreTheChoices() throws {
-    let request = AgentRequest(
-        prompt: "Hi", workingDirectory: folder, mode: .answer,
-        options: AgentOptions(model: "gpt-6-astra", speed: .fast), permission: .fullAccess)
+@Test func codexAnswerRunsKeepTheirFixedSetup() throws {
+    let request = AgentRequest(prompt: "Hi", workingDirectory: folder, mode: .answer)
     var transcript = CodexTranscript(request: request)
     _ = transcript.start()
     _ = transcript.receive(line(#"{"id":2,"result":{"config":{}}}"#))
@@ -89,26 +94,34 @@ func codexPermissionLevels(level: AgentPermission, policy: String, sandbox: Stri
     (.fullAccess, "bypassPermissions"),
 ])
 func claudePermissionLevels(level: AgentPermission, mode: String) {
-    #expect(ClaudeTranscript.settings(AgentOptions(), level) == ["--permission-mode", mode])
+    let flags = ClaudeTranscript.settings(
+        AgentConfiguration(options: AgentProvider.claude.defaultOptions, permission: level))
+    #expect(flags.suffix(2) == ["--permission-mode", mode])
 }
 
+/// `--model sonnet` runs the latest Sonnet (verified with 2.1.319: its init reports claude-sonnet-5-5).
 @Test func claudeModelEffortAndSpeed() {
-    #expect(ClaudeTranscript.settings(AgentOptions(), nil) == [])
     #expect(
-        ClaudeTranscript.settings(AgentOptions(model: "opus", effort: "xhigh", speed: .fast), nil) == [
-            "--model", "opus", "--effort", "xhigh", "--settings", #"{"fastMode":true}"#,
-        ])
+        ClaudeTranscript.settings(
+            AgentConfiguration(options: AgentProvider.claude.defaultOptions, permission: .auto)) == [
+                "--model", "sonnet", "--effort", "medium", "--permission-mode", "auto",
+            ])
+    #expect(
+        ClaudeTranscript.settings(
+            AgentConfiguration(
+                options: AgentOptions(model: "opus", effort: "xhigh", speed: .fast), permission: .auto)) == [
+                "--model", "opus", "--effort", "xhigh", "--settings", #"{"fastMode":true}"#,
+                "--permission-mode", "auto",
+            ])
 }
 
 @Test func claudeActingRunsAddTheChoicesAndAnswerRunsDont() {
-    let options = AgentOptions(model: "sonnet")
     let acting = ClaudeTranscript.arguments(
         for: AgentRequest(
-            prompt: "Hi", workingDirectory: folder, mode: .act, options: options, permission: .supervised))
-    #expect(acting.suffix(4) == ["--model", "sonnet", "--permission-mode", "manual"])
+            prompt: "Hi", workingDirectory: folder, mode: act(AgentOptions(model: "opus"), .supervised)))
+    #expect(acting.suffix(6) == ["--model", "opus", "--effort", "medium", "--permission-mode", "manual"])
     let answer = ClaudeTranscript.arguments(
-        for: AgentRequest(
-            prompt: "Hi", workingDirectory: folder, mode: .answer, options: options, permission: .fullAccess))
+        for: AgentRequest(prompt: "Hi", workingDirectory: folder, mode: .answer))
     #expect(!answer.contains("--model"))
     #expect(!answer.contains("--permission-mode"))
 }
@@ -119,9 +132,9 @@ private func storeURL() -> URL {
     URL(filePath: NSTemporaryDirectory()).appending(path: "wicket-\(UUID())/agent-permissions.json")
 }
 
-@Test func noFileForcesNoLevel() {
+@Test func autoUntilALevelIsChosen() {
     let store = AgentPermissions(url: storeURL())
-    for provider in AgentProvider.allCases { #expect(store.level(for: provider) == nil) }
+    for provider in AgentProvider.allCases { #expect(store.level(for: provider) == .auto) }
     #expect(store.problem == nil)
 }
 
@@ -130,35 +143,41 @@ private func storeURL() -> URL {
     let store = AgentPermissions(url: url)
     try store.set(.supervised, for: .codex)
     try store.set(.fullAccess, for: .claude)
-    // Apple's model only answers, so it has no level.
-    try store.set(.fullAccess, for: .apple)
     let reopened = AgentPermissions(url: url)
     #expect(reopened.level(for: .codex) == .supervised)
     #expect(reopened.level(for: .claude) == .fullAccess)
-    #expect(reopened.level(for: .apple) == nil)
+}
 
-    try reopened.set(nil, for: .claude)
-    #expect(AgentPermissions(url: url).level(for: .claude) == nil)
+/// Older builds wrote nothing for "the agent's own settings", so such a provider is on Auto now.
+@Test func aProviderLeftToItsOwnSettingsIsOnAuto() throws {
+    let url = storeURL()
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(#"{"version": 1, "levels": {"codex": "supervised"}}"#.utf8).write(to: url)
+    let store = AgentPermissions(url: url)
+    #expect(store.level(for: .codex) == .supervised)
+    #expect(store.level(for: .claude) == .auto)
+    #expect(store.problem == nil)
 }
 
 @Test(arguments: [
     "not json",
-    #"{"version": 2, "levels": {"codex": "auto"}}"#,
-    #"{"version": 1, "levels": {"codex": "auto", "claude": "yolo"}}"#,
-    #"{"version": 1, "levels": {"apple": "auto"}}"#,
+    #"{"version": 2, "levels": {"codex": "supervised"}}"#,
+    #"{"version": 1, "levels": {"codex": "supervised", "claude": "yolo"}}"#,
+    #"{"version": 1, "levels": {"apple": "supervised"}}"#,
 ])
-func aDamagedFileForcesNoLevel(contents: String) throws {
+func aDamagedFileMeansAuto(contents: String) throws {
     let url = storeURL()
     try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try Data(contents.utf8).write(to: url)
     let store = AgentPermissions(url: url)
-    #expect(store.level(for: .codex) == nil)
+    #expect(store.level(for: .codex) == .auto)
     #expect(store.problem != nil)
     // The next choice replaces the file.
-    try store.set(.auto, for: .codex)
+    try store.set(.supervised, for: .codex)
     #expect(store.problem == nil)
-    #expect(AgentPermissions(url: url).level(for: .codex) == .auto)
+    #expect(AgentPermissions(url: url).level(for: .codex) == .supervised)
 }
 
 // MARK: Run Agent
@@ -178,7 +197,8 @@ func aDamagedFileForcesNoLevel(contents: String) throws {
         })
     let runner = AgentRunner(answers: AnswerStream(backend: backend, interval: .zero, provider: { .codex }))
     runner.answers.configuration = { _ in
-        AgentConfiguration(options: AgentOptions(effort: "max"), permission: .supervised)
+        AgentConfiguration(
+            options: AgentOptions(model: "gpt-6-astra", effort: "max"), permission: .supervised)
     }
     var details: [Detail] = []
     for try await result in runner.run(Invocation(command: .runAgent, text: "make a.txt"), retry: .never) {
@@ -187,9 +207,7 @@ func aDamagedFileForcesNoLevel(contents: String) throws {
         if !detail.actions.isEmpty { break }
     }
     let request = try #require(requests.all.first)
-    #expect(request.mode == .act)
-    #expect(request.options == AgentOptions(effort: "max"))
-    #expect(request.permission == .supervised)
+    #expect(request.mode == act(AgentOptions(model: "gpt-6-astra", effort: "max"), .supervised))
     #expect(details.last?.markdown.contains("_Supervised: asks before changing files._") == true)
 }
 

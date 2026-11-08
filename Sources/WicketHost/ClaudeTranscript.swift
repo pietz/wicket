@@ -5,8 +5,9 @@ import WicketCore
 /// line, and a `result` object ends the run.
 ///
 /// Answer runs send the prompt as plain text on stdin and close it, with every tool, customization
-/// and prompt off. Acting runs keep the user's own setup (settings, permission mode and rules, hooks,
-/// MCP servers, CLAUDE.md) and talk stream-json both ways: the prompt goes in as a user message, stdin
+/// and prompt off. Acting runs keep the user's own setup (settings, permission rules, hooks, MCP
+/// servers, CLAUDE.md) with the model and permission mode chosen in Settings ▸ AI, and talk
+/// stream-json both ways: the prompt goes in as a user message, stdin
 /// stays open, and each permission prompt comes out as a `control_request` (`can_use_tool`) that
 /// becomes an `AgentApproval`, answered by a `control_response` (verified with Claude Code 2.1.318).
 struct ClaudeTranscript: AgentTranscript {
@@ -28,15 +29,14 @@ struct ClaudeTranscript: AgentTranscript {
             "--no-session-persistence",
         ]
         switch request.mode {
-        case .act:
-            // No permission mode, tools or settings of Wicket's own: the user's Claude Code settings
-            // are the policy. What would prompt comes to Wicket over stdio.
+        case .act(let configuration):
+            // The user's choices from Settings ▸ AI; what would prompt comes to Wicket over stdio.
             let instructions = [Agent.actInstructions, request.instructions].compactMap { $0 }
                 .joined(separator: "\n\n")
             return output + [
                 "--input-format", "stream-json", "--permission-prompt-tool", "stdio",
                 "--append-system-prompt", instructions,
-            ] + settings(request.options, request.permission)
+            ] + settings(configuration)
         case .answer:
             // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
             // --permission-prompts none denies anything that would ask.
@@ -47,30 +47,27 @@ struct ClaudeTranscript: AgentTranscript {
         }
     }
 
-    /// The flags an acting run adds for the user's choices; an unset choice adds none, so Claude
-    /// Code's own settings decide it (verified with 2.1.318: `--permission-mode manual` is the CLI's
-    /// default mode, `bypassPermissions` needs no other flag, and with `-p` fast mode is on only
-    /// when `--settings` opts in, so regular needs nothing).
-    static func settings(_ options: AgentOptions, _ permission: AgentPermission?) -> [String] {
-        var flags: [String] = []
-        if let model = options.model { flags += ["--model", model] }
-        if let effort = options.effort { flags += ["--effort", effort] }
+    /// The flags an acting run adds for the user's choices (verified with 2.1.318: `--permission-mode
+    /// manual` is the CLI's default mode, `bypassPermissions` needs no other flag, and with `-p` fast
+    /// mode is on only when `--settings` opts in, so regular needs nothing). Where auto mode isn't
+    /// available (an unsupported model, an organization that turned it off), Claude Code itself falls
+    /// back to its default mode, which asks, as Supervised does (2.1.319).
+    static func settings(_ configuration: AgentConfiguration) -> [String] {
+        let options = configuration.options
+        var flags = ["--model", options.model, "--effort", options.effort]
         if options.speed == .fast { flags += ["--settings", #"{"fastMode":true}"#] }
-        if let permission {
-            let mode =
-                switch permission {
-                case .supervised: "manual"
-                case .autoAcceptEdits: "acceptEdits"
-                case .auto: "auto"
-                case .fullAccess: "bypassPermissions"
-                }
-            flags += ["--permission-mode", mode]
-        }
-        return flags
+        let mode =
+            switch configuration.permission {
+            case .supervised: "manual"
+            case .autoAcceptEdits: "acceptEdits"
+            case .auto: "auto"
+            case .fullAccess: "bypassPermissions"
+            }
+        return flags + ["--permission-mode", mode]
     }
 
     mutating func start() -> AgentStep {
-        guard request.mode == .act else {
+        guard request.mode != .answer else {
             return AgentStep(send: [Data(request.prompt.utf8)], closeInput: true)
         }
         return AgentStep(send: [
@@ -164,7 +161,7 @@ struct ClaudeTranscript: AgentTranscript {
             }
         case "result":
             // With stream-json input the CLI waits for more until stdin closes.
-            return AgentStep(events: [Self.result(message)], closeInput: request.mode == .act)
+            return AgentStep(events: [Self.result(message)], closeInput: request.mode != .answer)
         default:
             break
         }
@@ -174,7 +171,7 @@ struct ClaudeTranscript: AgentTranscript {
     /// A request from the CLI: in an acting run, a permission prompt waits for the user; anything
     /// else is refused (Wicket registers no hooks or SDK servers, so none should come).
     private mutating func controlRequest(_ id: JSONValue, _ body: JSONValue) -> AgentStep {
-        guard request.mode == .act, body["subtype"]?.string == "can_use_tool",
+        guard request.mode != .answer, body["subtype"]?.string == "can_use_tool",
             let tool = body["tool_name"]?.string
         else {
             return AgentStep(send: [

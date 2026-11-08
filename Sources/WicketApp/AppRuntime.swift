@@ -279,7 +279,7 @@ extension AppRuntime {
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] })
         answers.configuration = { provider in
             AgentConfiguration(
-                options: weakRuntime?.applied?.ai[provider] ?? AgentOptions(),
+                options: weakRuntime?.applied?.ai[provider] ?? provider.defaultOptions,
                 permission: permissions.level(for: provider))
         }
         extensions.answers = answers

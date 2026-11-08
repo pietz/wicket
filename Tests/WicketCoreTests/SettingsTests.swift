@@ -231,16 +231,17 @@ private func read(_ url: URL) throws -> String {
     (#"{}"#, nil, nil),
     (#"{"ai": {"provider": "claude"}}"#, AgentProvider.claude, nil),
     (#"{"ai": {"provider": "codex", "future": 1}}"#, .codex, nil),
-    (#"{"ai": {"provider": "apple"}}"#, .apple, nil),
+    // Apple Intelligence was a provider until 2026-11-08: none chosen, so the first ready one answers.
+    (#"{"ai": {"provider": "apple"}}"#, nil, nil),
     (#"{"ai": {"provider": null}}"#, nil, nil),
     (#"{"ai": null}"#, nil, nil),
     (
         #"{"ai": {"provider": "gemini"}}"#, nil,
-        #"ai.provider must be "codex" or "claude" or "apple"; using the first one that's ready"#
+        #"ai.provider must be "claude" or "codex"; using the first one that's ready"#
     ),
     (
         #"{"ai": {"provider": 1}}"#, nil,
-        #"ai.provider must be "codex" or "claude" or "apple"; using the first one that's ready"#
+        #"ai.provider must be "claude" or "codex"; using the first one that's ready"#
     ),
     (#"{"ai": "codex"}"#, nil, "ai must be an object; using defaults"),
 ])
@@ -271,7 +272,7 @@ func aiProviderFallsBackAlone(json: String, provider: AgentProvider?, ignored: S
 
             """)
 
-    // Automatic again with nothing else in the object: the object goes too.
+    // None chosen again with nothing else in the object: the object goes too.
     try write(#"{"ai": {"provider": "codex"}}"#, to: url)
     try Settings.update(at: url) { $0.ai.provider = nil }
     #expect(try read(url) == "{\n\n}\n")

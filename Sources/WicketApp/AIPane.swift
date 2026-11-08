@@ -3,17 +3,18 @@ import SwiftUI
 import WicketCore
 import WicketHost
 
-/// Settings ▸ AI: which provider answers Run Agent (and acts, when it can), whether each one is
-/// ready, and how each agent CLI runs. Provider, model, effort and speed are preferences in
-/// settings.json (`ai`); the permission level is consent, so it goes to `AgentPermissions`, which
-/// only this pane writes. The status and each CLI's models are asked when the pane opens.
+/// Settings ▸ AI: which provider Run Agent uses and how it runs. One picker chooses Claude or
+/// ChatGPT, only those that are installed and signed in; below it, the chosen one's model, effort,
+/// speed and permission level. Provider, model, effort and speed are preferences in settings.json
+/// (`ai`); the permission level is consent, so it goes to `AgentPermissions`, which only this pane
+/// writes. Each provider's status and models are asked when the pane opens.
 struct AIPane: View {
     let store: SettingsStore
     let permissions: AgentPermissions
     @State private var statuses: [AgentProvider: AgentStatus] = [:]
     /// Each CLI's models as it lists them; missing while asking or if it couldn't.
     @State private var models: [AgentProvider: [AgentModel]] = [:]
-    /// The permission levels as the store holds them, so the pickers redraw when one changes.
+    /// The permission levels as the store holds them, so the picker redraws when one changes.
     @State private var levels: [AgentProvider: AgentPermission] = [:]
     @State private var checking = false
     @State private var error: String?
@@ -25,42 +26,11 @@ struct AIPane: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
-            Section {
-                Picker("AI provider", selection: provider) {
-                    Text("Automatic").tag(AgentProvider?.none)
-                    ForEach(AgentProvider.allCases, id: \.self) { provider in
-                        Text(provider.name).tag(AgentProvider?.some(provider))
-                    }
-                }
-            } footer: {
-                Text(
-                    "Codex and Claude Code run on your own subscription and do what you ask, building "
-                        + "Wicket commands included. Automatic uses the first provider that's ready, Codex first."
-                )
-                .foregroundStyle(.secondary)
-                Text("Apple Intelligence is a small, free, offline on-device model for quick answers only.")
-                    .foregroundStyle(.secondary)
-            }
             if let problem = permissions.problem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             }
-            ForEach(AgentProvider.allCases.filter(\.acts), id: \.self) { provider in
-                agentSection(provider)
-            }
-            Section {
-                ForEach(AgentProvider.allCases, id: \.self) { provider in
-                    LabeledContent(provider.name) {
-                        StatusLabel(status: statuses[provider])
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    Button("Check Again") { Task { await check() } }
-                        .disabled(checking)
-                }
-            }
+            providerSection(current)
+            optionsSection(current)
             Section {
                 LabeledContent("Selected text") {
                     if textAccess {
@@ -106,28 +76,76 @@ struct AIPane: View {
         }
     }
 
-    /// One agent CLI's model, effort, speed and permission level. "Default" leaves each to the
-    /// agent's own configuration.
-    private func agentSection(_ provider: AgentProvider) -> some View {
+    private var current: AgentProvider {
+        Self.current(chosen: store.settings.ai.provider, statuses: statuses)
+    }
+
+    /// The provider Run Agent uses: the chosen one, else the first ready one, as `AgentBackend.ready`
+    /// picks it (Claude while the statuses are being asked or if none is ready).
+    static func current(chosen: AgentProvider?, statuses: [AgentProvider: AgentStatus]) -> AgentProvider {
+        chosen ?? AgentProvider.allCases.first { statuses[$0]?.state == .ready } ?? .claude
+    }
+
+    /// Whether every provider was asked and none is ready, so the pane says how to set one up.
+    static func noneReady(_ statuses: [AgentProvider: AgentStatus]) -> Bool {
+        statuses.count == AgentProvider.allCases.count && !statuses.values.contains { $0.state == .ready }
+    }
+
+    /// The provider picker: one that isn't ready says why and can't be chosen.
+    private func providerSection(_ current: AgentProvider) -> some View {
+        Section {
+            Picker("AI provider", selection: provider(current)) {
+                ForEach(AgentProvider.allCases, id: \.self) { provider in
+                    switch statuses[provider]?.state {
+                    case .ready: Label(provider.name, systemImage: "checkmark").tag(provider)
+                    case .loggedOut: Text("\(provider.name) (not signed in)").tag(provider).disabled(true)
+                    case .notInstalled: Text("\(provider.name) (not installed)").tag(provider).disabled(true)
+                    case nil: Text(provider.name).tag(provider)
+                    }
+                }
+            }
+        } footer: {
+            if Self.noneReady(statuses) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(
+                        "To use Run Agent, install Claude Code or Codex and sign in with `claude auth login` "
+                            + "or `codex login` in Terminal."
+                    )
+                    Spacer()
+                    Button("Check Again") { Task { await check() } }.disabled(checking)
+                }
+                .foregroundStyle(.secondary)
+            } else if let warning = statuses[current]?.warning {
+                Text("\(current.cli): \(warning).").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The chosen provider's model, effort, speed and permission level.
+    private func optionsSection(_ provider: AgentProvider) -> some View {
         let options = store.settings.ai[provider]
         let listed = models[provider]
         let model = listed?.first { $0.id == options.model }
-        // An effort or model the file names that the CLI doesn't list still shows, as written.
+        // A model or effort the file names that the CLI doesn't list still shows, as written.
         var modelIDs = listed?.map(\.id) ?? []
-        if let chosen = options.model, !modelIDs.contains(chosen) { modelIDs.append(chosen) }
+        if !modelIDs.contains(options.model) { modelIDs.append(options.model) }
         var efforts = model?.efforts ?? Self.union(listed?.map(\.efforts) ?? [])
-        if let chosen = options.effort, !efforts.contains(chosen) { efforts.append(chosen) }
+        if !efforts.contains(options.effort) { efforts.append(options.effort) }
+        let level = levels[provider] ?? permissions.level(for: provider)
+        var notes = ["Fast answers sooner but uses more of your plan.", "\(level.title): \(level.summary)."]
+        if provider == .claude, level == .auto {
+            notes.append(
+                "Where Claude's auto mode isn't available to your account, it asks as in Supervised.")
+        }
         return Section {
             Picker("Model", selection: binding(provider, \.model)) {
-                Text("Default").tag(String?.none)
                 ForEach(modelIDs, id: \.self) { id in
-                    Text(listed?.first { $0.id == id }?.name ?? id).tag(String?.some(id))
+                    Text(listed?.first { $0.id == id }?.name ?? id).tag(id)
                 }
             }
             Picker("Reasoning effort", selection: binding(provider, \.effort)) {
-                Text("Default").tag(String?.none)
                 ForEach(efforts, id: \.self) { effort in
-                    Text(Self.effortName(effort)).tag(String?.some(effort))
+                    Text(Self.effortName(effort)).tag(effort)
                 }
             }
             Picker("Speed", selection: binding(provider, \.speed)) {
@@ -135,24 +153,13 @@ struct AIPane: View {
                 Text("Fast").tag(AgentSpeed.fast)
             }
             .disabled(model?.fast == false && options.speed == .regular)
-            Picker("Permissions", selection: level(provider)) {
-                Text("\(provider.name)'s own settings").tag(AgentPermission?.none)
+            Picker("Permissions", selection: self.level(provider)) {
                 ForEach(AgentPermission.allCases, id: \.self) { level in
-                    Text(level.title).tag(AgentPermission?.some(level))
+                    Text(level.title).tag(level)
                 }
             }
-        } header: {
-            Text(provider.name)
         } footer: {
-            Text(
-                [
-                    "Default uses what you set in \(provider.name). Fast answers sooner but uses more of "
-                        + "your plan.",
-                    levels[provider].map { "\($0.title): \($0.summary)." }
-                        ?? "Permissions: \(provider.name) asks or acts as its own settings say.",
-                ].joined(separator: " ")
-            )
-            .foregroundStyle(.secondary)
+            Text(notes.joined(separator: " ")).foregroundStyle(.secondary)
         }
     }
 
@@ -166,8 +173,8 @@ struct AIPane: View {
         effort == "xhigh" ? "Extra high" : effort.prefix(1).uppercased() + effort.dropFirst()
     }
 
-    /// A field of one agent's options in settings.json. Choosing a model drops an effort or the fast
-    /// speed it doesn't have.
+    /// A field of one agent's options in settings.json. Choosing a model moves an effort it doesn't
+    /// have to medium (or its first) and drops a fast speed it doesn't have.
     private func binding<Value>(_ provider: AgentProvider, _ field: WritableKeyPath<AgentOptions, Value>)
         -> Binding<Value>
     {
@@ -179,11 +186,11 @@ struct AIPane: View {
                 try store.update { settings in
                     var options = settings.ai[provider]
                     options[keyPath: field] = value
-                    if field == \AgentOptions.model, let chosen = options.model,
-                        let model = listed.first(where: { $0.id == chosen })
+                    if field == \AgentOptions.model,
+                        let model = listed.first(where: { $0.id == options.model })
                     {
-                        if let effort = options.effort, !model.efforts.contains(effort) {
-                            options.effort = nil
+                        if let first = model.efforts.first, !model.efforts.contains(options.effort) {
+                            options.effort = model.efforts.contains("medium") ? "medium" : first
                         }
                         if !model.fast { options.speed = .regular }
                     }
@@ -197,9 +204,9 @@ struct AIPane: View {
     }
 
     /// The permission level, written to the host store, never to settings.json.
-    private func level(_ provider: AgentProvider) -> Binding<AgentPermission?> {
+    private func level(_ provider: AgentProvider) -> Binding<AgentPermission> {
         Binding {
-            levels[provider]
+            levels[provider] ?? permissions.level(for: provider)
         } set: { level in
             do {
                 try permissions.set(level, for: provider)
@@ -223,10 +230,13 @@ struct AIPane: View {
         finderAccess = await Task.detached { ContextCapture.finderAccess(ask: ask) }.value
     }
 
-    private var provider: Binding<AgentProvider?> {
+    /// Choosing writes the provider, so it stays when the other one becomes ready too; one that isn't
+    /// ready is never written.
+    private func provider(_ current: AgentProvider) -> Binding<AgentProvider> {
         Binding {
-            store.settings.ai.provider
+            current
         } set: { provider in
+            guard statuses[provider]?.state == .ready else { return }
             do {
                 try store.update { $0.ai.provider = provider }
                 error = nil
@@ -239,7 +249,7 @@ struct AIPane: View {
     /// Each CLI's models, asked once per opening of the pane.
     private func listModels() async {
         await withTaskGroup(of: (AgentProvider, [AgentModel]?).self) { group in
-            for provider in AgentProvider.allCases where provider.acts {
+            for provider in AgentProvider.allCases {
                 group.addTask { (provider, await Agent.locate(provider)?.models()) }
             }
             for await (provider, list) in group { models[provider] = list }
@@ -256,47 +266,6 @@ struct AIPane: View {
                 group.addTask { await Agent.status(of: provider) }
             }
             for await status in group { statuses[status.provider] = status }
-        }
-    }
-}
-
-private struct StatusLabel: View {
-    let status: AgentStatus?
-
-    var body: some View {
-        if let status {
-            VStack(alignment: .trailing, spacing: 2) {
-                switch status.state {
-                case .ready:
-                    Label(
-                        ["Ready", status.version].compactMap { $0 }.joined(separator: " · "),
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .foregroundStyle(.green)
-                case .loggedOut:
-                    Label("Signed out", systemImage: "person.crop.circle.badge.exclamationmark")
-                        .foregroundStyle(.orange)
-                    Text("Run `\(status.provider.loginCommand ?? "")` in Terminal")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                case .unavailable(let reason):
-                    Label("Unavailable", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
-                    Text(reason)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                case .notInstalled:
-                    Label("Not installed", systemImage: "xmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                if let warning = status.warning {
-                    Text(warning)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } else {
-            ProgressView().controlSize(.small)
         }
     }
 }

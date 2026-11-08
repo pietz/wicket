@@ -19,7 +19,7 @@ Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/
 ## Requirements
 
 - macOS 26 (Tahoe) or later.
-- For the AI: [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in on your own subscription. Wicket runs them on your Mac and follows the permission settings you set there. Apple Intelligence works too, for quick answers only. Everything else works without any AI.
+- For the AI: [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in on your own subscription. Wicket runs them on your Mac; Settings ▸ AI picks one (Claude or ChatGPT), its model and what it may do without asking. Everything else works without any AI.
 
 ## Privacy
 

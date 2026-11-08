@@ -9,6 +9,12 @@ import WicketCore
 // from the real CLIs (Fixtures/, scrubbed of personal paths and account details; the Codex recordings
 // were made before the adapter read the config, so their config/read reply is trimmed by hand).
 
+extension AgentMode {
+    /// An acting run with Claude's defaults on Auto, for tests where the choices don't matter.
+    static let acting = AgentMode.act(
+        AgentConfiguration(options: AgentProvider.claude.defaultOptions, permission: .auto))
+}
+
 /// A fake agent executable named like the real one, running `script` with /bin/sh.
 func fakeAgent(_ provider: AgentProvider, _ script: String) throws -> Agent {
     let folder = FileManager.default.temporaryDirectory.appending(
@@ -130,10 +136,11 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(reply["error"]?["code"] == .integer(-32601))
     }
 
-    @Test func actingRunsLeaveApprovalsSandboxAndServersToTheUsersConfig() throws {
-        #expect(CodexTranscript.arguments(for: .act) == ["app-server"])
+    @Test func actingRunsKeepTheUsersServersAndSetTheChoicesOnTheTurn() throws {
+        #expect(CodexTranscript.arguments(for: .acting) == ["app-server"])
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Tidy up", workingDirectory: URL(filePath: "/tmp/work"), mode: .act)
+            request: AgentRequest(
+                prompt: "Tidy up", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting)
         )
         let start = transcript.start()
         #expect(try methods(start) == ["initialize", "initialized", "thread/start"])
@@ -146,15 +153,14 @@ func activities(_ events: [AgentEvent]) -> [String] {
         }
         let turn = try sent(transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#)))
         #expect(turn["method"] == .string("turn/start"))
-        #expect(turn["params"]?["effort"] == nil)
-        #expect(turn["params"]?["sandboxPolicy"] == nil)
-        // Only the speed is Wicket's: regular unless the user chose fast (`AgentSettingsTests`).
-        #expect(turn["params"]?["serviceTierForTurn"] == .string("default"))
+        // The choices from Settings ▸ AI (`AgentSettingsTests`).
+        #expect(turn["params"]?["effort"] == .string("medium"))
+        #expect(turn["params"]?["sandboxPolicy"] == .object(["type": .string("workspaceWrite")]))
     }
 
     @Test func approvalsWaitForTheUserUntilResolved() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .act))
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting))
         _ = transcript.start()
         let command = AgentApproval(
             id: .integer(0), kind: .command, subject: "echo hi > hello.txt", reason: "Create hello.txt?")
@@ -208,7 +214,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func approvalsSayWhereAndWhatUnambiguously() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .act))
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting))
         _ = transcript.start()
         // A managed-network prompt names its host and protocol, not the command behind it.
         #expect(
@@ -244,7 +250,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     @Test func actingRunsStillRefuseOtherRequests() throws {
         var transcript = CodexTranscript(
-            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .act))
+            request: AgentRequest(prompt: "Hi", workingDirectory: URL(filePath: "/tmp/a"), mode: .acting))
         let step = transcript.receive(
             line(#"{"id":5,"method":"item/tool/requestUserInput","params":{"questions":[]}}"#))
         #expect(step.events == [.activity("Declined item/tool/requestUserInput")])
@@ -254,7 +260,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     @Test func aRecordedApprovalRoundTrip() async throws {
         // Recorded from Codex 0.167 with a temporary config (on-request, read-only), the command
         // accepted; the replay ignores what it is sent.
-        let events = await events(try replaying(.codex, "codex-act-approval"), .act)
+        let events = await events(try replaying(.codex, "codex-act-approval"), .acting)
         let approval = AgentApproval(
             id: .integer(0), kind: .command, subject: "echo hi > hello.txt",
             reason: "Allow creating hello.txt with the requested content?", workingDirectory: "/tmp/work")
@@ -290,7 +296,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m","text":"ok"}}}'
             echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
             """)
-        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .act))
+        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .acting))
         var last: AgentEvent?
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
@@ -370,12 +376,13 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func actingRunsKeepTheUsersSetupAndTalkStreamJSON() throws {
-        let acting = request(.act, instructions: "About Wicket.")
+        let acting = request(.acting, instructions: "About Wicket.")
         let arguments = ClaudeTranscript.arguments(for: acting)
-        // Nothing that overrides the user's settings, permission mode, tools, MCP servers or effort.
+        // Nothing that overrides the user's settings, tools or MCP servers; the model, effort and
+        // permission mode are the choices from Settings ▸ AI (`AgentSettingsTests`).
         for flag in [
-            "--safe-mode", "--restricted", "--strict-mcp-config", "--permission-prompts", "--permission-mode",
-            "--tools", "--effort", "--system-prompt", "--settings", "--setting-sources",
+            "--safe-mode", "--restricted", "--strict-mcp-config", "--permission-prompts", "--tools",
+            "--system-prompt", "--settings", "--setting-sources",
         ] {
             #expect(!arguments.contains(flag), "\(flag)")
         }
@@ -405,7 +412,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     // The control requests below are as Claude Code 2.1.318 sent them (paths shortened).
 
     @Test func permissionPromptsWaitForTheUserUntilTheirToolsReturn() throws {
-        var transcript = ClaudeTranscript(request: request(.act))
+        var transcript = ClaudeTranscript(request: request(.acting))
         _ = transcript.receive(
             line(
                 #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo one > a.txt","description":"Write \"one\" to a.txt"}}]},"parent_tool_use_id":null}"#
@@ -490,7 +497,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func subAgentsAndUnknownToolsCountAsActing() {
-        var transcript = ClaudeTranscript(request: request(.act))
+        var transcript = ClaudeTranscript(request: request(.acting))
         _ = transcript.receive(
             line(
                 #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s","name":"Write","input":{"file_path":"/tmp/work/a.txt","content":"x"}},{"type":"tool_use","id":"toolu_m","name":"mcp__notes__update","input":{}},{"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/tmp/work/a.txt"}}]},"parent_tool_use_id":"toolu_task"}"#
@@ -503,7 +510,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func otherToolsShowTheirInputAndCancelledPromptsGo() throws {
-        var transcript = ClaudeTranscript(request: request(.act))
+        var transcript = ClaudeTranscript(request: request(.acting))
         let fetch = transcript.receive(
             line(
                 #"{"type":"control_request","request_id":"r3","request":{"subtype":"can_use_tool","tool_name":"WebFetch","display_name":"Fetch","input":{"url":"https://example.com","prompt":"Summarize"},"tool_use_id":"toolu_3"}}"#
@@ -522,7 +529,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
     }
 
     @Test func questionsAndUnknownRequestsAreRefused() throws {
-        var transcript = ClaudeTranscript(request: request(.act))
+        var transcript = ClaudeTranscript(request: request(.acting))
         let question = transcript.receive(
             line(
                 #"{"type":"control_request","request_id":"q","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"toolu_q"}}"#
@@ -564,7 +571,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
             echo '{"type":"result","subtype":"success","is_error":false,"result":"ok"}'
             cat > /dev/null
             """)
-        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .act))
+        let run = agent.run(AgentRequest(prompt: "test", workingDirectory: folder, mode: .acting))
         var last: AgentEvent?
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
@@ -593,7 +600,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         let agent = try #require(await Agent.locate(.claude))
         let request = AgentRequest(
             prompt: "Run exactly this with the Bash tool: echo hi > hello.txt. Then reply: done.",
-            workingDirectory: folder, mode: .act)
+            workingDirectory: folder, mode: .acting)
         let run = AgentProcess.run(
             agent.executable,
             arguments: ClaudeTranscript.arguments(for: request) + [

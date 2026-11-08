@@ -13,19 +13,8 @@ extension CommandID {
     public static let aiApproval = CommandID.builtin("ai-approval")
 }
 
-/// How an acting run is set up beyond its prompt: the user's choices for that agent.
-public struct AgentConfiguration: Sendable, Equatable {
-    public var options: AgentOptions
-    public var permission: AgentPermission?
-
-    public init(options: AgentOptions = AgentOptions(), permission: AgentPermission? = nil) {
-        self.options = options
-        self.permission = permission
-    }
-}
-
-/// Run Agent: acts with a provider that can (`AgentProvider.acts`), in the folder of the Finder
-/// selection or the home folder, else answers; its approvals are answered through
+/// Run Agent: acts with the chosen provider, in the folder of the Finder selection or the home
+/// folder; its approvals are answered through
 /// `builtin:ai-approval`. With the stream's `authoring`, an acting run knows Wicket and can add or
 /// change its commands, and its answer offers to review what it wrote. It owns the shared answer
 /// stream's shutdown, prompt commands' runs included.

@@ -14,8 +14,10 @@ public final class AnswerStream {
     /// What acting runs are told about Wicket and how their extensions reach review; set by the app.
     public var authoring: ExtensionAuthoring?
     /// How an acting run of a provider runs: settings.json's options and the permission level from
-    /// Settings ▸ AI, read when a question is asked; set by the app. Nothing forced by default.
-    public var configuration: @MainActor (AgentProvider) -> AgentConfiguration = { _ in AgentConfiguration() }
+    /// Settings ▸ AI, read when a question is asked; set by the app. The defaults until it is.
+    public var configuration: @MainActor (AgentProvider) -> AgentConfiguration = {
+        AgentConfiguration(options: $0.defaultOptions, permission: .auto)
+    }
     private let backend: AgentBackend
     private let interval: Duration
     /// The runs in flight, each ending once its agent's process tree is gone.
@@ -35,8 +37,8 @@ public final class AnswerStream {
         self.interval = interval
     }
 
-    /// With `actingIn`, a provider that acts works in that folder (`AgentMode.act`); otherwise, and
-    /// for every other provider, the run only answers, in an empty folder.
+    /// With `actingIn`, the provider acts in that folder (`AgentMode.act`); otherwise the run only
+    /// answers, in an empty folder.
     func run(
         _ invocation: Invocation, prompt: String, title: String, actingIn folder: URL? = nil,
         completedActions: @escaping @MainActor () -> [Item.Action] = { [] }
@@ -109,21 +111,20 @@ public final class AnswerStream {
             return
         }
         try Task.checkCancellation()
-        let acts = acting != nil && provider.acts
-        let configuration = acts ? configuration(provider) : AgentConfiguration()
+        let configuration = acting.map { _ in configuration(provider) }
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
-            permission: configuration.permission, completedActions: completedActions)
+            permission: configuration?.permission, completedActions: completedActions)
         output.yield(.show(.detail(draft.detail)))
 
         let request: AgentRequest
         // What the extensions folder holds before an acting run, to offer what it changes for review.
         var before: ExtensionAuthoring.Snapshot?
-        if let acting, acts {
+        if let acting, let configuration {
             before = await authoring?.snapshot()
             request = AgentRequest(
-                prompt: prompt, workingDirectory: acting, mode: .act, instructions: authoring?.instructions(),
-                options: configuration.options, permission: configuration.permission)
+                prompt: prompt, workingDirectory: acting, mode: .act(configuration),
+                instructions: authoring?.instructions())
         } else {
             // An empty folder, so the agent's working directory holds nothing to read.
             let folder = FileManager.default.temporaryDirectory.appending(

@@ -57,7 +57,7 @@ struct CodexTranscript: AgentTranscript {
                 .initialize, "initialize",
                 ["clientInfo": .object(["name": .string("wicket"), "version": .string("1")])]),
             Self.line(["method": .string("initialized")]),
-            request.mode == .act
+            request.mode != .answer
                 ? startThread(disabling: [])
                 : Self.request(.readConfig, "config/read", ["cwd": .string(request.workingDirectory.path)]),
         ])
@@ -102,8 +102,8 @@ struct CodexTranscript: AgentTranscript {
             ]
             switch request.mode {
             case .answer: params["effort"] = .string("low")
-            case .act:
-                params.merge(Self.turnSettings(request.options, request.permission)) { $1 }
+            case .act(let configuration):
+                params.merge(Self.turnSettings(configuration)) { $1 }
             }
             return AgentStep(send: [Self.request(.startTurn, "turn/start", params)])
         case .initialize, .startTurn:
@@ -111,35 +111,31 @@ struct CodexTranscript: AgentTranscript {
         }
     }
 
-    /// What an acting run's turn/start sets from the user's choices; an unset choice sets nothing, so
-    /// config.toml decides it. Set per turn, not per thread: Codex resets the approvals reviewer on
-    /// every turn/start (verified with 0.167's app-server schema: approval policy, sandbox, reviewer,
-    /// model, effort and service tier are all turn overrides).
-    static func turnSettings(_ options: AgentOptions, _ permission: AgentPermission?) -> [String: JSONValue] {
-        var settings: [String: JSONValue] = [
-            // "default" is standard speed even for a model whose catalog default is the fast tier.
-            "serviceTierForTurn": .string(options.speed == .fast ? "priority" : "default")
-        ]
-        if let model = options.model { settings["model"] = .string(model) }
-        if let effort = options.effort { settings["effort"] = .string(effort) }
-        guard let permission else { return settings }
+    /// What an acting run's turn/start sets from the user's choices. Set per turn, not per thread:
+    /// Codex resets the approvals reviewer on every turn/start (verified with 0.167's app-server
+    /// schema: approval policy, sandbox, reviewer, model, effort and service tier are all turn
+    /// overrides).
+    static func turnSettings(_ configuration: AgentConfiguration) -> [String: JSONValue] {
+        let options = configuration.options
         let (policy, sandbox, reviewer): (String, String, String) =
-            switch permission {
+            switch configuration.permission {
             case .supervised: ("untrusted", "readOnly", "user")
             case .autoAcceptEdits: ("on-request", "workspaceWrite", "user")
             case .auto: ("on-request", "workspaceWrite", "auto_review")
             case .fullAccess: ("never", "dangerFullAccess", "user")
             }
-        settings["approvalPolicy"] = .string(policy)
-        settings["sandboxPolicy"] = .object(["type": .string(sandbox)])
-        settings["approvalsReviewer"] = .string(reviewer)
-        return settings
+        return [
+            "model": .string(options.model), "effort": .string(options.effort),
+            // "default" is standard speed even for a model whose catalog default is the fast tier.
+            "serviceTierForTurn": .string(options.speed == .fast ? "priority" : "default"),
+            "approvalPolicy": .string(policy), "sandboxPolicy": .object(["type": .string(sandbox)]),
+            "approvalsReviewer": .string(reviewer),
+        ]
     }
 
     /// thread/start: an ephemeral thread in the working directory. Answer runs set a read-only
-    /// sandbox, approval policy "never" and `servers` disabled; acting runs set none of it, so Codex
-    /// applies the user's configuration (verified with 0.167: omitted, both come from config.toml),
-    /// and get Wicket's instructions.
+    /// sandbox, approval policy "never" and `servers` disabled; acting runs get Wicket's
+    /// instructions and set the user's choices on each turn (`turnSettings`).
     private func startThread(disabling servers: [String]) -> Data {
         var params: [String: JSONValue] = [
             "cwd": .string(request.workingDirectory.path),

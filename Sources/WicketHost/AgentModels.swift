@@ -24,7 +24,6 @@ extension Agent {
     /// `model/list`, Claude Code's stream-json `initialize` (both verified with 0.167 and 2.1.318,
     /// each in under 2 s). Nil if the CLI couldn't list them in 10 s.
     public func models() async -> [AgentModel]? {
-        guard provider != .apple else { return nil }
         let folder = FileManager.default.temporaryDirectory.appending(
             path: "wicket-models-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -62,7 +61,6 @@ struct ModelListing: AgentTranscript {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--no-session-persistence", "--safe-mode",
             ]
-        case .apple: []
         }
     }
 
@@ -89,8 +87,6 @@ struct ModelListing: AgentTranscript {
                     "request": .object(["subtype": .string("initialize")]),
                 ])
             ])
-        case .apple:
-            AgentStep(closeInput: true)
         }
     }
 
@@ -111,7 +107,7 @@ struct ModelListing: AgentTranscript {
     }
 
     /// The models in a `model/list` result or an `initialize` response, in the CLI's order. Claude
-    /// Code's "default" entry is left out: not choosing a model is the agent's default already.
+    /// Code's "default" entry is left out: Wicket always names a model.
     static func models(_ provider: AgentProvider, from result: JSONValue) -> [AgentModel] {
         switch provider {
         case .codex:
@@ -132,8 +128,6 @@ struct ModelListing: AgentTranscript {
                     efforts: (model["supportedEffortLevels"]?.array ?? []).compactMap(\.string),
                     fast: model["supportsFastMode"] == .bool(true))
             }
-        case .apple:
-            return []
         }
     }
 

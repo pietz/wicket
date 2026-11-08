@@ -3,7 +3,7 @@ import WicketCore
 import os
 
 /// What Wicket needs from its AI providers: whether a provider is ready, and an answer run.
-/// `installed` uses the CLIs on the login-shell PATH or Apple's model; tests pass stand-ins. Run
+/// `installed` uses the CLIs on the login-shell PATH; tests pass stand-ins. Run
 /// Agent, prompt commands and `wicket agent ask` all pick their provider through `ready(_:)`.
 public struct AgentBackend: Sendable {
     public var status: @Sendable (AgentProvider) async -> AgentStatus
@@ -20,7 +20,6 @@ public struct AgentBackend: Sendable {
     public static let installed = AgentBackend(
         status: { await Agent.status(of: $0) },
         run: { provider, request in
-            if provider == .apple { return AppleModel.run(request) }
             if let agent = await Agent.locate(provider) { return agent.run(request) }
             let status = AgentStatus(provider: provider, state: .notInstalled)
             return AgentRun {
@@ -30,7 +29,7 @@ public struct AgentBackend: Sendable {
         })
 
     /// The status of the provider to ask: `chosen` if it is ready, else, with none chosen, the first
-    /// ready one of Codex, Claude Code and Apple. Checked on every call, never cached; a chosen
+    /// ready one of Claude and ChatGPT. Checked on every call, never cached; a chosen
     /// provider that isn't ready is never swapped for another.
     public func ready(_ chosen: AgentProvider?) async throws(AgentUnavailable) -> AgentStatus {
         var statuses: [AgentStatus] = []
@@ -68,11 +67,10 @@ public struct AgentUnavailable: Error, CustomStringConvertible {
     static func reason(_ status: AgentStatus) -> String {
         let provider = status.provider
         return switch status.state {
-        case .notInstalled: "\(provider.name) isn't installed: there's no `\(provider.command)` on your PATH."
+        case .notInstalled: "\(provider.cli) isn't installed: there's no `\(provider.command)` on your PATH."
         case .loggedOut:
-            "\(provider.name) isn't signed in: run `\(provider.loginCommand ?? "")` in Terminal to sign in."
-        case .unavailable: status.description
-        case .ready: "\(provider.name) is ready."
+            "\(provider.cli) isn't signed in: run `\(provider.loginCommand)` in Terminal to sign in."
+        case .ready: "\(provider.cli) is ready."
         }
     }
 }

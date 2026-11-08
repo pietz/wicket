@@ -41,32 +41,29 @@ public struct Settings: Equatable, Sendable {
     /// The `ai` object. Preferences only: nothing here grants anything, so the agents' permission
     /// level is not here (`AgentPermission`).
     public struct AI: Equatable, Sendable {
-        /// Which agent answers Run Agent; nil (the default) means the first one that's ready, in
-        /// `AgentProvider.allCases` order (Codex first).
+        /// Which agent answers Run Agent; nil (none chosen yet) means the first one that's ready, in
+        /// `AgentProvider.allCases` order (Claude first).
         public var provider: AgentProvider?
-        /// How Codex runs (`ai.codex`).
-        public var codex = AgentOptions()
         /// How Claude Code runs (`ai.claude`).
-        public var claude = AgentOptions()
+        public var claude = AgentProvider.claude.defaultOptions
+        /// How Codex runs (`ai.codex`).
+        public var codex = AgentProvider.codex.defaultOptions
 
         public init(provider: AgentProvider? = nil) {
             self.provider = provider
         }
 
-        /// The options of an agent CLI; Apple's model has none.
         public subscript(provider: AgentProvider) -> AgentOptions {
             get {
                 switch provider {
-                case .codex: codex
                 case .claude: claude
-                case .apple: AgentOptions()
+                case .codex: codex
                 }
             }
             set {
                 switch provider {
-                case .codex: codex = newValue
                 case .claude: claude = newValue
-                case .apple: break
+                case .codex: codex = newValue
                 }
             }
         }
@@ -420,13 +417,17 @@ extension Settings: Codable {
     }
 
     /// Like the width, a wrong provider is ignored on its own: Run Agent then uses the first ready one.
+    /// "apple", a provider older builds offered, quietly means none chosen, so the first ready one
+    /// (Claude, else ChatGPT) takes over.
     private mutating func decodeAI(_ ai: KeyedDecodingContainer<AIKeys>?) {
         guard let ai else {
             ignored.append("ai must be an object; using defaults")
             return
         }
-        // Null, like a missing field, means automatic.
-        if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false {
+        // Null, like a missing field, means none chosen.
+        if ai.contains(.provider), (try? ai.decodeNil(forKey: .provider)) == false,
+            (try? ai.decode(String.self, forKey: .provider)) != "apple"
+        {
             if let provider = try? ai.decode(AgentProvider.self, forKey: .provider) {
                 self.ai.provider = provider
             } else {
@@ -434,20 +435,21 @@ extension Settings: Codable {
                 ignored.append("ai.provider must be \(names); using the first one that's ready")
             }
         }
-        for (key, provider) in [(AIKeys.codex, AgentProvider.codex), (.claude, .claude)]
+        for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)]
         where ai.contains(key) && (try? ai.decodeNil(forKey: key)) != true {
             decodeAgent(
                 try? ai.nestedContainer(keyedBy: AgentKeys.self, forKey: key), provider, key.stringValue)
         }
     }
 
-    /// One agent's options; each field fails alone and leaves the agent's own default. A
+    /// One agent's options; each field fails alone and leaves the provider's default. A model of
+    /// "default", which older builds wrote for the agent's own, is the provider's default too. A
     /// `permission` here is ignored with its reason: the file never grants consent.
     private mutating func decodeAgent(
         _ object: KeyedDecodingContainer<AgentKeys>?, _ provider: AgentProvider, _ key: String
     ) {
         guard let object else {
-            ignored.append("ai.\(key) must be an object; using \(provider.name)'s own settings")
+            ignored.append("ai.\(key) must be an object; using the defaults")
             return
         }
         for field in [AgentKeys.model, .effort] where object.contains(field) {
@@ -455,10 +457,14 @@ extension Settings: Codable {
             guard let value = try? object.decode(String.self, forKey: field), AgentOptions.isValidValue(value)
             else {
                 ignored.append(
-                    "ai.\(key).\(field.stringValue) must be one word; using \(provider.name)'s default")
+                    "ai.\(key).\(field.stringValue) must be one word; using the default")
                 continue
             }
-            if field == .model { ai[provider].model = value } else { ai[provider].effort = value }
+            if field == .model {
+                if value != "default" { ai[provider].model = value }
+            } else {
+                ai[provider].effort = value
+            }
         }
         if object.contains(.speed), (try? object.decodeNil(forKey: .speed)) == false {
             if let name = try? object.decode(String.self, forKey: .speed),
@@ -501,16 +507,20 @@ extension Settings: Codable {
         // Only when hidden, so a new file stays minimal and `update` removes it when shown again.
         if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
         // Only what is chosen, so a new file stays minimal; `update` removes a field set back to the
-        // agent's default (and the object once nothing is left in it).
+        // provider's default (and the object once nothing is left in it).
         if ai != AI() {
             var nested = container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai)
             try nested.encodeIfPresent(ai.provider, forKey: .provider)
-            for (key, options) in [(AIKeys.codex, ai.codex), (.claude, ai.claude)]
-            where options != AgentOptions() {
+            for (key, provider) in [(AIKeys.claude, AgentProvider.claude), (.codex, .codex)] {
+                let options = ai[provider]
+                let defaults = provider.defaultOptions
+                guard options != defaults else { continue }
                 var fields = nested.nestedContainer(keyedBy: AgentKeys.self, forKey: key)
-                try fields.encodeIfPresent(options.model, forKey: .model)
-                try fields.encodeIfPresent(options.effort, forKey: .effort)
-                if options.speed != .regular { try fields.encode(options.speed.rawValue, forKey: .speed) }
+                if options.model != defaults.model { try fields.encode(options.model, forKey: .model) }
+                if options.effort != defaults.effort { try fields.encode(options.effort, forKey: .effort) }
+                if options.speed != defaults.speed {
+                    try fields.encode(options.speed.rawValue, forKey: .speed)
+                }
             }
         }
         // Only when changed, like the provider.

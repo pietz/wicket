@@ -5,9 +5,20 @@ import WicketCore
 public enum AgentMode: Sendable, Equatable {
     /// Answer from the model alone: no tools, no commands, no file access.
     case answer
-    /// Answer or do what the user asks with the agent's own tools, under the approval policy and
-    /// sandbox the user set in that agent (Codex and Claude Code); requests it sends are approvals.
-    case act
+    /// Answer or do what the user asks with the agent's own tools, with the model and permission
+    /// level the user chose in Settings ▸ AI; requests it sends are approvals.
+    case act(AgentConfiguration)
+}
+
+/// How an acting run is set up beyond its prompt: the user's choices for that agent.
+public struct AgentConfiguration: Sendable, Equatable {
+    public var options: AgentOptions
+    public var permission: AgentPermission
+
+    public init(options: AgentOptions, permission: AgentPermission) {
+        self.options = options
+        self.permission = permission
+    }
 }
 
 public struct AgentRequest: Sendable {
@@ -18,23 +29,17 @@ public struct AgentRequest: Sendable {
     /// For an acting run, what it is told after `Agent.actInstructions`: what Wicket has and how to
     /// extend it (`ExtensionAuthoring.instructions`).
     public var instructions: String?
-    /// For an acting run, the model, effort and speed the user chose (settings.json); unset fields
-    /// leave the agent's own. Answer runs keep their fixed setup.
-    public var options: AgentOptions
-    /// For an acting run, the permission level the user chose in Settings ▸ AI; nil leaves the
-    /// agent's own permission settings in charge.
-    public var permission: AgentPermission?
 
-    public init(
-        prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil,
-        options: AgentOptions = AgentOptions(), permission: AgentPermission? = nil
-    ) {
+    public init(prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil) {
         self.prompt = prompt
         self.workingDirectory = workingDirectory
         self.mode = mode
         self.instructions = instructions
-        self.options = options
-        self.permission = permission
+    }
+
+    /// The user's choices for an acting run; nil for an answer run, which keeps its fixed setup.
+    var configuration: AgentConfiguration? {
+        if case .act(let configuration) = mode { configuration } else { nil }
     }
 
     /// A path as the user can tell it apart: relative to the run's folder when inside it, else
@@ -75,7 +80,7 @@ public enum AgentEvent: Sendable, Equatable {
     /// empty list once the last one is resolved). Answered with `AgentRun.reply`.
     case approvals([AgentApproval])
     /// The agent ran a command or changed a file (after the activity saying which); can come more
-    /// than once. Actions the agent's own settings approved come too, never reaching `approvals`.
+    /// than once. Actions approved without asking come too, never reaching `approvals`.
     case acted
 }
 
@@ -205,18 +210,11 @@ public struct AgentReply: Sendable, Hashable {
     public var decision: AgentDecision
 }
 
-extension AgentProvider {
-    /// Whether Run Agent runs this provider as an acting agent (`AgentMode.act`) rather than answer-only:
-    /// the agent CLIs, whose approvals reach the palette; Apple's model only answers.
-    public var acts: Bool { self != .apple }
-}
-
 /// Whether a provider can run, for the UI to show.
 public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
     public enum State: Sendable, Equatable {
         case notInstalled
         case loggedOut
-        case unavailable(String)
         case ready
     }
 
@@ -227,20 +225,18 @@ public struct AgentStatus: Sendable, Equatable, CustomStringConvertible {
 
     /// Set when the installed version isn't the tested major.minor; the agent still runs.
     public var warning: String? {
-        guard let testedVersion = provider.testedVersion, let version,
-            !version.hasPrefix(testedVersion + ".")
-        else { return nil }
-        return "untested version \(version) (Wicket was tested with \(testedVersion).x)"
+        let tested = provider.testedVersion
+        guard let version, !version.hasPrefix(tested + ".") else { return nil }
+        return "untested version \(version) (Wicket was tested with \(tested).x)"
     }
 
     public var description: String {
-        let name = [provider.name, version].compactMap { $0 }.joined(separator: " ")
+        let name = [provider.cli, version].compactMap { $0 }.joined(separator: " ")
         let text =
             switch state {
             case .notInstalled:
-                "\(provider.name) is not installed (no `\(provider.command)` on the login shell PATH)"
-            case .loggedOut: "\(name) is not logged in; run `\(provider.loginCommand ?? "")` in Terminal"
-            case .unavailable(let reason): "\(name) is unavailable: \(reason)"
+                "\(provider.cli) is not installed (no `\(provider.command)` on the login shell PATH)"
+            case .loggedOut: "\(name) is not logged in; run `\(provider.loginCommand)` in Terminal"
             case .ready: "\(name) is ready"
             }
         return warning.map { "\(text); \($0)" } ?? text
@@ -259,7 +255,6 @@ public struct Agent: Sendable {
 
     /// Finds the provider's executable on the login-shell PATH.
     public static func locate(_ provider: AgentProvider) async -> Agent? {
-        guard provider != .apple else { return nil }
         for directory in await LoginShell.path().split(separator: ":") {
             let url = URL(filePath: String(directory)).appending(path: provider.command)
             if FileManager.default.isExecutableFile(atPath: url.path) {
@@ -272,7 +267,6 @@ public struct Agent: Sendable {
     /// Installed, version and login state, without starting a model run (about 20 ms for Codex,
     /// 150 ms for Claude Code).
     public static func status(of provider: AgentProvider) async -> AgentStatus {
-        if provider == .apple { return AppleModel.status() }
         guard let agent = await locate(provider) else {
             return AgentStatus(provider: provider, state: .notInstalled)
         }
@@ -280,12 +274,10 @@ public struct Agent: Sendable {
     }
 
     public func status() async -> AgentStatus {
-        if provider == .apple { return AppleModel.status() }
-        let loginArguments: [String] =
+        let loginArguments =
             switch provider {
             case .codex: ["login", "status"]
             case .claude: ["auth", "status"]
-            case .apple: []  // The system model returned above never starts a CLI.
             }
         async let version = AgentProcess.output(of: executable, arguments: ["--version"])
         async let login = AgentProcess.output(of: executable, arguments: loginArguments)
@@ -304,8 +296,6 @@ public struct Agent: Sendable {
     /// has exited, and ending it early kills that tree.
     public func run(_ request: AgentRequest) -> AgentRun {
         switch provider {
-        case .apple:
-            AppleModel.run(request)
         case .codex:
             AgentProcess.run(
                 executable, arguments: CodexTranscript.arguments(for: request.mode), request: request,

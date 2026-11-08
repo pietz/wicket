@@ -1,54 +1,68 @@
 import Foundation
 
-/// An AI provider: a coding agent CLI on the user's subscription or Apple's on-device answer model.
-/// The adapters are in WicketHost; the name is here so settings can choose one.
+/// An AI provider: a coding agent CLI on the user's subscription. The adapters are in WicketHost;
+/// the name is here so settings can choose one. Claude first: with none chosen, the first ready one
+/// answers (`AgentBackend.ready`).
 public enum AgentProvider: String, CaseIterable, Sendable, Codable {
-    case codex
     case claude
-    case apple
+    case codex
 
+    /// What Settings ▸ AI and the palette call it: the subscription the user knows.
     public var name: String {
         switch self {
-        case .codex: "Codex"
-        case .claude: "Claude Code"
-        case .apple: "Apple Intelligence (on device)"
+        case .claude: "Claude"
+        case .codex: "ChatGPT"
         }
     }
 
-    /// The executable's name on the login-shell PATH for CLI providers; Apple is never located.
+    /// The CLI that runs it, as setup hints name it.
+    public var cli: String {
+        switch self {
+        case .claude: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+
+    /// The executable's name on the login-shell PATH.
     public var command: String { rawValue }
 
-    /// The major.minor version the CLI adapter was tested against; nil for the system-managed Apple
-    /// model. Other versions run with a warning, since machine interfaces change between releases.
-    public var testedVersion: String? {
+    /// The major.minor version the CLI adapter was tested against. Other versions run with a
+    /// warning, since machine interfaces change between releases.
+    public var testedVersion: String {
         switch self {
-        case .codex: "0.167"
         case .claude: "2.1"
-        case .apple: nil
+        case .codex: "0.167"
         }
     }
 
-    /// What the user runs in Terminal to log in; nil for the on-device model.
-    public var loginCommand: String? {
+    /// What the user runs in Terminal to log in.
+    public var loginCommand: String {
         switch self {
-        case .codex: "codex login"
         case .claude: "claude auth login"
-        case .apple: nil
+        case .codex: "codex login"
+        }
+    }
+
+    /// The options with nothing chosen: Claude Code's `sonnet` alias (the latest Sonnet) and Codex's
+    /// GPT-6.1 Terra (Codex has no aliases), both verified in each CLI's model list (2.1.319, 0.167).
+    public var defaultOptions: AgentOptions {
+        switch self {
+        case .claude: AgentOptions(model: "sonnet")
+        case .codex: AgentOptions(model: "gpt-6.1-terra")
         }
     }
 }
 
-/// How one agent CLI runs for Run Agent (settings.json `ai.codex`, `ai.claude`). Preferences only:
-/// nil means the agent's own default (its config file), so an unset field forces nothing. What the
-/// agent may do without asking is a permission (`AgentPermission`), never here.
+/// How one agent CLI runs for Run Agent (settings.json `ai.claude`, `ai.codex`). Preferences only:
+/// what the agent may do without asking is a permission (`AgentPermission`), never here.
 public struct AgentOptions: Equatable, Sendable {
     /// A model id the CLI accepts, such as "gpt-6-astra" or "opus".
-    public var model: String?
+    public var model: String
     /// A reasoning effort the model supports, such as "high".
-    public var effort: String?
+    public var effort: String
     public var speed: AgentSpeed
 
-    public init(model: String? = nil, effort: String? = nil, speed: AgentSpeed = .regular) {
+    public init(model: String, effort: String = "medium", speed: AgentSpeed = .regular) {
         self.model = model
         self.effort = effort
         self.speed = speed
@@ -69,7 +83,7 @@ public enum AgentSpeed: String, CaseIterable, Sendable {
 
 /// What an acting agent may do without asking, mapped onto each CLI's own settings (T3 Code's four
 /// levels). A permission, so it is set only in Wicket's UI and stored outside settings.json
-/// (`AgentPermissions`); none (nil) leaves the agent's own configuration in charge.
+/// (`AgentPermissions`); Auto until the user picks another.
 public enum AgentPermission: String, CaseIterable, Sendable, Codable {
     case supervised
     case autoAcceptEdits = "auto-accept-edits"
