@@ -26,7 +26,9 @@ public final class PaletteSession {
     /// Bottom first; never empty, and only the bottom frame is the root search.
     public private(set) var frames: [Frame]
     /// The command an action opened, until its first result arrives; nil otherwise.
-    public private(set) var opening: CommandRun?
+    public var opening: CommandRun? {
+        if case .screen(let screen) = openingFrame?.content { screen.run } else { nil }
+    }
     /// What the user had selected in the app they came from, once captured (`captureContext`): the
     /// pill's chip. Nil while capturing, when nothing was selected, and once dismissed.
     public private(set) var context: SummonContext?
@@ -43,8 +45,8 @@ public final class PaletteSession {
     @ObservationIgnored private var contextCapture: Task<SummonContext?, Never>?
     /// How long a run that uses the context waits for a capture still running.
     @ObservationIgnored private let contextWait: Duration
-    /// The frame `opening` will push, not on the stack yet.
-    @ObservationIgnored private var openingFrame: Frame?
+    /// The frame a command being opened will push with its first content, not on the stack yet.
+    private var openingFrame: Frame?
     @ObservationIgnored private var work: [Frame.ID: [Task<Void, Never>]] = [:]
     @ObservationIgnored private var lastID = 0
 
@@ -228,7 +230,6 @@ public final class PaletteSession {
         } else {
             startCommand(&frame, debounce: false)
             openingFrame = frame
-            opening = run
         }
     }
 
@@ -320,7 +321,6 @@ public final class PaletteSession {
         guard let frame = openingFrame else { return }
         cancel(frame.id)
         openingFrame = nil
-        opening = nil
     }
 
     // MARK: Work
@@ -449,7 +449,6 @@ public final class PaletteSession {
         if var frame = openingFrame, frame.id == ticket.frame, frame.generation == ticket.generation {
             update(&frame)
             openingFrame = nil
-            opening = nil
             frames.append(frame)
         } else {
             apply(ticket, update)
