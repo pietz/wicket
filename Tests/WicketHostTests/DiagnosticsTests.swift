@@ -21,7 +21,7 @@ import WicketCore
 @MainActor @Test func textsAreBounded() throws {
     let diagnostics = Diagnostics()
     let long = String(repeating: "x", count: 10_000)
-    diagnostics.set(.run, of: .command(.extension("a", "b")), .error, [long])
+    diagnostics.set(.conflict, of: .command(.extension("a", "b")), .warning, [long])
     let text = try #require(diagnostics.all.first?.text)
     #expect(text.utf8.count == Diagnostics.textLimit + "…".utf8.count)
     #expect(text.hasPrefix("xxx"))
@@ -49,10 +49,10 @@ import WicketCore
 @MainActor @Test func anExtensionsReportCoversItsCommands() {
     let diagnostics = Diagnostics()
     diagnostics.set(.discovery, of: .extension("a"), .error, ["bad manifest"])
-    diagnostics.set(.run, of: .command(.extension("a", "go")), .error, ["failed"])
-    diagnostics.set(.run, of: .command(.extension("b", "go")), .error, ["other"])
+    diagnostics.set(.conflict, of: .command(.extension("a", "go")), .warning, ["keyword taken"])
+    diagnostics.set(.conflict, of: .command(.extension("b", "go")), .warning, ["other"])
     diagnostics.set(.settings, of: .settings, .warning, ["ignored"])
-    #expect(diagnostics.report(forExtension: "a").map(\.text) == ["bad manifest", "failed"])
+    #expect(diagnostics.report(forExtension: "a").map(\.text) == ["bad manifest", "keyword taken"])
 }
 
 @Test func redactionDropsSecrets() {
@@ -73,7 +73,9 @@ private func leakyExtension() throws -> TestExtension {
             """#)
 }
 
-@MainActor @Test func failedRunsFeedTheDiagnosticsAndHistoryWithoutSecrets() async throws {
+/// A run's failure lives once, in the history, without the secret it was passed; the diagnostics
+/// keep standing problems only.
+@MainActor @Test func failedRunsGoToTheHistoryWithoutSecrets() async throws {
     let ext = try leakyExtension()
     let secret = "s3cret-value-42"
     let history = testHistory()
@@ -89,16 +91,16 @@ private func leakyExtension() throws -> TestExtension {
         try await extensions.result(of: Invocation(command: command, text: "private-words"))
     }
     let diagnostics = extensions.diagnostics
-    #expect(
-        diagnostics.text(for: .command(command), kind: .run)
-            == "no match with ‹secret›\n{\"n\":1}")
-    let failed = try #require(await history.runs(of: "leaky").last)
+    let revision = try #require(extensions.revisions["leaky"])
+    let failed = try #require(await history.failing(revision).first)
+    #expect(failed.message == "no match with ‹secret›\n{\"n\":1}")
     #expect(failed.stderr == "starting with ‹secret›\n")
-    #expect(failed.message?.contains(secret) == false)
+    #expect(diagnostics.all.isEmpty)
+    // The command's next answer means it isn't failing any more.
     _ = try await extensions.result(of: Invocation(command: command, text: "ok"))
-    #expect(diagnostics.text(for: .command(command), kind: .run) == nil)
+    #expect(await history.failing(revision).isEmpty)
 
-    // A changed folder's run report goes with its old code; its manifest problem comes in.
+    // A broken manifest is a standing problem: the diagnostics report it.
     try Data("{".utf8).write(to: ext.folder.appending(path: "wicket.json"))
     await extensions.load(changed: [ext.folder.path]).value
     #expect(diagnostics.report(forExtension: "leaky").map(\.kind) == [.discovery])

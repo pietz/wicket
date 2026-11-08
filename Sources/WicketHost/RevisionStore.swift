@@ -137,7 +137,7 @@ public struct RevisionStore: Sendable {
     }
 
     /// Deletes every revision not in `keeping` (the caller names what it needs: the active, the
-    /// discovered, those still running, and each extension's approved and previous approved one),
+    /// discovered, those still running, and each extension's approved one),
     /// every staging folder a crash left, and an extension's folder once it holds none.
     public func prune(keeping: Set<ExtensionRevision>) {
         let ids = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []

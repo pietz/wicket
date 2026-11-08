@@ -46,7 +46,9 @@ private struct Harness {
         }
         self.approvals = approvals
         let secrets = secrets
-        extensions = Extensions(directory: directory, store: testStore(), approvals: approvals) { id in
+        extensions = Extensions(
+            directory: directory, store: testStore(), approvals: approvals, history: testHistory()
+        ) { id in
             testConfiguration {
                 $0.dataDirectory = data.appending(path: id)
                 $0.secret = { secrets.value($0, of: id) }
@@ -112,7 +114,6 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #"{"version": 1, "approved": {"titled": "not-a-hash"}}"#,
     #"{"version": 1, "approved": {"Not A Slug": "\#(String(repeating: "a", count: 64))"}}"#,
     #"["titled"]"#,
-    #"{"version": 1, "approved": {}, "previous": {"titled": "not-a-hash"}}"#,
 ])
 func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
     let approvals = testApprovals()
@@ -235,22 +236,6 @@ func aDamagedApprovalsFileApprovesNothing(contents: String) throws {
         return
     }
     #expect(approved == v1)
-    #expect(try await h.title() == "v1")
-}
-
-@MainActor @Test func rollingBackApprovesARetainedOlderRevision() async throws {
-    let h = try Harness([try titled("v1")])
-    await h.extensions.load().value
-    let v1 = try #require(h.extensions.discovered.first?.sealed)
-    try await h.extensions.approve(v1.revision)
-    try await h.write("v2")
-    let v2 = try #require(h.extensions.discovered.first?.sealed)
-    try await h.extensions.approve(v2.revision)
-    #expect(try await h.title() == "v2")
-
-    // The previous revision is kept for rollback: approving it again runs it, folder unchanged.
-    try await h.extensions.approve(v1.revision)
-    #expect(h.state() == .changed(approved: v1, current: v2))
     #expect(try await h.title() == "v1")
 }
 
@@ -450,20 +435,29 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
     #expect(try await list(runner).first?.accessory == "Enabled")
     #expect(try await page(runner)?.actions.contains { $0.title == "Copy Diagnostics" } == false)
 
-    // A keyword another command took, then a failed run.
-    let diagnostics = h.extensions.diagnostics
-    diagnostics.set(
+    // A keyword another command took: a standing problem.
+    h.extensions.diagnostics.set(
         .conflict, of: .command(.extension("titled", "go")), .warning,
         ["The keyword go is taken by Other; this command has none."])
-    diagnostics.set(.run, of: .command(.extension("titled", "go")), .error, ["it broke\n{\"code\":1}"])
-
-    let row = try #require(try await list(runner).first)
+    var row = try #require(try await list(runner).first)
     #expect(row.accessory == "Problem")
+    #expect(row.subtitle == "The keyword go is taken by Other; this command has none.")
+
+    // A failed run of the enabled revision comes first, from the history, once.
+    let revision = try #require(h.extensions.revisions["titled"])
+    await h.extensions.history?.record(
+        ExtensionHistory.Run(
+            revision: String(revision.sha256.prefix(12)), command: "go", outcome: .error, milliseconds: 5,
+            message: "it broke\n{\"code\":1}"),
+        of: "titled")
+    row = try #require(try await list(runner).first)
     #expect(row.subtitle == "it broke")
     let detail = try #require(try await page(runner))
     #expect(
         detail.markdown.contains(
-            "**Problems**\n\n- The keyword go is taken by Other; this command has none.\n- it broke"))
+            "**Problems**\n\n- The keyword go is taken by Other; this command has none.\n\n**Recent failures**"
+        ))
+    #expect(detail.markdown.contains(", go: it broke"))
     #expect(detail.actions.last?.title == "Move to Trash")
     guard
         case .copy(let text, "Copy Diagnostics")? = detail.actions.first(where: {
@@ -474,7 +468,8 @@ private func enabled(_ ext: TestExtension) async throws -> (Harness, ExtensionsR
         return
     }
     #expect(text.hasPrefix("Wicket diagnostics for Test (titled 1.0.0, revision "))
-    #expect(text.contains("[error] run go:\nit broke\n{\"code\":1}"))
+    #expect(text.contains("[warning] conflict go:\nThe keyword go is taken by Other"))
+    #expect(text.contains("go error in 5 ms"))
 }
 
 @MainActor @Test func aDamagedApprovalsFileIsTheListsFirstRow() async throws {
@@ -577,27 +572,21 @@ private func needsToken() throws -> TestExtension {
     #expect(secrets.value("OTHER", of: "titled") == nil)
 }
 
-// MARK: Going back
+// MARK: Revisions kept
 
-@Test func approvalsRememberThePreviousApprovedRevision() throws {
+@Test func anOlderApprovalsFileWithPreviousStillApproves() throws {
     let approvals = testApprovals()
-    let v1 = ExtensionRevision(extensionID: "titled", sha256: String(repeating: "a", count: 64))
-    let v2 = ExtensionRevision(extensionID: "titled", sha256: String(repeating: "b", count: 64))
-    try approvals.approve(v1)
-    #expect(approvals.previous("titled") == nil)
-    try approvals.approve(v2)
-    try approvals.approve(v2)
-    #expect(approvals.previous("titled") == v1)
-    #expect(Approvals(url: approvals.url).previous("titled") == v1)
-    #expect(Approvals(url: approvals.url).approved("titled") == v2)
-    // Disabling keeps it; it grants nothing by itself.
-    try approvals.revoke("titled")
+    let hash = String(repeating: "a", count: 64)
+    try FileManager.default.createDirectory(
+        at: approvals.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(#"{"version": 1, "approved": {"titled": "\#(hash)"}, "previous": {"titled": "x"}}"#.utf8)
+        .write(to: approvals.url)
     let reread = Approvals(url: approvals.url)
-    #expect(reread.previous("titled") == v1)
-    #expect(reread.all.isEmpty)
+    #expect(reread.problem == nil)
+    #expect(reread.approved("titled") == ExtensionRevision(extensionID: "titled", sha256: hash))
 }
 
-@MainActor @Test func draftsNeverPushOutThePreviousApprovedRevision() async throws {
+@MainActor @Test func onlyTheApprovedRevisionAndTheCurrentDraftAreKept() async throws {
     let h = try Harness([try titled("v1")])
     await h.extensions.load().value
     let v1 = try #require(h.extensions.discovered.first?.sealed)
@@ -613,65 +602,8 @@ private func needsToken() throws -> TestExtension {
     let kept = Set(
         try FileManager.default.contentsOfDirectory(
             atPath: h.extensions.store.root.appending(path: "titled").path))
-    #expect(kept == [v1.revision.sha256, v2.revision.sha256, v4.revision.sha256])
-}
-
-@MainActor @Test func usePreviousVersionGoesBackToTheRevisionApprovedBefore() async throws {
-    let (h, runner) = try await enabled(try titled("v1"))
-    let v1 = try #require(h.extensions.discovered.first?.sealed)
-    #expect(try await page(runner)?.actions.contains { $0.title == "Use Previous Version" } == false)
-
-    try await h.write("v2")
-    let v2 = try #require(h.extensions.discovered.first?.sealed)
-    try await h.extensions.approve(v2.revision)
-    let detail = try #require(try await page(runner))
-    #expect(
-        detail.actions.compactMap(\.title) == [
-            "Run Go", "Reveal in Finder", "Change with Agent", "Use Previous Version", "Disable",
-            "Move to Trash",
-        ])
-    guard case .run(.enableExtension, _, let args?, _, _) = detail.actions[3] else {
-        Issue.record("not an Enable action")
-        return
-    }
-    #expect(
-        try await results(runner, .enableExtension, args: args) == [
-            .close(message: "Now using the previous version of Test.")
-        ])
-    #expect(h.approvals.approved("titled") == v1.revision)
-    #expect(h.state() == .changed(approved: v1, current: v2))
-    #expect(try await h.title() == "v1")
-}
-
-@MainActor @Test(arguments: [false, true])
-func rollbackSurvivesChangedAndInvalidAuthoringFolders(invalid: Bool) async throws {
-    let (h, runner) = try await enabled(try titled("v1"))
-    let v1 = try #require(h.extensions.discovered.first?.sealed)
-    try await h.write("v2")
-    let v2 = try #require(h.extensions.discovered.first?.sealed)
-    try await h.extensions.approve(v2.revision)
-    if invalid {
-        try Data("broken JSON".utf8).write(to: h.folder().appending(path: "wicket.json"))
-        await h.extensions.load(changed: [h.folder().appending(path: "wicket.json").path]).value
-        guard case .invalid = h.state() else {
-            Issue.record("expected invalid authoring folder")
-            return
-        }
-    } else {
-        try await h.write("v3")
-    }
-    let row = try #require(try await list(runner).first)
-    #expect(row.actions.contains { $0.title == "Use Previous Version" })
-    let detail = try #require(try await page(runner))
-    let rollback = try #require(detail.actions.first { $0.title == "Use Previous Version" })
-    guard case .run(.enableExtension, _, let args, _, _) = rollback else {
-        Issue.record("not a rollback offer")
-        return
-    }
-    _ = try await results(runner, .enableExtension, args: args)
-    #expect(h.approvals.approved("titled") == v1.revision)
-    #expect(try await h.title() == "v1")
-    await h.extensions.shutdown()
+    #expect(kept == [v2.revision.sha256, v4.revision.sha256])
+    #expect(try await h.title() == "v2")
 }
 
 @MainActor @Test func moveToTrashRemovesTheFolderItsApprovalsAndItsRevisions() async throws {
@@ -702,7 +634,7 @@ func rollbackSurvivesChangedAndInvalidAuthoringFolders(invalid: Bool) async thro
     #expect(!FileManager.default.fileExists(atPath: h.folder().path))
     #expect(h.extensions.commands.isEmpty)
     #expect(h.extensions.discovered.isEmpty)
-    #expect(h.approvals.approved("titled") == nil && h.approvals.previous("titled") == nil)
+    #expect(h.approvals.approved("titled") == nil)
     // Its sealed revisions are gone, once its session has stopped.
     #expect(!FileManager.default.fileExists(atPath: store.path))
     // Its page, reloaded after the trash, finds it gone and reloads the list beneath.

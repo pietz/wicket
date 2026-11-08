@@ -2,10 +2,6 @@ import Foundation
 
 /// An extension's `wicket.json`, with every rule of docs/extensions.md checked while decoding.
 public struct Manifest: Sendable, Hashable, Decodable {
-    public enum Capability: String, Sendable, Hashable, CaseIterable {
-        case network, clipboard, files, shell
-    }
-
     /// A value the user stores in the Keychain; the extension receives it as an environment variable.
     public struct Secret: Sendable, Hashable, Decodable {
         public var name: String
@@ -100,7 +96,6 @@ public struct Manifest: Sendable, Hashable, Decodable {
     public var icon: Item.Icon?
     /// Program and arguments, started in the extension's folder.
     public var run: [String]
-    public var capabilities: [Capability]
     public var secrets: [Secret]
     public var commands: [Command]
 
@@ -108,8 +103,8 @@ public struct Manifest: Sendable, Hashable, Decodable {
 
     public init(from decoder: any Decoder) throws {
         let object = try decoder.object([
-            "$schema", "protocol", "id", "name", "description", "version", "icon", "run", "capabilities",
-            "secrets", "commands",
+            "$schema", "protocol", "id", "name", "description", "version", "icon", "run", "secrets",
+            "commands",
         ])
         let version: Int = try object.required("protocol")
         guard version == Self.protocolVersion else {
@@ -135,16 +130,6 @@ public struct Manifest: Sendable, Hashable, Decodable {
                 "run",
                 "Wicket runs only what is in the folder, so it doesn't run uv, which installs packages outside it; vendor Python packages into the folder instead (pip install --target vendor <package>) and run python3"
             )
-        }
-        let capabilities = try object.optional("capabilities", as: [String].self) ?? []
-        self.capabilities = try capabilities.map { name in
-            guard let capability = Capability(rawValue: name) else {
-                throw object.invalid("capabilities", "\"\(name)\" must be network, clipboard, files or shell")
-            }
-            return capability
-        }
-        if Set(capabilities).count != capabilities.count {
-            throw object.invalid("capabilities", "lists a capability twice")
         }
         secrets = try object.optional("secrets") ?? []
         if let name = Self.firstDuplicate(secrets.map(\.name)) {

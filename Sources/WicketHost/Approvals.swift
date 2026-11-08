@@ -13,26 +13,20 @@ import os
 /// that can't be read or holds anything unexpected (`problem` says why; the next approval
 /// replaces it). Writes are atomic, and memory changes only once the file was written. The file
 /// is read once, when the store is made, so an outside edit takes effect only on the next launch.
-///
-/// It also remembers each extension's previous approved revision (the one an approval replaced),
-/// which the revision store keeps so the user can go back to it. That grants nothing by itself:
-/// only approving it again, from Wicket's own screen, makes it run.
 public final class Approvals: Sendable {
     public let url: URL
     private let state: Mutex<State>
 
     private struct State {
         var approved: [String: ExtensionRevision] = [:]
-        var previous: [String: ExtensionRevision] = [:]
         var problem: String?
     }
 
-    /// The file on disk: `{"version": 1, "approved": {"<extension id>": "<sha256>"}, "previous":
-    /// {…}}`; `previous` is optional.
+    /// The file on disk: `{"version": 1, "approved": {"<extension id>": "<sha256>"}}`. Other keys
+    /// (an older Wicket's `previous`) are ignored and dropped on the next write.
     private struct File: Codable {
         var version: Int
         var approved: [String: String]
-        var previous: [String: String]?
     }
 
     private static let logger = Logger(subsystem: "app.wicket", category: "approvals")
@@ -53,30 +47,16 @@ public final class Approvals: Sendable {
         state.withLock { $0.approved }
     }
 
-    /// The revision of `id` approved before the current approval, if any: what "Use Previous
-    /// Version" approves again.
-    public func previous(_ id: String) -> ExtensionRevision? {
-        state.withLock { $0.previous[id] }
-    }
-
-    /// Every previous approval, by extension id.
-    public var allPrevious: [String: ExtensionRevision] {
-        state.withLock { $0.previous }
-    }
-
     /// Why the file couldn't be used, so nothing is approved; nil if it was fine or missing.
     public var problem: String? {
         state.withLock { $0.problem }
     }
 
-    /// Approves `revision`, replacing any other approved revision of its extension, which becomes
-    /// its previous one. Throws if the file can't be written, and then nothing changes.
+    /// Approves `revision`, replacing any other approved revision of its extension. Throws if the file can't be written, and then nothing changes.
     func approve(_ revision: ExtensionRevision) throws {
         try state.withLock { state in
-            var next = State(approved: state.approved, previous: state.previous)
-            let id = revision.extensionID
-            if let replaced = next.approved[id], replaced != revision { next.previous[id] = replaced }
-            next.approved[id] = revision
+            var next = State(approved: state.approved)
+            next.approved[revision.extensionID] = revision
             try write(next)
             state = next
         }
@@ -87,31 +67,15 @@ public final class Approvals: Sendable {
     func revoke(_ id: String) throws {
         try state.withLock { state in
             guard state.approved[id] != nil else { return }
-            var next = State(approved: state.approved, previous: state.previous)
+            var next = State(approved: state.approved)
             next.approved[id] = nil
-            try write(next)
-            state = next
-        }
-    }
-
-    /// Forgets the extension `id`: its approval and its previous one, so the store keeps none of
-    /// its revisions. For an extension moved to the Trash. Throws if the file can't be written, and
-    /// then nothing changes.
-    func forget(_ id: String) throws {
-        try state.withLock { state in
-            guard state.approved[id] != nil || state.previous[id] != nil else { return }
-            var next = State(approved: state.approved, previous: state.previous)
-            next.approved[id] = nil
-            next.previous[id] = nil
             try write(next)
             state = next
         }
     }
 
     private func write(_ state: State) throws {
-        let file = File(
-            version: 1, approved: state.approved.mapValues(\.sha256),
-            previous: state.previous.isEmpty ? nil : state.previous.mapValues(\.sha256))
+        let file = File(version: 1, approved: state.approved.mapValues(\.sha256))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try FileManager.default.createDirectory(
@@ -136,9 +100,7 @@ public final class Approvals: Sendable {
             )
         }
         guard let file = try? JSONDecoder().decode(File.self, from: data), file.version == 1,
-            [file.approved, file.previous ?? [:]].allSatisfy({
-                $0.allSatisfy { Manifest.isSlug($0.key) && isHash($0.value) }
-            })
+            file.approved.allSatisfy({ Manifest.isSlug($0.key) && isHash($0.value) })
         else {
             logger.error("approvals: invalid")
             return State(
@@ -146,13 +108,11 @@ public final class Approvals: Sendable {
                     "Wicket's approvals file is damaged, so no extension is enabled; enable them again from Extensions."
             )
         }
-        func revisions(_ entries: [String: String]) -> [String: ExtensionRevision] {
-            Dictionary(
-                uniqueKeysWithValues: entries.map {
+        return State(
+            approved: Dictionary(
+                uniqueKeysWithValues: file.approved.map {
                     ($0.key, ExtensionRevision(extensionID: $0.key, sha256: $0.value))
-                })
-        }
-        return State(approved: revisions(file.approved), previous: revisions(file.previous ?? [:]))
+                }))
     }
 
     private static func isHash(_ text: String) -> Bool {

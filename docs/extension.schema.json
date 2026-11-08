@@ -22,12 +22,6 @@
           "items": { "type": "string", "minLength": 1 },
           "description": "Program and arguments, started in the extension folder. A bare name is looked up on the login shell PATH. Not uv or uvx: vendor packages into the folder."
         },
-        "capabilities": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "enum": ["network", "clipboard", "files", "shell"] },
-          "description": "What the code does beyond answering, shown on the review screen. Not enforced."
-        },
         "secrets": {
           "type": "array",
           "items": { "$ref": "#/$defs/Secret" },

@@ -205,7 +205,6 @@ public final class Extensions {
             let finished = await enqueue(invocation, on: sealed)
             run = finished
             let result = try finished.result.get()
-            diagnostics.set(.run, of: .command(command), .error, [])
             await record(invocation, .ok, since: start, revision: revision)
             return result
         } catch let error as CancellationError where Task.isCancelled {
@@ -216,9 +215,6 @@ public final class Extensions {
             let outcome = ExtensionHistory.Outcome(error)
             let secrets = run?.secrets ?? []
             let text = Redaction.redact(Self.diagnostic(for: error), secrets: secrets)
-            if case .extension(let id) = command.owner, revision != nil, active[id]?.revision == revision {
-                diagnostics.set(.run, of: .command(command), .error, [text])
-            }
             Self.logger.error(
                 "command \(command, privacy: .public) failed: \(outcome.rawValue, privacy: .public)")
             await record(
@@ -355,9 +351,7 @@ public final class Extensions {
 
     /// One discovery pass, off the main actor: seal what is new or touched, decide each folder's
     /// state against the approvals as they are now, choose the active catalog and prune the store
-    /// (keeping the active, discovered and in-use revisions, and each extension's approved and
-    /// previous approved one, so a draft an agent left never pushes out what the user can go back
-    /// to).
+    /// (keeping the active, discovered and in-use revisions and each extension's approved one).
     @concurrent
     private nonisolated static func scan(
         _ directory: URL, store: RevisionStore, approvals: Approvals, touched: Set<String>,
@@ -391,7 +385,7 @@ public final class Extensions {
         let active = activate(discovered, store).filter { seen.insert($0.revision.extensionID).inserted }
         store.prune(
             keeping: Set(active.map(\.revision)).union(discovered.compactMap(\.sealed?.revision)).union(inUse)
-                .union(approved.values).union(approvals.allPrevious.values))
+                .union(approved.values))
         return Snapshot(
             discovered: discovered, active: active, sealed: sealed, duration: ContinuousClock.now - start)
     }
@@ -455,17 +449,16 @@ public final class Extensions {
         await load().value
     }
 
-    /// Moves the folder of the discovered extension `id` to the Trash and forgets its approvals
+    /// Moves the folder of the discovered extension `id` to the Trash and forgets its approval
     /// (so restoring it means enabling it again) and its history (runs and build conversation), then
     /// returns once the catalog no longer has it, its runs have ended and the store has dropped its
-    /// revisions. Its data directory and
-    /// Keychain secrets stay, so a folder put back from the Trash works as before. Refuses an id
+    /// revisions. Its data directory and Keychain secrets stay, so a folder put back from the Trash works as before. Refuses an id
     /// that isn't a folder in `directory`.
     func trash(_ id: String) async throws {
         guard let found = discovered.first(where: { $0.id == id }),
             found.folder.deletingLastPathComponent().standardizedFileURL.path == directory.path
         else { throw Refusal("There's no extension \(id) in the extensions folder.") }
-        try approvals.forget(id)
+        try approvals.revoke(id)
         try trashItem(found.folder)
         await history?.forget(id)
         await load().value

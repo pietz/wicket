@@ -22,8 +22,6 @@ public struct Diagnostic: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         /// A folder in the extensions directory holds no valid extension.
         case discovery
-        /// The command's last run failed; cleared by its next answer.
-        case run
         /// The hotkey from settings.json isn't in effect.
         case hotkey
         /// A keyword another command has.

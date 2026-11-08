@@ -23,13 +23,13 @@ extension CommandID {
 ///   problem, changed, not enabled, invalid), then Open Extensions Folder. Return on one that isn't
 ///   enabled reviews it; on an enabled one it shows it.
 /// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
-///   its secrets, its problems, Use Previous Version, Disable, Move to Trash last); otherwise checks
+///   its secrets, its problems, Disable, Move to Trash last); otherwise checks
 ///   the extension's current sealed revision (statically, `Checker`) and shows the report, and only
 ///   a passing check offers Enable; a failing one offers Fix with Agent, a Run Agent run with the
 ///   report. Every page ends with Move to Trash. An extension that is gone reloads the screen
 ///   beneath (the Extensions list), which is how a page goes away after Move to Trash.
-/// - **Enable** (`builtin:enable-extension`): approves exactly the revision a screen offered (a
-///   review's checked one, or the previous approved one) and closes with a message.
+/// - **Enable** (`builtin:enable-extension`): approves exactly the revision a review screen
+///   checked and closes with a message.
 /// - **Disable** (`builtin:disable-extension`): withdraws the approval; its commands leave the
 ///   palette and its frames stop.
 /// - **Move to Trash** (`builtin:trash-extension`): moves the folder to the Trash, forgets its
@@ -37,14 +37,12 @@ extension CommandID {
 ///
 /// Enable acts only on a token a screen issued in this run of Wicket: the token is never written
 /// anywhere, so a binding in settings.json, a deeplink or another process can't approve anything,
-/// and nothing is approved that the user wasn't shown (checked, or approved by them before).
+/// and nothing is approved that the user wasn't shown checked.
 @MainActor
 public final class ExtensionsRunner: CommandRunner {
     private let extensions: Extensions
-    /// Revisions a screen offered to enable, by the token its action carries: one that passed a
-    /// check on a review screen, or an extension's previous approved one; with the message
-    /// enabling it closes with.
-    private var offers: [String: (sealed: SealedRevision, message: String)] = [:]
+    /// Revisions that passed a check on a review screen, by the token its Enable action carries.
+    private var offers: [String: SealedRevision] = [:]
 
     private static let logger = Logger(subsystem: "app.wicket", category: "consent")
 
@@ -58,7 +56,7 @@ public final class ExtensionsRunner: CommandRunner {
             do {
                 switch invocation.command {
                 case .extensions:
-                    continuation.yield(.show(.list(Listing(items()))))
+                    continuation.yield(.show(.list(Listing(await items()))))
                 case .reviewExtension:
                     try await review(Self.argument("id", of: invocation), continuation)
                 case .enableExtension:
@@ -102,7 +100,6 @@ public final class ExtensionsRunner: CommandRunner {
                 ExtensionAuthoring.fix(name, id: id, failure: reason),
                 .reveal(url: found.folder, title: "Reveal in Finder"),
             ]
-            if let previous = previous(id) { actions.insert(previous, at: 0) }
             if approved != nil {
                 actions.append(.run(command: .disableExtension, args: ["id": .string(id)], title: "Disable"))
             }
@@ -129,7 +126,7 @@ public final class ExtensionsRunner: CommandRunner {
         sections.append("**Check**\n\n" + Self.report(report))
         var actions: [Item.Action] = []
         if report.passed {
-            actions.append(offer(current, message: "Enabled \(manifest.name).", title: "Enable"))
+            actions.append(offer(current))
             sections.append("_Enable runs it with your permissions, as any app you install._")
         } else {
             sections.append("_It can't be enabled until it passes its check._")
@@ -138,7 +135,6 @@ public final class ExtensionsRunner: CommandRunner {
                     manifest.name, id: id,
                     failure: "It failed Wicket's check:\n\n" + Self.report(report)))
         }
-        if let previous = previous(id) { actions.append(previous) }
         actions.append(.reveal(url: found.folder, title: "Reveal in Finder"))
         actions.append(Self.trash(id))
         continuation.yield(
@@ -149,38 +145,27 @@ public final class ExtensionsRunner: CommandRunner {
                         metadata: Self.metadata(current), actions: actions))))
     }
 
-    /// Rollback depends on retained approvals, never on whether the authoring draft is valid.
-    private func previous(_ id: String) -> Item.Action? {
-        guard let approved = extensions.approvals.approved(id),
-            let previous = extensions.approvals.previous(id), previous != approved,
-            let kept = extensions.store.retained(previous)
-        else { return nil }
-        return offer(
-            kept, message: "Now using the previous version of \(kept.manifest.name).",
-            title: "Use Previous Version")
-    }
-
-    /// An action enabling `sealed`, carrying a fresh token only this run of Wicket knows.
-    private func offer(_ sealed: SealedRevision, message: String, title: String) -> Item.Action {
+    /// Enable for `sealed`, carrying a fresh token only this run of Wicket knows.
+    private func offer(_ sealed: SealedRevision) -> Item.Action {
         let token = UUID().uuidString
-        offers[token] = (sealed, message)
-        return .run(command: .enableExtension, args: ["review": .string(token)], title: title)
+        offers[token] = sealed
+        return .run(command: .enableExtension, args: ["review": .string(token)], title: "Enable")
     }
 
-    /// Approves what the screen that issued `token` offered: a review's checked revision or an
-    /// extension's previous one, then closes with a message.
+    /// Approves the revision the review screen that issued `token` checked, then closes with a
+    /// message.
     private func enable(_ token: String) async throws -> RunResult {
         guard let offer = offers[token] else {
             throw Refusal("This review is no longer current; review the extension again to enable it.")
         }
         offers[token] = nil
-        let revision = offer.sealed.revision
+        let revision = offer.revision
         guard extensions.store.retained(revision) != nil else {
             throw Refusal("That version is gone; review the extension again to enable it.")
         }
         try await extensions.approve(revision)
         Self.logger.notice("review: enabled")
-        return .close(message: offer.message)
+        return .close(message: "Enabled \(offer.manifest.name).")
     }
 
     /// Withdraws the approval of the extension `id`, then closes with a message.
@@ -226,7 +211,7 @@ public final class ExtensionsRunner: CommandRunner {
 
     /// The Extensions list: a damaged approvals file, then each discovered extension in discovery
     /// order (by id), then Open Extensions Folder, which is all an empty folder shows.
-    private func items() -> [Item] {
+    private func items() async -> [Item] {
         var items: [Item] = []
         if let problem = extensions.approvals.problem {
             items.append(
@@ -235,7 +220,11 @@ public final class ExtensionsRunner: CommandRunner {
                     icon: .symbol(name: "exclamationmark.triangle"), accessory: "Problem",
                     actions: [.copy(text: problem, title: "Copy Diagnostics")]))
         }
-        items += Self.items(extensions.discovered, previous: previous) { self.problems(of: $0) }
+        var problems: [String: String] = [:]
+        for found in extensions.discovered {
+            problems[found.id] = await problem(of: found.id)
+        }
+        items += Self.items(extensions.discovered) { problems[$0] }
         // Opening the folder should work before anything was ever put in it.
         try? FileManager.default.createDirectory(at: extensions.directory, withIntermediateDirectories: true)
         items.append(
@@ -246,11 +235,8 @@ public final class ExtensionsRunner: CommandRunner {
         return items
     }
 
-    /// The rows of `discovered`; an enabled one with `problems` says so.
-    static func items(
-        _ discovered: [DiscoveredExtension], previous: (String) -> Item.Action? = { _ in nil },
-        problems: (String) -> [Diagnostic]
-    ) -> [Item] {
+    /// The rows of `discovered`; an enabled one with a `problem` says so, with its first line.
+    static func items(_ discovered: [DiscoveredExtension], problem: (String) -> String?) -> [Item] {
         discovered.map { found in
             let manifest = (found.sealed ?? found.approved)?.manifest
             let name = manifest?.name ?? found.id
@@ -265,9 +251,9 @@ public final class ExtensionsRunner: CommandRunner {
             switch found.state {
             case .approved:
                 state = "Enabled"
-                if let problem = problems(found.id).last {
+                if let problem = problem(found.id) {
                     state = "Problem"
-                    subtitle = firstLine(problem.text)
+                    subtitle = firstLine(problem)
                 }
                 actions = [
                     .run(command: .reviewExtension, args: ["id": .string(found.id)], title: "Show Extension"),
@@ -289,10 +275,6 @@ public final class ExtensionsRunner: CommandRunner {
                 ]
                 if approved != nil { actions.append(disable) }
             }
-            if let previous = previous(found.id) {
-                let index = actions.last?.title == "Disable" ? actions.count - 1 : actions.count
-                actions.insert(previous, at: index)
-            }
             return Item(
                 id: "extensions:\(found.id)", title: name, subtitle: subtitle,
                 icon: manifest?.icon ?? .symbol(name: "puzzlepiece.extension"), accessory: state,
@@ -300,17 +282,25 @@ public final class ExtensionsRunner: CommandRunner {
         }
     }
 
-    /// What is wrong with the extension `id` (warnings and errors, its commands' included, such as
-    /// a failed run or a keyword another command has), oldest first.
+    /// What is wrong with the extension `id` beyond its runs (warnings and errors, its commands'
+    /// included, such as a keyword another command has), oldest first.
     private func problems(of id: String) -> [Diagnostic] {
         extensions.diagnostics.report(forExtension: id).filter { $0.severity >= .warning }
     }
 
+    /// What the extension `id`'s row says is wrong: a command whose latest run failed, else its
+    /// newest diagnostic problem.
+    private func problem(of id: String) async -> String? {
+        guard let revision = extensions.revisions[id] else { return problems(of: id).last?.text }
+        let failing = await extensions.history?.failing(revision).last
+        return failing.map { $0.message ?? $0.outcome.rawValue } ?? problems(of: id).last?.text
+    }
+
     /// An enabled extension's page: its commands, the secrets it declares and whether each is set,
     /// and its problems; Return runs its first command, then Fix with Agent when a recent run
-    /// failed, Reveal in Finder, Change with Agent, setting a secret (one not set first of all), Use
-    /// Previous Version when the store keeps the one approved before, Copy Diagnostics when there
-    /// is anything to copy (its run history included), Disable, and Move to Trash last.
+    /// failed, Reveal in Finder, Change with Agent, setting a secret (one not set first of all), Copy
+    /// Diagnostics when there is anything to copy (its run history included), Disable, and Move to
+    /// Trash last.
     private func enabled(_ sealed: SealedRevision, folder: URL) async -> Detail {
         var detail = Self.enabled(sealed, folder: folder)
         let id = sealed.revision.extensionID
@@ -333,7 +323,7 @@ public final class ExtensionsRunner: CommandRunner {
             sections.append(
                 "**Problems**\n\n" + problems.map { "- " + Self.firstLine($0.text) }.joined(separator: "\n"))
         }
-        // From the history, so they outlive a restart (Problems is this run of Wicket's).
+        // Run failures live in the history, so they outlive a restart.
         let failures = runs.suffix(10).filter(\.outcome.isFixable).suffix(3)
         if !failures.isEmpty {
             sections.append(
@@ -343,7 +333,6 @@ public final class ExtensionsRunner: CommandRunner {
                             + (run.message.map(Self.firstLine) ?? run.outcome.rawValue)
                     }.joined(separator: "\n"))
         }
-        if let previous = previous(id) { extra.append(previous) }
         let all = extensions.diagnostics.report(forExtension: id)
         if !all.isEmpty || !runs.isEmpty {
             extra.append(
@@ -417,14 +406,12 @@ public final class ExtensionsRunner: CommandRunner {
         report.lines.map { "- \($0.kind.rawValue): \($0.text)" }.joined(separator: "\n")
     }
 
-    /// The extension's id, version, revision and capabilities.
+    /// The extension's id, version and revision.
     static func metadata(_ sealed: SealedRevision) -> [Detail.Metadata] {
-        let capabilities = sealed.manifest.capabilities.map(\.rawValue).joined(separator: ", ")
-        return [
+        [
             .init(label: "Extension", value: sealed.manifest.id),
             .init(label: "Version", value: sealed.manifest.version),
             .init(label: "Revision", value: String(sealed.revision.sha256.prefix(12))),
-            .init(label: "Capabilities", value: capabilities.isEmpty ? "none" : capabilities),
         ]
     }
 }

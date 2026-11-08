@@ -74,7 +74,6 @@ Wicket never runs your folder itself. It seals it: copies it into its own storag
 | `icon` | no | An [icon](#icons) for the extension; commands inherit it. |
 | `run` | yes | Program and arguments, for example `["python3", "main.py"]`. A bare program name is looked up on the user's login-shell `PATH`. Prefer naming the interpreter (`["/bin/sh", "x.sh"]`) over relying on the executable bit. |
 | `secrets` | no | Values the user stores in the Keychain, such as API tokens, passed to your program as environment variables: `[{"name": "GITHUB_TOKEN", "title": "GitHub token"}]`. `name` is uppercase letters, digits and `_`, and not `PATH`, `LANG`, `HOME`, `USER`, `SHELL`, `TMPDIR` or `WICKET_…`; `title` is what the user is asked for. Every declared secret is required: without it the run fails with a message saying how to set it. Never write secrets into your folder or your output. |
-| `capabilities` | no | What your code does beyond computing an answer, for the review screen: `network` (talks to the internet), `clipboard` (reads the clipboard; writing it through a `copy` action needs nothing), `files` (reads or writes files outside its folder and `WICKET_DATA_DIR`), `shell` (runs other programs). Declare every one that applies; it is not enforced but users rely on it. |
 | `commands` | yes | One or more commands, below. |
 
 Each command:
@@ -458,6 +457,5 @@ When the user asks Wicket's agent to fix or change an extension (Fix with Agent,
 - Nothing keeps running after it answers.
 - Every `run` action names a declared command, and your code handles its `args`.
 - A `live` command answers fast, start-up included; slow set-up is cached in `WICKET_DATA_DIR`.
-- Capabilities list everything the code does beyond computing an answer.
 - `wicket check` passes.
 - Every command answers right with `wicket run`, its error cases too, and on a first run.

@@ -166,6 +166,15 @@ public actor ExtensionHistory {
         runs(of: id).suffix(window).filter { $0.outcome.isFixable }
     }
 
+    /// The newest run of `revision` of each command whose newest run of it failed in a way changing
+    /// the extension could fix, oldest first: what is wrong with that revision's runs right now.
+    public func failing(_ revision: ExtensionRevision) -> [Run] {
+        let hash = String(revision.sha256.prefix(12))
+        var newest: [String: Run] = [:]
+        for run in runs(of: revision.extensionID) where run.revision == hash { newest[run.command] = run }
+        return newest.values.filter(\.outcome.isFixable).sorted { $0.time < $1.time }
+    }
+
     // MARK: The build conversation
 
     /// Remembers `conversation` as the one that last built or changed the extension `id`,

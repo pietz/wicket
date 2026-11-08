@@ -6,7 +6,6 @@
   "version": "1.0.0",
   "icon": { "symbol": { "name": "switch.2" } },
   "run": ["/bin/sh", "toggles.sh"],
-  "capabilities": ["shell"],
   "commands": [
     {
       "id": "dark-mode",

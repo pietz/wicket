@@ -8,7 +8,7 @@ private let valid = #"""
       "$schema": "../extension.schema.json",
       "protocol": 2, "id": "github-prs", "name": "GitHub", "version": "1.2.3",
       "icon": {"symbol": {"name": "cloud"}},
-      "run": ["python3", "main.py"], "capabilities": ["network"],
+      "run": ["python3", "main.py"],
       "secrets": [{"name": "GITHUB_TOKEN", "title": "GitHub token"}],
       "commands": [
         {"id": "prs", "title": "Pull Requests", "keyword": "pr", "mode": "live", "placeholder": "Filter"},
@@ -39,7 +39,6 @@ private func problem(_ old: String, _ new: String) -> String? {
     let manifest = try manifest(valid)
     #expect(manifest.id == "github-prs")
     #expect(manifest.secrets.map(\.name) == ["GITHUB_TOKEN"])
-    #expect(manifest.capabilities == [.network])
     #expect(manifest.commands.map(\.mode) == [.live, .once, .once])
     #expect(manifest.command("done")?.hidden == true)
     #expect(manifest.command("prs")?.keyword == "pr")
@@ -77,8 +76,10 @@ func rejectsInvalidSearchTerms(value: String, expected: String) {
     (#""name": "GitHub""#, #""name": """#, "name: must not be empty"),
     (#""version": "1.2.3""#, #""version": "1.2""#, "must be major.minor.patch"),
     (#""run": ["python3", "main.py"]"#, #""run": []"#, "must name a program"),
-    (#""capabilities": ["network"]"#, #""capabilities": ["internet"]"#, "must be network, clipboard"),
-    (#""capabilities": ["network"]"#, #""capabilities": ["network", "network"]"#, "twice"),
+    (
+        #""run": ["python3", "main.py"]"#, #""run": ["python3", "main.py"], "capabilities": ["network"]"#,
+        "capabilities: unknown field"
+    ),
     (#""GITHUB_TOKEN""#, #""github_token""#, "must be an environment variable name"),
     (#""GITHUB_TOKEN""#, #""WICKET_TOKEN""#, "reserved"),
     (#""GITHUB_TOKEN""#, #""PATH""#, "reserved"),
