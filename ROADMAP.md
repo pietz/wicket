@@ -47,15 +47,26 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ Whole rows with an answer on top, a bounded scrolling action panel, a root No Results once searches finish, page titles as labels, footer messages by kind, button semantics for VoiceOver
 - ✅ Copy says Copied, a failed open says why, one guarded paste (cancelled if the clipboard changed), a palette hotkey another app holds keeps the old one
 
-### AI-native (thesis: the model is the compiler, not the runtime)
-- ✅ Summon context: selected text and Finder selection as "this", a chip in the pill (Ask AI, Do; extensions' `selection` capability later)
+### AI-native: one agent through the user's harness (owner, 2026-11-08)
+No harness of our own: a thin adapter layer maps Wicket's runs, events, approvals and settings onto Claude Code and Codex, the way T3 Code does. The harness already has the tools; Wicket adds context. Research: docs/reviews/2026-11-08-ai-native.md, docs/reviews/2026-11-08-launcher-2027.md.
+- ✅ Summon context: selected text and Finder selection as "this", a chip in the pill (paused by the owner: works, no further investment for now)
 - ✅ Search terms in manifests (agent-written words people type)
 - ✅ Apple's on-device model as an answer provider
-- ✅ Do (plan first, the user presses Run, writes only in one folder, the Finder selection's folder first), then Keep as a command
-- ✅ Prompt commands and Keep from an answer (adds a `prompt` command kind to the protocol)
-- 💤 Submit-time intent router on the on-device model (after search terms prove how much they cover)
+- ✅ One agent row that answers, acts and builds commands, through Codex and Claude Code under the user's own permission settings; approvals in the palette; Do and Make a Command removed
+- ✅ The agent row on top when the typing reads like a request (a rule; a classifier only if real use shows misses)
+- ✅ Prompt commands and Keep from an answer
+- 🔨 Rename to Run Agent; agent settings per provider (model, effort, speed, T3-style permission levels)
+- 🔨 Voice: summon and speak, live transcript, on/off and trigger in Settings (hold-to-speak)
+- ⏭ Wicket's agent instructions as an editable Markdown file, plus a complete authoring kit (schema, samples) and a check-until-it-passes loop (from the Pi comparison)
+- ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
+- ⏭ Dismissible runs: Escape hides a running agent; the next summon shows it as a row (running, needs approval, ready)
+- ⏭ Feature switches for every built-in (calculator, files, links, web search, agent), so the user turns off what they don't want
+- ⏭ Tour manual rewritten for the current product
+- 💤 Selection as operand with Replace in the source app (all three researchers' top idea; resumes when the owner wants it)
+- 💤 A successful run becomes a command ("Keep this"), saved instructions first, code only when needed
+- 💤 Richer agent replies with Wicket components (lists, details) instead of text only
+- 💤 Submit-time intent classifier on the on-device model (only if the rule misses in real use)
 - 👀 Watch macOS 27.3: its expected new on-device AI options (owner, 2026-11-08); re-check the Apple provider, the router and voice against them when it ships
-- 👀 On-device transcription for voice input (SpeechAnalyzer), alongside the voice item below
 
 ### App shell
 - ✅ Settings window (native SwiftUI): General (hotkey recorder, palette width, launch at login, settings.json and extensions folder, ignored-field warnings); AI (provider and status); Shortcuts (scrolling, filter, keywords); Features (toggle each source, live). No Extensions pane (the palette list covers it). The window reads and writes `settings.json`, so the file stays the single source of truth that agents can edit too.
@@ -65,7 +76,7 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - ✅ App icon (doorway, `Resources/AppIcon.icns`); a layered Icon Composer version is optional polish
 - 💤 First-run onboarding: pick the hotkey, explain type-or-speak, optional AI setup
 - 💤 Permissions flow (Accessibility for paste and selection, microphone for voice), asked only when a feature needs it
-- 💤 Menu bar icon (optional): open palette, settings, quit
+- ✅ Menu bar icon: Open Wicket, Settings…, Quit; a switch to hide it
 
 ### Release
 - 💤 Licence decision (MIT versus GPL/AGPL; owner's call)
@@ -80,9 +91,8 @@ Goal: a fast native palette that already beats a basic launcher, plus the headli
 - Alfred Script Filter adapter (thin, only if cheap)
 - Compact mode (bar only until there are results)
 - Menu bar item search; searchable query history; scheduled AI prompts
-- Voice: type or speak on summon (SpeechAnalyzer), spoken answers
+- Spoken answers
 - MCP client (tools as actions) and server (Wicket's core for other agents)
-- Selection AI actions (act on selected text)
 - Clipboard history, snippets (decide: core or extension)
 - Grid and form views, level 3 declarative custom UI
 - Auto-update, chat history, agent quick-start in a project folder
