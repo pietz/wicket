@@ -462,7 +462,7 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
                 + "\n\nFind out why it fails and fix it.\n\nIt fails when Wicket runs it: no network"))
 }
 
-@MainActor @Test func fixWithAgentStartsAnewWithoutAConversationOrWhenItCantBeResumed() async throws {
+@MainActor @Test func fixWithAgentStartsAnewWithoutAConversationOrWhenAskedTo() async throws {
     let extensions = try await extensions([try plain("weather")], approved: ["weather"])
     let fix = ExtensionAuthoring.fix("Test", id: "weather", failure: "It fails.")
     guard case .run(.runAgent, let text, let args, _, _) = fix else { return }
@@ -475,7 +475,8 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
     #expect(fresh.all.count == 1 && fresh.last?.resume == nil)
     #expect(fresh.last?.prompt.hasPrefix("About my Wicket extension Test") == true)
 
-    // Remembered but gone: the resume fails before the agent does anything, so it starts anew.
+    // Remembered but gone: the resume fails, and nothing starts anew by itself; the failure offers
+    // a new conversation after Retry, which runs without the remembered one.
     let history = try #require(extensions.history)
     await history.remember(
         AnswerStream.Conversation(
@@ -488,7 +489,12 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
     let again = AgentRunner(
         answers: AnswerStream(backend: resumingAgent(retried, resumes: false), interval: .zero))
     again.answers.authoring = runner.answers.authoring
-    let detail = try #require(try await finalDetail(again, text, args: args))
+    let failed = try #require(try await finalDetail(again, text, args: args))
+    #expect(retried.all.map(\.resume) == ["gone"])
+    #expect(failed.actions.map(\.title) == ["Retry", "Start New Conversation"])
+    guard case .run(.runAgent, let freshText, let freshArgs, _, _) = failed.actions[1] else { return }
+    #expect(freshArgs?["fresh"] == .bool(true) && freshArgs?["extension"] == .string("weather"))
+    let detail = try #require(try await finalDetail(again, freshText, args: freshArgs))
     #expect(retried.all.map(\.resume) == ["gone", nil])
     #expect(detail.markdown == "Fixed it.")
 }

@@ -24,8 +24,8 @@ final class AnswerDraft {
     private var unfinished = ""
     /// The final answer alone, once it has come: what Copy and Paste take.
     var answer: String?
-    /// Whether the agent ran a command or changed a file, so a failed resume can't simply start anew.
-    var acted = false
+    /// Offered after Retry when the run continued a remembered conversation and failed.
+    var startFresh: Item.Action?
     /// The agent's questions waiting for the user, oldest first, each with its action token.
     var approvals: [(token: String, approval: AgentApproval)] = []
     /// Approvals the user answered, kept out until the agent confirms them resolved.
@@ -97,15 +97,16 @@ final class AnswerDraft {
         let retry = Item.Action.run(
             command: invocation.command, text: invocation.text,
             args: invocation.args, title: "Retry", revision: invocation.revision)
+        let retries = [retry] + (startFresh.map { [$0] } ?? [])
         guard !text.isEmpty else {
             var detail = Detail.failure("Run Agent Failed", failure, command: invocation.command)
-            detail.actions = reviews + [retry]
+            detail.actions = reviews + retries
             return detail
         }
         return Detail(
             title: title,
             markdown: text + "\n\n---\n\n**The answer is incomplete.** " + failure,
-            actions: reviews + [retry, copy])
+            actions: reviews + retries + [copy])
     }
 
     private func ask(_ approval: AgentApproval) -> String {

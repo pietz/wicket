@@ -41,12 +41,12 @@ public final class AnswerStream {
         self.interval = interval
     }
 
-    /// The provider acts in `folder` (`AgentMode.act`). With `continuing`, the token of a Follow Up
-    /// action, it continues that conversation instead: the agent's own session, with its provider,
-    /// folder and settings.
-    /// With `about`, an extension id (Fix and Change with Agent), the prompt is prefixed with which
+    /// The provider acts in `folder`. With `continuing`, the token of a Follow Up action, it
+    /// continues that conversation instead: the agent's own session, with its provider, folder and
+    /// settings. With `about`, an extension id (Fix and Change with Agent), the prompt says which
     /// extension it is about, and the run continues the conversation that last built or changed it
-    /// (`ExtensionHistory`), or starts a new one if there is none or it can't be resumed.
+    /// (`ExtensionHistory`) unless the invocation asks for a `fresh` one; if that run fails, its page
+    /// offers a fresh one.
     func run(
         _ invocation: Invocation, prompt: String, title: String, actingIn folder: URL? = nil,
         continuing token: String? = nil, about extensionID: String? = nil
@@ -68,27 +68,21 @@ public final class AnswerStream {
                         throw Failure("This conversation has ended. Ask again to start a new one.")
                     }
                 }
-                var remembered: Conversation?
+                var startFresh: Item.Action?
                 if let extensionID, let authoring {
                     prompt = authoring.about(extensionID) + "\n\n" + prompt
-                    remembered = await authoring.extensions.history?.conversation(of: extensionID)
-                    // The permission level is consent: always the one the user has chosen now.
-                    if let provider = remembered?.provider {
-                        remembered?.configuration.permission = configuration(provider).permission
+                    if invocation.args?["fresh"] != .bool(true),
+                        var remembered = await authoring.extensions.history?.conversation(of: extensionID)
+                    {
+                        // The permission level is consent: always the one the user has chosen now.
+                        remembered.configuration.permission = configuration(remembered.provider).permission
+                        continued = remembered
+                        startFresh = Self.fresh(invocation)
                     }
                 }
-                do {
-                    try await answer(
-                        prompt, title: title, invocation: invocation, actingIn: folder,
-                        continuing: continued ?? remembered, token: token,
-                        resumable: continued == nil && remembered != nil, continuation)
-                } catch is ResumeFailed {
-                    Self.logger.notice(
-                        "agent: the extension's conversation couldn't be resumed; starting anew")
-                    try await answer(
-                        prompt, title: title, invocation: invocation, actingIn: folder, continuing: nil,
-                        token: nil, resumable: false, continuation)
-                }
+                try await answer(
+                    prompt, title: title, invocation: invocation, actingIn: folder, continuing: continued,
+                    token: token, startFresh: startFresh, continuation)
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -98,6 +92,15 @@ public final class AnswerStream {
         running[id] = task
         continuation.onTermination = { _ in task.cancel() }
         return stream
+    }
+
+    /// The invocation again, without the conversation it continued.
+    private static func fresh(_ invocation: Invocation) -> Item.Action {
+        var args = invocation.args ?? [:]
+        args["fresh"] = .bool(true)
+        return .run(
+            command: invocation.command, text: invocation.text, args: args, title: "Start New Conversation",
+            revision: invocation.revision)
     }
 
     /// Answers the approval an `aiApproval` action names, then leaves its frame as it is (`stay`):
@@ -129,12 +132,10 @@ public final class AnswerStream {
     }
 
     /// Asks the prepared prompt; presentation and Retry retain the original invocation. `continued`
-    /// is the conversation to resume, Follow Up's under `token`; when `resumable` (an extension's
-    /// remembered one), a resume that can't start or fails before the agent writes or does anything
-    /// throws `ResumeFailed`, for a new conversation to be started instead.
+    /// is the conversation to resume, Follow Up's under `token`; `startFresh` is offered if it fails.
     private func answer(
         _ prompt: String, title: String, invocation: Invocation, actingIn folder: URL?,
-        continuing continued: Conversation?, token: String?, resumable: Bool,
+        continuing continued: Conversation?, token: String?, startFresh: Item.Action?,
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         let start = ContinuousClock.now
@@ -142,9 +143,10 @@ public final class AnswerStream {
         do {
             provider = try await backend.ready(continued?.provider ?? self.provider()).provider
         } catch {
-            if resumable { throw ResumeFailed() }
             var detail = Detail.failure("Run Agent Failed", error.description, command: invocation.command)
-            detail.actions = [.run(command: .aiSettings, title: "Open AI Settings")]
+            detail.actions = [startFresh, .run(command: .aiSettings, title: "Open AI Settings")].compactMap {
+                $0
+            }
             output.yield(.show(.detail(detail)))
             return
         }
@@ -154,6 +156,7 @@ public final class AnswerStream {
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
             permission: configuration.permission, streams: streamsAnswers())
+        draft.startFresh = startFresh
         output.yield(.show(.detail(draft.detail)))
 
         // What the extensions folder holds before the run, to offer what it changes for review.
@@ -184,7 +187,6 @@ public final class AnswerStream {
             throttle.cancel()
             // What a failed or stopped run wrote is offered for review too, once its tree is gone.
             await run.cancelAndWait()
-            if resumable, draft.text.isEmpty, !draft.acted { throw ResumeFailed() }
             draft.reviews = await reviews(since: before, conversation: session.flatMap(conversation))
             try Task.checkCancellation()
             draft.endMessage()
@@ -222,7 +224,7 @@ public final class AnswerStream {
             case .activity:
                 break  // Tool use isn't shown; only what the agent writes.
             case .acted:
-                draft.acted = true
+                break
             case .approvals(let approvals):
                 for (token, _) in draft.approvals { waiting[token] = nil }
                 draft.show(approvals)
@@ -299,9 +301,6 @@ public final class AnswerStream {
         var configuration: AgentConfiguration
         var session: String
     }
-
-    /// An extension's remembered conversation couldn't be resumed; a new one starts instead.
-    private struct ResumeFailed: Error {}
 
     struct Failure: Error, CustomStringConvertible {
         let description: String
