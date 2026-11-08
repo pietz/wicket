@@ -5,20 +5,10 @@ import WicketCore
 public enum AgentMode: Sendable, Equatable {
     /// Answer from the model alone: no tools, no commands, no file access.
     case answer
-    /// Answer or do what the user asks with the agent's own tools, with the model and permission
-    /// level the user chose in Settings ▸ AI; requests it sends are approvals.
-    case act(AgentConfiguration)
-}
-
-/// How an acting run is set up beyond its prompt: the user's choices for that agent.
-public struct AgentConfiguration: Sendable, Equatable, Codable {
-    public var options: AgentOptions
-    public var permission: AgentPermission
-
-    public init(options: AgentOptions, permission: AgentPermission) {
-        self.options = options
-        self.permission = permission
-    }
+    /// Answer or do what the user asks with the agent's own tools, with the model, effort and speed
+    /// chosen in Settings ▸ AI, under the permission policy configured in the agent itself; requests
+    /// it sends are approvals.
+    case act(AgentOptions)
 }
 
 public struct AgentRequest: Sendable {
@@ -45,8 +35,8 @@ public struct AgentRequest: Sendable {
     }
 
     /// The user's choices for an acting run; nil for an answer run, which keeps its fixed setup.
-    var configuration: AgentConfiguration? {
-        if case .act(let configuration) = mode { configuration } else { nil }
+    var options: AgentOptions? {
+        if case .act(let options) = mode { options } else { nil }
     }
 
     /// A path as the user can tell it apart: relative to the run's folder when inside it, else
@@ -139,14 +129,10 @@ public struct AgentApproval: Sendable, Hashable {
     }
 }
 
-/// The user's answer to an `AgentApproval`.
+/// The user's answer to an `AgentApproval`: this once, or not.
 public enum AgentDecision: String, Sendable, CaseIterable {
     case accept
-    /// Accept, and don't ask again for the same kind of thing in this run.
-    case acceptForSession
     case decline
-    /// Decline and end the turn.
-    case cancel
 }
 
 /// One agent run: its events, and the means to stop it. The events end after one `.answer` or

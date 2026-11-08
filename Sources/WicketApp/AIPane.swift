@@ -3,19 +3,14 @@ import WicketCore
 import WicketHost
 
 /// Settings ▸ AI: whether Wicket uses AI at all (`ai.enabled`; off, the rest of the pane is hidden),
-/// then which provider Run Agent uses and how it runs. One picker chooses Claude or
-/// ChatGPT, only those that are installed and signed in; below it, the chosen one's model, effort,
-/// speed and permission level, then whether answers stream. Provider, model, effort and speed are preferences in settings.json
-/// (`ai`); the permission level is consent, so it goes to `AgentPermissions`, which only this pane
-/// writes. Each provider's status and models are asked when the pane opens.
+/// then which provider Run Agent uses (Claude or ChatGPT, only those installed and signed in) and its
+/// model, effort and speed, all in settings.json (`ai`). What the agent may do unasked is its own
+/// configuration, which the footer points to. Status and models are asked when the pane opens.
 struct AIPane: View {
     let store: SettingsStore
-    let permissions: AgentPermissions
     @State private var statuses: [AgentProvider: AgentStatus] = [:]
     /// Each CLI's models as it lists them; missing while asking or if it couldn't.
     @State private var models: [AgentProvider: [AgentModel]] = [:]
-    /// The permission levels as the store holds them, so the picker redraws when one changes.
-    @State private var levels: [AgentProvider: AgentPermission] = [:]
     @State private var checking = false
     @State private var error: String?
     @State private var finderAccess: ContextCapture.FinderAccess?
@@ -41,7 +36,6 @@ struct AIPane: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .task {
-            for provider in AgentProvider.allCases { levels[provider] = permissions.level(for: provider) }
             async let listing: Void = listModels()
             await check()
             await listing
@@ -50,9 +44,6 @@ struct AIPane: View {
 
     /// Everything below the switch, while AI is on.
     @ViewBuilder private var details: some View {
-        if let problem = permissions.problem {
-            Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-        }
         providerSection(current)
         optionsSection(current)
         Section {
@@ -143,7 +134,7 @@ struct AIPane: View {
         }
     }
 
-    /// The chosen provider's model, effort, speed and permission level.
+    /// The chosen provider's model, effort and speed; the footer says where its permissions are set.
     private func optionsSection(_ provider: AgentProvider) -> some View {
         let options = store.settings.ai[provider]
         let listed = models[provider]
@@ -153,12 +144,6 @@ struct AIPane: View {
         if !modelIDs.contains(options.model) { modelIDs.append(options.model) }
         var efforts = model?.efforts ?? Self.union(listed?.map(\.efforts) ?? [])
         if !efforts.contains(options.effort) { efforts.append(options.effort) }
-        let level = levels[provider] ?? permissions.level(for: provider)
-        var notes = ["Fast answers sooner but uses more of your plan.", "\(level.title): \(level.summary)."]
-        if provider == .claude, level == .auto {
-            notes.append(
-                "Where Claude's auto mode isn't available to your account, it asks as in Supervised.")
-        }
         return Section {
             Picker("Model", selection: binding(provider, \.model)) {
                 ForEach(modelIDs, id: \.self) { id in
@@ -175,13 +160,24 @@ struct AIPane: View {
                 Text("Fast").tag(AgentSpeed.fast)
             }
             .disabled(model?.fast == false && options.speed == .regular)
-            Picker("Permissions", selection: self.level(provider)) {
-                ForEach(AgentPermission.allCases, id: \.self) { level in
-                    Text(level.title).tag(level)
-                }
-            }
         } footer: {
-            Text(notes.joined(separator: " ")).foregroundStyle(.secondary)
+            Text(
+                LocalizedStringKey(
+                    "Fast answers sooner but uses more of your plan. " + Self.permissions(provider))
+            )
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Where the agent's own permission policy is set, which Run Agent follows.
+    static func permissions(_ provider: AgentProvider) -> String {
+        switch provider {
+        case .claude:
+            "Claude asks before acting as its permission mode says: set `permissions.defaultMode` in "
+                + "~/.claude/settings.json (auto, acceptEdits or default), and Wicket shows its questions."
+        case .codex:
+            "ChatGPT asks before acting as Codex's `approval_policy` and `sandbox_mode` in "
+                + "~/.codex/config.toml say, and Wicket shows its questions."
         }
     }
 
@@ -231,21 +227,6 @@ struct AIPane: View {
         } set: { isOn in
             do {
                 try store.update { $0.ai[keyPath: setting] = isOn }
-                error = nil
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
-    }
-
-    /// The permission level, written to the host store, never to settings.json.
-    private func level(_ provider: AgentProvider) -> Binding<AgentPermission> {
-        Binding {
-            levels[provider] ?? permissions.level(for: provider)
-        } set: { level in
-            do {
-                try permissions.set(level, for: provider)
-                levels[provider] = permissions.level(for: provider)
                 error = nil
             } catch {
                 self.error = error.localizedDescription

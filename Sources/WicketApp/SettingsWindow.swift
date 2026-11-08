@@ -12,15 +12,13 @@ import WicketHost
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: SettingsStore
     private let voice: VoiceConsent
-    private let permissions: AgentPermissions
     private let updater: Updater?
     private var window: NSWindow?
 
-    init(store: SettingsStore, voice: VoiceConsent, permissions: AgentPermissions, updater: Updater?) {
+    init(store: SettingsStore, voice: VoiceConsent, updater: Updater?) {
         self.store = store
         self.updater = updater
         self.voice = voice
-        self.permissions = permissions
     }
 
     /// Shows the window, on the pane titled `pane` if given, else on the one it shows.
@@ -49,7 +47,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(pane("General", symbol: "gearshape", GeneralPane(store: store, updater: updater)))
-        tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store, permissions: permissions)))
+        tabs.addTabViewItem(pane("AI", symbol: "sparkles", AIPane(store: store)))
         tabs.addTabViewItem(pane("Voice", symbol: "waveform", VoicePane(consent: voice)))
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable]

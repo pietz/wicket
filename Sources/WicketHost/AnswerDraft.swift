@@ -13,8 +13,6 @@ final class AnswerDraft {
     var reviews: [Item.Action] = []
     /// Shown until the first text arrives.
     let status: String
-    /// The permission level the run was started with, said under each question.
-    let permission: AgentPermission
     /// Everything the agent wrote, in order: its messages along the way, then its final answer.
     /// Tools it used and its thinking aren't shown.
     var text = ""
@@ -36,12 +34,11 @@ final class AnswerDraft {
     var redraw: () -> Void = {}
 
     init(
-        title: String, invocation: Invocation, status: String, permission: AgentPermission, streams: Bool
+        title: String, invocation: Invocation, status: String, streams: Bool
     ) {
         self.title = title
         self.invocation = invocation
         self.status = status
-        self.permission = permission
         self.streams = streams
     }
 
@@ -85,7 +82,6 @@ final class AnswerDraft {
                     title: title, markdown: [ask(approval), body].joined(separator: "\n\n"),
                     actions: [
                         decide(token, .accept, "Allow"),
-                        decide(token, .acceptForSession, "Allow for Session"),
                         decide(token, .decline, "Deny"),
                     ])
             }
@@ -130,7 +126,6 @@ final class AnswerDraft {
         if let reason = approval.reason, !reason.isEmpty { parts.append(Self.escaped(reason)) }
         if approval.kind == .command { parts.append(Self.fenced(approval.subject)) }
         if let input = approval.input { parts.append(Self.fenced(input)) }
-        parts.append("_\(permission.title): \(permission.summary)._")
         if approvals.count > 1 { parts.append("_\(approvals.count - 1) more waiting_") }
         return parts.joined(separator: "\n\n")
     }

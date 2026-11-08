@@ -225,12 +225,10 @@ extension AppRuntime {
         // Whether Wicket may listen is consent, kept outside settings.json (VoiceConsent).
         let voiceConsent = VoiceConsent()
         let voice = VoiceInput(consent: voiceConsent) { AppleTranscriber() }
-        // The agents' permission levels: a host file only Settings ▸ AI writes, never settings.json.
-        let permissions = AgentPermissions()
         // Sparkle, for the released app only (nil in Wicket Dev).
         let updater = Updater()
         let settingsWindow = SettingsWindowController(
-            store: store, voice: voiceConsent, permissions: permissions, updater: updater)
+            store: store, voice: voiceConsent, updater: updater)
         weak var weakRuntime: AppRuntime?
         // What may run is the approved revisions, recorded in a host file only Wicket's screens write.
         let extensions = Extensions(
@@ -244,11 +242,7 @@ extension AppRuntime {
         answers.authoring = ExtensionAuthoring(
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] },
             instructionsFile: ExtensionAuthoring.instructionsFile, commandList: ExtensionPaths.commandList)
-        answers.configuration = { provider in
-            AgentConfiguration(
-                options: weakRuntime?.applied?.ai[provider] ?? provider.defaultOptions,
-                permission: permissions.level(for: provider))
-        }
+        answers.options = { weakRuntime?.applied?.ai[$0] ?? $0.defaultOptions }
         answers.streamsAnswers = { weakRuntime?.applied?.ai.streamAnswers ?? false }
         let runAgent = AgentRunner(answers: answers)
         let work: [@MainActor () -> Void] = [

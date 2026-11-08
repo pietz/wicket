@@ -5,13 +5,12 @@ import WicketCore
 /// line, and a `result` object ends the run.
 ///
 /// Answer runs send the prompt as plain text on stdin and close it, with every tool, customization
-/// and prompt off. Acting runs keep the user's own setup (settings, permission rules, hooks, MCP
-/// servers, CLAUDE.md) with the model and permission mode chosen in Settings ▸ AI, and talk
-/// stream-json both ways: the prompt goes in as a user message, stdin
-/// stays open, and each permission prompt comes out as a `control_request` (`can_use_tool`) that
-/// becomes an `AgentApproval`, answered by a `control_response` (verified with Claude Code 2.1.318).
-/// Acting runs keep their session in Claude Code's own history, so Follow Up continues it with
-/// `--resume <session id>`, which keeps the id (verified with 2.1.319); answer runs keep none.
+/// and prompt off. Acting runs keep the user's own setup (settings, permission mode and rules, hooks,
+/// MCP servers, CLAUDE.md) with the model, effort and speed chosen in Settings ▸ AI, and talk
+/// stream-json both ways: each permission prompt comes out as a `control_request` (`can_use_tool`)
+/// that becomes an `AgentApproval`, answered by a `control_response`. Their session stays in Claude
+/// Code's history, so Follow Up continues it with `--resume`, which takes the permission mode
+/// configured now, not the one the session started with (verified with 2.1.319).
 struct ClaudeTranscript: AgentTranscript {
     let request: AgentRequest
     private var newMessage = false
@@ -28,11 +27,11 @@ struct ClaudeTranscript: AgentTranscript {
     static func arguments(for request: AgentRequest) -> [String] {
         let output = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         switch request.mode {
-        case .act(let configuration):
-            // The user's choices from Settings ▸ AI; what would prompt comes to Wicket over stdio.
+        case .act(let options):
+            // What would prompt comes to Wicket over stdio.
             let instructions = request.instructions.map { ["--append-system-prompt", $0] } ?? []
             return output + ["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]
-                + instructions + settings(configuration) + (request.resume.map { ["--resume", $0] } ?? [])
+                + instructions + settings(options) + (request.resume.map { ["--resume", $0] } ?? [])
         case .answer:
             // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
             // --permission-prompts none denies anything that would ask.
@@ -44,23 +43,11 @@ struct ClaudeTranscript: AgentTranscript {
         }
     }
 
-    /// The flags an acting run adds for the user's choices (verified with 2.1.318: `--permission-mode
-    /// manual` is the CLI's default mode, `bypassPermissions` needs no other flag, and with `-p` fast
-    /// mode is on only when `--settings` opts in, so regular needs nothing). Where auto mode isn't
-    /// available (an unsupported model, an organization that turned it off), Claude Code itself falls
-    /// back to its default mode, which asks, as Supervised does (2.1.319).
-    static func settings(_ configuration: AgentConfiguration) -> [String] {
-        let options = configuration.options
-        var flags = ["--model", options.model, "--effort", options.effort]
-        if options.speed == .fast { flags += ["--settings", #"{"fastMode":true}"#] }
-        let mode =
-            switch configuration.permission {
-            case .supervised: "manual"
-            case .autoAcceptEdits: "acceptEdits"
-            case .auto: "auto"
-            case .fullAccess: "bypassPermissions"
-            }
-        return flags + ["--permission-mode", mode]
+    /// The flags for the user's choices. With `-p`, fast mode is on only when `--settings` opts in,
+    /// so regular needs nothing (2.1.318).
+    static func settings(_ options: AgentOptions) -> [String] {
+        let flags = ["--model", options.model, "--effort", options.effort]
+        return options.speed == .fast ? flags + ["--settings", #"{"fastMode":true}"#] : flags
     }
 
     mutating func start() -> AgentStep {
@@ -77,31 +64,17 @@ struct ClaudeTranscript: AgentTranscript {
         ])
     }
 
-    /// The answer to a permission prompt. An allow sends the tool's input back unchanged; "for
-    /// session" also applies Claude Code's own suggestions (a rule, a folder, a mode), each confined
-    /// to this session: as suggested, some would be saved to the folder's `.claude/settings.local.json`.
+    /// The answer to a permission prompt: an allow sends the tool's input back unchanged and grants
+    /// nothing beyond this call.
     static func reply(_ reply: AgentReply) -> Data? {
         let id = reply.approval.id
         guard let requestID = id["request_id"] else { return nil }
-        let allow: [String: JSONValue] = [
-            "behavior": .string("allow"), "updatedInput": id["input"] ?? .object([:]),
-        ]
-        let decision: [String: JSONValue] =
-            switch reply.decision {
-            case .accept: allow
-            case .acceptForSession:
-                allow.merging([
-                    "updatedPermissions": .array(
-                        (id["suggestions"]?.array ?? []).compactMap { suggestion in
-                            guard case .object(var update) = suggestion else { return nil }
-                            update["destination"] = .string("session")
-                            return .object(update)
-                        })
-                ]) { $1 }
-            case .decline: deny
-            case .cancel: deny.merging(["interrupt": .bool(true)]) { $1 }
-            }
-        return response(requestID, decision)
+        switch reply.decision {
+        case .accept:
+            return response(
+                requestID, ["behavior": .string("allow"), "updatedInput": id["input"] ?? .object([:])])
+        case .decline: return response(requestID, deny)
+        }
     }
 
     private static let deny: [String: JSONValue] = [
@@ -185,32 +158,25 @@ struct ClaudeTranscript: AgentTranscript {
             return AgentStep(
                 events: [.activity("Declined a question")], send: [Self.response(id, Self.deny)])
         }
-        // A mode change would approve far more than the call shown, so it is never applied.
-        let suggestions = (body["permission_suggestions"]?.array ?? []).filter {
-            $0["type"]?.string != "setMode"
-        }
-        let approvalID = JSONValue.object([
-            "request_id": id, "input": input, "suggestions": .array(suggestions),
-        ])
+        let approvalID = JSONValue.object(["request_id": id, "input": input])
         let name = body["display_name"]?.string ?? tool
         let reason = body["decision_reason"]?.string
-        let session = Self.sessionScope(suggestions, shown: request.shown)
         let approval: AgentApproval
         switch tool {
         case "Bash":
             approval = AgentApproval(
                 id: approvalID, kind: .command, subject: input["command"]?.string ?? "a command",
                 // No folder: Claude Code's shell keeps its `cd`s and the prompt doesn't say where it is.
-                reason: Self.joined(input["description"]?.string ?? reason, session))
+                reason: input["description"]?.string ?? reason)
         case "Edit", "MultiEdit", "Write", "NotebookEdit":
             let path = (input["file_path"] ?? input["notebook_path"])?.string
             approval = AgentApproval(
                 id: approvalID, kind: .fileChange,
                 subject: path.map { (tool == "Write" ? "write " : "edit ") + request.shown($0) } ?? "files",
-                reason: Self.joined(reason, session))
+                reason: reason)
         default:
             approval = AgentApproval(
-                id: approvalID, kind: .tool, subject: name, reason: Self.joined(reason, session),
+                id: approvalID, kind: .tool, subject: name, reason: reason,
                 input: Self.brief(input))
         }
         pending.append((body["tool_use_id"]?.string, approval))
@@ -236,34 +202,6 @@ struct ClaudeTranscript: AgentTranscript {
         }
         if pending.count != count { step.events.insert(.approvals(pending.map(\.approval)), at: 0) }
         return step
-    }
-
-    /// What Allow for Session grants beyond this call, in words; nil when it grants nothing more.
-    static func sessionScope(_ suggestions: [JSONValue], shown: (String) -> String) -> String? {
-        var grants: [String] = []
-        for suggestion in suggestions {
-            switch suggestion["type"]?.string {
-            case "addRules", "replaceRules":
-                for rule in suggestion["rules"]?.array ?? [] {
-                    let tool = rule["toolName"]?.string ?? "a tool"
-                    grants.append(rule["ruleContent"]?.string.map { "\(tool)(\($0))" } ?? "any \(tool) call")
-                }
-            case "addDirectories":
-                grants += (suggestion["directories"]?.array ?? []).compactMap {
-                    $0.string.map { "files in " + shown($0) }
-                }
-            default:
-                break
-            }
-        }
-        return grants.isEmpty
-            ? nil
-            : "Allow for Session also allows, until this run ends: " + grants.joined(separator: ", ") + "."
-    }
-
-    private static func joined(_ a: String?, _ b: String?) -> String? {
-        let parts = [a, b].compactMap { $0 }.filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 
     /// Tools known not to change anything; any other call (MCP tools included) counts as acting.

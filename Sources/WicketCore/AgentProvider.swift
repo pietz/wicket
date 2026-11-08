@@ -53,8 +53,8 @@ public enum AgentProvider: String, CaseIterable, Sendable, Codable {
     }
 }
 
-/// How one agent CLI runs for Run Agent (settings.json `ai.claude`, `ai.codex`). Preferences only:
-/// what the agent may do without asking is a permission (`AgentPermission`), never here.
+/// How one agent CLI runs for Run Agent (settings.json `ai.claude`, `ai.codex`). What the agent may
+/// do without asking is the agent's own configuration, never here.
 public struct AgentOptions: Equatable, Sendable, Codable {
     /// A model id the CLI accepts, such as "gpt-6-astra" or "opus".
     public var model: String
@@ -79,33 +79,4 @@ public enum AgentSpeed: String, CaseIterable, Sendable, Codable {
     case regular
     /// Claude Code's fast mode; Codex's priority service tier.
     case fast
-}
-
-/// What an acting agent may do without asking, mapped onto each CLI's own settings (T3 Code's four
-/// levels). A permission, so it is set only in Wicket's UI and stored outside settings.json
-/// (`AgentPermissions`); Auto until the user picks another.
-public enum AgentPermission: String, CaseIterable, Sendable, Codable {
-    case supervised
-    case autoAcceptEdits = "auto-accept-edits"
-    case auto
-    case fullAccess = "full-access"
-
-    public var title: String {
-        switch self {
-        case .supervised: "Supervised"
-        case .autoAcceptEdits: "Auto-accept edits"
-        case .auto: "Auto"
-        case .fullAccess: "Full access"
-        }
-    }
-
-    /// What it means, in a few words.
-    public var summary: String {
-        switch self {
-        case .supervised: "asks before changing files"
-        case .autoAcceptEdits: "edits go through, asks before other actions"
-        case .auto: "approves routine actions, asks about the rest"
-        case .fullAccess: "never asks"
-        }
-    }
 }

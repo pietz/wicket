@@ -6,11 +6,11 @@ import WicketCore
 /// Answer runs are initialize, config/read (to learn the user's MCP servers), thread/start
 /// (ephemeral, read-only, approval policy "never", those servers disabled), turn/start,
 /// then notifications until turn/completed; any request the server still sends is refused. Acting
-/// runs skip config/read and leave approval policy, sandbox, features and MCP servers to the user's
-/// own Codex configuration; their command, network and file-change approvals become
-/// `AgentEvent.approvals`, answered through `reply(_:)`. Their threads are kept in Codex's own
-/// history, so Follow Up continues one in a new app-server process with thread/resume instead of
-/// thread/start (verified with 0.167).
+/// runs leave approval policy, sandbox, reviewer, features and MCP servers to the user's own Codex
+/// configuration; their command, network and file-change approvals become `AgentEvent.approvals`,
+/// answered through `reply(_:)`. Their threads stay in Codex's history, so Follow Up continues one
+/// with thread/resume. A resumed thread keeps the policy it started with, so a resume first reads
+/// the configuration and sets the policy configured now (verified with 0.167).
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
@@ -59,8 +59,8 @@ struct CodexTranscript: AgentTranscript {
                 .initialize, "initialize",
                 ["clientInfo": .object(["name": .string("wicket"), "version": .string("1")])]),
             Self.line(["method": .string("initialized")]),
-            request.mode != .answer
-                ? startThread(disabling: [])
+            request.mode != .answer && request.resume == nil
+                ? startThread(config: .null)
                 : Self.request(.readConfig, "config/read", ["cwd": .string(request.workingDirectory.path)]),
         ])
     }
@@ -91,9 +91,7 @@ struct CodexTranscript: AgentTranscript {
     private func response(_ id: ID, _ result: JSONValue) -> AgentStep {
         switch id {
         case .readConfig:
-            // The user's MCP servers stay off: nothing from their setup runs outside the sandbox.
-            let servers = result["config"]?["mcp_servers"]?.object?.keys.sorted() ?? []
-            return AgentStep(send: [startThread(disabling: servers)])
+            return AgentStep(send: [startThread(config: result["config"] ?? .null)])
         case .startThread:
             guard let thread = result["thread"]?["id"] else {
                 return AgentStep(events: [.error("Codex started no thread")])
@@ -105,8 +103,8 @@ struct CodexTranscript: AgentTranscript {
             ]
             switch request.mode {
             case .answer: params["effort"] = .string("low")
-            case .act(let configuration):
-                params.merge(Self.turnSettings(configuration)) { $1 }
+            case .act(let options):
+                params.merge(Self.turnSettings(options)) { $1 }
                 if let id = thread.string { events.append(.session(id)) }
             }
             return AgentStep(events: events, send: [Self.request(.startTurn, "turn/start", params)])
@@ -115,33 +113,20 @@ struct CodexTranscript: AgentTranscript {
         }
     }
 
-    /// What an acting run's turn/start sets from the user's choices. Set per turn, not per thread:
-    /// Codex resets the approvals reviewer on every turn/start (verified with 0.167's app-server
-    /// schema: approval policy, sandbox, reviewer, model, effort and service tier are all turn
-    /// overrides).
-    static func turnSettings(_ configuration: AgentConfiguration) -> [String: JSONValue] {
-        let options = configuration.options
-        let (policy, sandbox, reviewer): (String, String, String) =
-            switch configuration.permission {
-            case .supervised: ("untrusted", "readOnly", "user")
-            case .autoAcceptEdits: ("on-request", "workspaceWrite", "user")
-            case .auto: ("on-request", "workspaceWrite", "auto_review")
-            case .fullAccess: ("never", "dangerFullAccess", "user")
-            }
-        return [
+    /// What an acting run's turn/start sets from the user's choices.
+    static func turnSettings(_ options: AgentOptions) -> [String: JSONValue] {
+        [
             "model": .string(options.model), "effort": .string(options.effort),
             // "default" is standard speed even for a model whose catalog default is the fast tier.
             "serviceTierForTurn": .string(options.speed == .fast ? "priority" : "default"),
-            "approvalPolicy": .string(policy), "sandboxPolicy": .object(["type": .string(sandbox)]),
-            "approvalsReviewer": .string(reviewer),
         ]
     }
 
     /// thread/start: a thread in the working directory. Answer runs' are ephemeral, with a read-only
-    /// sandbox, approval policy "never" and `servers` disabled; acting runs' are kept, get Wicket's
-    /// instructions and set the user's choices on each turn (`turnSettings`). An acting run resuming
-    /// a thread sends thread/resume instead, with the instructions again and none of its old turns.
-    private func startThread(disabling servers: [String]) -> Data {
+    /// sandbox, approval policy "never" and the `config`'s MCP servers disabled; acting runs' are
+    /// kept and get Wicket's instructions. Resuming sends thread/resume instead, with the
+    /// instructions again, none of its old turns, and the `config`'s policy.
+    private func startThread(config: JSONValue) -> Data {
         var params: [String: JSONValue] = ["cwd": .string(request.workingDirectory.path)]
         switch request.mode {
         case .act:
@@ -149,9 +134,13 @@ struct CodexTranscript: AgentTranscript {
             if let thread = request.resume {
                 params["threadId"] = .string(thread)
                 params["excludeTurns"] = .bool(true)
+                params["approvalPolicy"] = config["approval_policy"]
+                params["sandbox"] = config["sandbox_mode"]
+                params["approvalsReviewer"] = config["approvals_reviewer"]
                 return Self.request(.startThread, "thread/resume", params)
             }
         case .answer:
+            let servers = config["mcp_servers"]?.object?.keys.sorted() ?? []
             params["ephemeral"] = .bool(true)
             let off = JSONValue.object(["enabled": .bool(false)])
             params["sandbox"] = .string("read-only")

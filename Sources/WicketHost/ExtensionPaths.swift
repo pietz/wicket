@@ -14,10 +14,6 @@ public enum ExtensionPaths {
     /// extension (`Approvals`), written only by Wicket's UI.
     public static var approvals: URL { support.appending(path: "approvals.json") }
 
-    /// `~/Library/Application Support/Wicket/agent-permissions.json`: the permission level chosen for
-    /// each agent (`AgentPermissions`), written only by Settings ▸ AI.
-    public static var agentPermissions: URL { support.appending(path: "agent-permissions.json") }
-
     /// `~/Library/Application Support/Wicket/commands.md`: Wicket's commands, written for each acting
     /// run to read on demand (`ExtensionAuthoring`).
     public static var commandList: URL { support.appending(path: "commands.md") }

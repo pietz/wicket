@@ -11,11 +11,9 @@ public final class AnswerStream {
     public var provider: @MainActor () -> AgentProvider?
     /// What acting runs are told about Wicket and how their extensions reach review; set by the app.
     public var authoring: ExtensionAuthoring?
-    /// How an acting run of a provider runs: settings.json's options and the permission level from
-    /// Settings ▸ AI, read when a question is asked; set by the app. The defaults until it is.
-    public var configuration: @MainActor (AgentProvider) -> AgentConfiguration = {
-        AgentConfiguration(options: $0.defaultOptions, permission: .auto)
-    }
+    /// A provider's model, effort and speed from settings.json, read when a question is asked; set by
+    /// the app. The defaults until it is.
+    public var options: @MainActor (AgentProvider) -> AgentOptions = { $0.defaultOptions }
     /// The settings' `ai.streamAnswers`, read when a question is asked: whether text is drawn as it
     /// comes, or each message only once it is whole.
     public var streamsAnswers: @MainActor () -> Bool = { false }
@@ -72,10 +70,8 @@ public final class AnswerStream {
                 if let extensionID, let authoring {
                     prompt = authoring.about(extensionID) + "\n\n" + prompt
                     if invocation.args?["fresh"] != .bool(true),
-                        var remembered = await authoring.extensions.history?.conversation(of: extensionID)
+                        let remembered = await authoring.extensions.history?.conversation(of: extensionID)
                     {
-                        // The permission level is consent: always the one the user has chosen now.
-                        remembered.configuration.permission = configuration(remembered.provider).permission
                         continued = remembered
                         startFresh = Self.fresh(invocation)
                     }
@@ -152,17 +148,17 @@ public final class AnswerStream {
         }
         try Task.checkCancellation()
         let acting = continued?.folder ?? folder ?? FileManager.default.homeDirectoryForCurrentUser
-        let configuration = continued?.configuration ?? configuration(provider)
+        let options = continued?.options ?? options(provider)
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
-            permission: configuration.permission, streams: streamsAnswers())
+            streams: streamsAnswers())
         draft.startFresh = startFresh
         output.yield(.show(.detail(draft.detail)))
 
         // What the extensions folder holds before the run, to offer what it changes for review.
         let before = await authoring?.snapshot()
         let request = AgentRequest(
-            prompt: prompt, workingDirectory: acting, mode: .act(configuration),
+            prompt: prompt, workingDirectory: acting, mode: .act(options),
             instructions: authoring?.instructions(), resume: continued?.session)
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         draft.redraw = { throttle.submit() }
@@ -175,7 +171,7 @@ public final class AnswerStream {
         // This run's conversation, once its agent named its session.
         var session: String?
         let conversation = { (session: String) -> Conversation? in
-            Conversation(provider: provider, folder: acting, configuration: configuration, session: session)
+            Conversation(provider: provider, folder: acting, options: options, session: session)
         }
         // However this ends (answer, failure, cancellation), it returns only once the agent's
         // process tree is gone, so `shutdown` can wait for it.
@@ -298,7 +294,7 @@ public final class AnswerStream {
     struct Conversation: Codable {
         var provider: AgentProvider
         var folder: URL
-        var configuration: AgentConfiguration
+        var options: AgentOptions
         var session: String
     }
 

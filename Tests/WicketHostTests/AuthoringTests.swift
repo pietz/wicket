@@ -195,7 +195,7 @@ private func finalDetail(
     }
     #expect(ids == ["edited", "weather"])
     let request = try #require(requests.first)
-    #expect(request.configuration != nil)
+    #expect(request.options != nil)
     #expect(request.instructions?.contains(directory.path) == true)
 }
 
@@ -434,14 +434,14 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
     await history.remember(
         AnswerStream.Conversation(
             provider: .codex, folder: built,
-            configuration: AgentConfiguration(options: AgentOptions(model: "gpt-x"), permission: .fullAccess),
+            options: AgentOptions(model: "gpt-x"),
             session: "thread-1"),
         for: "weather")
     let requests = Requests()
     let runner = AgentRunner(answers: AnswerStream(backend: resumingAgent(requests), interval: .zero))
     runner.answers.authoring = testAuthoring(extensions)
-    // The permission level is the one chosen now, not the one the build ran with.
-    runner.answers.configuration = { AgentConfiguration(options: $0.defaultOptions, permission: .supervised) }
+    // The conversation keeps the model it was built with.
+    runner.answers.options = { _ in AgentOptions(model: "gpt-other") }
     let fix = ExtensionAuthoring.fix(
         "Test", id: "weather", failure: "It fails when Wicket runs it: no network")
     guard case .run(.runAgent, let text, let args, _, _) = fix else {
@@ -454,8 +454,8 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
     #expect(request.resume == "thread-1")
     #expect(request.workingDirectory == built)
     #expect(
-        request.configuration
-            == AgentConfiguration(options: AgentOptions(model: "gpt-x"), permission: .supervised))
+        request.options
+            == AgentOptions(model: "gpt-x"))
     #expect(
         request.prompt.hasPrefix(
             "About my Wicket extension Test (`weather`, in \(try #require(extensions.discovered.first).folder.path)):"
@@ -481,8 +481,7 @@ private func resumingAgent(_ requests: Requests, resumes: Bool = true) -> AgentB
     await history.remember(
         AnswerStream.Conversation(
             provider: .claude, folder: URL(filePath: "/tmp"),
-            configuration: AgentConfiguration(
-                options: AgentProvider.claude.defaultOptions, permission: .auto),
+            options: AgentProvider.claude.defaultOptions,
             session: "gone"),
         for: "weather")
     let retried = Requests()

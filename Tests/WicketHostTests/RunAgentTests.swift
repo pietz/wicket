@@ -151,7 +151,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let run = try #require(agents.runs.first)
     #expect(run.provider == .codex)
     // Codex acts, in the home folder when nothing was selected in Finder.
-    #expect(run.request.configuration != nil)
+    #expect(run.request.options != nil)
     #expect(run.request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
     #expect(run.request.prompt == "capital of France?")
 
@@ -376,13 +376,13 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let files = AgentApproval(
         id: .string("r2"), kind: .fileChange, subject: "add notes.md", grantRoot: "/tmp/work")
     run.continuation.yield(.approvals([command, files]))
-    #expect(await eventually { palette.detail?.actions.count == 3 })
-    #expect(palette.detail?.actions.map(\.title) == ["Allow", "Allow for Session", "Deny"])
+    #expect(await eventually { palette.detail?.actions.count == 2 })
+    #expect(palette.detail?.actions.map(\.title) == ["Allow", "Deny"])
     // Captured once the answer's frame is up: it is pushed with the first content, not with the run.
     let frame = palette.session.top.id
     #expect(
         palette.detail?.markdown
-            == "**The agent asks to run a command** in /tmp/work.\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_Auto: approves routine actions, asks about the rest._\n\n_1 more waiting_\n\n_Asking ChatGPT…_"
+            == "**The agent asks to run a command** in /tmp/work.\n\nCreate it?\n\n```\necho hi > hello.txt\n```\n\n_1 more waiting_\n\n_Asking ChatGPT…_"
     )
 
     // Allow goes to the agent; its frame goes and the answer's frame keeps running.
@@ -451,7 +451,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     palette.ask("hello")
     #expect(await eventually { agents.runs.count == 1 })
     #expect(agents.runs[0].provider == .claude)
-    #expect(agents.runs[0].request.configuration != nil)
+    #expect(agents.runs[0].request.options != nil)
     #expect(agents.runs[0].request.workingDirectory == FileManager.default.homeDirectoryForCurrentUser)
 }
 
@@ -512,7 +512,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(second.request.prompt == "now add a readme")
     #expect(second.request.resume == "t1")
     #expect(second.request.workingDirectory == first.request.workingDirectory)
-    #expect(second.request.configuration == first.request.configuration)
+    #expect(second.request.options == first.request.options)
     #expect(await eventually { palette.detail?.title == "now add a readme" })
     // Its answer continues the same conversation again.
     second.continuation.yield(.session("t1"))

@@ -231,8 +231,7 @@ func everyWayARunEndsIsRecordedWithItsReason(
     await history.remember(
         AnswerStream.Conversation(
             provider: .claude, folder: URL(filePath: "/tmp"),
-            configuration: AgentConfiguration(
-                options: AgentProvider.claude.defaultOptions, permission: .auto),
+            options: AgentProvider.claude.defaultOptions,
             session: "s1"),
         for: "test")
     #expect(await !history.runs(of: "test").isEmpty)

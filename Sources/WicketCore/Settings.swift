@@ -38,8 +38,7 @@ public struct Settings: Equatable, Sendable {
 
     public init() {}
 
-    /// The `ai` object. Preferences only: nothing here grants anything, so the agents' permission
-    /// level is not here (`AgentPermission`).
+    /// The `ai` object. Preferences only: what an agent may do is its own configuration.
     public struct AI: Equatable, Sendable {
         /// Whether Wicket uses AI at all (`ai.enabled`, Settings ▸ AI). Off, Run Agent and Follow Up
         /// aren't registered, so nothing in Wicket asks a model.
@@ -216,8 +215,6 @@ extension Settings: Codable {
 
     private enum AgentKeys: String, CodingKey {
         case model, effort, speed
-        /// Never read: a permission is set only in Wicket's UI (principle 6).
-        case permission
     }
 
     public init(from decoder: any Decoder) throws {
@@ -324,8 +321,7 @@ extension Settings: Codable {
     }
 
     /// One agent's options; each field fails alone and leaves the provider's default. A model of
-    /// "default", which older builds wrote for the agent's own, is the provider's default too. A
-    /// `permission` here is ignored with its reason: the file never grants consent.
+    /// "default", which older builds wrote for the agent's own, is the provider's default too.
     private mutating func decodeAgent(
         _ object: KeyedDecodingContainer<AgentKeys>?, _ provider: AgentProvider, _ key: String
     ) {
@@ -355,11 +351,6 @@ extension Settings: Codable {
             } else {
                 ignored.append("ai.\(key).speed must be \"regular\" or \"fast\"; using regular")
             }
-        }
-        if object.contains(.permission) {
-            ignored.append(
-                "ai.\(key).permission can only be set in Settings ▸ AI, since it decides what the agent may "
-                    + "do without asking; ignoring it")
         }
     }
 

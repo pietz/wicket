@@ -76,17 +76,6 @@ private let terra = AgentOptions(model: "gpt-6.1-terra", effort: "medium", speed
         ])
 }
 
-/// Principle 6: the file never grants consent, so a permission level written there does nothing.
-@Test func aPermissionInTheFileIsIgnored() throws {
-    let settings = try load(#"{"ai": {"codex": {"permission": "full-access", "model": "gpt-6-luna"}}}"#)
-    #expect(settings.ai.codex == AgentOptions(model: "gpt-6-luna"))
-    #expect(
-        settings.ignored == [
-            "ai.codex.permission can only be set in Settings ▸ AI, since it decides what the agent may do "
-                + "without asking; ignoring it"
-        ])
-}
-
 @Test func updateWritesOnlyWhatIsChosenAndRemovesWhatGoesBackToDefault() throws {
     let url = temporarySettingsURL()
     try write(#"{"ai": {"codex": {"permission": "full-access"}}}"#, to: url)

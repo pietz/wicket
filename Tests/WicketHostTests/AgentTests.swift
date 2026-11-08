@@ -12,7 +12,7 @@ import WicketCore
 extension AgentMode {
     /// An acting run with Claude's defaults on Auto, for tests where the choices don't matter.
     static let acting = AgentMode.act(
-        AgentConfiguration(options: AgentProvider.claude.defaultOptions, permission: .auto))
+        AgentProvider.claude.defaultOptions)
 }
 
 /// A fake agent executable named like the real one, running `script` with /bin/sh.
@@ -164,7 +164,6 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(turn["method"] == .string("turn/start"))
         // The choices from Settings ▸ AI (`AgentSettingsTests`).
         #expect(turn["params"]?["effort"] == .string("medium"))
-        #expect(turn["params"]?["sandboxPolicy"] == .object(["type": .string("workspaceWrite")]))
     }
 
     @Test func aFollowUpResumesItsThread() throws {
@@ -173,9 +172,11 @@ func activities(_ events: [AgentEvent]) -> [String] {
                 prompt: "And now?", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting,
                 instructions: "Be brief.", resume: "t1")
         )
-        let start = transcript.start()
-        #expect(try methods(start) == ["initialize", "initialized", "thread/resume"])
-        let thread = try decoded(start.send[2])["params"]
+        // The configuration first, for the policy configured now (`AgentSettingsTests`).
+        #expect(try methods(transcript.start()) == ["initialize", "initialized", "config/read"])
+        let read = transcript.receive(line(#"{"id":2,"result":{"config":{}}}"#))
+        #expect(try sent(read)["method"] == .string("thread/resume"))
+        let thread = try sent(read)["params"]
         #expect(thread?["threadId"] == .string("t1"))
         #expect(thread?["cwd"] == .string("/tmp/work"))
         #expect(thread?["excludeTurns"] == .bool(true))
@@ -216,10 +217,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
         // Replies keep the request id's type.
         let accepted = try decoded(
-            try #require(CodexTranscript.reply(AgentReply(approval: command, decision: .acceptForSession))))
-        #expect(
-            accepted
-                == .object(["id": .integer(0), "result": .object(["decision": .string("acceptForSession")])]))
+            try #require(CodexTranscript.reply(AgentReply(approval: command, decision: .accept))))
+        #expect(accepted == .object(["id": .integer(0), "result": .object(["decision": .string("accept")])]))
         let declined = try decoded(
             try #require(CodexTranscript.reply(AgentReply(approval: files, decision: .decline))))
         #expect(declined["id"] == .string("r2"))
@@ -475,12 +474,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
         }
         #expect(command.kind == .command)
         #expect(command.subject == "echo one > a.txt")
-        // What Allow for Session grants beyond this call is spelled out; no folder is claimed,
-        // since Claude Code's shell keeps its `cd`s.
-        #expect(
-            command.reason
-                == "Write \"one\" to a.txt\n\nAllow for Session also allows, until this run ends: Bash(echo one *), files in /tmp/work."
-        )
+        // No folder is claimed, since Claude Code's shell keeps its `cd`s.
+        #expect(command.reason == "Write \"one\" to a.txt")
         #expect(command.workingDirectory == nil)
         #expect(bash.send.isEmpty)
 
@@ -498,30 +493,18 @@ func activities(_ events: [AgentEvent]) -> [String] {
         }
         #expect(both[1].kind == .fileChange)
         #expect(both[1].subject == "write notes/b.txt")
-        // A suggested mode change (accept every edit) is never offered or applied.
         #expect(both[1].reason == nil)
-        let session = try decoded(
-            try #require(ClaudeTranscript.reply(AgentReply(approval: both[1], decision: .acceptForSession))))
-        #expect(session["response"]?["response"]?["updatedPermissions"] == .array([]))
 
-        // Allow echoes the input; for the session, every suggestion stays in this session (as
-        // suggested, the rule would be saved to the folder's .claude/settings.local.json).
+        // Allow echoes the input and grants nothing beyond this call: Claude's suggestions are unused.
         let allowed = try decoded(
-            try #require(ClaudeTranscript.reply(AgentReply(approval: command, decision: .acceptForSession))))
+            try #require(ClaudeTranscript.reply(AgentReply(approval: command, decision: .accept))))
         #expect(allowed["type"] == .string("control_response"))
         #expect(allowed["response"]?["subtype"] == .string("success"))
         #expect(allowed["response"]?["request_id"] == .string("r1"))
         let decision = try #require(allowed["response"]?["response"])
         #expect(decision["behavior"] == .string("allow"))
         #expect(decision["updatedInput"]?["command"] == .string("echo one > a.txt"))
-        #expect(
-            decision["updatedPermissions"]?.array?.map { $0["destination"] } == [
-                .string("session"), .string("session"),
-            ])
-        #expect(decision["updatedPermissions"]?.array?.first?["rules"]?.array?.count == 1)
-        let once = try decoded(
-            try #require(ClaudeTranscript.reply(AgentReply(approval: command, decision: .accept))))
-        #expect(once["response"]?["response"]?["updatedPermissions"] == nil)
+        #expect(decision["updatedPermissions"] == nil)
         let denied = try decoded(
             try #require(ClaudeTranscript.reply(AgentReply(approval: both[1], decision: .decline))))
         #expect(denied["response"]?["request_id"] == .string("r2"))
@@ -636,8 +619,8 @@ func activities(_ events: [AgentEvent]) -> [String] {
 
     /// The real CLI, on the user's subscription and settings (read, never changed): asked to write
     /// a file in a throwaway folder, with prompts forced on for this run alone (`--permission-mode
-    /// manual`, since the user's mode may approve it silently). Allowed for the session, the file is
-    /// written and no settings file appears in the folder. Opt in with `WICKET_TEST_CLAUDE=1`.
+    /// manual`, since the user's mode may approve it silently). Allowed once, the file is written and
+    /// no settings file appears in the folder. Opt in with `WICKET_TEST_CLAUDE=1`.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_TEST_CLAUDE"] == "1"))
     func aLivePermissionPromptRoundTrip() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(
@@ -658,7 +641,7 @@ func activities(_ events: [AgentEvent]) -> [String] {
         var events: [AgentEvent] = []
         for await event in run {
             if case .approvals(let approvals) = event, let first = approvals.first {
-                run.reply(to: first, .acceptForSession)
+                run.reply(to: first, .accept)
             }
             events.append(event)
         }
