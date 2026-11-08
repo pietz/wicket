@@ -2,8 +2,6 @@ import Foundation
 import WicketCore
 import os
 
-// Bridges agent runs to command frames, including approvals, follow-ups and extension review offers.
-
 extension CommandID {
     /// Run Agent: answers a question or does what it asks, the one AI entry.
     public static let runAgent = CommandID.builtin("run-agent")
@@ -19,12 +17,8 @@ extension CommandID {
     public static let followUp = CommandID.builtin("follow-up")
 }
 
-/// Run Agent: acts with the chosen provider, in the folder of the Finder selection or the home
-/// folder, and shows each run in its frame (`AnswerDraft`): approvals, Copy and Paste, partial
-/// failure, Retry, Follow Up and cancellation. It also answers approvals (`builtin:ai-approval`) and
-/// continues conversations (`builtin:follow-up`). With `authoring`, a run knows Wicket and can add
-/// or change its commands, and its answer offers to review what it wrote. The app makes one
-/// (`AppRuntime.live()`); only an explicit run asks a provider.
+/// Run Agent, approvals (`builtin:ai-approval`) and Follow Up (`builtin:follow-up`): each run shown
+/// in its frame (`AnswerDraft`); see docs/architecture.md. Only an explicit run asks a provider.
 @MainActor
 public final class AgentRunner: CommandRunner {
     /// The settings' `ai.provider`, read when a question is asked; nil for the first ready one.
@@ -66,9 +60,7 @@ public final class AgentRunner: CommandRunner {
                 submitted, prompt: question, title: question,
                 continuing: invocation.args?["conversation"]?.string ?? "")
         }
-        // A run started for the user, such as Fix with Agent, can name its frame; else the question
-        // does. One about an extension (Fix and Change with Agent) continues the conversation that
-        // built it.
+        // A run started for the user, such as Fix with Agent, can name its frame; else the question does.
         return start(
             submitted, prompt: prompt, title: invocation.args?["title"]?.string ?? question,
             actingIn: Self.folder(for: invocation.context), about: invocation.args?["extension"]?.string)
@@ -84,12 +76,8 @@ public final class AgentRunner: CommandRunner {
         return files.count == 1 && isFolder ? first : first.deletingLastPathComponent()
     }
 
-    /// The provider acts in `folder`. With `continuing`, the token of a Follow Up action, it
-    /// continues that conversation instead: the agent's own session, with its provider, folder and
-    /// settings. With `about`, an extension id (Fix and Change with Agent), the prompt says which
-    /// extension it is about, and the run continues the conversation that last built or changed it
-    /// (`ExtensionHistory`) unless the invocation asks for a `fresh` one; if that run fails, its page
-    /// offers a fresh one.
+    /// `continuing` is a Follow Up token; `about` an extension id (Fix and Change with Agent), whose
+    /// remembered build conversation the run continues unless the invocation asks for a `fresh` one.
     private func start(
         _ invocation: Invocation, prompt: String, title: String, actingIn folder: URL? = nil,
         continuing token: String? = nil, about extensionID: String? = nil

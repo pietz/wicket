@@ -63,13 +63,9 @@ public struct Diagnostic: Hashable, Sendable {
     }
 }
 
-/// Every diagnostic Wicket holds, from every producer: extension discovery, failed runs, the
-/// hotkey, keyword conflicts, and settings.json. Producers replace their own reports (`set`,
-/// `replace`); readers ask by subject (`entries(for:)`, `text(for:kind:)`) or for one extension's
-/// whole picture (`report(forExtension:)`).
-///
-/// Bounded: each subject keeps at most `perKind` reports of each kind (the newest), and each text
-/// at most `textLimit` bytes.
+/// Every diagnostic Wicket holds (see docs/architecture.md). Producers replace their own kind's
+/// reports; each subject keeps at most `perKind` of each kind (the newest), each text at most
+/// `textLimit` bytes.
 @MainActor
 @Observable
 public final class Diagnostics {

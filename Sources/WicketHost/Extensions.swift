@@ -44,28 +44,11 @@ public struct DiscoveredExtension: Sendable, Hashable {
     }
 }
 
-/// Discovery and the active catalog of extensions, and their runs.
-///
-/// Discovery (`discovered`) is every folder in `directory`, each sealed into `store` when new or
-/// changed: a read-only copy whose hash is its revision, with its state against `approvals`. The
-/// **active catalog** is the approved revisions the store keeps, one per discovered extension (a
-/// folder changed since approval keeps running its approved revision until the new one is
-/// approved); `commands` and runs come from it alone, a run uses its sealed folder, never the
-/// authoring one, and `result(of:)` refuses anything else before a process starts. Scanning,
-/// copying and hashing run off the main actor; each pass publishes one snapshot (discovery,
-/// catalog, runs of replaced revisions stopped, diagnostics) in one main-actor step and then calls
-/// `onChange`. FSEvents bursts coalesce: a `load` while one runs is folded into one more pass.
-/// Approving, revoking or trashing (`approve`, `revoke`, `trash`, internal to Host: only Wicket's
-/// review screens call them) writes `approvals` and runs a pass, so the catalog, the registry and
-/// open frames follow.
-///
-/// Each run is one process (`ExtensionProcess`), and an extension's runs are serialised: one
-/// starts only after the previous one, cleanup included, has ended, so two never share its data
-/// directory.
-///
-/// What goes wrong goes to `diagnostics`: folders that hold no valid extension (`discovery`), an
-/// approvals file that can't be used (`approvals`), and each command's last failed run (cleared by
-/// its next answer); a replaced revision's reports go with it.
+/// Discovery and the active catalog of extensions, and their runs (see docs/architecture.md).
+/// Discovery never implies permission: `commands` and runs come only from approved revisions the
+/// store keeps, and a run uses its sealed folder, never the authoring one. An extension's runs are
+/// serialised (one starts only after the previous one, cleanup included, has ended), so two never
+/// share its data directory.
 @MainActor
 public final class Extensions {
     /// What one discovery pass found, published at once.
@@ -292,12 +275,10 @@ public final class Extensions {
     }
 
     /// Discovers the extensions again, off the main actor, and publishes what it found. Folders
-    /// among `changed` (paths from a file watcher), and new ones, are sealed again (a revision
-    /// already retained isn't copied twice); the others keep their revision. A change reported at
-    /// the extensions directory or above it says nothing about which folder changed, so it seals
-    /// every folder again. A pass running already
-    /// takes this request in one more pass. The returned task ends once a published snapshot covers
-    /// this request; the keystroke path never waits for it.
+    /// among `changed` (paths from a file watcher), and new ones, are sealed again; a change reported
+    /// at the extensions directory or above says nothing about which folder changed, so it seals
+    /// every folder again. A pass running already takes this request in one more pass. The returned
+    /// task ends once a published snapshot covers this request; the keystroke path never waits for it.
     @discardableResult
     public func load(changed: [String] = []) -> Task<Void, Never> {
         let root = directory.path

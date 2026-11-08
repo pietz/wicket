@@ -18,25 +18,7 @@ extension CommandID {
     public static let trashExtension = CommandID.builtin("trash-extension")
 }
 
-/// Wicket's consent screens, one runner behind five built-ins (each its own entry in the app's
-/// table, reached by `run` actions on the screens it draws):
-///
-/// - **Extensions** (`builtin:extensions`): every discovered extension with its state (enabled,
-///   problem, changed, not enabled, invalid), then Open Extensions Folder. Return on one that isn't
-///   enabled reviews it; on an enabled one it shows it.
-/// - **Review** (`builtin:review-extension`): an enabled extension's page (run its first command,
-///   its secrets, its problems, Disable, Move to Trash last); otherwise checks
-///   the extension's current sealed revision (statically, `Checker`) and shows the report, and only
-///   a passing check offers Enable; a failing one offers Fix with Agent, a Run Agent run with the
-///   report. Every page ends with Move to Trash. An extension that is gone reloads the screen
-///   beneath (the Extensions list), which is how a page goes away after Move to Trash.
-/// - **Enable** (`builtin:enable-extension`): approves exactly the revision a review screen
-///   checked and closes with a message.
-/// - **Disable** (`builtin:disable-extension`): withdraws the approval; its commands leave the
-///   palette and its frames stop.
-/// - **Move to Trash** (`builtin:trash-extension`): moves the folder to the Trash, forgets its
-///   approvals and sealed revisions, and reloads the screen beneath with a message.
-///
+/// Wicket's consent screens, one runner behind the five built-ins above (see docs/architecture.md).
 /// Enable acts only on a token a screen issued in this run of Wicket: the token is never written
 /// anywhere, so a binding in settings.json, a deeplink or another process can't approve anything,
 /// and nothing is approved that the user wasn't shown checked.

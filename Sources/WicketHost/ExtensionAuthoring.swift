@@ -1,12 +1,9 @@
 import Foundation
 import WicketCore
 
-/// How Wicket extends itself through the user's agent. A run is told Wicket's built-in rules (the
-/// bundled agent.md and the markup reference), then the user's own instructions (agent.md in the settings folder), then what
-/// only this run can know: where the extensions folder, the authoring kit and the `wicket` tool are, and a list of
-/// Wicket's commands written for it to read on demand. Once the run has ended, the extensions it
-/// added or changed are offered for review: the same review, check and Enable as any other, so
-/// nothing it wrote runs before the user enables it.
+/// How Wicket extends itself through the user's agent (see docs/architecture.md): what a run is told,
+/// and the review offered for the extensions it added or changed, so nothing it wrote runs before the
+/// user enables it.
 @MainActor
 public final class ExtensionAuthoring {
     let extensions: Extensions
@@ -200,10 +197,8 @@ public final class ExtensionAuthoring {
         }
     }
 
-    /// Fix with Agent: a Run Agent run about the extension `id` (`about`), told why it fails, in a
-    /// frame titled by the extension (the failure is too long for a title). It continues the
-    /// conversation that built the extension when Wicket remembers one, and its answer offers the
-    /// review again.
+    /// Fix with Agent: a Run Agent run about the extension `id`, told why it fails, in a frame titled
+    /// by the extension (the failure is too long for a title).
     static func fix(_ name: String, id: String, failure: String) -> Item.Action {
         .run(
             command: .runAgent, text: "Find out why it fails and fix it.\n\n\(failure)",

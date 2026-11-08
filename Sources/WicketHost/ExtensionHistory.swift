@@ -2,18 +2,12 @@ import Foundation
 import WicketCore
 import os
 
-/// What Wicket remembers about each extension besides its code, so a failure can be debugged after
-/// the fact and the agent that built it can be asked again: its recent runs, and the agent
-/// conversation that last built or changed it. One folder per extension under
-/// `ExtensionPaths.history` (`<id>/runs.jsonl`, `<id>/conversation.json`), never in the extension's
-/// own folder, which is sealed and hashed. It stays on this Mac, is never logged, and Move to Trash
-/// deletes it (`forget`).
-///
-/// A run records what is needed to tell what happened and to reproduce it: when, the revision, the
-/// command, the outcome and why, how long it took, and the stderr tail (secrets redacted). The text and args it was sent are kept for failed runs only: a failure often depends on
-/// the input ("Berlin" works, "" doesn't), while a successful run's input helps no one, and a live
-/// command is sent every keystroke. Consecutive successful runs of one command and revision fold
-/// into one entry with a count, so a burst of searches never pushes a failure out.
+/// What Wicket remembers about each extension besides its code: its recent runs and the agent
+/// conversation that last built or changed it (see docs/architecture.md). Never in the extension's
+/// own folder, which is sealed and hashed; it stays on this Mac, is never logged, and Move to Trash
+/// deletes it (`forget`). A failed run keeps its input, since a failure often depends on it; a
+/// successful one doesn't, and consecutive successes of one command and revision fold into one
+/// entry, so a burst of live searches never pushes a failure out.
 public actor ExtensionHistory {
     /// How a run ended.
     public enum Outcome: String, Codable, Sendable {
