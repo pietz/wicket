@@ -274,7 +274,7 @@ extension AppRuntime {
             approvals: Approvals(), diagnostics: diagnostics,
             history: ExtensionHistory(root: ExtensionPaths.history))
         let consent = ExtensionsRunner(extensions: extensions)
-        // Every AI answer, Run Agent's and prompt commands'; Run Agent's runner owns its shutdown.
+        // Every AI answer; Run Agent's runner owns its shutdown.
         let answers = AnswerStream(provider: { weakRuntime?.applied?.ai.provider })
         // Acting runs know Wicket's commands and write extensions into its folder for review.
         answers.authoring = ExtensionAuthoring(
@@ -286,10 +286,7 @@ extension AppRuntime {
                 permission: permissions.level(for: provider))
         }
         answers.streamsAnswers = { weakRuntime?.applied?.ai.streamAnswers ?? false }
-        extensions.answers = answers
         let runAgent = AgentRunner(answers: answers)
-        let savePrompt = SavePromptRunner(extensions: extensions, reviews: consent)
-        runAgent.saveCommand = { [weak savePrompt] in savePrompt?.offer($0) }
         let work: [Feature: Work] = [
             .apps: Work(
                 start: {
@@ -326,11 +323,6 @@ extension AppRuntime {
                     isListed: false, input: .submitText, placeholder: "Ask or tell the agent",
                     isFallback: true, feature: .ai, usesContext: true),
                 runner: runAgent),
-            Builtin(
-                RegisteredCommand(
-                    id: .savePromptCommand, title: "Save as Command", icon: .symbol(name: "bookmark"),
-                    isListed: false, input: .none),
-                runner: savePrompt),
             // Follow Up under a Run Agent answer: its frame waits for the next question, which
             // continues the same conversation with the agent; reached by id only.
             Builtin(

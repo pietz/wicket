@@ -250,9 +250,6 @@ public actor ExtensionSession {
     public func submit(_ id: RequestID, _ params: RunParams, retry: RetryPolicy) async throws
         -> Task<Reply, any Error>
     {
-        guard manifest.command(params.command)?.prompt == nil else {
-            throw Refusal("Prompt commands run through Wicket's AI answer runner, not an extension process.")
-        }
         // First, so a failure of this very run is redacted of its text too.
         remember(query: params.text)
         if path == nil { path = await LoginShell.path() }

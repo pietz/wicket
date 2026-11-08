@@ -6,7 +6,7 @@
   "$defs": {
     "Manifest": {
       "type": "object",
-      "required": ["protocol", "id", "name", "version", "commands"],
+      "required": ["protocol", "id", "name", "version", "run", "commands"],
       "additionalProperties": false,
       "properties": {
         "$schema": { "type": "string" },
@@ -34,9 +34,7 @@
           "description": "Values stored in the Keychain and passed as environment variables. Names must be unique."
         },
         "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Command" } }
-      },
-      "if": { "properties": { "commands": { "contains": { "not": { "required": ["prompt"] } } } } },
-      "then": { "required": ["run"] }
+      }
     },
     "Secret": {
       "type": "object",
@@ -63,11 +61,6 @@
         "mode": { "enum": ["once", "live", "root"], "default": "once" },
         "keyword": { "type": "string", "pattern": "^\\S+$" },
         "search": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" }, "description": "Words and phrases a person would type to find this command locally; equivalent title matches rank higher." },
-        "prompt": {
-          "type": "string", "minLength": 1,
-          "pattern": "^(?=[\\s\\S]*\\S)(?:[^{}]|\\{(?:selection|text|app|files)\\})*$",
-          "description": "Once only. An AI answer template with {selection}, {text}, {app}, {files}. Braces are reserved; substitution is single-pass. No extension process starts."
-        },
         "placeholder": { "type": "string" },
         "hidden": { "type": "boolean", "default": false },
         "pattern": { "type": "string", "format": "regex", "description": "Root only: queries that don't match are not sent." },
@@ -78,10 +71,6 @@
         }
       },
       "allOf": [
-        {
-          "if": { "required": ["prompt"] },
-          "then": { "properties": { "mode": { "const": "once" } } }
-        },
         {
           "if": { "required": ["mode"], "properties": { "mode": { "enum": ["live", "root"] } } },
           "then": { "not": { "required": ["repeatable"] } }

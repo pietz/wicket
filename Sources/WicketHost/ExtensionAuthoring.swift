@@ -166,7 +166,6 @@ public final class ExtensionAuthoring {
         case .none: "Takes no text."
         case .immediateText: "Runs at once (mode `once`)."
         case .submitText: "Runs on the text it is given, when submitted."
-        case .submitOptionalText: "Runs on Return, with or without text (a prompt)."
         case .liveText: "Runs again as the text changes (mode `live`)."
         }
     }

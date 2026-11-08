@@ -6,8 +6,6 @@ import WicketCore
 final class AnswerDraft {
     let title: String
     let invocation: Invocation
-    let completedActions: @MainActor () -> [Item.Action]
-    var finishedActions: [Item.Action] = []
     /// Continues the conversation, once the answer has come from an acting run whose session the
     /// agent kept: second among the actions, so ⌘↩ runs it.
     var followUp: Item.Action?
@@ -15,9 +13,8 @@ final class AnswerDraft {
     var reviews: [Item.Action] = []
     /// Shown until the first text arrives.
     let status: String
-    /// The permission level the run was started with, said under each question; nil for an
-    /// answer run, which never asks.
-    let permission: AgentPermission?
+    /// The permission level the run was started with, said under each question.
+    let permission: AgentPermission
     /// Everything the agent wrote, in order: its messages along the way, then its final answer.
     /// Tools it used and its thinking aren't shown.
     var text = ""
@@ -27,7 +24,7 @@ final class AnswerDraft {
     private var unfinished = ""
     /// The final answer alone, once it has come: what Copy and Paste take.
     var answer: String?
-    /// Whether the agent ran a command or changed a file.
+    /// Whether the agent ran a command or changed a file, so a failed resume can't simply start anew.
     var acted = false
     /// The agent's questions waiting for the user, oldest first, each with its action token.
     var approvals: [(token: String, approval: AgentApproval)] = []
@@ -39,15 +36,13 @@ final class AnswerDraft {
     var redraw: () -> Void = {}
 
     init(
-        title: String, invocation: Invocation, status: String, permission: AgentPermission?,
-        streams: Bool, completedActions: @escaping @MainActor () -> [Item.Action]
+        title: String, invocation: Invocation, status: String, permission: AgentPermission, streams: Bool
     ) {
         self.title = title
         self.invocation = invocation
         self.status = status
         self.permission = permission
         self.streams = streams
-        self.completedActions = completedActions
     }
 
     /// Adds what the agent wrote and returns whether the page changed: streaming, at once; else it
@@ -95,7 +90,7 @@ final class AnswerDraft {
                     ])
             }
             if text.isEmpty { return Detail(title: title, markdown: body) }
-            var actions = reviews + [copy, .paste(text: final, title: "Paste Answer")] + finishedActions
+            var actions = reviews + [copy, .paste(text: final, title: "Paste Answer")]
             if let followUp { actions.insert(followUp, at: 1) }
             return Detail(title: title, markdown: body, actions: actions)
         }
@@ -134,7 +129,7 @@ final class AnswerDraft {
         if let reason = approval.reason, !reason.isEmpty { parts.append(Self.escaped(reason)) }
         if approval.kind == .command { parts.append(Self.fenced(approval.subject)) }
         if let input = approval.input { parts.append(Self.fenced(input)) }
-        if let permission { parts.append("_\(permission.title): \(permission.summary)._") }
+        parts.append("_\(permission.title): \(permission.summary)._")
         if approvals.count > 1 { parts.append("_\(approvals.count - 1) more waiting_") }
         return parts.joined(separator: "\n\n")
     }

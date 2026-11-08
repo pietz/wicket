@@ -2,11 +2,9 @@ import Foundation
 import WicketCore
 import os
 
-/// Every AI answer in a frame, Run Agent's and prompt commands': provider selection, a growing
-/// draft, approvals, Copy/Paste, partial failure, Retry, throttling and cancellation. The app makes
-/// one (`AppRuntime.live()`) and hands it to Run Agent's runner, which shuts it down, and to
-/// `Extensions` for prompt commands. Only an explicit run asks a provider; every scratch folder
-/// outlives its process.
+/// Every AI answer in a frame: provider selection, a growing draft, approvals, Copy/Paste, partial
+/// failure, Retry, throttling and cancellation. The app makes one (`AppRuntime.live()`) and hands it
+/// to Run Agent's runner, which shuts it down. Only an explicit run asks a provider.
 @MainActor
 public final class AnswerStream {
     /// The settings' `ai.provider`, read when a question is asked; nil for the first ready one.
@@ -43,16 +41,15 @@ public final class AnswerStream {
         self.interval = interval
     }
 
-    /// With `actingIn`, the provider acts in that folder (`AgentMode.act`); otherwise the run only
-    /// answers, in an empty folder. With `continuing`, the token of a Follow Up action, it continues
-    /// that conversation instead: the agent's own session, with its provider, folder and settings.
+    /// The provider acts in `folder` (`AgentMode.act`). With `continuing`, the token of a Follow Up
+    /// action, it continues that conversation instead: the agent's own session, with its provider,
+    /// folder and settings.
     /// With `about`, an extension id (Fix and Change with Agent), the prompt is prefixed with which
     /// extension it is about, and the run continues the conversation that last built or changed it
     /// (`ExtensionHistory`), or starts a new one if there is none or it can't be resumed.
     func run(
         _ invocation: Invocation, prompt: String, title: String, actingIn folder: URL? = nil,
-        continuing token: String? = nil, about extensionID: String? = nil,
-        completedActions: @escaping @MainActor () -> [Item.Action] = { [] }
+        continuing token: String? = nil, about extensionID: String? = nil
     ) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         guard !isShutDown else {
@@ -84,14 +81,13 @@ public final class AnswerStream {
                     try await answer(
                         prompt, title: title, invocation: invocation, actingIn: folder,
                         continuing: continued ?? remembered, token: token,
-                        resumable: continued == nil && remembered != nil,
-                        completedActions: completedActions, continuation)
+                        resumable: continued == nil && remembered != nil, continuation)
                 } catch is ResumeFailed {
                     Self.logger.notice(
                         "agent: the extension's conversation couldn't be resumed; starting anew")
                     try await answer(
                         prompt, title: title, invocation: invocation, actingIn: folder, continuing: nil,
-                        token: nil, resumable: false, completedActions: completedActions, continuation)
+                        token: nil, resumable: false, continuation)
                 }
                 continuation.finish()
             } catch {
@@ -139,7 +135,6 @@ public final class AnswerStream {
     private func answer(
         _ prompt: String, title: String, invocation: Invocation, actingIn folder: URL?,
         continuing continued: Conversation?, token: String?, resumable: Bool,
-        completedActions: @escaping @MainActor () -> [Item.Action],
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         let start = ContinuousClock.now
@@ -154,32 +149,18 @@ public final class AnswerStream {
             return
         }
         try Task.checkCancellation()
-        let acting = continued?.folder ?? folder
-        let configuration = continued?.configuration ?? acting.map { _ in configuration(provider) }
+        let acting = continued?.folder ?? folder ?? FileManager.default.homeDirectoryForCurrentUser
+        let configuration = continued?.configuration ?? configuration(provider)
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
-            permission: configuration?.permission, streams: streamsAnswers(),
-            completedActions: completedActions)
+            permission: configuration.permission, streams: streamsAnswers())
         output.yield(.show(.detail(draft.detail)))
 
-        let request: AgentRequest
-        // What the extensions folder holds before an acting run, to offer what it changes for review.
-        var before: ExtensionAuthoring.Snapshot?
-        if let acting, let configuration {
-            before = await authoring?.snapshot()
-            request = AgentRequest(
-                prompt: prompt, workingDirectory: acting, mode: .act(configuration),
-                instructions: authoring?.instructions(), resume: continued?.session)
-        } else {
-            // An empty folder, so the agent's working directory holds nothing to read.
-            let folder = FileManager.default.temporaryDirectory.appending(
-                path: "wicket-ask-\(UUID().uuidString)")
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            request = AgentRequest(prompt: prompt, workingDirectory: folder, mode: .answer)
-        }
-        defer {
-            if request.mode == .answer { try? FileManager.default.removeItem(at: request.workingDirectory) }
-        }
+        // What the extensions folder holds before the run, to offer what it changes for review.
+        let before = await authoring?.snapshot()
+        let request = AgentRequest(
+            prompt: prompt, workingDirectory: acting, mode: .act(configuration),
+            instructions: authoring?.instructions(), resume: continued?.session)
         let throttle = Throttle(interval: interval) { output.yield(.show(.detail(draft.detail))) }
         draft.redraw = { throttle.submit() }
         defer {
@@ -191,12 +172,10 @@ public final class AnswerStream {
         // This run's conversation, once its agent named its session.
         var session: String?
         let conversation = { (session: String) -> Conversation? in
-            guard let acting, let configuration else { return nil }
-            return Conversation(
-                provider: provider, folder: acting, configuration: configuration, session: session)
+            Conversation(provider: provider, folder: acting, configuration: configuration, session: session)
         }
         // However this ends (answer, failure, cancellation), it returns only once the agent's
-        // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
+        // process tree is gone, so `shutdown` can wait for it.
         do {
             try await show(
                 run, of: provider, in: draft, start: start, throttle: throttle, extensionsBefore: before,
@@ -268,10 +247,6 @@ public final class AnswerStream {
                 let conversation = session.flatMap(conversation)
                 draft.reviews = await reviews(since: extensionsBefore, conversation: conversation)
                 try Task.checkCancellation()
-                // Only a pure answer is a prompt worth saving: not one that made a command, ran one
-                // or changed a file.
-                draft.finishedActions =
-                    draft.reviews.isEmpty && !draft.acted ? draft.completedActions() : []
                 // Follow Up continues this conversation, under the token its follow-ups keep.
                 draft.followUp = conversation.map { remember($0, as: token ?? UUID().uuidString) }
                 output.yield(.show(.detail(draft.detail)))
@@ -300,8 +275,7 @@ public final class AnswerStream {
         return .run(command: .followUp, args: ["conversation": .string(token)], title: "Follow Up")
     }
 
-    /// Review actions for the extensions an acting run added or changed since `before`; none for
-    /// answer runs. Each such extension remembers `conversation` as the one that built it, which
+    /// Review actions for the extensions the run added or changed since `before`. Each such extension remembers `conversation` as the one that built it, which
     /// Fix and Change with Agent continue.
     private func reviews(since before: ExtensionAuthoring.Snapshot?, conversation: Conversation?) async
         -> [Item.Action]

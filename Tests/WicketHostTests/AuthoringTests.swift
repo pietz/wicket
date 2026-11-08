@@ -181,7 +181,6 @@ private func finalDetail(
                     to: script, atomically: false, encoding: .utf8)
             }, interval: .zero, provider: { .codex }))
     runner.answers.authoring = testAuthoring(extensions)
-    runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
 
     let detail = try #require(try await finalDetail(runner, "build a weather command"))
     // The new folder and the changed approved one, by id; not the untouched or unchanged ones.
@@ -198,17 +197,6 @@ private func finalDetail(
     let request = try #require(requests.first)
     #expect(request.configuration != nil)
     #expect(request.instructions?.contains(directory.path) == true)
-}
-
-@MainActor @Test func anAnswerThatChangedNoExtensionOffersSaveAsBefore() async throws {
-    let extensions = try await extensions([try plain("enabled")], approved: ["enabled"])
-    let requests = Requests()
-    let runner = AgentRunner(
-        answers: AnswerStream(backend: agent(requests) {}, interval: .zero, provider: { .codex }))
-    runner.answers.authoring = testAuthoring(extensions)
-    runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
-    let detail = try #require(try await finalDetail(runner, "what can you do?"))
-    #expect(detail.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
 }
 
 @MainActor @Test func aRunThatFailedAfterWritingAnExtensionStillOffersItsReview() async throws {
@@ -235,30 +223,6 @@ private func finalDetail(
     silent.answers.authoring = runner.answers.authoring
     let failure = try #require(try await finalDetail(silent, "change it"))
     #expect(failure.actions.compactMap { $0.title } == ["Review and Enable Test", "Retry"])
-}
-
-@MainActor @Test func onlyAPureAnswerOffersSaveAsCommand() async throws {
-    let extensions = try await extensions([])
-    let runner = AgentRunner(
-        answers: AnswerStream(
-            backend: agent(
-                Requests(), events: [.activity("Ran ls"), .acted, .answer("Three files.", usage: nil)]
-            ) {}, interval: .zero, provider: { .claude }))
-    runner.answers.authoring = testAuthoring(extensions)
-    runner.saveCommand = { _ in Item.Action.copy(text: "", title: "Save as Command") }
-    let acted = try #require(try await finalDetail(runner, "how many files are here?"))
-    #expect(acted.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer"])
-
-    // Reading isn't acting.
-    let reader = AgentRunner(
-        answers: AnswerStream(
-            backend: agent(Requests(), events: [.activity("Read a.txt"), .answer("It says hi.", usage: nil)])
-            {},
-            interval: .zero, provider: { .claude }))
-    reader.answers.authoring = runner.answers.authoring
-    reader.saveCommand = runner.saveCommand
-    let read = try #require(try await finalDetail(reader, "what does a.txt say?"))
-    #expect(read.actions.compactMap { $0.title } == ["Copy Answer", "Paste Answer", "Save as Command"])
 }
 
 @MainActor @Test func aRunCanNameItsFrame() async throws {

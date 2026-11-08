@@ -581,6 +581,9 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(await eventually { agents.runs.count == 1 })
     agents.runs[0].continuation.yield(.text("Hel"))
     agents.runs[0].continuation.yield(.error("the model is overloaded"))
-    #expect(await eventually { !palette.session.top.isLoading })
-    #expect(palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded")
+    // The answer's frame may not be pushed yet when the run starts, so wait for the page itself.
+    #expect(
+        await eventually {
+            palette.detail?.markdown == "Hel\n\n---\n\n**The answer is incomplete.** the model is overloaded"
+        })
 }

@@ -20,14 +20,11 @@ extension CommandID {
 /// Run Agent: acts with the chosen provider, in the folder of the Finder selection or the home
 /// folder; its approvals are answered through
 /// `builtin:ai-approval`. With the stream's `authoring`, an acting run knows Wicket and can add or
-/// change its commands, and its answer offers to review what it wrote. It owns the shared answer
-/// stream's shutdown, prompt commands' runs included.
+/// change its commands, and its answer offers to review what it wrote. It owns the answer stream's
+/// shutdown.
 @MainActor
 public final class AgentRunner: CommandRunner {
     public let answers: AnswerStream
-    /// Supplies the finished answer's Save as Command action in the app. No action during streaming
-    /// or after failure; the saver keeps the original invocation out of action arguments.
-    public var saveCommand: (@MainActor (Invocation) -> Item.Action?)?
 
     public init(answers: AnswerStream) {
         self.answers = answers
@@ -43,7 +40,7 @@ public final class AgentRunner: CommandRunner {
         var submitted = invocation
         submitted.text = question
         if invocation.command == .followUp {
-            // The conversation's folder and context stay; a follow-up is no prompt to save.
+            // The conversation's folder and context stay.
             return answers.run(
                 submitted, prompt: question, title: question,
                 continuing: invocation.args?["conversation"]?.string ?? "")
@@ -53,10 +50,7 @@ public final class AgentRunner: CommandRunner {
         // built it.
         return answers.run(
             submitted, prompt: prompt, title: invocation.args?["title"]?.string ?? question,
-            actingIn: Self.folder(for: invocation.context), about: invocation.args?["extension"]?.string
-        ) { [weak self] in
-            self?.saveCommand?(invocation).map { [$0] } ?? []
-        }
+            actingIn: Self.folder(for: invocation.context), about: invocation.args?["extension"]?.string)
     }
 
     /// Where an acting run works: the folder of the Finder selection (a selected folder itself when it

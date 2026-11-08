@@ -24,8 +24,8 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
     /// Offered as a row in the root's fallback tier for any query, which it is run on (`FallbackSource`).
     /// Only for `submitText` commands.
     public var isFallback: Bool
-    /// The feature it belongs to: while that is off, the command isn't registered. A built-in's is
-    /// its table entry's; an extension's prompt command belongs to `ai`, since it asks a model.
+    /// The feature it belongs to: while that is off, the command isn't registered (a built-in's,
+    /// from its table entry).
     public var feature: Feature?
     /// An extension command's: the active revision it was registered from, which a run of it binds
     /// to when it starts (`CommandRun`). Nil for built-ins.
@@ -68,8 +68,7 @@ public struct RegisteredCommand: Sendable, Hashable, Identifiable {
             icon: icon ?? .symbol(name: "puzzlepiece.extension"), keyword: command.keyword,
             search: command.search,
             isListed: !command.hidden && command.mode != .root, input: command.input, retry: command.retry,
-            placeholder: command.placeholder, feature: command.prompt != nil ? .ai : nil, revision: revision,
-            usesContext: command.prompt != nil)
+            placeholder: command.placeholder, revision: revision)
     }
 
     /// Whether the root offers it: listed, or a fallback. Only these have keywords, and the settings
@@ -82,7 +81,7 @@ extension Manifest.Command {
     /// `once` (and `root`, should a `run` action name one) runs on its text when invoked; `live`
     /// searches as the user types.
     public var input: CommandInput {
-        prompt != nil ? .submitOptionalText : (mode == .live ? .liveText : .immediateText)
+        mode == .live ? .liveText : .immediateText
     }
 
     /// Live and root runs are searches, so they may be resent; a once command only if its manifest
@@ -157,7 +156,7 @@ public final class CommandRegistry {
         rebuild()
     }
 
-    /// Unregisters the commands of the features in `disabled` (built-ins and prompt commands) and
+    /// Unregisters the commands of the features in `disabled` and
     /// registers the rest again, for when settings.json turned a feature off or on. Their hotkeys and aliases wait, inert, like
     /// those of a command that isn't installed.
     public func setDisabledFeatures(_ disabled: Set<Feature>) {

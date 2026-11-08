@@ -144,10 +144,7 @@ public final class ExtensionsRunner: CommandRunner {
         var actions: [Item.Action] = []
         if checked.passed {
             actions.append(offer(checked.sealed, message: "Enabled \(manifest.name).", title: "Enable"))
-            sections.append(
-                manifest.commands.allSatisfy { $0.prompt != nil }
-                    ? "_Enable lets these prompts use your AI provider and the inputs listed above. No extension program runs._"
-                    : "_Enable runs it with your permissions, as any app you install._")
+            sections.append("_Enable runs it with your permissions, as any app you install._")
         } else {
             sections.append("_It can't be enabled until it passes its check._")
             actions.append(
@@ -425,12 +422,6 @@ public final class ExtensionsRunner: CommandRunner {
         manifest.commands.map { command in
             var line = "- \(command.title)"
             if let keyword = command.keyword { line += ": keyword `\(keyword)`" }
-            if command.prompt != nil {
-                let placeholders = command.placeholders.map { "{\($0)}" }.joined(separator: ", ")
-                line += " (prompt). Uses your AI provider"
-                if !placeholders.isEmpty { line += "; reads " + placeholders }
-                return line
-            }
             return line + " (\(command.mode.rawValue))"
         }.joined(separator: "\n")
     }

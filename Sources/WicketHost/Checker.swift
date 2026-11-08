@@ -95,13 +95,6 @@ public enum Checker {
             return report
         }
         let manifest = sealed.manifest
-        if manifest.commands.allSatisfy({ $0.prompt != nil }) {
-            report.add(
-                .ok,
-                "wicket.json: \(manifest.id) \(manifest.version), \(manifest.commands.count) prompt commands")
-            report.add(.ok, "Prompt templates validated; no process, AI request or fixture is needed.")
-            return report
-        }
         let isolation: CheckIsolation
         do {
             isolation = try CheckIsolation(candidate: sealed.folder)
@@ -260,13 +253,6 @@ public enum Checker {
             switch step {
             case .send(.run(let id, let params)):
                 do {
-                    guard manifest.command(params.command)?.prompt == nil else {
-                        report.add(
-                            .error,
-                            "\(name):\(line): prompt commands are validated from the manifest; fixtures may only run program commands"
-                        )
-                        continue
-                    }
                     // The same retry the app gives this command's runs; an undeclared one never.
                     let retry = manifest.command(params.command)?.retry ?? .never
                     let reply = try await session.submit(id, params, retry: retry)

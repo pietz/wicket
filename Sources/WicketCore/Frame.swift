@@ -140,10 +140,7 @@ public struct ScreenFrame: Sendable {
     /// own invocation with only the text replaced (the args and revision it was opened with stay).
     func target(query: String) -> ActionTarget? {
         if let run, run.awaitsText {
-            guard
-                run.command.input == .submitOptionalText
-                    || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { return nil }
+            guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             let invocation = run.invocation
             return ActionTarget(actions: [
                 .run(

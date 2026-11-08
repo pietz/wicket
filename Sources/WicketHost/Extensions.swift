@@ -112,9 +112,6 @@ public final class Extensions {
     }
     /// The uv prunes running or waiting, one after another; shutdown cancels them.
     private var uvPruning: Task<Void, Never>?
-    /// Runs prompt commands, which never create an extension session: the app's one answer stream,
-    /// owned by Run Agent's runner.
-    public weak var answers: AnswerStream?
     private var active: [String: Active] = [:]
     private let activate: Activation
     /// The report version each session's diagnostics were last taken at.
@@ -233,8 +230,15 @@ public final class Extensions {
         let command = invocation.command
         var session: ExtensionSession?
         do {
-            let (sealed, _) = try approvedCommand(for: invocation)
-            let id = sealed.manifest.id
+            guard case .extension(let id) = command.owner else { throw HostError.unknownCommand }
+            guard let current = active[id] else {
+                throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
+            }
+            guard current.sealed.manifest.command(command.name) != nil else { throw HostError.unknownCommand }
+            if let expected = invocation.revision, expected != current.sealed.revision {
+                throw HostError.extensionChanged
+            }
+            guard !isShutDown else { throw HostError.stopped }
             let running = try await self.session(for: id)
             session = running
             // Checked against the session, the code that would run, after any replacement finished.
@@ -289,23 +293,6 @@ public final class Extensions {
                 ),
                 message: message, text: invocation.text, args: invocation.args, stderr: stderr),
             of: id)
-    }
-
-    /// The shared approval and revision gate, checked before either execution mode starts.
-    private func approvedCommand(for invocation: Invocation) throws -> (SealedRevision, Manifest.Command) {
-        let command = invocation.command
-        guard case .extension(let id) = command.owner else { throw HostError.unknownCommand }
-        guard let current = active[id] else {
-            throw discovered.contains { $0.id == id } ? HostError.notApproved : HostError.unknownCommand
-        }
-        guard let declared = current.sealed.manifest.command(command.name) else {
-            throw HostError.unknownCommand
-        }
-        if let expected = invocation.revision, expected != current.sealed.revision {
-            throw HostError.extensionChanged
-        }
-        guard !isShutDown else { throw HostError.stopped }
-        return (current.sealed, declared)
     }
 
     /// A failed run as the diagnostics keep it: the message, and an extension error's `data` (which
@@ -604,18 +591,7 @@ extension Extensions: CommandRunner {
     /// extension needs and doesn't have shows a page that offers to set it, rather than a failure.
     public func run(_ invocation: Invocation, retry: RetryPolicy) -> AsyncThrowingStream<RunResult, any Error>
     {
-        do {
-            let (_, command) = try approvedCommand(for: invocation)
-            if let template = command.prompt {
-                guard let answers else { throw Refusal("Prompt commands need the AI answer runner.") }
-                let prompt = PromptTemplate.substitute(
-                    template, text: invocation.text, context: invocation.context)
-                return answers.run(invocation, prompt: prompt, title: command.title)
-            }
-        } catch {
-            return AsyncThrowingStream { $0.finish(throwing: error) }
-        }
-        return AsyncThrowingStream { continuation in
+        AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     continuation.yield(try await result(of: invocation, retry: retry))
