@@ -55,7 +55,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ✅ One agent row that answers, acts and builds commands, through Codex and Claude Code under the user's own permission settings; approvals in the palette; Do and Make a Command removed
 - ✅ The agent row on top when the typing reads like a request (a rule; a classifier only if real use shows misses)
 - ✅ Prompt commands and Keep from an answer
-- 🔨 Rename to Run Agent; agent settings per provider (model, effort, speed, T3-style permission levels)
+- ✅ Rename to Run Agent; agent settings per provider (model, effort, speed, T3-style permission levels)
 - ✅ Voice: summon and speak, live transcript into the field, on/off and trigger (on summon, or the Start Listening hotkey) in Settings ▸ Voice
 - 💤 Voice: hold-to-talk, and a language choice for mixed German and English
 - ⏭ Wicket's agent instructions as an editable Markdown file, plus a complete authoring kit (schema, samples) and a check-until-it-passes loop (from the Pi comparison)
@@ -81,9 +81,11 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 
 ### Release
 - 💤 Licence decision (MIT versus GPL/AGPL; owner's call)
+- ✅ Repo public (pietz/wicket), author email rewritten to mail@plpp.de
 - 💤 Name and trademark check, GitHub org
-- 💤 Developer ID signing and notarisation, Homebrew cask, versioning (0.0.x)
-- 💤 README with a demo GIF, install instructions, honest alpha caveats
+- ✅ Developer ID signing and notarisation, Sparkle updates, Homebrew cask (`brew install --cask pietz/wicket/wicket`), versioning; 0.0.1 released 2026-11-08
+- ✅ Wicket Dev edition for local builds (own id, folders, ⌃⌥Space, no updater)
+- ✅ README with install instructions and honest alpha caveats; 💤 demo GIF
 - 💤 Fresh-machine validation pass
 
 ## Next (after 0.0.1)
@@ -96,7 +98,7 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - MCP client (tools as actions) and server (Wicket's core for other agents)
 - Clipboard history, snippets (decide: core or extension)
 - Grid and form views, level 3 declarative custom UI
-- Auto-update, chat history, agent quick-start in a project folder
+- Chat history, agent quick-start in a project folder
 
 ## Cross-cutting rules
 - Every change passes `Scripts/check.sh`; hot-path changes get measured.
