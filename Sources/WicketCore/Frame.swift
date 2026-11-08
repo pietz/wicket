@@ -47,6 +47,11 @@ public struct Frame: Identifiable, Sendable {
         }
     }
 
+    /// Whether the frame is a command's waiting for its text, which a submit runs.
+    public var awaitsText: Bool {
+        if case .screen(let screen) = content { screen.run?.awaitsText == true } else { false }
+    }
+
     /// Whether the frame shows a screen without rows (a page), whose view lays out its content and
     /// measures it to size the card.
     public var isMeasured: Bool {
@@ -61,8 +66,7 @@ public struct Frame: Identifiable, Sendable {
         switch content {
         case .search: query.isEmpty
         case .screen(let screen):
-            screen.run?.awaitsText == true
-                || (screen.isLive && query.isEmpty && screen.list?.items.isEmpty == true)
+            awaitsText || (screen.isLive && query.isEmpty && screen.list?.items.isEmpty == true)
         }
     }
 

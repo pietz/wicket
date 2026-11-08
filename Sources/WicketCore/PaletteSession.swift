@@ -201,13 +201,18 @@ public final class PaletteSession {
         frames[frames.count - 1].moveSelection(by: delta)
     }
 
-    /// Sets the root search's text from speech: like typing it, except a leading keyword never opens
-    /// its command, since a transcript grows word by word and would be routed halfway through.
-    /// Returns false, changing nothing, when a frame is open above the root.
+    /// Sets the text from speech, in the root search or a frame waiting for its text (Run Agent's
+    /// question, a follow-up): like typing it, except a leading keyword never opens its command,
+    /// since a transcript grows word by word and would be routed halfway through. Returns false,
+    /// changing nothing, when any other frame is on top.
     @discardableResult
     public func setSpokenQuery(_ text: String) -> Bool {
-        guard frames.count == 1 else { return false }
-        setRootQuery(text)
+        if frames.count == 1 {
+            setRootQuery(text)
+            return true
+        }
+        guard top.awaitsText else { return false }
+        frames[frames.count - 1].query = text
         return true
     }
 

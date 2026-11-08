@@ -24,6 +24,9 @@ public final class AnswerStream {
     private var running: [UUID: Task<Void, Never>] = [:]
     /// The approvals shown in frames, by the token their actions carry, until answered or their run ends.
     private var waiting: [String: (run: AgentRun, approval: AgentApproval, draft: AnswerDraft)] = [:]
+    /// Acting runs' conversations, by the token their Follow Up actions carry, newest last. Only the
+    /// latest few: Follow Up is offered on answers in the palette, which a dismiss clears.
+    private var conversations: [(token: String, conversation: Conversation)] = []
     private var isShutDown = false
     private static let logger = Logger(subsystem: "app.wicket", category: "ai")
 
@@ -38,10 +41,11 @@ public final class AnswerStream {
     }
 
     /// With `actingIn`, the provider acts in that folder (`AgentMode.act`); otherwise the run only
-    /// answers, in an empty folder.
+    /// answers, in an empty folder. With `continuing`, the token of a Follow Up action, it continues
+    /// that conversation instead: the agent's own session, with its provider, folder and settings.
     func run(
         _ invocation: Invocation, prompt: String, title: String, actingIn folder: URL? = nil,
-        completedActions: @escaping @MainActor () -> [Item.Action] = { [] }
+        continuing token: String? = nil, completedActions: @escaping @MainActor () -> [Item.Action] = { [] }
     ) -> AsyncThrowingStream<RunResult, any Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: RunResult.self)
         guard !isShutDown else {
@@ -53,7 +57,7 @@ public final class AnswerStream {
             do {
                 guard !prompt.isEmpty else { throw Failure("There's no question to ask.") }
                 try await answer(
-                    prompt, title: title, invocation: invocation, actingIn: folder,
+                    prompt, title: title, invocation: invocation, actingIn: folder, continuing: token,
                     completedActions: completedActions, continuation)
                 continuation.finish()
             } catch {
@@ -96,14 +100,18 @@ public final class AnswerStream {
 
     /// Asks the prepared prompt; presentation and Retry retain the original invocation.
     private func answer(
-        _ prompt: String, title: String, invocation: Invocation, actingIn acting: URL?,
-        completedActions: @escaping @MainActor () -> [Item.Action],
+        _ prompt: String, title: String, invocation: Invocation, actingIn folder: URL?,
+        continuing token: String?, completedActions: @escaping @MainActor () -> [Item.Action],
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         let start = ContinuousClock.now
+        let continued = token.flatMap { token in conversations.last { $0.token == token }?.conversation }
+        if token != nil, continued == nil {
+            throw Failure("This conversation has ended. Ask again to start a new one.")
+        }
         let provider: AgentProvider
         do {
-            provider = try await backend.ready(self.provider()).provider
+            provider = try await backend.ready(continued?.provider ?? self.provider()).provider
         } catch {
             var detail = Detail.failure("Run Agent Failed", error.description, command: invocation.command)
             detail.actions = [.run(command: .aiSettings, title: "Open AI Settings")]
@@ -111,7 +119,8 @@ public final class AnswerStream {
             return
         }
         try Task.checkCancellation()
-        let configuration = acting.map { _ in configuration(provider) }
+        let acting = continued?.folder ?? folder
+        let configuration = continued?.configuration ?? acting.map { _ in configuration(provider) }
         let draft = AnswerDraft(
             title: title, invocation: invocation, status: "Asking \(provider.name)…",
             permission: configuration?.permission, completedActions: completedActions)
@@ -124,7 +133,7 @@ public final class AnswerStream {
             before = await authoring?.snapshot()
             request = AgentRequest(
                 prompt: prompt, workingDirectory: acting, mode: .act(configuration),
-                instructions: authoring?.instructions())
+                instructions: authoring?.instructions(), resume: continued?.session)
         } else {
             // An empty folder, so the agent's working directory holds nothing to read.
             let folder = FileManager.default.temporaryDirectory.appending(
@@ -143,12 +152,19 @@ public final class AnswerStream {
         }
         let run = await backend.run(provider, request)
         defer { waiting = waiting.filter { $0.value.draft !== draft } }
+        // Follow Up continues this run's conversation, under the token its follow-ups keep.
+        let followUp = { [weak self] (session: String) -> Item.Action? in
+            guard let self, let acting, let configuration else { return nil }
+            let conversation = Conversation(
+                provider: provider, folder: acting, configuration: configuration, session: session)
+            return remember(conversation, as: token ?? UUID().uuidString)
+        }
         // However this ends (answer, failure, cancellation), it returns only once the agent's
         // process tree is gone, so the folder is removed after it and `shutdown` can wait for it.
         do {
             try await show(
                 run, of: provider, in: draft, start: start, throttle: throttle, extensionsBefore: before,
-                output)
+                followUp: followUp, output)
         } catch let failure as Failure {
             throttle.cancel()
             // What a failed or stopped run wrote is offered for review too, once its tree is gone.
@@ -172,11 +188,15 @@ public final class AnswerStream {
     private func show(
         _ run: AgentRun, of provider: AgentProvider, in draft: AnswerDraft, start: ContinuousClock.Instant,
         throttle: Throttle, extensionsBefore: ExtensionAuthoring.Snapshot?,
+        followUp: (String) -> Item.Action?,
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         var firstText: Duration?
+        var session: String?
         for await event in run {
             switch event {
+            case .session(let id):
+                session = id
             case .text(let delta):
                 firstText = firstText ?? ContinuousClock.now - start
                 draft.text += delta
@@ -211,6 +231,7 @@ public final class AnswerStream {
                 // or changed a file.
                 draft.finishedActions =
                     draft.reviews.isEmpty && !draft.acted ? draft.completedActions() : []
+                draft.followUp = session.flatMap(followUp)
                 output.yield(.show(.detail(draft.detail)))
                 Self.logger.notice(
                     """
@@ -228,11 +249,32 @@ public final class AnswerStream {
         throw Failure("\(provider.name) stopped without an answer.")
     }
 
+    /// Keeps `conversation` under `token` (replacing what it held, dropping the oldest beyond
+    /// `keptConversations`) and returns the Follow Up action that continues it.
+    private func remember(_ conversation: Conversation, as token: String) -> Item.Action {
+        conversations.removeAll { $0.token == token }
+        conversations.append((token, conversation))
+        conversations.removeFirst(max(0, conversations.count - Self.keptConversations))
+        return .run(command: .followUp, args: ["conversation": .string(token)], title: "Follow Up")
+    }
+
     /// Review actions for the extensions an acting run added or changed since `before`; none for
     /// answer runs.
     private func reviews(since before: ExtensionAuthoring.Snapshot?) async -> [Item.Action] {
         guard let before, let authoring else { return [] }
         return ExtensionAuthoring.reviews(await authoring.changed(since: before))
+    }
+
+    /// How many conversations Follow Up can continue.
+    static let keptConversations = 20
+
+    /// An acting run's conversation: the agent's own session and what the run was set up with, which
+    /// a follow-up keeps.
+    struct Conversation {
+        var provider: AgentProvider
+        var folder: URL
+        var configuration: AgentConfiguration
+        var session: String
     }
 
     struct Failure: Error, CustomStringConvertible {

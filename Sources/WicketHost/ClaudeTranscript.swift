@@ -10,6 +10,8 @@ import WicketCore
 /// stream-json both ways: the prompt goes in as a user message, stdin
 /// stays open, and each permission prompt comes out as a `control_request` (`can_use_tool`) that
 /// becomes an `AgentApproval`, answered by a `control_response` (verified with Claude Code 2.1.318).
+/// Acting runs keep their session in Claude Code's own history, so Follow Up continues it with
+/// `--resume <session id>`, which keeps the id (verified with 2.1.319); answer runs keep none.
 struct ClaudeTranscript: AgentTranscript {
     let request: AgentRequest
     private var newMessage = false
@@ -24,21 +26,19 @@ struct ClaudeTranscript: AgentTranscript {
     }
 
     static func arguments(for request: AgentRequest) -> [String] {
-        let output = [
-            "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-            "--no-session-persistence",
-        ]
+        let output = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         switch request.mode {
         case .act(let configuration):
             // The user's choices from Settings ▸ AI; what would prompt comes to Wicket over stdio.
             let instructions = request.instructions.map { ["--append-system-prompt", $0] } ?? []
             return output + ["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]
-                + instructions + settings(configuration)
+                + instructions + settings(configuration) + (request.resume.map { ["--resume", $0] } ?? [])
         case .answer:
             // --safe-mode drops the user's CLAUDE.md, hooks, plugins, skills and MCP servers;
             // --permission-prompts none denies anything that would ask.
             return output + [
-                "--safe-mode", "--strict-mcp-config", "--permission-prompts", "none", "--tools", "",
+                "--no-session-persistence", "--safe-mode", "--strict-mcp-config", "--permission-prompts",
+                "none", "--tools", "",
                 "--effort", "low", "--system-prompt", Agent.answerInstructions,
             ]
         }
@@ -158,7 +158,9 @@ struct ClaudeTranscript: AgentTranscript {
             }
         case "result":
             // With stream-json input the CLI waits for more until stdin closes.
-            return AgentStep(events: [Self.result(message)], closeInput: request.mode != .answer)
+            guard request.mode != .answer else { return AgentStep(events: [Self.result(message)]) }
+            let session = message["session_id"]?.string.map { [AgentEvent.session($0)] } ?? []
+            return AgentStep(events: session + [Self.result(message)], closeInput: true)
         default:
             break
         }

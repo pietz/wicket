@@ -8,6 +8,9 @@ final class AnswerDraft {
     let invocation: Invocation
     let completedActions: @MainActor () -> [Item.Action]
     var finishedActions: [Item.Action] = []
+    /// Continues the conversation, once the answer has come from an acting run whose session the
+    /// agent kept: second among the actions, so ⌘↩ runs it.
+    var followUp: Item.Action?
     /// Reviews of the extensions the run added or changed, first among the finished answer's actions.
     var reviews: [Item.Action] = []
     /// Shown until the first text arrives.
@@ -74,9 +77,9 @@ final class AnswerDraft {
                     ])
             }
             if text.isEmpty { return Detail(title: title, markdown: body) }
-            return Detail(
-                title: title, markdown: body,
-                actions: reviews + [copy, .paste(text: final, title: "Paste Answer")] + finishedActions)
+            var actions = reviews + [copy, .paste(text: final, title: "Paste Answer")] + finishedActions
+            if let followUp { actions.insert(followUp, at: 1) }
+            return Detail(title: title, markdown: body, actions: actions)
         }
         let retry = Item.Action.run(
             command: invocation.command, text: invocation.text,

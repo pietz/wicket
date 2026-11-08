@@ -11,6 +11,10 @@ extension CommandID {
     /// Answers an acting agent's approval shown in a Run Agent frame (`token` and `decision` args).
     /// Hidden, reached by id only.
     public static let aiApproval = CommandID.builtin("ai-approval")
+    /// Continues the conversation of a Run Agent answer (its `conversation` arg) with the submitted
+    /// text: the action under a finished answer, whose frame waits for the question. Hidden, reached
+    /// by id only.
+    public static let followUp = CommandID.builtin("follow-up")
 }
 
 /// Run Agent: acts with the chosen provider, in the folder of the Finder selection or the home
@@ -38,6 +42,12 @@ public final class AgentRunner: CommandRunner {
             ? "" : (invocation.context.map { question + "\n\n" + $0.promptBlock } ?? question)
         var submitted = invocation
         submitted.text = question
+        if invocation.command == .followUp {
+            // The conversation's folder and context stay; a follow-up is no prompt to save.
+            return answers.run(
+                submitted, prompt: question, title: question,
+                continuing: invocation.args?["conversation"]?.string ?? "")
+        }
         // A run started for the user, such as Fix with Agent, can name its frame; else the question does.
         return answers.run(
             submitted, prompt: prompt, title: invocation.args?["title"]?.string ?? question,

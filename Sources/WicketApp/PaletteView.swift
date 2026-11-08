@@ -156,11 +156,13 @@ struct PaletteRootView: View {
 
     /// The pill's glyph and prompt: search at the root; in a command's frame its icon with the
     /// screen's title, else its title for a page (which takes no text) or its placeholder; a pushed
-    /// page's title.
+    /// page's title. "Listening…" wherever speech goes (the root, a frame waiting for its text).
     private var pill: (icon: Item.Icon, prompt: String) {
+        if model.voice?.isListening == true, model.session.frames.count == 1 || model.top.awaitsText {
+            return (.symbol(name: "waveform"), "Listening…")
+        }
         switch model.top.content {
         case .search:
-            if model.voice?.isListening == true { return (.symbol(name: "waveform"), "Listening…") }
             return (.symbol(name: "magnifyingglass"), "Search or run a command")
         case .screen(let frame):
             let title = frame.screen?.title

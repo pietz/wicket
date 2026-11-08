@@ -69,6 +69,9 @@ private let runAgent = RegisteredCommand(
     id: .builtin("run-agent"), title: "Run Agent", icon: .symbol(name: "sparkles"), keyword: "ai",
     isListed: false,
     input: .submitText, placeholder: "Ask a question", isFallback: true, feature: .ai)
+private let followUp = RegisteredCommand(
+    id: .followUp, title: "Follow Up", icon: .symbol(name: "sparkles"), isListed: false, input: .submitText,
+    placeholder: "Follow up", feature: .ai)
 private let aiApproval = RegisteredCommand(
     id: .aiApproval, title: "Answer the Agent", icon: .symbol(name: "sparkles"), isListed: false, input: .none
 )
@@ -81,9 +84,12 @@ private struct Palette {
     init(_ backend: AgentBackend, interval: Duration = .zero) {
         runner = AgentRunner(answers: AnswerStream(backend: backend, interval: interval))
         let router = CommandRouter(
-            builtins: [Builtin(runAgent, runner: runner), Builtin(aiApproval, runner: runner)],
+            builtins: [
+                Builtin(runAgent, runner: runner), Builtin(followUp, runner: runner),
+                Builtin(aiApproval, runner: runner),
+            ],
             extensions: nil)
-        let registry = CommandRegistry(builtins: [runAgent, aiApproval])
+        let registry = CommandRegistry(builtins: [runAgent, followUp, aiApproval])
         session = PaletteSession(sources: [FallbackSource(registry)], runner: router, registry: registry)
     }
 
@@ -460,4 +466,69 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     #expect(palette.detail?.markdown == "Let me search for that.\n\nIt is 42.")
     // Copy and Paste take the final answer alone.
     #expect(palette.detail?.actions.first == .copy(text: "It is 42.", title: "Copy Answer"))
+}
+
+@MainActor @Test func followUpContinuesTheAgentsSessionWithTheConversationsSetup() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("make a notes folder")
+    #expect(await eventually { agents.runs.count == 1 })
+    let first = try #require(agents.runs.first)
+    first.continuation.yield(.session("t1"))
+    first.continuation.yield(.answer("Made it.", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
+    // Second, so ⌘↩ runs it.
+    let actions = try #require(palette.detail?.actions)
+    #expect(actions.map(\.title) == ["Copy Answer", "Follow Up", "Paste Answer"])
+    guard case .run(let command, let text, let args, _, _) = actions[1] else {
+        Issue.record("Follow Up is not a run")
+        return
+    }
+    #expect(command == .followUp && text.isEmpty)
+
+    // It opens the input waiting for the question, as the pill; Escape there goes back to the answer.
+    let answer = palette.session.top.id
+    palette.session.open(CommandRun(followUp, .invoked, args: args))
+    #expect(palette.session.top.awaitsText && palette.session.top.isCompact)
+    #expect(palette.session.escape() == .popped)
+    #expect(palette.session.top.id == answer)
+
+    // Submitted, the question continues the conversation: its session, provider, folder and settings,
+    // even with another provider ready now.
+    agents.set(.claude, .ready)
+    palette.session.open(CommandRun(followUp, .invoked, args: args))
+    palette.session.query = "now add a readme"
+    guard case .run(_, let question, let submitted, _, _)? = palette.session.top.target?.actions.first else {
+        Issue.record("the follow-up input submits nothing")
+        return
+    }
+    palette.session.open(CommandRun(followUp, .invoked, text: question, args: submitted))
+    #expect(await eventually { agents.runs.count == 2 })
+    let second = agents.runs[1]
+    #expect(second.provider == first.provider)
+    #expect(second.request.prompt == "now add a readme")
+    #expect(second.request.resume == "t1")
+    #expect(second.request.workingDirectory == first.request.workingDirectory)
+    #expect(second.request.configuration == first.request.configuration)
+    #expect(await eventually { palette.detail?.title == "now add a readme" })
+    // Its answer continues the same conversation again.
+    second.continuation.yield(.session("t1"))
+    second.continuation.yield(.answer("Added README.md.", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
+    #expect(palette.detail?.actions[1] == actions[1])
+}
+
+@MainActor @Test func noFollowUpWithoutASessionAndAnUnknownConversationSaysItEnded() async throws {
+    let agents = FakeAgents([.codex: .ready])
+    let palette = Palette(agents.backend)
+    palette.ask("hello")
+    #expect(await eventually { agents.runs.count == 1 })
+    agents.runs[0].continuation.yield(.answer("Hi.", usage: nil))
+    #expect(await eventually { !palette.session.top.isLoading && palette.detail?.actions.isEmpty == false })
+    #expect(palette.detail?.actions.map(\.title) == ["Copy Answer", "Paste Answer"])
+
+    palette.session.open(
+        CommandRun(followUp, .invoked, text: "and?", args: ["conversation": .string("gone")]))
+    #expect(await eventually { palette.detail?.title == "Follow Up Failed" })
+    #expect(agents.runs.count == 1)
 }

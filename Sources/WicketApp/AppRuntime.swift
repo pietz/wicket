@@ -329,6 +329,13 @@ extension AppRuntime {
                     id: .savePromptCommand, title: "Save as Command", icon: .symbol(name: "bookmark"),
                     isListed: false, input: .none),
                 runner: savePrompt),
+            // Follow Up under a Run Agent answer: its frame waits for the next question, which
+            // continues the same conversation with the agent; reached by id only.
+            Builtin(
+                RegisteredCommand(
+                    id: .followUp, title: "Follow Up", icon: .symbol(name: "sparkles"), isListed: false,
+                    input: .submitText, placeholder: "Follow up", feature: .ai),
+                runner: runAgent),
             // Answers an acting agent's approval shown in a Run Agent frame; reached by id only.
             Builtin(
                 RegisteredCommand(

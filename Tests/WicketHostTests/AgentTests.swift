@@ -146,15 +146,39 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(try methods(start) == ["initialize", "initialized", "thread/start"])
         let thread = try decoded(start.send[2])["params"]
         #expect(thread?["cwd"] == .string("/tmp/work"))
-        #expect(thread?["ephemeral"] == .bool(true))
-        for omitted in ["developerInstructions", "approvalPolicy", "sandbox", "config", "baseInstructions"] {
+        // Kept in Codex's history, so Follow Up can resume it.
+        for omitted in [
+            "ephemeral", "developerInstructions", "approvalPolicy", "sandbox", "config", "baseInstructions",
+        ] {
             #expect(thread?[omitted] == nil)
         }
-        let turn = try sent(transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#)))
+        let started = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
+        #expect(started.events == [.session("t1")])
+        let turn = try sent(started)
         #expect(turn["method"] == .string("turn/start"))
         // The choices from Settings ▸ AI (`AgentSettingsTests`).
         #expect(turn["params"]?["effort"] == .string("medium"))
         #expect(turn["params"]?["sandboxPolicy"] == .object(["type": .string("workspaceWrite")]))
+    }
+
+    @Test func aFollowUpResumesItsThread() throws {
+        var transcript = CodexTranscript(
+            request: AgentRequest(
+                prompt: "And now?", workingDirectory: URL(filePath: "/tmp/work"), mode: .acting,
+                instructions: "Be brief.", resume: "t1")
+        )
+        let start = transcript.start()
+        #expect(try methods(start) == ["initialize", "initialized", "thread/resume"])
+        let thread = try decoded(start.send[2])["params"]
+        #expect(thread?["threadId"] == .string("t1"))
+        #expect(thread?["cwd"] == .string("/tmp/work"))
+        #expect(thread?["excludeTurns"] == .bool(true))
+        #expect(thread?["developerInstructions"] == .string("Be brief."))
+        let resumed = transcript.receive(line(#"{"id":3,"result":{"thread":{"id":"t1"}}}"#))
+        #expect(resumed.events == [.session("t1")])
+        let turn = try sent(resumed)
+        #expect(turn["params"]?["threadId"] == .string("t1"))
+        #expect(turn["params"]?["input"]?.array?.first?["text"] == .string("And now?"))
     }
 
     @Test func approvalsWaitForTheUserUntilResolved() throws {
@@ -372,6 +396,23 @@ func activities(_ events: [AgentEvent]) -> [String] {
         #expect(answer.firstIndex(of: "--tools").map { answer[$0 + 1] } == "")
         #expect(answer.contains("--safe-mode") && answer.contains("--strict-mcp-config"))
         #expect(answer.firstIndex(of: "--permission-prompts").map { answer[$0 + 1] } == "none")
+        #expect(answer.contains("--no-session-persistence"))
+    }
+
+    @Test func actingRunsKeepTheirSessionAndAFollowUpResumesIt() throws {
+        let first = ClaudeTranscript.arguments(for: request(.acting))
+        #expect(!first.contains("--no-session-persistence") && !first.contains("--resume"))
+        var followUp = request(.acting)
+        followUp.resume = "s1"
+        let resumed = ClaudeTranscript.arguments(for: followUp)
+        #expect(resumed.firstIndex(of: "--resume").map { resumed[$0 + 1] } == "s1")
+
+        var transcript = ClaudeTranscript(request: followUp)
+        let result = transcript.receive(
+            line(#"{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"s1"}"#)
+        )
+        #expect(result.events == [.session("s1"), .answer("done", usage: nil)])
+        #expect(result.closeInput)
     }
 
     @Test func actingRunsKeepTheUsersSetupAndTalkStreamJSON() throws {

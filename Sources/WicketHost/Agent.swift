@@ -29,12 +29,19 @@ public struct AgentRequest: Sendable {
     /// For an acting run, what it is told on top of the agent's own prompt: Wicket's agent
     /// instructions and the run's paths (`ExtensionAuthoring.instructions`).
     public var instructions: String?
+    /// For an acting run, the agent's own session to continue (`AgentEvent.session` of an earlier
+    /// run): Claude Code's session id, Codex's thread id. Nil starts a new one.
+    public var resume: String?
 
-    public init(prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil) {
+    public init(
+        prompt: String, workingDirectory: URL, mode: AgentMode, instructions: String? = nil,
+        resume: String? = nil
+    ) {
         self.prompt = prompt
         self.workingDirectory = workingDirectory
         self.mode = mode
         self.instructions = instructions
+        self.resume = resume
     }
 
     /// The user's choices for an acting run; nil for an answer run, which keeps its fixed setup.
@@ -82,6 +89,9 @@ public enum AgentEvent: Sendable, Equatable {
     /// The agent ran a command or changed a file (after the activity saying which); can come more
     /// than once. Actions approved without asking come too, never reaching `approvals`.
     case acted
+    /// An acting run's session, which the agent keeps in its own history, so a later run can continue
+    /// it (`AgentRequest.resume`); comes before the answer.
+    case session(String)
 }
 
 /// Something an acting agent asks permission for: a command to run, a host to reach, files to

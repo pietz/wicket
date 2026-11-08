@@ -314,7 +314,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
         switch dispatcher.perform(action, in: ActionContext(previousApp: previousApp)) {
         case .close: hide()
         case .push(let detail): model.session.push(detail)
-        case .open(let run): model.session.open(run)
+        case .open(let run):
+            model.session.open(run)
+            // A frame waiting for its text (a follow-up, Run Agent's question) is an input like the
+            // opened palette's, so it listens as that does.
+            if run.awaitsText, let voice = model.voice, voice.listensOnOpen { voice.listen() }
         }
     }
 

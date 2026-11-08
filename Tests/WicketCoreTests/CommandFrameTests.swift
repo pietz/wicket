@@ -561,7 +561,8 @@ private func revision(_ sha: String) -> ExtensionRevision {
 }
 
 /// Speech grows word by word, so a spoken "uc heart" stays plain search text instead of opening the
-/// command halfway through the sentence; above the root, speech changes nothing.
+/// command halfway through the sentence; above the root, speech changes nothing unless the frame
+/// waits for its text (Run Agent's question, a follow-up).
 @MainActor @Test func spokenTextNeverRoutesAKeyword() {
     let (session, _, _) = session()
     #expect(session.setSpokenQuery("uc heart"))
@@ -572,4 +573,10 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(session.frames.count == 2)
     #expect(!session.setSpokenQuery("something else"))
     #expect(session.frames[0].query == "prr")
+
+    session.open(CommandRun(.runAgent, .invoked))
+    #expect(session.top.awaitsText)
+    #expect(session.setSpokenQuery("what is uc heart"))
+    #expect(session.query == "what is uc heart")
+    #expect(session.frames.count == 3)
 }

@@ -8,7 +8,9 @@ import WicketCore
 /// then notifications until turn/completed; any request the server still sends is refused. Acting
 /// runs skip config/read and leave approval policy, sandbox, features and MCP servers to the user's
 /// own Codex configuration; their command, network and file-change approvals become
-/// `AgentEvent.approvals`, answered through `reply(_:)`.
+/// `AgentEvent.approvals`, answered through `reply(_:)`. Their threads are kept in Codex's own
+/// history, so Follow Up continues one in a new app-server process with thread/resume instead of
+/// thread/start (verified with 0.167).
 struct CodexTranscript: AgentTranscript {
     let request: AgentRequest
     private var answer: String?
@@ -96,6 +98,7 @@ struct CodexTranscript: AgentTranscript {
             guard let thread = result["thread"]?["id"] else {
                 return AgentStep(events: [.error("Codex started no thread")])
             }
+            var events: [AgentEvent] = []
             var params: [String: JSONValue] = [
                 "threadId": thread,
                 "input": .array([.object(["type": .string("text"), "text": .string(request.prompt)])]),
@@ -104,8 +107,9 @@ struct CodexTranscript: AgentTranscript {
             case .answer: params["effort"] = .string("low")
             case .act(let configuration):
                 params.merge(Self.turnSettings(configuration)) { $1 }
+                if let id = thread.string { events.append(.session(id)) }
             }
-            return AgentStep(send: [Self.request(.startTurn, "turn/start", params)])
+            return AgentStep(events: events, send: [Self.request(.startTurn, "turn/start", params)])
         case .initialize, .startTurn:
             return AgentStep()
         }
@@ -133,18 +137,22 @@ struct CodexTranscript: AgentTranscript {
         ]
     }
 
-    /// thread/start: an ephemeral thread in the working directory. Answer runs set a read-only
-    /// sandbox, approval policy "never" and `servers` disabled; acting runs get Wicket's
-    /// instructions and set the user's choices on each turn (`turnSettings`).
+    /// thread/start: a thread in the working directory. Answer runs' are ephemeral, with a read-only
+    /// sandbox, approval policy "never" and `servers` disabled; acting runs' are kept, get Wicket's
+    /// instructions and set the user's choices on each turn (`turnSettings`). An acting run resuming
+    /// a thread sends thread/resume instead, with the instructions again and none of its old turns.
     private func startThread(disabling servers: [String]) -> Data {
-        var params: [String: JSONValue] = [
-            "cwd": .string(request.workingDirectory.path),
-            "ephemeral": .bool(true),
-        ]
+        var params: [String: JSONValue] = ["cwd": .string(request.workingDirectory.path)]
         switch request.mode {
         case .act:
             params["developerInstructions"] = request.instructions.map(JSONValue.string)
+            if let thread = request.resume {
+                params["threadId"] = .string(thread)
+                params["excludeTurns"] = .bool(true)
+                return Self.request(.startThread, "thread/resume", params)
+            }
         case .answer:
+            params["ephemeral"] = .bool(true)
             let off = JSONValue.object(["enabled": .bool(false)])
             params["sandbox"] = .string("read-only")
             params["approvalPolicy"] = .string("never")
