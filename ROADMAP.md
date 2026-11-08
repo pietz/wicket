@@ -61,11 +61,15 @@ No harness of our own: a thin adapter layer maps Wicket's runs, events, approval
 - ✅ Prompt commands and Keep from an answer
 - ✅ Rename to Run Agent; agent settings per provider (model, effort, speed, T3-style permission levels)
 - ✅ Voice: summon and speak, live transcript into the field, on/off and trigger (on summon, or the Start Listening hotkey) in Settings ▸ Voice
+- ✅ Voice refinements (2026-11-08): arms quietly on open (typing stops it, the transcript shows once words are heard); mic button and ⌘L to listen by hand
 - 💤 Voice: hold-to-talk, and a language choice for mixed German and English
 - ✅ Wicket's agent instructions as an editable `agent.md` (Settings ▸ AI ▸ Edit Agent Instructions…), plus a complete authoring kit (schema, samples), the command list on demand and a check-until-it-passes loop (from the Pi comparison)
 - ✅ Follow Up (⌘↩ on an answer): the next question, typed or spoken, resumes the agent's own session (Claude `--resume`, Codex `thread/resume`)
 - ⏭ One fixed key that always sends the text to the agent, whatever is highlighted
-- ⏭ Dismissible runs: Escape hides a running agent; the next summon shows it as a row (running, needs approval, ready)
+- ✅ Escape closes the palette from any depth; ⌘[ goes back (2026-11-08)
+- ✅ Answers: links open through Wicket (apps and scripts revealed, never run); streaming a setting, off by default; extensions get Move to Trash (2026-11-08)
+- 🔍 Agent output as native UI (lists as rows, richer components): three independent advisors (Sol, Astra, Fable), owner kept closely in the loop, nothing built before the owner decides
+- ⏭ Dismissible runs: closing hides a running agent instead of ending it; the next summon shows it as a row (running, needs approval, ready)
 - ⏭ Feature switches for every built-in (calculator, files, links, agent), so the user turns off what they don't want
 - ⏭ Tour manual rewritten for the current product
 - 💤 Selection as operand with Replace in the source app (all three researchers' top idea; resumes when the owner wants it)
