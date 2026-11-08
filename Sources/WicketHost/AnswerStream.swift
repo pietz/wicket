@@ -158,9 +158,7 @@ public final class AnswerStream {
         defer { waiting = waiting.filter { $0.value.draft !== draft } }
         // This run's conversation, once its agent named its session.
         var session: String?
-        let conversation = { (session: String) -> Conversation? in
-            Conversation(provider: provider, folder: acting, options: options, session: session)
-        }
+        let conversation = { Conversation(provider: provider, folder: acting, options: options, session: $0) }
         // However this ends (answer, failure, cancellation), it returns only once the agent's
         // process tree is gone, so `shutdown` can wait for it.
         do {
@@ -189,7 +187,7 @@ public final class AnswerStream {
     private func show(
         _ run: AgentRun, of provider: AgentProvider, in draft: AnswerDraft, start: ContinuousClock.Instant,
         extensionsBefore: ExtensionAuthoring.Snapshot?, session: inout String?,
-        conversation: (String) -> Conversation?, token: String?,
+        conversation: (String) -> Conversation, token: String?,
         _ output: AsyncThrowingStream<RunResult, any Error>.Continuation
     ) async throws {
         var firstMessage: Duration?
@@ -251,8 +249,8 @@ public final class AnswerStream {
         return .run(command: .followUp, args: ["conversation": .string(token)], title: "Follow Up")
     }
 
-    /// Review actions for the extensions the run added or changed since `before`. Each such extension remembers `conversation` as the one that built it, which
-    /// Fix and Change with Agent continue.
+    /// Review actions for the extensions the run added or changed since `before`, each of which
+    /// remembers `conversation` for Fix and Change with Agent to continue.
     private func reviews(since before: ExtensionAuthoring.Snapshot?, conversation: Conversation?) async
         -> [Item.Action]
     {
@@ -267,8 +265,7 @@ public final class AnswerStream {
     /// How many conversations Follow Up can continue.
     static let keptConversations = 20
 
-    /// A run's conversation: the agent's own session and what the run was set up with, which
-    /// a follow-up keeps.
+    /// A run's conversation: the agent's session and the setup a follow-up keeps.
     struct Conversation: Codable {
         var provider: AgentProvider
         var folder: URL

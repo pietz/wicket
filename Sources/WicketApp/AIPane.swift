@@ -21,7 +21,7 @@ struct AIPane: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
             Section {
-                Toggle("Use AI", isOn: aiSetting(\.enabled))
+                Toggle("Use AI", isOn: enabled)
             } footer: {
                 Text(
                     store.settings.ai.enabled
@@ -212,12 +212,12 @@ struct AIPane: View {
         }
     }
 
-    private func aiSetting(_ setting: WritableKeyPath<WicketCore.Settings.AI, Bool>) -> Binding<Bool> {
+    private var enabled: Binding<Bool> {
         Binding {
-            store.settings.ai[keyPath: setting]
+            store.settings.ai.enabled
         } set: { isOn in
             do {
-                try store.update { $0.ai[keyPath: setting] = isOn }
+                try store.update { $0.ai.enabled = isOn }
                 error = nil
             } catch {
                 self.error = error.localizedDescription
