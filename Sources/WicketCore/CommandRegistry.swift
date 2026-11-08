@@ -78,15 +78,10 @@ extension Manifest.Command {
     }
 }
 
-/// The one catalog of invocable commands: Wicket's built-ins and the commands of installed
-/// extensions, keyed by `CommandID`. The root search lists it (`CommandsSource`), the action
-/// dispatcher resolves `run` actions through it, and keywords resolve here; deeplinks and the MCP
-/// server are meant to, storing a `CommandID` or an `Invocation`, never a row id.
-///
-/// Keyword collisions are resolved so the winner never depends on install or load order: a
-/// built-in always keeps its keyword; among extensions the first in registry order wins (extension
-/// id, then manifest order, as `Extensions.commands` lists them). A loser keeps its other ways in
-/// (search, its id).
+/// The one catalog of invocable commands, built-ins and extensions', keyed by `CommandID`
+/// (docs/architecture.md). Keyword collisions never depend on install or load order: a built-in
+/// always keeps its keyword; among extensions the first in registry order wins (extension id, then
+/// manifest order). A loser keeps its other ways in (search, its id).
 @MainActor
 public final class CommandRegistry {
     /// A keyword claimed by more than one command: `winner` gets it, `loser` doesn't.

@@ -130,16 +130,10 @@ public struct CommandRun: Sendable, Hashable {
         self.query = query
     }
 
-    /// The one invocation policy: what reaching `command` by `trigger`, with `text` and `args`,
-    /// does. Rows, keywords and `wicket run` all come through here, so a command
-    /// behaves the same whichever way it is reached:
-    /// - `none` and `immediateText` run now on the text (a keyword's rest of the line; further
-    ///   typing filters what it shows);
-    /// - `submitText` runs now on submitted text, and otherwise shows its frame waiting for the text
-    ///   (a keyword's rest of the line is put in the field, never run);
-    /// - `liveText` searches the text.
-    /// It is bound to `revision` (a `run` action's) or else the command's own: the revision active
-    /// when it starts, so a change of the extension afterwards never runs it on other code.
+    /// The one invocation policy (docs/architecture.md, "Invocation policy"): every way in reaches
+    /// `command` through here. It is bound to `revision` (a `run` action's) or else the command's
+    /// own: the revision active when it starts, so a change of the extension afterwards never runs it
+    /// on other code.
     public init(
         _ command: RegisteredCommand, _ trigger: CommandTrigger, text: String = "",
         args: [String: JSONValue]? = nil, revision: ExtensionRevision? = nil
@@ -173,12 +167,9 @@ public struct CommandRun: Sendable, Hashable {
     }
 }
 
-/// Produces what a command frame shows. Each element of the stream replaces the frame's content,
-/// the same rule as `ResultSource.updates`: an extension command yields one result, a streaming
-/// producer (an AI answer) yields a growing detail again and again. `close` closes the palette and
-/// `reload` goes back to the frame the command was opened from and runs that again. Cancelling the
-/// iteration (the frame was popped, the palette dismissed, the query superseded) must stop the
-/// frame's work.
+/// Produces what a command frame shows: each element replaces the frame's content
+/// (docs/architecture.md, "Command runs"). Cancelling the iteration (the frame was popped, the
+/// palette dismissed, the query superseded) must stop the frame's work.
 @MainActor
 public protocol CommandRunner: AnyObject {
     func run(_ invocation: Invocation) -> AsyncThrowingStream<RunResult, any Error>
@@ -191,11 +182,8 @@ extension CommandRunner {
     public func shutdown() async {}
 }
 
-/// One of Wicket's own commands: how it is registered and what runs it. The app's table of them
-/// (`AppRuntime.live()`) is the only place a built-in is declared: the registry takes the commands,
-/// the router the runners, so a built-in gets search, keywords and its frame from
-/// one entry. Everything the host does for the user is a built-in reached by a `run` action, never
-/// a new `Item.Action` case.
+/// One of Wicket's own commands: how it is registered and what runs it, one entry in the app's
+/// table (docs/architecture.md, "Built-ins: one table").
 @MainActor
 public struct Builtin {
     public var command: RegisteredCommand
