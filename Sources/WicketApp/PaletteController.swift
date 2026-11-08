@@ -221,7 +221,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
         model.voice?.stop()
         // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
-        // cancels every command run, including one an action is still opening.
+        // cancels every command run.
         pendingShrink?.cancel()
         model.actionMenu = nil
         model.showToast(nil)
@@ -240,10 +240,9 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     /// Runs the action at `position` in the target's actions (`.action(0)` is the primary) or its
     /// screen's, and applies its outcome. Does nothing if there is no such action, so Return on a
-    /// message row keeps the palette open, or while an action is still opening a command (one at a
-    /// time).
+    /// message row keeps the palette open, or while a command is starting (one at a time).
     func run(_ target: ActionTarget?, at position: ActionTarget.Position) {
-        guard model.session.opening == nil, let target, let (action, authority) = target.action(at: position)
+        guard !model.top.isStarting, let target, let (action, authority) = target.action(at: position)
         else { return }
         // An agent's rows are one reply's, so they don't teach the root search the user's habits.
         if case .action = position, target.authority != .agent, let item = target.item {
@@ -269,7 +268,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
 
     /// Performs `action`; a frame it opens waiting for its text starts with `typed` in its field.
     private func perform(_ action: Item.Action, as authority: Authority, typed: String? = nil) {
-        guard model.session.opening == nil else { return }
+        guard !model.top.isStarting else { return }
         model.actionMenu = nil
         model.voice?.stop()
         switch dispatcher.perform(action, as: authority, in: ActionContext(previousApp: previousApp)) {

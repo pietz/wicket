@@ -364,8 +364,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     var replies = run.replies.makeAsyncIterator()
     try palette.pick("Allow")
     #expect(await replies.next() == AgentReply(approval: command, decision: .accept))
-    #expect(await eventually { palette.session.opening == nil })
-    #expect(palette.session.top.id == frame)
+    #expect(await eventually { palette.session.top.id == frame })
     #expect(palette.session.frames.count == 2)
     // The next one shows at once, even before the agent confirms the first resolved.
     #expect(

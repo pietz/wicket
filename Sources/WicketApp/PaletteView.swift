@@ -201,8 +201,8 @@ struct PaletteRootView: View {
     private static var card: some Shape { .rect(cornerRadius: PaletteMetrics.cardRadius, style: .continuous) }
 
     /// The pill's glyph and prompt: search at the root; in a command's frame its icon with the
-    /// screen's title, else its title for a page (which takes no text) or its placeholder; a pushed
-    /// page's title. Voice never changes the prompt: until words arrive the field reads as usual.
+    /// screen's title, else its title for a page (which takes no text) or while it starts (a live
+    /// command's field already searches), else its placeholder; a pushed page's title. Voice never changes the prompt: until words arrive the field reads as usual.
     private var pill: (icon: Item.Icon, prompt: String) {
         switch model.top.content {
         case .search:
@@ -212,7 +212,8 @@ struct PaletteRootView: View {
             guard let command = frame.run?.command else {
                 return (.symbol(name: "doc.text"), title ?? "Details")
             }
-            let prompt = model.top.isMeasured ? command.title : command.placeholder ?? command.title
+            let titled = model.top.isMeasured || (model.top.isStarting && command.input != .liveText)
+            let prompt = titled ? command.title : command.placeholder ?? command.title
             return (command.icon, title ?? prompt)
         }
     }

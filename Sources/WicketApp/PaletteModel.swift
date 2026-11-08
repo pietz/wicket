@@ -78,13 +78,8 @@ final class PaletteModel {
     var detailHeight: CGFloat? {
         detailMeasure?.height(of: top.id, isLoading: top.isLoading).map { CGFloat($0) }
     }
-    /// A command is running for what's on screen: one an action is opening, or the top frame's run
-    /// (the root's slow sources don't count). The pill shows a spinner.
-    var isBusy: Bool {
-        if session.opening != nil { return true }
-        if case .screen = top.content { return top.isLoading }
-        return false
-    }
+    /// The top frame's command is running (the root's slow sources don't count). The pill spins.
+    var isBusy: Bool { top.run != nil && top.isLoading }
     /// Escape goes back a frame (`PaletteSession.back`): the footer says so when there is nothing to run.
     var canGoBack: Bool { session.frames.count > 1 }
     /// A message (`Messages`) shown in the footer for a moment, while the card is up.

@@ -125,12 +125,12 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     let palette = try await Palette(samples: ["Extensions/github-prs"])
     let session = palette.session
 
-    // Return on the command's row opens its frame once the list has arrived.
+    // Return on the command's row opens its frame, which shows the list once it has arrived.
     session.query = "review req"
     #expect(palette.titles.first == "GitHub Review Requests")
     palette.perform()
-    #expect(session.opening != nil)
-    #expect(await eventually { session.frames.count == 2 })
+    #expect(session.frames.count == 2)
+    #expect(await eventually { !palette.titles.isEmpty })
     #expect(palette.titles == ["Fix login timeout", "Bump Swift to 6.4"])
     #expect(session.query.isEmpty)
 
@@ -190,7 +190,8 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
 
     // "Show Details" runs the hidden command with its args, a new frame once the detail is in.
     palette.perform(2)
-    #expect(await eventually { session.frames.count == 3 })
+    #expect(session.frames.count == 3)
+    #expect(await eventually { palette.screen != nil })
     guard case .detail(let detail) = palette.screen else {
         Issue.record("expected a detail, got \(String(describing: palette.screen))")
         return
@@ -233,7 +234,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     session.query = "quit"
     palette.select("Quit Apps")
     palette.perform()
-    #expect(await eventually { session.frames.count == 2 })
+    #expect(await eventually { palette.screen != nil })
     guard case .list = palette.screen else {
         Issue.record("expected the running apps, got \(String(describing: palette.screen))")
         return
@@ -244,7 +245,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
         "pid": .integer(99_999_999), "name": .string("Ghost"), "after": .string("reload"),
     ]
     palette.perform(.run(command: .extension("quit-apps", "quit"), args: ghost))
-    #expect(await eventually { session.frames.count == 3 })
+    #expect(await eventually { palette.screen != nil })
     guard case .detail(let failure) = palette.screen else {
         Issue.record("expected the failure")
         return
@@ -257,7 +258,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     guard let first = session.top.list?.items.first else { return }
     let details = try #require(first.actions.firstIndex { $0.title == "Show Details" })
     palette.perform(details)
-    #expect(await eventually { session.frames.count == 3 })
+    #expect(await eventually { palette.screen != nil })
     guard case .detail(let detail) = palette.screen else {
         Issue.record("expected the app's details, got \(String(describing: palette.screen))")
         return

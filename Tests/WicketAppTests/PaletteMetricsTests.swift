@@ -114,7 +114,7 @@ struct PaletteMetricsTests {
         session.open(CommandRun(once, .invoked))
         #expect(await eventually { runner.count[once.id] == 1 })
         runner.runs[once.id]?.yield(.show(.detail(Detail(title: "Page", markdown: "# Page"))))
-        #expect(await eventually { session.frames.count == 2 })
+        #expect(await eventually { !session.top.isStarting })
         #expect(session.top.isMeasured)
         #expect(card(session.top) == nil)
         #expect(card(session.top, detail: 200) == 235)

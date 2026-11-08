@@ -234,16 +234,12 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     let h = try Harness()
     var closed = 0
     h.session.onClose = { closed += 1 }
-    for id in [CommandID.settings, quitCommand] {
+    for (index, id) in [CommandID.settings, quitCommand].enumerated() {
         h.session.open(CommandRun(try #require(h.runtime.registry.command(id)), .invoked))
+        #expect(await eventually { closed == index + 1 })
+        #expect(h.session.frames.count == 1)
     }
-    #expect(await eventually { closed == 1 })
-    // Opening Quit cancelled Settings' opening before it ran: one at a time, like any command.
-    #expect(h.effects == ["quit"])
-    h.session.open(CommandRun(try #require(h.runtime.registry.command(.settings)), .invoked))
-    #expect(await eventually { closed == 2 })
-    #expect(h.effects == ["quit", "settings"])
-    #expect(h.session.frames.count == 1)
+    #expect(h.effects == ["settings", "quit"])
 }
 
 @MainActor @Test func turningAIOffTakesItsRowsAtOnce() throws {
@@ -260,7 +256,7 @@ private func shortcut(_ spelling: String) -> Shortcut { try! Shortcut(spelling) 
     let h = try Harness()
     let command = try #require(h.runtime.registry.command(runAgentCommand))
     h.session.open(CommandRun(command, .invoked, text: "hello"))
-    #expect(await eventually { h.session.frames.count == 2 })
+    #expect(await eventually { h.agent.started.withLock { $0 } == 1 })
     #expect(h.session.top.isLoading)
 
     try h.change(#"{"ai": {"enabled": false}}"#)

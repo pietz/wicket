@@ -22,7 +22,7 @@ struct ComposedListTests {
         session.open(CommandRun(once, .invoked))
         #expect(await eventually { runner.count[once.id] == 1 })
         runner.runs[once.id]?.yield(.show(.list(listing), context))
-        #expect(await eventually { session.frames.count == 2 })
+        #expect(await eventually { !session.top.isStarting })
         return session.top
     }
 

@@ -82,7 +82,6 @@ private let mail = RunningApp(processID: 42, bundleID: "com.apple.mail")
     #expect(await eventually { closed == 1 })
     #expect(opened == 1)
     #expect(session.frames.count == 1)
-    #expect(session.opening == nil)
 }
 
 /// Lets the session's tasks run until `condition` holds, for up to two seconds.

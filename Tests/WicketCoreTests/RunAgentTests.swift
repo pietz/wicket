@@ -104,9 +104,9 @@ private func fallbacks(_ text: String, _ registry: CommandRegistry = CommandRegi
         return
     }
     #expect(run == CommandRun(RegisteredCommand.runAgent, .invoked, text: "capital of peru"))
-    #expect(run.query == nil)
     session.open(run)
-    #expect(session.opening == run)
+    #expect(session.top.run == run)
+    #expect(session.top.isStarting)
     #expect(await eventually { !runAgent.runs.isEmpty })
     #expect(runAgent.runs.map(\.text) == ["capital of peru"])
     #expect(extensions.runs.isEmpty)

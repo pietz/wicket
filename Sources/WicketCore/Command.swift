@@ -114,18 +114,17 @@ public enum CommandTrigger: Sendable, Hashable {
     case keyword
 }
 
-/// A command to show in a frame: the command, what to run it on, and how its frame starts. A command frame runs `invocation` on open and on reload (a live command with
-/// the frame's query as its text); a frame waiting for text runs nothing until it is submitted.
+/// A command to show in a frame: the command, what to run it on, and the text its field starts
+/// with. A command frame runs `invocation` on open and on reload (a live command with the frame's
+/// query as its text); a frame waiting for text runs nothing until it is submitted.
 public struct CommandRun: Sendable, Hashable {
     public var command: RegisteredCommand
     public var invocation: Invocation
-    /// Nil: the command runs now and its frame shows once the first result is content, so a command
-    /// that just does something and closes never flashes one. Otherwise its frame shows at once with
-    /// this text in its field: a live command searching it, a once command from its keyword (the
-    /// field filters its list), a command waiting for its text.
-    public var query: String?
+    /// The frame's text when it opens: what a live command searches, or a keyword's rest of the line
+    /// for a command waiting for its text.
+    public var query: String
 
-    public init(command: RegisteredCommand, invocation: Invocation, query: String? = nil) {
+    public init(command: RegisteredCommand, invocation: Invocation, query: String = "") {
         self.command = command
         self.invocation = invocation
         self.query = query
@@ -134,11 +133,11 @@ public struct CommandRun: Sendable, Hashable {
     /// The one invocation policy: what reaching `command` by `trigger`, with `text` and `args`,
     /// does. Rows, keywords and `wicket run` all come through here, so a command
     /// behaves the same whichever way it is reached:
-    /// - `none` and `immediateText` run now on the text (a keyword's rest of the line, whose frame
-    ///   shows at once so further typing filters it);
+    /// - `none` and `immediateText` run now on the text (a keyword's rest of the line; further
+    ///   typing filters what it shows);
     /// - `submitText` runs now on submitted text, and otherwise shows its frame waiting for the text
     ///   (a keyword's rest of the line is put in the field, never run);
-    /// - `liveText` shows its frame at once, searching the text.
+    /// - `liveText` searches the text.
     /// It is bound to `revision` (a `run` action's) or else the command's own: the revision active
     /// when it starts, so a change of the extension afterwards never runs it on other code.
     public init(
@@ -146,19 +145,14 @@ public struct CommandRun: Sendable, Hashable {
         args: [String: JSONValue]? = nil, revision: ExtensionRevision? = nil
     ) {
         var runText = text
-        var query: String?
+        var query = ""
         switch (command.input, trigger) {
         case (.none, _):
             runText = ""
-        case (.immediateText, .invoked):
+        case (.immediateText, _):
             break
-        case (.immediateText, .keyword):
-            query = ""
         case (.submitText, .invoked):
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                runText = ""
-                query = ""
-            }
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { runText = "" }
         case (.submitText, .keyword):
             runText = ""
             query = text

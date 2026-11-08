@@ -10,25 +10,20 @@ import Observation
 /// cancelled when its frame's query changes, when the frame is popped and when the palette is
 /// dismissed. An empty root query asks no source: the palette opens as the bare pill.
 ///
-/// A command's frame is fed by its run (`CommandRunner`): every result replaces what the frame
-/// shows, `close` asks the app to close the palette, `reload` drops the frame and runs the one
-/// beneath it again, and `stay` only drops the frame; their messages go to `messages`. A live command runs again for every change of the frame's text (rapid
-/// keystrokes coalesced by `liveDebounce`); a once command runs when opened and filters a list
-/// locally; a command waiting for its text (`CommandRun.awaitsText`) runs nothing until the text is
-/// submitted, which runs it in a frame of its own. How a command opens is the invocation policy's
-/// (`CommandRun`): typing its keyword and a space in the root search, like a `run` action or a row,
-/// resolves through it. A run with a `query` shows its frame at once; any other only when
-/// its first content arrives, so a command that just does something and closes never flashes a
-/// frame; until then the session is `opening` it.
+/// A command's frame is pushed when it opens and fed by its run (`CommandRunner`): every result
+/// replaces what the frame shows, `close` asks the app to close the palette, `reload` drops the
+/// frame and runs the one beneath it again, and `stay` only drops the frame; their messages go to
+/// `messages`. Until its first result the frame is loading (the pill spins, the card keeps its
+/// height), which is all a command that only has an effect ever shows. A live command runs again
+/// for every change of the frame's text (rapid keystrokes coalesced by `liveDebounce`); a once
+/// command runs when opened and filters a list locally; a command waiting for its text
+/// (`CommandRun.awaitsText`) runs nothing until the text is submitted, which runs it in a frame of
+/// its own.
 @MainActor
 @Observable
 public final class PaletteSession {
     /// Bottom first; never empty, and only the bottom frame is the root search.
     public private(set) var frames: [Frame]
-    /// The command an action opened, until its first result arrives; nil otherwise.
-    public var opening: CommandRun? {
-        if case .screen(let screen) = openingFrame?.content { screen.run } else { nil }
-    }
     /// The files selected in Finder when the user came from it, once captured (`captureContext`): the
     /// pill's chip. Nil while capturing, when nothing was selected, and once dismissed.
     public private(set) var context: SummonContext?
@@ -45,8 +40,6 @@ public final class PaletteSession {
     @ObservationIgnored private var contextCapture: Task<SummonContext?, Never>?
     /// How long a run that uses the context waits for a capture still running.
     @ObservationIgnored private let contextWait: Duration
-    /// The frame a command being opened will push with its first content, not on the stack yet.
-    private var openingFrame: Frame?
     @ObservationIgnored private var work: [Frame.ID: [Task<Void, Never>]] = [:]
     @ObservationIgnored private var lastID = 0
 
@@ -103,63 +96,50 @@ public final class PaletteSession {
     }
 
     /// Stops every run of a command `shouldStop` names, for when it left the registry (AI was turned
-    /// off, its extension removed): one being opened is cancelled, and the lowest frame
-    /// running one is popped with every frame above it, so the palette goes back to where the
-    /// command was opened from. Returns whether anything stopped.
+    /// off, its extension removed): the lowest frame running one is popped with every frame above
+    /// it, so the palette goes back to where the command was opened from. Returns whether anything
+    /// stopped.
     @discardableResult
     public func stopCommands(where shouldStop: (CommandID) -> Bool) -> Bool {
-        var stopped = false
-        if let run = opening, shouldStop(run.command.id) {
-            cancelOpening()
-            stopped = true
-        }
-        let index = frames.firstIndex { frame in
-            guard case .screen(let screen) = frame.content, let run = screen.run else { return false }
-            return shouldStop(run.command.id)
-        }
-        if let index {
-            for frame in frames[index...] { cancel(frame.id) }
-            frames.removeSubrange(index...)
-            stopped = true
-        }
-        return stopped
+        guard let index = frames.firstIndex(where: { $0.run.map { shouldStop($0.command.id) } ?? false })
+        else { return false }
+        drop(frames[index].id)
+        return true
     }
 
     /// Reconciles runs with the catalog after it changed which revision a command runs: a run whose
     /// bound revision (`Invocation.revision`) is no longer its command's is stale, and stops, its
-    /// frame saying the extension changed, so the user runs it again explicitly; the frames above
-    /// it, opened from its old content, go. A command that is gone is `stopCommands`' job. Returns
-    /// whether anything changed.
+    /// frame saying the extension changed, with Run Again (the same command, text and args on the
+    /// new revision); the frames above it, opened from its old content, go. A command that is gone
+    /// is `stopCommands`' job. Returns whether anything changed.
     @discardableResult
     public func rebind(to current: (CommandID) -> RegisteredCommand?) -> Bool {
-        func stale(_ run: CommandRun) -> Bool {
-            guard let revision = run.invocation.revision, let command = current(run.command.id) else {
-                return false
-            }
+        let stale = frames.firstIndex { frame in
+            guard let run = frame.run, let revision = run.invocation.revision,
+                let command = current(run.command.id)
+            else { return false }
             return command.revision != revision
         }
-        var changed = false
-        if let run = opening, stale(run), var frame = openingFrame {
-            changed = true
-            cancel(frame.id)
-            frame.generation += 1
-            openingFrame = frame
-            fail(Ticket(frame: frame.id, generation: frame.generation), Self.changedMessage)
-        }
-        let index = frames.firstIndex { frame in
-            guard case .screen(let screen) = frame.content, let run = screen.run else { return false }
-            return stale(run)
-        }
-        guard let index else { return changed }
+        guard let index = stale, let run = frames[index].run else { return false }
         for frame in frames[(index + 1)...] { cancel(frame.id) }
         frames.removeSubrange((index + 1)...)
         cancel(frames[index].id)
         frames[index].generation += 1
-        fail(Ticket(frame: frames[index].id, generation: frames[index].generation), Self.changedMessage)
+        frames[index].pending = 0
+        let invocation = run.invocation
+        var changed = Detail.failure(
+            "\(run.command.title) Changed", Self.changedMessage, command: run.command.id)
+        changed.actions = [
+            .run(
+                command: invocation.command, text: invocation.text, args: invocation.args, title: "Run Again")
+        ]
+        let ticket = Ticket(frame: frames[index].id, generation: frames[index].generation)
+        show(.detail(changed), .host, ticket, text: "")
         return true
     }
 
-    static let changedMessage = "The extension changed since this was opened; run it again."
+    static let changedMessage =
+        "The extension changed since this was opened. Run it again to use the new version."
 
     public func moveSelection(by delta: Int) {
         frames[frames.count - 1].moveSelection(by: delta)
@@ -204,24 +184,17 @@ public final class PaletteSession {
     /// keyword's once command, a command waiting for its text), else once its first result is content
     /// (a first `close` or `reload` acts on the palette instead).
     public func open(_ run: CommandRun) {
-        cancelOpening()
         lastID += 1
         var frame = Frame(id: lastID, content: .screen(ScreenFrame(run: run)))
-        if let query = run.query {
-            frame.query = query
-            frames.append(frame)
-            start(frames.count - 1)
-        } else {
-            startCommand(&frame, debounce: false)
-            openingFrame = frame
-        }
+        frame.query = run.query
+        frames.append(frame)
+        start(frames.count - 1)
     }
 
-    /// Back one layer (Escape): stops a command being opened, else pops the top frame whatever its
-    /// text, else clears the root's text. False at an empty root with nothing opening: nothing is
-    /// left to go back from, so the palette closes.
+    /// Back one layer (Escape): pops the top frame whatever its text (stopping its run), else clears
+    /// the root's text. False at an empty root: nothing is left to go back from, so the palette
+    /// closes.
     @discardableResult public func back() -> Bool {
-        if cancelOpening() { return true }
         if frames.count > 1 {
             let popped = frames.removeLast()
             cancel(popped.id)
@@ -234,7 +207,6 @@ public final class PaletteSession {
 
     /// Back to an empty root search with no work running, for when the palette is dismissed.
     public func reset() {
-        cancelOpening()
         for frame in frames.dropFirst() { cancel(frame.id) }
         frames.removeSubrange(1...)
         frames[0].query = ""
@@ -297,14 +269,6 @@ public final class PaletteSession {
         guard frames[0].query != text else { return }
         frames[0].query = text
         start(0)
-    }
-
-    /// Stops a command an action is opening (Escape does this before going back); false if none was.
-    @discardableResult public func cancelOpening() -> Bool {
-        guard let frame = openingFrame else { return false }
-        cancel(frame.id)
-        openingFrame = nil
-        return true
     }
 
     // MARK: Work
@@ -375,7 +339,7 @@ public final class PaletteSession {
         work[frame.id] = [
             Task { [weak self] in
                 if let delay { try? await Task.sleep(for: delay) }
-                // A run cancelled before it started (Escape, another command opened) never starts:
+                // A run cancelled before it started (Escape, the palette dismissed) never starts:
                 // a built-in's effect or an extension request would otherwise still go out.
                 guard !Task.isCancelled else { return }
                 guard let runner else {
@@ -422,27 +386,18 @@ public final class PaletteSession {
         }
     }
 
-    /// Replaces a command frame's content; the frame being opened is pushed with its first.
+    /// Replaces a command frame's content.
     private func show(_ screen: Screen, _ context: ScreenContext, _ ticket: Ticket, text: String) {
-        let update = { (frame: inout Frame) in
+        apply(ticket) { frame in
             guard case .screen(var shown) = frame.content else { return }
             shown.show(screen, context, text: shown.isLive ? text : frame.query)
             frame.content = .screen(shown)
-        }
-        if var frame = openingFrame, frame.id == ticket.frame, frame.generation == ticket.generation {
-            update(&frame)
-            openingFrame = nil
-            frames.append(frame)
-        } else {
-            apply(ticket, update)
         }
     }
 
     /// The run failed: the frame shows what went wrong, until a new query of a live command.
     private func fail(_ ticket: Ticket, _ message: String) {
-        guard isCurrent(ticket), case .screen(let screen) = frame(ticket.frame)?.content,
-            let command = screen.run?.command
-        else { return }
+        guard isCurrent(ticket), let command = frame(ticket.frame)?.run?.command else { return }
         show(
             .detail(.failure("\(command.title) Failed", message, command: command.id)), .host, ticket,
             text: "")
@@ -459,19 +414,15 @@ public final class PaletteSession {
         }
     }
 
-    /// Takes the frame off the stack (with any above it), or stops opening it.
+    /// Takes the frame off the stack, with any above it.
     private func drop(_ id: Frame.ID) {
-        if openingFrame?.id == id {
-            cancelOpening()
-        } else if let index = frames.firstIndex(where: { $0.id == id }), index > 0 {
-            for frame in frames[index...] { cancel(frame.id) }
-            frames.removeSubrange(index...)
-        }
+        guard let index = frames.firstIndex(where: { $0.id == id }), index > 0 else { return }
+        for frame in frames[index...] { cancel(frame.id) }
+        frames.removeSubrange(index...)
     }
 
-    /// The frame with `id`, on the stack or being opened.
     private func frame(_ id: Frame.ID) -> Frame? {
-        openingFrame?.id == id ? openingFrame : frames.first { $0.id == id }
+        frames.first { $0.id == id }
     }
 
     /// Identifies the frame and generation a piece of work belongs to.
@@ -480,21 +431,13 @@ public final class PaletteSession {
         let generation: Int
     }
 
-    /// Whether the ticket's frame is on the stack, or being opened, at the same generation.
+    /// Whether the ticket's frame is on the stack at the same generation.
     private func isCurrent(_ ticket: Ticket) -> Bool {
-        if let frame = openingFrame, frame.id == ticket.frame { return frame.generation == ticket.generation }
-        return frames.contains { $0.id == ticket.frame && $0.generation == ticket.generation }
+        frames.contains { $0.id == ticket.frame && $0.generation == ticket.generation }
     }
 
-    /// Applies `change` if the ticket's frame is still on the stack (or being opened) at the same
-    /// generation.
+    /// Applies `change` if the ticket's frame is still on the stack at the same generation.
     private func apply(_ ticket: Ticket, _ change: (inout Frame) -> Void) {
-        if var frame = openingFrame, frame.id == ticket.frame {
-            guard frame.generation == ticket.generation else { return }
-            change(&frame)
-            openingFrame = frame
-            return
-        }
         guard let index = frames.firstIndex(where: { $0.id == ticket.frame }),
             frames[index].generation == ticket.generation
         else { return }

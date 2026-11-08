@@ -172,17 +172,17 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(!session.top.isCompact)
 }
 
-@MainActor @Test func anActionOpensItsFrameWhenTheFirstContentArrives() async {
+@MainActor @Test func anActionPushesItsFrameAtOnceLoadingUntilTheFirstContent() async {
     let (session, runner, _) = session()
     let run = CommandRun(reviews, .invoked)
     session.open(run)
-    #expect(session.opening == run)
-    #expect(session.frames.count == 1)
+    #expect(session.frames.count == 2)
+    #expect(session.top.isStarting)
+    #expect(session.top.target == nil)
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.show(.answer(row("Week 45", actions: [.copy(text: "Week 45")]))))
-    #expect(await eventually { session.frames.count == 2 })
-    #expect(session.opening == nil)
-    #expect(titles(session) == ["Week 45"])
+    #expect(await eventually { titles(session) == ["Week 45"] })
+    #expect(!session.top.isStarting)
     #expect(session.top.target?.actions == [.copy(text: "Week 45")])
     // Still running until the stream ends.
     #expect(session.top.isLoading)
@@ -201,7 +201,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(runner.runs.allSatisfy { $0.invocation.args == args })
 }
 
-@MainActor @Test func aFirstCloseClosesThePaletteWithoutAFrame() async {
+@MainActor @Test func aFirstCloseClosesThePaletteAndDropsTheFrame() async {
     var (session, runner, requests) = session()
     session.onClose = { requests.append("close") }
     session.messages.present = { requests.append("\($0.kind): \($0.text)") }
@@ -212,7 +212,6 @@ private func titles(_ session: PaletteSession) -> [String] {
     // The palette closes first, so the message shows in the HUD, not a footer about to go.
     #expect(requests == ["close", "done: Dark mode on"])
     #expect(session.frames.count == 1)
-    #expect(session.opening == nil)
 }
 
 @MainActor @Test func aReloadRunsTheFrameItCameFromAgain() async {
@@ -257,7 +256,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.finish(throwing: Failure())
-    #expect(await eventually { session.frames.count == 2 })
+    #expect(await eventually { !session.top.isStarting })
     #expect(!session.top.isLoading)
     #expect(
         content(session)?.screen
@@ -332,12 +331,10 @@ private func titles(_ session: PaletteSession) -> [String] {
 
 @MainActor @Test func runsEndWithTheirFrame() async {
     let (session, runner, _) = session()
-    // Escape stops a command still being opened.
+    // Escape stops a command still starting.
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
-    #expect(session.cancelOpening())
-    #expect(!session.cancelOpening())
-    #expect(session.opening == nil)
+    #expect(session.back())
     #expect(await eventually { runner.wasEnded(0) })
     runner.runs[0].continuation.yield(.show(.list([row("Late")])))
     try? await Task.sleep(for: .milliseconds(5))
@@ -351,14 +348,13 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(session.back())
     #expect(await eventually { runner.wasEnded(2) })
 
-    // Dismissing ends everything, including an opening.
+    // Dismissing ends everything, including a command still starting.
     session.query = "prr "
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 5 })
     session.reset()
     #expect(await eventually { runner.wasEnded(3) && runner.wasEnded(4) })
     #expect(session.frames.count == 1)
-    #expect(session.opening == nil)
     #expect(session.top.isCompact)
 }
 
@@ -392,13 +388,11 @@ private func titles(_ session: PaletteSession) -> [String] {
     #expect(await eventually { runner.wasEnded(0) })
 }
 
-@MainActor @Test func stoppingACommandCancelsItsOpening() async {
+@MainActor @Test func stoppingACommandStillStartingDropsItsFrame() async {
     let (session, runner, _) = session()
     session.open(CommandRun(reviews, .invoked))
-    #expect(session.opening != nil)
     #expect(await eventually { runner.runs.count == 1 })
     #expect(session.stopCommands { $0 == reviews.id })
-    #expect(session.opening == nil)
     #expect(session.frames.count == 1)
     #expect(await eventually { runner.wasEnded(0) })
     // A late result of the cancelled run shows nothing.
@@ -432,7 +426,7 @@ private func titles(_ session: PaletteSession) -> [String] {
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.show(.detail(page)))
-    #expect(await eventually { session.frames.count == 2 })
+    #expect(await eventually { !session.top.isStarting })
     #expect(content(session)?.run?.command.id == reviews.id)
     #expect(content(session)?.screen == .detail(page))
     #expect(session.top.isMeasured)
@@ -517,13 +511,15 @@ private func revision(_ sha: String) -> ExtensionRevision {
         return
     }
     #expect(changed.markdown.contains("changed since this was opened"))
+    // Run Again runs the same command on whichever revision is current then.
+    #expect(changed.actions == [.run(command: live.id, text: "heart", title: "Run Again")])
 
     // So does a once command.
     session.reset()
     session.open(CommandRun(once, .invoked))
     #expect(await eventually { runner.runs.count == 2 })
     runner.runs[1].continuation.yield(.show(.list([row("PR 1")])))
-    #expect(await eventually { session.frames.count == 2 })
+    #expect(await eventually { titles(session) == ["PR 1"] })
     once.revision = revision("b")
     registry.setExtensionCommands([live, once])
     #expect(session.rebind { registry.command($0) })
@@ -540,7 +536,7 @@ private func revision(_ sha: String) -> ExtensionRevision {
     #expect(titles(session).isEmpty)
 }
 
-@MainActor @Test func aChangedRevisionStopsAnOpening() async {
+@MainActor @Test func aChangedRevisionStopsACommandStillStarting() async {
     var once = reviews
     once.revision = revision("a")
     let registry = CommandRegistry()
@@ -552,8 +548,8 @@ private func revision(_ sha: String) -> ExtensionRevision {
     once.revision = revision("b")
     registry.setExtensionCommands([once])
     #expect(session.rebind { registry.command($0) })
-    #expect(session.opening == nil)
     #expect(session.frames.count == 2)
+    #expect(!session.top.isLoading)
     #expect(await eventually { runner.wasEnded(0) })
     runner.runs[0].continuation.yield(.show(.list([row("late")])))
     try? await Task.sleep(for: .milliseconds(20))
@@ -593,7 +589,7 @@ private func revision(_ sha: String) -> ExtensionRevision {
     session.open(CommandRun(reviews, .invoked))
     #expect(await eventually { runner.runs.count == 1 })
     runner.runs[0].continuation.yield(.show(.list([row]), agent))
-    #expect(await eventually { session.frames.count == 2 })
+    #expect(await eventually { !session.top.isStarting })
     #expect(session.top.target?.authority == .agent)
     #expect(session.top.target?.screen == [followUp])
     #expect(session.top.target(for: row).authority == .agent)

@@ -116,8 +116,6 @@ private let find = CommandID.extension("todo", "find")
     #expect(try palette.row(toggle) == .open(expected))
     #expect(palette.runAction(toggle) == .open(expected))
     #expect(try palette.cli(toggle) == expected)
-    // Its frame shows once the first content arrives, so a toggle answering `close` never flashes one.
-    #expect(expected.query == nil)
 
     // From its keyword: the rest of the line is its text, and the frame shows at once so further
     // typing filters it. The run is the same, never resent.
@@ -130,9 +128,7 @@ private let find = CommandID.extension("todo", "find")
 
 @MainActor @Test func aLiveCommandShowsItsFrameAtOnceFromEveryWayIn() async throws {
     let palette = try Palette()
-    let expected = CommandRun(
-        command: try palette.command(find), invocation: Invocation(command: find),
-        query: "")
+    let expected = CommandRun(command: try palette.command(find), invocation: Invocation(command: find))
     #expect(try palette.row(find) == .open(expected))
     #expect(palette.runAction(find) == .open(expected))
     #expect(try palette.cli(find, text: "milk").invocation.text == "milk")
@@ -146,8 +142,7 @@ private let find = CommandID.extension("todo", "find")
 @MainActor @Test func aSubmitTextCommandWaitsForItsTextUnlessItWasSubmitted() async throws {
     let palette = try Palette()
     let ask = try palette.command(CommandID.runAgent)
-    let waiting = CommandRun(
-        command: ask, invocation: Invocation(command: CommandID.runAgent), query: "")
+    let waiting = CommandRun(command: ask, invocation: Invocation(command: CommandID.runAgent))
     // A `run` without text opens its frame waiting for the text; nothing runs.
     #expect(palette.runAction(CommandID.runAgent) == .open(waiting))
     #expect(waiting.awaitsText)
@@ -182,7 +177,7 @@ private let find = CommandID.extension("todo", "find")
     palette.session.open(run)
     #expect(await settle { palette.runner.runs.count == 1 })
     #expect(palette.runner.runs[0].text == "why is the sky blue?")
-    #expect(palette.session.cancelOpening())
+    #expect(palette.session.back())
     #expect(palette.session.query == "why is the sky blue?")
 
     // An empty field has nothing to submit.
@@ -226,7 +221,7 @@ private let find = CommandID.extension("todo", "find")
     let revision = ExtensionRevision(extensionID: "notes", sha256: "abc")
     let invocation = Invocation(command: id, args: ["folder": .string("work")], revision: revision)
     let frame = ScreenFrame(
-        run: CommandRun(command: command, invocation: invocation, query: ""))
+        run: CommandRun(command: command, invocation: invocation))
     #expect(frame.run?.awaitsText == true)
     #expect(
         frame.target(query: "buy milk")?.actions == [

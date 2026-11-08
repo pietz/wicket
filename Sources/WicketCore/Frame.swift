@@ -28,6 +28,12 @@ public struct Frame: Identifiable, Sendable {
 
     public var isLoading: Bool { pending > 0 }
 
+    /// A command's frame whose run has sent nothing yet: the pill spins, the card keeps its height,
+    /// and other actions wait, so commands start one at a time.
+    public var isStarting: Bool {
+        if case .screen(let screen) = content { isLoading && screen.screen == nil } else { false }
+    }
+
     /// The frame's list, whose selection the arrow keys move; nil for a screen without rows.
     public var list: ItemList? {
         switch content {
@@ -60,10 +66,13 @@ public struct Frame: Identifiable, Sendable {
         }
     }
 
-    /// Whether the frame is a command's waiting for its text, which a submit runs.
-    public var awaitsText: Bool {
-        if case .screen(let screen) = content { screen.run?.awaitsText == true } else { false }
+    /// The command run feeding the frame; nil for the root and a pushed page.
+    public var run: CommandRun? {
+        if case .screen(let screen) = content { screen.run } else { nil }
     }
+
+    /// Whether the frame is a command's waiting for its text, which a submit runs.
+    public var awaitsText: Bool { run?.awaitsText == true }
 
     /// Whether the frame shows a document (a page), whose view lays out its content and measures it
     /// to size the card. A page made only of rows shows as a list instead.
