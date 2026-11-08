@@ -2,16 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Wicket</string>
 	<key>CFBundleExecutable</key>
 	<string>Wicket</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.wicket.Wicket</string>
 	<key>CFBundleName</key>
 	<string>Wicket</string>
-	<key>CFBundleDisplayName</key>
-	<string>Wicket</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -22,19 +22,19 @@
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Wicket reads the files selected in Finder, so Ask AI can see what you mean by "this".</string>
 	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Wicket listens only while you speak a search, after you turn on voice input, and transcribes it on your Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Wicket transcribes what you say on your Mac to search with it; nothing leaves your Mac.</string>
+	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/pietz/wicket/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>JmFt5qQSEqkM4Pt+l4JFfhkvcSwG5lsTBYPkQw07UpQ=</string>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Wicket reads the files selected in Finder, so Ask AI can see what you mean by "this".</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Wicket listens only while you speak a search, after you turn on voice input, and transcribes it on your Mac.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Wicket transcribes what you say on your Mac to search with it; nothing leaves your Mac.</string>
 </dict>
 </plist>

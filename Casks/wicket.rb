@@ -1,6 +1,6 @@
 cask "wicket" do
   version "0.0.1"
-  sha256 :no_check # Scripts/release.sh writes each release's checksum here.
+  sha256 "eb86c8afae7e8b3373a422fe89c38a11dfb86f5c6d4db1bee0aaf8a80a6535d7"
 
   url "https://github.com/pietz/wicket/releases/download/v#{version}/Wicket-#{version}.dmg"
   name "Wicket"
