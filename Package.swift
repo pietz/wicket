@@ -24,7 +24,8 @@ let package = Package(
         // Fixtures holds markup documents: example replies and extension pages.
         .testTarget(name: "WicketCoreTests", dependencies: ["WicketCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "WicketAppTests", dependencies: ["WicketApp"]),
-        // Fixtures holds recorded agent streams, replayed by a fake agent executable.
+        // Fixtures holds recorded agent streams, replayed by a fake agent executable, and the
+        // github-prs sample's fake curl with its canned GitHub responses.
         .testTarget(name: "WicketHostTests", dependencies: ["WicketHost"], resources: [.copy("Fixtures")]),
     ]
 )

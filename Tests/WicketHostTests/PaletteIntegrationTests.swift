@@ -41,11 +41,15 @@ private struct Palette {
             let target = directory.appending(path: source.lastPathComponent)
             try FileManager.default.copyItem(at: source, to: target)
             if source.lastPathComponent == "github-prs" {
-                // Answers from its canned responses instead of the network (its README).
+                // A fake curl first on its PATH answers with canned responses instead of GitHub.
+                try FileManager.default.copyItem(
+                    at: repository.appending(path: "Tests/WicketHostTests/Fixtures/github-prs"),
+                    to: target.appending(path: "test-bin"))
                 let manifest = target.appending(path: "wicket.json")
                 let text = try String(contentsOf: manifest, encoding: .utf8).replacingOccurrences(
                     of: #""run": ["/bin/sh", "prs.sh"]"#,
-                    with: #""run": ["/usr/bin/env", "GITHUB_PRS_FIXTURE_DIR=fixture", "/bin/sh", "prs.sh"]"#)
+                    with: #""run": ["/bin/sh", "-c", "PATH=\"$PWD/test-bin:$PATH\" exec /bin/sh prs.sh"]"#)
+                #expect(text.contains("test-bin"))
                 try Data(text.utf8).write(to: manifest)
             }
         }

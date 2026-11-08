@@ -325,26 +325,23 @@ public enum Shutdown: Sendable, Equatable {
 
 /// The last `limit` bytes of a stream, readable from any thread.
 final class OutputTail: Sendable {
-    private let data = Mutex((tail: Data(), written: 0))
+    private let tail = Mutex(Data())
     private let limit: Int
 
     init(limit: Int) {
         self.limit = limit
     }
 
-    var text: String { data.withLock { String(decoding: $0.tail, as: UTF8.self) } }
-    /// Every byte written so far, kept or not.
-    var written: Int { data.withLock { $0.written } }
+    var text: String { tail.withLock { String(decoding: $0, as: UTF8.self) } }
 
     func drain(_ handle: FileHandle) async {
         for await chunk in handle.chunks() { append(chunk) }
     }
 
     private func append(_ chunk: Data) {
-        data.withLock {
-            $0.tail.append(chunk)
-            $0.written += chunk.count
-            if $0.tail.count > limit { $0.tail.removeFirst($0.tail.count - limit) }
+        tail.withLock {
+            $0.append(chunk)
+            if $0.count > limit { $0.removeFirst($0.count - limit) }
         }
     }
 }

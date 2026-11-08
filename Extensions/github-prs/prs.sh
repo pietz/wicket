@@ -1,28 +1,19 @@
 #!/bin/sh
 # GitHub pull requests: review requests and your own open PRs, through the search API.
 # Wicket starts it once per run: it reads one request from stdin, prints one response and exits.
-#
-# Testing: when GITHUB_PRS_FIXTURE_DIR is set, the API is not called. Each command reads
-# $GITHUB_PRS_FIXTURE_DIR/<command>.json instead, shaped {"status": <HTTP status>, "body": <JSON>}:
-# `GITHUB_PRS_FIXTURE_DIR=fixture wicket run . my-prs`
 
 fail() {
   jq -nc --arg message "$1" --arg data "${2:-}" \
     '{error: ({message: $message} + if $data == "" then {} else {data: $data} end)}'
 }
 
-# Searches GitHub; sets $status (HTTP status, or 0 when GitHub can't be reached) and $body.
+# Searches GitHub for $1; sets $status (HTTP status, or 0 when GitHub can't be reached) and $body.
 search() {
-  if [ -n "${GITHUB_PRS_FIXTURE_DIR:-}" ]; then
-    status=$(jq '.status' "$GITHUB_PRS_FIXTURE_DIR/$1.json")
-    body=$(jq -c '.body' "$GITHUB_PRS_FIXTURE_DIR/$1.json")
-    return
-  fi
   # The token goes in through a curl config on stdin, so it never shows up in `ps`.
   if response=$(printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN" |
     curl --silent --show-error --max-time 20 --config - --get \
       --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' \
-      --data-urlencode "q=is:open is:pr archived:false $2" --data 'sort=updated' --data 'per_page=50' \
+      --data-urlencode "q=is:open is:pr archived:false $1" --data 'sort=updated' --data 'per_page=50' \
       --write-out '\n%{http_code}' https://api.github.com/search/issues); then
     status=$(printf '%s' "$response" | tail -n 1)
     body=$(printf '%s' "$response" | sed '$d')
@@ -75,7 +66,7 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
   exit
 fi
 
-search "$command" "$query"
+search "$query"
 detail=$(printf '%s' "$body" | jq -r '.message? // empty' 2>/dev/null)
 case $status in
   200) if result=$(items) && [ -n "$result" ]; then printf '%s\n' "$result"; else fail "GitHub sent an answer this extension doesn't understand."; fi ;;
