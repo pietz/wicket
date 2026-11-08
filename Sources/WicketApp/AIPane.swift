@@ -154,7 +154,7 @@ struct AIPane: View {
         } footer: {
             Text(
                 LocalizedStringKey(
-                    "Fast answers sooner but uses more of your plan. " + Self.permissions(provider))
+                    Self.speedNote(provider, model: model) + " " + Self.permissions(provider))
             )
             .foregroundStyle(.secondary)
         }
@@ -180,6 +180,16 @@ struct AIPane: View {
 
     static func effortName(_ effort: String) -> String {
         effort == "xhigh" ? "Extra high" : effort.prefix(1).uppercased() + effort.dropFirst()
+    }
+
+    /// What Fast costs and where it is offered: Claude Code has it only on Opus, billed from usage
+    /// credits; Codex's priority tier uses more of the plan.
+    static func speedNote(_ provider: AgentProvider, model: AgentModel?) -> String {
+        switch provider {
+        case .claude where model?.fast == false: "Fast is only offered on Opus."
+        case .claude: "Fast answers sooner and is billed from Claude usage credits, not your plan."
+        case .codex: "Fast answers sooner but uses more of your plan."
+        }
     }
 
     /// A field of one agent's options in settings.json. Choosing a model moves an effort it doesn't
