@@ -333,3 +333,40 @@ func claudeBuildsACommandThatWicketOffersForReview() async throws {
     print("REVIEW:\n\(page?.markdown ?? "-")\nACTIONS: \(page?.actions.compactMap(\.title) ?? [])")
     #expect(page?.actions.first?.title == "Enable")
 }
+
+@MainActor @Test func aBrokenExtensionEditedWithTheSameErrorIsStillOffered() async throws {
+    let broken = try plain("broken")
+    try FileManager.default.removeItem(at: broken.folder.appending(path: "wicket.json"))
+    let extensions = try await extensions([broken])
+    let directory = extensions.directory
+    let runner = AskAIRunner(
+        backend: agent(Requests()) {
+            // Still no manifest, so the same error; but the folder changed.
+            try "echo v2".write(
+                to: directory.appending(path: "broken/main.sh"), atomically: false, encoding: .utf8)
+        }, interval: .zero, provider: { .codex })
+    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    let detail = try #require(try await finalDetail(runner, "fix it"))
+    #expect(detail.actions.first?.title == "Review and Enable broken")
+}
+
+@MainActor @Test func aChangeMadeBeforeTheRunIsNotTheRunsWork() async throws {
+    let extensions = try await extensions([])
+    // Written before the run, before any watcher event arrives.
+    try FileManager.default.copyItem(
+        at: try plain("earlier").folder, to: extensions.directory.appending(path: "earlier"))
+    let runner = AskAIRunner(backend: agent(Requests()) {}, interval: .zero, provider: { .codex })
+    runner.authoring = ExtensionAuthoring(extensions: extensions, commands: { [] }, guide: nil)
+    let detail = try #require(try await finalDetail(runner, "what's the time?"))
+    #expect(!detail.actions.contains { $0.title?.hasPrefix("Review") == true })
+}
+
+@MainActor @Test func longTitlesAreClippedInTheInstructions() async throws {
+    let extensions = try await extensions([])
+    let long = String(repeating: "x", count: 5000)
+    let commands = [
+        RegisteredCommand(id: .builtin("odd"), title: long, icon: .symbol(name: "gear"), keyword: long)
+    ]
+    let text = ExtensionAuthoring(extensions: extensions, commands: { commands }, guide: nil).instructions()
+    #expect(text.count < 1500)
+}

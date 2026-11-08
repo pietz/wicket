@@ -223,7 +223,7 @@ final class AnswerStream {
         // What the extensions folder holds before an acting run, to offer what it changes for review.
         var before: ExtensionAuthoring.Snapshot?
         if let acting, provider.acts {
-            before = authoring?.snapshot()
+            before = await authoring?.snapshot()
             request = AgentRequest(
                 prompt: prompt, workingDirectory: acting, mode: .act, instructions: authoring?.instructions())
         } else {

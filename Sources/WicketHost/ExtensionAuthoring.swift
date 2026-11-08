@@ -39,14 +39,16 @@ public final class ExtensionAuthoring {
 
     /// The most commands an acting run is told about; the rest are counted.
     static let commandLimit = 60
+    /// The longest title or keyword shown, so one odd manifest can't inflate every run.
+    static let fieldLimit = 80
 
     /// What an acting run is told after Wicket's own instructions. Short, since it ships with every
     /// run: the guide is a path to read, not pasted in.
     func instructions() -> String {
         let offered = commands().filter(\.isOffered)
         var lines = offered.prefix(Self.commandLimit).map { command in
-            var line = "- " + command.title
-            if let keyword = command.keyword { line += ", keyword `\(keyword)`" }
+            var line = "- " + Self.clipped(command.title)
+            if let keyword = command.keyword { line += ", keyword `\(Self.clipped(keyword))`" }
             if case .extension(let id) = command.id.owner { line += " (extension `\(id)`)" }
             return line
         }
@@ -73,13 +75,20 @@ public final class ExtensionAuthoring {
             """
     }
 
+    private static func clipped(_ text: String) -> String {
+        text.count > fieldLimit ? text.prefix(fieldLimit - 1) + "…" : text
+    }
+
     /// What each extension folder held when a run started, to compare with after it.
     struct Snapshot {
         var fingerprints: [String: String]
     }
 
-    func snapshot() -> Snapshot {
-        Snapshot(
+    /// Discovers every folder again first, so a change made just before the run (whose watcher event
+    /// hasn't arrived) counts as the starting point, not as the run's work.
+    func snapshot() async -> Snapshot {
+        await extensions.reload().value
+        return Snapshot(
             fingerprints: Dictionary(extensions.discovered.map { ($0.id, Self.fingerprint($0)) }) { a, _ in a
             })
     }
@@ -104,10 +113,29 @@ public final class ExtensionAuthoring {
         }
     }
 
-    /// A folder's content as discovery last saw it: its revision, or why it has none.
+    /// A folder's content as discovery last saw it: its revision, else (it can't be sealed) its
+    /// files' latest modification and count, since the same error can survive an edit.
     private static func fingerprint(_ found: DiscoveredExtension) -> String {
         if let sealed = found.sealed { return sealed.revision.sha256 }
-        if case .invalid(let reason, _) = found.state { return "invalid: " + reason }
-        return ""
+        return "unsealed: " + marker(of: found.folder)
+    }
+
+    /// The latest modification date and number of the first 500 entries under `folder`.
+    private static func marker(of folder: URL) -> String {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        var latest = (try? folder.resourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast
+        var count = 0
+        if let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) {
+            for case let url as URL in walk {
+                count += 1
+                if count > 500 { break }
+                if let date = (try? url.resourceValues(forKeys: Set(keys)))?.contentModificationDate,
+                    date > latest
+                {
+                    latest = date
+                }
+            }
+        }
+        return "\(latest.timeIntervalSinceReferenceDate)/\(count)"
     }
 }
