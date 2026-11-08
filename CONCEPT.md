@@ -17,6 +17,17 @@ A launcher should be a tiny, very fast native core plus **one extension protocol
 - **Voice:** summon and, if no key is typed, just speak. Everything AI and voice is switchable.
 - **Release style:** work on `main`; publish an early 0.0.x alpha once it's worth showing.
 
+## The core, and nothing else for now (owner, 2026-11-08)
+
+Get the core idea right before adding anything: **a simple, fast, AI-native launcher.** Five things:
+1. **AI through the harnesses we wrap** (Claude Code, Codex), with replies drawn natively.
+2. **File search.**
+3. **Calculator.**
+4. **App launcher.**
+5. **Extensions the agent builds on request.**
+
+Anything else waits until these are on point. That includes new features and polish on what isn't on this list. Existing extras are judged against this list in a scope audit.
+
 ## Why build it (research, November 2026)
 
 - **Commercial:** Raycast 2.0 (Aug 2026) moved to WebViews plus Node; power users complain about memory, process count and AI being pushed, and AI moved to credits in Sept 2026. Alfred is steady but slow (Alfred 6 still in closed beta). Monarch is solo, pre-1.0.
