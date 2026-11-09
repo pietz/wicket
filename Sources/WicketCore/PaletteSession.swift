@@ -13,6 +13,8 @@ public final class PaletteSession {
     /// The files selected in Finder when the user came from it, once captured (`captureContext`): the
     /// pill's chip. Nil while capturing, when nothing was selected, and once dismissed.
     public private(set) var context: SummonContext?
+    /// Prefix and preferred destination, applied live from settings.json.
+    public var shell = Settings.Shell()
     /// Asks the app to close the palette (a command answered `close`).
     @ObservationIgnored public var onClose: () -> Void = {}
     /// Where a command's `close` and `reload` messages go, after the close they come with.
@@ -246,6 +248,7 @@ public final class PaletteSession {
 
     /// The command whose keyword starts `text`, followed by a space, and the rest of the text.
     private func keywordCommand(in text: String) -> (RegisteredCommand, String)? {
+        if ShellCommand.text(in: text, prefix: shell.prefix) != nil { return nil }
         guard let space = text.firstIndex(of: " "), space > text.startIndex,
             let command = registry?.command(keyword: String(text[..<space]))
         else { return nil }
@@ -275,6 +278,14 @@ public final class PaletteSession {
         frames[index].pending = 0
 
         let query = Query(text: frames[index].query, generation: frames[index].generation)
+        if registry?.command(.runShell) != nil,
+            let text = ShellCommand.text(in: query.text, prefix: shell.prefix)
+        {
+            frames[index].results?.start(
+                query, results: ["shell": [ShellCommand.item(text: text, settings: shell)]], usage: frecency()
+            )
+            return
+        }
         var instant: [String: [Item]] = [:]
         if !query.text.isEmpty {
             for source in sources { instant[source.id] = source.instant(query) }

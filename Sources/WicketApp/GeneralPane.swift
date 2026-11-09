@@ -17,6 +17,7 @@ struct GeneralPane: View {
     /// The width last written, until settings.json is reloaded with it, so the slider doesn't jump
     /// back while the file catches up.
     @State private var width: Double?
+    @State private var shellPrefix: String?
 
     var body: some View {
         Form {
@@ -64,6 +65,34 @@ struct GeneralPane: View {
                         "Images on a page load from the web. When it's off, Load Images in ⌘K loads a page's."
                     )
                 }
+            }
+            Section {
+                TextField(
+                    "Prefix",
+                    text: Binding(
+                        get: { shellPrefix ?? store.settings.shell.prefix },
+                        set: { shellPrefix = $0 })
+                )
+                .onSubmit { saveShellPrefix() }
+                HStack {
+                    Text("1–8 punctuation marks or symbols")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if shellPrefix != nil {
+                        Button("Save") { saveShellPrefix() }
+                            .disabled(!Settings.Shell.validPrefix(shellPrefix ?? ""))
+                    }
+                }
+                Picker("Run on Return", selection: store.binding(\.shell.destination, error: $error)) {
+                    Text("In Wicket").tag(Settings.Shell.Destination.wicket)
+                    Text("In Terminal").tag(Settings.Shell.Destination.terminal)
+                }
+            } header: {
+                Text("Shell commands")
+            } footer: {
+                Text(
+                    "Type \(store.settings.shell.prefix) and a command. ⌘Return uses the other destination. "
+                        + "Commands start in your home folder. Use Terminal for interactive commands.")
             }
             Section {
                 Toggle("Launch at login", isOn: launchAtLogin)
@@ -130,6 +159,13 @@ struct GeneralPane: View {
         error = nil
         recorder.start(pausing: store.pauseHotKey) { shortcut in
             perform(error: $error) { try store.update { $0.hotkey = shortcut } }
+        }
+    }
+
+    private func saveShellPrefix() {
+        guard let prefix = shellPrefix, Settings.Shell.validPrefix(prefix) else { return }
+        if perform(error: $error, { try store.update { $0.shell.prefix = prefix } }) {
+            shellPrefix = nil
         }
     }
 

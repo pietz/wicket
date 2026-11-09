@@ -4,6 +4,30 @@ import Testing
 
 @testable import WicketCore
 
+@Test func shellSettingsFailIndependentlyAndPreserveUnknownKeys() throws {
+    let decode = { (json: String) in try JSONDecoder().decode(Settings.self, from: Data(json.utf8)) }
+    let invalid = try decode(#"{"shell":{"prefix":"ai", "destination":"terminal"}}"#)
+    #expect(invalid.shell.prefix == ">")
+    #expect(invalid.shell.destination == .terminal)
+    #expect(invalid.ignored.count == 1)
+    let other = try decode(#"{"shell":{"prefix":"$", "destination":false}}"#)
+    #expect(other.shell.prefix == "$")
+    #expect(other.shell.destination == .wicket)
+    #expect(other.ignored.count == 1)
+    let url = temporarySettingsURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    try write(#"{"shell":{"future":42}}"#, to: url)
+    try Settings.update(at: url) {
+        $0.shell.prefix = ">>"
+        $0.shell.destination = .terminal
+    }
+    #expect(try Settings.load(from: url).shell.prefix == ">>")
+    #expect(try Settings.load(from: url).shell.destination == .terminal)
+    try Settings.update(at: url) { $0.shell = Settings.Shell() }
+    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+    #expect((object?["shell"] as? [String: Int]) == ["future": 42])
+}
+
 @Test(arguments: [
     ("option+space", kVK_Space, optionKey),
     ("opt+space", kVK_Space, optionKey),

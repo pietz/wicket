@@ -36,11 +36,32 @@ public struct Settings: Equatable, Sendable {
     /// never the page's author.
     public var showOnlineContent = true
     public var ai = AI()
+    public var shell = Shell()
     /// Why a field the file sets was ignored for its default. A cosmetic value that is wrong or out
     /// of range shouldn't cost the whole file, so it is reported here instead of making it invalid.
     public private(set) var ignored: [String] = []
 
     public init() {}
+
+    /// How explicitly typed shell commands run. Execution still requires a user action.
+    public struct Shell: Equatable, Sendable {
+        public enum Destination: String, Codable, CaseIterable, Sendable {
+            case wicket, terminal
+        }
+
+        public var prefix = ">"
+        public var destination = Destination.wicket
+
+        public init() {}
+
+        /// Punctuation avoids taking over ordinary app names, requests and command keywords.
+        public static func validPrefix(_ value: String) -> Bool {
+            (1...8).contains(value.unicodeScalars.count)
+                && value.unicodeScalars.allSatisfy {
+                    CharacterSet.punctuationCharacters.union(.symbols).contains($0)
+                }
+        }
+    }
 
     /// The `ai` object. Preferences only: what an agent may do is its own configuration.
     public struct AI: Equatable, Sendable {
@@ -176,8 +197,10 @@ public struct Settings: Equatable, Sendable {
 
 extension Settings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkey, paletteWidth, showInMenuBar, textSize, showOnlineContent, ai
+        case hotkey, paletteWidth, showInMenuBar, textSize, showOnlineContent, ai, shell
     }
+
+    private enum ShellKeys: String, CodingKey { case prefix, destination }
 
     private enum AIKeys: String, CodingKey {
         case enabled, provider, codex, claude
@@ -211,6 +234,20 @@ extension Settings: Codable {
             ?? textSize
         if container.contains(.ai), (try? container.decodeNil(forKey: .ai)) != true {
             decodeAI(try? container.nestedContainer(keyedBy: AIKeys.self, forKey: .ai))
+        }
+        if container.contains(.shell), (try? container.decodeNil(forKey: .shell)) != true {
+            if let fields = try? container.nestedContainer(keyedBy: ShellKeys.self, forKey: .shell) {
+                shell.prefix =
+                    field(
+                        fields, .prefix, valid: Shell.validPrefix,
+                        "shell.prefix must be 1–8 punctuation marks or symbols; using >") ?? shell.prefix
+                shell.destination =
+                    field(
+                        fields, .destination, "shell.destination must be wicket or terminal; using wicket")
+                    ?? shell.destination
+            } else {
+                ignored.append("shell must be an object; using defaults")
+            }
         }
     }
 
@@ -305,6 +342,11 @@ extension Settings: Codable {
         if !showInMenuBar { try container.encode(false, forKey: .showInMenuBar) }
         if textSize != .medium { try container.encode(textSize, forKey: .textSize) }
         if !showOnlineContent { try container.encode(false, forKey: .showOnlineContent) }
+        if shell != Shell() {
+            var fields = container.nestedContainer(keyedBy: ShellKeys.self, forKey: .shell)
+            if shell.prefix != Shell().prefix { try fields.encode(shell.prefix, forKey: .prefix) }
+            if shell.destination != .wicket { try fields.encode(shell.destination, forKey: .destination) }
+        }
         // Only what is chosen, so a new file stays minimal; `update` removes a field set back to the
         // provider's default (and the object once nothing is left in it).
         if ai != AI() {

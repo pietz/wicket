@@ -76,6 +76,12 @@ Trust is explicit:
 
 Turn on voice in Settings ▸ Voice and Wicket arms the microphone quietly each time it opens. Start speaking and your words appear in the field; start typing and it stops. It listens through pauses until you press a key, or after a minute of silence. Transcription is Apple's on-device speech model. The mic button and ⌘L start listening by hand.
 
+## Shell commands
+
+Type `> echo hello` (or `>echo hello`). Return runs it in Wicket and shows the output in the same window; ⌘Return runs it in your terminal. Settings ▸ General ▸ Shell commands changes the prefix and which destination Return uses. ⌘K also lists both actions.
+
+Commands start fresh in your home folder. In Wicket, output is plain text with the exit status, Return copies it, and Escape stops a running command. Output keeps the last 16 KiB, and runs stop after 60 seconds. Use Terminal for interactive commands, aliases and longer tasks. Terminal uses the macOS app associated with `.command` files, normally Terminal.app; Finder's Open With can change that association.
+
 ## Keyboard
 
 | Key | Does |

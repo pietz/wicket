@@ -150,6 +150,10 @@ final class AppRuntime {
         palette?.width = CGFloat(settings.paletteWidth)
         model.textSize = settings.textSize
         model.showsOnlineContent = settings.showOnlineContent
+        if model.session.shell != settings.shell {
+            model.session.shell = settings.shell
+            model.refresh()
+        }
 
         let changes = registry.changes
         registry.setAIEnabled(settings.ai.enabled)
@@ -252,6 +256,15 @@ extension AppRuntime {
         let consent = ExtensionsRunner(extensions: extensions)
         // Every AI run. Runs know Wicket's commands and write extensions into its folder for review.
         let runAgent = AgentRunner(provider: { weakRuntime?.applied?.ai.provider })
+        let shell = ShellRunner { text in
+            let file = try TerminalCommand.prepare(text)
+            do {
+                _ = try await NSWorkspace.shared.open(file, configuration: .init())
+            } catch {
+                try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                throw error
+            }
+        }
         runAgent.authoring = ExtensionAuthoring(
             extensions: extensions, commands: { weakRuntime?.registry.commands ?? [] },
             instructionsFile: ExtensionAuthoring.instructionsFile, commandList: ExtensionPaths.commandList)
@@ -268,6 +281,14 @@ extension AppRuntime {
         // Wicket's own commands: each is one entry, its registration and its runner. Search, keywords
         // and its frame come from the registry and the invocation policy.
         var builtins = [
+            Builtin(
+                RegisteredCommand(
+                    id: .runShell, title: "Run in Wicket", icon: .symbol(name: "terminal"),
+                    isListed: false, input: .submitText), runner: shell),
+            Builtin(
+                RegisteredCommand(
+                    id: .runInTerminal, title: "Run in Terminal", icon: .symbol(name: "terminal"),
+                    isListed: false, input: .submitText), runner: shell),
             Builtin(
                 RegisteredCommand(
                     id: .settings, title: "Wicket Settings", icon: .symbol(name: "gearshape"),

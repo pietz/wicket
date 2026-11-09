@@ -456,6 +456,16 @@ private func addHello(_ h: Harness) async throws {
     #expect(h.runtime.model.textSize == .medium)
 }
 
+@MainActor @Test func shellSettingsApplyLive() throws {
+    let h = try Harness()
+    #expect(h.session.shell == Settings.Shell())
+    try h.change(#"{"shell":{"prefix":"$", "destination":"terminal"}}"#)
+    #expect(h.session.shell.prefix == "$")
+    #expect(h.session.shell.destination == .terminal)
+    try h.change("{}")
+    #expect(h.session.shell == Settings.Shell())
+}
+
 private struct NoEffects: ActionEffects {
     func open(_ url: URL) {}
     func copy(_ text: String) {}

@@ -30,6 +30,10 @@ Nothing else gets added until these are on point.
 
 Supporting: palette with pill and card, keyboard model (Return, ⌘↩, ⌘K, ⌘1 to ⌘9, Escape up a layer), links, Finder context, paste-back, settings file and window (General, AI, Voice), menu bar icon, launch at login, `wicket` CLI, Sparkle updates, Homebrew cask, Wicket Dev edition.
 
+## Shell commands (owner, 2026-11-09)
+
+- ✅ Explicit configurable `>` prefix; one row with Run in Wicket and Run in Terminal, preferred destination in General settings. Bounded plain output in the existing card, fresh home-directory shell, cancellation and timeout through the process tree. Astra challenged and reviewed it; its noisy-output memory finding is fixed with a retained regression check. Both destinations verified live; full checks pass ([review](docs/reviews/2026-11-09-shell-commands.md)).
+
 ## Next, once the core is on point
 
 - ⏭ Lazy layout for very long documents (a 64 KiB page takes about 470 ms to lay out; real replies are about 2 KiB).

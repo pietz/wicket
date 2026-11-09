@@ -16,7 +16,7 @@ A launcher should be a small, very fast native core plus **one extension protoco
 5. **Extensions the agent builds on request,** reviewed and enabled per revision.
 6. **Voice input:** speaking instead of typing is part of the experience.
 
-Supporting behaviour stays because the six need it: typed web addresses, Finder context for the agent, paste-back, the settings file, text size, usage ranking, the menu bar icon, updates and the `wicket` tool. Nothing else, new features or polish, until these six are on point.
+Supporting behaviour stays because the six need it: typed web addresses, Finder context for the agent, paste-back, the settings file, text size, usage ranking, the menu bar icon, updates and the `wicket` tool. Explicit shell commands are a small core exception (owner, 2026-11-09): submission and Terminal handoff need the host. These six remain the focus.
 
 **Not doing, and why** (owner, 2026-11-08), so nobody rebuilds them by accident:
 - **Prompt commands, Save as Command, Make a Command:** a reusable command is something you ask the agent to build, so extensions stay one concept.
@@ -54,6 +54,7 @@ Supporting behaviour stays because the six need it: typed web addresses, Finder 
 - **Copy and paste-back.** Copy takes a page's plain text, never its tags. Paste types ⌘V into the app that was frontmost at summon, using the current layout's key; Accessibility is asked on a paste, never at launch. If the target doesn't come front, Wicket only copies rather than type into the wrong app. The clipboard isn't restored: reading it triggers macOS's alert and a restore races the target's read.
 - **Built-in sources.** Apps: a scan of fixed folders, since Spotlight also returns copies in Downloads, build folders and disk images. Files: Spotlight's word-prefix search (about 30 ms), not our own index, which would need Full Disk Access and thousands of lines. Calculator: a pure engine that runs on every keystroke, locale-aware and never guessing (`2,5` in English gives no answer rather than a wrong one), ECB rates cached a day; phrases and dates are extension work. A typed address gets an Open row only when unambiguous, since a wrong guess would sit above the user's files.
 - **Settings.** `~/.config/wicket/settings.json` is the truth, reloaded live, plain JSON people and agents edit; the Settings window only writes it. Every field fails alone, and a file that isn't valid JSON (often an agent mid-write) keeps the last good settings. Text size is named steps (owner), which fit a picker and can't produce odd sizes; only pages follow it.
+- **Explicit shell commands (owner, 2026-11-09).** A configurable punctuation prefix, initially `>`, offers one command with two destinations: Return runs in Wicket and shows plain output in the existing card; ⌘Return opens it in the terminal. Settings can swap the default. Nothing executes while typing, no general shell fallback competes with search, and no saved commands or terminal emulator. Each run starts fresh in the home folder; Escape stops an in-app run. Tinycast's separate output window adds a surface Wicket's card already covers.
 
 ## AI and native replies
 

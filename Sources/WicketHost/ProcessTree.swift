@@ -326,6 +326,7 @@ public enum Shutdown: Sendable, Equatable {
 /// The last `limit` bytes of a stream, readable from any thread.
 final class OutputTail: Sendable {
     private let tail = Mutex(Data())
+    private let overflow = Mutex(false)
     private let limit: Int
 
     init(limit: Int) {
@@ -333,15 +334,31 @@ final class OutputTail: Sendable {
     }
 
     var text: String { tail.withLock { String(decoding: $0, as: UTF8.self) } }
+    var truncated: Bool { overflow.withLock { $0 } }
 
     func drain(_ handle: FileHandle) async {
-        for await chunk in handle.chunks() { append(chunk) }
+        // Bound data where it arrives, so a delayed consumer cannot leave chunks queued elsewhere.
+        let (eof, ended) = AsyncStream<Void>.makeStream()
+        handle.readabilityHandler = { [self] handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                ended.finish()
+            } else {
+                append(data)
+            }
+        }
+        for await _ in eof {}
     }
 
     private func append(_ chunk: Data) {
         tail.withLock {
             $0.append(chunk)
-            if $0.count > limit { $0.removeFirst($0.count - limit) }
+            if $0.count > limit {
+                overflow.withLock { $0 = true }
+                // Rebase the Data: removeFirst advances its indices while its allocation grows.
+                $0 = Data($0.suffix(limit))
+            }
         }
     }
 }

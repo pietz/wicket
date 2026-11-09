@@ -44,6 +44,16 @@ private final class ListRunner: CommandRunner {
 @MainActor
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WICKET_BENCH"] == "1"))
 struct PaletteBench {
+    @Test func shellKeystroke() {
+        let command = RegisteredCommand(
+            id: .runShell, title: "Shell", icon: .symbol(name: "terminal"),
+            isListed: false, input: .submitText)
+        let session = PaletteSession(sources: [IndexSource()], registry: CommandRegistry(builtins: [command]))
+        let queries = [">", "> ", ">e", ">ec", ">ech", ">echo", ">echo x"]
+        let start = ContinuousClock.now
+        for _ in 0..<1000 { for query in queries { session.query = query } }
+        print("PaletteBench shell keystroke: \((ContinuousClock.now - start) / 7000)")
+    }
     @Test func rootKeystroke() {
         let session = PaletteSession(sources: [IndexSource()], resultLimit: 50)
         let queries = ["s", "sa", "saf", "safa", "safar", "safari", "c", "co", "cod", "code"]

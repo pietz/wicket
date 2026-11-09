@@ -81,7 +81,7 @@ public enum LoginShell {
     }
 
     /// `$SHELL`, else the account's shell (launchd doesn't set SHELL), else zsh.
-    private static var shell: String {
+    static var shell: String {
         if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty { return shell }
         if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {
             return String(cString: shell)
