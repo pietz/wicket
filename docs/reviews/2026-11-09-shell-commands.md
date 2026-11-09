@@ -23,3 +23,5 @@ Astra found no other blocking correctness, quoting, authority or lifecycle issue
 The owner asked for typing on output to start another command and typing on AI answers to continue the conversation. Astra's independent product challenge recommended the existing empty submit-text action path, preserving the first character and waiting for Return. Shell output now offers New Command; AI replies made entirely of rows use the same continuation behavior as prose. The footer advertises it, while row actions and the optional ⌘Return shortcut remain.
 
 Astra's final review found no blockers. The full check passes (540 tests); off-screen controller checks cover shell, AI prose and AI rows, first text, no execution before Return, conversation arguments and Escape back to the result. Actual SwiftUI focus and live key delivery were not retested because the owner ended screen use.
+
+Release-mode off-screen timings for 0.0.15: root keystroke 0.390 ms, shell-prefix keystroke 0.0042 ms, isolated frame push to content 0.407 ms.
