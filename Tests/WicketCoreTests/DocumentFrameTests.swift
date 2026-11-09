@@ -104,8 +104,8 @@ private let mixed = """
     #expect(session.top.list?.items.map(\.title) == ["beta.txt"])
 }
 
-/// Typing on an agent's document continues the conversation: the screen's action that opens a frame
-/// waiting for text. A list filters instead, and a page without such an action takes no text.
+/// Typing on an agent's answer continues the conversation through its host-owned screen action.
+/// Ordinary lists filter, and pages without such an action take no text.
 @MainActor @Test func typingOnADocumentStartsFollowUp() async {
     let follow = Item.Action.run(
         command: followUpID, args: ["conversation": .string("t")], title: "Follow Up")
@@ -158,9 +158,8 @@ private let mixed = """
     #expect(session.top.target?.actions.first == .copy(text: text))
 }
 
-/// A filter that matches none of an answer's rows leaves its screen actions: ⌘↩ still follows up
-/// and ⌘K still copies; clearing the filter brings the rows back, the first selected.
-@MainActor @Test func anAnswersScreenActionsOutliveAFilterThatMatchesNothing() async {
+/// A reply drawn entirely as rows still continues on typing; its rows remain selectable.
+@MainActor @Test func anAnswerOfRowsContinuesOnTypingAndKeepsRowActions() async {
     let follow = Item.Action.run(
         command: followUpID, args: ["conversation": .string("t")], title: "Follow Up")
     let copy = Item.Action.copy(text: "x", title: "Copy Answer")
@@ -170,17 +169,9 @@ private let mixed = """
     #expect(session.top.listing != nil)
     #expect(session.top.target?.item?.title == "alpha.txt")
     #expect(session.top.target?.screen == [copy, follow])
-
-    session.query = "zzz"
-    #expect(session.top.list?.items.isEmpty == true)
-    let target = session.top.target
-    #expect(target?.item == nil && target?.actions.isEmpty == true)
-    #expect(target?.screen == [copy, follow])
-    #expect(target?.secondary == .screen(1))
-    #expect(target?.primary == .screen(0))
-
-    session.query = ""
-    #expect(session.top.target?.item?.title == "alpha.txt")
+    #expect(session.typingAction == follow)
+    session.moveSelection(by: 1)
+    #expect(session.top.target?.item?.title == "beta.txt")
     #expect(session.top.target?.secondary == .screen(1))
 }
 

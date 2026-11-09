@@ -116,9 +116,10 @@ public struct Frame: Identifiable, Sendable {
     }
 
     /// What typing on a page starts with the typed text: the first screen action whose command waits
-    /// for text (Follow Up on an answer). A page is read, not searched; nil on a list, which filters.
+    /// for text (Follow Up on an answer, New Command on shell output). The action takes precedence
+    /// over filtering when an answer happens to contain only rows.
     public func typingAction(waitsForText: (CommandID) -> Bool) -> Item.Action? {
-        guard document != nil else { return nil }
+        guard screen != nil else { return nil }
         return context.actions.first { action in
             guard case .run(let command, let text, _, _, _) = action else { return false }
             return text.isEmpty && waitsForText(command)

@@ -32,7 +32,13 @@ public final class ShellRunner: CommandRunner {
                     try await openInTerminal(invocation.text)
                     result = .close(message: nil)
                 } else {
-                    result = .show(.detail(try await ShellProcess.run(invocation.text)))
+                    result = .show(
+                        .detail(try await ShellProcess.run(invocation.text)),
+                        ScreenContext(
+                            authority: .host,
+                            actions: [
+                                .run(command: .runShell, title: "New Command")
+                            ]))
                 }
                 if !Task.isCancelled { continuation.yield(result) }
                 continuation.finish()

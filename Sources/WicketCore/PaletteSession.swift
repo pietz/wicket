@@ -137,8 +137,8 @@ public final class PaletteSession {
     }
 
     /// The action typing on the top frame starts (`Frame.typingAction`): Follow Up on an agent's
-    /// answer, whose command waits for text in the registry. Nil where typing filters or does
-    /// nothing.
+    /// answer or New Command on shell output, whose command waits for text in the registry.
+    /// Nil where typing filters or does nothing.
     public var typingAction: Item.Action? {
         top.typingAction { registry?.command($0)?.input == .submitText }
     }

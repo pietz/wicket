@@ -259,8 +259,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
         perform(.open(url: url), as: .agent)
     }
 
-    /// Text typed on a page: a document is read, not searched, so typing starts the screen's Follow
-    /// Up with the text in its field (`Frame.typingAction`). False when the page takes no text.
+    /// Typing on a result opens its continuation with the first text in a waiting field. The text
+    /// is not submitted until Return. False when the result has no continuation.
     func type(_ text: String) -> Bool {
         guard let action = model.session.typingAction else { return false }
         perform(action, as: .host, typed: text)

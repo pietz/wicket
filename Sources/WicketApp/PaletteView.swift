@@ -149,7 +149,7 @@ struct PaletteRootView: View {
                         FooterBar(
                             primary: model.target.flatMap(model.primaryPresentation),
                             secondary: model.target.flatMap(model.screenSecondaryTitle), toast: model.toast,
-                            canGoBack: model.canGoBack)
+                            canGoBack: model.canGoBack, takesTyping: model.session.typingAction != nil)
                     }
                     .frame(height: model.cardHeight)
                     .clipShape(Self.card)
@@ -183,7 +183,7 @@ struct PaletteRootView: View {
         }
         let title = frame.screen?.title
         guard let command = frame.run?.command else { return (.symbol(name: "doc.text"), title ?? "Details") }
-        let titled = frame.isMeasured || (frame.isStarting && command.input != .liveText)
+        let titled = model.showsTitle || (frame.isStarting && command.input != .liveText)
         let prompt = titled ? command.title : command.placeholder ?? command.title
         return (command.icon, title ?? prompt)
     }
@@ -224,7 +224,7 @@ struct PaletteRootView: View {
     /// The search field's identity: a new field per frame (a keyword opens a frame from inside the
     /// field's own edit, and an editing TextField ignores a binding change made there, so it would
     /// keep showing "week " and append the next keys to it), and per kind, field or title.
-    private var fieldID: String { "\(model.top.id)-\(model.top.isMeasured)" }
+    private var fieldID: String { "\(model.top.id)-\(model.showsTitle)" }
 
     /// Whether the field takes a secret (Set Secret's frame).
     private var isSecret: Bool {
@@ -238,7 +238,7 @@ struct PaletteRootView: View {
             pillGlyph
                 .frame(width: 24)
             Group {
-                if model.top.isMeasured {
+                if model.showsTitle {
                     Text(pill.prompt)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -276,9 +276,9 @@ struct PaletteRootView: View {
                 onEscape()
                 return .handled
             }
-            // Typing on a document (a page, which has no field) starts a Follow Up with the text.
+            // A result's continuation takes typing, including answers drawn entirely as rows.
             .onKeyPress(phases: .down) { press in
-                guard model.top.isMeasured, press.modifiers.isDisjoint(with: [.command, .control]),
+                guard model.showsTitle, press.modifiers.isDisjoint(with: [.command, .control]),
                     Self.isTyped(press.characters)
                 else { return .ignored }
                 return onType(press.characters) ? .handled : .ignored
@@ -452,6 +452,8 @@ struct FooterBar: View {
     var toast: Message?
     /// A frame is pushed: Escape goes back, shown when there is no action to hint at.
     var canGoBack = false
+    /// Continuing by typing is the main hint; the secondary shortcut stays in the actions menu.
+    var takesTyping = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -460,6 +462,8 @@ struct FooterBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .transition(.opacity)
+            } else if takesTyping {
+                Text("Type to continue").font(.system(size: 12))
             } else if let secondary {
                 KeyHint(title: secondary, keys: "⌘↩")
             }

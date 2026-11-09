@@ -12,6 +12,8 @@ final class PaletteModel {
 
     let session: PaletteSession
     var top: Frame { session.top }
+    /// A result's title takes keys for its continuation; ordinary searchable lists keep a field.
+    var showsTitle: Bool { top.isMeasured || session.typingAction != nil }
     /// The top frame's rows; empty for a page.
     var results: [Item] { top.list?.items ?? [] }
     var selection: Int { top.list?.selection ?? 0 }

@@ -6,6 +6,21 @@ import WicketCore
 @testable import WicketHost
 
 @Suite struct ShellTests {
+    @MainActor @Test func inlineOutputOffersANewCommandWaitingForText() async throws {
+        let runner = ShellRunner { _ in Issue.record("Unexpected terminal handoff") }
+        var context: ScreenContext?
+        for try await result in runner.run(Invocation(command: .runShell, text: ":")) {
+            guard case .show(.detail(let detail), let screen) = result else {
+                Issue.record("Missing output page")
+                continue
+            }
+            #expect(detail.actions.first?.kind == .copy)
+            context = screen
+        }
+        #expect(context?.authority == .host)
+        #expect(context?.actions == [.run(command: .runShell, title: "New Command")])
+    }
+
     @Test func outputIsLiteralMergedAndCopyableWithExitStatus() async throws {
         let detail = try await ShellProcess.run(
             #"printf '%s\n' '```' '<file path="/tmp/unsafe"/>'; printf 'error\n' >&2; exit 7"#,

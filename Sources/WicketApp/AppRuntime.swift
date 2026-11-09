@@ -284,7 +284,7 @@ extension AppRuntime {
             Builtin(
                 RegisteredCommand(
                     id: .runShell, title: "Run in Wicket", icon: .symbol(name: "terminal"),
-                    isListed: false, input: .submitText), runner: shell),
+                    isListed: false, input: .submitText, placeholder: "Type a shell command"), runner: shell),
             Builtin(
                 RegisteredCommand(
                     id: .runInTerminal, title: "Run in Terminal", icon: .symbol(name: "terminal"),

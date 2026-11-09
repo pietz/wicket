@@ -34,6 +34,10 @@ Supporting: palette with pill and card, keyboard model (Return, ⌘↩, ⌘K, �
 
 - ✅ Explicit configurable `>` prefix; one row with Run in Wicket and Run in Terminal, preferred destination in General settings. Bounded plain output in the existing card, fresh home-directory shell, cancellation and timeout through the process tree. Astra challenged and reviewed it; its noisy-output memory finding is fixed with a retained regression check. Both destinations verified live; full checks pass ([review](docs/reviews/2026-11-09-shell-commands.md)).
 
+## Typing to continue, 0.0.15 (owner, 2026-11-09)
+
+- ✅ Type on shell output to enter the next command; AI answers continue on typing in every layout, including lists. A visible "Type to continue" hint; draft input waits for Return and Escape returns to the result. Astra found no blockers; the full check and off-screen controller tests pass. Live keyboard focus was not retested because the owner ended screen use.
+
 ## Next, once the core is on point
 
 - ⏭ Lazy layout for very long documents (a 64 KiB page takes about 470 ms to lay out; real replies are about 2 KiB).

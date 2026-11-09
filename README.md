@@ -57,7 +57,7 @@ Wicket draws that as real macOS views: stat tiles, a Swift Charts chart, and a f
 
 Wicket stays in control of what it draws. Unknown tags show as text, layout can't set sizes or colours, and a reply can only *present*: it may open web links and files, but anything that would run something (an app, a script) is revealed in Finder instead, because a reply can be steered by what the agent read.
 
-On a reply, nothing is selected at first. Return copies the answer as plain text, ⌘↩ or simply typing starts a follow-up, the arrow keys move through its rows, and ⌘K shows every action.
+Simply type on an AI reply to start a follow-up in the same conversation, then press Return to send it. This works for prose and replies made entirely of rows. The arrow keys still move through files and links, and ⌘K shows every action. ⌘↩ also starts a follow-up. On prose replies, nothing is selected at first and Return copies the answer as plain text.
 
 ## Extensions your agent writes
 
@@ -81,6 +81,8 @@ Turn on voice in Settings ▸ Voice and Wicket arms the microphone quietly each 
 Type `> echo hello` (or `>echo hello`). Return runs it in Wicket and shows the output in the same window; ⌘Return runs it in your terminal. Settings ▸ General ▸ Shell commands changes the prefix and which destination Return uses. ⌘K also lists both actions.
 
 Commands start fresh in your home folder. In Wicket, output is plain text with the exit status, Return copies it, and Escape stops a running command. Output keeps the last 16 KiB, and runs stop after 60 seconds. Use Terminal for interactive commands, aliases and longer tasks. Terminal uses the macOS app associated with `.command` files, normally Terminal.app; Finder's Open With can change that association.
+
+Simply type on shell output to start the next command, without repeating `>`. Return runs it; Escape returns to the previous output. Each command still starts fresh in your home folder. ⌘↩ and New Command in ⌘K also open the next command.
 
 ## Keyboard
 

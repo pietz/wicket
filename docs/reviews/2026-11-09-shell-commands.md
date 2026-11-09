@@ -16,3 +16,10 @@ Astra found no other blocking correctness, quoting, authority or lifecycle issue
 - Live ⌘Return opened the terminal; the command wrote the expected marker to a temporary file and the `.command` directory removed itself. Terminal's UI was inaccessible to the automation tool, so execution was checked through the command's result file.
 - Tests cover no execution while typing, prefix ownership, both action orders, independent settings fallback and unknown-key preservation, live settings application, literal output, merged stderr, nonzero status, EOF stdin, output limits, cancellation of descendants, timeout, quoting, handoff and shutdown.
 - Release-mode headless timing: ordinary root keystroke 0.387 ms, shell-prefix keystroke 0.0041 ms, frame push to content 0.580 ms. The Dev build's footprint after live runs was 30 MB, peak 31 MB. The screen-bound hotkey benchmark was not repeated before the owner ended the screen session; all subsequent verification was off-screen.
+
+
+## 0.0.15: typing to continue
+
+The owner asked for typing on output to start another command and typing on AI answers to continue the conversation. Astra's independent product challenge recommended the existing empty submit-text action path, preserving the first character and waiting for Return. Shell output now offers New Command; AI replies made entirely of rows use the same continuation behavior as prose. The footer advertises it, while row actions and the optional ⌘Return shortcut remain.
+
+Astra's final review found no blockers. The full check passes (540 tests); off-screen controller checks cover shell, AI prose and AI rows, first text, no execution before Return, conversation arguments and Escape back to the result. Actual SwiftUI focus and live key delivery were not retested because the owner ended screen use.
