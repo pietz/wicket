@@ -65,7 +65,7 @@ struct LauncherView: View {
           SearchField(
             text: Binding(get: { model.input }, set: { model.editInput($0) }), register: registerInput,
             placeholder: model.agent.active
-              ? "Ask a follow-up…" : (model.extensionCommand?.manifest.name ?? "Search or ask anything…")
+              ? "Ask a follow-up…" : (model.commandName ?? "Search or ask anything…")
           ).frame(height: 30)
           if model.configuration.voice.enabled, model.takesSpeech {
             Button {
@@ -115,7 +115,7 @@ struct LauncherView: View {
                 ?? (model.agent.active
                   ? (model.agent.continuing && !model.agent.busy
                     ? "Continuing conversation" : (renderer.problem ?? model.agent.status))
-                  : (model.problem ?? model.extensionCommand?.manifest.name ?? "Wicket"))
+                  : (model.problem ?? model.commandName ?? "Wicket"))
             ).lineLimit(1).help(
               voiceStatus ?? (model.agent.active ? model.agent.status : (model.problem ?? "")))
             Spacer()
@@ -211,7 +211,7 @@ struct LauncherView: View {
   private var extensionContent: some View {
     VStack(spacing: 0) {
       HStack {
-        Text(model.extensionCommand?.manifest.name ?? "Extension").font(.system(size: 13, weight: .medium))
+        Text(model.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
           .lineLimit(1)
         Spacer()
         if model.command?.busy == true { ProgressView().controlSize(.small) }
@@ -387,6 +387,7 @@ extension RowAction {
       }
     case .ask: "Ask"
     case .report: "Show details"
+    case .forget: "Delete"
     }
   }
 }

@@ -8,14 +8,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private var window: NSWindow?
   private let store: ConfigurationStore
   private let extensions: ExtensionHost
+  private let clipboard: ClipboardHistory
   private let updater: Updater?
   private let pauseHotkey: (Bool) -> Void
   init(
-    store: ConfigurationStore, extensions: ExtensionHost, updater: Updater?,
+    store: ConfigurationStore, extensions: ExtensionHost, clipboard: ClipboardHistory, updater: Updater?,
     pauseHotkey: @escaping (Bool) -> Void
   ) {
     self.store = store
     self.extensions = extensions
+    self.clipboard = clipboard
     self.updater = updater
     self.pauseHotkey = pauseHotkey
   }
@@ -29,7 +31,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ("Agent", "sparkles"), ("Sources", "list.bullet"),
       ].enumerated() {
         let pane = SettingsPane(
-          section: index, store: store, extensions: extensions,
+          section: index, store: store, extensions: extensions, clipboard: clipboard,
           updater: updater, pauseHotkey: pauseHotkey)
         let controller = NSHostingController(rootView: pane)
         controller.title = item.0
@@ -64,6 +66,7 @@ struct SettingsPane: View {
   let section: Int
   let store: ConfigurationStore
   let extensions: ExtensionHost
+  let clipboard: ClipboardHistory
   let updater: Updater?
   let pauseHotkey: (Bool) -> Void
   @State private var automaticChecks: Bool?
@@ -73,6 +76,7 @@ struct SettingsPane: View {
   @State private var loginProblem: String?
   @State private var inputDevices: [MicrophoneDevice] = []
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
+  @State private var confirmingClear = false
   private var config: Configuration { store.configuration }
 
   var body: some View {
@@ -345,6 +349,26 @@ struct SettingsPane: View {
     }
     Section {
       Button("Reveal Extensions Folder") { reveal(extensions.folder.appending(path: "extensions")) }
+    }
+    Section {
+      Toggle(
+        "Clipboard history", isOn: binding(config.clipboard.enabled, key: "enabled", group: "clipboard"))
+      if config.clipboard.enabled, !clipboard.readable {
+        Label(
+          "macOS asks before Wicket reads the clipboard. Allow Wicket under Paste from Other Apps in Privacy & Security.",
+          systemImage: "exclamationmark.triangle")
+      }
+      LabeledContent("Saved texts", value: "\(clipboard.clips.count)")
+      Button("Clear History…") { confirmingClear = true }.disabled(clipboard.clips.isEmpty)
+        .confirmationDialog("Clear clipboard history?", isPresented: $confirmingClear) {
+          Button("Clear History", role: .destructive) { clipboard.clear() }
+        } message: {
+          Text("Deletes every saved text. This can't be undone.")
+        }
+    } footer: {
+      Text(
+        "Keeps the last \(config.clipboard.maxEntries) texts you copy for \(config.clipboard.maxDays) days, only on this Mac, in clipboard.json in the Wicket folder. Skips password managers and anything they mark as concealed. Type clip to search it."
+      )
     }
   }
 

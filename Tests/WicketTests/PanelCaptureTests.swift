@@ -323,7 +323,12 @@ private let nextAnswer =
       ["settings-general", "settings-voice", "settings-agent", "settings-sources"].firstIndex(of: state) ?? 0
     let pane = NSHostingView(
       rootView: SettingsPane(
-        section: section, store: store, extensions: host, updater: nil, pauseHotkey: { _ in }))
+        section: section, store: store, extensions: host,
+        clipboard: ClipboardHistory(
+          url: folder.appending(path: "clipboard.json"),
+          pasteboard: NSPasteboard(name: .init(UUID().uuidString)),
+          interval: nil),
+        updater: nil, pauseHotkey: { _ in }))
     pane.frame = NSRect(x: 0, y: 0, width: 560, height: 480)
     let window = NSWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false

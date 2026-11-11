@@ -36,7 +36,35 @@ struct Configuration: Codable, Equatable, Sendable {
       microphone = try c.decodeIfPresent(String.self, forKey: .microphone)
     }
   }
+  /// Clipboard history: off until switched on, then kept for `maxDays` and at most `maxEntries` texts.
+  /// Copies made while an app in `excludedApps` (bundle ids) is frontmost are never kept.
+  struct Clipboard: Codable, Equatable, Sendable {
+    static let passwordManagers = [
+      "com.1password.1password", "com.agilebits.onepassword7", "com.apple.Passwords",
+      "com.apple.keychainaccess", "com.bitwarden.desktop", "org.keepassxc.keepassxc",
+      "com.lastpass.LastPass", "me.proton.pass.electron", "in.sinew.Enpass-Desktop",
+    ]
+    var enabled = false
+    var maxEntries = 500
+    var maxDays = 30
+    var excludedApps = passwordManagers
+    init() {}
+    private enum CodingKeys: String, CodingKey { case enabled, maxEntries, maxDays, excludedApps }
+    init(from decoder: any Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+      maxEntries = try c.decodeIfPresent(Int.self, forKey: .maxEntries) ?? maxEntries
+      maxDays = try c.decodeIfPresent(Int.self, forKey: .maxDays) ?? maxDays
+      excludedApps = try c.decodeIfPresent([String].self, forKey: .excludedApps) ?? excludedApps
+      guard (1...10_000).contains(maxEntries), (1...3650).contains(maxDays) else {
+        throw DecodingError.dataCorruptedError(
+          forKey: .maxEntries, in: c,
+          debugDescription: "Clipboard maxEntries must be 1 to 10000 and maxDays 1 to 3650")
+      }
+    }
+  }
   var voice = Voice()
+  var clipboard = Clipboard()
   var textSize = TextSize.medium
   var agent = AgentConfiguration()
   var hotkey = Shortcut.default
@@ -46,12 +74,13 @@ struct Configuration: Codable, Equatable, Sendable {
   var providers = builtins.map { ProviderEntry($0) }
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case hotkey, backgroundTransparency, providers, agent, voice, textSize
+    case hotkey, backgroundTransparency, providers, agent, voice, textSize, clipboard
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     textSize = try c.decodeIfPresent(TextSize.self, forKey: .textSize) ?? textSize
     voice = try c.decodeIfPresent(Voice.self, forKey: .voice) ?? voice
+    clipboard = try c.decodeIfPresent(Clipboard.self, forKey: .clipboard) ?? clipboard
     agent = try c.decodeIfPresent(AgentConfiguration.self, forKey: .agent) ?? agent
     hotkey = try c.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? hotkey
     backgroundTransparency =

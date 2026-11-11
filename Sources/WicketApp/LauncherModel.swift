@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 
-/// The extension command screen. Present while a command is open, nil at search.
+/// The command screen: an extension's, or the clipboard history (`clipboard`). Nil at search.
 struct CommandState {
   let id: String
   var arguments: [String] = []
@@ -146,11 +146,26 @@ final class LauncherModel {
   private(set) var strongReason: String?
   private let history: UsageHistory
   var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
+  let clipboard: ClipboardHistory?
+  /// The clipboard history while it is switched on; otherwise nil, with a message saying how to switch it on.
+  private func openClipboard() -> ClipboardHistory? {
+    guard let clipboard, configuration.clipboard.enabled else {
+      actionProblem = "Clipboard history is off. Switch it on in Settings, Sources."
+      return nil
+    }
+    return clipboard
+  }
+  /// The open command's name, for the input placeholder and the footer.
+  var commandName: String? {
+    command?.id == "clipboard" ? ClipboardHistory.title : extensionCommand?.manifest.name
+  }
 
   init(
-    providers: [any Provider], files: FilesProvider? = nil, history: UsageHistory,
-    folder: URL = FileManager.default.temporaryDirectory, transcriber: (() -> any Transcriber)? = nil
+    providers: [any Provider], files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
+    history: UsageHistory, folder: URL = FileManager.default.temporaryDirectory,
+    transcriber: (() -> any Transcriber)? = nil
   ) {
+    self.clipboard = clipboard
     makeTranscriber = transcriber
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
     timingURL = folder.appending(path: "voice-timing.txt")
@@ -170,6 +185,7 @@ final class LauncherModel {
       guard let self else { return }
       if let configuration {
         if !configuration.voice.enabled { stopVoice() }
+        clipboard?.configure(configuration.clipboard)
         onResultsChange?()
       }
       onConfigurationChange(configuration, problem)
@@ -191,6 +207,16 @@ final class LauncherModel {
     guard !agent.active else { return }
     cancelWork()
     let speaking = voice?.active == true
+    if command?.id == "clipboard" {
+      if let clipboard = openClipboard() {
+        listed = clipboard.rows(matching: input).map { Result(provider: "clipboard", row: $0) }
+        retainSelection()
+        onResultsChange?()
+        return
+      }
+      // Switched off while open: back to search.
+      command = nil
+    }
     if let state = command {
       guard let extensionCommand = extensions.commands[state.id],
         configuration.isEnabled(state.id, extensions: extensions.ids)
@@ -328,7 +354,7 @@ final class LauncherModel {
       patterns: patterns,
       extensions: extensions.commands.filter { enabled.contains($0.key) }.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
-      usage: history.store, now: Date())
+      clipboard: configuration.clipboard.enabled, usage: history.store, now: Date())
     listed = ranked.results
     strongReason = ranked.strongReason
     retainSelection()
@@ -401,6 +427,9 @@ final class LauncherModel {
       go(address, from: result?.provider)
     case .ask(let text): ask(text)
     case .report(let report): if let id = result?.provider { showFailure(report, of: id) }
+    case .forget(let id):
+      clipboard?.delete(id)
+      refresh()
     case .open, .reveal, .copy, .paste: return false
     }
     return true
@@ -417,6 +446,12 @@ final class LauncherModel {
     switch address.extensionName == nil ? own : address.targetID {
     case "settings": onSettings()
     case "agent": fill(address.input ?? input)
+    case "clipboard":
+      guard openClipboard() != nil else { return }
+      takeOver()
+      let reopened = command?.id == "clipboard"
+      if !reopened { command = CommandState(id: "clipboard") }
+      input = address.input ?? (reopened ? input : "")
     case nil:
       takeOver()
       command = nil
@@ -522,5 +557,6 @@ final class LauncherModel {
     await extensions.shutdown()
     await agent.shutdown()
     await history.finish()
+    await clipboard?.finish()
   }
 }

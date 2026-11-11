@@ -226,11 +226,12 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
 @Test func reservedFolderNamesAreDiscoveryProblems() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  for name in ["settings", "Agent", "fine"] {
+  for name in ["settings", "Agent", "clipboard", "fine"] {
     _ = try extensionFolder(root, name: name, fields: ["command": ["/usr/bin/true"]])
   }
   let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"))
   #expect(Set(commands.keys) == ["extension:fine"])
   #expect(problems["extension:settings"]?.contains("reserved") == true)
   #expect(problems["extension:Agent"]?.contains("reserved") == true)
+  #expect(problems["extension:clipboard"]?.contains("reserved") == true)
 }

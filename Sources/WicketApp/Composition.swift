@@ -58,7 +58,8 @@ enum Ranking {
   ///
   /// 1. A math result.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
-  /// 3. Name matches: apps, files, extension commands and the Settings row, by tier, then usage for
+  /// 3. Name matches: apps, files, extension commands and the host's rows (Settings, and Clipboard History
+  ///    when it is on), by tier, then usage for
   ///    this exact input, then fuzzy score, then kind in that order, then title. Usage never crosses
   ///    a tier.
   /// 4. Ask agent: on top when nothing is strong or the input ends with "?", otherwise right after
@@ -76,9 +77,11 @@ enum Ranking {
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
+  ///   - clipboard: Whether clipboard history is on, which offers its row.
   static func compose(
     query input: String, math: [Row], apps: [Row], files: [Row], patterns: [String: Pattern],
-    extensions: [String: ExtensionManifest], problems: [String: String], usage: UsageStore, now: Date = Date()
+    extensions: [String: ExtensionManifest], problems: [String: String], clipboard: Bool = false,
+    usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)
     let words = Fold.words(input)
@@ -115,7 +118,7 @@ enum Ranking {
     if !mathRows.isEmpty { reason = "math result" }
 
     // Name matches.
-    enum Kind: Int { case app, file, command, settings }
+    enum Kind: Int { case app, file, command, host }
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
     func candidate(_ result: Result, _ kind: Kind, names: [String], requireMatch: Bool) -> Candidate? {
       var score = 0
@@ -147,14 +150,27 @@ enum Ranking {
       }
     }
     if !query.isEmpty {
-      let row = Row(
-        id: "open", title: "Settings", icon: "gearshape", actions: [.run(Address(extensionName: "settings"))],
-        keywords: ["preferences"])
-      if let found = candidate(
-        Result(provider: "settings", row: row), .settings, names: ["Settings", "preferences"],
-        requireMatch: true)
-      {
-        candidates.append(found)
+      var rows = [
+        Result(
+          provider: "settings",
+          row: Row(
+            id: "open", title: "Settings", icon: "gearshape",
+            actions: [.run(Address(extensionName: "settings"))], keywords: ["preferences"]))
+      ]
+      if clipboard {
+        rows.append(
+          Result(
+            provider: "clipboard",
+            row: Row(
+              id: "open", title: ClipboardHistory.title, icon: "doc.on.clipboard",
+              actions: [.run(Address(extensionName: "clipboard"))], keywords: ["pasteboard"])))
+      }
+      for result in rows {
+        if let found = candidate(
+          result, .host, names: [result.row.title] + (result.row.keywords ?? []), requireMatch: true)
+        {
+          candidates.append(found)
+        }
       }
     }
     candidates.sort { a, b in

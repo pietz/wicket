@@ -222,7 +222,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       NSPasteboard.general.setString(text, forType: .string)
       record()
       hide()
-    case .run, .ask, .report: break
+    case .run, .ask, .report, .forget: break
     case .reveal(let url):
       guard OpenPolicy.revealable(url) else {
         model.actionProblem = "This file no longer exists"
@@ -240,7 +240,9 @@ final class PaletteController: NSObject, NSWindowDelegate {
         return
       }
       NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(OpenPolicy.paste(text), forType: .string)
+      // An extension's paste lost its newlines when it was decoded; the host's own, such as a clipboard
+      // history entry, pastes exactly what was copied.
+      NSPasteboard.general.setString(text, forType: .string)
       record()
       hide()
       previousApp.activate()
