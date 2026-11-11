@@ -120,7 +120,6 @@ final class LauncherModel {
   private var generation = 0
   private var builtinRows: [String: [Row]] = [:]
   private var patterns: [String: Ranking.Pattern] = [:]
-  private var rootErrors: [String: String] = [:]
   /// Why the root list has a strong match, or nil when nothing matches strongly.
   private(set) var strongReason: String?
   private let history: UsageHistory
@@ -212,7 +211,6 @@ final class LauncherModel {
     let host = extensions
     builtinRows.removeAll()
     patterns.removeAll()
-    rootErrors.removeAll()
     let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
     let builtins = active.compactMap { entry in providers.first { $0.id == entry.id } }
     var remaining = builtins.count
@@ -252,12 +250,13 @@ final class LauncherModel {
               : .items([
                 Row(
                   id: "detail", title: command.manifest.name, subtitle: "Show details",
-                  icon: command.manifest.icon, actions: [])
+                  icon: command.manifest.icon, actions: [.run(Address(id: entry.id, input: request.input))])
               ])
           } catch {
             guard let self, !Task.isCancelled, generation == current else { return }
-            rootErrors[entry.id] = report(command, request: request, error: error)
-            patterns[entry.id] = .failed(error.localizedDescription.components(separatedBy: "\n").first ?? "")
+            patterns[entry.id] = .failed(
+              summary: error.localizedDescription.components(separatedBy: "\n").first ?? "",
+              report: report(command, request: request, error: error))
           }
           guard let self, !Task.isCancelled, generation == current else { return }
           pendingExtensions.remove(entry.id)
@@ -321,8 +320,11 @@ final class LauncherModel {
       provider: command.id,
       row: Row(id: "detail", title: extensionCommand?.manifest.name ?? "Details", actions: viewActions))
   }
-  /// Return sends the input as a question: from the Ask agent row, or from a conversation's page.
-  var returnAsks: Bool { selected?.provider == "agent" || (agent.active && selected == nil) }
+  /// What Return does: the selected row's first action, or in a conversation with nothing selected,
+  /// sending the follow-up.
+  var returnAction: RowAction? {
+    selected?.row.actions.first ?? (agent.active ? .ask(input) : nil)
+  }
   /// Arrow keys: the first press enters the items of a page, and up from the first leaves them.
   func move(_ delta: Int) {
     let rows = results
@@ -337,35 +339,64 @@ final class LauncherModel {
     }
     select(rows[min(max(current + delta, 0), rows.count - 1)].id)
   }
-  func enterSelected() -> Bool {
-    if selected?.provider == "settings" {
-      onSettings()
-      return true
-    }
-    guard command == nil, let result = selected, let extensionCommand = extensions.commands[result.provider],
-      result.row.actions.isEmpty
-    else { return false }
-    let oldInput = input
-    record(result)
-    cancelWork()
-    command = CommandState(id: extensionCommand.id)
-    listed = []
-    if let error = rootErrors[extensionCommand.id], result.row.id == "error" {
-      command?.problem = error
-      onResultsChange?()
-    } else {
-      input = result.row.id == "command" ? "" : oldInput
+  /// The one dispatcher for moving between views and asking questions, whoever asked: Return, a button,
+  /// a menu item or a link. Effects on the panel and the system (copy, paste, open) are not handled here
+  /// and return false. `result` is the row the action came from, if any.
+  @discardableResult
+  func activate(_ action: RowAction, from result: Result? = nil) -> Bool {
+    switch action {
+    case .run(let address):
+      if let result { record(result) }
+      go(address, from: result?.provider)
+    case .ask(let text): ask(text)
+    case .report(let report): if let id = result?.provider { showFailure(report, of: id) }
+    case .open, .copy, .paste: return false
     }
     return true
   }
-  func rerun(_ provider: String, arguments: [String]) {
-    cancelWork()
-    if command?.id == provider {
-      command?.arguments = arguments
-    } else {
-      command = CommandState(id: provider, arguments: arguments)
+  /// Return on the selected row, or the follow-up of a conversation.
+  @discardableResult func activateReturn() -> Bool {
+    returnAction.map { activate($0, from: selected) } ?? false
+  }
+  /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
+  /// without a target names; any provider that is not an extension means no target, a root query.
+  func go(_ address: Address, from origin: String? = nil) {
+    let own = origin?.hasPrefix("extension:") == true ? origin : nil
+    switch address.targetID ?? own {
+    case "settings": onSettings()
+    case "agent": fill(address.input ?? input)
+    case nil:
+      takeOver()
+      command = nil
+      input = address.input ?? ""
+    case let id?:
+      guard extensions.commands[id] != nil else {
+        actionProblem = "No extension named \(Address(id: id).extensionName ?? id)"
+        return
+      }
+      takeOver()
+      let reopened = command?.id == id
+      if !reopened {
+        command = CommandState(id: id)
+        listed = []
+      }
+      command?.arguments = address.arguments ?? []
+      // Typing replaces the input, and an address without one keeps what is typed in the same command.
+      input = address.input ?? (reopened ? input : "")
     }
-    refresh()
+  }
+  /// A conversation ends and the running work stops when an address takes over.
+  private func takeOver() {
+    if agent.active { agent.reset() }
+    cancelWork()
+  }
+  private func showFailure(_ report: String, of id: String) {
+    guard extensions.commands[id] != nil else { return }
+    cancelWork()
+    command = CommandState(id: id)
+    command?.problem = report
+    listed = []
+    onResultsChange?()
   }
   func ask(_ text: String? = nil) {
     let text = text ?? input

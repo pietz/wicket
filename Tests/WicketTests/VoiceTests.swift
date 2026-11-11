@@ -338,7 +338,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.select(model.results.first { $0.provider == "extension:test" }?.id)
   let panel = RoutingPanel()
   panel.beforeAction = { model.keyPressed($0) }
-  panel.onAction = { if $0 == .run { #expect(model.enterSelected()) } }
+  panel.onAction = { if $0 == .run { #expect(model.activateReturn()) } }
   #expect(panel.route(voiceKey(36, "\r")))
   #expect(model.voice?.state == .idle)
   model.toggleVoice()

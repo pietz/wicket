@@ -31,7 +31,7 @@ func answering(_ title: String) -> String {
     body: "<stat label=\"Total\" value=\"42\"/>", items: [Row(id: "more", title: "More", actions: [])],
     actions: [
       .open(URL(string: "https://example.com")!), .copy("42"), .paste("42"),
-      .run(arguments: ["refresh", "42"]), .agent("Explain 42"),
+      .run(Address(arguments: ["refresh", "42"])), .agent("Explain 42"),
     ])
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   for json in [
@@ -94,7 +94,7 @@ func answering(_ title: String) -> String {
   await model.extensions.reload()
   model.input = "test"
   await model.settled()
-  #expect(model.enterSelected())
+  #expect(model.activateReturn())
   await model.settled()
   #expect(model.body == "## Berlin" && model.results.map(\.row.id) == ["a", "b"])
   #expect(model.viewActions == [.copy("view")])
@@ -212,7 +212,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   model.input = "ship"
   await model.settled()
   #expect(model.results.first?.row.title == "Deploy")
-  #expect(model.enterSelected())
+  #expect(model.activateReturn())
   await model.settled()
   #expect(model.results.first?.row.title == "Ready")
   model.input = "next"
@@ -239,7 +239,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.extensions.reload()
   model.input = "test"
   await model.settled()
-  #expect(model.enterSelected())
+  #expect(model.activateReturn())
   model.input = "x"
   await model.settled()
   #expect(model.results.map(\.row.title) == ["Beta", "Alpha"])
@@ -268,7 +268,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.extensions.reload()
   model.input = ""
   await model.settled()
-  model.rerun("extension:test", arguments: ["refresh"])
+  model.go(Address(id: "extension:test", arguments: ["refresh"]))
   await model.settled()
   #expect(model.command?.id == "extension:test")
   model.dismiss()
@@ -387,9 +387,9 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.extensions.reload()
   model.input = "test"
   await model.settled()
-  #expect(model.enterSelected())
+  #expect(model.activateReturn())
   await model.settled()
-  model.rerun("extension:test", arguments: ["one"])
+  model.go(Address(id: "extension:test", arguments: ["one"]))
   await model.settled()
   #expect(model.body == "one:")
   model.input = "next"

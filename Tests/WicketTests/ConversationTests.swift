@@ -232,7 +232,7 @@ import Testing
   controller.show(orderFront: false, listen: false)
   model.input = "test"
   await model.settled()
-  #expect(model.enterSelected())
+  #expect(model.activateReturn())
   await model.settled()
   #expect(model.body == "Extension detail" && controller.renderer.page != nil)
   // Ask the agent from the detail, then hide while it works.

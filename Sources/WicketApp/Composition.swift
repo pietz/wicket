@@ -25,8 +25,8 @@ enum Ranking {
   /// What a pattern extension did for the current input.
   enum Pattern: Sendable {
     case items([Row])
-    /// The run failed. The text is the one-line summary for the error row.
-    case failed(String)
+    /// The run failed: a one-line summary for the error row and the report its action shows.
+    case failed(summary: String, report: String)
   }
 
   struct Output: Sendable {
@@ -98,14 +98,14 @@ enum Ranking {
         if !items.isEmpty { answered.insert(id) }
         if !items.isEmpty, reason == nil { reason = "pattern result: " + id }
         patternRows += order(items, provider: id, query: input, usage: usage, now: now)
-      case .failed(let summary):
+      case .failed(let summary, let report):
         answered.insert(id)
         failures.append(
           Result(
             provider: id,
             row: Row(
               id: "error", title: extensions[id]!.name + " failed", subtitle: summary,
-              icon: "exclamationmark.triangle", actions: [])))
+              icon: "exclamationmark.triangle", actions: [.report(report)])))
       }
     }
     let mathRows = math.map { Result(provider: "math", row: $0) }
@@ -131,7 +131,8 @@ enum Ranking {
     for id in extensions.keys where !answered.contains(id) {
       let manifest = extensions[id]!
       let row = Row(
-        id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon, actions: [])
+        id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon,
+        actions: [.run(Address(id: id, input: ""))])
       if let found = candidate(
         Result(provider: id, row: row), .command,
         names: [manifest.name] + (manifest.keyword.map { [$0] } ?? []), requireMatch: !query.isEmpty)
@@ -140,7 +141,9 @@ enum Ranking {
       }
     }
     if !query.isEmpty {
-      let row = Row(id: "open", title: "Settings", icon: "gearshape", actions: [], keywords: ["preferences"])
+      let row = Row(
+        id: "open", title: "Settings", icon: "gearshape", actions: [.run(Address(extensionName: "settings"))],
+        keywords: ["preferences"])
       if let found = candidate(
         Result(provider: "settings", row: row), .settings, names: ["Settings", "preferences"],
         requireMatch: true)
@@ -163,7 +166,7 @@ enum Ranking {
 
     let ask = Result(
       provider: "agent",
-      row: Row(id: "ask", title: "Ask agent", subtitle: "⌘↩", icon: "sparkles", actions: []))
+      row: Row(id: "ask", title: "Ask agent", subtitle: "⌘↩", icon: "sparkles", actions: [.ask(input)]))
     let repairs = problems.keys.sorted().map {
       Result(
         provider: $0,
@@ -185,7 +188,9 @@ enum Ranking {
       fallbacks = ids.map {
         Result(
           provider: $0,
-          row: Row(id: "fallback", title: extensions[$0]!.name, subtitle: input, icon: icon($0), actions: []))
+          row: Row(
+            id: "fallback", title: extensions[$0]!.name, subtitle: input, icon: icon($0),
+            actions: [.run(Address(id: $0, input: input))]))
       }
     }
     let strong = candidates.filter { $0.tier >= 1 }.map(\.result)

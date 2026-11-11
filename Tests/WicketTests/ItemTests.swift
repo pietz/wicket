@@ -84,31 +84,28 @@ import Testing
   #expect(model.agent.view.body == "Here.")
   #expect(model.results.map(\.provider) == ["answer", "answer"])
   // Return still sends the follow-up until an arrow key enters the list.
-  #expect(model.selection == nil && model.selected == nil && model.returnAsks)
+  #expect(model.selection == nil && model.selected == nil && model.returnAction == .ask(model.input))
   model.move(-1)
-  #expect(model.selection == model.results[0].id && !model.returnAsks)
+  #expect(model.selection == model.results[0].id && model.returnAction != .ask(model.input))
   model.move(1)
   #expect(model.selected?.row.title == "Next")
   model.move(1)
   #expect(model.selected?.row.title == "Next")
   model.move(-1)
   model.move(-1)
-  #expect(model.selection == nil && model.returnAsks)
+  #expect(model.selection == nil && model.returnAction == .ask(model.input))
   model.move(1)
   #expect(model.selected?.row.title == "Docs")
   // Typing goes back to the follow-up.
   model.editInput("And")
-  #expect(model.selection == nil && model.returnAsks)
+  #expect(model.selection == nil && model.returnAction == .ask(model.input))
   // The ask action fills the input and sends nothing.
   model.move(1)
   model.move(1)
-  guard case .agent(let text)? = model.selected?.row.actions.first else {
-    Issue.record("expected an ask action")
-    return
-  }
-  model.fill(text)
+  #expect(model.selected?.row.actions == [.agent("What about tests?")])
+  model.activateReturn()
   #expect(model.input == "What about tests?" && !model.agent.busy && model.agent.previous.isEmpty)
-  #expect(model.selection == nil && model.returnAsks)
+  #expect(model.selection == nil && model.returnAction == .ask(model.input))
   await model.finish()
 }
 

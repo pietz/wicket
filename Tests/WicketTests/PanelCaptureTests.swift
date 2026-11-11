@@ -248,12 +248,12 @@ private let nextAnswer =
           ? [
             Row(
               id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
-              actions: [.run(arguments: ["hourly"])]),
+              actions: [.run(Address(arguments: ["hourly"]))]),
             Row(
               id: "weekly", title: "Weekly forecast", subtitle: "Next 7 days", icon: "calendar",
-              actions: [.run(arguments: ["weekly"])]),
+              actions: [.run(Address(arguments: ["weekly"]))]),
           ] : [],
-        actions: [.copy("42"), .run(arguments: ["refresh"]), .agent("Explain this report")])
+        actions: [.copy("42"), .run(Address(arguments: ["refresh"])), .agent("Explain this report")])
       try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
       let code =
         state == "extension-error"
@@ -263,7 +263,7 @@ private let nextAnswer =
       await host.reload()
       model.input = "demo"
       await model.settled()
-      _ = model.enterSelected()
+      _ = model.activateReturn()
       await model.settled()
     } else {
       let web = folder.appending(path: "extensions/web-search")
@@ -275,7 +275,7 @@ private let nextAnswer =
       case "extension-list":
         model.input = "web"
         await model.settled()
-        _ = model.enterSelected()
+        _ = model.activateReturn()
         model.input = "wicket launcher"
       case "extension-fallback": model.input = "a useful sentence to search"
       default: model.input = "10 km in mi"

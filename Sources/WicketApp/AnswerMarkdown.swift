@@ -197,6 +197,6 @@ enum AnswerMarkdown {
 enum AnswerLink {
   static func allowed(_ url: URL?) -> Bool {
     guard let url, let scheme = url.scheme?.lowercased() else { return false }
-    return ["https", "http", "mailto"].contains(scheme)
+    return ["https", "http", "mailto"].contains(scheme) || Address.schemes.contains(scheme)
   }
 }

@@ -273,7 +273,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   model.onSettings = { opened += 1 }
   model.input = "Settings"
   #expect(model.results.map(\.provider) == ["settings", "agent"])
-  #expect(model.selected?.row.title == "Settings" && model.enterSelected())
+  #expect(model.selected?.row.title == "Settings" && model.activateReturn())
   #expect(opened == 1 && !model.agent.active)
   model.input = "unmatched sentence"
   #expect(model.results.first?.provider == "agent")

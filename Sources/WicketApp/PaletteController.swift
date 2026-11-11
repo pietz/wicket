@@ -90,7 +90,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
   init(model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel()) {
     self.panel = panel
     self.model = model
-    renderer = AnswerRenderer(folder: model.agent.folder) { NSWorkspace.shared.open($0) }
+    // A `wicket://` link in a page is an address; any other goes to the system.
+    renderer = AnswerRenderer(folder: model.agent.folder) { [weak model] url in
+      if let address = Address(url: url) { model?.go(address) } else { NSWorkspace.shared.open(url) }
+    }
     super.init()
     panel.delegate = self
     panel.setAccessibilityLabel("Wicket Launcher")
@@ -198,25 +201,28 @@ final class PaletteController: NSObject, NSWindowDelegate {
       renderer.update(body, turn: model.command?.turn ?? "", streaming: false)
     }
   }
+  /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
+  func open(_ url: URL) {
+    guard let address = Address(url: url) else { return }
+    show()
+    model.go(address)
+  }
+  /// Return, a button or a menu item. Moving between views goes through the model's dispatcher; what is
+  /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
     model.stopVoice()
-    if chosen == nil, model.returnAsks {
-      model.ask()
-      return
-    }
-    if chosen == nil, model.enterSelected() { return }
-    guard !opening, let result = model.selected, let action = chosen ?? result.row.actions.first else {
-      return
-    }
+    guard !opening, let action = chosen ?? model.returnAction else { return }
+    let result = model.selected
+    if model.activate(action, from: result) { return }
     let input = model.input
+    func record() { if let result { model.record(result) } }
     switch action {
     case .copy(let text):
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(text, forType: .string)
-      model.record(result)
+      record()
       hide()
-    case .agent(let text): model.fill(text)
-    case .run(let arguments): model.rerun(result.provider, arguments: arguments)
+    case .run, .ask, .report: break
     case .paste(let text):
       guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),
         !previousApp.isTerminated
@@ -227,7 +233,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       }
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(OpenPolicy.paste(text), forType: .string)
-      model.record(result)
+      record()
       hide()
       previousApp.activate()
       Task {
@@ -247,7 +253,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       }
       if !url.isFileURL || url.pathExtension.lowercased() != "app" {
         if NSWorkspace.shared.open(url) {
-          model.record(result)
+          record()
           hide()
         } else {
           model.actionProblem = "Could not open \(url.absoluteString)"
@@ -263,7 +269,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
           if let error {
             self.model.actionProblem = error.localizedDescription
           } else {
-            self.model.record(result, input: input)
+            if let result { self.model.record(result, input: input) }
             self.hide()
           }
         }

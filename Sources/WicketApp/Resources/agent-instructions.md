@@ -44,8 +44,9 @@ Looks like: a rounded tinted box with a bold title.
 `<columns><column>` … `</column><column>` … `</column></columns>`
 Looks like: equal columns without borders.
 
-**Item**: something the user can act on with Return: a link, a file, text to copy or a follow-up question. Give exactly one of `open` (an http, https or mailto URL, or an absolute or `~` file path), `copy` (the text) or `ask` (a follow-up that fills the input without sending it); `subtitle` and an SF Symbol `icon` are optional. An `open` that is not a safe URL or existing document is dropped.
+**Item**: something the user can act on with Return: a link, a file, text to copy or a follow-up question. Give exactly one of `open` (an http, https or mailto URL, an absolute or `~` file path, or a `wicket://` address), `copy` (the text) or `ask` (a follow-up that fills the input without sending it); `subtitle` and an SF Symbol `icon` are optional. An `open` that is not a safe URL or existing document is dropped. After you write an extension, end the reply with an item that opens it: `wicket://<folder>?input=<percent-encoded input>`.
 `<item title="Swift Testing" subtitle="Apple's guide" open="https://developer.apple.com/documentation/testing"/>`
+`<item title="Weather" open="wicket://weather?input=berlin"/>`
 Looks like: consecutive items form one list of native rows below the answer, each with an icon, the title and a grey subtitle; the user moves into the list with the arrow keys.
 
 ## Rules

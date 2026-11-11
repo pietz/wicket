@@ -5,9 +5,10 @@
 #   Scripts/build-app.sh debug       Wicket Dev, debug config
 #   Scripts/build-app.sh --release   Wicket, Developer ID, for Scripts/release.sh: build/Wicket.app
 # Wicket Dev (app.wicket.Wicket.dev) runs beside the released app: its own config folder, ⌃⌥Space
-# and no updates (Edition). It signs with the first "Apple Development" identity if present (a stable
-# identity keeps TCC grants, like Accessibility, across rebuilds), otherwise ad hoc. Override the
-# identity with WICKET_SIGN_IDENTITY. Building never launches the app.
+# and no updates (Edition), and the wicket-dev:// URL scheme where the release has wicket://. It signs
+# with the first "Apple Development" identity if present (a stable identity keeps TCC grants, like
+# Accessibility, across rebuilds), otherwise ad hoc. Override the identity with WICKET_SIGN_IDENTITY.
+# Building never launches the app.
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -62,6 +63,8 @@ else
   cp Resources/AppIcon-Dev.icns "$app/Contents/Resources/AppIcon.icns"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier app.wicket.Wicket.dev" \
     -c "Set :CFBundleName Wicket Dev" -c "Set :CFBundleDisplayName Wicket Dev" \
+    -c "Set :CFBundleURLTypes:0:CFBundleURLName app.wicket.Wicket.dev" \
+    -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 wicket-dev" \
     -c "Delete :SUFeedURL" -c "Delete :SUPublicEDKey" -c "Delete :SUEnableAutomaticChecks" "$plist"
 fi
 

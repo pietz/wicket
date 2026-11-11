@@ -78,11 +78,13 @@ import Testing
 }
 
 @Test func clickedLinksUseOnlyExplicitSafeSchemes() {
-  for url in ["https://example.com", "http://localhost", "mailto:hello@example.com"] {
+  for url in [
+    "https://example.com", "http://localhost", "mailto:hello@example.com", "wicket://weather?input=berlin",
+  ] {
     #expect(AnswerLink.allowed(URL(string: url)))
   }
   for url in [
-    "javascript:evil()", "data:text/html,evil", "file:///bin/sh", "wicket://run", "/relative",
+    "javascript:evil()", "data:text/html,evil", "file:///bin/sh", "wicketx://run", "/relative",
     "//example.com",
   ] {
     #expect(!AnswerLink.allowed(URL(string: url)))
@@ -181,7 +183,7 @@ import Testing
   await model.extensions.reload()
   model.input = "demo"
   await model.settled()
-  #expect(model.enterSelected())
+  #expect(model.activateReturn())
   await model.settled()
   let body = try #require(model.body)
   #expect(body.contains("Wicket.</callout>"))

@@ -132,9 +132,7 @@ struct LauncherView: View {
               }
               Text(model.agent.busy ? "Esc Cancel" : "Esc End conversation")
             } else {
-              Text(
-                model.selected?.provider == "agent"
-                  ? "↩ Ask" : "↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
+              Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
               Text(model.command == nil ? "esc Close" : "esc Back")
             }
           }
@@ -373,8 +371,14 @@ extension RowAction {
     case .open: "Open"
     case .copy: "Copy"
     case .paste: "Paste into previous app"
-    case .run: "Run again"
-    case .agent: "Ask agent…"
+    case .run(let address):
+      switch address.targetID {
+      case nil: "Run again"
+      case "agent": "Ask agent…"
+      default: "Open"
+      }
+    case .ask: "Ask"
+    case .report: "Show details"
     }
   }
 }

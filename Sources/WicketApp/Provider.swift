@@ -86,20 +86,81 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   }
 }
 
-/// Run invokes only the originating extension, never an arbitrary host command.
+/// A request and where it goes. Every field is optional and an omitted one means "this one, as now":
+/// without `extension` the extension that produced the action, without `input` what is typed in the open
+/// command (empty anywhere else), without `arguments` none. Two spellings, one value: JSON for an
+/// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}`,
+/// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no arguments. `agent` and
+/// `settings` are reserved targets: `agent` fills the input and never sends, and no `extension` in a URL
+/// means a root query.
+struct Address: Codable, Sendable, Equatable {
+  var extensionName: String?
+  var input: String?
+  var arguments: [String]?
+
+  private enum CodingKeys: String, CodingKey {
+    case extensionName = "extension"
+    case input, arguments
+  }
+  static let schemes = ["wicket", "wicket-dev"]
+
+  init(extensionName: String? = nil, input: String? = nil, arguments: [String]? = nil) {
+    self.extensionName = extensionName
+    self.input = input
+    self.arguments = arguments
+  }
+  /// The address of an extension by its ID, `extension:weather`.
+  init(id: String, input: String? = nil, arguments: [String]? = nil) {
+    self.init(
+      extensionName: id.hasPrefix("extension:") ? String(id.dropFirst("extension:".count)) : id,
+      input: input, arguments: arguments)
+  }
+  /// Parsed leniently: the target is the host or else the path, any query item but `input` is ignored and
+  /// the arguments are never read, because a URL comes from outside the extension. Percent-encode the
+  /// input; `+` stays a plus.
+  init?(url: URL) {
+    guard let scheme = url.scheme?.lowercased(), Self.schemes.contains(scheme),
+      let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return nil }
+    let name = (parts.host ?? "").isEmpty ? parts.path.trimmingCharacters(in: ["/"]) : parts.host!
+    self.init(
+      extensionName: name.isEmpty ? nil : name,
+      input: parts.queryItems?.first { $0.name == "input" }?.value)
+  }
+
+  /// The host's name for the target: `agent`, `settings`, an extension ID, or nil for none.
+  var targetID: String? {
+    guard let name = extensionName, !name.isEmpty else { return nil }
+    if ["agent", "settings"].contains(name.lowercased()) { return name.lowercased() }
+    return name.hasPrefix("extension:") ? name : "extension:" + name
+  }
+}
+
+/// What Return, a button or a menu item does. Every row carries one, including the host's own, so one
+/// dispatcher serves all of them and a row's ID is only its identity.
 enum RowAction: Codable, Sendable, Equatable {
   case open(URL)
   case copy(String)
   case paste(String)
-  case run(arguments: [String])
-  case agent(String)
+  case run(Address)
+  /// Host only, never decoded: send the text to the agent as a question.
+  case ask(String)
+  /// Host only, never decoded: show an extension's failure report.
+  case report(String)
 
-  private enum CodingKeys: String, CodingKey { case type, url, text, arguments }
+  /// Fill the input with the text and send nothing.
+  static func agent(_ text: String) -> RowAction { .run(Address(extensionName: "agent", input: text)) }
+
+  private enum CodingKeys: String, CodingKey { case type, url, text }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     switch try c.decode(String.self, forKey: .type) {
     case "open":
       let url = try c.decode(URL.self, forKey: .url)
+      if let address = Address(url: url) {
+        self = .run(address)
+        return
+      }
       guard OpenPolicy.allowed(url) else {
         throw DecodingError.dataCorruptedError(
           forKey: .url, in: c,
@@ -108,7 +169,7 @@ enum RowAction: Codable, Sendable, Equatable {
       self = .open(url)
     case "copy": self = .copy(try c.decode(String.self, forKey: .text))
     case "paste": self = .paste(OpenPolicy.paste(try c.decode(String.self, forKey: .text)))
-    case "run": self = .run(arguments: try c.decode([String].self, forKey: .arguments))
+    case "run": self = .run(try Address(from: decoder))
     case "agent": self = .agent(try c.decode(String.self, forKey: .text))
     default:
       throw DecodingError.dataCorruptedError(
@@ -127,11 +188,14 @@ enum RowAction: Codable, Sendable, Equatable {
     case .paste(let text):
       try c.encode("paste", forKey: .type)
       try c.encode(text, forKey: .text)
-    case .run(let arguments):
+    case .run(let address):
       try c.encode("run", forKey: .type)
-      try c.encode(arguments, forKey: .arguments)
-    case .agent(let text):
-      try c.encode("agent", forKey: .type)
+      try address.encode(to: encoder)
+    case .ask(let text):
+      try c.encode("ask", forKey: .type)
+      try c.encode(text, forKey: .text)
+    case .report(let text):
+      try c.encode("report", forKey: .type)
       try c.encode(text, forKey: .text)
     }
   }

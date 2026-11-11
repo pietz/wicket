@@ -28,6 +28,7 @@ Conversation and confirmations:
 
 Settings and panel:
 - Text size at all four steps, live, with long titles, code, tables and confirmations. Shortcut recording and physical delivery of the global hotkey, including a recorded conflict. Login-item approval and relaunch. Agent pickers before any conversation, switching between Claude and ChatGPT, unavailable choices, Regular versus Fast (fast is untested against a real account). Sources: switching sources off and on, the Settings result, adding the web-search example by hand.
+- `wicket://` links, never run with a real build yet: `open "wicket://weather?input=berlin"` with the app closed (cold launch) and open (panel hidden and visible); the same in Wicket Dev with `wicket-dev://`, which must not reach the released app; `wicket://settings`; a `wicket://` link clicked in an answer and in a body; an agent `<item open="wicket://…"/>`; an external link to a command that runs on open (input only, so it must have no side effects).
 - Panel stability while typing and while late extension results arrive; the glass look in light and dark; IME composition; Spaces and fullscreen; VoiceOver and larger text; contrast over busy backgrounds; selection and trackpad scrolling in answers; live `answers.css` editing; sustained WebKit memory after hiding.
 
 ## Product

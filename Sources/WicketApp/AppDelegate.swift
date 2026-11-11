@@ -101,6 +101,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     return true
   }
 
+  public func application(_ application: NSApplication, open urls: [URL]) {
+    for url in urls { palette.open(url) }
+  }
+
   @objc private func show() { palette.show() }
   @objc private func showSettings() {
     palette.hide()

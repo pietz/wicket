@@ -5,7 +5,8 @@ extension ProviderView {
   /// An agent reply as the one view: its Markdown without the `<item …/>` tags as the body, and
   /// each valid tag as a native row, through the same `Row` and `RowAction` as an extension's items.
   /// Tags inside code stay text. A tag without a title, with no or several actions, or with an
-  /// `open` that `OpenPolicy` refuses is dropped, so nothing it names can ever run.
+  /// `open` that `OpenPolicy` refuses is dropped, so nothing it names can ever run. A `wicket://` URL
+  /// becomes an address with a target and an input and never arguments: the reply is outside text.
   init(reply: String) {
     guard reply.contains("<item") else {
       self.init(body: reply)
@@ -44,9 +45,15 @@ extension ProviderView {
     let icon: String
     switch chosen[0] {
     case "open":
-      guard let url = openURL(value), OpenPolicy.allowed(url) else { return nil }
-      action = .open(url)
-      icon = "link"
+      guard let url = openURL(value) else { return nil }
+      if let address = Address(url: url) {
+        action = .run(address)
+        icon = "arrow.right"
+      } else {
+        guard OpenPolicy.allowed(url) else { return nil }
+        action = .open(url)
+        icon = "link"
+      }
     case "copy":
       action = .copy(value)
       icon = "doc.on.doc"
@@ -63,7 +70,7 @@ extension ProviderView {
       icon: named ?? icon, actions: [action])
   }
 
-  /// An http, https or mailto URL, or a file path that is absolute or starts with `~`.
+  /// An http, https, mailto or `wicket://` URL, or a file path that is absolute or starts with `~`.
   private static func openURL(_ value: String) -> URL? {
     if value.hasPrefix("/") || value.hasPrefix("~") {
       return URL(fileURLWithPath: (value as NSString).expandingTildeInPath)
