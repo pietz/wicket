@@ -13,7 +13,7 @@ Done on the way: stable signing. Wicket Dev signs with the Apple Development ide
 Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follow-ups, permissions, voice (the first word is caught), result ranking. Needs work:
 
 - **The UI looks bland, not modern.** The whole panel should feel like current macOS: native Liquid Glass, not flat surfaces. A design pass over the panel, the answer card, Previous questions and the permission card.
-- **Answers look worse than 0.0.x.** 0.0.x let the agent choose native components and rendered them in SwiftUI; 0.1 renders Markdown in a web view with `answers.css`, which looks plain and can never use real glass. Recommended direction: a native renderer (Markdown parsed with cmark, drawn in SwiftUI with glass, plus a few agent-chosen components such as cards, facts and callouts), replacing the web view. Prototype it in Wicket Dev and compare with 0.0.15 before building it out. Alternatives considered: more CSS only (cheap, never native), porting 0.0.x's full markup system (about 3,850 lines, too heavy). See also item 8 below and the owner's `plans/rich-replies-proposal.html`.
+- **Answers look worse than 0.0.x.** Decided: keep the one WebKit renderer and fix the language, prompt and theme. Done: the page warms when the panel opens, the bundled theme uses native type and tone colors, the instructions describe each component's use and look, and the owner's `theme.css` and `instructions.md` layer over bundled defaults that update with the app. Next: compare prompt variants with the live agent test on about 15 real questions, rendered offscreen, and judge on the real glass panel.
 - **Previous questions UI is questionable.** Rethink how earlier questions and answers are shown in a conversation.
 - **Permission card looks plain and offers only Allow once and Don't allow.** Add a third choice, allow for the rest of this conversation (Claude's session-scoped permission updates, Codex's accept for session), and restyle the card.
 - **Claude answers feel slow.** Measure with `agent.log` where the time goes (process start and MCP servers versus first token). Candidates: start the CLI while the user is still typing a question, and a lean agent profile with fewer MCP servers.
@@ -30,9 +30,8 @@ Features of 0.0.x that 0.1 does not have yet, roughly in the order they matter:
 5. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
 6. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history, Fix with Agent and Move to Trash came with it.
 7. **Actions menu (⌘K)** with extension rows (Turn off, Reveal in Finder, Move to Trash); ⌘1 to ⌘9 direct picks; a listen shortcut; a Show in menu bar setting.
-8. **Richer answers:** charts, timelines, images, file and link rows, progress bars (0.0.x had twelve component families, 0.1 has seven), only where real answers show a recurring gap.
+8. **Charts in answers.** The agent describes the data (kind, labels, values) in a tag and Wicket draws it, so the model never designs the chart: bar, line and maybe donut, in theme colors, as SVG built by Wicket from validated numbers, never by the model. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines.
 9. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
-10. **Agent instructions of your own** (`agent.md` and its Settings button in 0.0.x); `agent-instructions.md` is installed once today and can be edited, see ISSUES.
 
 ## Deferred, decided
 
