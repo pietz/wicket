@@ -6,7 +6,7 @@ Open problems and unverified behavior, checked against the code on 11 Nov 2026. 
 
 Nothing here needs code. Each needs a person on a real Mac, or credentials.
 
-- **Sparkle upgrade path** worked from 0.0.15 to 0.1.0 and from 0.1.0 to 0.1.1 on the owner's Mac. The cask path is unchecked.
+- **Sparkle upgrade path** worked from 0.0.15 to 0.1.0 and on to 0.1.1 on the owner's Mac. The cask path is unchecked.
 - **A settings reset for existing users.** 0.1 does not read 0.0.x's `settings.json`, usage, voice or approval files, nor its extensions (another protocol); a customised hotkey falls back to ⌥Space. Nothing is deleted (a test pins this). Say it in the release notes; migration is in the roadmap.
 - **Permissions under the release signature.** The microphone grant and any login item from 0.0.x are keyed by the same bundle id and team, so they should carry over; confirm once. Launch at login with a Developer ID build is unverified.
 - **Hardened runtime with WebKit and Sparkle.** The release bundle verifies (`codesign --verify --deep --strict`) and runs headless, but the GUI paths (web view, Sparkle's update window, speech) were not exercised in the signed bundle.
@@ -16,12 +16,12 @@ Nothing here needs code. Each needs a person on a real Mac, or credentials.
 Everything below is built and covered by headless tests, but was never watched on a real screen, microphone or Mac settings. Audible, on-screen and device-changing checks stay with a person.
 
 Voice, with real audio (`voice-timing.txt` in the config folder records latencies):
-- Speak right after opening: first words, sentence start, accuracy, volume indicator and music quality with a Bluetooth headset as the system default. Compare Automatic, the built-in microphone and a named device. Disconnect a named device and check that Automatic is used on the next opening; disconnect a wired one during capture and check the retry hint and that nothing restarts.
+- Verified by the owner on 0.1.1: speaking right after opening catches the first word. Still open: sentence start, sentence start, accuracy, volume indicator and music quality with a Bluetooth headset as the system default. Compare Automatic, the built-in microphone and a named device. Disconnect a named device and check that Automatic is used on the next opening; disconnect a wired one during capture and check the retry hint and that nothing restarts.
 - Open and close rapidly, including while it says Starting voice. Capture must be gone before the panel hides and never return after it. Turn voice off and on in Settings. Use another dictation app afterwards and check that input, output and volume are unchanged.
 - First consent and denial focus restoration, and whether Dictation settings install the exact `SpeechAnalyzer` asset (unverified).
 
 Conversation and confirmations:
-- Follow-ups by typing and by speaking with an answer visible; empty Return; a draft during work; Previous questions with a long question; scrolling, selection and Copy with Stream answers on and off, including a turn that uses tools, cancellation and failure.
+- Verified by the owner on 0.1.1: follow-ups by typing work, and permission cards reach the agent. Still open: follow-ups by speaking with an answer visible; empty Return; a draft during work; Previous questions with a long question; scrolling, selection and Copy with Stream answers on and off, including a turn that uses tools, cancellation and failure.
 - Hide by hotkey and by clicking away, then reopen with a draft, a running turn and each confirmation; the continuing footer; the five-minute expiry; the full Escape order including voice startup and root input clearing.
 - Permission and extension-enable cards: Tab, Cmd+Return, plain Return and Escape; Allow once reaching the real agent; deletion wording; Show details scrolling and selecting.
 

@@ -10,8 +10,14 @@ Done on the way: stable signing. Wicket Dev signs with the Apple Development ide
 
 ## Next, from first use of 0.1
 
-- **Answers that look as good as 0.0.x.** Owner feedback after the first real run: 0.0.x answers looked much nicer, because the agent chose which native components to render. 0.1 renders Markdown with seven component families. Compare the same questions in both, then decide between richer guidance for the Markdown path and bringing back agent-chosen components (see item 8 below).
-- **Activity while the agent works.** The spinner with the current tool name is fine for now; make it more informative (what it is doing, progress over a long turn) without noise.
+Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follow-ups, permissions, voice (the first word is caught), result ranking. Needs work:
+
+- **The UI looks bland, not modern.** The whole panel should feel like current macOS: native Liquid Glass, not flat surfaces. A design pass over the panel, the answer card, Previous questions and the permission card.
+- **Answers look worse than 0.0.x.** 0.0.x let the agent choose native components and rendered them in SwiftUI; 0.1 renders Markdown in a web view with `answers.css`, which looks plain and can never use real glass. Recommended direction: a native renderer (Markdown parsed with cmark, drawn in SwiftUI with glass, plus a few agent-chosen components such as cards, facts and callouts), replacing the web view. Prototype it in Wicket Dev and compare with 0.0.15 before building it out. Alternatives considered: more CSS only (cheap, never native), porting 0.0.x's full markup system (about 3,850 lines, too heavy). See also item 8 below and the owner's `plans/rich-replies-proposal.html`.
+- **Previous questions UI is questionable.** Rethink how earlier questions and answers are shown in a conversation.
+- **Permission card looks plain and offers only Allow once and Don't allow.** Add a third choice, allow for the rest of this conversation (Claude's session-scoped permission updates, Codex's accept for session), and restyle the card.
+- **Claude answers feel slow.** Measure with `agent.log` where the time goes (process start and MCP servers versus first token). Candidates: start the CLI while the user is still typing a question, and a lean agent profile with fewer MCP servers.
+- **Activity while the agent works.** The spinner with the current tool name is fine for now; make it more informative without noise.
 
 ## Ported from 0.0.x next
 
