@@ -337,7 +337,10 @@ final class LauncherModel {
   private func retainSelection() {
     let rows = results
     if resetSelection { selectionTouched = false }
-    if !selectionTouched {
+    if filledQuestion != nil, filledQuestion != input || command != nil { filledQuestion = nil }
+    if !selectionTouched, filledQuestion != nil, let ask = rows.first(where: { $0.id == "agent:ask" }) {
+      selection = ask.id
+    } else if !selectionTouched {
       // A page has the first say: Return runs its actions until an arrow key enters the items.
       selection = body == nil ? rows.first?.id : nil
     } else if let chosen = selection, !rows.contains(where: { $0.id == chosen }) {
@@ -465,7 +468,12 @@ final class LauncherModel {
       command = nil
     }
     editInput(text)
+    // Outside a conversation the filled text is a search; Ask agent takes the selection, so Return
+    // sends it as the question it was meant to be.
+    filledQuestion = agent.active ? nil : text
   }
+  /// The text an ask action filled into root search, until the input changes.
+  private var filledQuestion: String?
   func dismiss() {
     resetSelection = true
     stopVoice()

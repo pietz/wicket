@@ -118,3 +118,25 @@ import Testing
   #expect(model.input == "Explain 42" && !model.agent.active && model.command == nil)
   await model.finish()
 }
+
+@MainActor private final class OneApp: Provider {
+  let id = "apps"
+  func view(for request: ProviderRequest) async throws -> ProviderView {
+    .init(items: [Row(id: "explainer", title: "Explainer", actions: [])])
+  }
+}
+
+@MainActor @Test func aFilledQuestionSelectsAskAgentUntilTheInputChanges() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel(
+    providers: [OneApp()], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  // A strong app match would normally take the selection; the filled question goes to the agent.
+  model.fill("Expla")
+  await model.settled()
+  #expect(model.selection == "agent:ask")
+  model.editInput("Explai")
+  await model.settled()
+  #expect(model.selection == "apps:explainer")
+  await model.finish()
+}
