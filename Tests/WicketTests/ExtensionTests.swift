@@ -31,7 +31,7 @@ func answering(_ title: String) -> String {
     body: "<stat label=\"Total\" value=\"42\"/>", items: [Row(id: "more", title: "More", actions: [])],
     actions: [
       .open(URL(string: "https://example.com")!), .copy("42"), .paste("42"),
-      .run(Address(arguments: ["refresh", "42"])), .agent("Explain 42"),
+      .run(Address(arguments: ["id": "42"]), title: "Refresh"), .agent("Explain 42"),
     ])
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   for json in [
@@ -205,7 +205,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
     try await ExtensionRunner().run(command(ext), request: .init(input: "hello"))
       == .init(items: [Row(id: "one", title: "Hello", actions: [.copy("Hello")])]))
   try Data(
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['input'],'items':[{'id':'args','title':'/'.join(r['arguments']),'actions':[]}]}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['input'],'items':[{'id':'args','title':'/'.join(k+'='+v for k,v in sorted(r['arguments'].items())),'actions':[]}]}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let data = try JSONSerialization.data(withJSONObject: [
@@ -214,8 +214,8 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   try data.write(to: ext.appending(path: "wicket.json"))
   #expect(
     try await ExtensionRunner().run(
-      command(ext), request: .init(input: "héllo \"世界\"", arguments: ["one", "two"]))
-      == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one/two", actions: [])]))
+      command(ext), request: .init(input: "héllo \"世界\"", arguments: ["one": "1", "two": "2"]))
+      == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one=1/two=2", actions: [])]))
 }
 
 @Test func theWorkingDirectoryIsTheExtensionsOwnFolder() async throws {
@@ -330,7 +330,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.extensions.reload()
   model.input = ""
   await model.settled()
-  model.go(Address(id: "extension:test", arguments: ["refresh"]))
+  model.go(Address(id: "extension:test", arguments: ["view": "all"]))
   await model.settled()
   #expect(model.command?.id == "extension:test")
   model.dismiss()
@@ -440,7 +440,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "echo.py"]])
   try Data(
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(r['arguments'])+':'+r['input']}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(r['arguments'].values())+':'+r['input']}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let model = LauncherModel(
@@ -451,7 +451,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.settled()
   #expect(model.activateReturn())
   await model.settled()
-  model.go(Address(id: "extension:test", arguments: ["one"]))
+  model.go(Address(id: "extension:test", arguments: ["view": "one"]))
   await model.settled()
   #expect(model.body == "one:")
   model.input = "next"

@@ -10,8 +10,20 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let fallback: Bool
   /// A known list read once: name matches at the root, and the command's view when there is no program.
   let items: [Row]?
+  /// Values the user fills in beside the input, sent under their names in `request.arguments`.
+  let arguments: [Argument]
+  /// The command runs on Return with a chosen request, never while typing.
+  let submit: Bool
 
-  private enum CodingKeys: String, CodingKey { case name, keyword, command, icon, match, fallback, items }
+  struct Argument: Codable, Sendable, Equatable {
+    let name: String
+    let placeholder: String?
+  }
+  static let maxArguments = 3
+
+  private enum CodingKeys: String, CodingKey {
+    case name, keyword, command, icon, match, fallback, items, arguments, submit
+  }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     name = try c.decode(String.self, forKey: .name)
@@ -21,6 +33,14 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     match = try c.decodeIfPresent(String.self, forKey: .match)
     fallback = try c.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
     items = try c.decodeIfPresent([Row].self, forKey: .items)
+    arguments = try c.decodeIfPresent([Argument].self, forKey: .arguments) ?? []
+    submit = try c.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+    let names = arguments.map(\.name)
+    guard names.count <= Self.maxArguments, Set(names).count == names.count, !names.contains("") else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .arguments, in: c,
+        debugDescription: "At most \(Self.maxArguments) arguments, with nonempty unique names")
+    }
     guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw DecodingError.dataCorruptedError(forKey: .name, in: c, debugDescription: "Name must be nonempty")
     }
@@ -34,9 +54,9 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
         throw DecodingError.dataCorruptedError(
           forKey: .command, in: c, debugDescription: "A manifest needs a command, items or both")
       }
-      guard match == nil, !fallback else {
+      guard match == nil, !fallback, arguments.isEmpty, !submit else {
         throw DecodingError.dataCorruptedError(
-          forKey: .command, in: c, debugDescription: "match and fallback need a command")
+          forKey: .command, in: c, debugDescription: "match, fallback, arguments and submit need a command")
       }
     }
     if let items, !Row.validIDs(items) {

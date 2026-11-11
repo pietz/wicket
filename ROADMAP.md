@@ -21,6 +21,8 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 
 ## Next: one-to-one contracts
 
+Done (12 Nov 2026, concept review finding 2): arguments are named, an object of strings; a manifest declares up to three `arguments` and may set `submit`; `chosen` means the user activated it; every action takes a `title`. Step 2 draws the declared arguments as slots in the input bar from the model's `declaredArguments`, `argumentValues` and `setArgument(_:to:)`: type "caff", Tab into `hours` and `minutes`, Return runs.
+
 From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<item title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; `<item>` is read in every body, a JSON body included; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
 
 ## Next features
@@ -66,10 +68,10 @@ Addresses name views, never effects; there is no exec action and no templating l
 - Empty palette with favourites and suggestions; a compact results mode.
 - Voice: hold to talk, a language choice for mixed German and English.
 - First-run onboarding and a permissions flow asked only when a feature needs it.
-- Inline parameters in the input bar (Raycast's command arguments as inspiration): a manifest declares a few named fields (placeholder, optional or required, maybe a fixed choice list), the panel shows them as slots after the keyword, Tab moves between them, and the extension receives them by name in the request. Clearer than parsing free text for commands like "translate [text] [to]". The name must not clash with the existing run `arguments`, and it must stay simple enough for the agent to write.
+- Forms, preferences and secrets build on declared arguments: a longer list of the same `{name, placeholder}` fields, values kept per extension (secrets in the Keychain) and sent under their names like any argument. Required fields and choice lists only when a real extension needs them.
 - The launcher is always available (parked 11 Nov 2026, ranked first by three architecture reviewers, not yet felt in use): the hotkey always lands on root search, even while a turn runs or an approval waits; the one retained conversation keeps running and shows as a live row on top (running, waiting for approval, answered) that Return reopens, never above a strong app match; a new question replaces it. No list of conversations, no notifications. Pick it up if real use shows Esc mid-answer to reach the launcher.
 - Theme customization the agent knows about: once theming is settled (what `theme.css` may change, shared tokens for panel and answers), add it to the Wicket documentation section of the agent instructions.
-- Grid and form views; chat history.
+- Grid views; chat history.
 - Automatic intent: a cheap model decides whether typing is a search or a question. Only as a suggestion after submit, and only after labelling about 500 real queries.
 - A small curated public extension repository, after the core is stable. Not a marketplace.
 - Re-check the router and voice when macOS 27.3's on-device AI options ship ([research](docs/research/siri-ai.md)).

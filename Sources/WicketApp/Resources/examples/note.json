@@ -1,0 +1,1 @@
+{"name":"Note","keyword":"note","command":["/usr/bin/python3","main.py"],"icon":"note.text","arguments":[{"name":"text","placeholder":"note"}],"submit":true}

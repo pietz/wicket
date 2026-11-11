@@ -149,11 +149,9 @@ final class ClipboardHistory: Provider {
   private func save() { writer.submit(clips) }
 
   /// The command behind the reserved address `clipboard`, answered like an extension's: the input
-  /// filters, and a chosen `["delete", id]` deletes that clip first, as a row's Delete asks.
+  /// filters, and a chosen `{"delete": id}` deletes that clip first, as a row's Delete asks.
   func view(for request: ProviderRequest) async -> ProviderView {
-    if request.chosen, request.arguments.count == 2, request.arguments[0] == "delete" {
-      delete(request.arguments[1])
-    }
+    if request.chosen, let id = request.arguments["delete"] { delete(id) }
     return ProviderView(items: rows(matching: request.input))
   }
 
@@ -175,7 +173,9 @@ final class ClipboardHistory: Provider {
       return Row(
         id: clip.id, title: title, subtitle: lines > 1 ? "\(age) · \(lines) lines" : age,
         icon: "doc.on.clipboard",
-        actions: [.paste(clip.text), .copy(clip.text), .run(Address(arguments: ["delete", clip.id]))])
+        actions: [
+          .paste(clip.text), .copy(clip.text), .run(Address(arguments: ["delete": clip.id]), title: "Delete"),
+        ])
     }
   }
 

@@ -225,7 +225,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(output.results.last?.row.actions == [.agent("Fix this extension. bad json")])
   #expect(
     output.results.dropLast().last?.row.actions
-      == [.run(Address(id: "extension:deploy", input: "deploy now"))])
+      == [.run(Address(id: "extension:deploy", input: "deploy now", link: true))])
   #expect(output.results.map(\.row.id).suffix(2) == ["error", "discovery-error"])
 }
 

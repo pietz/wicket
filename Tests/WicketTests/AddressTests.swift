@@ -9,28 +9,49 @@ private func action(_ json: String) throws -> RowAction {
 
 private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) }
 
+/// The address a URL spells: a link, never with arguments.
+private func link(_ name: String, _ input: String? = nil) -> Address {
+  Address(extensionName: name, input: input, link: true)
+}
+
 @Test func anAddressDecodesFromJSONAndFromAURL() throws {
   #expect(
-    try action(#"{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}"#)
-      == .run(Address(extensionName: "weather", input: "berlin", arguments: ["hourly"])))
-  // Today's run action, and a run with nothing to say, keep working: omitted means this one, as now.
-  #expect(try action(#"{"type":"run","arguments":["refresh"]}"#) == .run(Address(arguments: ["refresh"])))
+    try action(#"{"type":"run","extension":"weather","input":"berlin","arguments":{"view":"hourly"}}"#)
+      == .run(Address(extensionName: "weather", input: "berlin", arguments: ["view": "hourly"])))
+  // Omitted means this one, as now; an empty object is no arguments, said explicitly.
+  #expect(try action(#"{"type":"run","arguments":{"id":"42"}}"#) == .run(Address(arguments: ["id": "42"])))
+  #expect(try action(#"{"type":"run","arguments":{}}"#) == .run(Address(arguments: [:])))
   #expect(try action(#"{"type":"run"}"#) == .run(Address()))
   #expect(try action(#"{"type":"agent","text":"Why?"}"#) == .agent("Why?"))
-  let sent = Address(extensionName: "weather", input: "berlin", arguments: ["hourly"])
+  let sent = Address(
+    extensionName: "weather", input: "berlin", arguments: ["view": "hourly", "city": "berlin"])
   #expect(
     try JSONDecoder().decode(RowAction.self, from: JSONEncoder().encode(RowAction.run(sent))) == .run(sent))
   #expect(throws: (any Error).self) { try action(#"{"type":"run","arguments":"hourly"}"#) }
+  #expect(throws: (any Error).self) { try action(#"{"type":"run","arguments":{"n":1}}"#) }
+  // The positional array is gone: it is a decoding error with its path, like any malformed view.
+  do {
+    _ = try JSONDecoder().decode(
+      ProviderView.self,
+      from: Data(
+        #"{"items":[{"id":"a","title":"A","actions":[{"type":"run","arguments":["hourly"]}]}]}"#.utf8))
+    Issue.record("An array of arguments decoded")
+  } catch let DecodingError.typeMismatch(_, context) {
+    #expect(context.codingPath.map(\.stringValue) == ["items", "Index 0", "actions", "Index 0", "arguments"])
+  }
+  #expect(throws: (any Error).self) {
+    try JSONDecoder().decode(ProviderRequest.self, from: Data(#"{"input":"","arguments":["a"]}"#.utf8))
+  }
 
-  #expect(url("wicket://weather?input=berlin") == Address(extensionName: "weather", input: "berlin"))
-  #expect(url("wicket://weather?input=a%20b%26c") == Address(extensionName: "weather", input: "a b&c"))
-  #expect(url("wicket://weather") == Address(extensionName: "weather"))
-  #expect(url("wicket://?input=x") == Address(extensionName: "", input: "x"))
-  #expect(url("wicket://") == Address(extensionName: ""))
-  #expect(url("wicket:weather?input=x") == Address(extensionName: "weather", input: "x"))
-  #expect(url("wicket://agent?input=Why") == Address(extensionName: "agent", input: "Why"))
+  #expect(url("wicket://weather?input=berlin") == link("weather", "berlin"))
+  #expect(url("wicket://weather?input=a%20b%26c") == link("weather", "a b&c"))
+  #expect(url("wicket://weather") == link("weather"))
+  #expect(url("wicket://?input=x") == link("", "x"))
+  #expect(url("wicket://") == link(""))
+  #expect(url("wicket:weather?input=x") == link("weather", "x"))
+  #expect(url("wicket://agent?input=Why") == link("agent", "Why"))
   #expect(url("wicket://settings")?.targetID == "settings")
-  #expect(url("wicket-dev://weather?input=x") == Address(extensionName: "weather", input: "x"))
+  #expect(url("wicket-dev://weather?input=x") == link("weather", "x"))
   #expect(url("https://weather?input=x") == nil && url("wicketx://weather") == nil)
   // Reserved targets win, an extension name is spelled with or without its prefix, and case is kept.
   #expect(Address(extensionName: "Agent").targetID == "agent")
@@ -42,22 +63,48 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   // An open action with a wicket URL is an address too, and the host's own actions are never decoded.
   #expect(
     try action(#"{"type":"open","url":"wicket://weather?input=x"}"#)
-      == .run(Address(extensionName: "weather", input: "x")))
+      == .run(link("weather", "x")))
   #expect(throws: (any Error).self) { try action(#"{"type":"send","text":"x"}"#) }
+}
+
+@Test func everyActionKindTakesATitleThatNamesItInMenus() throws {
+  let titled = [
+    #"{"type":"open","url":"https://example.com","title":"Website"}"#,
+    #"{"type":"reveal","url":"file:///tmp","title":"Show folder"}"#,
+    #"{"type":"copy","text":"42","title":"Copy total"}"#,
+    #"{"type":"paste","text":"42","title":"Paste total"}"#,
+    #"{"type":"run","arguments":{"id":"42"},"title":"Delete"}"#,
+    #"{"type":"agent","text":"Why?","title":"Ask why"}"#,
+  ]
+  for json in titled {
+    let decoded = try action(json)
+    #expect(decoded.title != nil && decoded.label == decoded.title)
+    #expect(try JSONDecoder().decode(RowAction.self, from: JSONEncoder().encode(decoded)) == decoded)
+  }
+  #expect(try action(#"{"type":"open","url":"wicket://weather","title":"Weather"}"#).label == "Weather")
+  // Without a title each kind keeps its label; a run is Run for this command and Open elsewhere.
+  #expect(try action(#"{"type":"run","arguments":{"id":"42"}}"#).label == "Run")
+  #expect(try action(#"{"type":"run","extension":"weather"}"#).label == "Open")
+  #expect(try action(#"{"type":"open","url":"wicket://?input=x"}"#).label == "Open")
+  #expect(try action(#"{"type":"agent","text":"Why?"}"#).label == "Ask agent…")
+  #expect(try action(#"{"type":"copy","text":"42"}"#).label == "Copy")
+  // A title is encoded only when there is one.
+  #expect(
+    String(decoding: try JSONEncoder().encode(RowAction.copy("x")), as: UTF8.self).contains("title") == false)
 }
 
 @Test func outsidersNameATargetAndAnInputButNeverArguments() throws {
   // A URL has no way to carry arguments: a query item of that name is ignored.
-  let outside = url("wicket://deploy?input=prod&arguments=%5B%22delete%22%5D&extension=other")
-  #expect(outside == Address(extensionName: "deploy", input: "prod") && outside?.arguments == nil)
+  let outside = url("wicket://deploy?input=prod&arguments=%7B%22a%22%3A%22b%22%7D&extension=other")
+  #expect(outside == link("deploy", "prod") && outside?.arguments == nil)
   // The same goes for what an agent writes: its items and the links in its text.
   let view = ProviderView(
     reply: #"<item title="Open" open="wicket://deploy?input=prod&arguments=%5B%22delete%22%5D"/>"#
       + #"<item title="Root" open="wicket://?input=hello"/><item title="Why" ask="Why?"/>"#)
   #expect(
     view.items.map(\.actions) == [
-      [.run(Address(extensionName: "deploy", input: "prod"))],
-      [.run(Address(extensionName: "", input: "hello"))],
+      [.run(link("deploy", "prod"))],
+      [.run(link("", "hello"))],
       [.agent("Why?")],
     ])
   #expect(view.items.allSatisfy { $0.actions.count == 1 })
@@ -65,7 +112,7 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   // The wire has no spelling that gives a URL arguments, whichever action carries it.
   #expect(
     try action(#"{"type":"open","url":"wicket://deploy?input=x&arguments=%5B%22a%22%5D"}"#)
-      == .run(Address(extensionName: "deploy", input: "x")))
+      == .run(link("deploy", "x")))
 }
 
 @MainActor @Test func everyRowTheHostSynthesizesDispatchesThroughItsAction() async throws {
@@ -150,7 +197,7 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let echo =
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(r['arguments'])+':'+r['input']}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(sorted(r['arguments'].values()))+':'+r['input']}))"
   for name in ["one", "two"] {
     let folder = try extensionFolder(root, name: name, fields: ["command": ["/usr/bin/python3", "echo.py"]])
     try Data(echo.utf8).write(to: folder.appending(path: "echo.py"))
@@ -159,11 +206,11 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()
   // An extension's own row may name another extension with arguments.
-  model.go(Address(extensionName: "two", input: "x", arguments: ["a", "b"]), from: "extension:one")
+  model.go(Address(extensionName: "two", input: "x", arguments: ["p": "a", "q": "b"]), from: "extension:one")
   await model.settled()
   #expect(model.command?.id == "extension:two" && model.body == "a/b:x")
   // Without a target it is this one, and without an input the typed one stays.
-  model.go(Address(arguments: ["c"]), from: "extension:two")
+  model.go(Address(arguments: ["p": "c"]), from: "extension:two")
   await model.settled()
   #expect(model.command?.id == "extension:two" && model.body == "c:x")
   // Entering another extension without an input starts empty.
@@ -241,33 +288,93 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(problems["extension:clipboard"]?.contains("reserved") == true)
 }
 
-/// Only the request a choice causes is chosen: typing reruns the same arguments without it.
-@MainActor @Test func onlyTheRequestAChoiceCausesIsChosen() async throws {
+/// `chosen` is the user activating something: the command and fallback rows, a run action (JSON or the
+/// host's, a manifest item included). Never typing, refreshes, links, details or error rows.
+@MainActor @Test func chosenMeansTheUserActivatedIt() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
+  // Every request is logged; a page with run actions of each shape, or a failure for "fail".
   let script = """
     import json,sys; r=json.load(sys.stdin)
-    print(json.dumps({'body':'/'.join(r['arguments'])+':'+json.dumps(r['chosen'])+':'+r['input'],
-      'items':[{'id':'deploy','title':'Deploy','actions':[{'type':'run','arguments':['deploy']}]}]}))
+    open('log.jsonl','a').write(json.dumps(r)+'\\n')
+    if r['input'].startswith('fail'): sys.exit(1)
+    run=lambda i,a: {'id':i,'title':i,'actions':[dict({'type':'run'},**a)]}
+    print(json.dumps({'body':'page','items':[run('with',{'arguments':{'a':'1'}}),run('empty',{'arguments':{}}),
+      run('none',{}),{'id':'link','title':'link','actions':[{'type':'open','url':'wicket://ship?input=o'}]}]}))
     """
-  let folder = try extensionFolder(root, name: "ship", fields: ["command": ["/usr/bin/python3", "ship.py"]])
+  let folder = try extensionFolder(
+    root, name: "ship",
+    fields: [
+      "name": "Ship", "command": ["/usr/bin/python3", "ship.py"], "match": "^(page|fail)", "fallback": true,
+      "items": [
+        ["id": "prod", "title": "Deploy prod", "actions": [["type": "run", "arguments": ["env": "prod"]]]]
+      ],
+    ])
   try Data(script.utf8).write(to: folder.appending(path: "ship.py"))
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()
-  model.go(Address(id: "extension:ship"))
+  func requests() throws -> [ProviderRequest] {
+    let log = (try? String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)) ?? ""
+    return try log.split(separator: "\n").map {
+      try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8))
+    }
+  }
+  /// Activates a row and returns the one request that followed.
+  func activate(_ action: RowAction, from result: Result? = nil) async throws -> ProviderRequest {
+    let before = try requests().count
+    model.activate(action, from: result)
+    await model.settled()
+    let after = try requests()
+    #expect(after.count == before + 1)
+    return try #require(after.last)
+  }
+  func atRoot(_ input: String, _ pick: (Result) -> Bool) async throws -> Result {
+    _ = model.escape()
+    model.input = input
+    await model.settled()
+    return try #require(model.results.first { pick($0) }, Comment(rawValue: input))
+  }
+  func item(_ id: String) throws -> Result { try #require(model.results.first { $0.row.id == id }) }
+
+  // The command row, the fallback row and a manifest item are chosen.
+  var row = try await atRoot("ship") { $0.row.id == "command" }
+  #expect(try await activate(row.row.actions[0], from: row).chosen)
+  row = try await atRoot("an unrelated sentence") { $0.row.id == "fallback" }
+  #expect(try await activate(row.row.actions[0], from: row).chosen)
+  row = try await atRoot("deploy prod") { $0.row.id == "item:prod" }
+  let fromItem = try await activate(row.row.actions[0], from: row)
+  #expect(fromItem.chosen && fromItem.arguments == ["env": "prod"])
+  // A run action with arguments, with `{}` and without any: chosen, with exactly those arguments.
+  let shapes: [(String, [String: String])] = [("with", ["a": "1"]), ("empty", [:]), ("none", [:])]
+  for (id, arguments) in shapes {
+    let request = try await activate(try item(id).row.actions[0], from: try item(id))
+    #expect(request.chosen && request.arguments == arguments, Comment(rawValue: id))
+  }
+  // Typing reruns and a catalog refresh are not.
+  model.go(Address(id: "extension:ship", arguments: ["a": "1"]), chosen: true)
   await model.settled()
-  #expect(model.body == ":false:")
-  model.select(try #require(model.results.first).id)
-  #expect(model.activateReturn())
-  await model.settled()
-  #expect(model.body == "deploy:true:")
   model.input = "p"
   await model.settled()
-  #expect(model.body == "deploy:false:p")
-  // A link is an outsider: choosing it opens the command but is never chosen.
-  #expect(model.activate(.run(try #require(url("wicket://ship?input=prod")))))
+  #expect(try requests().last.map { !$0.chosen && $0.arguments == ["a": "1"] && $0.input == "p" } == true)
+  model.catalogChanged()
   await model.settled()
-  #expect(model.body == ":false:prod")
+  #expect(try requests().last?.chosen == false)
+  // Links: a JSON open of a wicket URL, an outside URL, an agent item. Never chosen, never arguments.
+  var request = try await activate(try item("link").row.actions[0], from: try item("link"))
+  #expect(!request.chosen && request.arguments.isEmpty && request.input == "o")
+  request = try await activate(.run(try #require(url("wicket://ship?input=prod"))))
+  #expect(!request.chosen && request.input == "prod")
+  let agentItem = try #require(
+    ProviderView(reply: #"<item title="Ship" open="wicket://ship?input=a"/>"#).items.first)
+  request = try await activate(agentItem.actions[0], from: Result(provider: "answer", row: agentItem))
+  #expect(!request.chosen && request.input == "a")
+  // The host's Show details and error rows only show what a pattern produced.
+  row = try await atRoot("page one") { $0.row.id == "detail" }
+  request = try await activate(row.row.actions[0], from: row)
+  #expect(!request.chosen && request.input == "page one")
+  row = try await atRoot("fail now") { $0.row.id == "error" }
+  request = try await activate(row.row.actions[0], from: row)
+  #expect(!request.chosen && request.input == "fail now")
   await model.finish()
 }

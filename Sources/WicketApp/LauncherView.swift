@@ -381,24 +381,21 @@ struct LauncherView: View {
 extension RowAction {
   /// The file an open or reveal action is about, whose system icon the row shows.
   var fileURL: URL? {
-    switch self {
+    switch kind {
     case .open(let url), .reveal(let url): url.isFileURL ? url : nil
     default: nil
     }
   }
+  /// The action's own title, or the label of its kind.
   var label: String {
-    switch self {
+    if let title { return title }
+    return switch kind {
     case .open: "Open"
     case .copy: "Copy"
     case .paste: "Paste into previous app"
     case .reveal: "Reveal in Finder"
     case .run(let address):
-      switch address.targetID {
-      // A command's own run says what it asks for, as a row's ["delete", id] does.
-      case nil: address.arguments?.first?.capitalized ?? "Run again"
-      case "agent": "Ask agent…"
-      default: "Open"
-      }
+      address.extensionName == nil ? "Run" : address.targetID == "agent" ? "Ask agent…" : "Open"
     case .send: "Ask"
     }
   }

@@ -198,7 +198,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   await model.extensions.reload()
   model.input = "test"
   await model.settled()
-  model.go(Address(id: "extension:test", arguments: []))
+  model.go(Address(id: "extension:test", arguments: [:]))
   await model.settled()
   model.move(1)
   let chosen = model.selection

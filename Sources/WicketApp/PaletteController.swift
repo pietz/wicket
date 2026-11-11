@@ -216,7 +216,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     if model.activate(action, from: result) { return }
     let input = model.input
     func record() { if let result { model.record(result) } }
-    switch action {
+    switch action.kind {
     case .copy(let text):
       model.writePasteboard(text)
       record()

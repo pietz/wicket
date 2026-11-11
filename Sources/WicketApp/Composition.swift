@@ -121,7 +121,7 @@ enum Ranking {
             provider: id,
             row: Row(
               id: "error", title: extensions[id]!.name + " failed", subtitle: summary,
-              icon: "exclamationmark.triangle", actions: [.run(Address(id: id, input: input))])))
+              icon: "exclamationmark.triangle", actions: [.run(Address(id: id, input: input, link: true))])))
       }
     }
     let mathRows = math.map { Result(provider: "math", row: $0) }

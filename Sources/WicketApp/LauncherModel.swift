@@ -4,9 +4,11 @@ import Observation
 /// The command screen: an extension's, or the clipboard history's. Nil at search.
 struct CommandState {
   let id: String
-  var arguments: [String] = []
-  /// The next request is the one the user's choice caused; any later one is a rerun.
-  var chosen = false
+  var arguments: [String: String] = [:]
+  /// What the next request answers. Going to an address runs it even in a submit command, and the
+  /// user's activation makes it chosen; every later request is a rerun.
+  var next = Cause.address
+  enum Cause { case rerun, address, choice }
   var view = ProviderView()
   var problem: String?
   var busy = false
@@ -61,7 +63,9 @@ final class LauncherModel {
   private var selectionTouched = false
   /// Sources whose results for this input may still arrive: running pattern extensions and file search.
   private var pending: Set<String> = []
-  private(set) var selection: String?
+  private(set) var selection: String? {
+    didSet { if selection != oldValue { drafted = [:] } }
+  }
   func select(_ id: String?) {
     selectionTouched = true
     selection = id
@@ -216,11 +220,18 @@ final class LauncherModel {
   }
   func refresh() {
     guard !agent.active else { return }
-    cancelWork()
     let speaking = voice?.active == true
     if let state = command {
-      command?.chosen = false
       let source = commandSource(state.id)
+      // A submit command runs only when an address is followed, Return included: typing, voice and
+      // refreshes leave its view and a running request alone, and nothing stays selected.
+      if state.next == .rerun, submits, source != nil {
+        retainSelection()
+        onResultsChange?()
+        return
+      }
+      cancelWork()
+      command?.next = .rerun
       guard let source, configuration.isEnabled(state.id, extensions: extensions.ids) else {
         command?.problem =
           source == nil
@@ -234,7 +245,7 @@ final class LauncherModel {
       command?.busy = true
       command?.problem = nil
       let version = generation
-      let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.chosen)
+      let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.next == .choice)
       let extensionCommand = extensionCommand
       tasks.append(
         Task { [weak self] in
@@ -260,6 +271,7 @@ final class LauncherModel {
       onResultsChange?()
       return
     }
+    cancelWork()
     isRefreshing = true
     let current = generation
     let request = ProviderRequest(input: input)
@@ -315,7 +327,8 @@ final class LauncherModel {
               : .items([
                 Row(
                   id: "detail", title: command.manifest.name, subtitle: "Show details",
-                  icon: command.manifest.icon, actions: [.run(Address(id: entry.id, input: request.input))])
+                  icon: command.manifest.icon,
+                  actions: [.run(Address(id: entry.id, input: request.input, link: true))])
               ])
           } catch {
             guard let self, !Task.isCancelled, generation == current else { return }
@@ -378,8 +391,7 @@ final class LauncherModel {
     let rows = results
     if resetSelection { selectionTouched = false }
     if !selectionTouched {
-      // A page has the first say: Return runs its actions until an arrow key enters the items.
-      selection = body == nil ? rows.first?.id : nil
+      selection = itemsWait ? nil : rows.first?.id
     } else if let chosen = selection, !rows.contains(where: { $0.id == chosen }) {
       if !pending.isEmpty {
         resetSelection = false
@@ -399,21 +411,67 @@ final class LauncherModel {
   }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { body == nil ? [] : command?.view.actions ?? [] }
-  /// Return runs the selected item. With none selected, which is how a page starts, it runs the
-  /// view's own actions inside a command, and in a conversation it sends the follow-up.
+  /// Whether the input has the first say, so items wait for an arrow key and typing leaves them: in a
+  /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
+  /// it runs the view's actions.
+  private var itemsWait: Bool { agent.active || submits || body != nil }
+  /// The open command runs on Return only (`submit` in its manifest).
+  var submits: Bool { extensionCommand?.manifest.submit == true }
+  /// Return runs the selected item. With none selected, a submit command sends what is typed and
+  /// filled in as a chosen request, a page runs the view's own actions, and a conversation sends the
+  /// follow-up.
   var selected: Result? {
     if let row = results.first(where: { $0.id == selection }) { return row }
-    guard !agent.active, let command, body != nil else { return nil }
+    guard !agent.active, let command else { return nil }
+    if submits {
+      return Result(
+        provider: command.id,
+        row: Row(
+          id: "submit", title: commandName ?? "Run",
+          actions: [.run(Address(input: input, arguments: command.arguments))]))
+    }
+    guard body != nil else { return nil }
     return Result(
       provider: command.id,
       row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
-  /// sending the follow-up.
+  /// sending the follow-up. On a command row it enters the command with what was filled into its
+  /// declared arguments.
   var returnAction: RowAction? {
-    selected?.row.actions.first ?? (agent.active ? .send(input) : nil)
+    guard var action = selected?.row.actions.first else { return agent.active ? .send(input) : nil }
+    if command == nil, !drafted.isEmpty, case .run(var address) = action.kind {
+      address.arguments = drafted
+      action.kind = .run(address)
+    }
+    return action
   }
-  /// Arrow keys: the first press enters the items of a page, and up from the first leaves them.
+  /// The arguments the user can fill in: inside a command its own declared ones, at the root those of
+  /// the selected extension command row. Empty when there are none.
+  var declaredArguments: [ExtensionManifest.Argument] {
+    if command != nil { return extensionCommand?.manifest.arguments ?? [] }
+    guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
+    return extensions.commands[row.provider]?.manifest.arguments ?? []
+  }
+  /// Values filled in at the root for the selected command row; dropped when the selection moves or
+  /// the panel is dismissed.
+  private var drafted: [String: String] = [:]
+  /// The current values by name: the open command's arguments, or the root draft. Unfilled is absent.
+  var argumentValues: [String: String] { command?.arguments ?? drafted }
+  /// Fills in a declared argument. Inside a command it is an edit like typing: it reruns the command,
+  /// or in a submit command waits for Return.
+  func setArgument(_ name: String, to value: String) {
+    guard declaredArguments.contains(where: { $0.name == name }) else { return }
+    let value = value.isEmpty ? nil : value
+    guard command != nil else {
+      drafted[name] = value
+      return
+    }
+    command?.arguments[name] = value
+    resetSelection = true
+    refresh()
+  }
+  /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     let rows = results
     guard !rows.isEmpty else { return }
@@ -421,7 +479,7 @@ final class LauncherModel {
       select(rows[0].id)
       return
     }
-    if current == 0, delta < 0, body != nil || agent.active {
+    if current == 0, delta < 0, itemsWait {
       select(nil)
       return
     }
@@ -433,11 +491,11 @@ final class LauncherModel {
   /// `result` is the row the action came from, if any.
   @discardableResult
   func activate(_ action: RowAction, from result: Result? = nil) -> Bool {
-    switch action {
+    switch action.kind {
     case .run(let address):
       if let result { record(result) }
-      // Only an address with arguments is chosen: outsiders (URLs, agent items) never carry arguments.
-      go(address, from: result?.provider, chosen: address.arguments != nil)
+      // Activating a run action is the user's choice; following a link never is.
+      go(address, from: result?.provider, chosen: !address.link)
     case .send(let text): send(text)
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
@@ -473,8 +531,8 @@ final class LauncherModel {
         command = CommandState(id: id)
         listed = []
       }
-      command?.arguments = address.arguments ?? []
-      command?.chosen = chosen
+      command?.arguments = address.arguments ?? [:]
+      command?.next = chosen ? .choice : .address
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       input = address.input ?? (reopened ? input : "")
     }
@@ -509,6 +567,7 @@ final class LauncherModel {
   }
   func dismiss() {
     resetSelection = true
+    drafted = [:]
     stopVoice()
     agent.hidden()
     if agent.active { return }

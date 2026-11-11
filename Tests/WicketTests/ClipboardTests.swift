@@ -161,7 +161,7 @@ private func temporaryFolder() throws -> URL {
   #expect(
     row.actions == [
       .paste("Grüße aus Berlin\nzweite Zeile"), .copy("Grüße aus Berlin\nzweite Zeile"),
-      .run(Address(arguments: ["delete", row.id])),
+      .run(Address(arguments: ["delete": row.id]), title: "Delete"),
     ])
   // An extension's paste still loses its newlines when decoded.
   let decoded = try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"paste","text":"a\nb"}"#.utf8))
@@ -178,7 +178,7 @@ private func temporaryFolder() throws -> URL {
   // Delete is the row's own run action, answered with the updated list.
   let alpha = try #require(history.clips.last)
   let view = await history.view(
-    for: ProviderRequest(input: "", arguments: ["delete", alpha.id], chosen: true))
+    for: ProviderRequest(input: "", arguments: ["delete": alpha.id], chosen: true))
   #expect(view.items.map(\.title) == ["beta two"] && history.clips.map(\.text) == ["beta two"])
 }
 

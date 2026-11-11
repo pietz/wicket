@@ -246,12 +246,15 @@ private let nextAnswer =
           ? [
             Row(
               id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
-              actions: [.run(Address(arguments: ["hourly"]))]),
+              actions: [.run(Address(arguments: ["view": "hourly"]), title: "Hourly")]),
             Row(
               id: "weekly", title: "Weekly forecast", subtitle: "Next 7 days", icon: "calendar",
-              actions: [.run(Address(arguments: ["weekly"]))]),
+              actions: [.run(Address(arguments: ["view": "weekly"]), title: "Weekly")]),
           ] : [],
-        actions: [.copy("42"), .run(Address(arguments: ["refresh"])), .agent("Explain this report")])
+        actions: [
+          .copy("42"), .run(Address(arguments: ["refresh": "true"]), title: "Refresh"),
+          .agent("Explain this report"),
+        ])
       try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
       let code =
         state == "extension-error"

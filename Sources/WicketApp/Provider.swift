@@ -4,10 +4,11 @@ import Foundation
 /// pattern or fallback) belongs to the host, not the provider or its rows.
 struct ProviderRequest: Codable, Sendable, Equatable {
   let input: String
-  let arguments: [String]
-  /// True only on the one request caused by the user choosing a run action; reruns are never chosen.
+  /// Named values: those the user filled into declared arguments and those a run action set.
+  let arguments: [String: String]
+  /// True only on the one request the user's activation caused; reruns, refreshes and links never are.
   let chosen: Bool
-  init(input: String, arguments: [String] = [], chosen: Bool = false) {
+  init(input: String, arguments: [String: String] = [:], chosen: Bool = false) {
     self.input = input
     self.arguments = arguments
     self.chosen = chosen
@@ -16,7 +17,7 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     input = try c.decode(String.self, forKey: .input)
-    arguments = try c.decodeIfPresent([String].self, forKey: .arguments) ?? []
+    arguments = try c.decodeIfPresent([String: String].self, forKey: .arguments) ?? [:]
     chosen = try c.decodeIfPresent(Bool.self, forKey: .chosen) ?? false
   }
 }
@@ -95,14 +96,17 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
 /// A request and where it goes. Every field is optional and an omitted one means "this one, as now":
 /// without `extension` the extension that produced the action, without `input` what is typed in the open
 /// command (empty anywhere else), without `arguments` none. Two spellings, one value: JSON for an
-/// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}`,
+/// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","arguments":{"view":"hourly"}}`,
 /// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no arguments. `agent`,
 /// `settings` and `clipboard` are reserved targets: `agent` fills the input and never sends, `clipboard` is
 /// the clipboard history command, and an empty `extension`, as in a URL without one, is a root query.
 struct Address: Codable, Sendable, Equatable {
   var extensionName: String?
   var input: String?
-  var arguments: [String]?
+  var arguments: [String: String]?
+  /// Spelled as a URL, or a host row that only shows what a pattern produced as such a URL would.
+  /// Following a link is never a choice, so its request is not chosen. Never on the wire.
+  var link = false
 
   private enum CodingKeys: String, CodingKey {
     case extensionName = "extension"
@@ -111,16 +115,19 @@ struct Address: Codable, Sendable, Equatable {
   static let schemes = ["wicket", "wicket-dev"]
   static let reserved = ["agent", "settings", "clipboard"]
 
-  init(extensionName: String? = nil, input: String? = nil, arguments: [String]? = nil) {
+  init(
+    extensionName: String? = nil, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false
+  ) {
     self.extensionName = extensionName
     self.input = input
     self.arguments = arguments
+    self.link = link
   }
   /// The address of an extension by its ID, `extension:weather`.
-  init(id: String, input: String? = nil, arguments: [String]? = nil) {
+  init(id: String, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false) {
     self.init(
       extensionName: id.hasPrefix("extension:") ? String(id.dropFirst("extension:".count)) : id,
-      input: input, arguments: arguments)
+      input: input, arguments: arguments, link: link)
   }
   /// Parsed leniently: the target is the host or else the path, any query item but `input` is ignored and
   /// the arguments are never read, because a URL comes from outside the extension. Percent-encode the
@@ -132,7 +139,7 @@ struct Address: Codable, Sendable, Equatable {
     let name = (parts.host ?? "").isEmpty ? parts.path.trimmingCharacters(in: ["/"]) : parts.host!
     self.init(
       extensionName: name,
-      input: parts.queryItems?.first { $0.name == "input" }?.value)
+      input: parts.queryItems?.first { $0.name == "input" }?.value, link: true)
   }
 
   /// The host's name for the target: `agent`, `settings`, `clipboard`, an extension ID, or nil for the root.
@@ -144,36 +151,50 @@ struct Address: Codable, Sendable, Equatable {
 }
 
 /// What Return, a button or a menu item does. Every row carries one, including the host's own, so one
-/// dispatcher serves all of them and a row's ID is only its identity.
-enum RowAction: Codable, Sendable, Equatable {
-  case open(URL)
-  case copy(String)
-  case paste(String)
-  case run(Address)
-  /// Show an existing file or folder in Finder. Nothing is opened or run.
-  case reveal(URL)
-  /// Host only, never decoded: send the text to the agent as a question.
-  case send(String)
+/// dispatcher serves all of them and a row's ID is only its identity. An optional `title` names it in
+/// menus in place of the kind's own label.
+struct RowAction: Codable, Sendable, Equatable {
+  enum Kind: Sendable, Equatable {
+    case open(URL)
+    case copy(String)
+    case paste(String)
+    case run(Address)
+    /// Show an existing file or folder in Finder. Nothing is opened or run.
+    case reveal(URL)
+    /// Host only, never decoded: send the text to the agent as a question.
+    case send(String)
+  }
+  var kind: Kind
+  var title: String?
 
+  init(_ kind: Kind, title: String? = nil) {
+    self.kind = kind
+    self.title = title
+  }
+  static func open(_ url: URL, title: String? = nil) -> Self { Self(.open(url), title: title) }
+  static func copy(_ text: String, title: String? = nil) -> Self { Self(.copy(text), title: title) }
+  static func paste(_ text: String, title: String? = nil) -> Self { Self(.paste(text), title: title) }
+  static func run(_ address: Address, title: String? = nil) -> Self { Self(.run(address), title: title) }
+  static func reveal(_ url: URL, title: String? = nil) -> Self { Self(.reveal(url), title: title) }
+  static func send(_ text: String) -> Self { Self(.send(text)) }
   /// Fill the input with the text and send nothing.
-  static func agent(_ text: String) -> RowAction { .run(Address(extensionName: "agent", input: text)) }
+  static func agent(_ text: String, title: String? = nil) -> Self {
+    .run(Address(extensionName: "agent", input: text), title: title)
+  }
 
-  private enum CodingKeys: String, CodingKey { case type, url, text }
+  private enum CodingKeys: String, CodingKey { case type, url, text, title }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
+    title = try c.decodeIfPresent(String.self, forKey: .title)
     switch try c.decode(String.self, forKey: .type) {
     case "open":
       let url = try c.decode(URL.self, forKey: .url)
-      if let address = Address(url: url) {
-        self = .run(address)
-        return
-      }
-      self = .open(url)
-    case "reveal": self = .reveal(try c.decode(URL.self, forKey: .url))
-    case "copy": self = .copy(try c.decode(String.self, forKey: .text))
-    case "paste": self = .paste(OpenPolicy.paste(try c.decode(String.self, forKey: .text)))
-    case "run": self = .run(try Address(from: decoder))
-    case "agent": self = .agent(try c.decode(String.self, forKey: .text))
+      kind = Address(url: url).map(Kind.run) ?? .open(url)
+    case "reveal": kind = .reveal(try c.decode(URL.self, forKey: .url))
+    case "copy": kind = .copy(try c.decode(String.self, forKey: .text))
+    case "paste": kind = .paste(OpenPolicy.paste(try c.decode(String.self, forKey: .text)))
+    case "run": kind = .run(try Address(from: decoder))
+    case "agent": kind = Self.agent(try c.decode(String.self, forKey: .text)).kind
     default:
       throw DecodingError.dataCorruptedError(
         forKey: .type, in: c, debugDescription: "Unknown action type")
@@ -181,7 +202,8 @@ enum RowAction: Codable, Sendable, Equatable {
   }
   func encode(to encoder: any Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
-    switch self {
+    try c.encodeIfPresent(title, forKey: .title)
+    switch kind {
     case .open(let url):
       try c.encode("open", forKey: .type)
       try c.encode(url, forKey: .url)
@@ -225,7 +247,7 @@ enum OpenPolicy {
   }
   /// Why an open or reveal must do nothing, or nil when it may run.
   static func refusal(_ action: RowAction) -> String? {
-    switch action {
+    switch action.kind {
     case .open(let url) where !allowed(url):
       guard url.isFileURL else { return "Wicket opens only http, https, mailto and wicket links" }
       return revealable(url) ? "Wicket does not open scripts, installers or executables" : missing
