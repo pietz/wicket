@@ -1,8 +1,0 @@
-#!/bin/sh
-# Stands in for curl in tests: answers prs.sh's search with a canned response, then its HTTP status,
-# as `curl --write-out '\n%{http_code}'` would.
-cat >/dev/null
-case "$*" in *review-requested*) name=review-requests ;; *) name=my-prs ;; esac
-dir=$(dirname "$0")
-jq -c .body "$dir/$name.json"
-jq .status "$dir/$name.json"

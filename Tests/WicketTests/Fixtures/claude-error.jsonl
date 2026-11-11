@@ -1,0 +1,3 @@
+{"in":"\"type\":\"user\""}
+{"out":{"type":"system","subtype":"init","cwd":"/tmp/wicket-recorded/claude","session_id":"5d08539a-c865-4ad1-809d-5b54231375dd","model":"imaginary-model","permissionMode":"auto"}}
+{"out":{"type":"result","subtype":"success","is_error":true,"session_id":"5d08539a-c865-4ad1-809d-5b54231375dd","terminal_reason":"api_error","stop_reason":"stop_sequence","result":"There's an issue with the selected model (imaginary-model). It may not exist or you may not have access to it."}}

@@ -2,32 +2,25 @@
 import PackageDescription
 
 let package = Package(
-    name: "Wicket",
-    platforms: [.macOS(.v26)],
-    dependencies: [
-        // In-app updates for the released app (Updater); the only third-party dependency.
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1")
-    ],
-    targets: [
-        // Shared values and deterministic policy: commands, content, matching, ranking and markup.
-        .target(name: "WicketCore"),
-        // Runs extensions and agents: processes, revisions, approvals, the checker. Shared by the
-        // app and the CLI.
-        .target(name: "WicketHost", dependencies: ["WicketCore"]),
-        // The app: AppKit shell, panel, hotkeys, app index, settings. A library, so its tests can
-        // `@testable import` it; the `Wicket` executable is only its `main.swift`.
-        .target(
-            name: "WicketApp",
-            dependencies: ["WicketCore", "WicketHost", .product(name: "Sparkle", package: "Sparkle")]),
-        // App entry point only; AppKit and SwiftUI live in the testable WicketApp library.
-        .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
-        // The `wicket` command-line tool, bundled at Wicket.app/Contents/Helpers/wicket.
-        .executableTarget(name: "WicketCLI", dependencies: ["WicketCore", "WicketHost"]),
-        // Fixtures holds markup documents: example replies and extension pages.
-        .testTarget(name: "WicketCoreTests", dependencies: ["WicketCore"], resources: [.copy("Fixtures")]),
-        .testTarget(name: "WicketAppTests", dependencies: ["WicketApp"]),
-        // Fixtures holds recorded agent streams, replayed by a fake agent executable, and the
-        // github-prs sample's fake curl with its canned GitHub responses.
-        .testTarget(name: "WicketHostTests", dependencies: ["WicketHost"], resources: [.copy("Fixtures")]),
-    ]
+  name: "Wicket",
+  platforms: [.macOS(.v26)],
+  dependencies: [
+    .package(url: "https://github.com/swiftlang/swift-cmark.git", exact: "0.9.0"),
+    // In-app updates for the released app (Updater).
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
+  ],
+  targets: [
+    .target(
+      name: "WicketApp",
+      dependencies: [
+        .product(name: "cmark-gfm", package: "swift-cmark"),
+        .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
+        .product(name: "Sparkle", package: "Sparkle"),
+      ],
+      resources: [.process("Resources")]),
+    .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
+    .testTarget(
+      name: "WicketTests", dependencies: ["WicketApp"], resources: [.copy("Fixtures")]
+    ),
+  ]
 )

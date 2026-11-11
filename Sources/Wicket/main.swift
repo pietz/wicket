@@ -1,4 +1,12 @@
+import AppKit
 import WicketApp
 
-// App entry point: starts the AppKit lifecycle in WicketApp, a library its tests can import.
-MainActor.assumeIsolated { AppDelegate.run() }
+if Headless.requested {
+  Task { @MainActor in exit(await Headless.run()) }
+  RunLoop.main.run()
+} else {
+  let app = NSApplication.shared
+  let delegate = AppDelegate()
+  app.delegate = delegate
+  app.run()
+}

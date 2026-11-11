@@ -1,0 +1,1 @@
+{"name":"Search the web","keyword":"web","command":["/usr/bin/python3","main.py"],"icon":"globe","fallback":true}

@@ -1,197 +1,299 @@
 import AVFoundation
 import Speech
-import WicketCore
 
-/// On-device live transcription of the default microphone with Apple's SpeechAnalyzer and
-/// SpeechTranscriber (macOS 26). The model runs in a system process (Wicket's own footprint grows by
-/// a few MB while listening) and needs no speech recognition permission, only the microphone's.
-struct AppleTranscriber: Transcriber {
-    func transcribe() -> AsyncThrowingStream<String, any Error> {
-        AsyncThrowingStream { continuation in
-            // Off the main actor: starting the audio engine and the analyzer takes tens of ms.
-            let task = Task.detached(priority: .userInitiated) {
-                do {
-                    try await Self.listen { continuation.yield($0) }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    private static func listen(yield: @escaping @Sendable (String) -> Void) async throws {
-        // Never prompt from here: a permission dialog would take the keyboard from the palette.
-        guard AVAudioApplication.shared.recordPermission == .granted else {
-            throw VoiceError.microphoneNotAllowed
-        }
-        guard let locale = await VoiceLanguage.locale() else { throw VoiceError.noLanguage }
-        let transcriber = SpeechTranscriber(
-            locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults],
-            attributeOptions: [])
-        // Not `AssetInventory.status`: it said `supported` for an installed model before its first use.
-        guard try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) == nil else {
-            throw VoiceError.modelMissing
-        }
-        guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-            throw VoiceError.noLanguage
-        }
-        try Task.checkCancellation()
-        let (inputs, feed) = AsyncStream.makeStream(of: AnalyzerInput.self)
-        let microphone = try Microphone(format: format, feed: feed)
-        // Lingering keeps the model loaded for a while after this utterance, so the next summon's
-        // first words come faster (about 25 ms against 170 ms cold), and lets it go once voice rests.
-        let analyzer = SpeechAnalyzer(
-            modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
-        defer {
-            microphone.stop()
-            feed.finish()
-        }
-        try await withTaskCancellationHandler {
-            try await analyzer.start(inputSequence: inputs)
-            var transcript = Transcript()
-            for try await result in transcriber.results {
-                transcript.apply(String(result.text.characters), isFinal: result.isFinal)
-                yield(transcript.text)
-            }
-        } onCancel: {
-            microphone.stop()
-            feed.finish()
-            Task { await analyzer.cancelAndFinishNow() }
-        }
-    }
-}
-
-/// The default input device through `AVAudioEngine`, converted to the analyzer's format. macOS 27's
-/// `CaptureInputSequenceProvider` would do this, but Wicket still supports macOS 26.
-private final class Microphone: @unchecked Sendable {
-    // Unchecked: the engine is started in `init` and only stopped after that, from whichever task
-    // ends the session first; AVAudioEngine's stop and removeTap are safe to call from any thread,
-    // and the lock makes the second call a no-op.
-    private let engine = AVAudioEngine()
-    private let lock = NSLock()
-    private var stopped = false
-
-    init(format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation) throws {
-        let input = engine.inputNode
-        let inputFormat = input.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-            let converter = AVAudioConverter(from: inputFormat, to: format)
-        else { throw VoiceError.noMicrophone }
-        let conversion = Conversion(
-            converter: converter, format: format, ratio: format.sampleRate / inputFormat.sampleRate)
-        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { buffer, _ in
-            if let converted = conversion.convert(buffer) { feed.yield(AnalyzerInput(buffer: converted)) }
-        }
-        engine.prepare()
+/// Apple's macOS 26 on-device pipeline. No fallback recognizer, model download or audio file.
+@MainActor final class AppleTranscriber: Transcriber {
+  var microphoneUID: String?
+  init(microphoneUID: String? = nil) { self.microphoneUID = microphoneUID }
+  private var task: Task<Void, Never>?
+  private var microphone: Microphone?
+  private(set) var shutdown: Task<Void, Never>?
+  func start() -> AsyncThrowingStream<VoiceUpdate, any Error> {
+    stop()
+    let capture = Microphone()
+    let uid = microphoneUID
+    microphone = capture
+    return AsyncThrowingStream { continuation in
+      let worker = Task.detached(priority: .userInitiated) {
         do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            throw error
-        }
+          try await Self.listen(
+            capture, uid: uid, yield: { continuation.yield($0) }, fail: { continuation.finish(throwing: $0) })
+          continuation.finish()
+        } catch { continuation.finish(throwing: error) }
+      }
+      task = worker
+      // A conversion error can finish from the audio tap; run teardown away from that callback.
+      continuation.onTermination = { _ in Task.detached { worker.cancel() } }
     }
-
-    func stop() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !stopped else { return }
-        stopped = true
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+  }
+  func stop() {
+    if let microphone { shutdown = microphone.requestStop() }
+    microphone = nil
+    task?.cancel()
+    task = nil
+  }
+  nonisolated static func validateUsage(_ info: [String: Any]) throws {
+    guard let text = info["NSMicrophoneUsageDescription"] as? String, !text.isEmpty else {
+      throw VoiceError.usageMissing
     }
+  }
+  nonisolated private static func listen(
+    _ microphone: Microphone, uid: String?, yield: @escaping @Sendable (VoiceUpdate) -> Void,
+    fail: @escaping @Sendable (VoiceError) -> Void
+  ) async throws {
+    defer { _ = microphone.requestStop() }
+    try validateUsage(Bundle.main.infoDictionary ?? [:])
+    try Task.checkCancellation()
+    let permission = AVAudioApplication.shared.recordPermission
+    let micAllowed: Bool
+    if permission == .undetermined {
+      yield(.permission(true))
+      micAllowed = await AVAudioApplication.requestRecordPermission()
+      yield(.permission(false))
+    } else {
+      micAllowed = permission == .granted
+    }
+    try Task.checkCancellation()
+    guard micAllowed else { throw VoiceError.microphoneDenied }
+    guard SpeechTranscriber.isAvailable else { throw VoiceError.noLanguage }
+    guard
+      let locale = VoiceLanguage.choose(
+        preferred: Locale.preferredLanguages, supported: await SpeechTranscriber.supportedLocales
+      )
+    else { throw VoiceError.noLanguage }
+    let transcriber = SpeechTranscriber(
+      locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults],
+      attributeOptions: [])
+    guard try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) == nil else {
+      throw VoiceError.modelMissing
+    }
+    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+      throw VoiceError.noLanguage
+    }
+    try Task.checkCancellation()
+    let (inputs, feed) = AsyncStream.makeStream(of: AnalyzerInput.self)
+    defer { feed.finish() }
+    let analyzer = SpeechAnalyzer(
+      modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
+    try await withTaskCancellationHandler {
+      try microphone.start(
+        format: format, uid: uid, feed: feed, firstAudio: { yield(.audio(.now)) }, fail: fail)
+      yield(.ready)
+      try await analyzer.start(inputSequence: inputs)
+      var transcript = Transcript(locale: locale)
+      for try await result in transcriber.results {
+        try Task.checkCancellation()
+        transcript.apply(String(result.text.characters), isFinal: result.isFinal)
+        yield(.transcript(transcript.text))
+      }
+    } onCancel: {
+      _ = microphone.requestStop()
+      feed.finish()
+      Task { await analyzer.cancelAndFinishNow() }
+    }
+  }
 }
 
-/// Converts the microphone's buffers on the audio thread, one at a time (the tap calls serially).
-private final class Conversion: @unchecked Sendable {
-    private let converter: AVAudioConverter
-    private let format: AVAudioFormat
-    private let ratio: Double
-
-    init(converter: AVAudioConverter, format: AVAudioFormat, ratio: Double) {
-        self.converter = converter
-        self.format = format
-        self.ratio = ratio
+/// Opening never holds the state lock. Completion waits off the main actor for opening and teardown.
+final class Microphone: @unchecked Sendable {
+  private let lock = NSLock()
+  private var close: (@Sendable () -> Void)?
+  private var stopped = false, started = false
+  private var shutdown: Task<Void, Never>?
+  private let opening: AsyncStream<Void>
+  private let finished: AsyncStream<Void>.Continuation
+  init() { (opening, finished) = AsyncStream.makeStream(of: Void.self) }
+  func start(open: () throws -> @Sendable () -> Void) throws {
+    try lock.withLock {
+      guard !stopped, !started else { throw CancellationError() }
+      started = true
     }
-
-    func convert(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 1
-        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
-        nonisolated(unsafe) var supplied = false
-        var error: NSError?
-        let status = converter.convert(to: output, error: &error) { _, inputStatus in
-            if supplied {
-                inputStatus.pointee = .noDataNow
-                return nil
-            }
-            supplied = true
-            inputStatus.pointee = .haveData
-            return buffer
+    defer { finished.finish() }
+    let close = try open()
+    lock.withLock { self.close = close }
+  }
+  func start(
+    format: AVAudioFormat, uid: String?, feed: AsyncStream<AnalyzerInput>.Continuation,
+    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
+  ) throws {
+    try start {
+      let capture = EngineCapture(format: format, uid: uid, feed: feed, firstAudio: firstAudio, fail: fail)
+      try capture.start()
+      return { capture.stop() }
+    }
+  }
+  func requestStop() -> Task<Void, Never> {
+    lock.withLock {
+      stopped = true
+      if !started { finished.finish() }
+      if let shutdown { return shutdown }
+      let task = Task.detached { [self] in
+        for await _ in opening {}
+        let close = lock.withLock {
+          let value = self.close
+          self.close = nil
+          return value
         }
-        guard status != .error, output.frameLength > 0 else { return nil }
-        return output
+        close?()
+      }
+      shutdown = task
+      return task
     }
+  }
+  static func validate(input: AVAudioFormat, output: AVAudioFormat) throws {
+    guard input.sampleRate.isFinite, input.sampleRate > 0, input.channelCount > 0,
+      output.sampleRate.isFinite, output.sampleRate > 0, output.channelCount > 0,
+      input == output
+    else { throw VoiceError.noMicrophone }
+  }
+  func stop() async { await requestStop().value }
 }
 
-/// Which language Wicket listens in: the first of the user's preferred languages that on-device
-/// transcription supports, matched by language and region, else by language alone. SpeechTranscriber
-/// takes one language per session, so a German speaker with English first gets English.
-enum VoiceLanguage {
-    static func locale() async -> Locale? {
-        choose(preferred: Locale.preferredLanguages, supported: await SpeechTranscriber.supportedLocales)
-    }
-
-    /// The first preferred language with the same region in `supported`, else with the language's
-    /// likely region (English in Germany listens in US English), else any region of it. Not
-    /// `SpeechTranscriber.supportedLocale(equivalentTo:)`, which on macOS 27.2 mapped "en" to
-    /// Singapore and "en-DE" to Irish English.
-    static func choose(preferred: [String], supported: [Locale]) -> Locale? {
-        for identifier in preferred {
-            let wanted = Locale(identifier: identifier)
-            guard let language = wanted.language.languageCode else { continue }
-            let likely = Locale(
-                identifier: Locale.Language(identifier: language.identifier).maximalIdentifier)
-            let candidates = supported.filter { $0.language.languageCode == language }
-            for region in [wanted.region, likely.region].compactMap(\.self) {
-                if let match = candidates.first(where: { $0.region == region }) { return match }
-            }
-            if let any = candidates.first { return any }
+/// Serialize engine changes and teardown, including notifications queued during startup.
+private final class EngineCapture: @unchecked Sendable {
+  private let queue = DispatchQueue(label: "app.wicket.capture")
+  private let engine = AVAudioEngine()
+  private var observer: (any NSObjectProtocol)?
+  private var tapped = false, stopped = false
+  private let format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation
+  private let fail: @Sendable (VoiceError) -> Void
+  private let uid: String?, firstAudio: @Sendable () -> Void
+  init(
+    format: AVAudioFormat, uid: String?, feed: AsyncStream<AnalyzerInput>.Continuation,
+    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
+  ) {
+    self.format = format
+    self.uid = uid
+    self.feed = feed
+    self.firstAudio = firstAudio
+    self.fail = fail
+  }
+  func start() throws {
+    try queue.sync {
+      observer = NotificationCenter.default.addObserver(
+        forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+      ) { [weak self] _ in
+        guard let self else { return }
+        queue.async { [self] in
+          guard !stopped else { return }
+          guard !engine.isRunning else { return }
+          close()
+          fail(.inputChanged)
         }
+      }
+      do { try open() } catch {
+        close()
+        throw error
+      }
+    }
+  }
+  private func open() throws {
+    let input = engine.inputNode
+    guard let device = MicrophoneDevice.select(MicrophoneDevices.available(), uid: uid) else {
+      throw VoiceError.noMicrophone
+    }
+    do { try input.auAudioUnit.setDeviceID(device.id) } catch { throw VoiceError.noMicrophone }
+    let inputFormat = input.outputFormat(forBus: 0)
+    try Microphone.validate(input: input.inputFormat(forBus: 0), output: inputFormat)
+    let conversion = try Conversion(input: inputFormat, output: format)
+    nonisolated(unsafe) var received = false
+    input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [feed, fail, firstAudio] buffer, _ in
+      if !received {
+        received = true
+        firstAudio()
+      }
+      do {
+        if let converted = try conversion.convert(buffer) { feed.yield(AnalyzerInput(buffer: converted)) }
+      } catch { fail(.conversionFailed) }
+    }
+    tapped = true
+    engine.prepare()
+    try engine.start()
+  }
+  private func close() {
+    stopped = true
+    if let observer { NotificationCenter.default.removeObserver(observer) }
+    observer = nil
+    if tapped {
+      engine.inputNode.removeTap(onBus: 0)
+      tapped = false
+    }
+    engine.stop()
+  }
+  func stop() { queue.sync { close() } }
+}
+
+/// AVAudioEngine supplies Float32 PCM; explicit averaging also supports discrete multichannel layouts.
+final class Conversion: @unchecked Sendable {
+  private let converter: AVAudioConverter
+  private let source: AVAudioFormat, mono: AVAudioFormat, format: AVAudioFormat
+  private let ratio: Double
+  init(input: AVAudioFormat, output: AVAudioFormat) throws {
+    guard input.commonFormat == .pcmFormatFloat32,
+      let mono = AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: 1),
+      let converter = AVAudioConverter(from: input.channelCount > 1 ? mono : input, to: output)
+    else { throw VoiceError.conversionFailed }
+    source = input
+    self.mono = mono
+    self.converter = converter
+    format = output
+    ratio = output.sampleRate / input.sampleRate
+  }
+  func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
+    guard buffer.format == source else { throw VoiceError.conversionFailed }
+    guard buffer.frameLength > 0 else { return nil }
+    var input = buffer
+    if source.channelCount > 1 {
+      guard let mixed = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength),
+        let channels = buffer.floatChannelData, let samples = mixed.floatChannelData?[0]
+      else { throw VoiceError.conversionFailed }
+      mixed.frameLength = buffer.frameLength
+      let count = Int(source.channelCount)
+      for frame in 0..<Int(buffer.frameLength) {
+        var sum: Float = 0
+        for channel in 0..<count {
+          sum += source.isInterleaved ? channels[0][frame * count + channel] : channels[channel][frame]
+        }
+        samples[frame] = sum / Float(count)
+      }
+      input = mixed
+    }
+    let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1
+    guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+      throw VoiceError.conversionFailed
+    }
+    var error: NSError?
+    let status = converter.convert(to: output, error: &error, withInputFrom: Self.inputBlock(input))
+    guard status != .error else { throw VoiceError.conversionFailed }
+    return output.frameLength > 0 ? output : nil
+  }
+  static func inputBlock(_ buffer: AVAudioPCMBuffer) -> AVAudioConverterInputBlock {
+    nonisolated(unsafe) var supplied = false
+    return { _, status in
+      guard !supplied else {
+        status.pointee = .noDataNow
         return nil
+      }
+      supplied = true
+      status.pointee = .haveData
+      return buffer
     }
+  }
+}
 
-    /// Whether `locale`'s model still has to be downloaded. Not `AssetInventory.status`, which said
-    /// `supported` for an installed model before its first use.
-    static func needsDownload(_ locale: Locale) async throws -> Bool {
-        try await AssetInventory.assetInstallationRequest(supporting: [transcriber(locale)]) != nil
+/// Prefer the user's region, then the language's likely region, then any supported region.
+enum VoiceLanguage {
+  static func choose(preferred: [String], supported: [Locale]) -> Locale? {
+    for identifier in preferred {
+      let wanted = Locale(identifier: identifier)
+      guard let language = wanted.language.languageCode else { continue }
+      let likely = Locale(identifier: Locale.Language(identifier: language.identifier).maximalIdentifier)
+      let candidates = supported.filter { $0.language.languageCode == language }
+      for region in [wanted.region, likely.region].compactMap(\.self) {
+        if let match = candidates.first(where: { $0.region == region }) { return match }
+      }
+      if let any = candidates.first { return any }
     }
-
-    /// Downloads the model for `locale` if it is missing, reporting progress from 0 to 1.
-    static func install(_ locale: Locale, progress: @escaping @MainActor (Double) -> Void) async throws {
-        guard
-            let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber(locale)])
-        else { return }
-        let watch = Task { @MainActor in
-            while !Task.isCancelled {
-                progress(request.progress.fractionCompleted)
-                try? await Task.sleep(for: .milliseconds(200))
-            }
-        }
-        defer { watch.cancel() }
-        try await request.downloadAndInstall()
-    }
-
-    /// Keeps `locale`'s model reserved for Wicket while voice is on; released when it is turned off.
-    static func reserve(_ locale: Locale, _ keep: Bool) async {
-        if keep {
-            _ = try? await AssetInventory.reserve(locale: locale)
-        } else {
-            await AssetInventory.release(reservedLocale: locale)
-        }
-    }
-
-    private static func transcriber(_ locale: Locale) -> SpeechTranscriber {
-        SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
-    }
+    return nil
+  }
 }

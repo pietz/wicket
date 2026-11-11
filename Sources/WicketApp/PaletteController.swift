@@ -1,93 +1,60 @@
 import AppKit
 import SwiftUI
-import WicketCore
 
-/// A borderless, non-activating floating panel: it takes the keyboard without activating Wicket, so
-/// the app the user came from stays frontmost and gets focus back when the palette closes.
-final class PalettePanel: NSPanel {
-    /// Handles the palette's chords. Each one is consumed, even when it does nothing at the moment,
-    /// so none ever reaches a text field.
-    var onChord: (PaletteChord) -> Void = { _ in }
-    /// Sees every key press first; true consumes it. Voice input stops on any key here.
-    var onKeyDown: (NSEvent) -> Bool = { _ in false }
-
-    init(contentRect: NSRect) {
-        super.init(
-            contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered, defer: false)
-        isFloatingPanel = true
-        level = .floating
-        // Appears on the current Space, including over full-screen apps.
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = false
-        isReleasedWhenClosed = false
-        hidesOnDeactivate = false
-        animationBehavior = .none
+/// Focus and event routing extracted from the first Wicket, without its command/frame layer.
+class PalettePanel: NSPanel {
+  var beforeAction: (PaletteKeyAction) -> Bool = { _ in false }
+  var onAction: (PaletteKeyAction) -> Void = { _ in }
+  weak var input: NSTextField?
+  var permissionPending: () -> Bool = { false }
+  init() {
+    super.init(
+      contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+      backing: .buffered, defer: false)
+    isFloatingPanel = true
+    level = .floating
+    collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+    isOpaque = false
+    backgroundColor = .clear
+    hasShadow = false
+    isReleasedWhenClosed = false
+    hidesOnDeactivate = false
+    animationBehavior = .none
+  }
+  override func sendEvent(_ event: NSEvent) {
+    if event.type == .keyDown, route(event) { return }
+    super.sendEvent(event)
+  }
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    route(event) || super.performKeyEquivalent(with: event)
+  }
+  func route(_ event: NSEvent) -> Bool {
+    guard isKeyWindow else { return false }
+    // The first key after summon must find the field even before SwiftUI finishes its update.
+    let flagsOnly = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    if !permissionPending(), !(firstResponder is NSTextView), !(firstResponder is NSTextField),
+      flagsOnly.isDisjoint(with: [.command, .control]),
+      ![48, 53, 36, 76, 125, 126].contains(Int(event.keyCode)),
+      let input
+    {
+      makeFirstResponder(input)
     }
-
-    override var canBecomeKey: Bool { true }
-
-    /// Palette chords are matched here, before the focused field: the field editor binds some of them
-    /// (⌃N, ⌃P), and SwiftUI's `onKeyPress` never sees those. ⌘ chords usually arrive in
-    /// `performKeyEquivalent` first, which AppKit calls before this.
-    override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown, onKeyDown(event) { return }
-        if event.type == .keyDown, let chord = chord(for: event) {
-            onChord(chord)
-            return
-        }
-        // A new frame rebuilds the search field and focuses it a run-loop turn later; a key that
-        // lands in between (Escape, the first typed letter) would find no field. Focus it now.
-        if event.type == .keyDown, !(firstResponder is NSTextView),
-            let field = contentView?.firstEditableField
-        {
-            makeFirstResponder(field)
-        }
-        super.sendEvent(event)
+    let flags: [(NSEvent.ModifierFlags, Shortcut.Modifiers)] = [
+      (.command, .command), (.control, .control), (.option, .option), (.shift, .shift),
+    ]
+    let modifiers = flags.reduce(into: Shortcut.Modifiers()) { result, pair in
+      if event.modifierFlags.contains(pair.0) { result.insert(pair.1) }
     }
-
-    /// AppKit offers a ⌘ key to the key window here, then to the main menu, and only then to
-    /// `sendEvent`. So the palette's chords are claimed here (the menu binds ⌘, too), editing
-    /// shortcuts go straight to the focused field, and any other key the main menu binds (⌘Q, ⌘W,
-    /// ⌘H, ⌘M) is swallowed: the menu is for the settings window and never acts from the palette.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if onKeyDown(event) { return true }
-        if let chord = chord(for: event) {
-            onChord(chord)
-            return true
-        }
-        if let edit = EditCommand(
-            characters: event.charactersIgnoringModifiers, modifiers: Shortcut.Modifiers(event.modifierFlags)),
-            NSApp.sendAction(edit.selector, to: nil, from: self)
-        {
-            return true
-        }
-        if super.performKeyEquivalent(with: event) { return true }
-        return NSApp.mainMenu?.bindsKeyEquivalent(of: event) == true
-    }
-
-    /// Scrolls the focused field to its caret. AppKit's field editor scrolls only after its own
-    /// edits, and SwiftUI's TextField has no way to, even with a `selection` binding (checked on
-    /// macOS 26): text set through the binding (a transcript) would stay scrolled to where it was.
-    func revealCaret() {
-        guard let editor = firstResponder as? NSTextView, editor.isFieldEditor else { return }
-        editor.scrollRangeToVisible(editor.selectedRange())
-    }
-
-    /// The chord `event` is, unless an input method is composing with it.
-    func chord(for event: NSEvent) -> PaletteChord? {
-        guard (firstResponder as? NSTextView)?.hasMarkedText() != true else { return nil }
-        return PaletteChord(
-            keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
-            modifiers: Shortcut.Modifiers(event.modifierFlags))
-    }
-}
-
-extension EditCommand {
-    fileprivate var selector: Selector {
-        switch self {
+    let action = PaletteKeyAction.decide(
+      keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
+      modifiers: modifiers, hasMarkedText: (firstResponder as? NSTextView)?.hasMarkedText() == true,
+      permissionPending: permissionPending(), isARepeat: event.isARepeat)
+    if beforeAction(action) { return true }
+    switch action {
+    case .passThrough: return false
+    case .edit(let edit):
+      let selector: Selector =
+        switch edit {
         case .cut: #selector(NSText.cut(_:))
         case .copy: #selector(NSText.copy(_:))
         case .paste: #selector(NSText.paste(_:))
@@ -95,375 +62,217 @@ extension EditCommand {
         case .undo: Selector(("undo:"))
         case .redo: Selector(("redo:"))
         }
+      NSApp.sendAction(selector, to: nil, from: self)
+    case .consume: break
+    default: onAction(action)
     }
+    return true
+  }
+
 }
 
-/// Owns the panel: summoning, placement, dismissal and activation, and the window's frame. The
-/// content is all SwiftUI.
-///
-/// The window is the pill and, while there are results, a card sized to them, always with its top
-/// edge at the anchor resolved on summon, so the pill and the card's top never move. A taller card
-/// grows the window at once, then animates the card into the transparent space; a shorter one (or
-/// none) animates the card first, then shrinks the window. SwiftUI never resizes the panel, so the
-/// two never fight over the frame.
 @MainActor
 final class PaletteController: NSObject, NSWindowDelegate {
-    static let motion = Animation.snappy(duration: 0.28)
-    /// How long the card keeps its height before shrinking, so slow sources (files) answering a beat
-    /// after each keystroke don't make it flicker.
-    static let shrinkDelay = Duration.milliseconds(300)
+  let panel: PalettePanel
+  let model: LauncherModel
+  let renderer: AnswerRenderer
+  private var anchor = NSPoint.zero
+  private var opening = false
+  private var previousApp: NSRunningApplication?
+  private var visibleStarted: TimeInterval?
+  /// Between `show` and `hide`. A hidden panel renders nothing, so the renderer can release its page.
+  private var isOpen = false
 
-    let model: PaletteModel
-    /// The pill's width, from settings; applied on the next summon.
-    var width = CGFloat(Settings.defaultPaletteWidth)
-    private let dispatcher: ActionDispatcher
-    private let panel: PalettePanel
-    /// The window's top-left corner, resolved once per summon so only the height ever changes.
-    private var anchor = NSPoint.zero
-    private var pendingShrink: Task<Void, Never>?
-    /// The frame the card last followed, so a push or pop resizes at once.
-    private var shownFrame: Frame.ID?
-    /// Timestamp of the event that summoned the palette, until it is on screen.
-    private var pendingShow: (eventTime: TimeInterval, showStart: TimeInterval)?
-    /// The app that was frontmost when the palette was summoned, where `paste` types.
-    private var previousApp: RunningApp?
-    /// Where a message shows while the card is not up.
-    private let hud = MessageHUD()
-    /// The actions menu while it tracks, so losing key to it doesn't hide the palette.
-    private var openActions: ActionMenu?
-
-    init(model: PaletteModel, dispatcher: ActionDispatcher) {
-        self.model = model
-        self.dispatcher = dispatcher
-        panel = PalettePanel(
-            contentRect: NSRect(origin: .zero, size: PaletteMetrics.windowSize(width: width, cardHeight: 0)))
-        super.init()
-        panel.delegate = self
-        panel.onChord = { [weak self] in self?.handle($0) }
-        panel.onKeyDown = { [weak self] in self?.keyDown($0) ?? false }
-        model.session.onClose = { [weak self] in self?.hide() }
-        model.session.messages.present = { [weak self] in self?.present($0) }
-        model.resolve = { [dispatcher] in dispatcher.resolve($0, as: $1) }
-        let root = NSHostingView(
-            rootView: PaletteRootView(
-                model: model, onRun: { [weak self] in self?.run($0, at: $1) },
-                onEscape: { [weak self] in self?.escape() },
-                onListen: { [weak self] in self?.listen() },
-                onOpenLink: { [weak self] in self?.open(link: $0) },
-                onQueryChange: { [weak self] in self?.panel.revealCaret() },
-                onType: { [weak self] in self?.type($0) ?? false }))
-        // The controller owns the frame; SwiftUI must never resize the panel.
-        root.sizingOptions = []
-        panel.contentView = root
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(occlusionChanged), name: NSWindow.didChangeOcclusionStateNotification,
-            object: panel)
-        Task { [weak self, model] in
-            let cards = Observations {
-                Card(
-                    height: PaletteMetrics.cardHeight(
-                        for: model.top, detailHeight: model.detailHeight, listTop: model.listTopHeight),
-                    frame: model.top.id, isCompact: model.top.isCompact,
-                    isUnmeasured: model.top.isMeasured
-                        ? model.detailHeight == nil
-                        : model.top.summary != nil && model.listTopHeight == nil)
-            }
-            for await card in cards {
-                self?.follow(card)
-            }
-        }
+  /// `flatSurfaces` draws solid surfaces instead of glass, which an offscreen render cannot show.
+  init(model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel()) {
+    self.panel = panel
+    self.model = model
+    renderer = AnswerRenderer(folder: model.agent.folder) { NSWorkspace.shared.open($0) }
+    super.init()
+    panel.delegate = self
+    panel.setAccessibilityLabel("Wicket Launcher")
+    let root = NSHostingView(
+      rootView: LauncherView(
+        model: model, renderer: renderer,
+        registerInput: { [weak self] field in self?.panel.input = field },
+        run: { [weak self] action in self?.run(action) }, flatSurfaces: flatSurfaces))
+    root.sizingOptions = []
+    panel.contentView = root
+    panel.permissionPending = { [weak model] in model.map { !$0.agent.permissions.isEmpty } ?? false }
+    panel.beforeAction = { [weak model] action in model?.keyPressed(action) ?? false }
+    panel.onAction = { [weak self] action in
+      guard let self else { return }
+      switch action {
+      case .dismiss: if !model.escape() { hide() }
+      case .run: run()
+      case .ask: model.ask()
+      case .permission(let allow): model.agent.decide(allow)
+      case .move(let delta): model.move(delta)
+      default: break
+      }
     }
-
-    func toggle(eventTime: TimeInterval) {
-        if panel.isVisible { hide() } else { show(eventTime: eventTime) }
+    model.onResultsChange = { [weak self] in
+      guard let self else { return }
+      if isOpen { renderContent() }
+      resize()
     }
-
-    /// A summon: shows the palette, then captures where the user came from.
-    func show(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        present(eventTime: eventTime)
-        // After ordering front, so it stays off the hotkey-to-visible path. The panel doesn't
-        // activate Wicket, so the frontmost app is still the one the user came from.
-        capturePreviousApp()
-        // Likewise after: the microphone and the analyzer start off the main actor.
-        if let voice = model.voice, voice.listensOnOpen { voice.arm() }
+    model.onVoicePermissionFinished = { [weak self] in
+      guard let self, self.panel.isVisible else { return }
+      self.panel.makeKey()
     }
-
-    private func present(eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        pendingShow = (eventTime, ProcessInfo.processInfo.systemUptime)
-        anchor = Self.anchor(width: width)
-        resize(cardHeight: 0)
-        // ⌘ may have been pressed or released while hidden, where the view saw no change.
-        model.commandHeld = NSEvent.modifierFlags.contains(.command)
-        panel.makeKeyAndOrderFront(nil)
-        panel.orderFrontRegardless()
-        model.focusToken += 1
+    renderer.onHeight = { [weak self] in self?.resize() }
+  }
+  func toggle(eventTime: TimeInterval) {
+    if panel.isVisible { hide() } else { show(eventTime: eventTime) }
+  }
+  func showOnLaunch(_ event: NSAppleEventDescriptor?, orderFront: Bool = true) {
+    if event?.eventID == kAEOpenApplication,
+      event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    {
+      return
     }
-
-    /// The app the user came from, where a paste types, and the files selected there in Finder (the
-    /// session's context, captured off the main actor).
-    private func capturePreviousApp() {
-        previousApp = Self.frontmostApp()
-        model.pasteTarget = previousApp?.name
-        model.session.captureContext(ContextCapture.start(from: previousApp))
+    show(orderFront: orderFront, listen: false)
+  }
+  func show(
+    eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime, orderFront: Bool = true,
+    listen: Bool = true
+  ) {
+    guard !panel.isVisible else {
+      panel.makeKey()
+      return
     }
-
-    /// The frontmost app, unless it is Wicket.
-    private static func frontmostApp() -> RunningApp? {
-        NSWorkspace.shared.frontmostApplication.flatMap {
-            $0 == .current
-                ? nil
-                : RunningApp(
-                    processID: $0.processIdentifier, bundleID: $0.bundleIdentifier, name: $0.localizedName)
-        }
+    previousApp = NSWorkspace.shared.frontmostApplication
+    let mouse = NSEvent.mouseLocation
+    let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+    let visible = screen?.visibleFrame ?? .zero
+    anchor = NSPoint(
+      x: (visible.midX - PaletteLayout.width / 2).rounded(),
+      y: (visible.maxY - visible.height * 0.2 + PaletteLayout.margin).rounded())
+    model.reopen()
+    renderer.opened()
+    renderer.cap = PaletteLayout.answerCap(available: anchor.y - visible.minY)
+    isOpen = true
+    renderContent()
+    resize()
+    visibleStarted = eventTime
+    if orderFront {
+      if panel.canBecomeKey { panel.makeKeyAndOrderFront(nil) }
+      panel.orderFrontRegardless()
     }
-
-    func hide() {
-        guard panel.isVisible else { return }
-        openActions?.menu.cancelTrackingWithoutAnimation()
-        panel.orderOut(nil)
-        model.voice?.stop()
-        // Reset while hidden so the next summon has nothing to redraw. Resetting the session also
-        // cancels every command run.
-        pendingShrink?.cancel()
-        model.showToast(nil)
-        model.commandHeld = false
-        model.forgetPages()
-        model.session.reset()
-        model.session.captureContext(nil)
-        model.cardHeight = 0
+    if listen { model.armVoice() }
+    panel.contentView?.layoutSubtreeIfNeeded()
+    if panel.canBecomeKey, let input = panel.input {
+      panel.makeFirstResponder(input)
+      (input.currentEditor() as? NSTextView)?.setSelectedRange(
+        NSRange(location: input.stringValue.utf16.count, length: 0))
     }
-
-    /// Escape in the search field goes back one layer (`PaletteSession.back`), so repeated presses
-    /// end at an empty root search and then close the palette.
-    func escape() {
-        if !model.session.back() { hide() }
+    model.refresh()
+  }
+  func hide() {
+    isOpen = false
+    model.stopVoice()
+    panel.orderOut(nil)
+    model.dismiss()
+    renderer.closed()
+  }
+  private func resize() {
+    guard panel.isVisible || anchor != .zero else { return }
+    let height = PaletteLayout.panelHeight(card: model.cardHeight(answer: renderer.height))
+    let frame = PaletteLayout.frame(anchor: anchor, height: height)
+    if panel.frame != frame { panel.setFrame(frame, display: false) }
+    panel.contentView?.layoutSubtreeIfNeeded()
+    panel.invalidateShadow()
+  }
+  /// The screen that is open: the conversation if there is one, otherwise an extension's detail.
+  private func renderContent() {
+    renderer.textSize = model.configuration.textSize
+    if model.agent.active {
+      renderer.update(
+        model.agent.answer, turn: model.agent.turnID, streaming: model.agent.busy && model.agent.streaming)
+    } else if let body = model.detailBody {
+      renderer.update(body, turn: model.command?.turn ?? "", streaming: false)
     }
-
-    /// Runs the action at `position` in the target's actions (`.action(0)` is the primary) or its
-    /// screen's, and applies its outcome. Does nothing if there is no such action, so Return on a
-    /// message row keeps the palette open, or while a command is starting (one at a time).
-    func run(_ target: ActionTarget?, at position: ActionTarget.Position) {
-        guard !model.top.isStarting, let target, let (action, authority) = target.action(at: position)
+  }
+  func run(_ chosen: RowAction? = nil) {
+    model.stopVoice()
+    if model.agent.active || model.selected?.provider == "agent" {
+      model.ask()
+      return
+    }
+    if chosen == nil, model.enterSelected() { return }
+    guard !opening, let result = model.selected, let action = chosen ?? result.row.actions.first else {
+      return
+    }
+    let input = model.input
+    switch action {
+    case .copy(let text):
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(text, forType: .string)
+      model.record(result)
+      hide()
+    case .agent(let text): model.ask(text)
+    case .run(let arguments): model.rerun(result.provider, arguments: arguments)
+    case .paste(let text):
+      guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),
+        !previousApp.isTerminated
+      else {
+        model.actionProblem =
+          "Paste requires Accessibility access for Wicket and a previous app. Enable it in System Settings, then reopen Wicket."
+        return
+      }
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(OpenPolicy.paste(text), forType: .string)
+      model.record(result)
+      hide()
+      previousApp.activate()
+      Task {
+        try? await Task.sleep(for: .milliseconds(120))
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == previousApp.processIdentifier
         else { return }
-        // Usage only ranks the root search, so only its rows are recorded.
-        if case .action = position, model.top.results != nil, let item = target.item {
-            model.recordUse(of: item)
+        for down in [true, false] {
+          let event = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: down)
+          event?.flags = .maskCommand
+          event?.postToPid(previousApp.processIdentifier)
         }
-        perform(action, as: authority)
-    }
-
-    /// A link clicked in a page runs as an agent's Open (`ActionPolicy`), whoever drew the page: a
-    /// page's text is untrusted, so web, mail and file links open, what would run is revealed, any
-    /// other link isn't followed; it closes the palette and reports a missing file like a row's.
-    func open(link url: URL) {
-        perform(.open(url: url), as: .agent)
-    }
-
-    /// Typing on a result opens its continuation with the first text in a waiting field. The text
-    /// is not submitted until Return. False when the result has no continuation.
-    func type(_ text: String) -> Bool {
-        guard let action = model.session.typingAction else { return false }
-        perform(action, as: .host, typed: text)
-        return true
-    }
-
-    /// Performs `action`; a frame it opens waiting for its text starts with `typed` in its field.
-    private func perform(_ action: Item.Action, as authority: Authority, typed: String? = nil) {
-        guard !model.top.isStarting else { return }
-        model.voice?.stop()
-        switch dispatcher.perform(action, as: authority, in: ActionContext(previousApp: previousApp)) {
-        case .close: hide()
-        case .refused(let reason): model.session.messages.post(Message(reason, kind: .failed))
-        case .push(let detail, let authority): model.session.push(detail, from: authority)
-        case .open(let run):
-            model.session.open(run)
-            if let typed, run.awaitsText {
-                model.session.query = typed
-            } else if run.awaitsText, let voice = model.voice, voice.listensOnOpen {
-                // A frame waiting for its text (a follow-up, Run Agent's question) is an input like
-                // the opened palette's, so it arms the microphone as that does.
-                voice.arm()
-            }
+      }
+    case .open(let url):
+      guard OpenPolicy.allowed(url) else {
+        model.actionProblem = "This file cannot be opened by an extension action"
+        return
+      }
+      if !url.isFileURL || url.pathExtension.lowercased() != "app" {
+        if NSWorkspace.shared.open(url) {
+          model.record(result)
+          hide()
+        } else {
+          model.actionProblem = "Could not open \(url.absoluteString)"
         }
-    }
-
-    // MARK: Voice
-
-    /// The mic button and ⌘L: listens or stops, or says how to turn voice on. Not in a frame that
-    /// takes no text, where words would have nowhere to go.
-    func listen() {
-        guard let voice = model.voice, model.takesSpeech else { return }
-        voice.toggle()
-        // Listening starts on an empty field; the words replace what was typed.
-        if voice.isListening { model.session.setSpokenQuery("") }
-    }
-
-    /// While the microphone is on, any key stops it (`VoiceInput.keyPressed`), except ⌘L, whose
-    /// chord does the stopping (or turns an armed microphone into listening).
-    private func keyDown(_ event: NSEvent) -> Bool {
-        guard panel.chord(for: event) != .listen else { return false }
-        return model.voice?.keyPressed(isEscape: event.keyCode == Self.escapeKeyCode) ?? false
-    }
-
-    private static let escapeKeyCode: UInt16 = 53
-
-    /// Every message (`Messages`) shows here: in the footer while the card is up, else in the HUD
-    /// where the pill is or was (a command that closed the palette, a paste that only copied).
-    private func present(_ message: Message) {
-        if panel.isVisible, model.isExpanded {
-            model.showToast(message)
-            return
+        return
+      }
+      opening = true
+      // Keep the error visible if Launch Services refuses the application.
+      NSWorkspace.shared.openApplication(at: url, configuration: .init()) { [weak self] _, error in
+        Task { @MainActor in
+          guard let self else { return }
+          self.opening = false
+          if let error {
+            self.model.actionProblem = error.localizedDescription
+          } else {
+            self.model.record(result, input: input)
+            self.hide()
+          }
         }
-        let pill = NSPoint(
-            x: anchor.x + PaletteMetrics.margin + width / 2,
-            y: anchor.y - PaletteMetrics.margin - PaletteMetrics.pillHeight / 2)
-        hud.show(message, centeredAt: pill)
+      }
     }
-
-    /// The keyboard model's chords; plain keys are handled by the focused field's `onKeyPress`.
-    private func handle(_ chord: PaletteChord) {
-        switch chord {
-        case .toggleActions:
-            if let target = model.target, !target.actions.isEmpty || !target.screen.isEmpty {
-                showActions(for: target)
-            }
-        case .runSecondary:
-            run(model.target, at: model.target?.secondary ?? .action(1))
-        case .runRow(let row):
-            guard model.results.indices.contains(row) else { break }
-            run(model.top.target(for: model.results[row]), at: .action(0))
-        case .openSettings:
-            perform(.run(command: .settings), as: .host)
-        case .listen:
-            listen()
-        case .move(let delta):
-            model.moveSelection(by: delta)
-        }
-    }
-
-    /// ⌘K: the actions menu for `target`, above the footer at the card's right (under the pill when
-    /// there is no card). `popUp` tracks until the menu closes, which Escape does without reaching
-    /// the palette; the chosen action then runs as Return would run it.
-    private func showActions(for target: ActionTarget) {
-        guard let view = panel.contentView else { return }
-        let actions = model.actionMenu(for: target)
-        let size = actions.menu.size
-        let top = panel.frame.height - PaletteMetrics.margin - PaletteMetrics.pillHeight - PaletteMetrics.gap
-        let footer = top - model.cardHeight + FooterBar.height
-        let corner = NSPoint(
-            x: panel.frame.width - PaletteMetrics.margin - 10 - size.width,
-            y: model.cardHeight > 0 ? footer + 4 + size.height : top)
-        openActions = actions
-        actions.menu.popUp(positioning: nil, at: view.convert(corner, from: nil), in: view)
-        openActions = nil
-        guard panel.isVisible else { return }
-        // ⌘ may have been released while the menu tracked the keys, where the view saw no change.
-        model.commandHeld = NSEvent.modifierFlags.contains(.command)
-        if !panel.isKeyWindow { panel.makeKey() }
-        if let position = actions.chosen { run(target, at: position) }
-    }
-
-    // MARK: Frame
-
-    /// The card the top frame wants: its height (nil to keep the current one), and what decides how
-    /// fast to get there.
-    private struct Card {
-        let height: CGFloat?
-        let frame: Frame.ID
-        let isCompact: Bool
-        /// A page or a list's top not laid out yet, so not measured; it needs a card to be laid out in.
-        let isUnmeasured: Bool
-    }
-
-    /// Grows at once; shrinks after `shrinkDelay` without a taller result, so results that drop and
-    /// return within it never move the card. Clearing the query (back to the bare pill) and going
-    /// to another frame change it at once; a command frame still waiting for its first content, or a
-    /// page or a list's top for its first measurement, keeps the card as it is, and the content then
-    /// sizes it at once. One with no card to keep opens a small one to be measured in, then grows.
-    /// So a streaming answer's card grows with the text (it never shrinks mid-stream, see
-    /// `PaletteModel.detailHeight`), and its scroll position holds once the card is at its tallest.
-    private func follow(_ card: Card) {
-        pendingShrink?.cancel()
-        let unmeasured = card.isUnmeasured && model.cardHeight == 0
-        guard let height = card.height ?? (unmeasured ? PaletteMetrics.unmeasuredHeight : nil) else {
-            return
-        }
-        defer { shownFrame = card.frame }
-        if height >= model.cardHeight || card.isCompact || card.frame != shownFrame {
-            setCardHeight(height)
-            return
-        }
-        pendingShrink = Task { [weak self] in
-            try? await Task.sleep(for: Self.shrinkDelay)
-            guard !Task.isCancelled else { return }
-            self?.setCardHeight(height)
-        }
-    }
-
-    /// The window only grows before the animation and only shrinks after it, so it always holds the
-    /// card in flight, even when one change interrupts another.
-    private func setCardHeight(_ height: CGFloat) {
-        guard panel.isVisible, height != model.cardHeight else { return }
-        if PaletteMetrics.windowSize(width: width, cardHeight: height).height > panel.frame.height {
-            resize(cardHeight: height)
-        }
-        withAnimation(Self.motion) {
-            model.cardHeight = height
-        } completion: { [weak self] in
-            guard let self, model.cardHeight == height else { return }
-            resize(cardHeight: height)
-        }
-    }
-
-    /// Sets the window for a card of `cardHeight`, keeping the top edge at the anchor, and lays the
-    /// content out before anything is drawn, so a summon never flashes the old layout and the pill
-    /// never shifts while the window grows. The shadow follows the drawn shapes only when asked to.
-    private func resize(cardHeight: CGFloat) {
-        let size = PaletteMetrics.windowSize(width: width, cardHeight: cardHeight)
-        panel.setFrame(
-            NSRect(origin: NSPoint(x: anchor.x, y: anchor.y - size.height), size: size), display: false)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        panel.invalidateShadow()
-    }
-
-    /// Horizontally centred on the screen with the pointer, its top a fifth of the way down.
-    private static func anchor(width: CGFloat) -> NSPoint {
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
-        guard let visible = screen?.visibleFrame else { return .zero }
-        let window = PaletteMetrics.windowSize(width: width, cardHeight: 0)
-        return NSPoint(
-            x: (visible.midX - window.width / 2).rounded(),
-            y: (visible.maxY - visible.height * 0.2 + PaletteMetrics.margin).rounded())
-    }
-
-    // MARK: Measurement
-
-    @objc private func occlusionChanged() {
-        guard panel.occlusionState.contains(.visible), let pending = pendingShow else { return }
-        pendingShow = nil
-        let now = ProcessInfo.processInfo.systemUptime
-        Perf.log(
-            String(
-                format: "hotkey→visible %.2f ms (event→show %.2f ms, show→visible %.2f ms)",
-                (now - pending.eventTime) * 1000, (pending.showStart - pending.eventTime) * 1000,
-                (now - pending.showStart) * 1000))
-    }
-
-    // MARK: NSWindowDelegate
-
-    func windowDidResignKey(_ notification: Notification) {
-        if openActions == nil { hide() }
-    }
-}
-
-extension NSView {
-    /// The first editable text field in this view's subtree, depth first: the palette's search field.
-    fileprivate var firstEditableField: NSTextField? {
-        for subview in subviews {
-            if let field = subview as? NSTextField, field.isEditable { return field }
-            if let field = subview.firstEditableField { return field }
-        }
-        return nil
-    }
+  }
+  func windowDidResignKey(_ notification: Notification) {
+    // Only the system consent dialog may borrow focus while voice starts.
+    if model.voice?.requestingPermission != true { hide() }
+  }
+  func windowDidChangeOcclusionState(_ notification: Notification) {
+    guard panel.occlusionState.contains(.visible), let started = visibleStarted else { return }
+    visibleStarted = nil
+    NSLog(
+      "Wicket hotkey to visible: %.2f ms", (ProcessInfo.processInfo.systemUptime - started) * 1000)
+  }
 }

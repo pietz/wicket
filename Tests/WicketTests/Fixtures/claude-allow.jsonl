@@ -1,0 +1,9 @@
+{"in":"\"type\":\"user\""}
+{"out":{"type":"system","subtype":"init","cwd":"/tmp/wicket-recorded/claude","session_id":"fb58656c-9e7c-4247-aa3c-c6463fba5c5b","model":"claude-sonnet-5-5","permissionMode":"default"}}
+{"out":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I'll create the file now"}},"parent_tool_use_id":null,"api_message_id":"msg_011Cgv8XyqHS2qazyHuqbbPK"}}
+{"out":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"."}},"parent_tool_use_id":null,"api_message_id":"msg_011Cgv8XyqHS2qazyHuqbbPK"}}
+{"out":{"type":"assistant","message":{"id":"msg_011Cgv8XyqHS2qazyHuqbbPK","role":"assistant","content":[{"type":"tool_use","id":"toolu_01QVkYQy7S1bzMknPkxDrcTe","name":"Write","input":{"file_path":"/tmp/wicket-recorded/claude/allowed.txt","content":"ALLOWED"}}]},"parent_tool_use_id":null}}
+{"out":{"type":"control_request","request_id":"358a57b0-478b-45bc-98f1-2946c29981f5","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/tmp/wicket-recorded/claude/allowed.txt","content":"ALLOWED"},"description":"allowed.txt","tool_use_id":"toolu_01QVkYQy7S1bzMknPkxDrcTe"}}}
+{"in":"\"behavior\":\"allow\""}
+{"out":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Done"}},"parent_tool_use_id":null,"api_message_id":"msg_011Cgv8Y8NUp6gMuLVhf4QLj"}}
+{"out":{"type":"result","subtype":"success","is_error":false,"session_id":"fb58656c-9e7c-4247-aa3c-c6463fba5c5b","terminal_reason":"completed","stop_reason":"end_turn","result":"Done"}}

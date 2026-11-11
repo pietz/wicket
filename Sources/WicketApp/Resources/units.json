@@ -1,0 +1,1 @@
+{"name":"Convert units","keyword":"units","command":["/usr/bin/python3","main.py"],"icon":"ruler","match":"(?i)^\\s*-?\\d+(?:\\.\\d+)?\\s*(?:km|mi|kg|lb|c|f)\\s+(?:in|to)\\s+(?:km|mi|kg|lb|c|f)\\s*$"}
