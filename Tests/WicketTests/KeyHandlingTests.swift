@@ -95,3 +95,7 @@ func plainKeys(code: Int, action: PaletteKeyAction) {
   #expect(binding.apply(.default)?.contains("Menu bar") == true)
   #expect(binding.inEffect == nil)
 }
+
+@MainActor @Test func launcherPanelCanTakeKeyboardFocus() {
+  #expect(PalettePanel().canBecomeKey)
+}

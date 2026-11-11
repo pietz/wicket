@@ -21,6 +21,9 @@ class PalettePanel: NSPanel {
     hidesOnDeactivate = false
     animationBehavior = .none
   }
+  /// A borderless panel refuses key status by default; without it the launcher gets no typing,
+  /// and clicking away never resigns key to close it.
+  override var canBecomeKey: Bool { true }
   override func sendEvent(_ event: NSEvent) {
     if event.type == .keyDown, route(event) { return }
     super.sendEvent(event)
