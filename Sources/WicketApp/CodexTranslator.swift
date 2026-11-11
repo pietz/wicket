@@ -6,6 +6,7 @@ import Foundation
 /// never restart the process. Notifications stream the answer and tools until `turn/completed`.
 /// Some modes (Auto's `auto_review` reviewer, 0.167) never send it, only `thread/status/changed` to
 /// `idle`, which otherwise comes right before it: the turn ends at whichever arrives first.
+/// Wicket's instructions are the developer instructions of `thread/start`, which a resumed thread keeps.
 /// Command and file-change approvals arrive as server requests. The user's own Codex configuration
 /// (features, MCP servers) applies.
 struct CodexTranslator: Translator {
@@ -13,6 +14,7 @@ struct CodexTranslator: Translator {
   private let folder: URL
   private let resume: String?
   private let settings: AgentConfiguration
+  private let instructions: String
   private var models: [AgentModel]?
   private var thread: String?
   /// A prompt waiting for the thread, and for the model list when the default model is needed.
@@ -29,13 +31,16 @@ struct CodexTranslator: Translator {
   private var awaitingEnd = false
   private var interrupting = false
 
-  init(folder: URL, resume: String?, settings: AgentConfiguration) {
+  init(folder: URL, resume: String?, settings: AgentConfiguration, instructions: String = "") {
     self.folder = folder
     self.resume = resume
     self.settings = settings
+    self.instructions = instructions
   }
 
-  static func arguments(for settings: AgentConfiguration, resume: String?) -> [String] { ["app-server"] }
+  static func arguments(for settings: AgentConfiguration, resume: String?, instructions: String) -> [String] {
+    ["app-server"]
+  }
 
   /// The permission labels as Codex's approval policy, sandbox mode and reviewer. Auto lets a
   /// reviewer subagent decide what needs the user.
@@ -80,6 +85,8 @@ struct CodexTranslator: Translator {
     if let resume {
       params["threadId"] = .string(resume)
       params["excludeTurns"] = .bool(true)
+    } else {
+      params["developerInstructions"] = .string(instructions)
     }
     return Step(
       send: Self.handshake + [Self.request(3, resume == nil ? "thread/start" : "thread/resume", params)])
@@ -168,6 +175,12 @@ struct CodexTranslator: Translator {
       else { return Step() }
       return Step(events: [.text(text, message: id)])
     case "error":
+      // A signed-out CLI gets 401 and retries for about twenty seconds; the first one is enough.
+      if case .object(let info) = params["error"]["codexErrorInfo"],
+        info.values.contains(where: { $0["httpStatusCode"] == .number(401) })
+      {
+        return end(.failed(AgentConfiguration.Agent.codex.signedOut))
+      }
       // Retries ("Reconnecting... 2/5") end in another error or the answer.
       if params["willRetry"] != .bool(true) { turnError = params["error"]["message"].string }
       return Step()

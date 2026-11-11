@@ -1,0 +1,4 @@
+{"in":"\"type\":\"user\""}
+{"out":{"type":"system","subtype":"init","cwd":"/tmp/wicket-recorded/claude","session_id":"403c1692-f394-4fee-8a3e-d9ba0e982dfb","model":"claude-sonnet-5-5","permissionMode":"auto"}}
+{"out":{"type":"assistant","message":{"id":"90a585ed-6c06-4c63-baaa-ff9264492d53","model":"<synthetic>","role":"assistant","stop_reason":"stop_sequence","type":"message","content":[{"type":"text","text":"Not logged in · Please run /login"}]},"parent_tool_use_id":null,"session_id":"403c1692-f394-4fee-8a3e-d9ba0e982dfb","error":"authentication_failed","is_api_error_message":true}}
+{"out":{"type":"result","subtype":"success","is_error":true,"session_id":"403c1692-f394-4fee-8a3e-d9ba0e982dfb","terminal_reason":"api_error","stop_reason":"stop_sequence","result":"Not logged in · Please run /login"}}

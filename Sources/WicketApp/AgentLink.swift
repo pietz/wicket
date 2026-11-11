@@ -67,8 +67,9 @@ struct Listing: Sendable {
 /// events and reply lines out, so recorded traffic can test it.
 protocol Translator {
   static var name: String { get }
-  /// The CLI's arguments for these settings. Every question starts a new process.
-  static func arguments(for settings: AgentConfiguration, resume: String?) -> [String]
+  /// The CLI's arguments for these settings. Every question starts a new process. `instructions`
+  /// are Wicket's, which only a new conversation takes: a resumed one keeps them.
+  static func arguments(for settings: AgentConfiguration, resume: String?, instructions: String) -> [String]
   static var listing: Listing { get }
   /// Lines to write when the process starts.
   mutating func start() -> Step

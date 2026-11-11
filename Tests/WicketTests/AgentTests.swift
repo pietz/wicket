@@ -145,8 +145,11 @@ func claudePermissionBecomesACardAndTheReplyEchoesTheInput(_ allow: Bool) throws
 
 @Test func claudeSettingsAreLaunchFlagsAndAChangeNeedsANewProcess() {
   var settings = AgentConfiguration()
-  let defaults = ClaudeTranslator.arguments(for: settings, resume: nil)
-  #expect(Array(defaults.suffix(6)) == ["--permission-mode", "auto", "--model", "sonnet", "--effort", "low"])
+  let defaults = ClaudeTranslator.arguments(for: settings, resume: nil, instructions: "Rules")
+  #expect(
+    Array(defaults.suffix(8)) == [
+      "--permission-mode", "auto", "--model", "sonnet", "--effort", "low", "--append-system-prompt", "Rules",
+    ])
   #expect(
     defaults.contains("stream-json") && defaults.contains("--include-partial-messages")
       && !defaults.contains("--resume"))
@@ -154,18 +157,19 @@ func claudePermissionBecomesACardAndTheReplyEchoesTheInput(_ allow: Bool) throws
   settings.effort = "xhigh"
   settings.mode = "acceptEdits"
   settings.speed = "on"
-  let explicit = ClaudeTranslator.arguments(for: settings, resume: "session-1")
+  // A resumed session gets the instructions again, since compaction rebuilds the system prompt.
+  let explicit = ClaudeTranslator.arguments(for: settings, resume: "session-1", instructions: "Rules")
   #expect(
-    Array(explicit.suffix(10)) == [
+    Array(explicit.suffix(12)) == [
       "--permission-mode", "acceptEdits", "--model", "opus", "--effort", "xhigh", "--settings",
-      #"{"fastMode":true}"#, "--resume", "session-1",
+      #"{"fastMode":true}"#, "--append-system-prompt", "Rules", "--resume", "session-1",
     ])
   #expect(
-    ClaudeTranslator.arguments(for: .init(), resume: "x")
-      != ClaudeTranslator.arguments(for: settings, resume: "x"))
+    ClaudeTranslator.arguments(for: .init(), resume: "x", instructions: "")
+      != ClaudeTranslator.arguments(for: settings, resume: "x", instructions: ""))
   #expect(
-    CodexTranslator.arguments(for: .init(), resume: nil)
-      == CodexTranslator.arguments(for: settings, resume: "x"))
+    CodexTranslator.arguments(for: .init(), resume: nil, instructions: "Rules")
+      == CodexTranslator.arguments(for: settings, resume: "x", instructions: ""))
 }
 
 @Test func claudeToolTitlesNameTheFirstThingTheInputNames() {
@@ -182,7 +186,8 @@ func claudePermissionBecomesACardAndTheReplyEchoesTheInput(_ allow: Bool) throws
 private func codex(_ settings: AgentConfiguration = codexSettings(), resume: String? = nil) -> CodexTranslator
 {
   CodexTranslator(
-    folder: URL(fileURLWithPath: "/tmp/wicket-recorded/codex"), resume: resume, settings: settings)
+    folder: URL(fileURLWithPath: "/tmp/wicket-recorded/codex"), resume: resume, settings: settings,
+    instructions: "Rules")
 }
 private func codexSettings() -> AgentConfiguration {
   var settings = AgentConfiguration()
@@ -196,10 +201,12 @@ private func method(_ line: JSONValue) -> String { line["method"].string ?? "" }
   let start = fresh.start().send
   #expect(start.map(method) == ["initialize", "initialized", "model/list", "thread/start"])
   #expect(start[3]["params"]["cwd"].string == "/tmp/wicket-recorded/codex")
+  // Wicket's instructions go to a new thread only, as developer instructions; a resumed one has them.
+  #expect(start[3]["params"]["developerInstructions"].string == "Rules")
   var resumed = codex(resume: "thread-1")
   let resume = resumed.start().send[3]
   #expect(method(resume) == "thread/resume" && resume["params"]["threadId"].string == "thread-1")
-  #expect(resume["params"]["excludeTurns"].bool)
+  #expect(resume["params"]["excludeTurns"].bool && resume["params"]["developerInstructions"] == .null)
   // The prompt waits for the thread, then goes out as turn/start.
   #expect(fresh.prompt("Hi", settings: codexSettings()).send.isEmpty)
   let step = fresh.receive(.object("id", .number(2), "result", .object([:])))
@@ -657,25 +664,81 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   await lines.stop()
 }
 
-@Test func loginCheckRecognizesLogoutWithoutPrompting() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  func check(_ cli: String, _ arguments: [String] = []) async throws {
-    try await AgentCLI.checkLogin(
-      URL(fileURLWithPath: cli), arguments: arguments, signIn: "claude auth login", in: folder)
+@Test func settingsSignInCheckRecognizesLogoutWithoutPrompting() async {
+  func check(_ cli: String, _ arguments: [String] = []) async -> AgentCLI.SignIn {
+    await AgentCLI.signIn(URL(fileURLWithPath: cli), arguments: arguments)
   }
-  try await check("/usr/bin/true")
-  try await check("/bin/echo", [#"{"loggedIn":true}"#])
-  await #expect(throws: AgentFailure.self) { try await check("/usr/bin/false") }
-  await #expect(throws: AgentFailure.self) { try await check("/bin/echo", [#"{"loggedIn":false}"#]) }
-  do { try await check("/usr/bin/false") } catch {
-    #expect(error.localizedDescription == "Sign in first: claude auth login")
+  #expect(await check("/usr/bin/true") == .signedIn)
+  #expect(await check("/bin/echo", [#"{"loggedIn":true}"#]) == .signedIn)
+  #expect(await check("/usr/bin/false") == .signedOut)
+  #expect(await check("/bin/echo", [#"{"loggedIn":false}"#]) == .signedOut)
+  #expect(await check("/nonexistent/claude") == .unknown)
+}
+
+@Test func aSignedOutCLIFailsTheTurnWithHowToSignIn() throws {
+  var claude = ClaudeTranslator()
+  _ = claude.prompt("Hi", settings: .init())
+  let step = feed(&claude, try recorded("claude-logout"))
+  let failures = step.events.filter { if case .failed = $0 { true } else { false } }
+  #expect(failures == [.failed("Sign in first: claude auth login")])
+  // Codex retries a 401 for about twenty seconds; the first one ends the turn, once.
+  var codex = codex(codexSettings())
+  _ = codex.start()
+  _ = codex.prompt("Hi", settings: codexSettings())
+  let messages = try recorded("codex-logout")
+  let first = try #require(messages.firstIndex { $0["method"].string == "error" })
+  var events = feed(&codex, messages[...first]).events
+  #expect(events.last == .failed("Sign in first: codex login"))
+  events += feed(&codex, messages[(first + 1)...]).events
+  #expect(events.filter { if case .failed = $0 { true } else { false } }.count == 1)
+  #expect(!events.contains { if case .finished = $0 { true } else { false } })
+}
+
+/// A real `claude` stand-in on PATH replays the logged-out recording and records how it was run.
+@MainActor @Test func aQuestionRunsOnlyTheAgentWithInstructionsOnItsFirstTurn() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let bin = root.appending(path: "bin")
+  try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+  let calls = root.appending(path: "calls")
+  let input = root.appending(path: "input")
+  let cli = bin.appending(path: "claude")
+  try Data(
+    """
+    #!/bin/sh
+    for a in "$@"; do printf '%s\\037' "$a"; done >> '\(calls.path)'; printf '\\036' >> '\(calls.path)'
+    tee -a '\(input.path)' | /usr/bin/python3 '\(fixtureURL("cli-peer.py").path)' \
+      '\(fixtureURL("claude-logout.jsonl").path)'
+    """.utf8
+  ).write(to: cli)
+  try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+  let folder = root.appending(path: "work")
+  let session = AgentSession(folder: folder)
+  let log = AgentLog(folder: root.appending(path: "logs"))
+  session.connect = {
+    try AgentCLI.connect($0, folder: $1, resume: $2, log: log, environment: ["PATH": bin.path])
   }
-  do {
-    try await AgentCLI.checkLogin(
-      URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], signIn: "x", in: folder)
-    Issue.record("returned")
-  } catch { #expect(error.localizedDescription.contains("timed out")) }
+  for question in ["hello", "and again"] {
+    session.ask(question, settings: .init())
+    #expect(await eventually { !session.busy })
+    // A signed-out CLI says so in the turn, without a separate login check.
+    #expect(session.problem == "Sign in first: claude auth login")
+  }
+  await session.shutdown()
+  let runs = try String(contentsOf: calls, encoding: .utf8).split(separator: "\u{1e}").map {
+    $0.split(separator: "\u{1f}").map(String.init)
+  }
+  #expect(runs.count == 2 && runs.allSatisfy { $0.first == "-p" && !$0.contains("auth") })
+  let instructions = try #require(runs[0].firstIndex(of: "--append-system-prompt").map { runs[0][$0 + 1] })
+  #expect(instructions == AgentCLI.instructions(in: folder))
+  #expect(
+    runs[1].contains("--append-system-prompt")
+      && runs[1].suffix(2) == ["--resume", "403c1692-f394-4fee-8a3e-d9ba0e982dfb"])
+  // Each question carries only the user's text.
+  let sent = try String(contentsOf: input, encoding: .utf8).split(separator: "\n").map {
+    try JSONDecoder().decode(JSONValue.self, from: Data($0.utf8))["message"]["content"].string
+  }
+  #expect(sent == ["hello", "and again"])
 }
 
 @Test func theSharedLookupUsesOnlyThePathNeverTheWorkingFolder() throws {
@@ -799,7 +862,7 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(await eventually { first.running })
   #expect(session.active && session.busy && starts[0].1 == nil)
   #expect(
-    first.prompts[0].text.hasSuffix("User: Remember LANTERN-47") && first.prompts[0].settings == settings)
+    first.prompts[0].text == "Remember LANTERN-47" && first.prompts[0].settings == settings)
   first.onEvent(.session("recorded-session"))
   first.text("Hello ")
   first.text("world")
@@ -864,10 +927,10 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
       && session.answer == "Partial")
   #expect(await eventually { fake.stopped })
   // A connection that cannot start at all says why.
-  session.connect = { _, _, _ in throw AgentFailure("Sign in first: claude auth login") }
+  session.connect = { _, _, _ in throw AgentFailure("Claude Code isn't installed.") }
   session.ask("again", settings: .init())
   #expect(await eventually { !session.busy })
-  #expect(session.problem == "Sign in first: claude auth login" && session.status == session.problem)
+  #expect(session.problem == "Claude Code isn't installed." && session.status == session.problem)
   await session.shutdown()
 }
 

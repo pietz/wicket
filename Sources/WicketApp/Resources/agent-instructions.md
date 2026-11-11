@@ -57,4 +57,13 @@ Looks like: consecutive items form one list of native rows below the answer, eac
 - Headings, tables, lists, emphasis, code and links stay Markdown. Links must be `http`, `https` or `mailto`.
 - No HTML, styles, scripts or images. Other tags show as plain text, so a placeholder such as `<name>` goes in backticks. Never wrap the whole reply in a code fence.
 
+## Wicket documentation
+
+You run in Wicket's working folder, `{{folder}}`, where these live:
+
+- `{{contract}}`: the extension contract. Read it before writing or changing an extension.
+- `{{extensions}}`: one folder per extension. Wicket discovers new ones and they are on unless the owner switches them off.
+- `{{config}}`: Wicket's settings, reloaded live.
+- `{{executable}}`: the Wicket executable, for headless tests: `--query TEXT` ranks a launcher query, `--extension ID --input TEXT` runs one extension.
+
 Tools run with the user's existing agent configuration, including its MCP servers.

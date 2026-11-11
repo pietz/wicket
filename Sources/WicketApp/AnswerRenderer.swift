@@ -61,8 +61,8 @@ final class AnswerRenderer {
     self.folder = folder
     self.open = open
   }
-  /// Installs the owner's override stylesheet as a commented template. The bundled theme and
-  /// instructions are never copied, so they update with the app.
+  /// Installs the owner's override stylesheet as a commented template. The bundled theme is never
+  /// copied, so it updates with the app.
   static func installFiles(in folder: URL) throws {
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     let target = folder.appending(path: "theme.css")
@@ -77,17 +77,6 @@ final class AnswerRenderer {
       contentsOf: Bundle.module.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
     let own = (try? String(contentsOf: folder.appending(path: "theme.css"), encoding: .utf8)) ?? ""
     return "@layer wicket {\n\(base)\n}\n\(own)"
-  }
-  /// The bundled display instructions, then the owner's `instructions.md` if it has any text.
-  static func instructions(in folder: URL) -> String {
-    let base =
-      (try? String(
-        contentsOf: Bundle.module.url(forResource: "agent-instructions", withExtension: "md")!,
-        encoding: .utf8)) ?? ""
-    let own =
-      (try? String(contentsOf: folder.appending(path: "instructions.md"), encoding: .utf8))?
-      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return own.isEmpty ? base : base + "\n## The owner's additions\n\n" + own + "\n"
   }
   private func shell() -> String {
     """

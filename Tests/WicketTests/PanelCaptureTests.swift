@@ -309,6 +309,7 @@ private let nextAnswer =
       ],
       agent: .claude, in: folder)
     store.discover = { _ in throw AgentFailure("Captures never start an agent") }
+    store.checkSignIn = { _ in .signedIn }
     let host = ExtensionHost(folder: folder)
     await host.reload()
     store.start(watching: false)

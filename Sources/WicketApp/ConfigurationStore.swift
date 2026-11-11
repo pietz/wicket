@@ -15,6 +15,9 @@ final class ConfigurationStore {
   var discover: (AgentConfiguration.Agent) async throws -> [AgentModel] = {
     try await AgentDiscovery.discover($0)
   }
+  /// Each CLI's sign-in, checked when Settings shows the agent; missing while checking.
+  private(set) var signIn: [AgentConfiguration.Agent: AgentCLI.SignIn] = [:]
+  var checkSignIn: (AgentConfiguration.Agent) async -> AgentCLI.SignIn = { await AgentCLI.signIn($0) }
   private(set) var discovery: Task<Void, Never>?
   var onChange: (Configuration?, String?) -> Void = { _, _ in }
   private var watcher: FileWatcher?
@@ -50,8 +53,11 @@ final class ConfigurationStore {
     discovery = Task { [weak self] in
       guard let self else { return }
       defer { discovery = nil }
-      let requests = AgentConfiguration.Agent.allCases.map { agent in
-        Task { await discoverOptions(agent) }
+      let requests = AgentConfiguration.Agent.allCases.flatMap { agent in
+        [
+          Task { await discoverOptions(agent) },
+          Task { signIn[agent] = await checkSignIn(agent) },
+        ]
       }
       for request in requests { await request.value }
     }

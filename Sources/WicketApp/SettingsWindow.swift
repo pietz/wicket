@@ -289,9 +289,22 @@ struct SettingsPane: View {
             : "Changes apply on the next turn. Switching agent starts a new conversation."))
     }
     Section(config.agent.agent.product) {
-      if AgentCLI.installed(config.agent.agent) {
-        Label("\(config.agent.agent.product) is installed", systemImage: "checkmark.circle")
-        Text("Sign-in is checked when you ask the agent.").foregroundStyle(.secondary)
+      let agent = config.agent.agent
+      if AgentCLI.installed(agent) {
+        switch store.signIn[agent] {
+        case .signedIn:
+          Label("\(agent.product) is installed and signed in", systemImage: "checkmark.circle")
+        case .signedOut:
+          Label("\(agent.product) isn't signed in", systemImage: "exclamationmark.triangle")
+          Text("Run \(agent.signIn) in Terminal.").textSelection(.enabled).foregroundStyle(.secondary)
+        case .unknown:
+          Label("\(agent.product) is installed", systemImage: "checkmark.circle")
+          Text("Couldn't check sign-in. Run \(agent.rawValue) in Terminal to see why.")
+            .foregroundStyle(.secondary)
+        case nil:
+          Label("\(agent.product) is installed", systemImage: "checkmark.circle")
+          Text("Checking sign-in…").foregroundStyle(.secondary)
+        }
       } else {
         Text(
           "\(config.agent.agent.product) isn't installed. Install it, then run \(config.agent.agent.signIn) in Terminal."

@@ -4,14 +4,19 @@ import Foundation
 /// flags, so a change starts a new process that continues the session with `--resume`. A prompt
 /// goes in as a user message; text arrives as partial-message deltas; each permission question is a
 /// `can_use_tool` control request answered by a control response; cancel is an `interrupt` request.
+/// Wicket's instructions are appended to the system prompt on every turn, so compaction keeps them.
 /// The user's own Claude Code setup (rules, hooks, MCP servers, CLAUDE.md) applies.
 struct ClaudeTranslator: Translator {
   static let name = "Claude Code"
   /// Open permission questions by request ID, with the tool input an allow must echo back.
   private var pending: [JSONValue: JSONValue] = [:]
   private var cancelling = false
+  /// The CLI answered that it is not signed in; the turn's result says so in its own words.
+  private var signedOut = false
 
-  static func arguments(for settings: AgentConfiguration, resume: String?) -> [String] {
+  static func arguments(for settings: AgentConfiguration, resume: String?, instructions: String)
+    -> [String]
+  {
     var arguments = [
       "-p", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
       "--include-partial-messages", "--permission-prompt-tool", "stdio",
@@ -20,6 +25,9 @@ struct ClaudeTranslator: Translator {
     ]
     // With -p, fast mode is on only when --settings opts in.
     if settings.speed == "on" { arguments += ["--settings", #"{"fastMode":true}"#] }
+    // Every turn, not just the first: Claude rebuilds its system prompt from the current process when it
+    // compacts a resumed session. It is system prompt, never history, so it does not pile up.
+    arguments += ["--append-system-prompt", instructions]
     if let resume { arguments += ["--resume", resume] }
     return arguments
   }
@@ -82,6 +90,8 @@ struct ClaudeTranslator: Translator {
       else { return Step() }
       return Step(events: [.text(text, message: message["api_message_id"].string ?? "")])
     case "assistant" where main:
+      // A signed-out CLI answers with an error message instead of calling the model.
+      if message["error"].string == "authentication_failed" { signedOut = true }
       let tools = message["message"]["content"].array.filter { $0["type"].string == "tool_use" }
       return Step(events: tools.map { .tool(Self.title($0["name"].string ?? "tool", $0["input"])) })
     case "control_request":
@@ -89,6 +99,7 @@ struct ClaudeTranslator: Translator {
     case "result":
       let text = message["result"].string ?? ""
       if cancelling { return Step(events: [.finished(cancelled: true)]) }
+      if signedOut { return Step(events: [.failed(AgentConfiguration.Agent.claude.signedOut)]) }
       guard message["is_error"].bool || message["subtype"].string != "success" else {
         return Step(events: [.finished(cancelled: false)])
       }

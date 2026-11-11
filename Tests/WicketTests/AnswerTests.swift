@@ -102,11 +102,19 @@ import Testing
   let css = try AnswerRenderer.stylesheet(in: folder)
   #expect(css.hasPrefix("@layer wicket {") && css.contains("w-callout"))
   #expect(css.hasSuffix("}\nw-stat { color: red; }"))
-  #expect(AnswerRenderer.instructions(in: folder).contains("<stat label="))
-  #expect(!AnswerRenderer.instructions(in: folder).contains("additions"))
+  // One text for the agent: display rules, then where Wicket's files are, filled in for this folder.
+  let instructions = AgentCLI.instructions(in: folder, environment: ["WICKET_EXECUTABLE": "/x/Wicket"])
+  #expect(instructions.contains("<stat label=") && !instructions.contains("{{"))
+  #expect(!instructions.contains("additions"))
+  for path in [
+    "/x/Wicket", folder.path, folder.appending(path: "config.json").path,
+    folder.appending(path: "extension-contract.md").path, folder.appending(path: "extensions").path,
+  ] {
+    #expect(instructions.contains("`\(path)`"), "\(path)")
+  }
   try "Answer in German.".write(
     to: folder.appending(path: "instructions.md"), atomically: true, encoding: .utf8)
-  #expect(AnswerRenderer.instructions(in: folder).hasSuffix("additions\n\nAnswer in German.\n"))
+  #expect(AgentCLI.instructions(in: folder).hasSuffix("additions\n\nAnswer in German.\n"))
   let renderer = AnswerRenderer(folder: folder) { _ in }
   #expect(renderer.page == nil)
   renderer.opened()

@@ -61,7 +61,7 @@ final class AgentSession {
 
   init(folder: URL, log: AgentLog = .standard()) {
     self.folder = folder
-    connect = { try await AgentCLI.connect($0, folder: $1, resume: $2, log: log) }
+    connect = { try AgentCLI.connect($0, folder: $1, resume: $2, log: log) }
   }
   /// After the retention window, pending permissions are declined, even while busy. Unless a turn
   /// is still running, the conversation ends too. Returns true then: the caller drops its draft.
@@ -140,11 +140,8 @@ final class AgentSession {
         }
         acceptingUpdates = true
         status = "Thinking…"
-        var text =
-          "Wicket executable (supports --query and --extension for headless tests): \(ProcessInfo.processInfo.environment["WICKET_EXECUTABLE"] ?? Bundle.main.executableURL?.path ?? "Wicket"). Wicket working folder: \(folder.path). Extension contract: \(folder.appending(path: "extension-contract.md").path). Write extensions into \(folder.appending(path: "extensions").path); Wicket discovers them and they are on unless the owner switches them off. Read the contract before authoring.\n\nUser: \(input)"
-        text = "Wicket display instructions:\n\(AnswerRenderer.instructions(in: folder))\n\n\(text)"
         arm(startupLimit)
-        connection.prompt(text, settings: chosen)
+        connection.prompt(input, settings: chosen)
       } catch {
         guard generation == version else { return }
         if cancelling {

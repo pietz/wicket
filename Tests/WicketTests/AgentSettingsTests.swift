@@ -102,9 +102,12 @@ private func listed(_ agent: AgentConfiguration.Agent) throws -> [AgentModel] {
     agents.append(agent)
     return try await discoverRecorded(agent)
   }
+  // Sign-in is checked with the options and remembered; questions never wait for it.
+  store.checkSignIn = { $0 == .claude ? .signedIn : .signedOut }
   store.discoverOptions()
   store.discoverOptions()
   #expect(await eventually { store.catalogs.count == 2 })
+  #expect(await eventually { store.signIn == [.claude: .signedIn, .codex: .signedOut] })
   #expect(Set(agents) == Set(AgentConfiguration.Agent.allCases))
   await store.discovery?.value
   store.discoverOptions()
@@ -131,6 +134,7 @@ private func listed(_ agent: AgentConfiguration.Agent) throws -> [AgentModel] {
   #expect(await eventually { FileManager.default.fileExists(atPath: store.url.path) })
   #expect(store.change { try $0.set("model", to: "saved-model", in: "agent") })
   let pidFile = folder.appending(path: "pid")
+  store.checkSignIn = { _ in .unknown }
   store.discover = { agent in
     try await AgentDiscovery.models(
       command: [
@@ -167,6 +171,7 @@ private func listed(_ agent: AgentConfiguration.Agent) throws -> [AgentModel] {
   #expect(await eventually { store.configuration.agent.agent == .codex })
   let (blocked, release) = AsyncStream.makeStream(of: Void.self)
   var started: Set<AgentConfiguration.Agent> = []
+  store.checkSignIn = { _ in .unknown }
   store.discover = { agent in
     started.insert(agent)
     if agent == .claude { for await _ in blocked {} }
