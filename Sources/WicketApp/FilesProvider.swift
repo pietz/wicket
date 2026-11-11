@@ -45,22 +45,26 @@ enum FileSearch {
   /// The best `shown` hits by file name as rows, noise dropped. A file that can be opened opens and
   /// reveals; one that `OpenPolicy` refuses, such as a script, can only be revealed.
   static func rows(_ hits: [FileHit], input: String, scopes: [String], home: String) -> [Row] {
-    let query = Fold.query(input)
-    var scored: [(hit: FileHit, name: String, score: Int)] = []
+    let (query, words) = (Fold.query(input), Fold.words(input))
+    // Bytes and precomputed lengths, not `hasPrefix`, `count` and `<` on strings: those are Unicode
+    // aware, and in the sort's tie-breaks they were most of the cost of a batch.
+    let prefixes = scopes.map { Array(($0 + "/").utf8) }
+    var scored: [(hit: FileHit, name: String, length: Int, score: Int)] = []
     for hit in hits {
-      guard let scope = scopes.first(where: { hit.path.hasPrefix($0 + "/") }),
-        !isExcluded(hit.path.dropFirst(scope.count))
+      let path = hit.path.utf8
+      guard let prefix = prefixes.first(where: { path.starts(with: $0) }),
+        !isExcluded(hit.path[path.index(path.startIndex, offsetBy: prefix.count)...])
       else { continue }
       let name = (hit.path as NSString).lastPathComponent
-      guard let score = FuzzyMatcher.score(query, SearchKey(name)) else { continue }
-      scored.append((hit, name, score))
+      guard let score = FuzzyMatcher.score(query, words: words, SearchKey(name)) else { continue }
+      scored.append((hit, name, name.utf8.count, score))
     }
     scored.sort { a, b in
       if a.score != b.score { return a.score > b.score }
-      if a.name.count != b.name.count { return a.name.count < b.name.count }
-      return a.hit.path < b.hit.path
+      if a.length != b.length { return a.length < b.length }
+      return a.hit.path.utf8.lexicographicallyPrecedes(b.hit.path.utf8)
     }
-    return scored.prefix(shown).map { hit, name, _ in
+    return scored.prefix(shown).map { hit, name, _, _ in
       let url = URL(filePath: hit.path, directoryHint: hit.isFolder ? .isDirectory : .notDirectory)
       return Row(
         id: hit.path, title: name, subtitle: displayFolder(of: hit.path, home: home),
@@ -79,8 +83,8 @@ enum FileSearch {
     return parent
   }
 
-  /// The folders to search, read per query so new folders and volumes are picked up. Each visible
-  /// folder in home is its own scope, so Spotlight never walks ~/Library; loose files directly in
+  /// The folders to search, read per query during the debounce, so new folders and volumes are picked
+  /// up at no cost to latency. Each visible folder in home is its own scope, so Spotlight never walks ~/Library; loose files directly in
   /// home are missed, because a scope must be a folder.
   static func scopes(home: String) -> [String] {
     let fm = FileManager.default
@@ -144,9 +148,10 @@ final class FilesProvider: Sendable {
       guard let predicate = FileSearch.predicate(for: input) else { return continuation.finish() }
       let task = Task.detached(priority: .userInitiated) {
         defer { continuation.finish() }
+        // Read before the debounce ends, so their 3 to 6 ms cost no latency.
+        let scopes = scopes()
         guard (try? await Task.sleep(for: debounce)) != nil else { return }
         let start = ContinuousClock.now
-        let scopes = scopes()
         var first = true
         for await hits in search(predicate, scopes, FileSearch.candidates) {
           guard !Task.isCancelled else { return }
@@ -230,7 +235,9 @@ private final class SpotlightSearch: @unchecked Sendable {
     let hits = (0..<MDQueryGetResultCount(query)).compactMap { index -> FileHit? in
       guard let raw = MDQueryGetResultAtIndex(query, index) else { return nil }
       let item = Unmanaged<MDItem>.fromOpaque(raw).takeUnretainedValue()
-      guard let path = MDItemCopyAttribute(item, kMDItemPath) as? String else { return nil }
+      guard var path = MDItemCopyAttribute(item, kMDItemPath) as? String else { return nil }
+      // Native UTF-8 once here instead of a bridged string that every later byte comparison converts.
+      path.makeContiguousUTF8()
       // Read from the value list Spotlight gathered with the results: copying it per item costs an
       // IPC round trip each, about 0.4 ms.
       let type = MDQueryGetAttributeValueOfResultAtIndex(query, kMDItemContentType, index).map {

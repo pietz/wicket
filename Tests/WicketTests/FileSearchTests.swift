@@ -59,6 +59,13 @@ func noise(path: String, excluded: Bool) {
   #expect(found.first?.title == "report.txt")
 }
 
+@Test func everyWordMatchesOnItsOwnInAnyOrder() {
+  let found = rows([home + "/Documents/Q3 Invoice.pdf", home + "/Documents/Invoice.pdf"], "invoice q3")
+  #expect(found.map(\.title) == ["Q3 Invoice.pdf"])
+  #expect(
+    FuzzyMatcher.score(Fold.query("vs code"), words: Fold.words("vs code"), SearchKey("VS Code")) != nil)
+}
+
 @Test func documentsOpenAndRevealWhileScriptsOnlyReveal() throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }

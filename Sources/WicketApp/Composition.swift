@@ -81,6 +81,7 @@ enum Ranking {
     extensions: [String: ExtensionManifest], problems: [String: String], usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)
+    let words = Fold.words(input)
     func named(_ ids: some Sequence<String>) -> [String] {
       ids.sorted {
         let order = (extensions[$0]?.name ?? $0).localizedStandardCompare(extensions[$1]?.name ?? $1)
@@ -119,7 +120,7 @@ enum Ranking {
     func candidate(_ result: Result, _ kind: Kind, names: [String], requireMatch: Bool) -> Candidate? {
       var score = 0
       if !query.isEmpty {
-        let scores = names.compactMap { FuzzyMatcher.score(query, SearchKey($0)) }
+        let scores = names.compactMap { FuzzyMatcher.score(query, words: words, SearchKey($0)) }
         if let best = scores.max() { score = best } else if requireMatch { return nil }
       }
       return Candidate(

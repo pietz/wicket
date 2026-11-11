@@ -64,6 +64,11 @@ enum Fold {
   static func query(_ text: String) -> [UInt32] {
     fold(text).unicodeScalars.filter { !$0.properties.isWhitespace }.map(\.value)
   }
+
+  /// The query's words, each folded like `query`.
+  static func words(_ text: String) -> [[UInt32]] {
+    text.split(whereSeparator: \.isWhitespace).map { query(String($0)) }
+  }
 }
 
 /// Subsequence fuzzy matcher. Finds the best-scoring alignment of the query over a key.
@@ -80,6 +85,21 @@ enum FuzzyMatcher {
     static let gap = -2
     static let prefix = 10
     static let exact = 100
+  }
+
+  /// The whole query in order, so "vs code" scores like "vscode"; failing that, the sum of every
+  /// word scored on its own, in any order, the way Spotlight matches file names: "invoice q3" finds
+  /// "Q3 Invoice.pdf". Nil when a word misses. `query` and `words` are `Fold.query` and `Fold.words`
+  /// of the same input.
+  static func score(_ query: [UInt32], words: [[UInt32]], _ key: SearchKey) -> Int? {
+    if let whole = score(query, key) { return whole }
+    guard words.count > 1 else { return nil }
+    var total = 0
+    for word in words {
+      guard let score = score(word, key) else { return nil }
+      total += score
+    }
+    return total
   }
 
   /// Returns nil when the query is not a subsequence of the key or the match is too weak.
