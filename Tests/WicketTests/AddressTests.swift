@@ -43,7 +43,7 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(
     try action(#"{"type":"open","url":"wicket://weather?input=x"}"#)
       == .run(Address(extensionName: "weather", input: "x")))
-  #expect(throws: (any Error).self) { try action(#"{"type":"ask","text":"x"}"#) }
+  #expect(throws: (any Error).self) { try action(#"{"type":"send","text":"x"}"#) }
 }
 
 @Test func outsidersNameATargetAndAnInputButNeverArguments() throws {
@@ -220,7 +220,7 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(command["row"]["actions"].array.first?["extension"].string == "deploy")
   #expect(command["row"]["actions"].array.first?["input"].string == "")
   let ask = try #require(rows.first { $0["provider"].string == "agent" })
-  #expect(ask["row"]["actions"].array.first?["type"].string == "ask")
+  #expect(ask["row"]["actions"].array.first?["type"].string == "send")
   #expect(ask["row"]["actions"].array.first?["text"].string == "ship")
 }
 

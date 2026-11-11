@@ -219,7 +219,7 @@ struct LauncherView: View {
           Button("Copy") {
             model.writePasteboard(error)
           }
-          Button("Ask agent") { model.ask(error) }
+          Button("Ask agent") { model.send(error) }
         } else if !model.viewActions.isEmpty {
           Menu("Actions") {
             ForEach(Array(model.viewActions.enumerated()), id: \.offset) { _, action in
@@ -384,7 +384,7 @@ extension RowAction {
       case "agent": "Ask agent…"
       default: "Open"
       }
-    case .ask: "Ask"
+    case .send: "Ask"
     }
   }
 }

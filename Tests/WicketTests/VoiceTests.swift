@@ -172,7 +172,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   await model.finish()
 }
 
-@MainActor @Test(arguments: [PaletteKeyAction.passThrough, .edit(.paste), .dismiss, .run, .ask])
+@MainActor @Test(arguments: [PaletteKeyAction.passThrough, .edit(.paste), .dismiss, .run, .send])
 func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -198,7 +198,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
     default: (36, "\r", .command)
     }
   _ = panel.route(voiceKey(code, text, flags))
-  #expect(routed == (action == .run || action == .ask ? action : nil))
+  #expect(routed == (action == .run || action == .send ? action : nil))
   #expect(model.voice?.state == .idle && fake.stops == 1 && model.input == "spoken")
   _ = panel.route(voiceKey(53, "\u{1b}"))
   #expect(routed == .dismiss)  // Second Escape reaches ordinary navigation.
@@ -245,7 +245,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   fake.feeds[0].yield(.transcript("Why?"))
   #expect(await eventually { model.input == "Why?" })
   #expect(model.agent.question == "First" && !model.agent.busy)
-  model.ask()
+  model.send()
   #expect(await eventually { client.running })
   #expect(model.agent.question == "Why?" && model.input.isEmpty && fake.stops == 1)
   client.end()

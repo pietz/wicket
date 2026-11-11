@@ -191,7 +191,7 @@ enum Ranking {
 
     let ask = Result(
       provider: "agent",
-      row: Row(id: "ask", title: "Ask agent", subtitle: "⌘↩", icon: "sparkles", actions: [.ask(input)]))
+      row: Row(id: "ask", title: "Ask agent", subtitle: "⌘↩", icon: "sparkles", actions: [.send(input)]))
     let repairs = problems.keys.sorted().map {
       Result(
         provider: $0,

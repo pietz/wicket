@@ -147,7 +147,7 @@ enum RowAction: Codable, Sendable, Equatable {
   /// Show an existing file or folder in Finder. Nothing is opened or run.
   case reveal(URL)
   /// Host only, never decoded: send the text to the agent as a question.
-  case ask(String)
+  case send(String)
 
   /// Fill the input with the text and send nothing.
   static func agent(_ text: String) -> RowAction { .run(Address(extensionName: "agent", input: text)) }
@@ -191,8 +191,8 @@ enum RowAction: Codable, Sendable, Equatable {
     case .run(let address):
       try c.encode("run", forKey: .type)
       try address.encode(to: encoder)
-    case .ask(let text):
-      try c.encode("ask", forKey: .type)
+    case .send(let text):
+      try c.encode("send", forKey: .type)
       try c.encode(text, forKey: .text)
     }
   }

@@ -1,7 +1,7 @@
 /// A window-free keyboard policy. AppKit supplies physical key codes, modifiers and IME state.
 enum PaletteKeyAction: Equatable, Sendable {
   enum Edit: Equatable, Sendable { case cut, copy, paste, selectAll, undo, redo }
-  case dismiss, run, ask
+  case dismiss, run, send
   case permission(Bool)
   case move(Int)
   case edit(Edit)
@@ -31,7 +31,7 @@ enum PaletteKeyAction: Equatable, Sendable {
       if characters == "n" { return .move(1) }
       if characters == "p" { return .move(-1) }
     }
-    if modifiers == .command, keyCode == 36 || keyCode == 76 { return .ask }
+    if modifiers == .command, keyCode == 36 || keyCode == 76 { return .send }
     if modifiers == .command {
       switch characters?.lowercased() {
       case "x": return .edit(.cut)

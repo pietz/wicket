@@ -156,7 +156,7 @@ Provider IDs come from the built-in defaults and discovered extensions, not a se
 
 Built-in providers and extensions share `view(for: ProviderRequest) async throws -> ProviderView`. The request, view, items and actions are plain Codable values. The host owns trigger scheduling, selection and usage. Ask agent is a host row.
 
-Every row carries a real action, the host's own included: an extension's command row, fallback, detail and error rows, Settings and Ask agent. One function, `LauncherModel.activate`, does what Return, a button, a menu item or a link asks for, so a row's `id` is only its identity and nothing infers behavior from it. The host's own action that must not be public, `ask`, which sends a question, has a wire spelling for headless output but is never decoded: an extension cannot write it.
+Every row carries a real action, the host's own included: an extension's command row, fallback, detail and error rows, Settings and Ask agent. One function, `LauncherModel.activate`, does what Return, a button, a menu item or a link asks for, so a row's `id` is only its identity and nothing infers behavior from it. The host's own action that must not be public, `send`, which sends a question at once (unlike the public `agent` action and `<item ask>`, which only fill the input), has a wire spelling for headless output but is never decoded: an extension cannot write it.
 
 ```json
 {"input":"10 km in mi","arguments":[]}

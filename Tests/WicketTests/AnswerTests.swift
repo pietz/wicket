@@ -160,7 +160,7 @@ import Testing
   for key in [36, 76] {
     #expect(
       PaletteKeyAction.decide(
-        keyCode: key, characters: "\r", modifiers: .command, hasMarkedText: false) == .ask)
+        keyCode: key, characters: "\r", modifiers: .command, hasMarkedText: false) == .send)
     #expect(
       PaletteKeyAction.decide(
         keyCode: key, characters: "\r", modifiers: .command, hasMarkedText: true) == .passThrough)

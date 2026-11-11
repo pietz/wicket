@@ -111,7 +111,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       switch action {
       case .dismiss: if !model.escape() { hide() }
       case .run: run()
-      case .ask: model.ask()
+      case .send: model.send()
       case .permission(let allow): model.agent.decide(allow)
       case .move(let delta): model.move(delta)
       default: break
@@ -221,7 +221,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       model.writePasteboard(text)
       record()
       hide()
-    case .run, .ask: break
+    case .run, .send: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

@@ -14,7 +14,7 @@ import Testing
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   model.input = "First question"
-  model.ask()
+  model.send()
   #expect(await eventually { fake.running })
   fake.text("First answer")
   fake.end()
@@ -25,13 +25,13 @@ import Testing
   model.dismiss()
   model.reopen(now: hidden.addingTimeInterval(299))
   #expect(model.input == "Draft follow-up" && model.agent.continuing)
-  model.ask()
+  model.send()
   #expect(!model.agent.continuing)
   #expect(await eventually { fake.running })
   #expect(model.agent.previous.first?.question == "First question")
   #expect(model.agent.previous.first?.answer == "First answer")
   model.editInput("Editable while running")
-  model.ask()
+  model.send()
   #expect(model.agent.question == "Draft follow-up" && model.input == "Editable while running")
   fake.ask()
   model.dismiss()
@@ -50,7 +50,7 @@ import Testing
   model.input = "root draft"
   #expect(escape() && model.input.isEmpty)
   #expect(escape() && !controller.panel.isVisible)
-  model.ask()
+  model.send()
   #expect(!model.agent.active)
   await model.finish()
 }
@@ -238,7 +238,7 @@ import Testing
   // Ask the agent from the detail, then hide while it works.
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.ask("Explain this")
+  model.send("Explain this")
   #expect(await eventually { fake.running })
   controller.hide()
   fake.text("Still working")

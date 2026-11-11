@@ -401,7 +401,7 @@ final class LauncherModel {
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up.
   var returnAction: RowAction? {
-    selected?.row.actions.first ?? (agent.active ? .ask(input) : nil)
+    selected?.row.actions.first ?? (agent.active ? .send(input) : nil)
   }
   /// Arrow keys: the first press enters the items of a page, and up from the first leaves them.
   func move(_ delta: Int) {
@@ -417,7 +417,7 @@ final class LauncherModel {
     }
     select(rows[min(max(current + delta, 0), rows.count - 1)].id)
   }
-  /// The one dispatcher for moving between views and asking questions, whoever asked: Return, a button,
+  /// The one dispatcher for moving between views and sending questions, whoever asked: Return, a button,
   /// a menu item or a link. Effects on the panel and the system (copy, paste, open) are not handled here
   /// and return false, except an open or reveal that `OpenPolicy` refuses: that does nothing but say why.
   /// `result` is the row the action came from, if any.
@@ -427,7 +427,7 @@ final class LauncherModel {
     case .run(let address):
       if let result { record(result) }
       go(address, from: result?.provider)
-    case .ask(let text): ask(text)
+    case .send(let text): send(text)
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
@@ -472,7 +472,7 @@ final class LauncherModel {
     if agent.active { agent.reset() }
     cancelWork()
   }
-  func ask(_ text: String? = nil) {
+  func send(_ text: String? = nil) {
     let text = text ?? input
     guard !agent.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     cancelWork()
@@ -481,7 +481,7 @@ final class LauncherModel {
     clearSelection()
     input = ""
   }
-  /// The `ask` action: the text becomes the input and nothing is sent. In a conversation the next
+  /// The `agent` action: the text becomes the input and nothing is sent. In a conversation the next
   /// Return is the follow-up. Anywhere else the input would search or feed a command, so an open
   /// command is left and the text lands in search, where Ask agent is listed.
   func fill(_ text: String) {
@@ -494,7 +494,7 @@ final class LauncherModel {
     // sends it as the question it was meant to be.
     filledQuestion = agent.active ? nil : text
   }
-  /// The text an ask action filled into root search, until the input changes.
+  /// The text an `agent` action filled into root search, until the input changes.
   private var filledQuestion: String?
   func dismiss() {
     resetSelection = true

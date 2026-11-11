@@ -74,7 +74,7 @@ import Testing
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   model.input = "Where can I read more?"
-  model.ask()
+  model.send()
   #expect(await eventually { fake.running })
   fake.text(
     "Here.\n<item title=\"Docs\" open=\"https://example.com\"/>\n<item title=\"Next\" ask=\"What about tests?\"/>"
@@ -84,28 +84,28 @@ import Testing
   #expect(model.agent.view.body == "Here.")
   #expect(model.results.map(\.provider) == ["answer", "answer"])
   // Return still sends the follow-up until an arrow key enters the list.
-  #expect(model.selection == nil && model.selected == nil && model.returnAction == .ask(model.input))
+  #expect(model.selection == nil && model.selected == nil && model.returnAction == .send(model.input))
   model.move(-1)
-  #expect(model.selection == model.results[0].id && model.returnAction != .ask(model.input))
+  #expect(model.selection == model.results[0].id && model.returnAction != .send(model.input))
   model.move(1)
   #expect(model.selected?.row.title == "Next")
   model.move(1)
   #expect(model.selected?.row.title == "Next")
   model.move(-1)
   model.move(-1)
-  #expect(model.selection == nil && model.returnAction == .ask(model.input))
+  #expect(model.selection == nil && model.returnAction == .send(model.input))
   model.move(1)
   #expect(model.selected?.row.title == "Docs")
   // Typing goes back to the follow-up.
   model.editInput("And")
-  #expect(model.selection == nil && model.returnAction == .ask(model.input))
-  // The ask action fills the input and sends nothing.
+  #expect(model.selection == nil && model.returnAction == .send(model.input))
+  // The `<item ask>` action fills the input and sends nothing.
   model.move(1)
   model.move(1)
   #expect(model.selected?.row.actions == [.agent("What about tests?")])
   model.activateReturn()
   #expect(model.input == "What about tests?" && !model.agent.busy && model.agent.previous.isEmpty)
-  #expect(model.selection == nil && model.returnAction == .ask(model.input))
+  #expect(model.selection == nil && model.returnAction == .send(model.input))
   await model.finish()
 }
 

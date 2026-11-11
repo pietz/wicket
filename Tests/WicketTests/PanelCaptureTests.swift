@@ -191,7 +191,7 @@ private let nextAnswer =
           repeating: "How can I improve this launcher while keeping the experience calm and native? ",
           count: 5)
         : (name.hasPrefix("permission") ? "Update the weather extension" : "What should I build next?")
-      model.ask(question)
+      model.send(question)
       #expect(await eventually { agent.running })
       if name.hasPrefix("permission") {
         agent.onEvent(.permission(permissionRequest(high: name == "permission-high", folder: folder)))
