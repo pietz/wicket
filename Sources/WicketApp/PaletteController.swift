@@ -223,10 +223,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
       hide()
     case .run, .ask, .report: break
     case .reveal(let url):
-      guard OpenPolicy.revealable(url) else {
-        model.actionProblem = "This file no longer exists"
-        return
-      }
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()
       hide()
@@ -255,10 +251,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
         }
       }
     case .open(let url):
-      guard OpenPolicy.allowed(url) else {
-        model.actionProblem = "This file cannot be opened by an extension action"
-        return
-      }
       if !url.isFileURL || url.pathExtension.lowercased() != "app" {
         if NSWorkspace.shared.open(url) {
           record()

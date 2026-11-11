@@ -38,7 +38,7 @@ func answering(_ title: String) -> String {
     #"{"items":[{"id":"x","title":"X","actions":[]},{"id":"x","title":"X","actions":[]}]}"#,
     #"{}"#, #"{"type":"detail","metadata":[]}"#, #"{"actions":[]}"#,
     #"{"items":[{"id":"","title":"X","actions":[]}]}"#,
-    #"{"items":[{"id":"x","title":"X","actions":[{"type":"open","url":"javascript:alert(1)"}]}]}"#,
+    #"{"items":[{"id":"x","title":"X","actions":[{"type":"open"}]}]}"#,
   ] {
     #expect(throws: (any Error).self) { try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8)) }
   }

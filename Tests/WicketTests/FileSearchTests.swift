@@ -89,15 +89,15 @@ func noise(path: String, excluded: Bool) {
   #expect(FileSearch.displayFolder(of: home + "2/a.txt", home: home) == home + "2")
 }
 
-@Test func revealIsAnExtensionActionForExistingFilesOnly() throws {
+@Test func revealIsAnExtensionAction() throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let json = #"{"type":"reveal","url":"\#(folder.absoluteString)"}"#
   let action = try JSONDecoder().decode(RowAction.self, from: Data(json.utf8))
   #expect(action == .reveal(folder))
   #expect(try JSONDecoder().decode(RowAction.self, from: JSONEncoder().encode(action)) == action)
-  for bad in [#"{"type":"reveal","url":"file:///no/such/file"}"#, #"{"type":"reveal","url":"https://a.b"}"#] {
-    #expect(throws: (any Error).self) { try JSONDecoder().decode(RowAction.self, from: Data(bad.utf8)) }
+  #expect(throws: (any Error).self) {
+    try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"reveal","url":1}"#.utf8))
   }
 }
 

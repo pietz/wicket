@@ -164,19 +164,8 @@ enum RowAction: Codable, Sendable, Equatable {
         self = .run(address)
         return
       }
-      guard OpenPolicy.allowed(url) else {
-        throw DecodingError.dataCorruptedError(
-          forKey: .url, in: c,
-          debugDescription: "Open requires a safe existing file or http, https or mailto URL")
-      }
       self = .open(url)
-    case "reveal":
-      let url = try c.decode(URL.self, forKey: .url)
-      guard OpenPolicy.revealable(url) else {
-        throw DecodingError.dataCorruptedError(
-          forKey: .url, in: c, debugDescription: "Reveal requires an existing file URL")
-      }
-      self = .reveal(url)
+    case "reveal": self = .reveal(try c.decode(URL.self, forKey: .url))
     case "copy": self = .copy(try c.decode(String.self, forKey: .text))
     case "paste": self = .paste(OpenPolicy.paste(try c.decode(String.self, forKey: .text)))
     case "run": self = .run(try Address(from: decoder))
@@ -214,6 +203,8 @@ enum RowAction: Codable, Sendable, Equatable {
   }
 }
 
+/// What an `open` or `reveal` may touch, checked when the action runs rather than when a view is decoded,
+/// so one vanished or unsafe file refuses only its own action and never the whole view.
 enum OpenPolicy {
   static func allowed(_ url: URL) -> Bool {
     guard url.isFileURL else { return ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") }
@@ -231,5 +222,16 @@ enum OpenPolicy {
   static func revealable(_ url: URL) -> Bool {
     url.isFileURL && FileManager.default.fileExists(atPath: url.path)
   }
+  /// Why an open or reveal must do nothing, or nil when it may run.
+  static func refusal(_ action: RowAction) -> String? {
+    switch action {
+    case .open(let url) where !allowed(url):
+      guard url.isFileURL else { return "Wicket opens only http, https, mailto and wicket links" }
+      return revealable(url) ? "Wicket does not open scripts, installers or executables" : missing
+    case .reveal(let url) where !revealable(url): return url.isFileURL ? missing : "Reveal needs a file"
+    default: return nil
+    }
+  }
+  private static let missing = "This file no longer exists"
   static func paste(_ text: String) -> String { text.components(separatedBy: .newlines).joined() }
 }

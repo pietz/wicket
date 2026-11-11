@@ -420,7 +420,8 @@ final class LauncherModel {
   }
   /// The one dispatcher for moving between views and asking questions, whoever asked: Return, a button,
   /// a menu item or a link. Effects on the panel and the system (copy, paste, open) are not handled here
-  /// and return false. `result` is the row the action came from, if any.
+  /// and return false, except an open or reveal that `OpenPolicy` refuses: that does nothing but say why.
+  /// `result` is the row the action came from, if any.
   @discardableResult
   func activate(_ action: RowAction, from result: Result? = nil) -> Bool {
     switch action {
@@ -429,7 +430,10 @@ final class LauncherModel {
       go(address, from: result?.provider)
     case .ask(let text): ask(text)
     case .report(let report): if let id = result?.provider { showFailure(report, of: id) }
-    case .open, .reveal, .copy, .paste: return false
+    case .open, .reveal:
+      guard let refusal = OpenPolicy.refusal(action) else { return false }
+      actionProblem = refusal
+    case .copy, .paste: return false
     }
     return true
   }
