@@ -72,10 +72,10 @@ w-answer [data-field=value] { display: block; font-size: var(--big); line-height
 w-answer [data-field=detail] { display: block; color: var(--muted); }
 
 w-stats { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; margin: 10px 0; }
-w-stat { display: grid; align-content: start; gap: 1px; margin: 10px 0; padding: 8px 12px; border-radius: var(--radius); background: var(--surface); }
+w-stat { display: grid; align-content: start; gap: 0; margin: 10px 0; padding: 6px 10px; border-radius: var(--radius); background: var(--surface); }
 w-stats w-stat { margin: 0; }
 w-stat [data-field=label] { display: block; order: -1; color: var(--muted); font-size: var(--small); }
-w-stat [data-field=value] { display: block; font-size: var(--big); line-height: 1.25; font-weight: 650; }
+w-stat [data-field=value] { display: block; font-size: 20px; line-height: 1.2; font-weight: 650; }
 w-stat [data-field=delta] { display: block; font-size: var(--small); font-weight: 600; color: var(--tone, var(--muted)); }
 w-stat[data-tone] [data-field=value] { color: var(--tone); }
 
