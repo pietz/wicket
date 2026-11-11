@@ -46,13 +46,3 @@ import WebKit
       "return document.querySelector('main').textContent;", contentWorld: .defaultClient) as? String == "host"
   )
 }
-@MainActor @Test func missingCustomStylesheetUsesTheBundledTheme() throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let fallback = try AnswerRenderer.stylesheet(in: folder)
-  #expect(fallback.contains("w-callout"))
-  try Data("/* custom */".utf8).write(to: folder.appending(path: "answers.css"))
-  #expect(try AnswerRenderer.stylesheet(in: folder) == "/* custom */")
-  try FileManager.default.removeItem(at: folder.appending(path: "answers.css"))
-  #expect(try AnswerRenderer.stylesheet(in: folder) == fallback)
-}

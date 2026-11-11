@@ -1,0 +1,19 @@
+/* Your Wicket theme. Rules here override the bundled theme, which updates with the app.
+   Wicket reloads this file on save. Start with the tokens; uncomment and change what you want.
+
+:root {
+  --ink: CanvasText;                 text
+  --muted: ...;                      labels and secondary text
+  --line: ...;                       separators
+  --surface: ...;                    tiles, cards, code
+  --track: ...;                      empty part of bars
+  --accent: AccentColor;             links and bars
+  --positive: ...; --warning: ...; --negative: ...;
+  --small: 12px; --body: 14px; --title: 17px; --big: 24px;
+  --radius: 10px; --radius-small: 5px;
+}
+
+Components are w-answer, w-stats/w-stat, w-facts/w-fact, w-bars/w-bar, w-timeline/w-event,
+w-badge, w-card, w-columns/w-column, w-callout and w-sources. Attributes arrive as data-*
+attributes and as [data-field="name"] spans; tones as [data-tone=positive|warning|negative].
+*/

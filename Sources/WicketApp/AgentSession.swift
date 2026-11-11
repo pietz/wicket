@@ -133,11 +133,7 @@ final class AgentSession {
         status = "Thinking…"
         var text =
           "Wicket executable (supports --query and --extension for headless tests): \(ProcessInfo.processInfo.environment["WICKET_EXECUTABLE"] ?? Bundle.main.executableURL?.path ?? "Wicket"). Wicket working folder: \(folder.path). Extension contract: \(folder.appending(path: "extension-contract.md").path). Write extensions into \(folder.appending(path: "extensions").path); Wicket discovers them and they are on unless the owner switches them off. Read the contract before authoring.\n\nUser: \(input)"
-        if let instructions = try? String(
-          contentsOf: folder.appending(path: "agent-instructions.md"), encoding: .utf8)
-        {
-          text = "Wicket display instructions:\n\(instructions)\n\n\(text)"
-        }
+        text = "Wicket display instructions:\n\(AnswerRenderer.instructions(in: folder))\n\n\(text)"
         arm(startupLimit)
         connection.prompt(text, settings: chosen)
       } catch {

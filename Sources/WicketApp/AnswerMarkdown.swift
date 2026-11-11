@@ -95,6 +95,13 @@ enum AnswerMarkdown {
         i = end + 1
         continue
       }
+      // Wicket groups repeated items itself; an explicit group tag adds nothing.
+      if groups.values.contains(name) {
+        pieces.append(String(decoding: bytes[cursor..<i], as: UTF8.self))
+        cursor = end + 1
+        i = cursor
+        continue
+      }
       var attrs = ""
       var fields = ""
       var numbers = ""
@@ -161,6 +168,26 @@ enum AnswerMarkdown {
       pieces.append(ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor)))
       pieces.append(html)
       cursor = NSMaxRange(match.range)
+    }
+    pieces.append(ns.substring(from: cursor))
+    return group(pieces.joined())
+  }
+  /// Item tags and the element that holds a run of them.
+  static let groups = ["stat": "stats", "fact": "facts", "bar": "bars", "event": "timeline"]
+  private static let runs = try! NSRegularExpression(
+    pattern:
+      #"<w-(stat|fact|bar|event)\b[^>]*>(?:(?!</w-\1>).)*</w-\1>(?:\s*<w-\1\b[^>]*>(?:(?!</w-\1>).)*</w-\1>)*\s*"#,
+    options: .dotMatchesLineSeparators)
+  /// Wraps each run of adjacent items of one kind in its group element.
+  private static func group(_ html: String) -> String {
+    let ns = html as NSString
+    var pieces: [String] = []
+    var cursor = 0
+    for run in runs.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+      let holder = "w-" + groups[ns.substring(with: run.range(at: 1))]!
+      pieces.append(ns.substring(with: NSRange(location: cursor, length: run.range.location - cursor)))
+      pieces.append("<\(holder)>\(ns.substring(with: run.range))</\(holder)>\n")
+      cursor = NSMaxRange(run.range)
     }
     pieces.append(ns.substring(from: cursor))
     return pieces.joined()

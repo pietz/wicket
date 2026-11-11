@@ -66,7 +66,7 @@ print '\n4:10–5:00  Codex, cancellation, live CSS'
 print 'Esc back to search. Cmd+Enter: Count 1 to 5000, one per line. Cancel during streaming.'
 print 'Then ask: Show one stat with value 42. No tools. Check Codex and its options file.'
 read -r 'answer?Enter when the stat appears: '
-print '\nw-stat { border: 2px solid AccentColor; }' >> "$check_dir/answers.css"
+print '\nw-stat { border: 2px solid AccentColor; }' >> "$check_dir/theme.css"
 print 'Owner: confirm the stat border updates live, answer scrolling/selection feels native, and Esc returns then closes.'
 read -r 'answer?Enter to finish the on-screen session and quit this instance: '
 print "Done. Isolated config, options, permission files and log: $check_dir"

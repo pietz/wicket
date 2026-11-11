@@ -23,7 +23,7 @@ import Testing
     | 1 | 2 |
     """
   let html = AnswerMarkdown.html(source)
-  for name in ["stat", "facts", "callout", "badges", "card", "columns", "bars", "future"] {
+  for name in ["stat", "facts", "callout", "badge", "card", "columns", "bars", "future"] {
     #expect(html.contains("<w-" + name))
   }
   #expect(html.contains("<strong>Careful</strong>"))
@@ -89,22 +89,51 @@ import Testing
   }
 }
 
-@MainActor @Test func editableFilesAreInstalledOnceAndRendererWarmsOnOpen() throws {
+@MainActor @Test func ownerFilesLayerOverBundledOnesAndRendererWarmsOnOpen() throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   try AnswerRenderer.installFiles(in: folder)
-  let css = folder.appending(path: "answers.css")
-  let instructions = folder.appending(path: "agent-instructions.md")
-  #expect(try String(contentsOf: instructions, encoding: .utf8).contains("<bars>"))
-  try "/* owner edit */".write(to: css, atomically: true, encoding: .utf8)
+  let theme = folder.appending(path: "theme.css")
+  #expect(try String(contentsOf: theme, encoding: .utf8).contains("--accent"))
+  try "w-stat { color: red; }".write(to: theme, atomically: true, encoding: .utf8)
   try AnswerRenderer.installFiles(in: folder)
-  #expect(try String(contentsOf: css, encoding: .utf8) == "/* owner edit */")
+  let css = try AnswerRenderer.stylesheet(in: folder)
+  #expect(css.hasPrefix("@layer wicket {") && css.contains("w-callout"))
+  #expect(css.hasSuffix("}\nw-stat { color: red; }"))
+  #expect(AnswerRenderer.instructions(in: folder).contains("<stat label="))
+  #expect(!AnswerRenderer.instructions(in: folder).contains("additions"))
+  try "Answer in German.".write(
+    to: folder.appending(path: "instructions.md"), atomically: true, encoding: .utf8)
+  #expect(AnswerRenderer.instructions(in: folder).hasSuffix("additions\n\nAnswer in German.\n"))
   let renderer = AnswerRenderer(folder: folder) { _ in }
   #expect(renderer.page == nil)
   renderer.opened()
   #expect(renderer.page != nil)
   renderer.release()
   #expect(renderer.page == nil)
+}
+
+@Test func repeatedItemsGroupThemselvesAndExplicitGroupsAreIgnored() {
+  let html = AnswerMarkdown.html(
+    """
+    <stat label="A" value="1"/>
+    <stat label="B" value="2"/>
+
+    Between.
+
+    <facts>
+    <fact label="Owner" value="Ada"/>
+    </facts>
+    <event time="9:00" title="Standup"/>
+    """)
+  #expect(html.components(separatedBy: "<w-stats>").count == 2)
+  #expect(
+    html.range(
+      of: #"<w-stats><w-stat[^<]*(<span[^<]*</span>)*</w-stat>\s*<w-stat"#, options: .regularExpression)
+      != nil)
+  #expect(html.components(separatedBy: "<w-facts>").count == 2)
+  #expect(html.contains("<w-timeline><w-event"))
+  #expect(!html.contains("facts&gt;"))
 }
 
 @MainActor @Test func agentRowIsAlwaysPresentAndQuestionsOutrankWeakMatches() async throws {

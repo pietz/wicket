@@ -59,22 +59,33 @@ final class AnswerRenderer {
     self.folder = folder
     self.open = open
   }
+  /// Installs the owner's override stylesheet as a commented template. The bundled theme and
+  /// instructions are never copied, so they update with the app.
   static func installFiles(in folder: URL) throws {
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    for name in ["answers.css", "agent-instructions.md"] {
-      let target = folder.appending(path: name)
-      if !FileManager.default.fileExists(atPath: target.path),
-        let resource = Bundle.module.url(forResource: name, withExtension: nil)
-      {
-        try FileManager.default.copyItem(at: resource, to: target)
-      }
+    let target = folder.appending(path: "theme.css")
+    if !FileManager.default.fileExists(atPath: target.path) {
+      try FileManager.default.copyItem(
+        at: Bundle.module.url(forResource: "theme-template", withExtension: "css")!, to: target)
     }
   }
+  /// The bundled theme in a cascade layer, then the owner's `theme.css`, whose rules always win.
   static func stylesheet(in folder: URL) throws -> String {
-    let local = folder.appending(path: "answers.css")
-    return try String(
-      contentsOf: FileManager.default.fileExists(atPath: local.path)
-        ? local : Bundle.module.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
+    let base = try String(
+      contentsOf: Bundle.module.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
+    let own = (try? String(contentsOf: folder.appending(path: "theme.css"), encoding: .utf8)) ?? ""
+    return "@layer wicket {\n\(base)\n}\n\(own)"
+  }
+  /// The bundled display instructions, then the owner's `instructions.md` if it has any text.
+  static func instructions(in folder: URL) -> String {
+    let base =
+      (try? String(
+        contentsOf: Bundle.module.url(forResource: "agent-instructions", withExtension: "md")!,
+        encoding: .utf8)) ?? ""
+    let own =
+      (try? String(contentsOf: folder.appending(path: "instructions.md"), encoding: .utf8))?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return own.isEmpty ? base : base + "\n## The owner's additions\n\n" + own + "\n"
   }
   private func shell() -> String {
     """
@@ -103,7 +114,7 @@ final class AnswerRenderer {
     let page = WebPage(configuration: config, navigationDecider: AnswerNavigation(open: open))
     self.page = page
     watcher = FileWatcher(
-      paths: [folder.appending(path: "answers.css").path], latency: 0.2, filesOnly: true
+      paths: [folder.appending(path: "theme.css").path], latency: 0.2, filesOnly: true
     ) { [weak self] _ in
       guard let self else { return }
       cssRevision += 1

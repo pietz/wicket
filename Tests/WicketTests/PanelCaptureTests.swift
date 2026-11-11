@@ -79,7 +79,7 @@ private func expectedText(_ name: String) -> [String] {
 }
 
 private let launchAnswer =
-  "## A good start\n<columns><column><stat label=\"Extensions\" value=\"12\" delta=\"+3 this week\" tone=\"positive\"/></column><column><stat label=\"Response\" value=\"42 ms\"/></column></columns>\n<callout tone=\"positive\">The launcher is ready. Everything stays on your Mac.</callout>\n<facts><fact label=\"Owner\" value=\"You\"/><fact label=\"Next\" value=\"Build something useful\"/></facts>"
+  "<answer value=\"A good start\" detail=\"Twelve extensions, all local\"/>\n<stat label=\"Extensions\" value=\"12\" delta=\"+3 this week\" tone=\"positive\"/>\n<stat label=\"Response\" value=\"42 ms\"/>\n<callout tone=\"warning\">Restart once after updating.</callout>\n<fact label=\"Owner\" value=\"You\"/>\n<fact label=\"Next\" value=\"Build something useful\"/>\n<bar label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<event time=\"14:30\" title=\"Train departs\" detail=\"Platform 6\"/>\n<event time=\"16:05\" title=\"Arrives in Berlin\"/>\n<sources>\n- [Swift Testing](https://developer.apple.com/documentation/testing) · Apple guide\n</sources>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>"
 private let nextAnswer =
   "## Build something useful\nStart with a small weather extension. Put the current temperature in its result row, with the full forecast one step away.\n\nKeep it **local**, quick and easy to change."
 

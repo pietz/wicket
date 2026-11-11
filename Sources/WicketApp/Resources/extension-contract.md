@@ -50,7 +50,7 @@ Open accepts http, https and mailto URLs, or existing file URLs for apps, folder
 
 ## Detail body tags
 
-Ordinary Markdown plus `<stat label="Revenue" value="€12k" delta="+8%" tone="positive"/>`, `<facts><fact label="Owner" value="Ada"/></facts>`, `<callout tone="warning">Markdown</callout>`, `<badges><badge label="Ready" tone="positive"/></badges>`, `<card>Markdown</card>`, `<columns><column>Markdown</column><column>Markdown</column></columns>`, `<bars><bar label="Done" value="7 of 10" percent="70"/></bars>`. Tones: positive, warning, negative. Unknown tags keep their text. Code stays literal. No HTML, JavaScript, images, remote loads or navigation; clicked http/https/mailto links go through Wicket. The owner may edit answers.css.
+The same language as agent answers: ordinary Markdown plus `<answer value="42" detail="Meaning of life"/>`, `<stat label="Revenue" value="€12k" delta="+8%" tone="positive"/>`, `<fact label="Owner" value="Ada"/>`, `<bar label="Done" value="7 of 10" percent="70"/>`, `<event time="9:00" title="Standup" detail="Room 2"/>`, `<badge label="Ready" tone="positive"/>`, `<callout tone="warning">Markdown</callout>`, `<card title="Berlin">Markdown</card>`, `<columns><column>Markdown</column><column>Markdown</column></columns>` and `<sources>` around a Markdown list of links. Repeated stat, fact, bar and event tags group themselves. Tones: positive, warning, negative. Unknown tags show their text. Code stays literal. No HTML, JavaScript, images, remote loads or navigation; clicked http/https/mailto links go through Wicket. The owner may restyle everything in theme.css.
 
 ## Repair
 
