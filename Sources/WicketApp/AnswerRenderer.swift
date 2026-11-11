@@ -21,7 +21,7 @@ struct AnswerNavigation: WebPage.NavigationDeciding {
   }
 }
 
-/// Lazily allocated canvas. Agent text enters only through the safe Markdown adapter.
+/// Canvas created when the panel opens and released after it stays hidden. Agent text enters only through the safe Markdown adapter.
 @MainActor @Observable
 final class AnswerRenderer {
   private(set) var page: WebPage?
@@ -45,6 +45,7 @@ final class AnswerRenderer {
   private var renderTask: Task<Void, Never>?
   private var releaseTask: Task<Void, Never>?
   private var ready = false
+  private var shellLoad: Task<Void, any Error>?
   private var revision = 0
   private var renderID = 0
   private var source = ""
@@ -88,23 +89,31 @@ final class AnswerRenderer {
     self.turn = turn
     self.streaming = streaming
     revision += 1
-    if page == nil {
-      var config = WebPage.Configuration()
-      config.websiteDataStore = .nonPersistent()
-      config.defaultNavigationPreferences.allowsContentJavaScript = false
-      config.loadsSubresources = false
-      config.deviceSensorAuthorization = .init(decision: .deny)
-      page = WebPage(configuration: config, navigationDecider: AnswerNavigation(open: open))
-      watcher = FileWatcher(
-        paths: [folder.appending(path: "answers.css").path], latency: 0.2, filesOnly: true
-      ) { [weak self] _ in
-        guard let self else { return }
-        cssRevision += 1
-        revision += 1
-        schedule()
-      }
-    }
+    prepare()
     schedule()
+  }
+  /// Creates the page and loads its empty shell, so WebKit startup (about 220 ms) is off the first answer.
+  @discardableResult private func prepare() -> Task<Void, any Error> {
+    if let shellLoad { return shellLoad }
+    var config = WebPage.Configuration()
+    config.websiteDataStore = .nonPersistent()
+    config.defaultNavigationPreferences.allowsContentJavaScript = false
+    config.loadsSubresources = false
+    config.deviceSensorAuthorization = .init(decision: .deny)
+    let page = WebPage(configuration: config, navigationDecider: AnswerNavigation(open: open))
+    self.page = page
+    watcher = FileWatcher(
+      paths: [folder.appending(path: "answers.css").path], latency: 0.2, filesOnly: true
+    ) { [weak self] _ in
+      guard let self else { return }
+      cssRevision += 1
+      revision += 1
+      schedule()
+    }
+    let html = shell()
+    let task = Task { for try await _ in page.load(html: html) {} }
+    shellLoad = task
+    return task
   }
   private func schedule() {
     guard renderTask == nil else { return }
@@ -117,7 +126,7 @@ final class AnswerRenderer {
         try await Task.sleep(for: .milliseconds(40))
         guard let page else { return }
         if !ready {
-          for try await _ in page.load(html: shell()) { try Task.checkCancellation() }
+          try await prepare().value
           try Task.checkCancellation()
           ready = true
         }
@@ -159,10 +168,16 @@ final class AnswerRenderer {
           if version == revision { break }
           try await Task.sleep(for: .milliseconds(40))
         }
-      } catch is CancellationError {} catch { problem = "Answer: \(error.localizedDescription)" }
+      } catch is CancellationError {} catch {
+        if !ready { shellLoad = nil }
+        problem = "Answer: \(error.localizedDescription)"
+      }
     }
   }
-  func opened() { releaseTask?.cancel() }
+  func opened() {
+    releaseTask?.cancel()
+    prepare()
+  }
   func closed() {
     releaseTask?.cancel()
     releaseTask = Task { [weak self] in
@@ -176,6 +191,8 @@ final class AnswerRenderer {
     renderTask?.cancel()
     renderTask = nil
     watcher = nil
+    shellLoad?.cancel()
+    shellLoad = nil
     page = nil
     ready = false
     renderedTurn = ""

@@ -89,7 +89,7 @@ import Testing
   }
 }
 
-@MainActor @Test func editableFilesAreInstalledOnceAndRendererRemainsLazy() throws {
+@MainActor @Test func editableFilesAreInstalledOnceAndRendererWarmsOnOpen() throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   try AnswerRenderer.installFiles(in: folder)
@@ -101,6 +101,8 @@ import Testing
   #expect(try String(contentsOf: css, encoding: .utf8) == "/* owner edit */")
   let renderer = AnswerRenderer(folder: folder) { _ in }
   #expect(renderer.page == nil)
+  renderer.opened()
+  #expect(renderer.page != nil)
   renderer.release()
   #expect(renderer.page == nil)
 }
