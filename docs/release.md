@@ -5,7 +5,7 @@ Wicket ships as a notarized DMG on GitHub Releases, updates itself with Sparkle,
 ## Editions
 
 - **Wicket** (`app.wicket.Wicket`): the released app. `Scripts/build-app.sh --release` builds it, signed with the Developer ID Application certificate of team 34MWWCL4H2, hardened runtime and secure timestamps. Only `release.sh` should need it.
-- **Wicket Dev** (`app.wicket.Wicket.dev`): every local build, `Scripts/build-app.sh` (or `debug`), into `build/Wicket Dev.app`. It has a DEV badge on its icon, ⌃⌥Space as its default hotkey, `~/.config/wicket-dev` and `~/Library/Application Support/Wicket Dev` as its folders, and no updater, so it runs next to an installed Wicket without touching it.
+- **Wicket Dev** (`app.wicket.Wicket.dev`): every local build, `Scripts/build-app.sh` (or `debug`), into `build/Wicket Dev.app`. It has a DEV badge on its icon, ⌃⌥Space as its default hotkey, `~/.config/wicket-dev` as its folder and no updater, so it runs next to an installed Wicket without touching it. `Edition` in the app decides all of this from the bundle id.
 
 ## One-time setup
 
@@ -53,3 +53,13 @@ brew install --cask pietz/wicket/wicket
 ```
 
 or download the DMG from the latest release and drag Wicket to Applications. The cask declares `auto_updates`, so Homebrew leaves updates to Sparkle.
+
+## What a build contains
+
+`build-app.sh` copies the executable, SwiftPM's `Wicket_WicketApp.bundle` (agent instructions, answer stylesheet, bridge, extension contract and the bundled units extension; found through `Bundle.module` in `Contents/Resources`) and `Sparkle.framework`. SwiftPM links the executable against Sparkle at an absolute `.build` path, so the script removes absolute rpaths and adds `@executable_path/../Frameworks`. Signing goes inside out, never `--deep`: Sparkle's `Installer.xpc`, `Downloader.xpc` (keeping its own entitlements), `Autoupdate` and `Updater.app`, then the framework, then the app with `Resources/Wicket.entitlements` (audio input only). Info.plist holds the microphone usage string and, for the release edition, `SUFeedURL`, `SUPublicEDKey` and `SUEnableAutomaticChecks`; Wicket Dev gets another bundle id and name and loses the three Sparkle keys. `release.sh` bumps only `CFBundleShortVersionString` and `CFBundleVersion`.
+
+To check a bundle without launching it: `codesign --verify --deep --strict --verbose=2 build/Wicket.app`, `otool -l build/Wicket.app/Contents/MacOS/Wicket` (no absolute `LC_RPATH`), and run its executable in headless mode against a throwaway folder, for example `WICKET_CONFIG_DIR=$(mktemp -d) build/Wicket.app/Contents/MacOS/Wicket --query '1+1'`, which proves dyld finds Sparkle.
+
+## Upgrading from 0.0.x
+
+The bundle id, team, feed URL and public key are unchanged, so installed 0.0.x copies update to 0.1 through Sparkle. 0.1 reads none of 0.0.x's files and deletes none of them (see [README](../README.md#coming-from-00x)). The first 0.1 release is a user-visible reset of settings and extensions, so say so in its release notes.

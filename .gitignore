@@ -1,4 +1,3 @@
-reference/
 .build/
 build/
 *.xcuserstate
@@ -6,3 +5,8 @@ xcuserdata/
 .DS_Store
 .swiftpm/
 __pycache__/
+reference/
+# Screenshots and evidence of a working Mac never belong in this public repository.
+spikes/
+docs/screens/
+docs/evidence/

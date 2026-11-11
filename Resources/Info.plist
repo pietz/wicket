@@ -22,14 +22,10 @@
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Wicket reads the files selected in Finder, so Ask AI can see what you mean by "this".</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Wicket listens only while you speak a search, after you turn on voice input, and transcribes it on your Mac.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Wicket transcribes what you say on your Mac to search with it; nothing leaves your Mac.</string>
+	<string>Wicket uses the microphone while the launcher is open and voice input is on. Speech is transcribed on your Mac and never saved.</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>

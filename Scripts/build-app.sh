@@ -1,14 +1,13 @@
 #!/bin/zsh
-# Builds Wicket as an app bundle from the SwiftPM package, with the `wicket` tool in Contents/Helpers
-# (Contents/MacOS/wicket would collide with Contents/MacOS/Wicket on a case-insensitive volume) and
-# Sparkle in Contents/Frameworks.
+# Builds Wicket as an app bundle from the SwiftPM package, with the SwiftPM resource bundle in
+# Contents/Resources and Sparkle in Contents/Frameworks.
 #   Scripts/build-app.sh             Wicket Dev, release config: build/Wicket Dev.app
 #   Scripts/build-app.sh debug       Wicket Dev, debug config
 #   Scripts/build-app.sh --release   Wicket, Developer ID, for Scripts/release.sh: build/Wicket.app
-# Wicket Dev (app.wicket.Wicket.dev) runs beside the released app: its own settings and data folders,
-# ⌃⌥Space and no updates (Edition). It signs with the first "Apple Development" identity if present
-# (a stable identity keeps TCC grants, like Accessibility, across rebuilds), otherwise ad hoc.
-# Override the identity with WICKET_SIGN_IDENTITY.
+# Wicket Dev (app.wicket.Wicket.dev) runs beside the released app: its own config folder, ⌃⌥Space
+# and no updates (Edition). It signs with the first "Apple Development" identity if present (a stable
+# identity keeps TCC grants, like Accessibility, across rebuilds), otherwise ad hoc. Override the
+# identity with WICKET_SIGN_IDENTITY. Building never launches the app.
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -20,8 +19,7 @@ case "${1:-}" in
   *) echo "usage: Scripts/build-app.sh [debug | --release]" >&2; exit 2 ;;
 esac
 
-swift build -c "$config" --product Wicket
-swift build -c "$config" --product WicketCLI
+swift build -c "$config" --product Wicket -Xswiftc -warnings-as-errors
 bin="$(swift build -c "$config" --show-bin-path)"
 
 if [[ $edition == release ]]; then
@@ -42,21 +40,13 @@ runtime=(--options runtime)
 [[ $identity == - ]] && runtime=()
 
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources" "$app/Contents/Frameworks"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
-cp "$bin/WicketCLI" "$app/Contents/Helpers/wicket"
+# Wicket's own resources, found through Bundle.module. Not "*.bundle": a stale .build can hold the
+# test targets' bundles of an earlier layout.
+ditto "$bin/Wicket_WicketApp.bundle" "$app/Contents/Resources/Wicket_WicketApp.bundle"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$app/Contents/Info.plist"
-# Wicket's default agent instructions and the authoring kit acting AI runs read to build commands
-# (ExtensionAuthoring): the guide, the markup reference, its schema and samples, laid out as in the repository
-# so the guide's relative links work.
-cp Resources/agent.md "$app/Contents/Resources/agent.md"
-kit="$app/Contents/Resources/Authoring"
-mkdir -p "$kit/docs/examples" "$kit/Extensions"
-cp docs/extensions.md docs/markup.md docs/extension.schema.json "$kit/docs/"
-for sample in docs/examples/week-number docs/examples/unicode Extensions/slugify Extensions/github-prs Extensions/gallery; do
-  ditto "$sample" "$kit/$sample"
-done
 
 # SwiftPM links the executable against Sparkle at an absolute .build path; point it at the bundle.
 exe="$app/Contents/MacOS/Wicket"
@@ -75,8 +65,8 @@ else
     -c "Delete :SUFeedURL" -c "Delete :SUPublicEDKey" -c "Delete :SUEnableAutomaticChecks" "$plist"
 fi
 
-# Inside out, never --deep: Sparkle's helpers (as Sparkle's docs list them), the framework, our tool,
-# then the app. Downloader.xpc keeps its own entitlements.
+# Inside out, never --deep: Sparkle's helpers (as Sparkle's docs list them), the framework, then
+# the app. Downloader.xpc keeps its own entitlements.
 sign() { codesign --force --sign "$identity" $runtime $timestamp "$@" >/dev/null; }
 sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
 sign "$sparkle/XPCServices/Installer.xpc"
@@ -84,8 +74,6 @@ sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
 sign "$sparkle/Autoupdate"
 sign "$sparkle/Updater.app"
 sign "$app/Contents/Frameworks/Sparkle.framework"
-sign "$app/Contents/Helpers/wicket"
-# Apple events: reading Finder's selection for Run Agent (ContextCapture), once the user allows it.
 # Audio input: the hardened runtime blocks the microphone without it (voice input).
 sign --entitlements Resources/Wicket.entitlements "$app"
 echo "built $app ($config, signed: $identity)"
