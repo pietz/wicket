@@ -2,6 +2,8 @@
 
 Updated 11 Nov 2026. "First Wicket" and OLD mean the 0.0.x line, last released as 0.0.15 (commit `71a75a1`, 18,970 lines under `Sources/`, 12,206 test lines; 19,914 counting scripts and example extensions). The git history of this repository keeps it. "New Wicket" is this 0.1 rewrite; its design is in [SPEC.md](SPEC.md). Facts about the first Wicket come from three code audits, the third of which checked this file against the code.
 
+For release-specific counts, subsequent changes and an outcome assessment, see the [0.1 rewrite retrospective](docs/rewrite-0.1.md).
+
 ## At a glance
 
 The new app is **6,405 Swift lines plus 207 resource lines (6,612)** with **214 tests over 5,208 Swift test lines**. Two live-agent tests are opt-in. What still needs hands-on checking is in [ISSUES.md](ISSUES.md).
