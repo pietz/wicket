@@ -84,7 +84,7 @@ struct LauncherView: View {
         VStack(spacing: 0) {
           if model.agent.active {
             agentContent
-          } else if model.command?.problem != nil || model.detailBody != nil {
+          } else if model.command?.problem != nil || model.body != nil {
             extensionContent
           } else {
             ScrollViewReader { proxy in
@@ -94,59 +94,7 @@ struct LauncherView: View {
                     Text(model.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
                       .frame(height: PaletteLayout.header)
                   }
-                  ForEach(model.results) { result in
-                    HStack(spacing: 10) {
-                      icon(result).frame(width: 26, height: 26)
-                      if result.row.prominent == true, result.id == model.results.first?.id {
-                        VStack(alignment: .leading, spacing: 0) {
-                          Text(result.row.title).font(
-                            .system(size: 24 * textSize.scale, weight: .medium).monospacedDigit())
-                          Text(result.row.subtitle ?? "").font(.system(size: 12)).foregroundStyle(
-                            .secondary)
-                        }.lineLimit(1)
-                      } else {
-                        Text(result.row.title).font(.system(size: 14 * textSize.scale)).lineLimit(1)
-                          .layoutPriority(
-                            1)
-                        if let subtitle = result.row.subtitle, result.provider != "apps" {
-                          Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        }
-                      }
-                      Spacer(minLength: 8)
-                      if result.provider == "apps", let subtitle = result.row.subtitle {
-                        Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
-                          .lineLimit(1)
-                      }
-                    }
-                    .padding(.horizontal, 10).frame(
-                      height: (result.row.prominent == true)
-                        && result.id == model.results.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
-                    )
-                    .background {
-                      if result.id == model.selection {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
-                          .primary.opacity(0.1))
-                      }
-                    }
-                    .contentShape(Rectangle()).id(result.id)
-                    .onTapGesture(count: 2) {
-                      model.select(result.id)
-                      run(nil)
-                    }
-                    .onTapGesture { model.select(result.id) }
-                    .contextMenu {
-                      ForEach(Array(result.row.actions.enumerated()), id: \.offset) { _, action in
-                        Button(action.label) {
-                          model.select(result.id)
-                          run(action)
-                        }
-                      }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(
-                      result.id == model.selection ? [.isSelected, .isButton] : .isButton)
-                  }
+                  ForEach(model.results) { result in resultRow(result) }
                 }.padding(10)
               }
               .frame(
@@ -200,12 +148,66 @@ struct LauncherView: View {
     // The host can briefly be taller than its new content. Never centre the input in it.
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
+  /// One item row, shared by the list and the items below a body.
+  private func resultRow(_ result: Result) -> some View {
+    HStack(spacing: 10) {
+      icon(result).frame(width: 26, height: 26)
+      if result.row.prominent == true, result.id == model.results.first?.id {
+        VStack(alignment: .leading, spacing: 0) {
+          Text(result.row.title).font(
+            .system(size: 24 * textSize.scale, weight: .medium).monospacedDigit())
+          Text(result.row.subtitle ?? "").font(.system(size: 12)).foregroundStyle(
+            .secondary)
+        }.lineLimit(1)
+      } else {
+        Text(result.row.title).font(.system(size: 14 * textSize.scale)).lineLimit(1)
+          .layoutPriority(
+            1)
+        if let subtitle = result.row.subtitle, result.provider != "apps" {
+          Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      }
+      Spacer(minLength: 8)
+      if result.provider == "apps", let subtitle = result.row.subtitle {
+        Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
+    }
+    .padding(.horizontal, 10).frame(
+      height: (result.row.prominent == true)
+        && result.id == model.results.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
+    )
+    .background {
+      if result.id == model.selection {
+        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
+          .primary.opacity(0.1))
+      }
+    }
+    .contentShape(Rectangle()).id(result.id)
+    .onTapGesture(count: 2) {
+      model.select(result.id)
+      run(nil)
+    }
+    .onTapGesture { model.select(result.id) }
+    .contextMenu {
+      ForEach(Array(result.row.actions.enumerated()), id: \.offset) { _, action in
+        Button(action.label) {
+          model.select(result.id)
+          run(action)
+        }
+      }
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(
+      result.id == model.selection ? [.isSelected, .isButton] : .isButton)
+  }
   private var voiceStatus: String? {
     if model.voice?.state == .starting { return "Starting voice…" }
     if model.voice?.state == .listening { return "Listening…" }
     return model.voice?.problem
   }
-  private var cardHeight: CGFloat { model.cardHeight(answer: renderer.height) }
+  private var cardHeight: CGFloat { model.cardHeight(answer: renderer.height, cap: renderer.cap) }
   private var extensionContent: some View {
     VStack(spacing: 0) {
       HStack {
@@ -219,9 +221,9 @@ struct LauncherView: View {
             NSPasteboard.general.setString(error, forType: .string)
           }
           Button("Ask agent") { model.ask(error) }
-        } else if let actions = model.selected?.row.actions, !actions.isEmpty {
+        } else if !model.viewActions.isEmpty {
           Menu("Actions") {
-            ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
+            ForEach(Array(model.viewActions.enumerated()), id: \.offset) { _, action in
               Button(action.label) { run(action) }
             }
           }.menuStyle(.borderlessButton).fixedSize()
@@ -234,19 +236,20 @@ struct LauncherView: View {
           ).padding(18)
         }.frame(height: PaletteLayout.error)
       } else {
-        answerBody
-        if !model.metadata.isEmpty {
-          ScrollView {
-            VStack(spacing: 6) {
-              ForEach(Array(model.metadata.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .top) {
-                  Text(item.label).foregroundStyle(.secondary)
-                  Spacer()
-                  Text(item.value).textSelection(.enabled)
-                }.font(.system(size: 12)).lineLimit(3)
+        if model.results.isEmpty {
+          answerBody
+        } else {
+          // One scroll region: the page at its full height, then the native items.
+          ScrollViewReader { proxy in
+            ScrollView {
+              VStack(spacing: 0) {
+                answerBody
+                Divider()
+                LazyVStack(spacing: 2) { ForEach(model.results) { result in resultRow(result) } }.padding(10)
               }
-            }.padding(.horizontal, 18)
-          }.frame(height: PaletteLayout.metadataHeight(model.metadata.count))
+            }
+            .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
+          }
         }
       }
     }
@@ -363,7 +366,7 @@ extension RowAction {
 }
 
 extension LauncherModel {
-  func cardHeight(answer: CGFloat) -> CGFloat {
+  func cardHeight(answer: CGFloat, cap: Double) -> CGFloat {
     if agent.active {
       return min(
         560,
@@ -373,9 +376,13 @@ extension LauncherModel {
         + PaletteLayout.footer
     }
     if command?.problem != nil { return PaletteLayout.header + PaletteLayout.error + PaletteLayout.footer }
-    if detailBody != nil {
-      return PaletteLayout.header + answer + PaletteLayout.metadataHeight(metadata.count)
-        + PaletteLayout.footer
+    if body != nil {
+      let items =
+        results.isEmpty
+        ? 0
+        : PaletteLayout.itemsHeight(
+          results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
+      return PaletteLayout.header + min(answer + items, CGFloat(cap)) + PaletteLayout.footer
     }
     return PaletteLayout.rowsHeight(
       results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)

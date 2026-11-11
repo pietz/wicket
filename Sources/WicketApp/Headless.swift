@@ -77,12 +77,12 @@ public enum Headless {
             let reason: String
           }
           let input: String
-          let rows: [Entry]
+          let items: [Entry]
           let askAgent: Ask
         }
         try printJSON(
           Output(
-            input: input, rows: model.results.map { .init(provider: $0.provider, row: $0.row) },
+            input: input, items: model.results.map { .init(provider: $0.provider, row: $0.row) },
             askAgent: .init(
               onTop: model.results.first?.provider == "agent",
               reason: model.results.count == 1

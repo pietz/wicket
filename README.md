@@ -119,7 +119,7 @@ The input holds your next question while the answer remains visible. Previous qu
 
 A folder under the Wicket folder's `extensions/` with a `wicket.json` manifest and a program is discovered automatically and is on as soon as it appears. Enabled means trusted: there is no approval step, and the only control is switching it off in Sources, after which it does not appear in the launcher. Names/keywords and fallbacks remain inert until chosen; a matching regex runs inline and is cancelled by new typing. Programs run from their own folder with a deadline and output bounds.
 
-The installed `extension-contract.md` is the short authoring reference. Offline unit conversion is installed in `extensions/units`. Web search is an optional example in `examples/web-search`; copy it into `extensions/web-search` to use it. Existing installed web-search folders are preserved. Put short answers in row titles, use detail views for more and keep row IDs stable. Every agent turn receives the contract path, extensions folder and executable path. List/detail views, metadata, aliases, prominent answers and open/copy/paste/run/agent actions share the compiled provider contract.
+The installed `extension-contract.md` is the short authoring reference. Offline unit conversion is installed in `extensions/units`. Web search is an optional example in `examples/web-search`; copy it into `extensions/web-search` to use it. Existing installed web-search folders are preserved. Put short answers in item titles, use a body for more (alone or above items) and keep item IDs stable. Every agent turn receives the contract path, extensions folder and executable path. The one view (body, items, actions), aliases, prominent answers and open/copy/paste/run/agent actions share the compiled provider contract.
 
 Use the same binary without any UI (an argument starting with `--` selects it; no window, hotkey or menu bar icon appears):
 
@@ -130,7 +130,7 @@ Use the same binary without any UI (an argument starting with `--` selects it; n
 WICKET_CONFIG_DIR=/tmp/my-wicket-test /Applications/Wicket.app/Contents/MacOS/Wicket --query '10 km in mi'
 ```
 
-Queries print ordered rows with provider IDs and the reason Ask agent leads or follows. Direct runs print the decoded view or `{"error": "..."}`. `--extension` runs any discovered extension, even a switched-off one; `--query` uses enabled sources only. See [the full contract](Sources/WicketApp/Resources/extension-contract.md).
+Queries print ordered items with provider IDs and the reason Ask agent leads or follows. Direct runs print the decoded view or `{"error": "..."}`. `--extension` runs any discovered extension, even a switched-off one; `--query` uses enabled sources only. See [the full contract](Sources/WicketApp/Resources/extension-contract.md).
 
 ## Build from source
 

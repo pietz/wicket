@@ -608,7 +608,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   _ = try extensionFolder(
     root,
     script:
-      "import json,sys\nr=json.load(sys.stdin)\nopen(\(path),'a').write(r['input']+'\\n')\nprint(json.dumps({'type':'list','rows':[]}))",
+      "import json,sys\nr=json.load(sys.stdin)\nopen(\(path),'a').write(r['input']+'\\n')\nprint(json.dumps({'items':[]}))",
     fields: ["match": ".+", "command": ["/usr/bin/python3", "main.sh"]])
   let fake = FakeTranscriber()
   let model = LauncherModel(

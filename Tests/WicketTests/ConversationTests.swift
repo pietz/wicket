@@ -220,7 +220,7 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "show.py"]])
   try Data(
-    "import json,sys; json.load(sys.stdin); print(json.dumps({'type':'detail','body':'Extension detail'}))"
+    "import json,sys; json.load(sys.stdin); print(json.dumps({'body':'Extension detail'}))"
       .utf8
   ).write(to: ext.appending(path: "show.py"))
   let model = LauncherModel(
@@ -234,7 +234,7 @@ import Testing
   await model.settled()
   #expect(model.enterSelected())
   await model.settled()
-  #expect(model.detailBody == "Extension detail" && controller.renderer.page != nil)
+  #expect(model.body == "Extension detail" && controller.renderer.page != nil)
   // Ask the agent from the detail, then hide while it works.
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }

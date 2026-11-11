@@ -18,7 +18,7 @@ final class AppsProvider: Provider {
   private var rescanTask: Task<Void, Never>?
 
   func view(for request: ProviderRequest) async throws -> ProviderView {
-    .list(index.search(request.input, usage: history.store, namespace: "apps:"))
+    .init(items: index.search(request.input, usage: history.store, namespace: "apps:"))
   }
 
   func start(watch: Bool = true) async {
@@ -132,8 +132,8 @@ final class AppsProvider: Provider {
 final class MathProvider: Provider {
   let id = "math"
   func view(for request: ProviderRequest) async throws -> ProviderView {
-    guard let answer = Math.evaluate(request.input) else { return .list([]) }
-    return .list([
+    guard let answer = Math.evaluate(request.input) else { return .init() }
+    return .init(items: [
       Row(
         id: "result", title: answer, subtitle: "Copy result", icon: "equal",
         actions: [.copy(answer)], prominent: true)

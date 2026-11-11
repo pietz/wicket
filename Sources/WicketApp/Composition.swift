@@ -24,7 +24,7 @@ enum Ranking {
 
   /// What a pattern extension did for the current input.
   enum Pattern: Sendable {
-    case rows([Row])
+    case items([Row])
     /// The run failed. The text is the one-line summary for the error row.
     case failed(String)
   }
@@ -94,10 +94,10 @@ enum Ranking {
     var reason: String?
     for id in named(patterns.keys.filter { extensions[$0] != nil }) {
       switch patterns[id]! {
-      case .rows(let rows):
-        if !rows.isEmpty { answered.insert(id) }
-        if !rows.isEmpty, reason == nil { reason = "pattern result: " + id }
-        patternRows += order(rows, provider: id, query: input, usage: usage, now: now)
+      case .items(let items):
+        if !items.isEmpty { answered.insert(id) }
+        if !items.isEmpty, reason == nil { reason = "pattern result: " + id }
+        patternRows += order(items, provider: id, query: input, usage: usage, now: now)
       case .failed(let summary):
         answered.insert(id)
         failures.append(

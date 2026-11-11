@@ -5,7 +5,7 @@ import Observation
 struct CommandState {
   let id: String
   var arguments: [String] = []
-  var view: ProviderView = .list([])
+  var view = ProviderView()
   var problem: String?
   var busy = false
   var turn = UUID().uuidString
@@ -179,11 +179,7 @@ final class LauncherModel {
             guard let self, !Task.isCancelled, generation == version else { return }
             command?.turn = UUID().uuidString
             command?.view = view
-            if case .list(let rows) = view {
-              results = Ranking.order(rows, provider: state.id, query: input)
-            } else {
-              results = []
-            }
+            results = Ranking.order(view.items, provider: state.id, query: input)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
             command?.problem = report(extensionCommand, request: request, error: error)
@@ -214,7 +210,7 @@ final class LauncherModel {
           do {
             let view = try await provider.view(for: request)
             guard let self, !Task.isCancelled, generation == current else { return }
-            if case .list(let rows) = view { builtinRows[provider.id] = rows }
+            builtinRows[provider.id] = view.items
           } catch {
             guard let self, !Task.isCancelled, generation == current else { return }
             providerProblem = "\(provider.id): \(error.localizedDescription)"
@@ -236,15 +232,15 @@ final class LauncherModel {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
             let view = try await host.view(command, request: request)
             guard let self, !Task.isCancelled, generation == current else { return }
-            switch view {
-            case .list(let rows): patterns[entry.id] = .rows(rows)
-            case .detail:
-              patterns[entry.id] = .rows([
+            // At the root a pattern result only contributes items; a body is entered like a detail.
+            patterns[entry.id] =
+              view.body == nil
+              ? .items(view.items)
+              : .items([
                 Row(
                   id: "detail", title: command.manifest.name, subtitle: "Show details",
                   icon: command.manifest.icon, actions: [])
               ])
-            }
           } catch {
             guard let self, !Task.isCancelled, generation == current else { return }
             rootErrors[entry.id] = report(command, request: request, error: error)
@@ -295,19 +291,19 @@ final class LauncherModel {
     previousRows = rows.map(\.id)
   }
   var prominentFirst: Bool { results.first.map { $0.row.prominent == true } ?? false }
-  var detailBody: String? {
-    guard let command, command.problem == nil, case .detail(let body, _, _) = command.view else { return nil }
-    return body
+  /// The open command's Markdown body, shown above its items.
+  var body: String? {
+    guard let command, command.problem == nil else { return nil }
+    return command.view.body
   }
-  var metadata: [ProviderView.Metadata] {
-    if case .detail(_, let metadata, _)? = command?.view { return metadata }
-    return []
-  }
+  /// The view's own actions, in the header beside the body.
+  var viewActions: [RowAction] { body == nil ? [] : command?.view.actions ?? [] }
+  /// Return runs the selected item, or the view's actions when there is a body and no items.
   var selected: Result? {
-    if let command, case .detail(_, _, let actions) = command.view, command.problem == nil {
+    if let command, body != nil, results.isEmpty {
       return Result(
         provider: command.id,
-        row: Row(id: "detail", title: extensionCommand?.manifest.name ?? "Details", actions: actions))
+        row: Row(id: "detail", title: extensionCommand?.manifest.name ?? "Details", actions: viewActions))
     }
     return results.first { $0.id == selection }
   }

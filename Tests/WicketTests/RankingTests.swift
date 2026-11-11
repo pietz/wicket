@@ -45,7 +45,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let math = Row(id: "result", title: "4", actions: [.copy("4")], prominent: true)
   let units = Row(id: "u", title: "Four", actions: [])
   let output = compose(
-    "2+2", math: [math], apps: [app("2+2 Calculator")], patterns: ["extension:calc": .rows([units])],
+    "2+2", math: [math], apps: [app("2+2 Calculator")], patterns: ["extension:calc": .items([units])],
     extensions: ["extension:calc": manifest("Calc", match: ".")])
   #expect(titles(output) == ["4", "Four", "2+2 Calculator", "Ask agent"])
   #expect(output.strongReason == "math result")
@@ -53,13 +53,13 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
 
 @Test func aPatternResultComesBeforeNameMatchesAndSeveralAreOrderedByName() {
   let units = [
-    "extension:units": Ranking.Pattern.rows([
+    "extension:units": Ranking.Pattern.items([
       Row(id: "a", title: "6.21 mi", actions: []), Row(id: "b", title: "Other", actions: []),
     ])
   ]
   let output = compose(
     "10 km in mi", apps: [app("10 km Tools")],
-    patterns: units.merging(["extension:currency": .rows([Row(id: "c", title: "Currency", actions: [])])]) {
+    patterns: units.merging(["extension:currency": .items([Row(id: "c", title: "Currency", actions: [])])]) {
       a, _ in a
     },
     extensions: [
@@ -83,7 +83,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     usage.record(Result(provider: "extension:w", row: rows[0]).id, query: "weather", now: Date())
   }
   let output = compose(
-    "weather", apps: [app("Weather app")], patterns: ["extension:w": .rows(rows)],
+    "weather", apps: [app("Weather app")], patterns: ["extension:w": .items(rows)],
     extensions: ["extension:w": manifest("W", match: ".")], usage: usage)
   #expect(
     titles(output) == ["weather", "Weather c", "Weather b", "Later weather", "Weather app", "Ask agent"])
@@ -122,12 +122,12 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(
     !hasFallback(
       compose(
-        "zzz", patterns: ["extension:web": .rows([Row(id: "r", title: "Answer", actions: [])])],
+        "zzz", patterns: ["extension:web": .items([Row(id: "r", title: "Answer", actions: [])])],
         extensions: extensions)))
   #expect(!hasFallback(compose("sea", extensions: extensions)))
   #expect(!hasFallback(compose("", apps: [app("Safari")], extensions: extensions)))
   // A pattern that returned nothing is not strong.
-  #expect(hasFallback(compose("zzz", patterns: ["extension:web": .rows([])], extensions: extensions)))
+  #expect(hasFallback(compose("zzz", patterns: ["extension:web": .items([])], extensions: extensions)))
 }
 
 @Test func aTrailingQuestionMarkPutsAskAgentFirstEvenWithAPrefixMatch() {
@@ -199,7 +199,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
         "", apps: [app("Calendar"), app("Notes")], extensions: ["extension:deploy": manifest("Deploy")],
         usage: usage)) == ["Notes", "Calendar", "Deploy", "Ask agent"])
   let pattern = compose(
-    "", patterns: ["extension:all": .rows([Row(id: "x", title: "Recent", actions: [])])],
+    "", patterns: ["extension:all": .items([Row(id: "x", title: "Recent", actions: [])])],
     extensions: ["extension:all": manifest("All", match: ".*")])
   #expect(titles(pattern) == ["Recent", "Ask agent"])
 }
@@ -219,7 +219,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(compose("depl", extensions: extensions).results.first?.row.id == "command")
   #expect(compose("ship", extensions: extensions).results.first?.row.id == "command")
   let answered = compose(
-    "deploy", patterns: ["extension:deploy": .rows([Row(id: "r", title: "Result", actions: [])])],
+    "deploy", patterns: ["extension:deploy": .items([Row(id: "r", title: "Result", actions: [])])],
     extensions: extensions)
   #expect(titles(answered) == ["Result", "Ask agent"])
 }

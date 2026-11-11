@@ -60,10 +60,10 @@ func realAgentWritesAnExtensionAndItRuns() async throws {
     }
     let output = try await cli(folder, ["--extension", "double", "--input", "double 21"])
     record("output", output.1)
-    #expect(output.0 == 0 && output.1["rows"].array.first?["title"].string == "42")
+    #expect(output.0 == 0 && output.1["items"].array.first?["title"].string == "42")
     let again = try await cli(folder, ["--query", "double 9"])
     record("root-query", again.1)
-    #expect(again.0 == 0 && again.1["rows"].array.first?["row"]["title"].string == "18")
+    #expect(again.0 == 0 && again.1["items"].array.first?["row"]["title"].string == "18")
     print(
       "LIVE EXTENSION: Claude sonnet/default wrote two files; double 21 -> 42; real root query double 9 -> 18. Scratch: \(folder.path)"
     )

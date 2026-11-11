@@ -29,6 +29,8 @@ final class AnswerRenderer {
   private(set) var problem: String?
   var onHeight: (() -> Void)?
   var cap: Double = PaletteLayout.answerMax
+  /// False when the page sits above native items in one scroll region, so it shows its full height.
+  var capped = true
   var releaseDelay: Duration = .seconds(60)
   var textSize = Configuration.TextSize.medium {
     didSet {
@@ -169,7 +171,8 @@ final class AnswerRenderer {
               measured.isFinite
             {
               height = PaletteLayout.answerHeight(
-                measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming, cap: cap
+                measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
+                cap: capped ? cap : .infinity
               )
               onHeight?()
             }

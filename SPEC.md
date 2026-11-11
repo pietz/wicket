@@ -44,7 +44,7 @@ Extensions are ordinary programs with your user access, so they need no special 
 One pure function (`Ranking.compose`) orders everything at the root of the launcher. The panel and headless mode both use it, so there is one copy of these rules. A name tier is 2 for an exact match, 1 for a prefix match and 0 otherwise, over a row's title and aliases or an extension's name and keyword, folded for case, diacritics, width and spaces (`Ranking.tier`; the app index uses the same helper).
 
 1. A math result.
-2. Pattern extension results: extensions whose `match` regex ran and returned rows. Each extension's rows stay together in its own order: exact or prefix title/alias, then usage for this exact input, then returned order. Several pattern extensions are ordered by extension name. This is the only place an extension's rows are ordered by usage.
+2. Pattern extension results: extensions whose `match` regex ran and returned items. Each extension's items stay together in its own order: exact or prefix title/alias, then usage for this exact input, then returned order. Several pattern extensions are ordered by extension name. This is the only place an extension's items are ordered by usage.
 3. Name matches: app rows, extension command rows (name, keyword) and the built-in Settings row (title "Settings", alias "preferences"). Sort by tier, then usage for this exact input, then fuzzy score, then kind (apps, extension commands, Settings), then title. Usage never lifts a row into a higher tier. File results will join here with the same rules, after apps in kind order.
 4. Ask agent: on top when nothing is strong or the trimmed input ends with `?`. Otherwise directly after the last tier 1 or 2 row and before the loose (tier 0) matches, so it stays visible.
 5. Fallback extensions (`fallback: true`), only when nothing is strong, directly after Ask agent, ordered by name. They replace their own command row. Empty input never shows fallbacks.
@@ -126,15 +126,15 @@ Provider IDs come from the built-in defaults and discovered extensions, not a se
 
 ## Provider contract
 
-Built-in providers and extensions share `view(for: ProviderRequest) async throws -> ProviderView`. The request, view, rows and actions are plain Codable values. The host owns trigger scheduling, selection and usage. Ask agent is a host row.
+Built-in providers and extensions share `view(for: ProviderRequest) async throws -> ProviderView`. The request, view, items and actions are plain Codable values. The host owns trigger scheduling, selection and usage. Ask agent is a host row.
 
 ```json
 {"input":"10 km in mi","arguments":[]}
 ```
 
-`input` is required. `arguments` is a string array, empty when omitted. It is request data, never extra executable argv. Views are `list` or `detail` (see Views). Unknown view/action kinds, wrong types, missing required fields and empty or duplicate row IDs fail decoding. Extra keys are tolerated. Results for an input that is no longer current are dropped.
+`input` is required. `arguments` is a string array, empty when omitted. It is request data, never extra executable argv. The view is one object with optional `body`, `items` and `actions` (see Views). Unknown action kinds, wrong types, missing required fields and empty or duplicate item IDs fail decoding. Extra keys are tolerated, so a stray `type` is ignored. Results for an input that is no longer current are dropped.
 
-A row requires `id`, string `title` and an `actions` array, which may be empty. Optional fields are `subtitle`, SF Symbol `icon`, string-array `keywords` (aliases) and boolean `prominent`. A prominent first row gets the large calculator presentation; a first `open` action for a file gets its native file/app icon. Return uses the first action. Every action is available in the row context menu; detail actions have a native Actions menu.
+A row requires `id`, string `title` and an `actions` array, which may be empty. Optional fields are `subtitle`, SF Symbol `icon`, string-array `keywords` (aliases) and boolean `prominent`. A prominent first row gets the large calculator presentation; a first `open` action for a file gets its native file/app icon. Return uses the first action. Every action is available in the row context menu; view actions have a native Actions menu in the header.
 
 | Action JSON | Effect |
 | --- | --- |
@@ -218,23 +218,21 @@ Client-supplied MCP servers are not used.
 
 Text size in General is Small, Medium, Large or Larger. Answer and confirmation body sizes are 13, 15, 17 and 19 points. Scale answer headings, code, tables and components in proportion. Result titles scale from 14 points, and row heights grow with them. Input and Settings sizes stay fixed. Footer text is at least 12 points. This config setting applies live through the single config writer.
 
-| View | Use | Status |
-| --- | --- | --- |
-| `list` | Rows with icon, title, subtitle and actions | Built |
-| `detail` | A markdown body with ordered metadata and actions | Built |
-| `form` | Fields and a submit action | Later, when the first extension needs it |
+There is one view, `{"body"?, "items"?, "actions"?}`, and its parts decide the layout. At least one of `body` and `items` must be present; an empty `items` array alone is an empty list. `type` is not read. A later `form` view (fields and a submit action) waits for the first extension that needs it.
 
-A list requires `rows`. A detail requires string `body`; ordered `metadata` string label/value pairs and `actions` default to empty arrays. For example:
-
-```json
-{"type":"list","rows":[{"id":"result","title":"6.21 mi","keywords":["distance"],"prominent":true,"actions":[{"type":"copy","text":"6.21"}]}]}
-```
+| Parts | Layout |
+| --- | --- |
+| `items` | The native list: icon, title, subtitle and actions per item. Alone it is the only shape whose items appear at the root. |
+| `body` | A Markdown body in the safe answer web view, with a native command header and the view `actions`. Return runs the first view action. |
+| `body` and `items` | The body at its full height, a divider, then the native items, all in one scroll region (the web view never scrolls on its own here). Arrows select items, nothing in the body. Return runs the selected item's first action; view `actions` stay in the header. |
 
 ```json
-{"type":"detail","body":"## Result\n<stat label=\"Total\" value=\"42\"/>","metadata":[{"label":"Source","value":"Local"}],"actions":[{"type":"copy","text":"42"}]}
+{"items":[{"id":"result","title":"6.21 mi","keywords":["distance"],"prominent":true,"actions":[{"type":"copy","text":"6.21"}]}]}
+{"body":"## Result\n<stat label=\"Total\" value=\"42\"/>\n<fact label=\"Source\" value=\"Local\"/>","actions":[{"type":"copy","text":"42"}]}
+{"body":"## Berlin\n<stat label=\"Now\" value=\"12°C\"/>","items":[{"id":"hourly","title":"Hourly forecast","actions":[{"type":"run","arguments":["hourly","berlin"]}]}]}
 ```
 
-Detail uses the same safe answer web view, with native command header, actions and metadata. Metadata scrolls above 100 points. Errors use selectable native text with Copy and Ask agent buttons. The repair brief includes folder, command, JSON request, decoding path/message and stderr tail when available.
+The card is as tall as its content, up to the screen-derived cap that bounds an answer. Without a body, view `actions` are ignored. Short label/value pairs are `<fact>` tags in the body; the first Wicket's native metadata list is gone. Errors use selectable native text with Copy and Ask agent buttons. The repair brief includes folder, command, JSON request, decoding path/message and stderr tail when available.
 
 ### Rich answers
 
@@ -245,7 +243,7 @@ Answers go beyond markdown. Plain text walls are what every other tool already o
 - **Starting set:** items `answer(value, detail)`, `stat(label, value, delta, tone)`, `fact(label, value)`, `bar(label, value, percent, tone)`, `event(time, title, detail)` and `badge(label, tone)`; containers `callout(tone)`, `card(title)`, `columns` with `column`, and `sources` around a Markdown link list. Tones are positive, warning and negative. Repeated `stat`, `fact`, `bar` and `event` items are grouped by Wicket into `w-stats`, `w-facts`, `w-bars` and `w-timeline`; explicit group tags are accepted and ignored, so the model never writes wrappers. Containers accept markdown inside. All component names become inert `w-` elements; an unknown tag shows its text and its attribute values. Tag candidates are at most 1,024 bytes and names at most 64 characters. Scan bounded, non-overlapping candidates and substitute once. Code stays literal, using UTF-8 byte offsets for LF, CRLF and bare CR. Only streaming holds unfinished tag-like text back; a completed body keeps prose such as `use i<count in loop`.
 - **The stylesheet** is the bundled theme in the `wicket` cascade layer followed by the owner's `theme.css` from the Wicket folder, so the owner's rules always win while the bundled theme updates with the app. `theme.css` is installed as a commented template listing the tokens and components, and watched as an exact file, including atomic replacement. Both are trusted local styling. The 0.1 copies `answers.css` and `agent-instructions.md` are no longer read.
 - **Safety:** agent content cannot run script, load remote resources by itself or navigate. Raw HTML and images cannot become active content. Content JavaScript and subresources are disabled, storage is not persistent, and CSP uses `default-src 'none'; script-src 'none'` with inline styles only. The bundled patch/measurement bridge runs in WebKit's isolated client world, separately from page scripts. Hidden WebPage tests check bridge execution and independently check CSP on a raw page. Only http, https and mailto links open, through Wicket, on a click.
-- **Sizing:** the answer area is between 80 and 500 points high, grows without shrinking while streaming and may shrink on completion, and updates are batched every 40 ms. The web view and its empty page are created when the panel opens, so WebKit startup (about 220 ms measured offscreen) is not paid on the first answer, and released 60 seconds after the panel is hidden.
+- **Sizing:** the answer area is between 80 and 500 points high, grows without shrinking while streaming and may shrink on completion, and updates are batched every 40 ms. When native items sit below the body, the page is measured uncapped and the card scrolls as a whole. The web view and its empty page are created when the panel opens, so WebKit startup (about 220 ms measured offscreen) is not paid on the first answer, and released 60 seconds after the panel is hidden.
 - **The launcher's own list, input and prompts stay native SwiftUI, with an AppKit text field for editing and IME.**
 
 ### What the rendering prototype showed
@@ -304,7 +302,7 @@ A folder under `extensions/` with `wicket.json` and an executable in any languag
 - Provider IDs are `math`, `apps` and `extension:<folder-name>`. Users can switch sources off or replace built-ins with extensions. Discovered extensions the list omits are on; omitted built-ins are off. Ordering is fixed; see Result order.
 - Within a chosen extension command, exact title/alias, then prefix, then the order the extension returned. Learned usage plays no part there, and picks made inside a command are not recorded. Rows need not match the query to remain visible.
 - Strong means math, a nonempty successful pattern result, or a name match with tier 1 or 2. Empty input keeps apps first and suppresses fallbacks. If nothing is strong, Ask agent moves on top and fallbacks follow it, ordered by name.
-- A pattern detail becomes a row to enter the command. Detail and fallback choices preserve root input; only a name choice clears it. A selected failure row opens the full native error.
+- A pattern result with a body becomes a row to enter the command; at the root only items contribute. Detail and fallback choices preserve root input; only a name choice clears it. A selected failure row opens the full native error.
 - Request and response are single JSON values, so a later long-running protocol can reuse them line by line.
 
 ## Headless command-line mode
@@ -318,7 +316,7 @@ Wicket --extension units --input '10 km in mi' --arguments '[]'
 
 Choose exactly one of `--query TEXT` or `--extension ID`. `--query` uses enabled sources only. `--extension` runs any discovered extension, even a switched-off one, because naming it is the consent. It accepts a folder name or `extension:<folder-name>`, optional `--input TEXT` (default empty) and `--arguments JSON_STRING_ARRAY` (default `[]`). Arguments are literal option values, without shell reinterpretation. `--help` prints a JSON usage object.
 
-Query output is `{input,rows:[{provider,row}],askAgent:{onTop,reason}}`, including Ask agent in the ordered rows. Pattern failures appear as error rows. Direct invocation prints a decoded list/detail view. Failures print `{"error":"..."}` and exit 1; success exits 0.
+Query output is `{input,items:[{provider,row}],askAgent:{onTop,reason}}`, including Ask agent in the ordered items. Pattern failures appear as error rows. Direct invocation prints the decoded view. Failures print `{"error":"..."}` and exit 1; success exits 0.
 
 `WICKET_CONFIG_DIR` selects the working folder. For authoring tests, run `Wicket --extension <folder>` directly. No scratch folder or flag is needed.
 

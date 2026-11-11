@@ -5,7 +5,7 @@ import Testing
 @testable import WicketApp
 
 func extensionFolder(
-  _ root: URL, name: String = "test", script: String = "echo '{\"type\":\"list\",\"rows\":[]}'",
+  _ root: URL, name: String = "test", script: String = "echo '{\"items\":[]}'",
   fields: [String: Any] = [:]
 ) throws -> URL {
   let folder = root.appending(path: "extensions/" + name)
@@ -19,7 +19,7 @@ func extensionFolder(
 }
 func answering(_ title: String) -> String {
   let data = try! JSONEncoder().encode(
-    ProviderView.list([Row(id: "one", title: title, actions: [.copy(title)])]))
+    ProviderView(items: [Row(id: "one", title: title, actions: [.copy(title)])]))
   return "cat >/dev/null\nprintf '%s' '" + String(decoding: data, as: UTF8.self) + "'"
 }
 
@@ -27,28 +27,101 @@ func answering(_ title: String) -> String {
   #expect(
     Result(provider: "extension:a", row: Row(id: "b:c", title: "A", actions: [])).id
       != Result(provider: "extension:a:b", row: Row(id: "c", title: "B", actions: [])).id)
-  let view = ProviderView.detail(
-    body: "<stat label=\"Total\" value=\"42\"/>", metadata: [.init(label: "Source", value: "Local")],
+  let view = ProviderView(
+    body: "<stat label=\"Total\" value=\"42\"/>", items: [Row(id: "more", title: "More", actions: [])],
     actions: [
       .open(URL(string: "https://example.com")!), .copy("42"), .paste("42"),
       .run(arguments: ["refresh", "42"]), .agent("Explain 42"),
     ])
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   for json in [
-    #"{"type":"list","rows":[{"id":"x","title":"X","actions":[]},{"id":"x","title":"X","actions":[]}]}"#,
-    #"{"type":"detail","metadata":[]}"#, #"{"type":"list","rows":[{"id":"","title":"X","actions":[]}]}"#,
-    #"{"type":"list","rows":[{"id":"x","title":"X","actions":[{"type":"open","url":"javascript:alert(1)"}]}]}"#,
+    #"{"items":[{"id":"x","title":"X","actions":[]},{"id":"x","title":"X","actions":[]}]}"#,
+    #"{}"#, #"{"type":"detail","metadata":[]}"#, #"{"actions":[]}"#,
+    #"{"items":[{"id":"","title":"X","actions":[]}]}"#,
+    #"{"items":[{"id":"x","title":"X","actions":[{"type":"open","url":"javascript:alert(1)"}]}]}"#,
   ] {
     #expect(throws: (any Error).self) { try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8)) }
   }
+  // `type`, `metadata` and other unknown keys are ignored.
   #expect(
-    try JSONDecoder().decode(ProviderView.self, from: Data(#"{"type":"detail","body":"hi","extra":1}"#.utf8))
-      == .detail(body: "hi"))
+    try JSONDecoder().decode(
+      ProviderView.self,
+      from: Data(#"{"type":"detail","body":"hi","metadata":[{"label":"a","value":"b"}],"extra":1}"#.utf8))
+      == ProviderView(body: "hi"))
   for manifest in [#"{"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#] {
     #expect(throws: (any Error).self) {
       try JSONDecoder().decode(ExtensionManifest.self, from: Data(manifest.utf8))
     }
   }
+}
+
+@Test func oneViewDecodesItemsOnlyBodyOnlyAndBoth() throws {
+  func decode(_ json: String) throws -> ProviderView {
+    try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
+  }
+  let item = Row(id: "a", title: "A", actions: [.copy("a")])
+  let itemJSON = #"{"id":"a","title":"A","actions":[{"type":"copy","text":"a"}]}"#
+  #expect(try decode(#"{"items":[\#(itemJSON)]}"#) == ProviderView(items: [item]))
+  #expect(try decode(#"{"items":[]}"#) == ProviderView())
+  #expect(
+    try decode(#"{"body":"Hi","actions":[{"type":"copy","text":"a"}]}"#)
+      == ProviderView(body: "Hi", actions: [.copy("a")]))
+  #expect(
+    try decode(#"{"body":"Hi","items":[\#(itemJSON)]}"#) == ProviderView(body: "Hi", items: [item]))
+  // Old outputs keep working through the ignored `type`, but `rows` and `metadata` are gone.
+  #expect(try decode(#"{"type":"detail","body":"hi"}"#) == ProviderView(body: "hi"))
+  #expect(throws: (any Error).self) { try decode(#"{"type":"list","rows":[\#(itemJSON)]}"#) }
+  #expect(
+    try decode(#"{"body":"hi","metadata":[{"label":"a","value":"b"}]}"#)
+      == ProviderView(body: "hi"))
+}
+
+@MainActor @Test func aBodyWithItemsSelectsItemsAndReturnRunsTheSelectedOne() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let view = ProviderView(
+    body: "## Berlin",
+    items: [
+      Row(id: "a", title: "One", actions: [.copy("one")]),
+      Row(id: "b", title: "Two", actions: [.copy("two")]),
+    ],
+    actions: [.copy("view")])
+  let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
+  _ = try extensionFolder(root, script: "cat >/dev/null\nprintf '%s' '\(json)'")
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.update { $0.providers = [.init("extension:test")] }
+  await model.extensions.reload()
+  model.input = "test"
+  await model.settled()
+  #expect(model.enterSelected())
+  await model.settled()
+  #expect(model.body == "## Berlin" && model.results.map(\.row.id) == ["a", "b"])
+  #expect(model.viewActions == [.copy("view")])
+  #expect(model.selected?.row.id == "a" && model.selected?.row.actions.first == .copy("one"))
+  model.move(1)
+  #expect(model.selected?.row.id == "b")
+  model.move(1)
+  #expect(model.selected?.row.id == "b")
+  await model.finish()
+}
+
+@MainActor @Test func aPatternResultWithABodyOnlyOffersToEnterTheCommand() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let view = ProviderView(body: "## Berlin", items: [Row(id: "a", title: "Inner", actions: [])])
+  let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
+  _ = try extensionFolder(
+    root, script: "cat >/dev/null\nprintf '%s' '\(json)'", fields: ["match": "^weather"])
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.update { $0.providers = [.init("extension:test")] }
+  await model.extensions.reload()
+  model.input = "weather berlin"
+  await model.settled()
+  #expect(model.results.first { $0.provider == "extension:test" }?.row.id == "detail")
+  #expect(!model.results.contains { $0.row.title == "Inner" })
+  await model.finish()
 }
 
 func command(_ folder: URL) throws -> ExtensionCommand {
@@ -62,9 +135,9 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   let ext = try extensionFolder(root, script: answering("Hello"))
   #expect(
     try await ExtensionRunner().run(command(ext), request: .init(input: "hello"))
-      == .list([Row(id: "one", title: "Hello", actions: [.copy("Hello")])]))
+      == .init(items: [Row(id: "one", title: "Hello", actions: [.copy("Hello")])]))
   try Data(
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'type':'detail','body':r['input'],'metadata':[{'label':'args','value':'/'.join(r['arguments'])}]}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['input'],'items':[{'id':'args','title':'/'.join(r['arguments']),'actions':[]}]}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let data = try JSONSerialization.data(withJSONObject: [
@@ -74,7 +147,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   #expect(
     try await ExtensionRunner().run(
       command(ext), request: .init(input: "héllo \"世界\"", arguments: ["one", "two"]))
-      == .detail(body: "héllo \"世界\"", metadata: [.init(label: "args", value: "one/two")]))
+      == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one/two", actions: [])]))
 }
 
 @Test func theWorkingDirectoryIsTheExtensionsOwnFolder() async throws {
@@ -82,13 +155,10 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "cwd.py"]])
   try Data(
-    "import os,json,sys; json.load(sys.stdin); print(json.dumps({'type':'detail','body':os.getcwd()}))".utf8
+    "import os,json,sys; json.load(sys.stdin); print(json.dumps({'body':os.getcwd()}))".utf8
   ).write(to: ext.appending(path: "cwd.py"))
-  guard case .detail(let cwd, _, _) = try await ExtensionRunner().run(command(ext), request: .init(input: ""))
-  else {
-    Issue.record("Expected a detail view")
-    return
-  }
+  let view = try await ExtensionRunner().run(command(ext), request: .init(input: ""))
+  let cwd = try #require(view.body)
   #expect(URL(fileURLWithPath: cwd).resolvingSymlinksInPath() == ext.resolvingSymlinksInPath())
 }
 
@@ -154,7 +224,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let rows = [Row(id: "a", title: "Beta", actions: []), Row(id: "b", title: "Alpha", actions: [])]
-  let list = String(decoding: try JSONEncoder().encode(ProviderView.list(rows)), as: UTF8.self)
+  let list = String(decoding: try JSONEncoder().encode(ProviderView(items: rows)), as: UTF8.self)
   _ = try extensionFolder(root, script: "cat >/dev/null\nprintf '%s' '\(list)'")
   let history = UsageHistory(url: root.appending(path: "usage.json"))
   for _ in 0..<50 { history.record(Result(provider: "extension:test", row: rows[1]).id, input: "x") }
@@ -180,7 +250,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     id: "app", title: "An Editor", actions: [.open(URL(fileURLWithPath: "/Applications/Editor.app"))],
     keywords: ["edit"])
   #expect(SearchIndex([(row, [])]).search("edit", usage: UsageStore()).first == row)
-  let view = ProviderView.list([Row(id: "result", title: "4", actions: [.copy("4")], prominent: true)])
+  let view = ProviderView(items: [Row(id: "result", title: "4", actions: [.copy("4")], prominent: true)])
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   _ = try extensionFolder(root, fields: ["match": ".*"])
   let manifest = try JSONDecoder().decode(
@@ -302,7 +372,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "echo.py"]])
   try Data(
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'type':'detail','body':'/'.join(r['arguments'])+':'+r['input']}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(r['arguments'])+':'+r['input']}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let model = LauncherModel(
@@ -315,10 +385,10 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.settled()
   model.rerun("extension:test", arguments: ["one"])
   await model.settled()
-  #expect(model.detailBody == "one:")
+  #expect(model.body == "one:")
   model.input = "next"
   await model.settled()
-  #expect(model.detailBody == "one:next")
+  #expect(model.body == "one:next")
   #expect(model.escape() && model.command == nil)
   await model.finish()
 }

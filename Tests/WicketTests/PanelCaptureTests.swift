@@ -25,7 +25,8 @@ private let states = [
   "conversation-long-expanded",
   "working", "permission-routine", "permission-high",
   "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
-  "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-error",
+  "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
+  "extension-error",
   "settings-general", "settings-voice", "settings-agent", "settings-sources", "settings-error",
   "settings-conflict",
 ]
@@ -63,6 +64,12 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("extension-detail") {
     return ["Extension report", "A useful extension", "42", "Local extension", "One JSON view", "Actions"]
   }
+  if name.contains("extension-both") {
+    return [
+      "Extension report", "A useful extension", "Local extension", "Hourly forecast", "Weekly forecast",
+      "Actions",
+    ]
+  }
   if name.contains("extension-error") {
     return ["Extension report", "Invalid extension view", "REPAIR", "Ask agent"]
   }
@@ -99,7 +106,7 @@ private let nextAnswer =
       )
     })
   func view(for request: ProviderRequest) async throws -> ProviderView {
-    .list(index.search(request.input, usage: UsageStore()))
+    .init(items: index.search(request.input, usage: UsageStore()))
   }
 }
 
@@ -226,19 +233,27 @@ private let nextAnswer =
     let host = model.extensions
     try ExtensionHost.installFiles(in: folder)
     host.onCatalogChange = nil
-    if state == "extension-detail" || state == "extension-error" {
+    if ["extension-detail", "extension-both", "extension-error"].contains(state) {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
       try JSONSerialization.data(withJSONObject: [
         "name": "Extension report", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"],
         "icon": "doc.text",
       ]).write(to: demo.appending(path: "wicket.json"))
-      let view = ProviderView.detail(
+      let both = state == "extension-both"
+      let view = ProviderView(
         body:
-          "## A useful extension\n<stat label=\"Total\" value=\"42\"/>\n<callout>Written by a program, displayed by Wicket.</callout>",
-        metadata: [
-          .init(label: "Source", value: "Local extension"), .init(label: "Format", value: "One JSON view"),
-        ], actions: [.copy("42"), .run(arguments: ["refresh"]), .agent("Explain this report")])
+          "## A useful extension\n<stat label=\"Total\" value=\"42\"/>\n<callout>Written by a program, displayed by Wicket.</callout>\n<fact label=\"Source\" value=\"Local extension\"/>\n<fact label=\"Format\" value=\"One JSON view\"/>",
+        items: both
+          ? [
+            Row(
+              id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
+              actions: [.run(arguments: ["hourly"])]),
+            Row(
+              id: "weekly", title: "Weekly forecast", subtitle: "Next 7 days", icon: "calendar",
+              actions: [.run(arguments: ["weekly"])]),
+          ] : [],
+        actions: [.copy("42"), .run(arguments: ["refresh"]), .agent("Explain this report")])
       try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
       let code =
         state == "extension-error"
@@ -380,7 +395,11 @@ func scenariosSetUpTheirState(_ state: String) async throws {
       model.agent.active && model.agent.answer.contains("A good start")
         && model.agent.status == "Ready for a follow-up")
   case "extension-detail":
-    #expect(model.command != nil && model.detailBody?.contains("A useful extension") == true)
+    #expect(model.command != nil && model.body?.contains("A useful extension") == true)
+    #expect(model.results.isEmpty)
+  case "extension-both":
+    #expect(model.body?.contains("A useful extension") == true && model.results.count == 2)
+    #expect(model.selected?.row.id == "hourly")
   case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
   case "extension-pattern": #expect(model.results.first?.row.title.contains("6.21") == true)
   case "extension-fallback": #expect(model.results.contains { $0.row.id == "fallback" })

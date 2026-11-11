@@ -23,47 +23,37 @@ protocol Provider {
   func view(for request: ProviderRequest) async throws -> ProviderView
 }
 
-enum ProviderView: Codable, Sendable, Equatable {
-  case list([Row])
-  case detail(body: String, metadata: [Metadata] = [], actions: [RowAction] = [])
+/// One view with optional parts: Markdown `body` (the answer page), native `items` below it and
+/// `actions` for the header. At least one of body and items is present on the wire.
+struct ProviderView: Codable, Sendable, Equatable {
+  var body: String?
+  var items: [Row]
+  var actions: [RowAction]
 
-  struct Metadata: Codable, Sendable, Equatable {
-    let label: String
-    let value: String
+  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = []) {
+    self.body = body
+    self.items = items
+    self.actions = actions
   }
 
-  private enum CodingKeys: String, CodingKey { case type, rows, body, metadata, actions }
+  private enum CodingKeys: String, CodingKey { case body, items, actions }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    switch try c.decode(String.self, forKey: .type) {
-    case "list":
-      let rows = try c.decode([Row].self, forKey: .rows)
-      guard Set(rows.map(\.id)).count == rows.count, rows.allSatisfy({ !$0.id.isEmpty }) else {
-        throw DecodingError.dataCorruptedError(
-          forKey: .rows, in: c, debugDescription: "Row ids must be nonempty and unique")
-      }
-      self = .list(rows)
-    case "detail":
-      self = .detail(
-        body: try c.decode(String.self, forKey: .body),
-        metadata: try c.decodeIfPresent([Metadata].self, forKey: .metadata) ?? [],
-        actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [])
-    default:
-      throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown view type")
+    let body = try c.decodeIfPresent(String.self, forKey: .body)
+    let items = try c.decodeIfPresent([Row].self, forKey: .items)
+    guard body != nil || items != nil else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .body, in: c, debugDescription: "A view needs a body, items or both")
     }
-  }
-  func encode(to encoder: any Encoder) throws {
-    var c = encoder.container(keyedBy: CodingKeys.self)
-    switch self {
-    case .list(let rows):
-      try c.encode("list", forKey: .type)
-      try c.encode(rows, forKey: .rows)
-    case .detail(let body, let metadata, let actions):
-      try c.encode("detail", forKey: .type)
-      try c.encode(body, forKey: .body)
-      try c.encode(metadata, forKey: .metadata)
-      try c.encode(actions, forKey: .actions)
+    guard Set((items ?? []).map(\.id)).count == items?.count ?? 0,
+      items?.allSatisfy({ !$0.id.isEmpty }) ?? true
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .items, in: c, debugDescription: "Item ids must be nonempty and unique")
     }
+    self.init(
+      body: body, items: items ?? [], actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? []
+    )
   }
 }
 

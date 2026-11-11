@@ -5,7 +5,7 @@ import Testing
 
 @Test func viewsAndActionsHaveAnExplicitWireFormat() throws {
   let json =
-    #"{"type":"list","rows":[{"id":"calc","title":"4","actions":[{"type":"copy","text":"4"}]},{"id":"app","title":"Finder","actions":[{"type":"open","url":"file:///System/Library/CoreServices/Finder.app"}]}]}"#
+    #"{"items":[{"id":"calc","title":"4","actions":[{"type":"copy","text":"4"}]},{"id":"app","title":"Finder","actions":[{"type":"open","url":"file:///System/Library/CoreServices/Finder.app"}]}]}"#
   let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   #expect(
@@ -14,10 +14,10 @@ import Testing
 }
 
 @Test(arguments: [
-  #"{"type":"unknown","rows":[]}"#, #"{"type":"list"}"#,
-  #"{"type":"list","rows":[{"id":"x","actions":[]}]}"#,
-  #"{"type":"list","rows":[{"id":"x","title":"X","actions":[{"type":"shell"}]}]}"#,
-  #"{"type":"list","rows":[{"id":"x","title":"X","actions":[{"type":"copy"}]}]}"#,
+  #"{"type":"list"}"#, #"{"items":{}}"#, #"{"body":1}"#,
+  #"{"items":[{"id":"x","actions":[]}]}"#,
+  #"{"items":[{"id":"x","title":"X","actions":[{"type":"shell"}]}]}"#,
+  #"{"items":[{"id":"x","title":"X","actions":[{"type":"copy"}]}]}"#,
 ])
 func badViewsFail(json: String) {
   #expect(throws: (any Error).self) {
@@ -36,7 +36,7 @@ private final class TestProvider: Provider {
   }
   func view(for request: ProviderRequest) async throws -> ProviderView {
     if delayed { return await withCheckedContinuation { waiting[request.input] = $0 } }
-    return .list([row(id + request.input)])
+    return .init(items: [row(id + request.input)])
   }
 }
 
@@ -79,9 +79,9 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   #expect(await eventually { provider.waiting["old"] != nil })
   model.input = "new"
   #expect(await eventually { provider.waiting["new"] != nil })
-  provider.waiting.removeValue(forKey: "new")?.resume(returning: .list([row("New")]))
+  provider.waiting.removeValue(forKey: "new")?.resume(returning: .init(items: [row("New")]))
   #expect(await eventually { model.results.first?.row.title == "New" })
-  provider.waiting.removeValue(forKey: "old")?.resume(returning: .list([row("Old")]))
+  provider.waiting.removeValue(forKey: "old")?.resume(returning: .init(items: [row("Old")]))
   await Task.yield()
   #expect(model.results.map(\.row.title) == ["New", "Ask agent"])
 }
@@ -91,7 +91,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   let view = try await provider.view(for: ProviderRequest(input: "2+2"))
   #expect(
     view
-      == .list([
+      == .init(items: [
         Row(
           id: "result", title: "4", subtitle: "Copy result", icon: "equal", actions: [.copy("4")],
           prominent: true)
@@ -108,13 +108,13 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   model.onResultsChange = { sizes.append(model.results.count) }
   model.input = "first"
   #expect(await eventually { provider.waiting["first"] != nil })
-  provider.waiting.removeValue(forKey: "first")?.resume(returning: .list([row("first")]))
+  provider.waiting.removeValue(forKey: "first")?.resume(returning: .init(items: [row("first")]))
   #expect(await eventually { !model.isRefreshing })
   sizes.removeAll()
   model.input = "second"
   #expect(model.results.count == 2 && sizes.isEmpty)
   #expect(await eventually { provider.waiting["second"] != nil })
-  provider.waiting.removeValue(forKey: "second")?.resume(returning: .list([row("second")]))
+  provider.waiting.removeValue(forKey: "second")?.resume(returning: .init(items: [row("second")]))
   #expect(await eventually { !model.isRefreshing })
   #expect(sizes == [2])
 }
@@ -134,7 +134,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
     root, name: "weather", script: script,
     fields: ["match": ".+", "command": ["/usr/bin/python3", "main.sh"]])
   let rows = ["a", "b", "c"].map { Row(id: $0, title: "Weather " + $0, actions: []) }
-  try JSONEncoder().encode(ProviderView.list(rows)).write(to: response)
+  try JSONEncoder().encode(ProviderView(items: rows)).write(to: response)
   let model = LauncherModel(
     providers: [TestProvider("apps")], history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root)
@@ -188,7 +188,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   let b = row("b")
   let c = row("c")
   func reply(_ rows: [Row]) throws {
-    try JSONEncoder().encode(ProviderView.list(rows)).write(to: response, options: .atomic)
+    try JSONEncoder().encode(ProviderView(items: rows)).write(to: response, options: .atomic)
   }
   try reply([a, b, c])
   let model = LauncherModel(
@@ -240,7 +240,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
       import json,sys,time,pathlib
       json.load(sys.stdin)
       while not pathlib.Path('\(gate.path)').exists(): time.sleep(0.01)
-      print(json.dumps({'type':'list','rows':[{'id':'weather','title':'Weather today','actions':[]}]}))
+      print(json.dumps({'items':[{'id':'weather','title':'Weather today','actions':[]}]}))
       """, fields: ["match": ".+", "command": ["/usr/bin/python3", "main.sh"]])
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)

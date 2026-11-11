@@ -165,12 +165,12 @@ import Testing
   }
 }
 
-@MainActor @Test func anExtensionDetailViewPreservesTheOriginalMarkdown() async throws {
+@MainActor @Test func anExtensionBodyPreservesTheOriginalMarkdown() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let demo = try extensionFolder(
     folder, name: "demo", script: "cat >/dev/null\ncat view.json", fields: ["keyword": "demo"])
-  let view = ProviderView.detail(
+  let view = ProviderView(
     body:
       "## A useful extension\n<stat label=\"Total\" value=\"42\"/>\n<callout>Written by a program, displayed by Wicket.</callout>"
   )
@@ -183,7 +183,7 @@ import Testing
   await model.settled()
   #expect(model.enterSelected())
   await model.settled()
-  let body = try #require(model.detailBody)
+  let body = try #require(model.body)
   #expect(body.contains("Wicket.</callout>"))
   #expect(!body.contains(#"<\/callout>"#))
   let html = AnswerMarkdown.html(body)

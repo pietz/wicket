@@ -180,19 +180,20 @@ final class PaletteController: NSObject, NSWindowDelegate {
   }
   private func resize() {
     guard panel.isVisible || anchor != .zero else { return }
-    let height = PaletteLayout.panelHeight(card: model.cardHeight(answer: renderer.height))
+    let height = PaletteLayout.panelHeight(card: model.cardHeight(answer: renderer.height, cap: renderer.cap))
     let frame = PaletteLayout.frame(anchor: anchor, height: height)
     if panel.frame != frame { panel.setFrame(frame, display: false) }
     panel.contentView?.layoutSubtreeIfNeeded()
     panel.invalidateShadow()
   }
-  /// The screen that is open: the conversation if there is one, otherwise an extension's detail.
+  /// The screen that is open: the conversation if there is one, otherwise an extension's body.
   private func renderContent() {
     renderer.textSize = model.configuration.textSize
+    renderer.capped = model.agent.active || model.results.isEmpty
     if model.agent.active {
       renderer.update(
         model.agent.answer, turn: model.agent.turnID, streaming: model.agent.busy && model.agent.streaming)
-    } else if let body = model.detailBody {
+    } else if let body = model.body {
       renderer.update(body, turn: model.command?.turn ?? "", streaming: false)
     }
   }
