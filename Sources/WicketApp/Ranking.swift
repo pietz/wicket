@@ -1,40 +1,17 @@
 import Foundation
 
-/// Prepared once when apps are scanned, never rebuilt per keystroke.
+/// Prepared once when apps are scanned, never rebuilt per keystroke. It only filters; `Ranking.compose`
+/// orders what it returns.
 struct SearchIndex: Sendable {
   private let entries: [(row: Row, keys: [SearchKey])]
-  init(_ rows: [(Row, [String])]) {
-    entries = rows.map { ($0.0, ([$0.0.title] + ($0.0.keywords ?? []) + $0.1).map(SearchKey.init)) }
+  init(_ rows: [Row]) {
+    entries = rows.map { ($0, ([$0.title] + ($0.keywords ?? [])).map(SearchKey.init)) }
   }
-  func search(_ input: String, usage: UsageStore, now: Date = Date(), namespace: String = "")
-    -> [Row]
-  {
+  /// The rows whose title or an alias fuzzy-matches the input, or all of them for empty input.
+  func matches(_ input: String) -> [Row] {
     let query = Fold.query(input)
-    let matches = entries.compactMap { entry -> (Row, Int, Int, Double)? in
-      if query.isEmpty {
-        return (entry.row, 0, 0, usage.frecency(namespace + entry.row.id, query: input, now: now))
-      }
-      var best: (tier: Int, score: Int)?
-      for key in entry.keys {
-        guard let score = FuzzyMatcher.score(query, key) else { continue }
-        let tier = Ranking.tier(query, folded: key.compact)
-        if best == nil || tier > best!.tier || (tier == best!.tier && score > best!.score) {
-          best = (tier, score)
-        }
-      }
-      guard let best else { return nil }
-      return (
-        entry.row, best.tier, best.score,
-        usage.frecency(namespace + entry.row.id, query: input, now: now)
-      )
-    }
-    return matches.sorted {
-      if $0.1 != $1.1 { return $0.1 > $1.1 }
-      if $0.3 != $1.3 { return $0.3 > $1.3 }
-      if $0.2 != $1.2 { return $0.2 > $1.2 }
-      let order = $0.0.title.localizedStandardCompare($1.0.title)
-      return order == .orderedSame ? $0.0.id < $1.0.id : order == .orderedAscending
-    }.map(\.0)
+    guard !query.isEmpty else { return entries.map(\.row) }
+    return entries.filter { $0.keys.contains { FuzzyMatcher.score(query, $0) != nil } }.map(\.row)
   }
 }
 

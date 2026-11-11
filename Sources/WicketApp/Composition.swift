@@ -17,7 +17,7 @@ enum Ranking {
   static func tier(_ query: [UInt32], _ names: [String]) -> Int {
     names.map { tier(query, folded: Fold.query($0)) }.max() ?? 0
   }
-  /// The same rule for a name that is already folded, such as an indexed `SearchKey`.
+  /// The same rule for a name that is already folded, such as a `SearchKey`'s `compact`.
   static func tier(_ query: [UInt32], folded name: [UInt32]) -> Int {
     query.isEmpty ? 0 : (name == query ? 2 : (name.starts(with: query) ? 1 : 0))
   }
@@ -122,12 +122,15 @@ enum Ranking {
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
     func candidate(_ result: Result, _ kind: Kind, names: [String], requireMatch: Bool) -> Candidate? {
       var score = 0
+      var tier = 0
       if !query.isEmpty {
-        let scores = names.compactMap { FuzzyMatcher.score(query, words: words, SearchKey($0)) }
+        let keys = names.map(SearchKey.init)
+        let scores = keys.compactMap { FuzzyMatcher.score(query, words: words, $0) }
         if let best = scores.max() { score = best } else if requireMatch { return nil }
+        tier = keys.map { Self.tier(query, folded: $0.compact) }.max() ?? 0
       }
       return Candidate(
-        result: result, kind: kind, tier: tier(query, names),
+        result: result, kind: kind, tier: tier,
         usage: usage.frecency(result.id, query: input, now: now), score: score)
     }
     var candidates = apps.compactMap {

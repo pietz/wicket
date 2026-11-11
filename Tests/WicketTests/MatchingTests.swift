@@ -11,7 +11,18 @@ private let names = [
   "Microsoft Excel", "Microsoft Word", "Font Book", "FaceTime", "Disk Utility",
 ]
 func row(_ title: String) -> Row { Row(id: title, title: title, actions: []) }
-private let index = SearchIndex(names.map { (row($0), []) })
+private let index = SearchIndex(names.map(row))
+/// The app rows in the order the launcher lists them: the index filters, `Ranking.compose` orders.
+private func search(
+  _ index: SearchIndex, _ input: String, usage: UsageStore = UsageStore(), now: Date = Date()
+)
+  -> [Row]
+{
+  Ranking.compose(
+    query: input, math: [], apps: index.matches(input), files: [], patterns: [:], extensions: [:],
+    problems: [:], usage: usage, now: now
+  ).results.filter { $0.provider == "apps" }.map(\.row)
+}
 
 // Corpus ported from the first Wicket's RankingTests.
 @Test(arguments: [
@@ -22,48 +33,49 @@ private let index = SearchIndex(names.map { (row($0), []) })
   ("ZED", "Zed"), ("vs code", "Visual Studio Code"), ("am", "Activity Monitor"),
 ])
 func topResult(query: String, expected: String) {
-  #expect(index.search(query, usage: UsageStore()).first?.title == expected)
+  #expect(search(index, query).first?.title == expected)
 }
 
 @Test func rejectsScatteredAndMissingLetters() {
-  #expect(index.search("safz", usage: UsageStore()).isEmpty)
-  #expect(!index.search("aio", usage: UsageStore()).contains { $0.title == "Calculator" })
-  #expect(index.search("qqq", usage: UsageStore()).isEmpty)
+  #expect(search(index, "safz").isEmpty)
+  #expect(!search(index, "aio").contains { $0.title == "Calculator" })
+  #expect(search(index, "qqq").isEmpty)
 }
 
 @Test func diacriticsWidthAndAliases() {
   let localized = SearchIndex([
-    (row("Systemeinstellungen"), ["System Settings"]), (row("Café Menu"), []),
+    Row(id: "Systemeinstellungen", title: "Systemeinstellungen", actions: [], keywords: ["System Settings"]),
+    row("Café Menu"),
   ])
   #expect(
-    localized.search("system settings", usage: UsageStore()).first?.title == "Systemeinstellungen")
-  #expect(localized.search("cafe", usage: UsageStore()).first?.title == "Café Menu")
+    search(localized, "system settings").first?.title == "Systemeinstellungen")
+  #expect(search(localized, "cafe").first?.title == "Café Menu")
   #expect(Fold.query("ＣＡＦÉ") == Fold.query("cafe"))
 }
 
 @Test func exactThenPrefixAlwaysBeatHabit() {
-  let index = SearchIndex(["Mail", "Mailbox", "Email"].map { (row($0), []) })
+  let index = SearchIndex(["Mail", "Mailbox", "Email"].map(row))
   var usage = UsageStore()
-  for _ in 0..<100 { usage.record("Email", query: "mail", now: Date()) }
-  #expect(index.search("mail", usage: usage).map(\.title) == ["Mail", "Mailbox", "Email"])
+  for _ in 0..<100 { usage.record("apps:Email", query: "mail", now: Date()) }
+  #expect(search(index, "mail", usage: usage).map(\.title) == ["Mail", "Mailbox", "Email"])
 }
 
 @Test func usageLearnsOnlyTheInputYouPicked() {
-  let index = SearchIndex(["Mail", "Maps", "Messages"].map { (row($0), []) })
+  let index = SearchIndex(["Mail", "Maps", "Messages"].map(row))
   var usage = UsageStore()
-  usage.record("Messages", query: "M", now: Date())
-  #expect(index.search("m", usage: usage).first?.title == "Messages")
-  #expect(index.search("ma", usage: usage).first?.title == "Mail")
-  #expect(index.search("", usage: usage).first?.title == "Mail")
+  usage.record("apps:Messages", query: "M", now: Date())
+  #expect(search(index, "m", usage: usage).first?.title == "Messages")
+  #expect(search(index, "ma", usage: usage).first?.title == "Mail")
+  #expect(search(index, "", usage: usage).first?.title == "Mail")
 }
 
 @Test func recentUseBreaksEqualFrequency() {
   let now = Date()
-  let index = SearchIndex(["Mail", "Maps"].map { (row($0), []) })
+  let index = SearchIndex(["Mail", "Maps"].map(row))
   var usage = UsageStore()
-  usage.record("Mail", query: "m", now: now.addingTimeInterval(-UsageStore.halfLife))
-  usage.record("Maps", query: "m", now: now)
-  #expect(index.search("m", usage: usage, now: now).first?.title == "Maps")
+  usage.record("apps:Mail", query: "m", now: now.addingTimeInterval(-UsageStore.halfLife))
+  usage.record("apps:Maps", query: "m", now: now)
+  #expect(search(index, "m", usage: usage, now: now).first?.title == "Maps")
 }
 
 @Test func frecencyDecayAndPruning() {

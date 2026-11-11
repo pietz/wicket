@@ -18,7 +18,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(.accessory)
     let directory = Edition.current.configDirectory()
     let history = UsageHistory(url: directory.appending(path: "usage.json"))
-    let apps = AppsProvider(history: history)
+    let apps = AppsProvider()
     let clipboard = ClipboardHistory(
       url: Edition.current.privateDirectory().appending(path: "clipboard-history.json"))
     let model = LauncherModel(

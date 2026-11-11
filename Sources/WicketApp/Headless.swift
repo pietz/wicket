@@ -11,7 +11,7 @@ public enum Headless {
     func value(_ key: String) -> String? { options[key] }
     let folder = Edition.current.configDirectory()
     let history = UsageHistory(url: folder.appending(path: "usage.json"))
-    let apps = AppsProvider(history: history)
+    let apps = AppsProvider()
     let model = LauncherModel(
       providers: [MathProvider(), apps], files: FilesProvider(), history: history, folder: folder)
     let host = model.extensions

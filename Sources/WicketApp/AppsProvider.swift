@@ -10,15 +10,13 @@ struct AppRecord: Sendable, Hashable {
 @MainActor
 final class AppsProvider: Provider {
   let id = "apps"
-  private let history: UsageHistory
-  init(history: UsageHistory) { self.history = history }
   var onChange: (() -> Void)?
   private var index = SearchIndex([])
   private var watcher: FileWatcher?
   private var rescanTask: Task<Void, Never>?
 
   func view(for request: ProviderRequest) async throws -> ProviderView {
-    .init(items: index.search(request.input, usage: history.store, namespace: "apps:"))
+    .init(items: index.matches(request.input))
   }
 
   func start(watch: Bool = true) async {
@@ -39,12 +37,9 @@ final class AppsProvider: Provider {
     index = await Task.detached(priority: .userInitiated) {
       SearchIndex(
         Self.scan(Self.scopes).map { app in
-          (
-            Row(
-              id: app.url.path, title: app.name, subtitle: "Application", actions: [.open(app.url)],
-              keywords: app.alternates),
-            []
-          )
+          Row(
+            id: app.url.path, title: app.name, subtitle: "Application", actions: [.open(app.url)],
+            keywords: app.alternates)
         })
     }.value
     onChange?()

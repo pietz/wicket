@@ -99,14 +99,12 @@ private let nextAnswer =
   let id = "apps"
   private let index = SearchIndex(
     ["Calendar", "Calculator", "Chess"].map { name in
-      (
-        Row(
-          id: name.lowercased(), title: name, subtitle: "Application",
-          actions: [.open(URL(fileURLWithPath: "/System/Applications/" + name + ".app"))]), []
-      )
+      Row(
+        id: name.lowercased(), title: name, subtitle: "Application",
+        actions: [.open(URL(fileURLWithPath: "/System/Applications/" + name + ".app"))])
     })
   func view(for request: ProviderRequest) async throws -> ProviderView {
-    .init(items: index.search(request.input, usage: UsageStore()))
+    .init(items: index.matches(request.input))
   }
 }
 

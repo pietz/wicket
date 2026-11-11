@@ -41,7 +41,7 @@ Extensions are ordinary programs with your user access, so they need no special 
 
 ### Result order
 
-One pure function (`Ranking.compose`) orders everything at the root of the launcher. The panel and headless mode both use it, so there is one copy of these rules. A name tier is 2 for an exact match, 1 for a prefix match and 0 otherwise, over a row's title and aliases or an extension's name and keyword, folded for case, diacritics, width and spaces (`Ranking.tier`; the app index uses the same helper).
+One pure function (`Ranking.compose`) orders everything at the root of the launcher. The panel and headless mode both use it, so there is one copy of these rules. A name tier is 2 for an exact match, 1 for a prefix match and 0 otherwise, over a row's title and aliases or an extension's name and keyword, folded for case, diacritics, width and spaces (`Ranking.tier`). Usage decays over time and is stored per complete input, so a pick for "c" does not affect "cl"; the empty input has its own history.
 
 1. A math result.
 2. Pattern extension results: extensions whose `match` regex ran and returned items. Each extension's items stay together in its own order: exact or prefix title/alias, then usage for this exact input, then returned order. Several pattern extensions are ordered by extension name. This is the only place an extension's items are ordered by usage.
@@ -57,8 +57,7 @@ With empty input the list is the apps by usage, then extension commands, then As
 
 ### Launcher
 
-- **Ranking inside the app index:** exact name match, then prefix match, then how often and how recently you picked that result for exactly this input, then fuzzy score, then name. Usage decays over time and is stored per complete input, so a pick for "c" does not affect "cl". The empty input has its own history.
-- **Across sources:** Result order above. Math is first when it has an answer.
+- **Apps:** a `SearchIndex` built once per scan holds each app's prepared name and alias keys and only filters: it returns the apps the input fuzzy-matches, or all of them for empty input, unordered. Ranking happens once, in `Ranking.compose` (Result order above).
 - **Files:** filenames from the Spotlight index, with no index of our own (see File search below).
 - **Math:** a small hand-written parser (`Math.swift`) for arithmetic, parentheses, powers (right-associative, tighter than unary minus) and percentages. It needs an operator; bare or signed numbers, dates (`2026-11-10`, `11/11/2026`, `11.11.2026`), versions (`1.2.3`) and phone numbers (`555-1234`, `+1 555-123-4567`) give no row. No implicit multiplication, functions, units, currencies or dates; units and currencies are extensions.
   - **Percentages** read the way people say them: `200 + 10%` is 220, `200 - 10%` is 180, `10% of 200` and `50 * 10%` are a share (20, 5), `15%` alone is 0.15, and `10% + 5%` is 0.15. Only a bare percentage on the right of `+` or `-` changes the left side; `200 + 10% * 2` is 200.2.

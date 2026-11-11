@@ -255,7 +255,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let row = Row(
     id: "app", title: "An Editor", actions: [.open(URL(fileURLWithPath: "/Applications/Editor.app"))],
     keywords: ["edit"])
-  #expect(SearchIndex([(row, [])]).search("edit", usage: UsageStore()).first == row)
+  #expect(SearchIndex([row]).matches("edit").first == row)
   let view = ProviderView(items: [Row(id: "result", title: "4", actions: [.copy("4")], prominent: true)])
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   _ = try extensionFolder(root, fields: ["match": ".*"])
