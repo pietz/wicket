@@ -65,7 +65,8 @@ struct LauncherView: View {
           SearchField(
             text: Binding(get: { model.input }, set: { model.editInput($0) }), register: registerInput,
             placeholder: model.agent.active
-              ? "Ask a follow-up…" : (model.commandName ?? "Search or ask anything…")
+              ? (model.agent.question.isEmpty ? "Ask \(model.askingName)…" : "Ask a follow-up…")
+              : (model.commandName ?? "Search or ask anything…")
           ).frame(height: 30)
           if model.configuration.voice.enabled, model.takesSpeech {
             Button {
@@ -113,7 +114,7 @@ struct LauncherView: View {
             Text(
               voiceStatus
                 ?? (model.agent.active
-                  ? (model.agent.continuing && !model.agent.busy
+                  ? (model.agent.continuing && !model.agent.busy && !model.agent.question.isEmpty
                     ? "Continuing conversation" : (renderer.problem ?? model.agent.status))
                   : (model.problem ?? model.commandName ?? "Wicket"))
             ).lineLimit(1).help(
@@ -127,10 +128,14 @@ struct LauncherView: View {
                 Text("↩ " + action.label)
               } else if model.agent.busy {
                 Button("Cancel") { model.agent.cancel() }.buttonStyle(.plain)
+              } else if model.agent.question.isEmpty {
+                Text("↩ Ask")
               } else {
                 Text("↩ Follow up")
               }
-              Text(model.agent.busy ? "Esc Cancel" : "Esc End conversation")
+              Text(
+                model.agent.busy
+                  ? "Esc Cancel" : model.agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
               Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
               Text(model.command == nil ? "esc Close" : "esc Back")
@@ -264,7 +269,17 @@ struct LauncherView: View {
       agentScroll.onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
     }
   }
-  private var agentScroll: some View {
+  @ViewBuilder private var agentScroll: some View {
+    if model.agent.question.isEmpty {
+      // A draft from the `agent` action: nothing is asked yet.
+      Text("Press Return to ask \(model.askingName), or edit the question first.")
+        .font(.system(size: textSize.points)).foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(18).frame(height: PaletteLayout.answerMin)
+    } else {
+      conversation
+    }
+  }
+  private var conversation: some View {
     ScrollView {
       VStack(spacing: 0) {
         VStack(alignment: .leading, spacing: 12) {
@@ -398,6 +413,7 @@ extension LauncherModel {
         results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
   }
   func cardHeight(answer: CGFloat, cap: Double) -> CGFloat {
+    if agent.active, agent.question.isEmpty { return PaletteLayout.answerMin + PaletteLayout.footer }
     if agent.active {
       return min(
         560,

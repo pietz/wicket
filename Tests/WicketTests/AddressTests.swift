@@ -122,9 +122,10 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(model.command?.id == "extension:broken" && model.input == "broken now")
   let problem = try #require(model.command?.problem)
   #expect(problem.contains("REPAIR") && problem.contains("Command:") && problem.contains("broken now"))
-  // An invalid manifest: the repair row fills the input with the brief and sends nothing.
+  // An invalid manifest: the repair row drafts the brief in an empty conversation and sends nothing.
   try await press("zzz") { $0.row.id == "discovery-error" }
-  #expect(model.input.contains("Invalid wicket.json") && model.command == nil && !model.agent.active)
+  #expect(model.input.contains("Invalid wicket.json") && model.command == nil)
+  #expect(model.agent.active && !model.agent.busy && model.agent.question.isEmpty)
   // Settings.
   try await press("settings") { $0.provider == "settings" }
   #expect(settings == 1)
@@ -172,7 +173,7 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   // An unknown extension changes nothing and says so.
   model.go(Address(extensionName: "nothing", input: "x"))
   #expect(model.command?.id == "extension:one" && model.actionProblem?.contains("nothing") == true)
-  // No target is a root query, and `agent` only fills the input.
+  // No target is a root query.
   model.go(Address(input: "calc"))
   #expect(model.command == nil && model.input == "calc")
   // A root URL stays the root even from an extension's own row, where an omitted target is that one.
@@ -180,8 +181,11 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   await model.settled()
   try model.go(#require(url("wicket://?input=hello")), from: "extension:two")
   #expect(model.command == nil && model.input == "hello")
+  // `agent` leaves an open command for an empty conversation holding the unsent text.
+  model.go(Address(id: "extension:one"))
+  await model.settled()
   model.go(Address(extensionName: "agent", input: "Why?"), from: "extension:one")
-  #expect(model.input == "Why?" && !model.agent.active && !model.agent.busy)
+  #expect(model.input == "Why?" && model.agent.active && !model.agent.busy && model.command == nil)
   await model.finish()
 }
 

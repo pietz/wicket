@@ -86,11 +86,18 @@ final class AgentSession {
       declineAll()
     }
   }
+  /// An empty conversation with these settings, waiting for its first question. No process starts.
+  func open(settings: AgentConfiguration) {
+    if active { reset() }
+    chosen = settings
+    active = true
+    onChange?()
+  }
   func ask(_ input: String, settings: AgentConfiguration) {
     let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !busy, !input.isEmpty else { return }
     if chosen.agent != settings.agent { reset() }
-    if active {
+    if active, !question.isEmpty {
       previous.append(Turn(id: turnID, question: question, answer: answer))
       previous = Array(previous.suffix(10))
     }

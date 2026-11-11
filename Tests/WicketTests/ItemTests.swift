@@ -109,34 +109,32 @@ import Testing
   await model.finish()
 }
 
-@MainActor @Test func askOutsideAConversationLeavesTheCommandAndFillsSearch() async throws {
+@MainActor @Test func askOutsideAConversationOpensAnEmptyOneWithTheDraft() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
-  model.fill("Explain 42")
-  #expect(model.input == "Explain 42" && !model.agent.active && model.command == nil)
-  await model.finish()
-}
-
-@MainActor private final class OneApp: Provider {
-  let id = "apps"
-  func view(for request: ProviderRequest) async throws -> ProviderView {
-    .init(items: [Row(id: "explainer", title: "Explainer", actions: [])])
+  var connects = 0
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in
+    connects += 1
+    return fake
   }
-}
-
-@MainActor @Test func aFilledQuestionSelectsAskAgentUntilTheInputChanges() async throws {
-  let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [OneApp()], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
-  // A strong app match would normally take the selection; the filled question goes to the agent.
-  model.fill("Expla")
-  await model.settled()
-  #expect(model.selection == "agent:ask")
-  model.editInput("Explai")
-  await model.settled()
-  #expect(model.selection == "apps:explainer")
+  // The draft waits in an empty conversation; no CLI starts until Return.
+  model.fill("Explain 42")
+  #expect(model.input == "Explain 42" && model.agent.active && !model.agent.busy && model.command == nil)
+  #expect(model.agent.question.isEmpty && model.results.isEmpty && connects == 0)
+  #expect(model.returnAction == .send("Explain 42"))
+  // Esc drops the draft with the conversation.
+  #expect(model.escape())
+  #expect(!model.agent.active && model.input.isEmpty)
+  // Return sends it as the first question, with no empty turn before it.
+  model.fill("Explain 42")
+  model.activateReturn()
+  #expect(await eventually { fake.running })
+  #expect(model.agent.question == "Explain 42" && model.input.isEmpty && connects == 1)
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  #expect(model.agent.previous.isEmpty)
   await model.finish()
 }

@@ -197,7 +197,10 @@ enum Ranking {
         provider: $0,
         row: Row(
           id: "discovery-error", title: $0 + " needs repair", subtitle: "Invalid extension manifest",
-          icon: "exclamationmark.triangle", actions: [.agent(problems[$0]!)]))
+          icon: "exclamationmark.triangle",
+          actions: [
+            .agent("Fix this extension. " + problems[$0]!.split(separator: "\n").joined(separator: ": "))
+          ]))
     }
     if query.isEmpty {
       return Output(
