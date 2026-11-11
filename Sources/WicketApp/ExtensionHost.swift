@@ -60,6 +60,11 @@ final class ExtensionHost {
         FileManager.default.fileExists(atPath: folder.appending(path: "wicket.json").path)
       else { continue }
       let id = "extension:" + folder.lastPathComponent
+      // Addresses name these host targets, so a folder of that name could never be reached.
+      if Address.reserved.contains(folder.lastPathComponent.lowercased()) {
+        problems[id] = "\(folder.path)\n\(folder.lastPathComponent) is a reserved name. Rename the folder."
+        continue
+      }
       do {
         let manifest = try JSONDecoder().decode(
           ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))

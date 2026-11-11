@@ -52,7 +52,7 @@ Items require a nonempty unique `id`, `title` and `actions` array (may be empty)
 [{"type":"open","url":"https://example.com"},{"type":"copy","text":"hello"},{"type":"paste","text":"hello"},{"type":"run","arguments":["refresh","42"]},{"type":"agent","text":"Explain this result"}]
 ```
 
-`run` goes to an address: `{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}`. Every field is optional and an omitted one means this one, as now: no `extension` is this extension, no `input` keeps what is typed in the open command (empty when entering another extension), no `arguments` means none. The target runs with that request. `extension` is a folder name; `agent` fills the input like the agent action, and `settings` opens Settings.
+`run` goes to an address: `{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}`. Every field is optional and an omitted one means this one, as now: no `extension` is this extension, no `input` keeps what is typed in the open command (empty when entering another extension), no `arguments` means none. The target runs with that request. `extension` is a folder name; `agent` fills the input like the agent action, and `settings` opens Settings, so never name a folder `agent` or `settings`.
 
 The same address as a URL is `wicket://weather?input=berlin` (percent-encode the input; `wicket://agent?input=…`, `wicket://settings` and `wicket://?input=…` for a root query). A URL never carries arguments. Use it in `open` actions, in Markdown links in a body and in `<item open="wicket://…"/>`; an external link opens the panel on that command with the input filled. Only your own `run` actions can set arguments.
 

@@ -25,8 +25,8 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(url("wicket://weather?input=berlin") == Address(extensionName: "weather", input: "berlin"))
   #expect(url("wicket://weather?input=a%20b%26c") == Address(extensionName: "weather", input: "a b&c"))
   #expect(url("wicket://weather") == Address(extensionName: "weather"))
-  #expect(url("wicket://?input=x") == Address(input: "x"))
-  #expect(url("wicket://") == Address())
+  #expect(url("wicket://?input=x") == Address(extensionName: "", input: "x"))
+  #expect(url("wicket://") == Address(extensionName: ""))
   #expect(url("wicket:weather?input=x") == Address(extensionName: "weather", input: "x"))
   #expect(url("wicket://agent?input=Why") == Address(extensionName: "agent", input: "Why"))
   #expect(url("wicket://settings")?.targetID == "settings")
@@ -58,7 +58,8 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
       + #"<item title="Root" open="wicket://?input=hello"/><item title="Why" ask="Why?"/>"#)
   #expect(
     view.items.map(\.actions) == [
-      [.run(Address(extensionName: "deploy", input: "prod"))], [.run(Address(input: "hello"))],
+      [.run(Address(extensionName: "deploy", input: "prod"))],
+      [.run(Address(extensionName: "", input: "hello"))],
       [.agent("Why?")],
     ])
   #expect(view.items.allSatisfy { $0.actions.count == 1 })
@@ -173,6 +174,11 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   // No target is a root query, and `agent` only fills the input.
   model.go(Address(input: "calc"))
   #expect(model.command == nil && model.input == "calc")
+  // A root URL stays the root even from an extension's own row, where an omitted target is that one.
+  try model.go(#require(url("wicket://two?input=y")), from: "extension:one")
+  await model.settled()
+  try model.go(#require(url("wicket://?input=hello")), from: "extension:two")
+  #expect(model.command == nil && model.input == "hello")
   model.go(Address(extensionName: "agent", input: "Why?"), from: "extension:one")
   #expect(model.input == "Why?" && !model.agent.active && !model.agent.busy)
   await model.finish()
@@ -215,4 +221,16 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   let ask = try #require(rows.first { $0["provider"].string == "agent" })
   #expect(ask["row"]["actions"].array.first?["type"].string == "ask")
   #expect(ask["row"]["actions"].array.first?["text"].string == "ship")
+}
+
+@Test func reservedFolderNamesAreDiscoveryProblems() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  for name in ["settings", "Agent", "fine"] {
+    _ = try extensionFolder(root, name: name, fields: ["command": ["/usr/bin/true"]])
+  }
+  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"))
+  #expect(Set(commands.keys) == ["extension:fine"])
+  #expect(problems["extension:settings"]?.contains("reserved") == true)
+  #expect(problems["extension:Agent"]?.contains("reserved") == true)
 }

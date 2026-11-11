@@ -359,10 +359,11 @@ final class LauncherModel {
     returnAction.map { activate($0, from: selected) } ?? false
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
-  /// without a target names; any provider that is not an extension means no target, a root query.
+  /// that omits its target names; any provider that is not an extension means the root. An empty target
+  /// is always the root.
   func go(_ address: Address, from origin: String? = nil) {
     let own = origin?.hasPrefix("extension:") == true ? origin : nil
-    switch address.targetID ?? own {
+    switch address.extensionName == nil ? own : address.targetID {
     case "settings": onSettings()
     case "agent": fill(address.input ?? input)
     case nil:
