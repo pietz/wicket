@@ -4,6 +4,15 @@
 
 A wicket is the small door built into a big gate. Press ⌥Space and a quiet search field opens onto your Mac: apps, a calculator, on-device voice input, and the coding agent you already use (Claude Code or Codex). Ask it a question, or tell it to build a command; it writes the extension and from then on the command runs instantly, without a model.
 
+## Pillars
+
+Every feature is judged against these.
+
+- **Hackable.** Ask your agent to build a command or change Wicket itself, and it does. Extensions, the answer theme and the agent's instructions are plain files you and your agent can edit.
+- **AI-native.** Questions go to the agent you already use, and the answer comes back as a page that fits the app (numbers, facts, comparisons, sources), not a wall of text.
+- **A great launcher first.** Opening, typing and running feel instant and native: apps, math, files, keyboard first. The AI never slows down the launcher.
+- **Small.** A tiny core with one way to do each thing; anything that can be an extension is one.
+
 > **Alpha.** Wicket is at 0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
 
 Native macOS 26+ app in Swift 6 and SwiftPM. Apple's swift-cmark (markdown) and Sparkle (updates) are the only dependencies. The design is in [SPEC.md](SPEC.md), what is open in [ISSUES.md](ISSUES.md) and what is next in [ROADMAP.md](ROADMAP.md).
