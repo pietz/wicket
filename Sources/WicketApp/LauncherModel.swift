@@ -88,10 +88,15 @@ final class LauncherModel {
     didSet { if confirmationHeight != oldValue { onResultsChange?() } }
   }
   func reopen(now: Date = Date()) {
+    clipboard?.expire(now: now)
     guard agent.reopen(now: now) else { return }
     cancelWork()
     command = nil
     input = ""
+  }
+  /// Every pasteboard write of Wicket's: through the clipboard history, which then does not keep it.
+  func writePasteboard(_ text: String) {
+    if let clipboard { clipboard.write(text) } else { _ = NSPasteboard.general.write(text) }
   }
   /// The one owner of configuration. The model only reads it.
   let store: ConfigurationStore

@@ -217,8 +217,7 @@ struct LauncherView: View {
         if model.command?.busy == true { ProgressView().controlSize(.small) }
         if let error = model.command?.problem {
           Button("Copy") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(error, forType: .string)
+            model.writePasteboard(error)
           }
           Button("Ask agent") { model.ask(error) }
         } else if !model.viewActions.isEmpty {
@@ -292,8 +291,7 @@ struct LauncherView: View {
               }
             }
             Button {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(model.agent.view.body ?? "", forType: .string)
+              model.writePasteboard(model.agent.view.body ?? "")
             } label: {
               Image(systemName: "doc.on.doc")
             }

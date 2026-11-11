@@ -5,7 +5,7 @@ import Testing
 @testable import WicketApp
 
 /// The pasteboard edge: what the history would read from the system one.
-@MainActor final class FakePasteboard: PasteboardSource {
+@MainActor final class FakePasteboard: PasteboardAccess {
   var changeCount = 0
   var types: [NSPasteboard.PasteboardType]? = []
   var accessBehavior = NSPasteboard.AccessBehavior.alwaysAllow
@@ -14,6 +14,10 @@ import Testing
   func string(forType type: NSPasteboard.PasteboardType) -> String? {
     reads += 1
     return text
+  }
+  func write(_ text: String) -> Int {
+    copy(text)
+    return changeCount
   }
   func copy(_ text: String, marked: [String] = []) {
     changeCount += 1
@@ -25,9 +29,15 @@ import Testing
 @MainActor private func makeHistory(
   _ folder: URL, frontmost: String? = "com.apple.TextEdit", enabled: Bool = true
 ) -> (ClipboardHistory, FakePasteboard) {
+  makeHistory(folder, frontmost: { frontmost }, enabled: enabled)
+}
+
+@MainActor private func makeHistory(
+  _ folder: URL, frontmost: @escaping () -> String?, enabled: Bool = true
+) -> (ClipboardHistory, FakePasteboard) {
   let pasteboard = FakePasteboard()
   let history = ClipboardHistory(
-    url: folder.appending(path: "clipboard.json"), pasteboard: pasteboard, frontmost: { frontmost },
+    url: folder.appending(path: "clipboard-history.json"), pasteboard: pasteboard, frontmost: frontmost,
     interval: nil)
   var settings = Configuration.Clipboard()
   settings.enabled = enabled
@@ -62,7 +72,7 @@ private func temporaryFolder() throws -> URL {
   #expect(history.clips.count == 2)
   // Persisted, owner-only, and read back by a new instance.
   await history.finish()
-  let url = folder.appending(path: "clipboard.json")
+  let url = folder.appending(path: "clipboard-history.json")
   let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
   #expect(permissions == 0o600)
   let reloaded = ClipboardHistory(url: url, pasteboard: FakePasteboard(), interval: nil)
@@ -102,6 +112,97 @@ private func temporaryFolder() throws -> URL {
   idle.copy(String(repeating: "x", count: ClipboardHistory.maxBytes + 1))
   off.poll()
   #expect(off.clips.isEmpty)
+}
+
+@MainActor @Test func excludedAppIsSkippedEvenWhenLeftBeforeThePoll() throws {
+  var app = "com.apple.TextEdit"
+  let (history, pasteboard) = makeHistory(try temporaryFolder(), frontmost: { app })
+  // A poll sees 1Password in front; the user copies and is back in TextEdit by the next poll.
+  app = "com.1password.1password"
+  history.poll()
+  pasteboard.copy("hunter2")
+  app = "com.apple.TextEdit"
+  history.poll()
+  #expect(history.clips.isEmpty && pasteboard.reads == 0)
+  // Copied in TextEdit, but 1Password came to the front before the poll.
+  history.poll()
+  pasteboard.copy("also secret")
+  app = "com.1password.1password"
+  history.poll()
+  #expect(history.clips.isEmpty && pasteboard.reads == 0)
+  // Two polls in TextEdit: kept.
+  app = "com.apple.TextEdit"
+  history.poll()
+  pasteboard.copy("plain")
+  history.poll()
+  #expect(history.clips.map(\.text) == ["plain"])
+}
+
+@MainActor @Test func wicketsOwnWritesAreNotKept() async throws {
+  let folder = try temporaryFolder()
+  let (history, pasteboard) = makeHistory(folder)
+  history.write("pasted back")
+  history.poll()
+  #expect(history.clips.isEmpty && pasteboard.reads == 0 && pasteboard.text == "pasted back")
+  // The user's next copy is kept as usual.
+  pasteboard.copy("mine")
+  history.poll()
+  #expect(history.clips.map(\.text) == ["mine"])
+  // The model's copy actions go through the same write.
+  let model = LauncherModel(
+    providers: [], clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")),
+    folder: folder)
+  model.writePasteboard("answer")
+  history.poll()
+  #expect(history.clips.map(\.text) == ["mine"] && pasteboard.text == "answer")
+  await model.finish()
+}
+
+@MainActor @Test func savesOwnerOnlyInAPrivateFolder() async throws {
+  let url = try temporaryFolder().appending(path: "private/clipboard-history.json")
+  let history = ClipboardHistory(url: url, pasteboard: FakePasteboard(), interval: nil)
+  history.capture("secret")
+  await history.finish()
+  let manager = FileManager.default
+  let folderMode = try manager.attributesOfItem(atPath: url.deletingLastPathComponent().path)[
+    .posixPermissions]
+  let fileMode = try manager.attributesOfItem(atPath: url.path)[.posixPermissions]
+  #expect(folderMode as? Int == 0o700 && fileMode as? Int == 0o600)
+  // Only the history file is there: no temporary file is left behind.
+  #expect(
+    try manager.contentsOfDirectory(atPath: url.deletingLastPathComponent().path) == [url.lastPathComponent])
+}
+
+@Test func privateFolderIsOutsideTheWorkingFolder() {
+  let release = Edition.release.privateDirectory(environment: [:])
+  #expect(release.path.hasSuffix("/Library/Application Support/app.wicket.Wicket"))
+  #expect(Edition.dev.privateDirectory(environment: [:]).lastPathComponent == "app.wicket.Wicket.dev")
+  #expect(
+    Edition.dev.privateDirectory(environment: ["WICKET_CONFIG_DIR": "/tmp/w/"]).path == "/tmp/w-private")
+}
+
+@MainActor @Test func expiredClipsGoAtLaunchAndWhenThePanelOpensEvenWhileOff() async throws {
+  let folder = try temporaryFolder()
+  let url = folder.appending(path: "clipboard-history.json")
+  let start = Date(timeIntervalSince1970: 1_000_000)
+  let writer = ClipboardHistory(url: url, pasteboard: FakePasteboard(), interval: nil)
+  writer.capture("old", now: start)
+  writer.capture("new", now: start.addingTimeInterval(10 * 24 * 3600))
+  await writer.finish()
+  // Launch with the feature off and a 5-day limit: the configuration prunes, the pasteboard is not read.
+  let pasteboard = FakePasteboard()
+  let history = ClipboardHistory(url: url, pasteboard: pasteboard, interval: nil)
+  var settings = Configuration.Clipboard()
+  settings.maxDays = 5
+  history.configure(settings, now: start.addingTimeInterval(11 * 24 * 3600))
+  #expect(history.clips.map(\.text) == ["new"] && pasteboard.reads == 0)
+  // Idle while off: opening the panel expires the rest.
+  let model = LauncherModel(
+    providers: [], clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")),
+    folder: folder)
+  model.reopen(now: start.addingTimeInterval(16 * 24 * 3600))
+  #expect(history.clips.isEmpty && pasteboard.reads == 0)
+  await model.finish()
 }
 
 @MainActor @Test func retentionKeepsTheNewestWithinCountAndAge() throws {

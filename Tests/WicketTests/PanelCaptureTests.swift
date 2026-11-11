@@ -325,7 +325,7 @@ private let nextAnswer =
       rootView: SettingsPane(
         section: section, store: store, extensions: host,
         clipboard: ClipboardHistory(
-          url: folder.appending(path: "clipboard.json"),
+          url: folder.appending(path: "clipboard-history.json"),
           pasteboard: NSPasteboard(name: .init(UUID().uuidString)),
           interval: nil),
         updater: nil, pauseHotkey: { _ in }))

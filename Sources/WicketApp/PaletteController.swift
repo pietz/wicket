@@ -218,8 +218,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     func record() { if let result { model.record(result) } }
     switch action {
     case .copy(let text):
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(text, forType: .string)
+      model.writePasteboard(text)
       record()
       hide()
     case .run, .ask, .report, .forget: break
@@ -239,10 +238,9 @@ final class PaletteController: NSObject, NSWindowDelegate {
           "Paste requires Accessibility access for Wicket and a previous app. Enable it in System Settings, then reopen Wicket."
         return
       }
-      NSPasteboard.general.clearContents()
       // An extension's paste lost its newlines when it was decoded; the host's own, such as a clipboard
       // history entry, pastes exactly what was copied.
-      NSPasteboard.general.setString(text, forType: .string)
+      model.writePasteboard(text)
       record()
       hide()
       previousApp.activate()

@@ -19,7 +19,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let directory = Edition.current.configDirectory()
     let history = UsageHistory(url: directory.appending(path: "usage.json"))
     let apps = AppsProvider(history: history)
-    let clipboard = ClipboardHistory(url: directory.appending(path: "clipboard.json"))
+    let clipboard = ClipboardHistory(
+      url: Edition.current.privateDirectory().appending(path: "clipboard-history.json"))
     let model = LauncherModel(
       providers: [MathProvider(), apps], files: FilesProvider(), clipboard: clipboard, history: history,
       folder: directory)

@@ -39,4 +39,17 @@ enum Edition: Equatable {
     }
     return configFolder
   }
+
+  /// Where private state the agent must not read lives: `~/Library/Application Support/app.wicket.Wicket`
+  /// (`.dev` for Wicket Dev), a folder name 0.0.x never used. With `WICKET_CONFIG_DIR` set it is a sibling
+  /// of that folder, `<folder>-private`, so a test copy never touches the real one.
+  func privateDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    if let path = environment["WICKET_CONFIG_DIR"], !path.isEmpty {
+      let folder = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+      return folder.deletingLastPathComponent().appending(
+        path: folder.lastPathComponent + "-private", directoryHint: .isDirectory)
+    }
+    return URL.applicationSupportDirectory.appending(
+      path: self == .dev ? "app.wicket.Wicket.dev" : "app.wicket.Wicket", directoryHint: .isDirectory)
+  }
 }

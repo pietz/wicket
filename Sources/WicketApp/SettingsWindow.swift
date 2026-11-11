@@ -367,7 +367,7 @@ struct SettingsPane: View {
         }
     } footer: {
       Text(
-        "Keeps the last \(config.clipboard.maxEntries) texts you copy for \(config.clipboard.maxDays) days, only on this Mac, in clipboard.json in the Wicket folder. Skips password managers and anything they mark as concealed. Type clip to search it."
+        "Keeps the last \(config.clipboard.maxEntries) texts you copy for \(config.clipboard.maxDays) days, only on this Mac, where the agent cannot see them. Skips password managers and anything they mark as concealed. Type clip to search it."
       )
     }
   }
