@@ -1,0 +1,369 @@
+# Wicket spec
+
+Updated 11 Nov 2026, for Wicket 0.1. This is the design of the app in this repository, in enough detail to rebuild it. It replaced the 0.0.x line, which this document calls the first Wicket (about 20,000 lines; see [COMPARISON.md](COMPARISON.md)). Open problems are in [ISSUES.md](ISSUES.md) and planned work in [ROADMAP.md](ROADMAP.md).
+
+## Idea
+
+Wicket is a small native macOS launcher built for a world where everyone has a coding agent.
+
+1. A native Swift panel shows results and answers with a handful of native views.
+2. An extension is any program that reads a JSON request and prints a JSON view. Built-in features follow the same contract.
+3. Your existing agent is one keystroke away, answers in markdown, and can write new extensions for you.
+
+The loop that makes it grow: you ask the agent, it answers, and when the answer is worth keeping it writes an extension that from then on runs instantly, without a model.
+
+## Rules that keep it small
+
+- **The fast path never waits.** Typing never starts a model. Root typing starts a script only for a matching extension pattern; typing inside a chosen command reruns that command.
+- **Lean on existing parsers.** Agents write markdown with a few tags. Extensions write JSON. Wicket avoids owning a scanner, parser or validator where the platform already has one.
+- **Rich answers are worth their code, the machinery around them is not.** The first Wicket spent about 3,700 lines on its tag language, most of it on scanning, parsing, validating and building. Plain markdown cost 164 lines. The rewrite keeps the tags and looks for the cheapest honest way to draw them.
+- **One agent protocol.** No model loop of our own and no per-agent integration code.
+- **Trust in one rule.** An extension runs if its source is on. Enabled means trusted. There is no approval step.
+- **Line budget.** The rewrite aimed for about 6,000 lines of source and under 8,000, rich answers included; it ships at about 6,400 formatted Swift lines plus 200 of resources.
+
+## What is fixed and what is hackable
+
+| Layer | Who changes it | How |
+| --- | --- | --- |
+| Panel, hotkey, renderer, the view contract | Wicket itself | Compiled Swift. Change it by contributing or forking |
+| Built-in providers (apps, math) | Wicket itself | Compiled Swift, but each can be switched off and replaced by an extension |
+| Extensions | You and your agent | A folder with a manifest and any executable |
+| Agent instructions and docs | You and your agent | Plain files in the Wicket folder, read by the agent |
+| Preferences | You and your agent | Native Settings window backed by one plain config.json file |
+
+Extensions are ordinary programs with your user access, so they need no special bridge to reach the system: a window manager extension can call the macOS APIs itself. They are not sandboxed.
+
+## Input
+
+- Typing filters results from built-in providers and the names of extension commands.
+- Results are ordered by how well they match, never by a source order the user sets. Learned usage only breaks ties inside a tier of the root search; it plays no part inside a chosen extension command, for fallbacks or for computed answers, which are never recorded. See Result order below.
+- "Ask agent" is always a row. It is on top when nothing matches strongly, so a sentence goes to the agent, and also when the input ends with a question mark. A strong match is a math result, a nonempty successful pattern result, or any name match that is an exact or prefix match of a title, alias, extension name or keyword. With empty input, apps come first and Ask agent follows them. The row belongs to Wicket itself, not to the source list, and cannot be switched off.
+
+### Result order
+
+One pure function (`Ranking.compose`) orders everything at the root of the launcher. The panel and headless mode both use it, so there is one copy of these rules. A name tier is 2 for an exact match, 1 for a prefix match and 0 otherwise, over a row's title and aliases or an extension's name and keyword, folded for case, diacritics, width and spaces (`Ranking.tier`; the app index uses the same helper).
+
+1. A math result.
+2. Pattern extension results: extensions whose `match` regex ran and returned rows. Each extension's rows stay together in its own order: exact or prefix title/alias, then usage for this exact input, then returned order. Several pattern extensions are ordered by extension name. This is the only place an extension's rows are ordered by usage.
+3. Name matches: app rows, extension command rows (name, keyword) and the built-in Settings row (title "Settings", alias "preferences"). Sort by tier, then usage for this exact input, then fuzzy score, then kind (apps, extension commands, Settings), then title. Usage never lifts a row into a higher tier. File results will join here with the same rules, after apps in kind order.
+4. Ask agent: on top when nothing is strong or the trimmed input ends with `?`. Otherwise directly after the last tier 1 or 2 row and before the loose (tier 0) matches, so it stays visible.
+5. Fallback extensions (`fallback: true`), only when nothing is strong, directly after Ask agent, ordered by name. They replace their own command row. Empty input never shows fallbacks.
+6. Failed pattern runs and invalid manifests of enabled extensions come last as error and repair rows.
+
+With empty input the list is the apps by usage, then extension commands, then Ask agent. Pattern extensions that match empty input put their rows first.
+- Selection follows the first result until the user moves it by keyboard or mouse within the query. After that, keep its identity across refreshes and late arrivals. A new query selects the first result. Defer missing-row fallback while same-query extension results are pending. Once settled, select the previous index, clamped to the last row. Keep the selected row visible.
+- Enter runs the selected row. Cmd+Enter asks the agent unless a permission is pending. Then Cmd+Enter allows once, Esc denies, and plain Enter does nothing. IME composition owns its keys before any launcher shortcut. Esc cancels a running answer and stays in the conversation; otherwise it goes back one level, then closes.
+- After an agent answer, the input belongs to that conversation until Esc.
+
+### Launcher
+
+- **Ranking inside the app index:** exact name match, then prefix match, then how often and how recently you picked that result for exactly this input, then fuzzy score, then name. Usage decays over time and is stored per complete input, so a pick for "c" does not affect "cl". The empty input has its own history.
+- **Across sources:** Result order above. Math is first when it has an answer.
+- **Math:** arithmetic, parentheses, decimals with a dot, powers (right-associative), and `%` as division by 100. Bare or signed numbers, dates shaped like `2026-11-10` and phone numbers shaped like `555-1234` give no row. Enter copies the result. No implicit multiplication, functions, units, currencies or dates.
+- **Panel:** 640 points of content plus 40-point margins on each side, horizontally centred on the screen under the pointer, top edge about one fifth down, up to eight visible rows. Input is cleared on dismissal.
+- **Panel stability:** the input row must stay still while results change. Built-in results are published together and the previous list stays until then; matching extensions add their complete views when ready; the layout is anchored at the top; window and content height come from one policy and are never derived from each other.
+- **Panel look, modelled on the first Wicket:** a separate 56-point search pill, an 8-point gap, a result card with 22-point corners, 40-point rows, 12-point selection corners, 26-point icons, 14 and 13 point title and subtitle, and a prominent 24-point calculation result.
+- **Layering:** only glass surfaces belong inside `GlassEffectContainer`. Input, rows, headers and footers sit above it in a sibling stack. Keep a 40-point transparent margin and disable the native window shadow. `PaletteLayout` owns all dimensions for window, content and answer sizing. Glass tint is `0.55 * (1 - backgroundTransparency)`.
+- **Visual checks:** the app ships no capture or fixture mode. Panel captures are an opt-in test, `WICKET_CAPTURE_DIR=<folder> swift test --filter panelCapture`, skipped otherwise. It draws every state offscreen in light and dark with solid surfaces, using the test fakes, orders no window front, makes none key and posts no event, then reads each PNG back with text recognition and checks the expected text. Solid offscreen surfaces prove foreground and layout, not glass, focus or compositor shadows; those need the user's eyes on a real window.
+- **Hotkey:** Option+Space by default (Control+Option+Space in Wicket Dev, see Editions), configurable; an existing config wins. Launch at login is available in Settings. A login-item launch stays hidden. A manual launch shows the panel without listening.
+
+## Voice
+
+Voice is enabled by default. Opening the launcher through the hotkey, menu or app reopen arms voice immediately after the panel is presented, before layout, focus and results refresh. Set `voice.enabled` to false to turn it off. App startup never arms voice. A login-item launch stays hidden and never requests microphone permission. There is no voice shortcut or language override.
+
+- **Presentation:** idle, starting and listening states. The search pill has a microphone button with Start listening and Stop listening accessibility labels. Startup says “Starting voice…”. Capture says “Listening…”. Voice status or its last error takes precedence in the footer. Clicking the mic can stop or intentionally restart voice for the current opening.
+- **Keys and ownership:** every key-down cancels capture before normal routing, including arrows and IME keys. Native edits, paste and IME edits stop it too. Typing takes over for this opening. Queued or late transcripts cannot overwrite it. Reopening arms a fresh session. Return runs the selection and Cmd+Return asks the agent. Escape stops capture and retains the transcript on its first press, including during startup. Standard editing shortcuts keep their usual behavior. Speech and silence never submit a question.
+- **Input:** starting preserves existing text. The first transcript with a letter or number replaces it. Later updates replace the whole field with the accumulated transcript and put the native editor caret at the UTF-16 end. Volatile results revise the current tail. Final results append a segment and clear that tail without ending capture. Trim surrounding whitespace and trailing `.` or `。`; retain question marks. Join Chinese and Japanese segments without added spaces, other languages with a space.
+- **Results:** built-in results update with every accepted transcript. Extension patterns and chosen commands wait for 350 ms without another transcript before starting a process. A newer transcript cancels the pending or running request. Command names remain searchable without running them. Conversation follow-ups use the same input field.
+- **Availability and focus:** agent busy state and agent permissions stop capture immediately and prevent arming. Resolving them does not rearm it. Extension execution alone leaves voice available. Hide, quit and config disable stop capture. Hide orders the panel out immediately. Teardown continues in the background; a new capture waits for it. Losing key status normally hides the panel. Only an actual microphone consent request may borrow focus; finishing that request restores the visible panel's key status, including after denial.
+- **Permission:** the first enabled opening checks a nonempty bundle `NSMicrophoneUsageDescription` and uses `AVAudioApplication.requestRecordPermission` when needed. No speech-recognition permission is requested. Denial shows a quiet hint and suppresses automatic retries on later openings. After changing Microphone permission in System Settings, an intentional mic click retries. Success clears that suppression. Permission waiting does not consume either deadline and never blocks typing.
+- **Language and models:** use Apple's macOS 26+ on-device `SpeechAnalyzer` and `SpeechTranscriber`. Choose the first supported macOS preferred language, preferring its explicit region, then its likely region, then any supported region. One locale serves the session and segment joining. Use volatile/fast results, user-initiated priority and lingering model retention. Check installed assets before capture. A required installation request fails with a hint; never download automatically. Whether Dictation settings install this exact analyzer asset remains unverified.
+- **Privacy and laziness:** no audio files, disk recordings, network recognizer, server fallback or bundled model. Audio stays in the on-device pipeline. Construct the voice state and backend only on an enabled owner opening or intentional mic restart. Once constructed it is kept: disabling voice stops it rather than discarding it, and it holds no hardware until it starts. Enabling config alone does no runtime voice work. Settings can read microphone permission without requesting it or listening. Once per session, at its first transcript or end, the existing background writer saves the last session latencies to `voice-timing.txt` in the Wicket folder: panel open to first audio buffer and first transcript. No transcripts or audio are logged.
+- **Limits:** bound startup and transcript inactivity at 60 seconds, resetting on ready and accepted transcripts. The absolute limit is five minutes. Exclude time spent waiting for microphone consent from both limits. A startup timeout says “Voice didn't start. Check permissions and try again.” Listening timeout stops quietly and retains text. These limits are fixed, not config keys.
+- **Capture:** prepare and start off the main actor, outside the ownership lock. Opening runs in the background. The state lock covers only ownership. Asynchronous stop waits for opening and teardown in the background. It never holds panel visibility or blocks the main actor. A stopped session cannot open again; cleanup is consumed once. Set the input through `auAudioUnit.setDeviceID`, validate matching nonzero input/output formats, and install the tap using the node format. Tap Float32 PCM in 2,048-frame buffers. Average multichannel samples to mono, including interleaved/discrete layouts. Resample to the analyzer's best compatible format with `AVAudioConverter`. Supply each input buffer once, then `noDataNow`.
+- **Microphone:** `voice.microphone` stores a stable device UID. Missing, empty or unavailable means Automatic. Prefer a wired default input, then built-in, then USB and other wired inputs. Only then fall back to the system default. Virtual, aggregate and Continuity inputs require an explicit choice, even when they are the default. Set only the engine input audio unit, never the system default.
+- **Device changes:** ignore notifications while the engine is running. If a change stops it, end capture and show a short retry hint. Never restart capture automatically.
+
+Failures stop capture and show short text:
+
+| Cause | Message |
+| --- | --- |
+| Microphone denied | Microphone denied. Allow Wicket in System Settings. |
+| Missing/unusable input | No microphone. Check Sound → Input in System Settings. |
+| Unsupported service, language or analyzer format | No on-device speech for your preferred languages. |
+| Missing asset | Speech model missing. Check macOS Dictation settings. |
+| Missing bundle usage text | Open the Wicket app bundle to use voice. |
+| Device change stopped capture | Microphone changed. Open Wicket again to retry. |
+| Conversion failure | Couldn't convert microphone audio. Check Sound → Input. |
+| Other stream error | Couldn't listen. Try again. |
+
+`@MainActor Transcriber` is the hardware boundary: `start() -> AsyncThrowingStream<VoiceUpdate, any Error>` and `stop()`. Updates are `permission(Bool)`, `ready` and `transcript(String)`. Stop releases capture immediately. `VoiceInput` owns deadlines and a generation token that rejects stale updates. Stream completion stops normally. Termination cancels the backend worker away from the audio callback. Fake streams and synthesized PCM cover ownership, device choice and conversion without hardware or consent.
+
+## Settings
+
+Typing `settings` offers a built-in Settings row beside Ask agent. It opens the same native window as Settings… in the menu bar or Cmd+, while Wicket is active. Use an AppKit toolbar tab controller with native SwiftUI grouped forms, 560 by 480 points of pane content. Keep the selected tab while open. Closing returns the app to accessory mode. The main menu supports Cmd+W and Cmd+Q. Open Config Folder remains a secondary action.
+
+| Tab | Contents |
+| --- | --- |
+| General | Launcher shortcut recorder, background transparency, Text size, launch at login and config-folder access |
+| Voice | `voice.enabled`, Microphone picker (Automatic or input device), Bluetooth help, listening and typing explanation, read-only microphone permission status and a Microphone System Settings link |
+| Agent | Claude or ChatGPT, model, effort, permission mode, speed, Stream answers and runtime status |
+| Sources | On/off switches and extensions-folder access |
+
+`config.json` is the single source of truth. There is no UserDefaults copy or separate preferences store. `ConfigurationFile.edit` is the sole path for settings edits. Read the latest bytes, validate them, patch the JSON object, validate again, then atomically replace the file. Preserve unknown root, nested and provider-entry fields. Preserve the provider list as written. Initial creation uses `Configuration()` for defaults. Write readable decimals and unescaped slashes. Keep transparency local while dragging; commit once on release, rounded to 0.01.
+
+Watch the exact config file, including atomic replacements. Publish the last good values to the launcher and settings. An invalid file stays untouched and disables preference editing while tabs and folder access remain usable. External repair restores editing live. A write failure has a separate message and leaves the controls usable for retry.
+
+The shortcut recorder uses a local raw-key monitor so Option combinations and command equivalents survive. Pause Wicket's global registration during recording. Escape, app deactivation, leaving the pane or closing its window stops recording and removes the monitor. Resume registration before handling the recorded choice. Register a replacement before persisting it. A conflict keeps the previous working registration and file value, with feedback in Settings. If saving fails, restore the previous registration. Refuse Command plus a single letter, including Shift variants, to protect editing and app commands; ask for Control or Option instead.
+
+Launch at login uses `SMAppService.mainApp.status`, register and unregister. It has no config key. Show pending approval with a Login Items link. Show readable macOS errors, including the possible refusal of an ad hoc build. Launch detection reads the open-application Apple event's login-item marker. Login startup does not present the panel; other launch-time presentation never arms voice.
+
+Opening Agent settings asks both installed CLIs for their models concurrently, in disposable folders, without a model call: Claude answers the stream-json `initialize` request, Codex answers `model/list`. Each listing has a ten-second deadline and every process shuts down through ProcessTree. Cache the lists separately in `agent-options-claude.json` and `agent-options-codex.json`; refresh after one hour, on opening or changing agent. Show loading and readable failure states, and keep saved values. Only discovery populates the cache. Writes run on the main actor, without suspension between reading and writing. Switching agent clears model, effort, mode and speed while retaining unknown fields and the streaming preference.
+
+The tab and its section are titled "Sources", with the help "Turn off sources you don't use." There is no reordering: the list order never affects results.
+
+Provider IDs come from the built-in defaults and discovered extensions, not a second settings list. Sources lists the config list first, then discovered extensions it omits (on, sorted by id), then omitted built-ins (off). The switch writes `enabled` for that source and nothing else writes provider entries. A new extension is on as soon as it appears.
+
+## Provider contract
+
+Built-in providers and extensions share `view(for: ProviderRequest) async throws -> ProviderView`. The request, view, rows and actions are plain Codable values. The host owns trigger scheduling, selection and usage. Ask agent is a host row.
+
+```json
+{"input":"10 km in mi","arguments":[]}
+```
+
+`input` is required. `arguments` is a string array, empty when omitted. It is request data, never extra executable argv. Views are `list` or `detail` (see Views). Unknown view/action kinds, wrong types, missing required fields and empty or duplicate row IDs fail decoding. Extra keys are tolerated. Results for an input that is no longer current are dropped.
+
+A row requires `id`, string `title` and an `actions` array, which may be empty. Optional fields are `subtitle`, SF Symbol `icon`, string-array `keywords` (aliases) and boolean `prominent`. A prominent first row gets the large calculator presentation; a first `open` action for a file gets its native file/app icon. Return uses the first action. Every action is available in the row context menu; detail actions have a native Actions menu.
+
+| Action JSON | Effect |
+| --- | --- |
+| `{"type":"open","url":"https://example.com"}` | Open an allowed URL |
+| `{"type":"copy","text":"hello"}` | Copy and close the launcher |
+| `{"type":"paste","text":"hello"}` | Copy, restore the previous app and send Cmd+V |
+| `{"type":"run","arguments":["refresh"]}` | Run only the originating extension again; replace arguments for later edits in this command |
+| `{"type":"agent","text":"Explain this"}` | Begin an agent conversation with this text |
+
+Open accepts http, https and mailto, or existing file URLs for apps, folders and nonexecutable documents. Resolve symlinks before checking. Reject executable files and these suffixes, even on directories: `.command`, `.pkg`, `.mpkg`, `.dmg`, `.sh`, `.bash`, `.zsh`, `.py`, `.js`, `.scpt`, `.applescript`, `.workflow`. Check at decode time and again at action time.
+
+Paste strips all newlines. It requires Accessibility access already granted and a live previously frontmost app other than Wicket. Otherwise show an error without requesting permission or sending keys. After restoring that app, send Cmd+V only to its PID and only if it is still frontmost.
+
+## Config
+
+One plain `config.json`, read at start and reloaded when it changes, including atomic replacement. Watch the exact file, not unrelated usage or extension writes. An invalid edit keeps the last good state.
+
+- `hotkey`, default `"option+space"`. Use modifiers joined with `+` and a key. Require Command, Control or Option, except for function keys. Refuse Command-letter registrations, including Shift variants, to protect editing and app commands.
+- `backgroundTransparency`, from 0 to 1, default 0.15. Zero is the strongest tint.
+- `providers`, the on/off record of each source: `[{"id":"math","enabled":true},{"id":"apps","enabled":true}]` by default. IDs are unique and nonempty. A disabled provider is off, and so is an omitted built-in. A discovered `extension:<folder-name>` missing from the list is on. The order of the array does not affect results, so existing files keep working. Nothing writes config on discovery. Switching one off in Settings writes `enabled:false`.
+- `voice.enabled`, boolean, default true, including missing or empty voice configuration. False disables listen-on-opening. Live disable stops capture immediately; enabling alone does not prompt or record.
+- Agent, for example `"agent":{"name":"claude","model":"sonnet","effort":"low","mode":"default"}`. Omitted agent defaults to Claude. Defaults are Sonnet or the latest advertised Terra, low effort, Auto permissions and Regular speed. `speed` accepts `off` or `on`; `streamAnswers` defaults to true.
+
+The Wicket folder is `~/.config/wicket` (`~/.config/wicket-dev` for Wicket Dev, see Editions). `WICKET_CONFIG_DIR` overrides it for the app and headless mode; `Edition.configDirectory` is the one place that resolves it.
+
+| Location | State | Why |
+| --- | --- | --- |
+| Wicket folder | `config.json`, `usage.json`, `voice-timing.txt`, `answers.css`, `agent-instructions.md`, `agent-options-claude.json`, `agent-options-codex.json`, `extension-contract.md`, `extensions/`, `examples/` | The agent works here and can edit these files |
+
+The app keeps nothing in Application Support. The first Wicket (0.0.x) did, and kept `settings.json` in the same Wicket folder; none of those names is read or written here (`settings.json`, `voice.json`, `approvals.json`, `Extensions/`, `Revisions/` and so on), and a `usage.json` of an unknown shape reads as empty. The new app never deletes or rewrites them, so both versions' data can sit side by side. A test pins this.
+
+## Editions and distribution
+
+`Edition` is read once from the bundle identifier and decides every difference between the two builds:
+
+| | Wicket | Wicket Dev |
+| --- | --- | --- |
+| Bundle id | `app.wicket.Wicket` | `app.wicket.Wicket.dev` |
+| Built by | `Scripts/build-app.sh --release`, Developer ID (team 34MWWCL4H2), hardened runtime, via `Scripts/release.sh` | `Scripts/build-app.sh`, Apple Development identity if present, else ad hoc |
+| Folder | `~/.config/wicket` | `~/.config/wicket-dev` |
+| Default hotkey | ⌥Space | ⌃⌥Space |
+| Updates | Sparkle | none |
+
+Outside a bundle (`swift test`, `swift run`) the edition is the released one. The released app ships as a notarized DMG on GitHub Releases, updates itself with Sparkle (2.10.1; feed and public key in Info.plist, `appcast.xml` on `main`) and installs with the Homebrew cask `pietz/wicket/wicket`. `Updater` runs only for the released edition inside a bundle that has a feed. Check for Updates… is in the menu bar menu and General settings, which also has the automatic-checks switch (Sparkle keeps it in its own defaults, not in config.json). Releases are described in [docs/release.md](docs/release.md). The only entitlement is audio input, and the only usage string the microphone's: nothing reads Finder or other apps through Apple events.
+
+Config remains agent-writable: permission to edit it includes the ability to change `agent.mode`.
+
+## Agent
+
+Wicket runs the user's installed `claude` and `codex` command line tools and speaks each one's own JSON-lines protocol over stdio. It bundles nothing, installs nothing and stores no credentials. If a tool is installed and signed in, it works.
+
+- **Agents:** Claude and ChatGPT in the interface, mapped to Claude Code (`claude -p` with stream-json both ways) and Codex (`codex app-server`, JSON-RPC without the `jsonrpc` field). Wicket looks for each executable on PATH, then in `~/.local/bin`, `~/.npm-global/bin` and the Homebrew folders. A missing tool says how to install it and sign in. Settings shows each tool as installed or not.
+- **Translators:** one small process connection frames JSON lines (4 MiB per message, Dispatch-queue reads, ordered stdin writes, stderr tail, an unexpected exit is a failure). One translator per CLI turns its messages into the same few events (session, text, tool, permission, finished, failed) and turns decisions, prompts and cancel into lines to send. Translators hold no process, timer or UI, so recorded traffic tests them.
+- **One process per question:** each question starts its own CLI process, which ends when the turn ends, however it ends. A follow-up starts a new process that resumes the session (Claude `--resume <session-id>`, Codex `thread/resume`). Nothing runs between questions, and a changed setting just applies to the next launch.
+- **Claude:** flags set the model, effort, permission mode and fast mode at launch. A prompt is a user message. Text arrives as partial-message deltas. Each permission question is a `can_use_tool` control request, answered allow (echoing the tool input) or deny. Cancel is an `interrupt` request. AskUserQuestion is declined, so the agent asks in its reply instead.
+- **Codex:** the handshake is initialize, `model/list` and `thread/start` or `thread/resume`. The turn is `turn/start` with model, effort, speed and permission policy, and the thread's policy is set again at launch. Command and file-change approvals are server requests answered accept or decline. Cancel is `turn/interrupt`.
+- **Settings:** show only the latest model per tier. Claude uses stable Fable, Opus, Sonnet and Haiku aliases, default Sonnet. ChatGPT uses the newest listed ID matching Astra, Sol, Terra or Luna, default Terra. Missing tiers remain unavailable. Effort offers Low, Medium, High and Extra high, default Low. Permission labels Supervised, Auto-accept edits, Auto and Full access map to Claude's `default`, `acceptEdits`, `auto` and `bypassPermissions`, and to Codex's read-only, workspace-write, Auto review and full access policies. Default is Auto. Speed is Regular or Fast when the model lists it, default Regular. Saved explicit IDs stay authoritative. The tool reports one it no longer supports, and Wicket shows that message. Default and Regular remain selectable if the listing disappears. Changes apply on the next turn. Switching agent starts a new conversation.
+- **Stream answers:** on by default. Off buffers text until a new message ID, tool start, completion or failure. Show the current working step and append each completed message in one update. The final body and Copy match streaming mode. Bound the whole answer at 1 MiB, including published and pending messages. The final replacement uses settled layout.
+- **Permission requests** use the shared native confirmation inside the glass card. A question title, action summary, up to three file names or a command, and Show details explain the request. Use 20-point padding, 12-point spacing, a 16-point semibold title and regular buttons. Titles and body text have a two-line limit. Body text follows Text size. Confirmation cards scroll within a 560-point body cap. Full paths, commands and changes are selectable in a bounded scroll area. Abbreviate home to `~` in summaries. Don't allow and Allow once resolve the request. Cmd+Return confirms, Escape declines, plain Return does nothing and Tab visits controls. Agent-stated deletion, locations outside the working folder after resolving symlinks, or commands without reported file locations show the consequence and open details. Repeated key events are consumed while a confirmation is pending. Deletion uses Allow deletion. Allow is always once.
+- **Instructions:** `agent-instructions.md` in the Wicket folder is installed if absent and its current contents are sent with every prompt. It teaches the tags in a few lines. Every turn also identifies the working folder, extension reference, extensions directory and executable path for headless testing. `WICKET_EXECUTABLE` can override the advertised executable path. No system prompt override is used.
+- **Limits:** login check 8 s (`claude auth status --json`, `codex login status`), silence at start 30 s, a turn 600 s, model listing 10 s. A process that ends during a turn, even with exit code zero, is a failure. Cancelling waits for the CLI's answer and force-stops the process tree after 3 seconds.
+- **Sessions:** the bar always holds the next question, with Ask a follow-up… during a conversation. The answer card has an 18-point inset, 15-point medium question header, two lines and Show more inside its scroll area. Copy stays upper right. The last ten earlier question/answer pairs stay in memory behind Previous questions · N. Earlier answers use selectable plain text without extra web views or file watchers. A draft remains editable during work; Return submits only a nonempty idle draft. Hotkey and clicking away hide and retain conversation, draft and pending confirmation for 300 seconds after hiding or completion, whichever is later. Work continues hidden. A permission pending at hide is declined after 300 seconds without needing to reopen; reopening or asking a new question cancels that deadline. Reopening after expiry also declines pending permissions even while the agent is busy. Reopen says Continuing conversation and Esc End conversation until the next question, which restores the actual turn status. Escape stops voice first, declines a confirmation, cancels a running turn, then ends the conversation. In extension detail it returns to search. At root it clears input before a second press closes. No conversation survives app restart.
+- **Working folder:** agent sessions start in the Wicket folder, which holds the extensions, the docs and the agent instructions.
+- **Process I/O:** newline-delimited JSON, with a 4 MiB per-message framing limit. Blocking pipe reads run on Dispatch queues, outside Swift's cooperative thread pool. ProcessTree owns queued stdin writes and closing input. Agent answer text is limited to 1 MiB.
+
+### What we learned from the protocols
+
+Checked on 10 and 11 Nov 2026 against Claude Code 2.1.321 and codex-cli 0.167.0, using the existing logins.
+
+- **Both CLIs have a native protocol** that covers everything the design needs: streaming, follow-ups, allow and deny, changing model and effort, resuming a session after a restart, cancelling and tool progress. That made the Node adapters unnecessary.
+- **A warm agent is not free.** Half a gigabyte per agent breaks the lightweight promise, so each question runs its own process, which ends with the turn. A follow-up resumes the same session, and both CLIs did so in a live check.
+- **Agents inherit the user's own configuration**, including their MCP servers, which is part of that memory and start time. Wicket states this plainly and later may offer a lean profile.
+- **Ready has layers.** A started process is not a signed-in one, so Wicket checks login up front with each tool's own status command.
+- **The models come from the tools.** Claude lists them in its `initialize` response and Codex in `model/list`, both without a model call.
+- **The two agents differ in small ways** that the translators absorb: Claude takes settings as flags and Codex per turn; a denied request ends the turn differently; Codex reports file changes before it asks.
+
+Client-supplied MCP servers are not used.
+
+## Views
+
+Text size in General is Small, Medium, Large or Larger. Answer and confirmation body sizes are 13, 15, 17 and 19 points. Scale answer headings, code, tables and components in proportion. Result titles scale from 14 points, and row heights grow with them. Input and Settings sizes stay fixed. Footer text is at least 12 points. This config setting applies live through the single config writer.
+
+| View | Use | Status |
+| --- | --- | --- |
+| `list` | Rows with icon, title, subtitle and actions | Built |
+| `detail` | A markdown body with ordered metadata and actions | Built |
+| `form` | Fields and a submit action | Later, when the first extension needs it |
+
+A list requires `rows`. A detail requires string `body`; ordered `metadata` string label/value pairs and `actions` default to empty arrays. For example:
+
+```json
+{"type":"list","rows":[{"id":"result","title":"6.21 mi","keywords":["distance"],"prominent":true,"actions":[{"type":"copy","text":"6.21"}]}]}
+```
+
+```json
+{"type":"detail","body":"## Result\n<stat label=\"Total\" value=\"42\"/>","metadata":[{"label":"Source","value":"Local"}],"actions":[{"type":"copy","text":"42"}]}
+```
+
+Detail uses the same safe answer web view, with native command header, actions and metadata. Metadata scrolls above 100 points. Errors use selectable native text with Copy and Ask agent buttons. The repair brief includes folder, command, JSON request, decoding path/message and stderr tail when available.
+
+### Rich answers
+
+Answers go beyond markdown. Plain text walls are what every other tool already offers.
+
+- **What the agent writes:** ordinary markdown plus a few short tags, for example `<stat label="Revenue" value="€12k" delta="+8%"/>`. Tags are the cheapest thing for an agent to produce and need no schema lookup.
+- **Renderer:** the answer is converted to HTML and shown in one web view (the SwiftUI `WebView` of macOS 26). A single CSS file in the Wicket folder gives each tag its look, so a new component is a few lines of CSS that you or the agent can add without recompiling.
+- **Starting set:** `stat(label, value, delta, tone)`, `facts` with `fact(label, value)`, `callout`, `badges` with `badge(label, tone)`, `card`, `columns` with `column`, `bars` with `bar(label, value, percent)`. Tones are positive, warning and negative. Containers accept markdown inside. All component names become inert `w-` elements; unknown tags retain their text. Tag candidates are at most 1,024 bytes and names at most 64 characters. Scan bounded, non-overlapping candidates and substitute once. Code stays literal, using UTF-8 byte offsets for LF, CRLF and bare CR. Only streaming holds unfinished tag-like text back; a completed body keeps prose such as `use i<count in loop`.
+- **The stylesheet** is `answers.css` in the Wicket folder, installed if absent and watched as an exact file, including atomic replacement. Missing CSS falls back to the bundled theme. It is trusted local styling.
+- **Safety:** agent content cannot run script, load remote resources by itself or navigate. Raw HTML and images cannot become active content. Content JavaScript and subresources are disabled, storage is not persistent, and CSP uses `default-src 'none'; script-src 'none'` with inline styles only. The bundled patch/measurement bridge runs in WebKit's isolated client world, separately from page scripts. Hidden WebPage tests check bridge execution and independently check CSP on a raw page. Only http, https and mailto links open, through Wicket, on a click.
+- **Sizing:** the answer area is between 80 and 500 points high, grows without shrinking while streaming and may shrink on completion, and updates are batched every 40 ms. The web view is created on first use and released 60 seconds after the panel is hidden.
+- **The launcher's own list, input and prompts stay native SwiftUI, with an AppKit text field for editing and IME.**
+
+### What the rendering prototype showed
+
+Built as a throwaway prototype on 10 Nov 2026, before the app existed.
+
+| | Result |
+| --- | --- |
+| Look | Glass, transparency, system font and accent colour sit well in a launcher panel, in light and dark |
+| First answer after app start | 242 ms to a painted frame |
+| Later answers | 37 ms |
+| Memory | 95 MB for the native shell alone, 178 MB once the web view has been used |
+| Size | 462 lines: 369 Swift, 29 JavaScript, 64 CSS. The first Wicket's renderer was about 3,850 |
+| Dependency | Apple's swift-cmark for markdown |
+
+It is not literally "a browser and a CSS file". Three pieces of glue are needed and stay small:
+
+- A tag adapter (94 lines) that closes self-closing tags, protects them from the markdown parser and passes attributes on as inert data.
+- A 29-line trusted script that patches the page while an answer streams, so it does not reload on every chunk.
+- Height measurement so the panel follows the content without feedback loops.
+
+Still unverified hands-on: live CSS interaction, selection during streaming, trackpad feel, VoiceOver and larger text sizes, and sustained WebKit memory return. HTML text does not get the native vibrancy treatment, so contrast over busy backgrounds needs care. The renderer releases its page after 60 seconds hidden; sustained memory return still needs hands-on verification.
+
+The fallback, if the web view disappoints in daily use, is drawing the same tags with native SwiftUI views for a fixed set of components. The tags the agent writes do not change.
+
+Agent answers can show content, copy Markdown and open allowed links on click. Extension actions follow the Provider contract.
+
+## Extensions
+
+A folder under `extensions/` with `wicket.json` and an executable in any language.
+
+```json
+{"name":"Deploy","keyword":"deploy","command":["./deploy.py"],"icon":"shippingbox","match":"^deploy .+$","fallback":false}
+```
+
+### Behavior
+
+- **Discovery:** watch extension folders live. No restart or build is needed. A rescan that finds the same manifests changes nothing and never restarts running work, so an extension writing files in its own folder cannot cancel itself. Invalid manifests become repair rows for enabled providers. Required fields are nonblank `name` and nonempty `command` argv, with a nonempty executable and no NULs. Optional fields are `keyword`, SF Symbol `icon`, regex `match` and boolean `fallback` (default false).
+- **Execution:** no shell expansion. An extension runs straight from its own folder, which is the working directory. Relative executables and resources resolve there. Bare commands use PATH, with Homebrew/local bin paths added. Installed interpreters work, for example `["/usr/bin/python3","main.py"]`. Set `PYTHONDONTWRITEBYTECODE=1`.
+- **Messages:** write one ProviderRequest JSON value plus newline to stdin, then EOF. Stdout must be exactly one JSON view without logs or fences, followed by successful exit. Use stderr for diagnostics. One process per request. Typed edits inside a command rerun it; speech waits until settled. Run-action arguments persist until replaced or the command is left; they never become executable argv. Esc returns to root.
+- **Bounds:** 10-second deadline, 1 MiB stdout, 256 KiB stderr, retaining the last 4 KiB for errors. Cancel, timeout, completion and quit clean up the owned process tree, including descendants. Blocking pipe reads run on Dispatch queues so concurrent slow programs cannot starve cancellation or deadlines.
+- **Enabled means trusted:** an extension runs when its source is on, with no fingerprint, copy, ledger or review. A new folder is on as soon as it appears. Agent-written folders too. The owner's only control is switching it off in Settings, Sources. A switched-off extension does not appear in the launcher and does not run, except by name in headless mode. Edits take effect on the next request.
+- **Limits of trust:** an extension runs with the user's ordinary access. It is not an OS sandbox, and nothing checks the code before it runs.
+- **Self-extension:** install `extension-contract.md`, an offline unit-converter pattern (`extensions/units`) and an optional web-search example (`examples/web-search`, outside active sources). Copy the latter into extensions to use it. Existing installed web-search folders stay untouched. The contract tells authors to put short answers in row titles, use detail views for more, and keep row IDs stable, with a weather example. Install reference files only if absent and examples only if their folder is absent, preserving local edits. Updating an already installed reference on future upgrades remains undecided. Every agent turn points to the contract, extension directory and headless executable. Two real Claude authoring runs produced working extensions.
+- **Parity:** aliases, prominent copy rows, empty-input patterns and native file/app icons express app launch and math through this contract. The compiled app provider keeps its search index warm in memory and rebuilds it on watched filesystem changes. A run-once replacement must maintain its own index/cache. Long-running extension lifecycle remains deferred.
+
+### Triggers and ordering
+
+| Trigger | Declared as | What happens | Example |
+| --- | --- | --- | --- |
+| Name | `name`, `keyword` | Fuzzy matched while typing. No program until chosen; starts with empty command input | "Deploy" |
+| Pattern | `match`, a regular expression | Matches run and publish one complete view at root when the process finishes | `100 usd in eur`, an equation |
+| Fallback | `fallback: true` | Offered after Ask agent when nothing matches strongly; choosing it preserves the root input | "Search the web for …" |
+
+- Wicket checks regexes without running a script. Patterns may match empty input. Limit regexes to 512 UTF-8 bytes and input to 4,096 bytes, with a 5 ms regex progress deadline. A newer keystroke cancels old work and drops stale views. There is no incremental row streaming.
+- Provider IDs are `math`, `apps` and `extension:<folder-name>`. Users can switch sources off or replace built-ins with extensions. Discovered extensions the list omits are on; omitted built-ins are off. Ordering is fixed; see Result order.
+- Within a chosen extension command, exact title/alias, then prefix, then the order the extension returned. Learned usage plays no part there, and picks made inside a command are not recorded. Rows need not match the query to remain visible.
+- Strong means math, a nonempty successful pattern result, or a name match with tier 1 or 2. Empty input keeps apps first and suppresses fallbacks. If nothing is strong, Ask agent moves on top and fallbacks follow it, ordered by name.
+- A pattern detail becomes a row to enter the command. Detail and fallback choices preserve root input; only a name choice clears it. A selected failure row opens the full native error.
+- Request and response are single JSON values, so a later long-running protocol can reuse them line by line.
+
+## Headless command-line mode
+
+The same executable handles these modes before NSApplication, with no window, status item or hotkey. It uses the real config, usage, app scan, discovery, ranking and extension runner, without watchers.
+
+```sh
+Wicket --query '10 km in mi'
+Wicket --extension units --input '10 km in mi' --arguments '[]'
+```
+
+Choose exactly one of `--query TEXT` or `--extension ID`. `--query` uses enabled sources only. `--extension` runs any discovered extension, even a switched-off one, because naming it is the consent. It accepts a folder name or `extension:<folder-name>`, optional `--input TEXT` (default empty) and `--arguments JSON_STRING_ARRAY` (default `[]`). Arguments are literal option values, without shell reinterpretation. `--help` prints a JSON usage object.
+
+Query output is `{input,rows:[{provider,row}],askAgent:{onTop,reason}}`, including Ask agent in the ordered rows. Pattern failures appear as error rows. Direct invocation prints a decoded list/detail view. Failures print `{"error":"..."}` and exit 1; success exits 0.
+
+`WICKET_CONFIG_DIR` selects the working folder. For authoring tests, run `Wicket --extension <folder>` directly. No scratch folder or flag is needed.
+
+## Status
+
+Built, in the order it was built: a command-line agent client and a rich-answer prototype as spikes; the launcher (panel, hotkey, apps, math, ranking); the agent (ask, streamed rich answers, follow-ups, permission prompts, agent settings); extensions (manifest, run-once commands, name, pattern and fallback triggers, list and detail views); voice, then voice on open; native Settings; review rounds on conversation, confirmation and trust handling; extension trust removed in favour of enabled means trusted; one fixed ranking function; screen captures moved out of the app into an opt-in offscreen test; the Node adapters replaced by direct `claude` and `codex` protocols with one process per question; one library module with a thin executable; and finally the release machinery, Editions and Sparkle updates for 0.1.
+
+The app is **6,405 Swift lines plus 207 bundled resource lines**; the 214 tests are **5,208 Swift lines**. Counts are physical lines, formatted with swift-format (2 spaces, 110 columns), and exclude dependencies and generated output. `Scripts/check.sh` (warnings as errors, all tests, format lint) is the definition of done. Fixtures, fakes and the capture test live in the test target only; the production app has one flat-surface parameter for offscreen rendering.
+
+Carried forward from the first Wicket, tested: panel focus and key routing, process tree stopping, app scanning, fuzzy matching and usage storage.
+
+What is not built is in [ROADMAP.md](ROADMAP.md) (file search, shell commands, currencies, the authoring CLI and more) and what is known to be wrong or unverified is in [ISSUES.md](ISSUES.md), including every check that needs a person at a real screen, microphone or Mac settings. Do not change devices, volume, login items or the config of a Mac in use during automated testing, and never play or record audio from a test.
+
+## Decisions
+
+| Decision | Outcome |
+| --- | --- |
+| Fresh repository or reshape the first Wicket | Rewrite with selective ports, landed in this repository as 0.1 with the first Wicket in git history. See [COMPARISON.md](COMPARISON.md) |
+| Rich answers | Drawn in a web view styled by one CSS file |
+| Style of rich answers | The stylesheet follows native SwiftUI and macOS design as closely as it can: system fonts, sizes, spacing, colours and control shapes. The web view is a flexible canvas, not a different look |
+| Panel background | Less see-through than the prototype, so content stays readable over busy backgrounds. Transparency is a preference |
+| App launch and math | Compiled Swift behind the extension contract, switched on and off in the same Sources list as extensions |
+| Result order | Fixed by match quality, with learned usage only breaking ties. Users cannot reorder sources; they switch them off. One pure function serves the panel and headless mode |
+| Extension trust | Removed. An extension runs if its source is on, from its own folder. New ones are on at once; the user switches them off in Sources. `--extension` runs any discovered extension. Agent permission requests are unchanged |
+| Open-action files | Existing apps, folders and nonexecutable documents only; reject scripts, workflows and installers, resolve symlinks and recheck on use |
+| Distribution | One repository for the released app and Wicket Dev; same bundle ids, signing team and Sparkle key as 0.0.x, so installed copies update to 0.1 |
+| This document | Kept current with what is built, in enough detail to rebuild Wicket from it |
+
+## Open decisions
+
+1. **Licence.** MIT unless there is a reason against it. Also open: the name and trademark check (see [ROADMAP.md](ROADMAP.md)).
+
+Later possibilities the web view opens up, not planned yet: animations, forms inside answers, user themes.
+
+## Lessons so far
+
+Things that cost time or surprised us, worth knowing before any future rebuild.
+
+- A custom tag language is cheap for the agent and expensive to parse yourself. Let an existing engine read it.
+- A warm agent process costs about half a gigabyte. Run one process per question and resume the session.
+- A started agent process is not a signed-in one. Check login separately.
+- Panel focus, input methods, and process trees are subtle. Carry tested code forward.
+- On-screen testing by agents disturbs whoever is using the Mac. Keep logic testable without a window and batch the screen checks.
+- A build nobody has looked at must never be handed over. Offscreen pixels and geometry tests cannot prove glass or focus; those need a person at a real window.
+- Most of the size difference from the first Wicket comes from design decisions and omitted scope, not demonstrated redundant code. Those decisions came from designing the product from first principles without reading the old code first. See [the size comparison](docs/size-comparison.md).
+- An independent review early on found two serious defects: blocking pipe reads starved the cooperative thread pool, and CRLF crashed the tag adapter. Both were fixed with regression tests; independent review of each larger change is worth its cost.
+- The first panel jittered while typing and looked plainer than the first Wicket. Stable panel sizing and visual polish are not free by-products of a rewrite and need their own attention.
+- A device-change observer added in one review round broke voice on a Bluetooth microphone. It treated a normal startup notification as failure, and hardware-free tests missed it. Fixes at hardware edges need a hands-on check before they are called done.
+- Audible testing on a machine in use is forbidden. Never play speech or sounds, change devices or volume, or save microphone audio. An explicitly allowed silent probe does not replace real dictation and device-switch checks.

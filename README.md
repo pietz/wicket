@@ -2,107 +2,13 @@
 
 **A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes for you.**
 
-A wicket is the small door built into a big gate. Press ⌥Space and a quiet search field opens onto your whole Mac: apps, files, a calculator, and the coding agent you already use (Claude Code or Codex). Ask it a question, hand it a task, or tell it to build you a new command. It writes the extension, tests it, and you turn it on with one review.
+A wicket is the small door built into a big gate. Press ⌥Space and a quiet search field opens onto your Mac: apps, a calculator, on-device voice input, and the coding agent you already use (Claude Code or Codex). Ask it a question, or tell it to build a command; it writes the extension and from then on the command runs instantly, without a model.
 
-> **Alpha.** Wicket is at 0.0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
+> **Alpha.** Wicket is at 0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
 
-<p align="center">
-  <img src="docs/images/reply-dark.png" width="49%" alt="An agent's reply drawn natively: prose, three stat tiles and a bar chart">
-  <img src="docs/images/weather-light.png" width="49%" alt="A weather page from an extension: a card with facts and a forecast grid">
-</p>
+Native macOS 26+ app in Swift 6 and SwiftPM. Apple's swift-cmark (markdown) and Sparkle (updates) are the only dependencies. The design is in [SPEC.md](SPEC.md), what is open in [ISSUES.md](ISSUES.md) and what is next in [ROADMAP.md](ROADMAP.md).
 
-## The idea
-
-Launchers used to win with a big built-in feature set and a store full of plugins. Now that everyone has a capable coding agent, the most useful thing a launcher can offer is different: a small, very fast core, and **one extension format simple enough that your agent writes the extensions**. You don't search a store for a command; you describe it.
-
-Wicket doesn't bring its own AI. It drives the agent you already pay for, on your subscription, under the permission settings you already gave it, and draws its replies natively instead of dumping text.
-
-## Six things, done well
-
-Wicket is deliberately small. Everything it does belongs to one of six pillars, and nothing else gets added until these are right.
-
-1. **Your AI agent.** Type a question or an instruction and Run Agent sends it to Claude Code or Codex. It answers, looks things up, or does the work on your Mac, and replies with a native page.
-2. **App launcher.** Type a few letters of an app and press Return.
-3. **File search.** Spotlight-backed search over your files and folders, words in any order.
-4. **Calculator.** Arithmetic, units and currencies as you type: `12*7`, `3 km in miles`, `100 usd in eur`.
-5. **Extensions your agent builds.** "Build a command that shows the weather in Hamburg" gives you a new command, after your review.
-6. **Voice.** Open Wicket and just start talking; it transcribes on your Mac.
-
-## How it feels
-
-You press ⌥Space and start typing. Results arrive as you type, the best one highlighted, and Return opens it.
-
-When what you type reads like a request ("what's the capital of Australia?", "rename these files by date"), Run Agent moves to the top, so Return asks your agent. The answer appears in the same window. Keep typing to ask a follow-up in the same conversation: the agent remembers what it read and did. Escape always goes back one step, and closes Wicket from the top.
-
-Opened from Finder with files selected, the agent works in that folder and knows which files you mean, so "summarize these" just works.
-
-## Replies drawn natively
-
-Agents write Markdown fluently, and they are just as fluent in Markdown with a few tags. So an agent's reply in Wicket is Markdown plus a fixed catalog of native components:
-
-```
-Revenue grew every quarter, with the biggest jump in Q3.
-
-<stat value="€1.42M" label="Revenue" detail="+18% on last year" tone="positive"/>
-<stat value="Q3" label="Best quarter" detail="€412K"/>
-
-<chart kind="bar" title="Revenue by quarter">
-<point label="Q1" value="318"/><point label="Q2" value="342"/><point label="Q3" value="412"/><point label="Q4" value="350"/>
-</chart>
-
-<file path="~/Reports/2026-revenue.pdf"/>
-```
-
-Wicket draws that as real macOS views: stat tiles, a Swift Charts chart, and a file row you can select and open. The catalog covers answers, stats, facts, file, link and item rows, callouts, columns, cards, images, charts, timelines, progress bars and badges ([full reference](docs/markup.md)). Your agent is told the catalog on every run and uses it only where it helps: in our tests, 84 of 84 real replies from both CLIs rendered cleanly, and plain questions got plain answers.
-
-Wicket stays in control of what it draws. Unknown tags show as text, layout can't set sizes or colours, and a reply can only *present*: it may open web links and files, but anything that would run something (an app, a script) is revealed in Finder instead, because a reply can be steered by what the agent read.
-
-Simply type on an AI reply to start a follow-up in the same conversation, then press Return to send it. This works for prose and replies made entirely of rows. The arrow keys still move through files and links, and ⌘K shows every action. ⌘↩ also starts a follow-up. On prose replies, nothing is selected at first and Return copies the answer as plain text.
-
-## Extensions your agent writes
-
-An extension is a folder with a small manifest and a program in any language. For every run, Wicket starts the program, writes one JSON request to it and reads one JSON response: an answer, a list, or a page in the same Markdown and component format. That's the whole protocol, on [one page](docs/extensions.md), short enough for an agent to read before it starts.
-
-Ask Run Agent for a command and it writes the extension, checks it with `wicket check`, runs every command for real with `wicket run`, and fixes it until each answer is right. Under its reply you get **Review and Enable**.
-
-Trust is explicit:
-
-- **Nothing runs in Wicket until you enable it.** The review checks the folder without running any of its code.
-- **You enable an exact revision.** Wicket seals a read-only copy and runs only that. When the agent changes the folder, the approved version keeps working until you review the new one.
-- **Failures are visible.** Every run is recorded with its outcome and why; **Fix with Agent** hands the failure to the agent that built the extension, which picks up its original conversation. **Change with Agent** does the same for new wishes.
-- **Secrets stay in the Keychain.** API tokens reach the program as environment variables, never as files. Extensions you no longer want go to the Trash from their page.
-
-## Voice
-
-Turn on voice in Settings ▸ Voice and Wicket arms the microphone quietly each time it opens. Start speaking and your words appear in the field; start typing and it stops. It listens through pauses until you press a key, or after a minute of silence. Transcription is Apple's on-device speech model. The mic button and ⌘L start listening by hand.
-
-## Shell commands
-
-Type `> echo hello` (or `>echo hello`). Return runs it in Wicket and shows the output in the same window; ⌘Return runs it in your terminal. Settings ▸ General ▸ Shell commands changes the prefix and which destination Return uses. ⌘K also lists both actions.
-
-Commands start fresh in your home folder. In Wicket, output is plain text with the exit status, Return copies it, and Escape stops a running command. Output keeps the last 16 KiB, and runs stop after 60 seconds. Use Terminal for interactive commands, aliases and longer tasks. Terminal uses the macOS app associated with `.command` files, normally Terminal.app; Finder's Open With can change that association.
-
-Simply type on shell output to start the next command, without repeating `>`. Return runs it; Escape returns to the previous output. Each command still starts fresh in your home folder. ⌘↩ and New Command in ⌘K also open the next command.
-
-## Keyboard
-
-| Key | Does |
-|---|---|
-| ⌥Space | Open or close Wicket (configurable) |
-| Return | Run the highlighted result; on a reply, copy it |
-| ⌘↩ | The second action: paste a result into the app you came from, or follow up on a reply |
-| ⌘K | All actions for the selection |
-| ⌘1 to ⌘9 | Pick a result directly |
-| Escape | Go back one layer: actions, page, text, then close |
-| ⌘L | Listen |
-| ⌘, | Settings |
-
-## Built to stay small and fast
-
-- **Native.** AppKit and SwiftUI with Liquid Glass. No WebViews, no Node, one dependency (Sparkle, for updates). About 25 ms from hotkey to visible and about 20 MB of memory at idle.
-- **Your agent, your policy.** What the agent may do without asking is what you set in Claude Code or Codex. When it asks, Wicket shows exactly what for, with **Allow once** or **Deny**.
-- **Consent is never a setting.** Plain JSON settings that you or an agent can edit, but nothing in them can enable an extension or turn on the microphone.
-- **Private.** No accounts, no telemetry. Logs hold counts and timings, never what you typed.
+0.1 is a rewrite of 0.0.x with a smaller core and a different extension protocol. See [Coming from 0.0.x](#coming-from-00x).
 
 ## Install
 
@@ -112,24 +18,108 @@ With Homebrew:
 brew install --cask pietz/wicket/wicket
 ```
 
-Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/pietz/wicket/releases/latest) and drag Wicket to Applications. Wicket updates itself; check by hand from its menu bar icon or Settings ▸ General.
+Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/pietz/wicket/releases/latest) and drag Wicket to Applications. Wicket updates itself through Sparkle: it checks once a day, and **Check for Updates…** is in the menu bar icon's menu and in Settings ▸ General, where automatic checks can be turned off. Homebrew leaves updates to Sparkle.
 
-**Requirements:** macOS 26 (Tahoe) or later. For the AI, [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), signed in on your own subscription; Settings ▸ AI picks one (shown as Claude or ChatGPT), its model, reasoning effort and speed. What the agent may do unasked is its own setting: `permissions.defaultMode` in `~/.claude/settings.json`, or `approval_policy` and `sandbox_mode` in `~/.codex/config.toml`. Everything else works without any AI.
+**Requirements:** macOS 26 (Tahoe) or later. For the agent, [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), installed and signed in on your own subscription.
 
-## Privacy
+**Wicket Dev** is a local build (see [Build from source](#build-from-source)) that runs beside an installed Wicket: bundle id `app.wicket.Wicket.dev`, ⌃⌥Space as its default shortcut, its own config folder `~/.config/wicket-dev`, and no updates.
 
-- No accounts, no telemetry, no analytics.
-- Wicket itself only goes online to check for updates (one request for a public file on GitHub, which you can turn off), for currency rates, and, with voice on, to let macOS download Apple's speech model. Images in replies and extension pages load from the web too (public addresses only, no cookies); turn off **Show online content** in Settings ▸ General to stop that.
-- What you send to the AI goes to the agent you chose, under that agent's terms. Opened from Finder, Wicket tells it which files you had selected, only if you allowed it to read Finder's selection.
-- Voice input is off until you turn it on, and transcribes on your Mac.
-- Extensions are programs on your Mac. Wicket runs each one, and each change to it, only after you review and enable it. Testing a folder with `wicket run` runs it as it is, unreviewed.
+## Using it
 
-## Settings and files
+Default shortcut: **Option+Space** (**Control+Option+Space** in Wicket Dev). Cmd+Enter asks the agent. Escape cancels a working turn, then leaves the conversation, then closes the panel. Arrow keys or Ctrl+N/P select results; Enter opens an app or copies a calculation. Double-click also runs a row. The menu bar icon offers Open Wicket, Settings… (Cmd+,), Open Config Folder, Check for Updates… and Quit.
 
-- `~/.config/wicket/settings.json`: preferences, reloaded live. The Settings window (General, AI, Voice) writes the same file.
-- `~/.config/wicket/agent.md`: your own instructions for the agent, added after Wicket's built-in rules ([Resources/agent.md](Resources/agent.md)). Settings ▸ AI ▸ Edit Agent Instructions opens it.
-- `~/Library/Application Support/Wicket/Extensions`: your extensions. To write one by hand, see [docs/extensions.md](docs/extensions.md).
-- `wicket`, the command-line tool inside the app, checks, runs and logs extensions and stores their secrets.
+An existing `config.json` takes precedence over the built-in shortcut. Launch at login is available in General settings. A login-item launch stays hidden. A manual launch shows the panel without opening the microphone.
+
+## Coming from 0.0.x
+
+Installing 0.1 over 0.0.x through Sparkle or Homebrew keeps your data, and 0.1 never deletes or rewrites it. The two versions simply do not share files:
+
+- 0.0.x kept `~/.config/wicket/settings.json` and, in `~/Library/Application Support/Wicket/`, `usage.json`, `voice.json`, `approvals.json`, `Extensions/`, `Revisions/` and more. 0.1 does not read them. It writes `config.json` and its other files into `~/.config/wicket/`, next to the old `settings.json`.
+- Settings do not carry over: 0.1 starts with the defaults (⌥Space, Claude, Auto permissions) and learns usage afresh. Set a custom shortcut again in Settings ▸ General.
+- Extensions written for 0.0.x use another protocol and do not run in 0.1. Ask the agent to rebuild one; the contract it reads is short.
+
+## Configuration
+
+`~/.config/wicket/config.json` (`~/.config/wicket-dev` for Wicket Dev) is created on first run and reloaded after edits, including atomic editor saves:
+
+```json
+{
+  "hotkey": "option+space",
+  "backgroundTransparency": 0.15,
+  "textSize": "medium",
+  "voice": { "enabled": true, "microphone": "" },
+  "providers": [
+    { "id": "math", "enabled": true },
+    { "id": "apps", "enabled": true }
+  ],
+  "agent": { "name": "claude", "model": "sonnet", "effort": "low", "mode": "default" }
+}
+```
+
+Transparency ranges from 0 (strong system-surface tint) to 1 (untinted native Liquid Glass). Invalid edits retain the last valid configuration and show an error in the panel and menu icon tooltip. Settings registers a shortcut before saving it. A conflict retains the working shortcut and config value. Command plus a single letter, including Shift variants, is refused to protect editing and app commands. Shortcut letters refer to physical ANSI key positions, following Carbon. Unknown provider ids are ignored until an implementation exists. An omitted built-in is disabled; an empty list disables all ordinary providers. Ask agent remains available.
+
+Results are ordered by match quality, not by a source order: a math result first, then pattern extension results, then apps, extension names and the Settings row by exact match, prefix match, usage for exactly the typed input and fuzzy score. Ask agent goes on top when nothing matches strongly or the input ends with a question mark, otherwise right after the last prefix match. Fallback extensions follow Ask agent only when nothing is strong. Learned usage never lifts a row into a better tier. Usage has a seven-day half-life. Case, diacritics, width and query spaces are normalized. Empty input has its own usage history. Data is local in `usage.json`, saved off the typing path and drained on normal quit.
+
+Math supports `+ - * / ^`, parentheses, dot decimals, unary signs, and postfix `%` meaning divide by 100. Powers associate right; `-2^2` is `-4`. `100+10%` is `100.1`, not `110`. A calculation must contain an operator; invalid, incomplete or non-finite expressions show no math row. Input size and nesting are bounded.
+
+## Settings
+
+Type `settings` in the launcher, use Settings… in the menu bar, or press Cmd+, while Wicket is active. The native window has four tabs:
+
+- **General:** shortcut recorder, background transparency, Text size (Small to Larger), launch at login and config-folder access.
+- **Voice:** listen-on-opening toggle, microphone permission status and a System Settings link. Opening Settings never listens or asks for permission.
+- **Agent:** Claude or ChatGPT, latest models by tier, effort, permissions, speed and Stream answers. Opening the tab asks both CLIs for their models without sending a prompt. Reports are cached per agent for an hour. Loading or failure keeps saved choices.
+- **Sources:** switch sources on or off and reveal the extensions folder. Discovered extensions the list omits are on; omitted built-ins are off. Results are ranked by match quality, so there is no order to set.
+
+`config.json` is the single source of truth. Every settings edit reads the latest file, preserves unknown fields and the provider list, validates, then writes atomically. Transparency stays local during dragging and saves once on release, rounded to 0.01. Invalid files keep the last good values and disable editing until repaired. Write failures show separately and leave controls usable. Shortcut recording stops on Escape, deactivation, leaving the pane or closing the window.
+
+Launch at login uses macOS Login Items, with approval guidance and readable registration errors. It has no config key. A conflicting recorded shortcut is never saved; a failed save restores the prior registration.
+
+## Voice
+
+Voice is enabled by default. Opening the launcher with the hotkey, menu or app reopen arms voice immediately after presentation, before layout and focus. Typing takes over for that opening, and the next opening starts a fresh session. Set `"voice":{"enabled":false}` to turn it off. There is no voice shortcut. App startup never arms voice, and login-item startup never shows the panel.
+
+First enabled opening requests microphone permission when needed. Waiting for that dialog does not consume the startup deadline; its completion restores focus. Denial stays quiet across later openings. Change permission in System Settings, then click the mic to retry intentionally. On-device SpeechAnalyzer needs no speech-recognition authorization. No audio is saved, model bundled or network recognizer used. An installed system speech model is required.
+
+Words update the input and built-in results live. Extension processes wait for 350 ms of settled speech. Every key, including arrows, cancels capture before normal routing. Hide orders the panel out immediately while teardown continues in the background. A new capture waits for cleanup. The mic button stops or restarts it. Escape stops capture and retains text first, including during startup. Return runs the selection, and Cmd+Return asks the agent. Hide, quit, live disable, busy agent state or pending approvals stop capture. Speech never submits a question.
+
+Voice Settings offers Automatic or a named microphone, stored by stable UID in `voice.microphone`. Automatic prefers a wired default, then built-in, USB and other wired inputs, then the system default. Virtual, aggregate and Continuity inputs require an explicit choice. Missing named devices use Automatic. Wicket sets only its own engine input and never changes system defaults.
+
+A configuration notification from a running audio engine is ignored. If the engine stopped, Wicket ends capture and shows a retry hint. `voice-timing.txt` in the Wicket config folder is written once per session in the background, at first transcript or stop, with open-to-first-buffer and open-to-first-transcript latency. No audio or transcripts are logged. Startup and transcript inactivity are limited to 60 seconds, with a five-minute cap; permission waiting is excluded. Real dictation, consent focus and physical device switching can only be checked by hand; see [ISSUES.md](ISSUES.md).
+
+## Agent
+
+Wicket talks to the `claude` and `codex` command line tools you already have. There is nothing to set up beyond installing them and signing in:
+
+```sh
+claude auth login
+codex login
+```
+
+Wicket finds each tool on your PATH, then in `~/.local/bin`, `~/.npm-global/bin` and the Homebrew folders. The login check and the agent use the same executable. A missing tool or login appears as selectable text in the panel, and Settings shows whether each tool is installed. Your existing agent configuration, including MCP servers, is inherited. Wicket supplies no MCP servers or credentials.
+
+Choose `claude` or `codex` in `agent.name`. Defaults are Sonnet or the newest advertised Terra, Low effort, Auto permissions and Regular speed. Settings offers each account's latest model in each tier. `model`, `effort`, `mode` and `speed` store advertised IDs. `streamAnswers` defaults to true; turn it off for completed messages and tool steps instead of arriving text. Reports live in `agent-options-claude.json` and `agent-options-codex.json`. Existing explicit choices are respected. A saved choice the tool no longer supports is reported by the tool as an error. Discovery runs both agents concurrently and is the only thing that fills the options cache. Regular and Default stay selectable if an option disappears. Changes apply on the next turn. Every question starts a new process that resumes the session, so Claude's flags and Codex's turn settings both take the new values. Changing agent starts a fresh conversation.
+
+Ask agent is always in the list, first when the input has neither a math result nor an exact/prefix title match. Enter runs it; Cmd+Enter always asks. Answers use Markdown and `stat`, `facts`, `callout`, `badges`, `card`, `columns`, `bars` tags. The Wicket folder's `agent-instructions.md` explains their syntax and is supplied on every turn. `answers.css` controls the entire canvas and reloads on edits. Both files are installed only if absent. Only clicked HTTP, HTTPS and mail links open externally.
+
+The input holds your next question while the answer remains visible. Previous questions expands earlier turns. Hotkey or clicking away keeps the conversation, draft and pending confirmation for five minutes after hiding or completion, whichever is later. Reopening says Continuing conversation. Escape stops voice, declines a confirmation, cancels work, then ends the conversation. At root, Escape clears input before closing. Permission requests use Don't allow and Allow once; Cmd+Return confirms, Escape declines and plain Return does nothing. Each question runs its own agent process, which ends with the turn; a follow-up resumes the session. The canvas is lazy and released 60 seconds after hiding. Conversations are not restored across app restarts.
+
+## Extensions and headless checks
+
+A folder under the Wicket folder's `extensions/` with a `wicket.json` manifest and a program is discovered automatically and is on as soon as it appears. Enabled means trusted: there is no approval step, and the only control is switching it off in Sources, after which it does not appear in the launcher. Names/keywords and fallbacks remain inert until chosen; a matching regex runs inline and is cancelled by new typing. Programs run from their own folder with a deadline and output bounds.
+
+The installed `extension-contract.md` is the short authoring reference. Offline unit conversion is installed in `extensions/units`. Web search is an optional example in `examples/web-search`; copy it into `extensions/web-search` to use it. Existing installed web-search folders are preserved. Put short answers in row titles, use detail views for more and keep row IDs stable. Every agent turn receives the contract path, extensions folder and executable path. List/detail views, metadata, aliases, prominent answers and open/copy/paste/run/agent actions share the compiled provider contract.
+
+Use the same binary without any UI (an argument starting with `--` selects it; no window, hotkey or menu bar icon appears):
+
+```sh
+/Applications/Wicket.app/Contents/MacOS/Wicket --query '10 km in mi'
+/Applications/Wicket.app/Contents/MacOS/Wicket --extension units --input '10 km in mi'
+# Against a throwaway Wicket folder instead of ~/.config/wicket:
+WICKET_CONFIG_DIR=/tmp/my-wicket-test /Applications/Wicket.app/Contents/MacOS/Wicket --query '10 km in mi'
+```
+
+Queries print ordered rows with provider IDs and the reason Ask agent leads or follows. Direct runs print the decoded view or `{"error": "..."}`. `--extension` runs any discovered extension, even a switched-off one; `--query` uses enabled sources only. See [the full contract](Sources/WicketApp/Resources/extension-contract.md).
 
 ## Build from source
 
@@ -138,10 +128,26 @@ You need Xcode 26 or later (Swift 6.2).
 ```sh
 git clone https://github.com/pietz/wicket
 cd wicket
-Scripts/build-app.sh
+git config core.hooksPath Scripts/hooks   # every commit runs Scripts/check.sh
+Scripts/build-app.sh                       # builds build/Wicket Dev.app; does not launch it
 open "build/Wicket Dev.app"
 ```
 
-This builds **Wicket Dev**, which runs beside an installed Wicket: ⌃⌥Space instead of ⌥Space, its own settings (`~/.config/wicket-dev`) and data folders, and no updates. `Scripts/check.sh` builds with warnings as errors, runs the tests and checks formatting.
+| Command | Does |
+| --- | --- |
+| `Scripts/check.sh` | Definition of done: build with warnings as errors, all tests, `swift format lint --strict` |
+| `swift test` | The tests alone. All default tests are headless |
+| `swift format format --in-place --recursive Sources Tests Package.swift` | Fix formatting |
+| `Scripts/build-app.sh [debug]` | Wicket Dev in `build/Wicket Dev.app`, signed with an Apple Development identity if present, else ad hoc |
+| `Scripts/build-app.sh --release` | Wicket in `build/Wicket.app`, Developer ID, for `release.sh` |
+| `Scripts/release.sh <version>` | Version bump, notarized DMG, appcast and cask. See [docs/release.md](docs/release.md) |
+| `Scripts/land.sh <commits>` | Cherry-pick a branch's commits, then run the full check |
+| `Scripts/verify-session.sh` | Interactive hands-on checklist for Wicket Dev in an isolated config folder |
+| `WICKET_CAPTURE_DIR=<folder> swift test --filter panelCapture` | Opt-in offscreen panel and settings captures, checked with text recognition |
+| `WICKET_LIVE_AGENT=1 swift test --filter liveAgentScratchConversation` | Opt-in run against the real `claude` and `codex` in temporary folders |
 
-[CONCEPT.md](CONCEPT.md) explains the ideas and the decisions behind them, [docs/architecture.md](docs/architecture.md) the code, [ROADMAP.md](ROADMAP.md) what's next, and [docs/release.md](docs/release.md) how releases are made.
+Tests never put a window on screen, launch another app, post keys, move the pointer or register a real global shortcut. Use a temporary `WICKET_CONFIG_DIR` to isolate config, usage and options. Do not launch a build beside a running Wicket you care about without the Dev edition's separate shortcut and folder.
+
+## More
+
+[SPEC.md](SPEC.md) is the design and rationale. [docs/settings.md](docs/settings.md) and [docs/providers.md](docs/providers.md) describe settings and the provider contract; [docs/release.md](docs/release.md) how releases are made. [COMPARISON.md](COMPARISON.md) and [docs/size-comparison.md](docs/size-comparison.md) compare 0.1 with 0.0.x, and [docs/research](docs/research) holds market research on other launchers.

@@ -1,6 +1,6 @@
 # Feature landscape: Alfred, Raycast, Tinycast, Monarch
 
-A pool of ideas for Wicket, compiled 2026-11-06. It records what four macOS launchers do; it is **not** a commitment to build any of it. CONCEPT.md and ROADMAP.md stay the source of truth for what Wicket will do.
+A pool of ideas for Wicket, compiled 2026-11-06. It records what four macOS launchers do; it is **not** a commitment to build any of it. [SPEC.md](../../SPEC.md) and [ROADMAP.md](../../ROADMAP.md) are the source of truth for what Wicket does and will do. Written while 0.0.x was current, so mentions of Wicket's own features describe that version.
 
 Versions covered:
 
@@ -310,4 +310,4 @@ Monarch:
 - https://nerdymomocat.github.io/posts/i-used-monarch-launcher
 - https://www.fileminutes.com/blog/best-spotlight-alternatives-for-mac-5-launchers-compared/
 
-Wicket figures: docs/architecture.md "Performance" (Tinycast 38–40 MB and Wicket 18–24 MB idle, measured on this machine).
+Wicket figures: the 0.0.x docs/architecture.md "Performance" (in git history) (Tinycast 38–40 MB and Wicket 18–24 MB idle, measured on this machine).
