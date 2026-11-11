@@ -6,7 +6,7 @@ Open problems and unverified behavior, checked against the code on 11 Nov 2026. 
 
 Nothing here needs code. Each needs a person on a real Mac, or credentials.
 
-- **Sparkle upgrade path, never run.** The bundle id, team, feed URL and public key match 0.0.15, but no installed 0.0.15 has yet updated to a 0.1 build. Check once with a real signed, notarized DMG and a staged appcast, then once more for the cask. `release.sh` needs the owner's unlocked login keychain (notarization profile `wicket-notary`, Sparkle key `wicket`).
+- **Sparkle upgrade path** worked from 0.0.15 to 0.1.0 and from 0.1.0 to 0.1.1 on the owner's Mac. The cask path is unchecked.
 - **A settings reset for existing users.** 0.1 does not read 0.0.x's `settings.json`, usage, voice or approval files, nor its extensions (another protocol); a customised hotkey falls back to ⌥Space. Nothing is deleted (a test pins this). Say it in the release notes; migration is in the roadmap.
 - **Permissions under the release signature.** The microphone grant and any login item from 0.0.x are keyed by the same bundle id and team, so they should carry over; confirm once. Launch at login with a Developer ID build is unverified.
 - **Hardened runtime with WebKit and Sparkle.** The release bundle verifies (`codesign --verify --deep --strict`) and runs headless, but the GUI paths (web view, Sparkle's update window, speech) were not exercised in the signed bundle.

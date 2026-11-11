@@ -8,6 +8,11 @@ The rewrite replaces 0.0.x with a smaller core (agent through the installed `cla
 
 Done on the way: stable signing. Wicket Dev signs with the Apple Development identity and the release with Developer ID, from `Scripts/build-app.sh`.
 
+## Next, from first use of 0.1
+
+- **Answers that look as good as 0.0.x.** Owner feedback after the first real run: 0.0.x answers looked much nicer, because the agent chose which native components to render. 0.1 renders Markdown with seven component families. Compare the same questions in both, then decide between richer guidance for the Markdown path and bringing back agent-chosen components (see item 8 below).
+- **Activity while the agent works.** The spinner with the current tool name is fine for now; make it more informative (what it is doing, progress over a long turn) without noise.
+
 ## Ported from 0.0.x next
 
 Features of 0.0.x that 0.1 does not have yet, roughly in the order they matter:
