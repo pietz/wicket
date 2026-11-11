@@ -53,11 +53,8 @@ struct ProviderView: Codable, Sendable, Equatable {
       throw DecodingError.dataCorruptedError(
         forKey: .body, in: c, debugDescription: "A view needs a body, items or both")
     }
-    guard Set((items ?? []).map(\.id)).count == items?.count ?? 0,
-      items?.allSatisfy({ !$0.id.isEmpty }) ?? true
-    else {
-      throw DecodingError.dataCorruptedError(
-        forKey: .items, in: c, debugDescription: "Item ids must be nonempty and unique")
+    guard Row.validIDs(items ?? []) else {
+      throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
     }
     self.init(
       body: body, items: items ?? [], actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? []
@@ -88,6 +85,11 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
     self.keywords = keywords
     self.prominent = prominent
   }
+  /// The one rule for a list of items, in a view or a manifest: ids nonempty and unique.
+  static func validIDs(_ rows: [Row]) -> Bool {
+    Set(rows.map(\.id)).count == rows.count && rows.allSatisfy { !$0.id.isEmpty }
+  }
+  static let invalidIDs = "Item ids must be nonempty and unique"
 }
 
 /// A request and where it goes. Every field is optional and an omitted one means "this one, as now":

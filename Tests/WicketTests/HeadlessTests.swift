@@ -194,6 +194,24 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(output.1["items"].array.first?["title"].string == expected)
 }
 
+@MainActor @Test func theQuicklinksExampleIsItemsOnlyAndHeadlessShowsItsItems() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  try ExtensionHost.installFiles(in: root)
+  let example = root.appending(path: "examples/quicklinks")
+  #expect(try FileManager.default.contentsOfDirectory(atPath: example.path) == ["wicket.json"])
+  try FileManager.default.copyItem(at: example, to: root.appending(path: "extensions/quicklinks"))
+  try saveProviders([.init("extension:quicklinks")], in: root)
+  let query = try await cli(root, ["--query", "wiki"])
+  let first = query.1["items"].array.first
+  #expect(first?["provider"].string == "extension:quicklinks")
+  #expect(first?["row"]["title"].string == "Wikipedia" && first?["row"]["subtitle"].string == "Quicklinks")
+  let all = try await cli(root, ["--extension", "quicklinks"])
+  #expect(all.0 == 0 && all.1["items"].array.count == 5)
+  let filtered = try await cli(root, ["--extension", "quicklinks", "--input", "osm"])
+  #expect(filtered.1["items"].array.map { $0["title"].string } == ["OpenStreetMap"])
+}
+
 @MainActor @Test func currencyExampleConvertsFromTheDaysCacheAndShowsSourceAndAge() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

@@ -149,6 +149,7 @@ final class LauncherModel {
   private var tasks: [Task<Void, Never>] = []
   private var generation = 0
   private var builtinRows: [String: [Row]] = [:]
+  private var itemRows: [Ranking.Names] = []
   private var patterns: [String: Ranking.Pattern] = [:]
   /// Why the root list has a strong match, or nil when nothing matches strongly.
   private(set) var strongReason: String?
@@ -266,6 +267,10 @@ final class LauncherModel {
     builtinRows.removeAll()
     patterns.removeAll()
     let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
+    // Extension items are in memory: matched once per input, not on every batch that recomposes.
+    itemRows = active.compactMap { extensions.commands[$0.id] }.map {
+      Ranking.Names(provider: $0.id, kind: .item, rows: $0.rootItems(input))
+    }
     // The previous file rows stay until the first batch for this input replaces them, so files do not
     // vanish and return on every keystroke; ranking drops those the new input no longer matches.
     let files = files.flatMap { files in
@@ -353,10 +358,15 @@ final class LauncherModel {
   private func compose() {
     isRefreshing = false
     let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
+    let commands = extensions.commands.filter { enabled.contains($0.key) }
+    let names =
+      [
+        Ranking.Names(provider: "apps", kind: .app, rows: builtinRows["apps"] ?? []),
+        Ranking.Names(provider: "files", kind: .file, rows: fileRows),
+      ] + itemRows
     let ranked = Ranking.compose(
-      query: input, math: builtinRows["math"] ?? [], apps: builtinRows["apps"] ?? [], files: fileRows,
-      patterns: patterns,
-      extensions: extensions.commands.filter { enabled.contains($0.key) }.mapValues(\.manifest),
+      query: input, math: builtinRows["math"] ?? [], names: names, patterns: patterns,
+      extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       sources: enabled, usage: history.store, now: Date())
     listed = ranked.results
@@ -530,7 +540,7 @@ final class LauncherModel {
     return false
   }
   private func report(_ command: ExtensionCommand, request: ProviderRequest, error: any Error) -> String {
-    "Extension: \(command.folder.path)\nCommand: \(command.manifest.command)\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
+    "Extension: \(command.folder.path)\nCommand: \(command.manifest.command ?? [])\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
   }
   /// Only picks that root search can learn from: not inside a chosen command, and not computed
   /// answers or fallbacks.

@@ -17,15 +17,18 @@ private func manifest(_ name: String, keyword: String? = nil, match: String? = n
     ExtensionManifest.self, from: JSONSerialization.data(withJSONObject: object))
 }
 private func compose(
-  _ query: String, math: [Row] = [], apps: [Row] = [], files: [Row] = [],
+  _ query: String, math: [Row] = [], apps: [Row] = [], files: [Row] = [], items: [String: [Row]] = [:],
   patterns: [String: Ranking.Pattern] = [:],
   extensions: [String: ExtensionManifest] = [:], problems: [String: String] = [:],
   usage: UsageStore = UsageStore()
 ) -> Ranking.Output {
   Ranking.compose(
-    query: query, math: math, apps: apps, files: files, patterns: patterns, extensions: extensions,
-    problems: problems,
-    usage: usage)
+    query: query, math: math,
+    names: [
+      .init(provider: "apps", kind: .app, rows: apps), .init(provider: "files", kind: .file, rows: files),
+    ]
+      + items.map { .init(provider: $0.key, kind: .item, rows: $0.value) },
+    patterns: patterns, extensions: extensions, problems: problems, usage: usage)
 }
 private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\.row.title) }
 
@@ -60,7 +63,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     ])
   ]
   let output = compose(
-    "10 km in mi", apps: [app("10 km Tools")],
+    "10 km in mi", apps: [app("10 km Mini Tools")],
     patterns: units.merging(["extension:currency": .items([Row(id: "c", title: "Currency", actions: [])])]) {
       a, _ in a
     },
@@ -68,7 +71,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
       "extension:units": manifest("Units", match: "."),
       "extension:currency": manifest("Convert currency", match: "."),
     ])
-  #expect(titles(output) == ["Currency", "6.21 mi", "Other", "Ask agent", "10 km Tools"])
+  #expect(titles(output) == ["Currency", "6.21 mi", "Other", "Ask agent", "10 km Mini Tools"])
   #expect(output.strongReason == "pattern result: extension:currency")
 }
 
@@ -109,9 +112,14 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "extension:docs": manifest("Search docs", fallback: true),
     "extension:plain": manifest("Deploy", keyword: "deploy"),
   ]
-  let output = compose("please summarise my plan", apps: [app("Plans")], extensions: extensions)
-  #expect(titles(output) == ["Ask agent", "Search docs", "Search the web", "Plans"])
-  #expect(output.results.map(\.row.id) == ["ask", "fallback", "fallback", "/Applications/Plans.app"])
+  let output = compose(
+    "please summarise my plan", apps: [app("Please Summarise My Notes and Plans")], extensions: extensions)
+  #expect(
+    titles(output) == ["Ask agent", "Search docs", "Search the web", "Please Summarise My Notes and Plans"])
+  #expect(
+    output.results.map(\.row.id) == [
+      "ask", "fallback", "fallback", "/Applications/Please Summarise My Notes and Plans.app",
+    ])
   #expect(output.strongReason == nil)
 }
 
@@ -208,11 +216,12 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
 
 @Test func failedPatternsAndInvalidManifestsGoAtTheEnd() {
   let output = compose(
-    "deploy now", apps: [app("Deploy Tool")],
+    "deploy now", apps: [app("Tool to Deploy Now")],
     patterns: ["extension:deploy": .failed("exit 7")],
     extensions: ["extension:deploy": manifest("Deploy", keyword: "deploy", match: "^deploy")],
     problems: ["extension:broken": "bad json"])
-  #expect(titles(output) == ["Ask agent", "Deploy Tool", "Deploy failed", "extension:broken needs repair"])
+  #expect(
+    titles(output) == ["Ask agent", "Tool to Deploy Now", "Deploy failed", "extension:broken needs repair"])
   #expect(output.results.last?.row.actions == [.agent("Fix this extension. bad json")])
   #expect(
     output.results.dropLast().last?.row.actions
@@ -243,6 +252,47 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let output = compose("ed", apps: [app("BBEdit")], files: [file("edits.md")])
   #expect(titles(output) == ["edits.md", "Ask agent", "BBEdit"])
   #expect(output.strongReason == "title prefix: files:/Users/me/Documents/edits.md")
-  // Files are name matches like any other: none in the empty list.
-  #expect(!compose("", files: [file("a.txt")]).results.contains { $0.provider == "files" })
+}
+
+private func command(_ json: String) throws -> ExtensionCommand {
+  ExtensionCommand(
+    id: "extension:links", folder: URL(fileURLWithPath: "/tmp/links"),
+    manifest: try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8)))
+}
+
+@Test func extensionItemsRankWithAppsByTierThenUsageAndTakeTheExtensionsNameAndIcon() throws {
+  let links = try command(
+    #"{"name":"Links","icon":"link","items":[{"id":"gh","title":"GitHub","keywords":["code"],"actions":[]},"#
+      + #"{"id":"cal","title":"Calendar Web","subtitle":"Work","icon":"calendar","actions":[]}]}"#)
+  func items(_ input: String) -> [String: [Row]] { ["extension:links": links.rootItems(input)] }
+  let apps = [app("Calendar"), app("Cal")]
+  var usage = UsageStore()
+  // Same tier as the apps: kind breaks the tie after usage and score, so apps first.
+  #expect(
+    titles(compose("cal", apps: apps, items: items("cal"))) == [
+      "Cal", "Calendar", "Calendar Web", "Ask agent",
+    ])
+  let web = Result(provider: "extension:links", row: links.rootItems("cal")[0])
+  for _ in 0..<20 { usage.record(web.id, query: "cal", now: Date()) }
+  let used = compose("cal", apps: apps, items: items("cal"), usage: usage)
+  // Usage lifts the item within the prefix tier but never above the exact match.
+  #expect(titles(used) == ["Cal", "Calendar Web", "Calendar", "Ask agent"])
+  let github = compose("code", items: items("code")).results[0]
+  #expect(github.row.title == "GitHub" && github.row.subtitle == "Links" && github.row.icon == "link")
+  #expect(
+    github.id != Result(provider: "extension:links", row: Row(id: "command", title: "", actions: [])).id)
+  let own = links.rootItems("cal")[0]
+  #expect(own.subtitle == "Work" && own.icon == "calendar")
+  // Items are name matches for something typed: none in the empty list.
+  #expect(links.rootItems("").isEmpty)
+}
+
+@Test func atMostTheBestTwentyItemsOfOneExtensionEnterTheList() throws {
+  let rows = (0..<50).map { #"{"id":"\#($0)","title":"Note \#($0)","actions":[]}"# }
+  let many = try command(
+    #"{"name":"Many","items":[\#(rows.joined(separator: ",")),{"id":"x","title":"n o t e s","actions":[]}]}"#)
+  let found = many.rootItems("note")
+  #expect(found.count == ExtensionCommand.rootItems)
+  #expect(found.allSatisfy { $0.title.hasPrefix("Note ") })
+  #expect(many.rootItems("zzz").isEmpty)
 }

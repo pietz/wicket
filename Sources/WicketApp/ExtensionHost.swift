@@ -5,6 +5,30 @@ struct ExtensionCommand: Sendable, Equatable {
   let id: String
   let folder: URL
   let manifest: ExtensionManifest
+  /// The manifest's items with their search keys, prepared once at discovery.
+  let items: SearchIndex
+  /// At most this many of one extension's items enter the root list for an input, as with file search.
+  static let rootItems = 20
+
+  init(id: String, folder: URL, manifest: ExtensionManifest) {
+    self.id = id
+    self.folder = folder
+    self.manifest = manifest
+    items = SearchIndex(manifest.items ?? [])
+  }
+  /// The index follows from the manifest.
+  static func == (a: Self, b: Self) -> Bool {
+    a.id == b.id && a.folder == b.folder && a.manifest == b.manifest
+  }
+  /// The items that are name matches at the root for this input. They take the extension's icon and
+  /// name where they have none, and their ids never meet the command row's.
+  func rootItems(_ input: String) -> [Row] {
+    items.best(input, limit: Self.rootItems).map {
+      Row(
+        id: "item:" + $0.id, title: $0.title, subtitle: $0.subtitle ?? manifest.name,
+        icon: $0.icon ?? manifest.icon, actions: $0.actions, keywords: $0.keywords, prominent: $0.prominent)
+    }
+  }
 }
 
 /// Discovery and invocation ownership. An extension runs from its own folder when its source is on.
@@ -76,6 +100,10 @@ final class ExtensionHost {
 
   func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
     try Task.checkCancellation()
+    // Without a program the command is its items, filtered by what is typed. Nothing runs.
+    guard command.manifest.command != nil else {
+      return ProviderView(items: command.items.matches(request.input))
+    }
     let id = UUID()
     let runner = runner
     let task = Task { try await runner.run(command, request: request) }
@@ -101,14 +129,14 @@ final class ExtensionHost {
     // The contract is Wicket's reference, not the user's: rewritten each launch so agents read this version.
     try Data(contentsOf: Bundle.module.url(forResource: "extension-contract", withExtension: "md")!)
       .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
-    for name in ["units", "web-search", "currency"] {
+    // Each bundled extension is its manifest and, unless it is only items, its program.
+    for name in ["units", "web-search", "currency", "quicklinks"] {
       let target = folder.appending(path: (name == "units" ? "extensions/" : "examples/") + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
       for (source, destination) in [(name + ".json", "wicket.json"), (name + ".py", "main.py")] {
-        try FileManager.default.copyItem(
-          at: Bundle.module.url(forResource: source, withExtension: nil)!,
-          to: target.appending(path: destination))
+        guard let url = Bundle.module.url(forResource: source, withExtension: nil) else { continue }
+        try FileManager.default.copyItem(at: url, to: target.appending(path: destination))
       }
     }
   }

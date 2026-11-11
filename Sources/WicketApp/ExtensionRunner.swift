@@ -40,7 +40,8 @@ struct ExtensionRunner: Sendable {
 
   func run(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
     try Task.checkCancellation()
-    let argv = command.manifest.command
+    // The host answers a command without a program itself and never runs it.
+    guard let argv = command.manifest.command else { throw ExtensionFailure("No command to run") }
     var environment = Launch.environment()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     let executable: URL

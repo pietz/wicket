@@ -8,9 +8,20 @@ Write a directory under `extensions/` in the Wicket working folder. Read this re
 {"name":"Deploy","keyword":"deploy","command":["./deploy.py"],"icon":"shippingbox"}
 ```
 
-`name` and nonempty `command` argv array are required. `keyword`, SF Symbol `icon`, regex `match`, and boolean `fallback` (default false) are optional. A pattern may also match empty input, allowing an app-index extension to supply the initial app list. Use a relative executable with its execute bit and shebang, or an installed interpreter, e.g. `["/usr/bin/python3","main.py"]`. No shell expansion. Relative paths resolve in the extension folder. Extensions run with the owner's ordinary access, not a sandbox.
+`name` and a nonempty `command` argv array, `items` or both are required. `keyword`, SF Symbol `icon`, regex `match`, and boolean `fallback` (default false) are optional; `match` and `fallback` need a `command`. A pattern may also match empty input, allowing an app-index extension to supply the initial app list. Use a relative executable with its execute bit and shebang, or an installed interpreter, e.g. `["/usr/bin/python3","main.py"]`. No shell expansion. Relative paths resolve in the extension folder. Extensions run with the owner's ordinary access, not a sandbox.
 
 Name/keyword matches offer a command without running it. Enter starts with empty input. A `match` regex is checked in Wicket; on a match the extension runs and publishes its items at root when it finishes. New typing cancels the old run. Regex checks have a 5 ms progress deadline; regex length <=512 bytes, input <=4096 bytes. Prefer anchored, simple patterns. `fallback:true` offers the command when no app/title/keyword prefix, math result or nonempty pattern result matches strongly; entering a fallback preserves the root query. A root pattern result with a body offers a row to enter the command. The owner's on/off switch is the only control; there is no source order to configure. Wicket orders results by match quality: a math result, then pattern extension results (several by extension name), then apps, extension names and keywords by exact, prefix, usage for the typed input and fuzzy score, with Ask agent after the last prefix match (or first when nothing matches strongly or the input ends with `?`). Your returned items stay together, ranked by exact/prefix title or keyword, query-specific usage, then original order, so put the best row first.
+
+### Items: a known list found like apps
+
+```json
+{"name":"Bookmarks","icon":"bookmark","items":[
+  {"id":"gh","title":"GitHub Dashboard","keywords":["github"],"actions":[{"type":"open","url":"https://github.com"}]},
+  {"id":"mail","title":"Fastmail","actions":[{"type":"open","url":"https://app.fastmail.com"}]}
+]}
+```
+
+`items` in the manifest are items exactly as in a view (below). Wicket reads them once and ranks them at the root like apps, by title and keywords, with no process while typing; only for typed input, at most the best 20 per extension. An item without `icon` shows the manifest's icon; one without `subtitle` shows the extension name. Without a `command`, choosing the extension's name lists all its items and typing filters them; nothing runs. With a `command`, the program answers as usual and the items are extra root rows, typically `run` actions into the command (a `run` without `extension` means this extension). Use items for a known list (links, snippets, a program's commands); use `match` for an answer computed from what was typed. To refresh items, a program may rewrite its own `wicket.json`; write it atomically (a temporary file, then rename), since Wicket rereads it on change.
 
 ## One stdin request, one stdout view, then exit
 
@@ -30,7 +41,7 @@ One view with optional parts. At least one of `body` or `items` is required (an 
 {"body":"## Berlin\n<stat label=\"Now\" value=\"12°C\"/>","items":[{"id":"hourly","title":"Hourly forecast","actions":[{"type":"run","arguments":["hourly","berlin"]}]}],"actions":[{"type":"copy","text":"12°C"}]}
 ```
 
-- **Items only** is a native list: fast, keyboard-driven, and the only shape whose items appear at the launcher root. Put a short answer in the item title when it fits.
+- **Items only** is a native list: fast, keyboard-driven, and the only shape whose items a pattern result shows at the launcher root. Put a short answer in the item title when it fits.
 - **Body only** is a report. The body is Markdown with the tags below, drawn by the same safe WebView as agent answers. The native header shows the command name and the view `actions`. Return runs the first action.
 - **Body and items** shows the body first and the items below it in one scroll region. Nothing is selected until an arrow key enters the items, so Return runs the view's first action; typing or arrow up from the first item leaves them again. Arrow keys never select anything in the body. Return runs the selected item's first action; the view `actions` stay in the header.
 

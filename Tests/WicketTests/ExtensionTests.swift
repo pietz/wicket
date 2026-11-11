@@ -48,11 +48,73 @@ func answering(_ title: String) -> String {
       ProviderView.self,
       from: Data(#"{"type":"detail","body":"hi","metadata":[{"label":"a","value":"b"}],"extra":1}"#.utf8))
       == ProviderView(body: "hi"))
-  for manifest in [#"{"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#] {
+  for manifest in [
+    #"{"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#,
+    // Neither a command nor items; a pattern or fallback without a program; the view's item rule.
+    #"{"name":"Bad"}"#, #"{"name":"Bad","items":[],"match":"x"}"#,
+    #"{"name":"Bad","items":[],"fallback":true}"#,
+    #"{"name":"Bad","items":[{"id":"a","title":"A","actions":[]},{"id":"a","title":"B","actions":[]}]}"#,
+    #"{"name":"Bad","items":[{"id":"","title":"A","actions":[]}]}"#,
+  ] {
     #expect(throws: (any Error).self) {
       try JSONDecoder().decode(ExtensionManifest.self, from: Data(manifest.utf8))
     }
   }
+  let itemsOnly = try JSONDecoder().decode(
+    ExtensionManifest.self,
+    from: Data(#"{"name":"Links","items":[{"id":"a","title":"A","actions":[]}]}"#.utf8))
+  #expect(itemsOnly.command == nil && itemsOnly.items?.map(\.id) == ["a"])
+  let both = try JSONDecoder().decode(
+    ExtensionManifest.self,
+    from: Data(#"{"name":"Both","command":["echo"],"match":"x","items":[]}"#.utf8))
+  #expect(both.command == ["echo"] && both.items == [])
+}
+
+@MainActor @Test func anExtensionWithItemsAndNoCommandIsAnsweredByWicketAndFoundAtTheRoot() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let items: [[String: Any]] = [
+    ["id": "b", "title": "Beta Docs", "actions": [["type": "run", "input": "beta"]]],
+    ["id": "a", "title": "Alpha", "keywords": ["docs"], "actions": []],
+    ["id": "c", "title": "Gamma", "actions": []],
+  ]
+  let folder = try extensionFolder(root, name: "links", fields: ["name": "Links", "items": items])
+  // No program: the manifest alone is the extension.
+  var manifest =
+    try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "wicket.json")))
+    as! [String: Any]
+  manifest["command"] = nil
+  try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
+  try FileManager.default.removeItem(at: folder.appending(path: "main.sh"))
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.update { $0.providers = [.init("extension:links")] }
+  await model.extensions.reload()
+  model.input = ""
+  await model.settled()
+  #expect(model.results.map(\.row.title) == ["Links", "Ask agent"])
+  model.input = "docs"
+  await model.settled()
+  #expect(model.results.map(\.row.title) == ["Alpha", "Ask agent", "Beta Docs"])
+  // An item's run action without `extension` means its own extension.
+  let beta = try #require(model.results.first { $0.row.title == "Beta Docs" })
+  model.activate(beta.row.actions[0], from: beta)
+  await model.settled()
+  #expect(model.command?.id == "extension:links" && model.input == "beta")
+  #expect(model.results.map(\.row.title) == ["Beta Docs"])
+  model.input = ""
+  await model.settled()
+  #expect(model.results.map(\.row.title) == ["Beta Docs", "Alpha", "Gamma"])
+  model.input = "docs"
+  await model.settled()
+  // Filtered and ordered like any command's items: an exact keyword before the manifest's order.
+  #expect(model.results.map(\.row.title) == ["Alpha", "Beta Docs"])
+  #expect(model.escape())
+  model.store.update { $0.providers = [.init("extension:links", enabled: false)] }
+  model.input = "docs"
+  await model.settled()
+  #expect(model.results.map(\.provider) == ["agent"])
+  await model.finish()
 }
 
 @Test func oneViewDecodesItemsOnlyBodyOnlyAndBoth() throws {

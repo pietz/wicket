@@ -1,0 +1,7 @@
+{"name":"Quicklinks","keyword":"links","icon":"link","items":[
+  {"id":"wikipedia","title":"Wikipedia","keywords":["encyclopedia","wiki"],"actions":[{"type":"open","url":"https://en.wikipedia.org"}]},
+  {"id":"maps","title":"OpenStreetMap","keywords":["maps","osm"],"actions":[{"type":"open","url":"https://www.openstreetmap.org"}]},
+  {"id":"swift","title":"Swift Documentation","keywords":["swift docs"],"actions":[{"type":"open","url":"https://www.swift.org/documentation/"}]},
+  {"id":"mdn","title":"MDN Web Docs","keywords":["mdn","javascript","css"],"actions":[{"type":"open","url":"https://developer.mozilla.org"}]},
+  {"id":"timezones","title":"Time Zone Converter","subtitle":"timeanddate.com","keywords":["time zones"],"actions":[{"type":"open","url":"https://www.timeanddate.com/worldclock/converter.html"}]}
+]}

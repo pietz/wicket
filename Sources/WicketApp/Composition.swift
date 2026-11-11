@@ -29,6 +29,17 @@ enum Ranking {
     case failed(String)
   }
 
+  /// What a name match is, which breaks ties in this order.
+  enum Kind: Int, Sendable { case app, file, command, item, host }
+
+  /// One source of name matches (apps, files, an extension's items): its rows, already filtered to
+  /// what matches the input.
+  struct Names: Sendable {
+    let provider: String
+    let kind: Kind
+    let rows: [Row]
+  }
+
   struct Output: Sendable {
     let results: [Result]
     /// Why a strong match exists, or nil when nothing matches strongly.
@@ -58,10 +69,9 @@ enum Ranking {
   ///
   /// 1. A math result.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
-  /// 3. Name matches: apps, files, extension commands and the host's rows (Settings, and Clipboard History
-  ///    when it is on), by tier, then usage for
-  ///    this exact input, then fuzzy score, then kind in that order, then title. Usage never crosses
-  ///    a tier.
+  /// 3. Name matches: apps, files, extension commands, extension items and the host's rows (Settings,
+  ///    and Clipboard History when it is on), by tier, then usage for this exact input, then fuzzy
+  ///    score, then kind in that order, then title. Usage never crosses a tier.
   /// 4. Ask agent: on top when nothing is strong or the input ends with "?", otherwise right after
   ///    the last prefix or exact match, so it stays above the loose matches.
   /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
@@ -72,14 +82,14 @@ enum Ranking {
   ///
   /// - Parameters:
   ///   - math: Rows from the math source.
-  ///   - apps: Rows from the app source, already filtered to what matches the input.
-  ///   - files: Rows from file search, the best by file name.
+  ///   - names: Name matches from apps, file search and extension items. Only apps list anything
+  ///     for empty input.
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
   ///   - sources: The enabled source IDs; `clipboard` offers the Clipboard History row.
   static func compose(
-    query input: String, math: [Row], apps: [Row], files: [Row], patterns: [String: Pattern],
+    query input: String, math: [Row], names: [Names], patterns: [String: Pattern],
     extensions: [String: ExtensionManifest], problems: [String: String], sources: Set<String> = [],
     usage: UsageStore, now: Date = Date()
   ) -> Output {
@@ -117,40 +127,32 @@ enum Ranking {
     let mathRows = math.map { Result(provider: "math", row: $0) }
     if !mathRows.isEmpty { reason = "math result" }
 
-    // Name matches.
-    enum Kind: Int { case app, file, command, host }
+    // Name matches. Every row matches by its title and keywords; empty input matches everything given.
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
-    func candidate(_ result: Result, _ kind: Kind, names: [String], requireMatch: Bool) -> Candidate? {
+    func candidate(_ result: Result, _ kind: Kind) -> Candidate? {
       var score = 0
       var tier = 0
       if !query.isEmpty {
-        let keys = names.map(SearchKey.init)
-        let scores = keys.compactMap { FuzzyMatcher.score(query, words: words, $0) }
-        if let best = scores.max() { score = best } else if requireMatch { return nil }
+        let keys = ([result.row.title] + (result.row.keywords ?? [])).map(SearchKey.init)
+        guard let best = keys.compactMap({ FuzzyMatcher.score(query, words: words, $0) }).max() else {
+          return nil
+        }
+        score = best
         tier = keys.map { Self.tier(query, folded: $0.compact) }.max() ?? 0
       }
       return Candidate(
         result: result, kind: kind, tier: tier,
         usage: usage.frecency(result.id, query: input, now: now), score: score)
     }
-    var candidates = apps.compactMap {
-      candidate(
-        Result(provider: "apps", row: $0), .app, names: [$0.title] + ($0.keywords ?? []), requireMatch: false)
-    }
-    candidates += (query.isEmpty ? [] : files).compactMap {
-      candidate(Result(provider: "files", row: $0), .file, names: [$0.title], requireMatch: true)
+    var candidates = names.flatMap { source in
+      source.rows.compactMap { candidate(Result(provider: source.provider, row: $0), source.kind) }
     }
     for id in extensions.keys where !answered.contains(id) {
       let manifest = extensions[id]!
       let row = Row(
         id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon,
-        actions: [.run(Address(id: id, input: ""))])
-      if let found = candidate(
-        Result(provider: id, row: row), .command,
-        names: [manifest.name] + (manifest.keyword.map { [$0] } ?? []), requireMatch: !query.isEmpty)
-      {
-        candidates.append(found)
-      }
+        actions: [.run(Address(id: id, input: ""))], keywords: manifest.keyword.map { [$0] })
+      if let found = candidate(Result(provider: id, row: row), .command) { candidates.append(found) }
     }
     if !query.isEmpty {
       var rows = [
@@ -168,13 +170,7 @@ enum Ranking {
               id: "open", title: ClipboardHistory.title, icon: "doc.on.clipboard",
               actions: [.run(Address(extensionName: "clipboard"))], keywords: ["pasteboard"])))
       }
-      for result in rows {
-        if let found = candidate(
-          result, .host, names: [result.row.title] + (result.row.keywords ?? []), requireMatch: true)
-        {
-          candidates.append(found)
-        }
-      }
+      candidates += rows.compactMap { candidate($0, .host) }
     }
     candidates.sort { a, b in
       if a.tier != b.tier { return a.tier > b.tier }

@@ -39,7 +39,14 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 
 ## Next: static views
 
-Step 2 of the address work (addresses and one dispatcher are built, see [SPEC.md](SPEC.md) Addresses). A manifest may hold a view instead of a command: `{"name":"Team","items":[…]}` with rows whose actions are open or run addresses. No program, no process: its items are indexed at discovery and ranked like apps. That covers quicklinks, snippets, cheat sheets and multi-command extensions, and lets a catalog extension write its items to a file for native fuzzy and usage ranking, which is most of what a long-running lifecycle was deferred for. Costs to settle first: cap the items per extension and show them only at exact or prefix tier (or the top N fuzzy) so a large catalog cannot flood loose matches, and measure query latency. Later it extends to "make reusable" (an agent reply saved as a static view when it is constant, as a program when it is not), favourites, per-command hotkeys and a back stack, which are lists of addresses. Addresses name views, never effects; there is no exec action and no templating language.
+Step 2 of the address work. Built: a manifest's `items`, read once and ranked at the root like apps (best 20 per extension), and a command without a program that Wicket answers from them (see [SPEC.md](SPEC.md) Triggers and ordering). What remains:
+
+- A manifest holding a `body` too, so a cheat sheet or a fixed page needs no program.
+- "Make reusable": an agent reply saved as a static view when it is constant, as a program when it is not.
+- Favourites in the empty panel and a back stack, which are lists of addresses (with the bindings above).
+- A per-extension choice to stay out of root search, only if real use asks for it.
+
+Addresses name views, never effects; there is no exec action and no templating language.
 
 ## Deferred, decided
 

@@ -19,7 +19,8 @@ private func search(
   -> [Row]
 {
   Ranking.compose(
-    query: input, math: [], apps: index.matches(input), files: [], patterns: [:], extensions: [:],
+    query: input, math: [], names: [.init(provider: "apps", kind: .app, rows: index.matches(input))],
+    patterns: [:], extensions: [:],
     problems: [:], usage: usage, now: now
   ).results.filter { $0.provider == "apps" }.map(\.row)
 }
