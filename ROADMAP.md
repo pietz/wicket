@@ -47,6 +47,7 @@ Step 2 of the address work (addresses and one dispatcher are built, see [SPEC.md
 - Merge the Microphone and EngineCapture classes only with a hands-on voice test.
 - Whether shell commands fit the extension contract or need a native host capability: compare startup and query latency, cancellation, state and platform access first. Reuse the contract where it fits. File search was decided native (SPEC, File search).
 - File search beyond names (content, kinds, dates) and loose files directly in home: only after real use shows the need.
+- No consent step for extensions that run unchosen (patterns, fallbacks), decided 11 Nov 2026: an agent tricked into writing a bad extension already has a shell and could do the same harm directly, so the agent's own permission prompts are the gate. Revisit only if extensions from other people get shared.
 - Show automatic pattern-triggered extension runs in Sources, so users see when an enabled extension runs.
 
 ## Later, ideas
