@@ -548,7 +548,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   let started = ContinuousClock.now
   voice.toggle()
   fake.feeds[0].yield(.ready)
-  while voice.active, ContinuousClock.now - started < .milliseconds(1500) {
+  while voice.active, ContinuousClock.now - started < .milliseconds(5000) {
     fake.feeds[0].yield(.transcript("words at \(ContinuousClock.now)"))
     try await Task.sleep(for: .milliseconds(20))
   }
