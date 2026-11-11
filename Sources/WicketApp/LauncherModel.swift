@@ -15,13 +15,22 @@ struct CommandState {
 final class LauncherModel {
   var input = "" {
     didSet {
-      if input != oldValue { resetSelection = true }
+      if input != oldValue {
+        resetSelection = true
+        // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
+        if agent.active { clearSelection() }
+      }
       if !agent.active { refresh() }
     }
   }
   let agent: AgentSession
   let extensions: ExtensionHost
-  private(set) var results: [Result] = []
+  /// The list at search and inside a command.
+  private var listed: [Result] = []
+  /// The rows under the open page: the conversation's items while there is one, else the list.
+  var results: [Result] {
+    agent.active ? agent.view.items.map { Result(provider: "answer", row: $0) } : listed
+  }
   private(set) var isRefreshing = false
   private(set) var command: CommandState? {
     didSet { if command?.id != oldValue?.id { resetSelection = true } }
@@ -34,6 +43,10 @@ final class LauncherModel {
   func select(_ id: String?) {
     selectionTouched = true
     selection = id
+  }
+  private func clearSelection() {
+    selectionTouched = false
+    selection = nil
   }
   /// Each source owns its message. Configuration and hotkey problems live in the store.
   private(set) var providerProblem: String?
@@ -161,7 +174,7 @@ final class LauncherModel {
         configuration.isEnabled(state.id, extensions: extensions.ids)
       else {
         command?.problem = "This extension was removed or switched off. Press Esc to go back."
-        results = []
+        listed = []
         retainSelection()
         onResultsChange?()
         return
@@ -179,11 +192,11 @@ final class LauncherModel {
             guard let self, !Task.isCancelled, generation == version else { return }
             command?.turn = UUID().uuidString
             command?.view = view
-            results = Ranking.order(view.items, provider: state.id, query: input)
+            listed = Ranking.order(view.items, provider: state.id, query: input)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
             command?.problem = report(extensionCommand, request: request, error: error)
-            results = []
+            listed = []
           }
           guard let self, generation == version else { return }
           command?.busy = false
@@ -269,7 +282,7 @@ final class LauncherModel {
       extensions: extensions.commands.filter { enabled.contains($0.key) }.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       usage: history.store, now: Date())
-    results = ranked.results
+    listed = ranked.results
     strongReason = ranked.strongReason
     retainSelection()
     onResultsChange?()
@@ -278,8 +291,9 @@ final class LauncherModel {
     let rows = results
     if resetSelection { selectionTouched = false }
     if !selectionTouched {
-      selection = rows.first?.id
-    } else if !rows.contains(where: { $0.id == selection }) {
+      // A page has the first say: Return runs its actions until an arrow key enters the items.
+      selection = body == nil ? rows.first?.id : nil
+    } else if let chosen = selection, !rows.contains(where: { $0.id == chosen }) {
       if !pendingExtensions.isEmpty {
         resetSelection = false
         return
@@ -298,19 +312,29 @@ final class LauncherModel {
   }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { body == nil ? [] : command?.view.actions ?? [] }
-  /// Return runs the selected item, or the view's actions when there is a body and no items.
+  /// Return runs the selected item. With none selected, which is how a page starts, it runs the
+  /// view's own actions inside a command, and in a conversation it sends the follow-up.
   var selected: Result? {
-    if let command, body != nil, results.isEmpty {
-      return Result(
-        provider: command.id,
-        row: Row(id: "detail", title: extensionCommand?.manifest.name ?? "Details", actions: viewActions))
-    }
-    return results.first { $0.id == selection }
+    if let row = results.first(where: { $0.id == selection }) { return row }
+    guard !agent.active, let command, body != nil else { return nil }
+    return Result(
+      provider: command.id,
+      row: Row(id: "detail", title: extensionCommand?.manifest.name ?? "Details", actions: viewActions))
   }
+  /// Return sends the input as a question: from the Ask agent row, or from a conversation's page.
+  var returnAsks: Bool { selected?.provider == "agent" || (agent.active && selected == nil) }
+  /// Arrow keys: the first press enters the items of a page, and up from the first leaves them.
   func move(_ delta: Int) {
-    guard !agent.active, !results.isEmpty else { return }
     let rows = results
-    let current = rows.firstIndex { $0.id == selection } ?? 0
+    guard !rows.isEmpty else { return }
+    guard let current = rows.firstIndex(where: { $0.id == selection }) else {
+      select(rows[0].id)
+      return
+    }
+    if current == 0, delta < 0, body != nil || agent.active {
+      select(nil)
+      return
+    }
     select(rows[min(max(current + delta, 0), rows.count - 1)].id)
   }
   func enterSelected() -> Bool {
@@ -325,7 +349,7 @@ final class LauncherModel {
     record(result)
     cancelWork()
     command = CommandState(id: extensionCommand.id)
-    results = []
+    listed = []
     if let error = rootErrors[extensionCommand.id], result.row.id == "error" {
       command?.problem = error
       onResultsChange?()
@@ -349,7 +373,18 @@ final class LauncherModel {
     cancelWork()
     agent.ask(text, settings: configuration.agent)
     questionExpanded = false
+    clearSelection()
     input = ""
+  }
+  /// The `ask` action: the text becomes the input and nothing is sent. In a conversation the next
+  /// Return is the follow-up. Anywhere else the input would search or feed a command, so an open
+  /// command is left and the text lands in search, where Ask agent is listed.
+  func fill(_ text: String) {
+    if !agent.active, command != nil {
+      cancelWork()
+      command = nil
+    }
+    editInput(text)
   }
   func dismiss() {
     resetSelection = true

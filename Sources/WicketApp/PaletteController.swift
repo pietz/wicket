@@ -189,17 +189,18 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// The screen that is open: the conversation if there is one, otherwise an extension's body.
   private func renderContent() {
     renderer.textSize = model.configuration.textSize
-    renderer.capped = model.agent.active || model.results.isEmpty
+    renderer.capped = model.results.isEmpty
     if model.agent.active {
       renderer.update(
-        model.agent.answer, turn: model.agent.turnID, streaming: model.agent.busy && model.agent.streaming)
+        model.agent.view.body ?? "", turn: model.agent.turnID,
+        streaming: model.agent.busy && model.agent.streaming)
     } else if let body = model.body {
       renderer.update(body, turn: model.command?.turn ?? "", streaming: false)
     }
   }
   func run(_ chosen: RowAction? = nil) {
     model.stopVoice()
-    if model.agent.active || model.selected?.provider == "agent" {
+    if chosen == nil, model.returnAsks {
       model.ask()
       return
     }
@@ -214,7 +215,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       NSPasteboard.general.setString(text, forType: .string)
       model.record(result)
       hide()
-    case .agent(let text): model.ask(text)
+    case .agent(let text): model.fill(text)
     case .run(let arguments): model.rerun(result.provider, arguments: arguments)
     case .paste(let text):
       guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),

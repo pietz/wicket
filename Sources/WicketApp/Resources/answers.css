@@ -98,12 +98,6 @@ w-event [data-field=time] { display: block; grid-row: span 2; color: var(--muted
 w-event [data-field=title] { display: block; font-weight: 600; }
 w-event [data-field=detail] { display: block; grid-column: 2; color: var(--muted); font-size: var(--small); }
 
-w-sources { display: block; margin: 10px 0; }
-w-sources ul { list-style: none; padding: 0; margin: 0; }
-w-sources li { margin: 0; padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
-w-sources li:last-child { border-bottom: 0; }
-w-sources li a { font-weight: 600; }
-
 w-callout { display: block; margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--tone, var(--accent)); border-radius: var(--radius-small); background: color-mix(in srgb, var(--tone, var(--accent)) 12%, transparent); }
 w-callout p { margin: 0; }
 w-callout p + p { margin-top: 6px; }

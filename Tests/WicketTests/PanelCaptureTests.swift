@@ -86,7 +86,7 @@ private func expectedText(_ name: String) -> [String] {
 }
 
 private let launchAnswer =
-  "<answer value=\"A good start\" detail=\"Twelve extensions, all local\"/>\n<stat label=\"Extensions\" value=\"12\" delta=\"+3 this week\" tone=\"positive\"/>\n<stat label=\"Response\" value=\"42 ms\"/>\n<callout tone=\"warning\">Restart once after updating.</callout>\n<fact label=\"Owner\" value=\"You\"/>\n<fact label=\"Next\" value=\"Build something useful\"/>\n<bar label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<event time=\"14:30\" title=\"Train departs\" detail=\"Platform 6\"/>\n<event time=\"16:05\" title=\"Arrives in Berlin\"/>\n<sources>\n- [Swift Testing](https://developer.apple.com/documentation/testing) · Apple guide\n</sources>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>"
+  "<answer value=\"A good start\" detail=\"Twelve extensions, all local\"/>\n<stat label=\"Extensions\" value=\"12\" delta=\"+3 this week\" tone=\"positive\"/>\n<stat label=\"Response\" value=\"42 ms\"/>\n<callout tone=\"warning\">Restart once after updating.</callout>\n<fact label=\"Owner\" value=\"You\"/>\n<fact label=\"Next\" value=\"Build something useful\"/>\n<bar label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<event time=\"14:30\" title=\"Train departs\" detail=\"Platform 6\"/>\n<event time=\"16:05\" title=\"Arrives in Berlin\"/>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>\n<item title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<item title=\"Copy the summary\" copy=\"A good start\"/>\n<item title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>"
 private let nextAnswer =
   "## Build something useful\nStart with a small weather extension. Put the current temperature in its result row, with the full forecast one step away.\n\nKeep it **local**, quick and easy to change."
 
@@ -399,7 +399,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.results.isEmpty)
   case "extension-both":
     #expect(model.body?.contains("A useful extension") == true && model.results.count == 2)
-    #expect(model.selected?.row.id == "hourly")
+    #expect(model.selected?.row.id == "detail")
   case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
   case "extension-pattern": #expect(model.results.first?.row.title.contains("6.21") == true)
   case "extension-fallback": #expect(model.results.contains { $0.row.id == "fallback" })

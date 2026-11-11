@@ -98,11 +98,17 @@ func answering(_ title: String) -> String {
   await model.settled()
   #expect(model.body == "## Berlin" && model.results.map(\.row.id) == ["a", "b"])
   #expect(model.viewActions == [.copy("view")])
+  // A page starts with nothing selected: Return runs the view's actions until an arrow key enters the items.
+  #expect(model.selection == nil && model.selected?.row.actions == [.copy("view")])
+  model.move(1)
   #expect(model.selected?.row.id == "a" && model.selected?.row.actions.first == .copy("one"))
   model.move(1)
   #expect(model.selected?.row.id == "b")
   model.move(1)
   #expect(model.selected?.row.id == "b")
+  model.move(-1)
+  model.move(-1)
+  #expect(model.selection == nil && model.selected?.row.actions == [.copy("view")])
   await model.finish()
 }
 

@@ -40,6 +40,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 7. Escape order: first Escape cancels a running turn, the next ends the conversation, then clears input, then closes.
 8. Previous questions · N appears after several turns and opens earlier answers.
 9. Copy (upper right) copies the answer. Select text in the answer with the mouse.
+10. Ask for links (`give me three links about Swift Testing`). They appear as native rows below the answer with nothing selected; Return still sends a follow-up typed in the field. The first arrow key selects the first row, Return opens it; arrow up from the first row, or typing, deselects. A row with a follow-up fills the field and sends nothing until Return.
 10. Ask for something with a table, a code block, a list and a link. Note how it looks compared with 0.0.x.
 
 ## 5. Agent settings (Settings → Agent)

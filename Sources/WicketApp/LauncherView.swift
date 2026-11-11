@@ -123,7 +123,9 @@ struct LauncherView: View {
               Text("⌘↩ Allow")
               Text("Esc Don't allow")
             } else if model.agent.active {
-              if model.agent.busy {
+              if let action = model.selected?.row.actions.first {
+                Text("↩ " + action.label)
+              } else if model.agent.busy {
                 Button("Cancel") { model.agent.cancel() }.buttonStyle(.plain)
               } else {
                 Text("↩ Follow up")
@@ -244,8 +246,7 @@ struct LauncherView: View {
             ScrollView {
               VStack(spacing: 0) {
                 answerBody
-                Divider()
-                LazyVStack(spacing: 2) { ForEach(model.results) { result in resultRow(result) } }.padding(10)
+                itemList
               }
             }
             .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
@@ -254,7 +255,19 @@ struct LauncherView: View {
       }
     }
   }
+  /// The native items below a page, shared by a command's view and a conversation's answer.
+  private var itemList: some View {
+    VStack(spacing: 0) {
+      Divider()
+      LazyVStack(spacing: 2) { ForEach(model.results) { result in resultRow(result) } }.padding(10)
+    }
+  }
   private var agentContent: some View {
+    ScrollViewReader { proxy in
+      agentScroll.onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
+    }
+  }
+  private var agentScroll: some View {
     ScrollView {
       VStack(spacing: 0) {
         VStack(alignment: .leading, spacing: 12) {
@@ -282,7 +295,7 @@ struct LauncherView: View {
             }
             Button {
               NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(model.agent.answer, forType: .string)
+              NSPasteboard.general.setString(model.agent.view.body ?? "", forType: .string)
             } label: {
               Image(systemName: "doc.on.doc")
             }
@@ -314,6 +327,7 @@ struct LauncherView: View {
           }.frame(maxWidth: .infinity, alignment: .leading).padding(18).frame(height: PaletteLayout.answerMin)
         } else {
           answerBody
+          if !model.results.isEmpty { itemList }
         }
       }
     }
@@ -360,29 +374,32 @@ extension RowAction {
     case .copy: "Copy"
     case .paste: "Paste into previous app"
     case .run: "Run again"
-    case .agent: "Ask agent"
+    case .agent: "Ask agent…"
     }
   }
 }
 
 extension LauncherModel {
+  /// The native items under a page, with their divider; none when the list is empty.
+  var itemsHeight: CGFloat {
+    results.isEmpty || agent.problem != nil
+      ? 0
+      : PaletteLayout.itemsHeight(
+        results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
+  }
   func cardHeight(answer: CGFloat, cap: Double) -> CGFloat {
     if agent.active {
       return min(
         560,
         conversationHeaderHeight
           + (agent.permissions.isEmpty
-            ? (agent.busy && agent.answer.isEmpty ? PaletteLayout.answerMin : answer) : confirmationHeight))
+            ? (agent.busy && agent.answer.isEmpty ? PaletteLayout.answerMin : answer + itemsHeight)
+            : confirmationHeight))
         + PaletteLayout.footer
     }
     if command?.problem != nil { return PaletteLayout.header + PaletteLayout.error + PaletteLayout.footer }
     if body != nil {
-      let items =
-        results.isEmpty
-        ? 0
-        : PaletteLayout.itemsHeight(
-          results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
-      return PaletteLayout.header + min(answer + items, CGFloat(cap)) + PaletteLayout.footer
+      return PaletteLayout.header + min(answer + itemsHeight, CGFloat(cap)) + PaletteLayout.footer
     }
     return PaletteLayout.rowsHeight(
       results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)

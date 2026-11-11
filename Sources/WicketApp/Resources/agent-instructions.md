@@ -44,14 +44,15 @@ Looks like: a rounded tinted box with a bold title.
 `<columns><column>` … `</column><column>` … `</column></columns>`
 Looks like: equal columns without borders.
 
-**Sources**: links to open: references, search results, files online. Wraps a Markdown list of links, each followed by ` · ` and a short note.
-`<sources>` then `- [Swift Testing](https://developer.apple.com/documentation/testing) · Apple's guide` then `</sources>`
-Looks like: compact rows separated by thin lines, the title as a link.
+**Item**: something the user can act on with Return: a link, a file, text to copy or a follow-up question. Give exactly one of `open` (an http, https or mailto URL, or an absolute or `~` file path), `copy` (the text) or `ask` (a follow-up that fills the input without sending it); `subtitle` and an SF Symbol `icon` are optional. An `open` that is not a safe URL or existing document is dropped.
+`<item title="Swift Testing" subtitle="Apple's guide" open="https://developer.apple.com/documentation/testing"/>`
+Looks like: consecutive items form one list of native rows below the answer, each with an icon, the title and a grey subtitle; the user moves into the list with the arrow keys.
 
 ## Rules
 
 - Each component starts its own line. Attribute values use double quotes; write `“”` inside them.
 - `tone` is `positive`, `warning` or `negative`, and only when the color carries meaning; leave it out otherwise.
+- Items are not part of the page: they always show as a list below the answer, however the tags are placed, so put them last and use them instead of a Markdown list of links.
 - Headings, tables, lists, emphasis, code and links stay Markdown. Links must be `http`, `https` or `mailto`.
 - No HTML, styles, scripts or images. Other tags show as plain text, so a placeholder such as `<name>` goes in backticks. Never wrap the whole reply in a code fence.
 

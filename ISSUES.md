@@ -23,7 +23,7 @@ Voice, with real audio (`voice-timing.txt` in the config folder records latencie
 Conversation and confirmations:
 - Verified by the owner on 0.1.1: follow-ups by typing work, and permission cards reach the agent. Still open: follow-ups by speaking with an answer visible; empty Return; a draft during work; Previous questions with a long question; scrolling, selection and Copy with Stream answers on and off, including a turn that uses tools, cancellation and failure.
 - Hide by hotkey and by clicking away, then reopen with a draft, a running turn and each confirmation; the continuing footer; the five-minute expiry; the full Escape order including voice startup and root input clearing.
-- A view with a body and items: wheel and trackpad scrolling over the web view must move the one outer scroll region (the page is full height and should not capture the wheel), arrows select items only, and a long body keeps the items reachable.
+- A view with a body and items: wheel and trackpad scrolling over the web view must move the one outer scroll region (the page is full height and should not capture the wheel), arrows select items only (nothing is selected until the first press), and a long body keeps the items reachable.
 - Permission and extension-enable cards: Tab, Cmd+Return, plain Return and Escape; Allow once reaching the real agent; deletion wording; Show details scrolling and selecting.
 
 Settings and panel:

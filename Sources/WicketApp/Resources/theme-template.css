@@ -14,6 +14,6 @@
 }
 
 Components are w-answer, w-stats/w-stat, w-facts/w-fact, w-bars/w-bar, w-timeline/w-event,
-w-badge, w-card, w-columns/w-column, w-callout and w-sources. Attributes arrive as data-*
+w-badge, w-card, w-columns/w-column and w-callout. Attributes arrive as data-*
 attributes and as [data-field="name"] spans; tones as [data-tone=positive|warning|negative].
 */
