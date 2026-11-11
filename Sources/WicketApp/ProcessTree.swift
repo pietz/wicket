@@ -105,9 +105,9 @@ final class ProcessTree: Sendable {
   /// Closes the child's stdin after the writes before it.
   func closeInput() {
     guard let input else { return }
-    let closed = shared.state.withLock {
-      defer { $0.inputClosed = true }
-      return $0.inputClosed
+    let closed = shared.state.withLock { state in
+      defer { state.inputClosed = true }
+      return state.inputClosed
     }
     if !closed { writer.async { try? input.close() } }
   }

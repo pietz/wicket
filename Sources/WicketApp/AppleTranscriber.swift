@@ -269,6 +269,8 @@ final class Conversion: @unchecked Sendable {
   }
   static func inputBlock(_ buffer: AVAudioPCMBuffer) -> AVAudioConverterInputBlock {
     nonisolated(unsafe) var supplied = false
+    // AVAudioPCMBuffer is Sendable only from the macOS 27 SDK; the converter calls this block synchronously.
+    nonisolated(unsafe) let buffer = buffer
     return { _, status in
       guard !supplied else {
         status.pointee = .noDataNow
