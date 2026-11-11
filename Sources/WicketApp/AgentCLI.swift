@@ -37,27 +37,35 @@ enum AgentCLI {
 
   /// Checks the login, then starts the CLI in `folder`, continuing `resume` if given.
   @MainActor
-  static func connect(_ settings: AgentConfiguration, folder: URL, resume: String?) async throws
-    -> any AgentConnection
-  {
+  static func connect(
+    _ settings: AgentConfiguration, folder: URL, resume: String?, log: AgentLog
+  ) async throws -> any AgentConnection {
     let agent = settings.agent
     let cli = try executable(agent)
     try await checkLogin(
       cli, arguments: agent == .claude ? ["auth", "status", "--json"] : ["login", "status"],
       signIn: agent.signIn, in: folder)
     switch agent {
-    case .claude: return try link(ClaudeTranslator(), cli, settings, folder, resume)
+    case .claude: return try link(ClaudeTranslator(), cli, settings, folder, resume, log)
     case .codex:
       return try link(
-        CodexTranslator(folder: folder, resume: resume, settings: settings), cli, settings, folder, resume)
+        CodexTranslator(folder: folder, resume: resume, settings: settings), cli, settings, folder, resume,
+        log)
     }
   }
   @MainActor
   private static func link<T: Translator>(
-    _ translator: T, _ cli: URL, _ settings: AgentConfiguration, _ folder: URL, _ resume: String?
+    _ translator: T, _ cli: URL, _ settings: AgentConfiguration, _ folder: URL, _ resume: String?,
+    _ log: AgentLog
   ) throws -> AgentLink<T> {
-    AgentLink(
-      translator,
-      lines: try JSONLines(command: [cli.path] + T.arguments(for: settings, resume: resume), folder: folder))
+    let command = [cli.path] + T.arguments(for: settings, resume: resume)
+    let run = log.begin(settings, command: command, folder: folder)
+    do {
+      return AgentLink(translator, lines: try JSONLines(command: command, folder: folder, log: run), log: run)
+    } catch {
+      run.note("END", "failed to start: \(error.localizedDescription)")
+      run.close()
+      throw error
+    }
   }
 }

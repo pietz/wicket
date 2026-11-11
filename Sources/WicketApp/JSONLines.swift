@@ -22,18 +22,28 @@ final class JSONLines {
   private var reader: Task<Void, Never>?
   private var exitWatcher: Task<Void, Never>?
   private var closed = false
+  private let log: AgentLog.Run?
   private let encoder: JSONEncoder = {
     let encoder = JSONEncoder()
     encoder.outputFormatting = .withoutEscapingSlashes
     return encoder
   }()
 
-  init(command: [String], folder: URL, environment: [String: String] = Launch.environment()) throws {
+  init(
+    command: [String], folder: URL, environment: [String: String] = Launch.environment(),
+    log: AgentLog.Run? = nil
+  ) throws {
+    self.log = log
     let started = try Launch.start(
       URL(fileURLWithPath: command[0]), Array(command.dropFirst()), in: folder, environment: environment)
     tree = started.tree
     let tail = StderrTail()
-    let errors = Task { for await chunk in started.stderr.chunks() { tail.add(chunk) } }
+    let errors = Task {
+      for await chunk in started.stderr.chunks() {
+        tail.add(chunk)
+        log?.stderr(chunk)
+      }
+    }
     // The exit is noticed on its own: a descendant that inherited stdout keeps it from ever
     // reaching EOF. Output the CLI wrote before exiting gets a moment to arrive first.
     exitWatcher = Task { [weak self] in
@@ -47,7 +57,12 @@ final class JSONLines {
       var framer = LineFramer()
       for await chunk in started.stdout.chunks(limit: LineFramer.limit, perLine: true) {
         guard let self, !closed else { return }
-        do { for message in try framer.append(chunk) { onMessage(message) } } catch {
+        do {
+          for message in try framer.append(chunk) {
+            self.log?.received(message)
+            onMessage(message)
+          }
+        } catch {
           close(error.localizedDescription)
           return
         }
@@ -63,20 +78,31 @@ final class JSONLines {
   /// Writes one value and a newline, after the writes before it.
   func send(_ value: JSONValue) {
     guard !closed, let data = try? encoder.encode(value) else { return }
+    log?.sent(value)
     tree.write(data + Data([10]))
   }
   private func close(_ reason: String) {
     guard !closed else { return }
     closed = true
+    log?.note("EXIT", reason)
     onClose(reason)
   }
   func stop() async {
+    let running = !closed
     closed = true
     tree.closeInput()
     reader?.cancel()
     reader = nil
     exitWatcher?.cancel()
     exitWatcher = nil
-    _ = await tree.stop(after: .milliseconds(100), grace: .milliseconds(500)).value
+    let shutdown = await tree.stop(after: .milliseconds(100), grace: .milliseconds(500)).value
+    if running {
+      switch shutdown {
+      case .exited(let exit): log?.note("EXIT", "\(exit)")
+      case .notRunning: log?.note("EXIT", "not running")
+      case .terminated: log?.note("EXIT", "stopped with SIGTERM")
+      case .killed: log?.note("EXIT", "stopped with SIGKILL")
+      }
+    }
   }
 }

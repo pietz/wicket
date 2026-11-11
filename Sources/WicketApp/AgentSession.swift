@@ -55,11 +55,12 @@ final class AgentSession {
   /// Everything stays for `retention` after the last hide or completion, whichever is later.
   private var retainedUntil: Date? { lastActivity?.addingTimeInterval(retention) }
   /// Starts the CLI for one question with these settings in the folder, resuming the session ID if there is one.
-  var connect: (AgentConfiguration, URL, String?) async throws -> any AgentConnection = {
-    try await AgentCLI.connect($0, folder: $1, resume: $2)
-  }
+  var connect: (AgentConfiguration, URL, String?) async throws -> any AgentConnection
 
-  init(folder: URL) { self.folder = folder }
+  init(folder: URL, log: AgentLog = .standard()) {
+    self.folder = folder
+    connect = { try await AgentCLI.connect($0, folder: $1, resume: $2, log: log) }
+  }
   /// After the retention window, pending permissions are declined, even while busy. Unless a turn
   /// is still running, the conversation ends too. Returns true then: the caller drops its draft.
   @discardableResult func reopen(now: Date = Date()) -> Bool {
@@ -117,7 +118,7 @@ final class AgentSession {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let connection = try await connect(chosen, folder, sessionID)
         guard generation == version, !cancelling else {
-          await connection.stop()
+          await connection.stop("cancelled before the question was sent")
           guard generation == version, busy else { return }
           status = "Cancelled"
           finishTurn()
@@ -158,14 +159,17 @@ final class AgentSession {
     deadline = Task { [weak self] in
       do { try await Task.sleep(for: limit) } catch { return }
       guard let self, generation == version, busy else { return }
-      fail("\(chosen.agent.product) took too long. Check that it works in Terminal, then try again.")
+      fail(
+        "\(chosen.agent.product) took too long. Check that it works in Terminal, then try again.",
+        outcome: "timeout after \(limit)")
     }
   }
-  /// The turn failed: show why and end the turn.
-  private func fail(_ message: String) {
+  /// The turn failed: show why and end the turn. `outcome` is what the run's log says if the CLI
+  /// itself said nothing about it.
+  private func fail(_ message: String, outcome: String? = nil) {
     status = message
     problem = message
-    finishTurn()
+    finishTurn(outcome ?? "failed: \(message)")
   }
 
   private func receive(_ event: AgentEvent) {
@@ -245,7 +249,7 @@ final class AgentSession {
       let old = connection
       connection = nil
       acceptingUpdates = false
-      await release(old).value
+      await release(old, "cancelled; the CLI did not stop in time").value
       guard generation == cancelledVersion else { return }
       status = "Cancelled"
       finishTurn()
@@ -253,7 +257,7 @@ final class AgentSession {
     onChange?()
   }
   /// The turn is over, however it ended: its process ends with it.
-  private func finishTurn() {
+  private func finishTurn(_ outcome: String = "turn ended") {
     publishAnswer()
     declineAll()
     busy = false
@@ -262,7 +266,7 @@ final class AgentSession {
     lastActivity = Date()
     cancelDeadline?.cancel()
     deadline?.cancel()
-    release(connection)
+    release(connection, outcome)
     connection = nil
     onChange?()
   }
@@ -272,11 +276,11 @@ final class AgentSession {
   }
   /// Stops a connection that is let go, in the order they were let go. `shutdown` waits for it.
   @discardableResult
-  private func release(_ old: (any AgentConnection)?) -> Task<Void, Never> {
+  private func release(_ old: (any AgentConnection)?, _ reason: String) -> Task<Void, Never> {
     let before = teardown
     let stopping = Task {
       await before?.value
-      await old?.stop()
+      await old?.stop(reason)
     }
     teardown = stopping
     return stopping
@@ -288,7 +292,7 @@ final class AgentSession {
     permissionExpiry?.cancel()
     deadline?.cancel()
     declineAll()
-    release(connection)
+    release(connection, "conversation reset or app quit")
     connection = nil
     active = false
     previous = []

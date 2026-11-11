@@ -753,7 +753,7 @@ final class FakeAgent: AgentConnection {
     cancels += 1
     if !ignoresCancel { end(cancelled: true) }
   }
-  func stop() async {
+  func stop(_ reason: String) async {
     stopped = true
     running = false
     try? await Task.sleep(for: stopDelay)

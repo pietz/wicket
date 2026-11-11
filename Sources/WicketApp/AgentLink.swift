@@ -42,7 +42,11 @@ protocol AgentConnection: AnyObject {
   func prompt(_ text: String, settings: AgentConfiguration)
   func decide(_ id: JSONValue, allow: Bool)
   func cancel()
-  func stop() async
+  /// Ends the process, with the reason it is let go for when the run's log has no other ending.
+  func stop(_ reason: String) async
+}
+extension AgentConnection {
+  func stop() async { await stop("stopped") }
 }
 
 /// What a translator answers with: events for the session and lines for the CLI.
@@ -80,25 +84,49 @@ final class AgentLink<T: Translator>: AgentConnection {
   var onEvent: (AgentEvent) -> Void = { _ in }
   private var translator: T
   private let lines: JSONLines
+  private let log: AgentLog.Run?
+  private var ended = false
 
-  init(_ translator: T, lines: JSONLines) {
+  init(_ translator: T, lines: JSONLines, log: AgentLog.Run? = nil) {
     self.translator = translator
     self.lines = lines
+    self.log = log
     lines.onMessage = { [weak self] message in
       guard let self else { return }
       apply(self.translator.receive(message))
     }
-    lines.onClose = { [weak self] reason in self?.onEvent(.failed("\(T.name) \(reason)")) }
+    lines.onClose = { [weak self] reason in self?.emit(.failed("\(T.name) \(reason)")) }
     apply(self.translator.start())
   }
   func prompt(_ text: String, settings: AgentConfiguration) {
     apply(translator.prompt(text, settings: settings))
   }
   func decide(_ id: JSONValue, allow: Bool) { apply(translator.decide(id, allow: allow)) }
-  func cancel() { apply(translator.cancel()) }
-  func stop() async { await lines.stop() }
+  func cancel() {
+    log?.note("CANCEL", "requested")
+    apply(translator.cancel())
+  }
+  func stop(_ reason: String) async {
+    await lines.stop()
+    end(reason)
+    log?.close()
+  }
   private func apply(_ step: Step) {
     for line in step.send { lines.send(line) }
-    for event in step.events { onEvent(event) }
+    for event in step.events { emit(event) }
+  }
+  private func emit(_ event: AgentEvent) {
+    switch event {
+    case .finished(let cancelled): end(cancelled ? "cancelled" : "finished")
+    case .failed(let message): end("failed: \(message)")
+    default: break
+    }
+    onEvent(event)
+  }
+  /// The first ending is the run's: a stop after a finished turn adds nothing.
+  private func end(_ outcome: String) {
+    guard !ended else { return }
+    ended = true
+    log?.note("END", outcome)
   }
 }

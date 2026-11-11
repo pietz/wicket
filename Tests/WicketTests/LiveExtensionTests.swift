@@ -9,7 +9,7 @@ func realAgentWritesAnExtensionAndItRuns() async throws {
   let folder = try scratch()
   try AnswerRenderer.installFiles(in: folder)
   try ExtensionHost.installFiles(in: folder)
-  let session = AgentSession(folder: folder)
+  let session = AgentSession(folder: folder, log: AgentLog(folder: folder.appending(path: "logs")))
   var settings = AgentConfiguration()
   settings.agent = .claude
   settings.model = "sonnet"

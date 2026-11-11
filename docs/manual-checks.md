@@ -2,7 +2,7 @@
 
 A walk through everything Wicket 0.1 does, for a person on a real Mac. Each step says what to try and what should happen. Note what feels wrong, not only what breaks. Run it before a release and whenever a change touches the panel, voice or the agent.
 
-Debugging after the fact: voice latencies are in `voice-timing.txt` in the config folder. An agent run log is planned (branch `wip/codex-idle-and-agent-log`).
+Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.log` (Wicket Dev: `~/Library/Logs/Wicket Dev/agent.log`), voice latencies to `voice-timing.txt` in the config folder.
 
 ## 1. Open and close
 

@@ -10,7 +10,7 @@ import Testing
   arguments: ["claude", "codex"])
 func liveAgentScratchConversation(_ name: String) async throws {
   let folder = try scratch()
-  let session = AgentSession(folder: folder)
+  let session = AgentSession(folder: folder, log: AgentLog(folder: folder.appending(path: "logs")))
   try AnswerRenderer.installFiles(in: folder)
   var settings = AgentConfiguration()
   settings.agent = name == "claude" ? .claude : .codex
@@ -80,4 +80,53 @@ func liveAgentScratchConversation(_ name: String) async throws {
     await session.shutdown()
     throw error
   }
+}
+
+/// Codex's Auto mode (a reviewer subagent decides) never sends turn/completed: a plain question and
+/// a scratch-file edit must both end, with any permission reaching Wicket.
+@MainActor
+@Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_LIVE_AGENT"] == "1"))
+func liveCodexAutoModeEndsItsTurns() async throws {
+  let folder = try scratch()
+  let logs = folder.appending(path: "logs")
+  let session = AgentSession(folder: folder, log: AgentLog(folder: logs))
+  var settings = AgentConfiguration()
+  settings.agent = .codex
+  settings.model = "gpt-6.1-sol"
+  settings.effort = "low"
+  settings.mode = "agent"
+  do {
+    session.ask("Reply only OK. No tools.", settings: settings)
+    try await finish(session)
+    #expect(session.answer.contains("OK") && session.problem == nil, "\(session.status)")
+    session.ask(
+      "Use the file-writing tool to create \(folder.path)/auto.txt containing exactly AUTO. Do not touch any other path.",
+      settings: settings)
+    let asked = try await finish(session, allowing: true)
+    #expect(session.problem == nil, "\(session.status)")
+    #expect(
+      try String(contentsOf: folder.appending(path: "auto.txt"), encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines) == "AUTO")
+    print("LIVE codex auto: plain and file edit ended (permission asked \(asked)x); log \(logs.path)")
+    await session.shutdown()
+  } catch {
+    await session.shutdown()
+    throw error
+  }
+}
+
+/// Waits for the turn to end, allowing every permission asked if told to. Returns how many were asked.
+@MainActor @discardableResult
+private func finish(_ session: AgentSession, allowing: Bool = false) async throws -> Int {
+  var asked = 0
+  let until = ContinuousClock.now + .seconds(120)
+  while session.busy, ContinuousClock.now < until {
+    if allowing, !session.permissions.isEmpty {
+      asked += 1
+      session.decide(true)
+    }
+    try await Task.sleep(for: .milliseconds(20))
+  }
+  try #require(!session.busy, "turn never ended: \(session.status)")
+  return asked
 }
