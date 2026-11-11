@@ -276,19 +276,23 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
+  // The shell creates the file before it writes the PID into it.
+  func written() -> Int32? {
+    (try? String(contentsOf: marker, encoding: .utf8)).flatMap {
+      Int32($0.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+  }
   model.input = "slow"
-  #expect(await eventually { FileManager.default.fileExists(atPath: marker.path) })
-  let pid = try #require(
-    Int32(String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+  #expect(await eventually { written() != nil })
+  let pid = try #require(written())
   model.input = "fast"
   await model.settled()
   #expect(await eventually { !isRunning(pid) })
   #expect(!model.results.contains { $0.row.title == "Late" })
   try FileManager.default.removeItem(at: marker)
   model.input = "slow"
-  #expect(await eventually { FileManager.default.fileExists(atPath: marker.path) })
-  let next = try #require(
-    Int32(String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+  #expect(await eventually { written() != nil })
+  let next = try #require(written())
   await model.finish()
   #expect(!isRunning(next))
 }
