@@ -2,16 +2,22 @@ import AppKit
 import SwiftUI
 import WebKit
 
+/// An AppKit text field, so input methods, paste and editing shortcuts work: the input and each
+/// argument slot. `focused` says whether the model wants it to have the keys; it takes them when that
+/// turns true, and reports a click into it through `onFocus`.
 struct SearchField: NSViewRepresentable {
   @Binding var text: String
-  let register: (NSTextField) -> Void
   let placeholder: String
+  var size: CGFloat = 21
+  var focused = false
+  var onFocus: () -> Void = {}
+  var register: (NSTextField) -> Void = { _ in }
   func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
   func makeNSView(context: Context) -> NSTextField {
-    let field = NSTextField(string: "")
+    let field = FocusReportingField(string: "")
     field.isBordered = false
     field.drawsBackground = false
-    field.font = .systemFont(ofSize: 21)
+    field.font = .systemFont(ofSize: size)
     field.textColor = .labelColor
     field.focusRingType = .none
     field.delegate = context.coordinator
@@ -20,25 +26,46 @@ struct SearchField: NSViewRepresentable {
   }
   func updateNSView(_ field: NSTextField, context: Context) {
     context.coordinator.text = $text
+    (field as? FocusReportingField)?.onFocus = onFocus
     field.placeholderString = placeholder
     field.setAccessibilityLabel(placeholder)
     Self.updateText(text, in: field)
+    // Only a change takes the keys, so a button that Tab reached keeps them on later updates.
+    if focused, !context.coordinator.focused, field.currentEditor() == nil, let window = field.window {
+      window.makeFirstResponder(field)
+      Self.moveCaretToEnd(of: field)
+    }
+    context.coordinator.focused = focused
   }
   static func updateText(_ text: String, in field: NSTextField) {
     guard field.stringValue != text else { return }
     field.stringValue = text
     // AppKit selects the whole replacement. Typing after dictation should append at the caret.
+    moveCaretToEnd(of: field)
+  }
+  static func moveCaretToEnd(of field: NSTextField) {
     (field.currentEditor() as? NSTextView)?.setSelectedRange(
-      NSRange(location: text.utf16.count, length: 0))
+      NSRange(location: field.stringValue.utf16.count, length: 0))
   }
   final class Coordinator: NSObject, NSTextFieldDelegate {
     var text: Binding<String>
+    var focused = false
     init(text: Binding<String>) { self.text = text }
     func controlTextDidChange(_ notification: Notification) {
       guard let field = notification.object as? NSTextField else { return }
       // AppKit owns marked text and all composition keystrokes.
       text.wrappedValue = field.stringValue
     }
+  }
+}
+
+/// Says when it takes the keys, whether by a click or by the model.
+final class FocusReportingField: NSTextField {
+  var onFocus: () -> Void = {}
+  override func becomeFirstResponder() -> Bool {
+    guard super.becomeFirstResponder() else { return false }
+    onFocus()
+    return true
   }
 }
 
@@ -63,11 +90,15 @@ struct LauncherView: View {
             .system(size: 19, weight: .medium)
           ).foregroundStyle(.secondary).frame(width: 24)
           SearchField(
-            text: Binding(get: { model.input }, set: { model.editInput($0) }), register: registerInput,
+            text: Binding(get: { model.input }, set: { model.editInput($0) }),
             placeholder: model.agent.active
               ? (model.agent.question.isEmpty ? "Ask \(model.askingName)…" : "Ask a follow-up…")
-              : (model.commandName ?? "Search or ask anything…")
+              : (model.commandName ?? "Search or ask anything…"),
+            focused: model.focusedArgument == nil,
+            onFocus: { if model.focusedArgument != nil { model.focusedArgument = nil } },
+            register: registerInput
           ).frame(height: 30)
+          ForEach(model.declaredArguments, id: \.name) { argumentSlot($0) }
           if model.configuration.voice.enabled, model.takesSpeech {
             Button {
               model.toggleVoice()
@@ -153,6 +184,25 @@ struct LauncherView: View {
     // The host can briefly be taller than its new content. Never centre the input in it.
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
+  /// A declared argument's slot after the input: as wide as its text within fixed bounds, so the pill and
+  /// the input's start never move. Fixed sizes, like the input.
+  private func argumentSlot(_ argument: ExtensionManifest.Argument) -> some View {
+    let label = argument.placeholder ?? argument.name
+    let value = model.argumentValues[argument.name] ?? ""
+    return Text(value.isEmpty ? label : value).font(.system(size: 15)).lineLimit(1).hidden()
+      .padding(.trailing, 4)  // Room for the caret.
+      .frame(minWidth: 24, maxWidth: 150).fixedSize()
+      .overlay {
+        SearchField(
+          text: Binding(get: { value }, set: { model.setArgument(argument.name, to: $0) }),
+          placeholder: label, size: 15, focused: model.focusedArgument == argument.name,
+          onFocus: {
+            if model.focusedArgument != argument.name { model.focusedArgument = argument.name }
+          })
+      }
+      .padding(.horizontal, 9).frame(height: 28)
+      .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.08)))
+  }
   /// One item row, shared by the list and the items below a body.
   private func resultRow(_ result: Result) -> some View {
     HStack(spacing: 10) {
@@ -194,7 +244,7 @@ struct LauncherView: View {
       model.select(result.id)
       run(nil)
     }
-    .onTapGesture { model.select(result.id) }
+    .onTapGesture { if model.click(result.id) { run(nil) } }
     .contextMenu {
       ForEach(Array(result.row.actions.enumerated()), id: \.offset) { _, action in
         Button(action.label) {

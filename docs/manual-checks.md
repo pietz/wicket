@@ -69,7 +69,8 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 1. Sources lists Math, Apps and the units extension. Turn units off: `10 km to mi` no longer converts. Turn it back on.
 2. Copy `~/.config/wicket/examples/web-search` into `~/.config/wicket/extensions/`. It shows up in Sources within a second, enabled.
 3. Ask the agent: `build a wicket extension that shows the current week number`. It writes a folder into `extensions/`; type its name or keyword and run it.
-4. Break a `wicket.json` on purpose. Sources shows the problem; the rest keeps working.
+4. Copy `~/.config/wicket/examples/note` into `extensions/` and type `note`. A `note` field appears at the end of the search bar. Tab into it (Tab again returns to the input, Shift+Tab goes back), type a note, press Return: the command opens and the note is listed. Try it with an input method such as Japanese, with paste, with a click on the row instead of Return, and while voice is listening. Arrow down to another row: the field goes away and typing goes to the input. Check the field's look in light and dark.
+5. Break a `wicket.json` on purpose. Sources shows the problem; the rest keeps working.
 
 ## 8. Settings (General)
 

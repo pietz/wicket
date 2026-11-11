@@ -64,7 +64,12 @@ final class LauncherModel {
   /// Sources whose results for this input may still arrive: running pattern extensions and file search.
   private var pending: Set<String> = []
   private(set) var selection: String? {
-    didSet { if selection != oldValue { drafted = [:] } }
+    didSet {
+      guard selection != oldValue else { return }
+      drafted = [:]
+      // The draft is gone, so the input takes the keys again.
+      if command == nil { focusTarget = nil }
+    }
   }
   func select(_ id: String?) {
     selectionTouched = true
@@ -172,7 +177,8 @@ final class LauncherModel {
   }
   /// The open command's name, for the input placeholder and the footer.
   var commandName: String? {
-    extensionCommand?.manifest.name ?? (command?.id == clipboard?.id ? ClipboardHistory.title : nil)
+    extensionCommand?.manifest.name
+      ?? (command != nil && command?.id == clipboard?.id ? ClipboardHistory.title : nil)
   }
 
   init(
@@ -471,6 +477,28 @@ final class LauncherModel {
     resetSelection = true
     refresh()
   }
+  /// The argument slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
+  /// the input takes the keys back when the slots go away. A click into a field sets it too.
+  var focusedArgument: String? {
+    get { focusTarget.flatMap { name in declaredArguments.contains { $0.name == name } ? name : nil } }
+    set { focusTarget = newValue }
+  }
+  private var focusTarget: String?
+  /// Tab and Shift+Tab: the input, then each slot in order, round again. False when there are none.
+  @discardableResult func moveFocus(_ delta: Int) -> Bool {
+    let names = [nil] + declaredArguments.map(\.name)
+    guard names.count > 1 else { return false }
+    let index = names.firstIndex(of: focusedArgument) ?? 0
+    focusTarget = names[(index + delta + names.count) % names.count]
+    return true
+  }
+  /// A click on a row: selects it, or on the selected command row with a filled draft, enters it like
+  /// Return. True when the caller should run Return.
+  func click(_ id: String) -> Bool {
+    if command == nil, id == selection, !drafted.isEmpty { return true }
+    select(id)
+    return false
+  }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     let rows = results
@@ -568,6 +596,7 @@ final class LauncherModel {
   func dismiss() {
     resetSelection = true
     drafted = [:]
+    focusTarget = nil
     stopVoice()
     agent.hidden()
     if agent.active { return }
@@ -577,6 +606,7 @@ final class LauncherModel {
     sizeList(now: true)
   }
   func escape() -> Bool {
+    focusTarget = nil
     if agent.active {
       if agent.busy {
         agent.cancel()

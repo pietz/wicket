@@ -35,7 +35,7 @@ Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/
 
 ## Using it
 
-Default shortcut: **Option+Space** (**Control+Option+Space** in Wicket Dev). Cmd+Enter asks the agent. Escape cancels a working turn, then leaves the conversation, then closes the panel. Arrow keys or Ctrl+N/P select results; Enter opens an app or copies a calculation. Double-click also runs a row. The menu bar icon offers Open Wicket, Settings… (Cmd+,), Open Config Folder, Check for Updates… and Quit.
+Default shortcut: **Option+Space** (**Control+Option+Space** in Wicket Dev). Cmd+Enter asks the agent. Escape cancels a working turn, then leaves the conversation, then closes the panel. Arrow keys or Ctrl+N/P select results; Enter opens an app or copies a calculation. Double-click also runs a row. When the selected command declares arguments (say Caffeinate's `hours` and `minutes`), they appear as small fields at the end of the search bar: Tab into them, fill them in, and press Return (or click the row) to run the command with them; Shift+Tab goes back. Inside the command they stay and show its current values. The menu bar icon offers Open Wicket, Settings… (Cmd+,), Open Config Folder, Check for Updates… and Quit.
 
 An existing `config.json` takes precedence over the built-in shortcut. Launch at login is available in General settings. A login-item launch stays hidden. A manual launch shows the panel without opening the microphone.
 

@@ -7,6 +7,7 @@ class PalettePanel: NSPanel {
   var onAction: (PaletteKeyAction) -> Void = { _ in }
   weak var input: NSTextField?
   var permissionPending: () -> Bool = { false }
+  var hasArguments: () -> Bool = { false }
   init() {
     super.init(
       contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -51,7 +52,7 @@ class PalettePanel: NSPanel {
     let action = PaletteKeyAction.decide(
       keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
       modifiers: modifiers, hasMarkedText: (firstResponder as? NSTextView)?.hasMarkedText() == true,
-      permissionPending: permissionPending(), isARepeat: event.isARepeat)
+      permissionPending: permissionPending(), isARepeat: event.isARepeat, hasArguments: hasArguments())
     if beforeAction(action) { return true }
     switch action {
     case .passThrough: return false
@@ -105,6 +106,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     root.sizingOptions = []
     panel.contentView = root
     panel.permissionPending = { [weak model] in model.map { !$0.agent.permissions.isEmpty } ?? false }
+    panel.hasArguments = { [weak model] in model.map { !$0.declaredArguments.isEmpty } ?? false }
     panel.beforeAction = { [weak model] action in model?.keyPressed(action) ?? false }
     panel.onAction = { [weak self] action in
       guard let self else { return }
@@ -114,6 +116,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       case .send: model.send()
       case .permission(let allow): model.agent.decide(allow)
       case .move(let delta): model.move(delta)
+      case .focus(let delta): model.moveFocus(delta)
       default: break
       }
     }

@@ -4,12 +4,14 @@ enum PaletteKeyAction: Equatable, Sendable {
   case dismiss, run, send
   case permission(Bool)
   case move(Int)
+  /// Tab and Shift+Tab between the input and the argument slots.
+  case focus(Int)
   case edit(Edit)
   case consume, passThrough
 
   static func decide(
     keyCode: Int, characters: String?, modifiers: Shortcut.Modifiers, hasMarkedText: Bool,
-    permissionPending: Bool = false, isARepeat: Bool = false
+    permissionPending: Bool = false, isARepeat: Bool = false, hasArguments: Bool = false
   ) -> Self {
     if permissionPending && isARepeat { return .consume }
     guard !hasMarkedText else { return .passThrough }
@@ -17,6 +19,10 @@ enum PaletteKeyAction: Equatable, Sendable {
       if modifiers.isEmpty, keyCode == 53 { return .permission(false) }
       if modifiers == .command, keyCode == 36 || keyCode == 76 { return .permission(true) }
       if keyCode == 36 || keyCode == 76 { return .consume }
+    }
+    // Tab is AppKit's wherever no slots are shown, such as the confirmation card's buttons.
+    if keyCode == 48, hasArguments, !permissionPending, modifiers.isEmpty || modifiers == .shift {
+      return .focus(modifiers.isEmpty ? 1 : -1)
     }
     if modifiers.isEmpty {
       switch keyCode {
