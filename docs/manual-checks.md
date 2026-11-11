@@ -26,8 +26,9 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 
 1. `12*7` shows 84 on top. Return copies it.
 2. `(3+4)^2`, `10/3`, `2^10`.
-3. `200 + 10%` shows 200.1 today (known, see ISSUES). Tell us what you expect.
-4. `10 km to mi`, `70 kg in lb`, `20 c to f` show a converted row from the bundled units extension.
+3. `200 + 10%` shows 220, `10% of 200` shows 20, `3,5 * 2` shows 7, and `1,000 + 1` follows your locale (1001 in English, 2 in German). `11.11` and `1.2.3` show no math row.
+4. `10 km to mi`, `70 kg in lb`, `20 c to k` show a converted row from the bundled units extension.
+5. Copy `examples/currency` into `extensions/`. `100 usd in eur` shows a rate with "ECB reference rate of … (today)" or its age.
 
 ## 4. Ask the agent
 

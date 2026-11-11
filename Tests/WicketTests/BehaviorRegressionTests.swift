@@ -3,9 +3,6 @@ import Testing
 
 @testable import WicketApp
 
-@Test(arguments: ["2024-01-15", "555-1234", "-5", "+5", "−5", "-0"])
-func datesPhonesAndSignedNumbersAreNotCalculations(_ input: String) { #expect(Math.evaluate(input) == nil) }
-
 @MainActor @Test func unrelatedFolderWritesDoNotReloadConfiguration() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

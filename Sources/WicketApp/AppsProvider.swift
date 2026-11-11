@@ -135,8 +135,8 @@ final class MathProvider: Provider {
     guard let answer = Math.evaluate(request.input) else { return .init() }
     return .init(items: [
       Row(
-        id: "result", title: answer, subtitle: "Copy result", icon: "equal",
-        actions: [.copy(answer)], prominent: true)
+        id: "result", title: answer.title, subtitle: "Copy result", icon: "equal",
+        actions: [.copy(answer.copy)], prominent: true)
     ])
   }
 }

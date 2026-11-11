@@ -1,1 +1,1 @@
-{"name":"Convert units","keyword":"units","command":["/usr/bin/python3","main.py"],"icon":"ruler","match":"(?i)^\\s*-?\\d+(?:\\.\\d+)?\\s*(?:km|mi|kg|lb|c|f)\\s+(?:in|to)\\s+(?:km|mi|kg|lb|c|f)\\s*$"}
+{"name":"Convert units","keyword":"units","command":["/usr/bin/python3","main.py"],"icon":"ruler","match":"(?i)^\\s*-?\\d+(?:\\.\\d+)?\\s*(?:mm|cm|m|km|in|ft|yd|mi|g|kg|oz|lb|ml|l|gal|kmh|mph|c|f|k)\\s+(?:in|to)\\s+(?:mm|cm|m|km|in|ft|yd|mi|g|kg|oz|lb|ml|l|gal|kmh|mph|c|f|k)\\s*$"}

@@ -66,7 +66,7 @@ The same language as agent answers: ordinary Markdown plus `<answer value="42" d
 
 Failure output is the repair brief: change the extension folder and the next request runs the new files. Do not add approval files or trust settings to an extension. config.json stays in the working folder, so an agent allowed to edit it can change agent.mode.
 
-The offline units pattern is installed in `extensions/units`. Web search is an optional example in `examples/web-search`, outside the active extensions folder; copy it to `extensions/web-search` to use it. It makes no network request until a search result is opened. Existing installed folders are left alone. Read these short programs before building a new extension. Do not touch other extensions without a request.
+The offline units pattern is installed in `extensions/units`. Two optional examples sit in `examples/`, outside the active extensions folder; copy one into `extensions/` to use it. `web-search` makes no network request until a result is opened. `currency` fetches ECB rates only for conversion-shaped input and caches them for the day in its own folder. Existing installed folders are left alone. Read these short programs before building a new extension. Do not touch other extensions without a request.
 
 ## Headless tests with the real pipeline
 

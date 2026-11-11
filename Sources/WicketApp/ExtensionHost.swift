@@ -103,8 +103,8 @@ final class ExtensionHost {
       try FileManager.default.copyItem(
         at: Bundle.module.url(forResource: "extension-contract", withExtension: "md")!, to: reference)
     }
-    for name in ["units", "web-search"] {
-      let target = folder.appending(path: (name == "web-search" ? "examples/" : "extensions/") + name)
+    for name in ["units", "web-search", "currency"] {
+      let target = folder.appending(path: (name == "units" ? "extensions/" : "examples/") + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
       for (source, destination) in [(name + ".json", "wicket.json"), (name + ".py", "main.py")] {

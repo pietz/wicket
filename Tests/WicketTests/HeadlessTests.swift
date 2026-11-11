@@ -176,3 +176,45 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     #expect(sentence.1["askAgent"]["onTop"] == .bool(true))
   }
 }
+
+@Test(arguments: [
+  ("10 km in mi", "6.2137119 mi"), ("20 c in k", "293.15 K"), ("300 K to f", "80.33 °F"),
+  ("2 gal to l", "7.5708236 l"), ("5 ft to cm", "152.4 cm"), ("16 oz in lb", "1 lb"),
+  ("100 kmh in mph", "62.137119 mph"),
+])
+@MainActor func bundledUnitsConvert(input: String, expected: String) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  try ExtensionHost.installFiles(in: root)
+  let output = try await cli(root, ["--extension", "units", "--input", input])
+  #expect(output.1["items"].array.first?["title"].string == expected)
+}
+
+@MainActor @Test func currencyExampleConvertsFromTheDaysCacheAndShowsSourceAndAge() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  try ExtensionHost.installFiles(in: root)
+  #expect(!FileManager.default.fileExists(atPath: root.appending(path: "extensions/currency").path))
+  let folder = root.appending(path: "extensions/currency")
+  try FileManager.default.copyItem(at: root.appending(path: "examples/currency"), to: folder)
+  func day(_ offset: Int) -> String {
+    let date = Calendar.current.date(byAdding: .day, value: offset, to: .now)!
+    let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+  }
+  // Fetched today, so no request is made; the rates themselves are two days old.
+  let cache = #"{"fetched":"\#(day(0))","date":"\#(day(-2))","rates":{"EUR":1,"USD":1.25,"JPY":160}}"#
+  try Data(cache.utf8).write(to: folder.appending(path: "rates.json"))
+  let output = try await cli(root, ["--query", "€50 to $"])
+  let first = output.1["items"].array.first
+  #expect(first?["provider"].string == "extension:currency")
+  #expect(first?["row"]["title"].string == "62.50 USD")
+  #expect(first?["row"]["subtitle"].string?.hasPrefix("ECB reference rate of ") == true)
+  #expect(first?["row"]["subtitle"].string?.hasSuffix("(2 days ago)") == true)
+  let named = try await cli(root, ["--extension", "currency", "--input", "1.000,50 usd in jpy"])
+  #expect(named.1["items"].array.first?["title"].string == "128,064.00 JPY")
+  for input in ["10 km in mi", "100 in eur", "usd"] {
+    let other = try await cli(root, ["--query", input])
+    #expect(!other.1["items"].array.contains { $0["provider"].string == "extension:currency" })
+  }
+}
