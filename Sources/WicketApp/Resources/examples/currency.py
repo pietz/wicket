@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Currency conversion with the European Central Bank's daily reference rates, cached for the day in
 rates.json next to this file. The network is used only for input shaped like `100 usd in eur`."""
-import datetime, json, re, sys, urllib.request
+import datetime, json, os, re, sys, time, urllib.request
 FEED = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
 CURRENCY = r"([a-z]{3}|[€$£¥])"
@@ -11,18 +11,12 @@ match = re.fullmatch(r"\s*([€$£¥])?\s*(\d[\d.,]*)\s*" + CURRENCY + r"?\s+(?:
 
 
 def amount(text):
-    """The last of two different marks is the decimal mark; a lone mark before exactly three digits groups."""
-    marks = re.sub(r"\d", "", text)
-    if len(set(marks)) == 2:
-        text = text.replace(marks[0], "").replace(marks[-1], ".")
-    elif len(marks) > 1 or re.search(r"[.,]\d{3}$", text):
-        text = text.replace(marks[:1], "") if marks else text
-    else:
-        text = text.replace(",", ".")
-    try:
-        return float(text)
-    except ValueError:
-        return None
+    """Thousands in groups of three with the other mark as decimal mark (1,234.5, 1.234,5, 1,000), else
+    one optional decimal mark (3,5). Anything else, such as 1,2,3, is no amount."""
+    for group, decimal in ((",", "."), (".", ",")):
+        if re.fullmatch(rf"\d{{1,3}}(?:{re.escape(group)}\d{{3}})+(?:{re.escape(decimal)}\d+)?", text):
+            return float(text.replace(group, "").replace(decimal, "."))
+    return float(text.replace(",", ".")) if re.fullmatch(r"\d+(?:[.,]\d+)?", text) else None
 
 
 def rates(today):
@@ -34,6 +28,9 @@ def rates(today):
         cached = None
     if cached and cached["fetched"] == today:
         return cached
+    # After a failed download, wait ten minutes before trying again, so typing offline stays fast.
+    if os.path.exists("failed") and time.time() - os.path.getmtime("failed") < 600:
+        return cached
     try:
         with urllib.request.urlopen(FEED, timeout=5) as response:
             xml = response.read().decode()
@@ -43,13 +40,16 @@ def rates(today):
         fresh["rates"]["EUR"] = 1.0
         with open("rates.json", "w") as file:
             json.dump(fresh, file)
+        if os.path.exists("failed"):
+            os.remove("failed")
         return fresh
     except Exception:
+        open("failed", "w").close()
         return cached
 
 
 items = []
-if match and (match[1] or match[3]):
+if match and (match[1] or match[3]) and amount(match[2]) is not None:
     source = SYMBOLS.get(match[1] or match[3], (match[1] or match[3]).upper())
     target = SYMBOLS.get(match[4], match[4].upper())
     today = datetime.date.today()
@@ -57,7 +57,7 @@ if match and (match[1] or match[3]):
     if table is None:
         items = [{"id": "error", "title": "No exchange rates yet", "subtitle": "Could not reach the ECB",
                   "icon": "exclamationmark.triangle", "actions": []}]
-    elif source in table["rates"] and target in table["rates"] and amount(match[2]) is not None:
+    elif source in table["rates"] and target in table["rates"]:
         value = amount(match[2]) / table["rates"][source] * table["rates"][target]
         date = datetime.date.fromisoformat(table["date"])
         days = (today - date).days
@@ -65,6 +65,6 @@ if match and (match[1] or match[3]):
         items = [{"id": "result", "title": f"{value:,.2f} {target}", "prominent": True, "icon": "banknote",
                   "subtitle": f"ECB reference rate of {date:%-d %b %Y} ({age})",
                   "actions": [{"type": "copy", "text": f"{value:.2f}"}]}]
-elif not match:
+else:
     items = [{"id": "help", "title": "Try 100 usd in eur or €50 to $", "actions": []}]
 print(json.dumps({"items": items}))

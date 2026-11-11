@@ -110,7 +110,7 @@ enum Math {
         term =
           right.percent && !term.percent
           ? Term(value: term.value * (1 + sign * right.value))
-          : Term(value: term.value + sign * right.value, percent: term.percent && right.percent)
+          : Term(value: term.value + sign * right.value)
       }
     }
     mutating func product() throws -> Term {
