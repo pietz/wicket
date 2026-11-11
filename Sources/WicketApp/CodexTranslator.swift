@@ -4,6 +4,8 @@ import Foundation
 /// 0.167). The handshake is initialize, `model/list` and `thread/start` (or `thread/resume`); each
 /// turn is `turn/start`, which carries model, effort, speed and the permission policy, so settings
 /// never restart the process. Notifications stream the answer and tools until `turn/completed`.
+/// Some modes (Auto's `auto_review` reviewer, 0.167) never send it, only `thread/status/changed` to
+/// `idle`, which otherwise comes right before it: the turn ends at whichever arrives first.
 /// Command and file-change approvals arrive as server requests. The user's own Codex configuration
 /// (features, MCP servers) applies.
 struct CodexTranslator: Translator {
@@ -23,6 +25,9 @@ struct CodexTranslator: Translator {
   /// File changes by item ID: a file-change approval names only its item.
   private var changes: [String: JSONValue] = [:]
   private var turnError: String?
+  /// A question was asked and its turn has not ended yet: exactly one ending is reported for it.
+  private var awaitingEnd = false
+  private var interrupting = false
 
   init(folder: URL, resume: String?, settings: AgentConfiguration) {
     self.folder = folder
@@ -82,6 +87,8 @@ struct CodexTranslator: Translator {
 
   mutating func prompt(_ text: String, settings: AgentConfiguration) -> Step {
     cancelling = false
+    interrupting = false
+    awaitingEnd = true
     turnError = nil
     queued = (text, settings)
     return flush()
@@ -164,20 +171,29 @@ struct CodexTranslator: Translator {
       // Retries ("Reconnecting... 2/5") end in another error or the answer.
       if params["willRetry"] != .bool(true) { turnError = params["error"]["message"].string }
       return Step()
+    case "thread/status/changed":
+      guard turn != nil, params["status"]["type"].string == "idle" else { return Step() }
+      return end(turnError.map { .failed($0) } ?? .finished(cancelled: interrupting))
     case "turn/completed":
-      turn = nil
       let done = params["turn"]
       switch done["status"].string {
-      case "completed": return Step(events: [.finished(cancelled: false)])
-      case "interrupted": return Step(events: [.finished(cancelled: true)])
+      case "completed": return end(.finished(cancelled: false))
+      case "interrupted": return end(.finished(cancelled: true))
       default:
-        return Step(events: [
-          .failed(done["error"]["message"].string ?? turnError ?? "Codex failed without a message")
-        ])
+        return end(
+          .failed(done["error"]["message"].string ?? turnError ?? "Codex failed without a message"))
       }
     default:
       return Step()
     }
+  }
+
+  /// Reports how the turn ended, once: whichever of idle and `turn/completed` comes second is dropped.
+  private mutating func end(_ event: AgentEvent) -> Step {
+    turn = nil
+    guard awaitingEnd else { return Step() }
+    awaitingEnd = false
+    return Step(events: [event])
   }
 
   /// The title of a tool that began, and what a file-change approval will need to name.
@@ -238,6 +254,7 @@ struct CodexTranslator: Translator {
     if queued != nil {
       queued = nil
       cancelling = false
+      awaitingEnd = false
       return Step(events: [.finished(cancelled: true)])
     }
     return interrupt()
@@ -247,6 +264,7 @@ struct CodexTranslator: Translator {
   private mutating func interrupt() -> Step {
     guard let thread, let turn else { return Step() }
     cancelling = false
+    interrupting = true
     nextID += 1
     return Step(send: [
       Self.request(nextID - 1, "turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)])

@@ -359,6 +359,98 @@ func codexPermissionLabelsMapToApprovalPolicySandboxAndReviewer(
   #expect(method(late.send[0]) == "turn/interrupt" && late.send[0]["params"]["turnId"].string == "turn-1")
 }
 
+/// A turn as Codex 0.167 streams it, up to the answer: started, one message.
+private func codexTurnMessages() -> [JSONValue] {
+  func note(_ method: String, _ params: JSONValue) -> JSONValue {
+    .object("method", .string(method), "params", params)
+  }
+  return [
+    .object("id", .number(3), "result", .object("thread", .object("id", .string("t")))),
+    .object(
+      "id", .number(4), "result",
+      .object("turn", .object("id", .string("u"), "status", .string("inProgress")))),
+    note(
+      "thread/status/changed",
+      .object("status", .object("type", .string("active"), "activeFlags", .array([])))),
+    note("turn/started", .object("turn", .object("id", .string("u")))),
+    note(
+      "item/completed",
+      .object("item", .object("type", .string("agentMessage"), "id", .string("m"), "text", .string("OK")))),
+  ]
+}
+private func codexIdle() -> JSONValue {
+  .object(
+    "method", .string("thread/status/changed"), "params",
+    .object("threadId", .string("t"), "status", .object("type", .string("idle"))))
+}
+private func codexCompleted(_ status: String = "completed") -> JSONValue {
+  .object(
+    "method", .string("turn/completed"), "params",
+    .object("turn", .object("id", .string("u"), "status", .string(status), "error", .null)))
+}
+private func codexAsking() -> CodexTranslator {
+  var translator = codex()
+  _ = translator.start()
+  _ = translator.receive(.object("id", .number(2), "result", .object([:])))
+  _ = translator.prompt("Hi", settings: codexSettings())
+  return translator
+}
+private func endings(_ events: [AgentEvent]) -> [AgentEvent] {
+  events.filter {
+    switch $0 {
+    case .finished, .failed: true
+    default: false
+    }
+  }
+}
+
+@Test func codexAutoReviewNeverSendsTurnCompletedSoTheThreadGoingIdleEndsTheTurn() {
+  // Auto mode (reviewer auto_review): the answer, then idle, and nothing more.
+  var translator = codexAsking()
+  let step = feed(&translator, codexTurnMessages() + [codexIdle()])
+  #expect(step.events.contains(.text("OK", message: "m")))
+  #expect(endings(step.events) == [.finished(cancelled: false)])
+}
+
+@Test func codexEndsTheTurnOnceWhicheverOfIdleAndCompletedComesFirst() {
+  for order in [[codexIdle(), codexCompleted()], [codexCompleted(), codexIdle()]] {
+    var translator = codexAsking()
+    let step = feed(&translator, codexTurnMessages() + order)
+    #expect(endings(step.events) == [.finished(cancelled: false)])
+  }
+  // Idle before the turn began, as when a thread starts or resumes, is not its end.
+  var translator = codexAsking()
+  let early = feed(&translator, [codexTurnMessages()[0], codexIdle()])
+  #expect(endings(early.events).isEmpty)
+  // The next question gets its own ending.
+  _ = feed(&translator, Array(codexTurnMessages()[1...]) + [codexIdle()])
+  _ = translator.prompt("Again", settings: codexSettings())
+  let again = feed(&translator, [codexTurnMessages()[3], codexIdle(), codexCompleted()])
+  #expect(endings(again.events) == [.finished(cancelled: false)])
+}
+
+@Test func codexIdleAfterAnInterruptReportsCancelledAndAFailureKeepsItsMessage() {
+  // Codex says idle right before turn/completed, also when the turn was interrupted.
+  var cancelled = codexAsking()
+  _ = feed(&cancelled, codexTurnMessages())
+  #expect(method(cancelled.cancel().send[0]) == "turn/interrupt")
+  let step = feed(&cancelled, [codexIdle(), codexCompleted("interrupted")])
+  #expect(endings(step.events) == [.finished(cancelled: true)])
+  // An error before idle is the turn's failure, not a success.
+  var failed = codexAsking()
+  _ = feed(&failed, codexTurnMessages())
+  let error = JSONValue.object(
+    "method", .string("error"), "params",
+    .object("willRetry", .bool(false), "error", .object("message", .string("Rate limited"))))
+  let ended = feed(&failed, [error, codexIdle(), codexCompleted("failed")])
+  #expect(endings(ended.events) == [.failed("Rate limited")])
+  // Codex's own failed turn: systemError, the error, then turn/completed with no idle.
+  var system = codexAsking()
+  _ = feed(&system, codexTurnMessages())
+  let reported = feed(&system, [error, codexCompleted("failed")])
+  #expect(endings(reported.events) == [.failed("Rate limited")])
+}
+
 @Test func codexResumesAThreadWithTheSettingsOfNow() throws {
   var settings = codexSettings()
   settings.model = "gpt-6-luna"
@@ -377,6 +469,7 @@ func codexPermissionLabelsMapToApprovalPolicySandboxAndReviewer(
 @Test func codexFailuresUseTheCLIsMessageAndRetriesAreNotFailures() throws {
   var translator = codex()
   _ = translator.start()
+  _ = translator.prompt("Hi", settings: codexSettings())
   _ = feed(
     &translator,
     [
@@ -388,6 +481,7 @@ func codexPermissionLabelsMapToApprovalPolicySandboxAndReviewer(
     "method", .string("turn/completed"), "params",
     .object("turn", .object("status", .string("failed"), "error", .null)))
   #expect(feed(&translator, [completed]).events == [.failed("Codex failed without a message")])
+  _ = translator.prompt("Again", settings: codexSettings())
   _ = feed(
     &translator,
     [
