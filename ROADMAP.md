@@ -46,6 +46,7 @@ Features of 0.0.x that 0.1 does not have yet, roughly in the order they matter:
 - Empty palette with favourites and suggestions; a compact results mode.
 - Voice: hold to talk, a language choice for mixed German and English.
 - First-run onboarding and a permissions flow asked only when a feature needs it.
+- Inline parameters in the input bar (Raycast's command arguments as inspiration): a manifest declares a few named fields (placeholder, optional or required, maybe a fixed choice list), the panel shows them as slots after the keyword, Tab moves between them, and the extension receives them by name in the request. Clearer than parsing free text for commands like "translate [text] [to]". The name must not clash with the existing run `arguments`, and it must stay simple enough for the agent to write.
 - `wicket://` deeplinks; grid and form views; chat history.
 - Automatic intent: a cheap model decides whether typing is a search or a question. Only as a suggestion after submit, and only after labelling about 500 real queries.
 - A small curated public extension repository, after the core is stable. Not a marketplace.
