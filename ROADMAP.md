@@ -48,6 +48,7 @@ Step 2 of the address work (addresses and one dispatcher are built, see [SPEC.md
 - Whether shell commands fit the extension contract or need a native host capability: compare startup and query latency, cancellation, state and platform access first. Reuse the contract where it fits. File search was decided native (SPEC, File search).
 - File search beyond names (content, kinds, dates) and loose files directly in home: only after real use shows the need.
 - No consent step for extensions that run unchosen (patterns, fallbacks), decided 11 Nov 2026: an agent tricked into writing a bad extension already has a shell and could do the same harm directly, so the agent's own permission prompts are the gate. Revisit only if extensions from other people get shared.
+- No agent context feature (selected text, clipboard or frontmost app chips), decided 11 Nov 2026: no real use case for selected text, and the agent reads the clipboard with its own shell when asked.
 - Show automatic pattern-triggered extension runs in Sources, so users see when an enabled extension runs.
 
 ## Later, ideas
