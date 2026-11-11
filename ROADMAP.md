@@ -19,6 +19,10 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 - **Claude answers feel slow.** Measure with `agent.log` where the time goes (process start and MCP servers versus first token). Candidates: start the CLI while the user is still typing a question, and a lean agent profile with fewer MCP servers.
 - **Activity while the agent works.** The spinner with the current tool name is fine for now; make it more informative without noise.
 
+## Next: one-to-one contracts
+
+From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<item title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; `<item>` is read in every body, a JSON body included; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
+
 ## Next features
 
 Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they matter:
@@ -57,6 +61,7 @@ Step 2 of the address work (addresses and one dispatcher are built, see [SPEC.md
 - A small curated public extension repository, after the core is stable. Not a marketplace.
 - Re-check the router and voice when macOS 27.3's on-device AI options ship ([research](docs/research/siri-ai.md)).
 - Lean agent profile (fewer MCP servers) if agent start time and memory disturb.
+- Read the extension contract, `units` and the examples straight from the app bundle instead of installing copies, so they update with the app and `installFiles` goes.
 
 ## Release housekeeping
 
