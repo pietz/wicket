@@ -34,7 +34,8 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 5. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
 6. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history, Fix with Agent and Move to Trash came with it.
 7. **Charts in answers.** The agent describes the data (kind, labels, values) in a tag and Wicket draws it, so the model never designs the chart: bar, line and maybe donut, in theme colors, as SVG built by Wicket from validated numbers, never by the model. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines.
-8. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
+8. **Bindings, after the first version:** config entries that attach any address to a global hotkey (⌥V for `wicket://clipboard`), a short alias or a favourite in the empty panel, writable by the agent. Cheap because addresses exist; covers per-command hotkeys and favourites.
+9. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
 
 ## Next: static views
 
