@@ -26,7 +26,26 @@ final class LauncherModel {
   let agent: AgentSession
   let extensions: ExtensionHost
   /// The list at search and inside a command.
-  private var listed: [Result] = []
+  private var listed: [Result] = [] { didSet { sizeList() } }
+  /// The rows the list card is sized for: more show at once, fewer only after 300 ms, so a late batch
+  /// such as file results does not make the panel shrink and grow again while typing.
+  private(set) var sizedRows = 1
+  private var shrinking: Task<Void, Never>?
+  private func sizeList(now: Bool = false) {
+    let count = max(1, min(listed.count, 8))
+    shrinking?.cancel()
+    shrinking = nil
+    guard count < sizedRows, !now else {
+      sizedRows = count
+      return
+    }
+    shrinking = Task { [weak self] in
+      guard (try? await Task.sleep(for: .milliseconds(300))) != nil, let self else { return }
+      shrinking = nil
+      sizedRows = max(1, min(listed.count, 8))
+      onResultsChange?()
+    }
+  }
   /// The rows under the open page: the conversation's items while there is one, else the list.
   var results: [Result] {
     agent.active ? agent.view.items.map { Result(provider: "answer", row: $0) } : listed
@@ -38,7 +57,8 @@ final class LauncherModel {
   private var resetSelection = true
   private var previousRows: [String] = []
   private var selectionTouched = false
-  private var pendingExtensions: Set<String> = []
+  /// Sources whose results for this input may still arrive: running pattern extensions and file search.
+  private var pending: Set<String> = []
   private(set) var selection: String?
   func select(_ id: String?) {
     selectionTouched = true
@@ -116,6 +136,8 @@ final class LauncherModel {
   var onSettings: () -> Void = {}
   var onResultsChange: (() -> Void)?
   private let providers: [any Provider]
+  private let files: FilesProvider?
+  private var fileRows: [Row] = []
   private var tasks: [Task<Void, Never>] = []
   private var generation = 0
   private var builtinRows: [String: [Row]] = [:]
@@ -126,8 +148,8 @@ final class LauncherModel {
   var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
 
   init(
-    providers: [any Provider], history: UsageHistory, folder: URL = FileManager.default.temporaryDirectory,
-    transcriber: (() -> any Transcriber)? = nil
+    providers: [any Provider], files: FilesProvider? = nil, history: UsageHistory,
+    folder: URL = FileManager.default.temporaryDirectory, transcriber: (() -> any Transcriber)? = nil
   ) {
     makeTranscriber = transcriber
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
@@ -135,6 +157,7 @@ final class LauncherModel {
     agent = AgentSession(folder: folder)
     extensions = ExtensionHost(folder: folder)
     self.providers = providers
+    self.files = files
     self.history = history
     let inputChanged: () -> Void = { [weak self] in
       guard let self else { return }
@@ -158,7 +181,7 @@ final class LauncherModel {
     tasks.removeAll()
     isRefreshing = false
     command?.busy = false
-    pendingExtensions.removeAll()
+    pending.removeAll()
   }
   func catalogChanged() {
     // A changed/deleted command cancels its in-flight invocation too.
@@ -212,6 +235,12 @@ final class LauncherModel {
     builtinRows.removeAll()
     patterns.removeAll()
     let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
+    // The previous file rows stay until the first batch for this input replaces them, so files do not
+    // vanish and return on every keystroke; ranking drops those the new input no longer matches.
+    let files = files.flatMap { files in
+      active.contains { $0.id == files.id } && FileSearch.predicate(for: input) != nil ? files : nil
+    }
+    if files == nil { fileRows = [] }
     let builtins = active.compactMap { entry in providers.first { $0.id == entry.id } }
     var remaining = builtins.count
     var builtinsReady = remaining == 0
@@ -236,7 +265,7 @@ final class LauncherModel {
     }
     for entry in active {
       guard let command = extensions.commands[entry.id], command.manifest.matches(input) else { continue }
-      pendingExtensions.insert(entry.id)
+      pending.insert(entry.id)
       tasks.append(
         Task { [weak self] in
           do {
@@ -259,7 +288,25 @@ final class LauncherModel {
               report: report(command, request: request, error: error))
           }
           guard let self, !Task.isCancelled, generation == current else { return }
-          pendingExtensions.remove(entry.id)
+          pending.remove(entry.id)
+          if builtinsReady { compose() }
+        })
+    }
+    // Each batch of file results replaces the previous one; cancelling the task stops the query.
+    if let files {
+      pending.insert(files.id)
+      tasks.append(
+        Task { [weak self] in
+          var received = false
+          for await rows in files.batches(for: request.input) {
+            guard let self, !Task.isCancelled, generation == current else { return }
+            received = true
+            fileRows = rows
+            if builtinsReady { compose() }
+          }
+          guard let self, !Task.isCancelled, generation == current else { return }
+          if !received { fileRows = [] }
+          pending.remove(files.id)
           if builtinsReady { compose() }
         })
     }
@@ -277,7 +324,8 @@ final class LauncherModel {
     isRefreshing = false
     let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
     let ranked = Ranking.compose(
-      query: input, math: builtinRows["math"] ?? [], apps: builtinRows["apps"] ?? [], patterns: patterns,
+      query: input, math: builtinRows["math"] ?? [], apps: builtinRows["apps"] ?? [], files: fileRows,
+      patterns: patterns,
       extensions: extensions.commands.filter { enabled.contains($0.key) }.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       usage: history.store, now: Date())
@@ -293,7 +341,7 @@ final class LauncherModel {
       // A page has the first say: Return runs its actions until an arrow key enters the items.
       selection = body == nil ? rows.first?.id : nil
     } else if let chosen = selection, !rows.contains(where: { $0.id == chosen }) {
-      if !pendingExtensions.isEmpty {
+      if !pending.isEmpty {
         resetSelection = false
         return
       }
@@ -350,7 +398,7 @@ final class LauncherModel {
       go(address, from: result?.provider)
     case .ask(let text): ask(text)
     case .report(let report): if let id = result?.provider { showFailure(report, of: id) }
-    case .open, .copy, .paste: return false
+    case .open, .reveal, .copy, .paste: return false
     }
     return true
   }
@@ -426,6 +474,7 @@ final class LauncherModel {
     cancelWork()
     command = nil
     input = ""
+    sizeList(now: true)
   }
   func escape() -> Bool {
     if agent.active {

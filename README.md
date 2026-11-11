@@ -2,7 +2,7 @@
 
 **A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes for you.**
 
-A wicket is the small door built into a big gate. Press ⌥Space and a quiet search field opens onto your Mac: apps, a calculator, on-device voice input, and the coding agent you already use (Claude Code or Codex). Ask it a question, or tell it to build a command; it writes the extension and from then on the command runs instantly, without a model.
+A wicket is the small door built into a big gate. Press ⌥Space and a quiet search field opens onto your Mac: apps, files, a calculator, on-device voice input, and the coding agent you already use (Claude Code or Codex). Ask it a question, or tell it to build a command; it writes the extension and from then on the command runs instantly, without a model.
 
 ## Pillars
 
@@ -59,15 +59,18 @@ Installing 0.1 over 0.0.x through Sparkle or Homebrew keeps your data, and 0.1 n
   "voice": { "enabled": true, "microphone": "" },
   "providers": [
     { "id": "math", "enabled": true },
-    { "id": "apps", "enabled": true }
+    { "id": "apps", "enabled": true },
+    { "id": "files", "enabled": true }
   ],
   "agent": { "name": "claude", "model": "sonnet", "effort": "low", "mode": "default" }
 }
 ```
 
-Transparency ranges from 0 (strong system-surface tint) to 1 (untinted native Liquid Glass). Invalid edits retain the last valid configuration and show an error in the panel and menu icon tooltip. Settings registers a shortcut before saving it. A conflict retains the working shortcut and config value. Command plus a single letter, including Shift variants, is refused to protect editing and app commands. Shortcut letters refer to physical ANSI key positions, following Carbon. Unknown provider ids are ignored until an implementation exists. An omitted built-in is disabled; an empty list disables all ordinary providers. Ask agent remains available.
+Transparency ranges from 0 (strong system-surface tint) to 1 (untinted native Liquid Glass). Invalid edits retain the last valid configuration and show an error in the panel and menu icon tooltip. Settings registers a shortcut before saving it. A conflict retains the working shortcut and config value. Command plus a single letter, including Shift variants, is refused to protect editing and app commands. Shortcut letters refer to physical ANSI key positions, following Carbon. Unknown provider ids are ignored until an implementation exists. Only `"enabled": false` switches a source off; a source the list omits is on, so a new built-in reaches an existing file. Ask agent remains available.
 
-Results are ordered by match quality, not by a source order: a math result first, then pattern extension results, then apps, extension names and the Settings row by exact match, prefix match, usage for exactly the typed input and fuzzy score. Ask agent goes on top when nothing matches strongly or the input ends with a question mark, otherwise right after the last prefix match. Fallback extensions follow Ask agent only when nothing is strong. Learned usage never lifts a row into a better tier. Usage has a seven-day half-life. Case, diacritics, width and query spaces are normalized. Empty input has its own usage history. Data is local in `usage.json`, saved off the typing path and drained on normal quit.
+Results are ordered by match quality, not by a source order: a math result first, then pattern extension results, then apps, files, extension names and the Settings row by exact match, prefix match, usage for exactly the typed input and fuzzy score. Ask agent goes on top when nothing matches strongly or the input ends with a question mark, otherwise right after the last prefix match. Fallback extensions follow Ask agent only when nothing is strong. Learned usage never lifts a row into a better tier, and a file never outranks an app that matches equally well.
+
+From two characters, file and folder names come from the Spotlight index, about 170 ms after you stop typing: each word you type must start a word of the name. Wicket searches the visible folders in your home folder, iCloud Drive, cloud storage folders and mounted volumes, and skips hidden files, Library, build, dependency and cache folders and the insides of apps and photo libraries. Loose files directly in your home folder are not searched. Return opens a file; the row's context menu also reveals it in Finder. Scripts and installers can only be revealed. Wicket keeps no index of its own, so files Spotlight does not index (or a Mac with Spotlight indexing off) give no results. Usage has a seven-day half-life. Case, diacritics, width and query spaces are normalized. Empty input has its own usage history. Data is local in `usage.json`, saved off the typing path and drained on normal quit.
 
 Math supports `+ - * / ^`, parentheses, unary signs and percentages: `200 + 10%` is 220, `200 - 10%` is 180, `10% of 200` is 20 and `15%` is 0.15. Powers associate right; `-2^2` is `-4`. Decimals take a dot or a comma (`3,5 * 2` is 7, `1.234,5` and `1,234.5` both work); `1,000` or `1.000` alone is a thousand only where your locale writes thousands that way. Results show in your locale's format and copy without grouping. A calculation must contain an operator; dates, versions, phone numbers and invalid, incomplete or non-finite expressions show no math row. Input size and nesting are bounded.
 
@@ -78,7 +81,7 @@ Type `settings` in the launcher, use Settings… in the menu bar, or press Cmd+,
 - **General:** shortcut recorder, background transparency, Text size (Small to Larger), launch at login and config-folder access.
 - **Voice:** listen-on-opening toggle, microphone permission status and a System Settings link. Opening Settings never listens or asks for permission.
 - **Agent:** Claude or ChatGPT, latest models by tier, effort, permissions, speed and Stream answers. Opening the tab asks both CLIs for their models without sending a prompt. Reports are cached per agent for an hour. Loading or failure keeps saved choices.
-- **Sources:** switch sources on or off and reveal the extensions folder. Discovered extensions the list omits are on; omitted built-ins are off. Results are ranked by match quality, so there is no order to set.
+- **Sources:** switch sources on or off and reveal the extensions folder. Sources the list omits are on. Results are ranked by match quality, so there is no order to set.
 
 `config.json` is the single source of truth. Every settings edit reads the latest file, preserves unknown fields and the provider list, validates, then writes atomically. Transparency stays local during dragging and saves once on release, rounded to 0.01. Invalid files keep the last good values and disable editing until repaired. Write failures show separately and leave controls usable. Shortcut recording stops on Escape, deactivation, leaving the pane or closing the window.
 
@@ -119,7 +122,7 @@ The input holds your next question while the answer remains visible. Previous qu
 
 A folder under the Wicket folder's `extensions/` with a `wicket.json` manifest and a program is discovered automatically and is on as soon as it appears. Enabled means trusted: there is no approval step, and the only control is switching it off in Sources, after which it does not appear in the launcher. Names/keywords and fallbacks remain inert until chosen; a matching regex runs inline and is cancelled by new typing. Programs run from their own folder with a deadline and output bounds.
 
-The installed `extension-contract.md` is the short authoring reference. Offline unit conversion (length, mass, volume, speed, °C, °F and K) is installed in `extensions/units`. Web search and currency conversion are optional examples in `examples/`; copy one into `extensions/` to use it. Currency uses the European Central Bank's daily reference rates, fetched at most once a day and only for input like `100 usd in eur` or `€50 to $`; the row says the rate's date and age. Existing installed folders are preserved. Put short answers in item titles, use a body for more (alone or above items) and keep item IDs stable. Every agent turn receives the contract path, extensions folder and executable path. The one view (body, items, actions), aliases, prominent answers and open/copy/paste/run/agent actions share the compiled provider contract. Stdout is a JSON view or plain Markdown.
+The installed `extension-contract.md` is the short authoring reference. Offline unit conversion (length, mass, volume, speed, °C, °F and K) is installed in `extensions/units`. Web search and currency conversion are optional examples in `examples/`; copy one into `extensions/` to use it. Currency uses the European Central Bank's daily reference rates, fetched at most once a day and only for input like `100 usd in eur` or `€50 to $`; the row says the rate's date and age. Existing installed folders are preserved. Put short answers in item titles, use a body for more (alone or above items) and keep item IDs stable. Every agent turn receives the contract path, extensions folder and executable path. The one view (body, items, actions), aliases, prominent answers and open/reveal/copy/paste/run/agent actions share the compiled provider contract. Stdout is a JSON view or plain Markdown.
 
 `wicket://` links open the panel on an extension with an input filled: `wicket://weather?input=berlin` (`wicket://agent?input=…` fills the input without sending, `wicket://settings` opens Settings, `wicket://?input=…` is a root query). They work from other apps, in answer links and in an agent's `<item open="wicket://…"/>`, and carry no arguments; only an extension's own `run` action can set those. Wicket Dev answers to `wicket-dev://`.
 

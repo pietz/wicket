@@ -285,7 +285,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let before = try Data(contentsOf: root.appending(path: "config.json"))
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
-  model.store.update { $0.providers = [] }
+  model.store.update { $0.providers = Configuration.builtins.map { .init($0, enabled: false) } }
   model.extensions.start()
   let ext = try extensionFolder(root, name: "new", script: answering("Fresh"), fields: ["match": "^new$"])
   #expect(await eventually { model.extensions.commands["extension:new"] != nil })

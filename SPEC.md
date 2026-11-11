@@ -26,7 +26,7 @@ The loop that makes it grow: you ask the agent, it answers, and when the answer 
 | Layer | Who changes it | How |
 | --- | --- | --- |
 | Panel, hotkey, renderer, the view contract | Wicket itself | Compiled Swift. Change it by contributing or forking |
-| Built-in providers (apps, math) | Wicket itself | Compiled Swift, but each can be switched off and replaced by an extension |
+| Built-in providers (apps, files, math) | Wicket itself | Compiled Swift, but each can be switched off and replaced by an extension |
 | Extensions | You and your agent | A folder with a manifest and any executable |
 | Agent instructions and docs | You and your agent | Plain files in the Wicket folder, read by the agent |
 | Preferences | You and your agent | Native Settings window backed by one plain config.json file |
@@ -45,7 +45,7 @@ One pure function (`Ranking.compose`) orders everything at the root of the launc
 
 1. A math result.
 2. Pattern extension results: extensions whose `match` regex ran and returned items. Each extension's items stay together in its own order: exact or prefix title/alias, then usage for this exact input, then returned order. Several pattern extensions are ordered by extension name. This is the only place an extension's items are ordered by usage.
-3. Name matches: app rows, extension command rows (name, keyword) and the built-in Settings row (title "Settings", alias "preferences"). Sort by tier, then usage for this exact input, then fuzzy score, then kind (apps, extension commands, Settings), then title. Usage never lifts a row into a higher tier. File results will join here with the same rules, after apps in kind order.
+3. Name matches: app rows, file results (by file name), extension command rows (name, keyword) and the built-in Settings row (title "Settings", alias "preferences"). Sort by tier, then usage for this exact input, then fuzzy score, then kind (apps, files, extension commands, Settings), then title. Usage never lifts a row into a higher tier, so a file never outranks an app that matches equally well, and a file whose name the input is a prefix of is a strong match like any other.
 4. Ask agent: on top when nothing is strong or the trimmed input ends with `?`. Otherwise directly after the last tier 1 or 2 row and before the loose (tier 0) matches, so it stays visible.
 5. Fallback extensions (`fallback: true`), only when nothing is strong, directly after Ask agent, ordered by name. They replace their own command row. Empty input never shows fallbacks.
 6. Failed pattern runs and invalid manifests of enabled extensions come last as error and repair rows.
@@ -59,16 +59,31 @@ With empty input the list is the apps by usage, then extension commands, then As
 
 - **Ranking inside the app index:** exact name match, then prefix match, then how often and how recently you picked that result for exactly this input, then fuzzy score, then name. Usage decays over time and is stored per complete input, so a pick for "c" does not affect "cl". The empty input has its own history.
 - **Across sources:** Result order above. Math is first when it has an answer.
+- **Files:** filenames from the Spotlight index, with no index of our own (see File search below).
 - **Math:** a small hand-written parser (`Math.swift`) for arithmetic, parentheses, powers (right-associative, tighter than unary minus) and percentages. It needs an operator; bare or signed numbers, dates (`2026-11-10`, `11/11/2026`, `11.11.2026`), versions (`1.2.3`) and phone numbers (`555-1234`, `+1 555-123-4567`) give no row. No implicit multiplication, functions, units, currencies or dates; units and currencies are extensions.
   - **Percentages** read the way people say them: `200 + 10%` is 220, `200 - 10%` is 180, `10% of 200` and `50 * 10%` are a share (20, 5), `15%` alone is 0.15, and `10% + 5%` is 0.15. Only a bare percentage on the right of `+` or `-` changes the left side; `200 + 10% * 2` is 200.2.
   - **Decimal marks:** `.` and `,` are both accepted, whatever the locale. With both in a number, the last is the decimal mark and the other groups thousands (`1.234,5` and `1,234.5` are both 1234.5). One kind used repeatedly groups (`1,000,000`). A single mark is a decimal mark (`3,5 * 2` is 7), except the ambiguous case of one mark before exactly three digits (`1,000`, `1.000`), which groups only when the user's locale groups with that character: `1,000 + 1` is 1001 in en_US and 2 in de_DE. Groups must be three digits after a first group of one to three that does not start with 0, so `0,500` is a half and `1,23,456` is no number.
   - **Results** show in the user's locale with grouping (`1.234,5` in German); Enter copies the same number without grouping (`1234,5`), so it pastes into the user's spreadsheets and back into Wicket.
 - **Panel:** 640 points of content plus 40-point margins on each side, horizontally centred on the screen under the pointer, top edge about one fifth down, up to eight visible rows. Input is cleared on dismissal.
-- **Panel stability:** the input row must stay still while results change. Built-in results are published together and the previous list stays until then; matching extensions add their complete views when ready; the layout is anchored at the top; window and content height come from one policy and are never derived from each other.
+- **Panel stability:** the input row must stay still while results change. Built-in results are published together and the previous list stays until then; matching extensions add their complete views when ready, and file results as their batches arrive; the layout is anchored at the top; window and content height come from one policy and are never derived from each other. The list card grows at once but shrinks only after the list has stayed shorter for 300 ms (`LauncherModel.sizedRows`), so file results arriving after the apps do not make it collapse and grow again while typing; hiding the panel resets it at once.
 - **Panel look, modelled on the first Wicket:** a separate 56-point search pill, an 8-point gap, a result card with 22-point corners, 40-point rows, 12-point selection corners, 26-point icons, 14 and 13 point title and subtitle, and a prominent 24-point calculation result.
 - **Layering:** only glass surfaces belong inside `GlassEffectContainer`. Input, rows, headers and footers sit above it in a sibling stack. Keep a 40-point transparent margin and disable the native window shadow. `PaletteLayout` owns all dimensions for window, content and answer sizing. Glass tint is `0.55 * (1 - backgroundTransparency)`.
 - **Visual checks:** the app ships no capture or fixture mode. Panel captures are an opt-in test, `WICKET_CAPTURE_DIR=<folder> swift test --filter panelCapture`, skipped otherwise. It draws every state offscreen in light and dark with solid surfaces, using the test fakes, orders no window front, makes none key and posts no event, then reads each PNG back with text recognition and checks the expected text. Solid offscreen surfaces prove foreground and layout, not glass, focus or compositor shadows; those need the user's eyes on a real window.
 - **Hotkey:** Option+Space by default (Control+Option+Space in Wicket Dev, see Editions), configurable; an existing config wins. Launch at login is available in Settings. A login-item launch stays hidden. A manual launch shows the panel without listening.
+
+### File search
+
+Files and folders by name, from the Spotlight index through the MDQuery C API (`FilesProvider.swift`). Wicket keeps no index of its own: Spotlight already maintains one, and a crawler of our own would need Full Disk Access and thousands of lines. MDQuery rather than `NSMetadataQuery`, because it caps hits inside Spotlight (`MDQuerySetMaxCount`), notifies on our own serial queue instead of a run loop, and stops synchronously; `mdfind` as an extension was slower (p50 125 ms, p90 704 ms, process start included) and its ranking and missing reveal action did not fit (research report of 11 Nov 2026).
+
+- **When:** from two folded characters, 80 ms after the input stopped changing. Nothing runs for shorter input. Each word of the input must be a word prefix of the file name, case and diacritic insensitive (`kMDItemFSName == "word*"cdw` per word, joined with `&&`; Spotlight's word mode splits names at spaces, punctuation and camelCase). Word mode answers in tens of milliseconds where a substring match took 100 to 1,000 ms.
+- **Where:** each visible folder in home as its own scope, so Spotlight never walks `~/Library`; iCloud Drive (`~/Library/Mobile Documents/com~apple~CloudDocs`); `~/Library/CloudStorage`; mounted volumes under `/Volumes`. Scopes are read per query, so new folders and volumes appear. Loose files directly in home are missed, because a scope must be a folder.
+- **Noise:** a path below its scope is dropped when any component is hidden (starts with `.`), is `Library`, `node_modules`, `build`, `DerivedData`, `Pods`, `__pycache__` or `Caches` (any case), or is an `.app` or `.photoslibrary` package or inside one. Apps are left to the apps provider.
+- **Ranking:** Spotlight applies its 500-hit cap before any sorting, so the candidates are an arbitrary sample. The shared fuzzy matcher scores each file name; the best 20 (score, then shorter name, then path) become rows: the file name as title, the folder as subtitle (`~/Documents/Taxes`, `iCloud Drive/Notes`, `/Volumes/Disk`) and the path as row ID, so usage is learned per file. `Ranking.compose` then ranks them as name matches (Result order).
+- **Batches:** every Spotlight progress notification publishes all hits gathered so far, so rows refresh as batches arrive and each batch replaces the previous one; the query gathers once and never watches for changes. A keystroke keeps the previous file rows until the first batch for the new input replaces them (ranking drops those the new input no longer matches, and a query that ends without a batch clears them), so files do not vanish and return while typing. The file type comes from the value list Spotlight gathers with the results, because copying an attribute per hit costs an IPC round trip (about 0.4 ms) each.
+- **Actions:** open, then reveal in Finder. A file that `OpenPolicy` refuses, such as a script or an installer, only reveals. The row shows the system icon of the file.
+- **Cancellation:** a new input, an address, a conversation or hiding cancels the task that reads the batches; ending its stream stops the query, also during the debounce, and the generation check drops anything late. File search is pending for selection like a running pattern extension. Headless `--query` waits for the query to finish, so its output includes files.
+- **Measured** on 11 Nov 2026 (macOS 27.2.1, Mac in use, release build, 30 realistic prefixes from the research report, run twice through headless `--query`): the first batch arrives a median of 87 to 89 ms (p90 132 to 134 ms) after the debounce, with 500 candidates in the median first batch, so files appear about 170 ms after the last keystroke. The app logs `files: first batch N of M in T ms` (counts and timings only) under subsystem `app.wicket`, category `files`. Twenty file rows add about 0.2 ms to one `Ranking.compose` over all 158 apps.
+- **Switch:** `files` is a built-in source in Settings, Sources.
 
 ## Voice
 
@@ -125,7 +140,7 @@ Opening Agent settings asks both installed CLIs for their models concurrently, i
 
 The tab and its section are titled "Sources", with the help "Turn off sources you don't use." There is no reordering: the list order never affects results.
 
-Provider IDs come from the built-in defaults and discovered extensions, not a second settings list. Sources lists the config list first, then discovered extensions it omits (on, sorted by id), then omitted built-ins (off). The switch writes `enabled` for that source and nothing else writes provider entries. A new extension is on as soon as it appears.
+Provider IDs come from the built-in defaults and discovered extensions, not a second settings list. Sources lists the config list first, then the built-ins and discovered extensions it omits (on; extensions sorted by id). The switch writes `enabled` for that source and nothing else writes provider entries. A new extension is on as soon as it appears.
 
 ## Provider contract
 
@@ -139,11 +154,12 @@ Every row carries a real action, the host's own included: an extension's command
 
 `input` is required. `arguments` is a string array, empty when omitted. It is request data, never extra executable argv. The view is one object with optional `body`, `items` and `actions` (see Views). Unknown action kinds, wrong types, missing required fields and empty or duplicate item IDs fail decoding. Extra keys are tolerated, so a stray `type` is ignored. Results for an input that is no longer current are dropped.
 
-A row requires `id`, string `title` and an `actions` array, which may be empty. Optional fields are `subtitle`, SF Symbol `icon`, string-array `keywords` (aliases) and boolean `prominent`. A prominent first row gets the large calculator presentation; a first `open` action for a file gets its native file/app icon. Return uses the first action. Every action is available in the row context menu; view actions have a native Actions menu in the header.
+A row requires `id`, string `title` and an `actions` array, which may be empty. Optional fields are `subtitle`, SF Symbol `icon`, string-array `keywords` (aliases) and boolean `prominent`. A prominent first row gets the large calculator presentation; a first `open` or `reveal` action for a file gets its native file/app icon. Return uses the first action. Every action is available in the row context menu; view actions have a native Actions menu in the header.
 
 | Action JSON | Effect |
 | --- | --- |
 | `{"type":"open","url":"https://example.com"}` | Open an allowed URL |
+| `{"type":"reveal","url":"file:///Users/me/Documents/a.pdf"}` | Show an existing file or folder in Finder and close the launcher |
 | `{"type":"copy","text":"hello"}` | Copy and close the launcher |
 | `{"type":"paste","text":"hello"}` | Copy, restore the previous app and send Cmd+V |
 | `{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}` | Go to an address (below). Every field is optional; `{"type":"run","arguments":["refresh"]}` runs the originating extension again and replaces the arguments for later edits in this command |
@@ -163,6 +179,8 @@ The URL spelling is for outsiders: `wicket://weather?input=berlin`, `wicket://ag
 
 Open accepts http, https and mailto, or existing file URLs for apps, folders and nonexecutable documents. Resolve symlinks before checking. Reject executable files and these suffixes, even on directories: `.command`, `.pkg`, `.mpkg`, `.dmg`, `.sh`, `.bash`, `.zsh`, `.py`, `.js`, `.scpt`, `.applescript`, `.workflow`. Check at decode time and again at action time.
 
+Reveal accepts any existing file URL, executables and scripts included, because selecting an item in Finder opens and runs nothing; it is checked at decode time and again at action time. Agent items have no reveal.
+
 Paste strips all newlines. It requires Accessibility access already granted and a live previously frontmost app other than Wicket. Otherwise show an error without requesting permission or sending keys. After restoring that app, send Cmd+V only to its PID and only if it is still frontmost.
 
 ## Config
@@ -171,7 +189,7 @@ One plain `config.json`, read at start and reloaded when it changes, including a
 
 - `hotkey`, default `"option+space"`. Use modifiers joined with `+` and a key. Require Command, Control or Option, except for function keys. Refuse Command-letter registrations, including Shift variants, to protect editing and app commands.
 - `backgroundTransparency`, from 0 to 1, default 0.15. Zero is the strongest tint.
-- `providers`, the on/off record of each source: `[{"id":"math","enabled":true},{"id":"apps","enabled":true}]` by default. IDs are unique and nonempty. A disabled provider is off, and so is an omitted built-in. A discovered `extension:<folder-name>` missing from the list is on. The order of the array does not affect results, so existing files keep working. Nothing writes config on discovery. Switching one off in Settings writes `enabled:false`.
+- `providers`, the on/off record of each source: `[{"id":"math","enabled":true},{"id":"apps","enabled":true},{"id":"files","enabled":true}]` by default. IDs are unique and nonempty. Only `enabled: false` switches a source off: a built-in or discovered `extension:<folder-name>` missing from the list is on, so a built-in added later (such as `files`) reaches a config file written before it. The order of the array does not affect results, so existing files keep working. Nothing writes config on discovery. Switching one off in Settings writes `enabled:false`.
 - `voice.enabled`, boolean, default true, including missing or empty voice configuration. False disables listen-on-opening. Live disable stops capture immediately; enabling alone does not prompt or record.
 - Agent, for example `"agent":{"name":"claude","model":"sonnet","effort":"low","mode":"default"}`. Omitted agent defaults to Claude. Defaults are Sonnet or the latest advertised Terra, low effort, Auto permissions and Regular speed. `speed` accepts `off` or `on`; `streamAnswers` defaults to true.
 
@@ -318,7 +336,7 @@ A folder under `extensions/` with `wicket.json` and an executable in any languag
 | Fallback | `fallback: true` | Offered after Ask agent when nothing matches strongly; choosing it preserves the root input | "Search the web for …" |
 
 - Wicket checks regexes without running a script. Patterns may match empty input. Limit regexes to 512 UTF-8 bytes and input to 4,096 bytes, with a 5 ms regex progress deadline. A newer keystroke cancels old work and drops stale views. There is no incremental row streaming.
-- Provider IDs are `math`, `apps` and `extension:<folder-name>`. Users can switch sources off or replace built-ins with extensions. Discovered extensions the list omits are on; omitted built-ins are off. Ordering is fixed; see Result order.
+- Provider IDs are `math`, `apps`, `files` and `extension:<folder-name>`. Users can switch sources off or replace built-ins with extensions. Sources the list omits are on. Ordering is fixed; see Result order.
 - Within a chosen extension command, exact title/alias, then prefix, then the order the extension returned. Learned usage plays no part there, and picks made inside a command are not recorded. Rows need not match the query to remain visible.
 - Strong means math, a nonempty successful pattern result, or a name match with tier 1 or 2. Empty input keeps apps first and suppresses fallbacks. If nothing is strong, Ask agent moves on top and fallbacks follow it, ordered by name.
 - A pattern result with a body becomes a row to enter the command; at the root only items contribute. Detail and fallback choices preserve root input; only a name choice clears it. A selected failure row opens the full native error. Each is an ordinary action: a `run` address for the first three, `report` for the failure.
@@ -335,19 +353,19 @@ Wicket --extension units --input '10 km in mi' --arguments '[]'
 
 Choose exactly one of `--query TEXT` or `--extension ID`. `--query` uses enabled sources only. `--extension` runs any discovered extension, even a switched-off one, because naming it is the consent. It accepts a folder name or `extension:<folder-name>`, optional `--input TEXT` (default empty) and `--arguments JSON_STRING_ARRAY` (default `[]`). Arguments are literal option values, without shell reinterpretation. `--help` prints a JSON usage object.
 
-Query output is `{input,items:[{provider,row}],askAgent:{onTop,reason}}`, including Ask agent in the ordered items. Each row shows its real actions, so the output says what Return does. Pattern failures appear as error rows. Direct invocation prints the decoded view. Failures print `{"error":"..."}` and exit 1; success exits 0.
+Query output is `{input,items:[{provider,row}],askAgent:{onTop,reason}}`, including Ask agent in the ordered items and file results once their Spotlight query has finished. Each row shows its real actions, so the output says what Return does. Pattern failures appear as error rows. Direct invocation prints the decoded view. Failures print `{"error":"..."}` and exit 1; success exits 0.
 
 `WICKET_CONFIG_DIR` selects the working folder. For authoring tests, run `Wicket --extension <folder>` directly. No scratch folder or flag is needed.
 
 ## Status
 
-Built, in the order it was built: a command-line agent client and a rich-answer prototype as spikes; the launcher (panel, hotkey, apps, math, ranking); the agent (ask, streamed rich answers, follow-ups, permission prompts, agent settings); extensions (manifest, run-once commands, name, pattern and fallback triggers, list and detail views); voice, then voice on open; native Settings; review rounds on conversation, confirmation and trust handling; extension trust removed in favour of enabled means trusted; one fixed ranking function; screen captures moved out of the app into an opt-in offscreen test; the Node adapters replaced by direct `claude` and `codex` protocols with one process per question; one library module with a thin executable; and finally the release machinery, Editions and Sparkle updates for 0.1.
+Built, in the order it was built: a command-line agent client and a rich-answer prototype as spikes; the launcher (panel, hotkey, apps, math, ranking); the agent (ask, streamed rich answers, follow-ups, permission prompts, agent settings); extensions (manifest, run-once commands, name, pattern and fallback triggers, list and detail views); voice, then voice on open; native Settings; review rounds on conversation, confirmation and trust handling; extension trust removed in favour of enabled means trusted; one fixed ranking function; screen captures moved out of the app into an opt-in offscreen test; the Node adapters replaced by direct `claude` and `codex` protocols with one process per question; one library module with a thin executable; the release machinery, Editions and Sparkle updates for 0.1; then addresses with one action dispatcher, and file search through Spotlight with a reveal action.
 
-The app is **6,405 Swift lines plus 207 bundled resource lines**; the 214 tests are **5,208 Swift lines**. Counts are physical lines, formatted with swift-format (2 spaces, 110 columns), and exclude dependencies and generated output. `Scripts/check.sh` (warnings as errors, all tests, format lint) is the definition of done. Fixtures, fakes and the capture test live in the test target only; the production app has one flat-surface parameter for offscreen rendering.
+The app is **7,239 Swift lines plus 332 bundled resource lines**; the 251 tests are **6,183 Swift lines** (11 Nov 2026, with file search). Counts are physical lines, formatted with swift-format (2 spaces, 110 columns), and exclude dependencies and generated output. `Scripts/check.sh` (warnings as errors, all tests, format lint) is the definition of done. Fixtures, fakes and the capture test live in the test target only; the production app has one flat-surface parameter for offscreen rendering.
 
 Carried forward from the first Wicket, tested: panel focus and key routing, process tree stopping, app scanning, fuzzy matching and usage storage.
 
-What is not built is in [ROADMAP.md](ROADMAP.md) (file search, shell commands, the authoring CLI and more) and what is known to be wrong or unverified is in [ISSUES.md](ISSUES.md), including every check that needs a person at a real screen, microphone or Mac settings. Do not change devices, volume, login items or the config of a Mac in use during automated testing, and never play or record audio from a test.
+What is not built is in [ROADMAP.md](ROADMAP.md) (clipboard history, shell commands, the authoring CLI and more) and what is known to be wrong or unverified is in [ISSUES.md](ISSUES.md), including every check that needs a person at a real screen, microphone or Mac settings. Do not change devices, volume, login items or the config of a Mac in use during automated testing, and never play or record audio from a test.
 
 ## Decisions
 
@@ -360,6 +378,7 @@ What is not built is in [ROADMAP.md](ROADMAP.md) (file search, shell commands, t
 | App launch and math | Compiled Swift behind the extension contract, switched on and off in the same Sources list as extensions |
 | Result order | Fixed by match quality, with learned usage only breaking ties. Users cannot reorder sources; they switch them off. One pure function serves the panel and headless mode |
 | Extension trust | Removed. An extension runs if its source is on, from its own folder. New ones are on at once; the user switches them off in Sources. `--extension` runs any discovered extension. Agent permission requests are unchanged |
+| File search | Native, through Spotlight with MDQuery and no index of our own; files are name matches ranked after equally matched apps, with open and reveal. Not an extension: `mdfind` cost more latency and the contract had neither the ranking nor reveal |
 | Open-action files | Existing apps, folders and nonexecutable documents only; reject scripts, workflows and installers, resolve symlinks and recheck on use |
 | Distribution | One repository for the released app and Wicket Dev; same bundle ids, signing team and Sparkle key as 0.0.x, so installed copies update to 0.1 |
 | This document | Kept current with what is built, in enough detail to rebuild Wicket from it |

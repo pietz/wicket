@@ -326,13 +326,7 @@ struct SettingsPane: View {
     }
   }
 
-  /// Configured and discovered sources, then omitted built-ins, which are off.
-  private var sources: [Configuration.ProviderEntry] {
-    let sources = config.sources(extensions: extensions.ids)
-    return sources
-      + Configuration().providers.filter { builtin in !sources.contains { $0.id == builtin.id } }
-      .map { Configuration.ProviderEntry($0.id, enabled: false) }
-  }
+  private var sources: [Configuration.ProviderEntry] { config.sources(extensions: extensions.ids) }
   @ViewBuilder private var sourcesSection: some View {
     Section {
       ForEach(sources, id: \.id) { source in

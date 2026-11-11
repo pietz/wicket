@@ -64,7 +64,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   model.refresh()
   #expect(await eventually { !model.isRefreshing && model.results.count == 3 })
   #expect(model.results.map(\.provider) == ["math", "agent", "apps"])
-  model.store.update { $0.providers[0].enabled = false }  // apps, after the reversal
+  model.store.update { $0.providers[$0.providers.firstIndex { $0.id == "apps" }!].enabled = false }
   model.refresh()
   #expect(await eventually { model.results.count == 2 })
   #expect(model.results.map(\.provider) == ["math", "agent"])

@@ -48,7 +48,10 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(config.backgroundTransparency == 0.65 && !config.voice.enabled)
     #expect(config.agent.agent == .codex && config.agent.model == "gpt-6")
     #expect(config.agent.effort == "high" && config.agent.mode == "workspace-write")
-    #expect(config.providers == [.init("math", enabled: false), .init("apps"), .init("extension:new")])
+    #expect(
+      config.providers == [
+        .init("math", enabled: false), .init("apps"), .init("files"), .init("extension:new"),
+      ])
     try file.set("model", to: nil, in: "agent")
     #expect(try Configuration.load(at: file.url).agent.model == nil)
     try file.selectAgent("claude")

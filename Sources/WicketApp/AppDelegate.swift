@@ -20,7 +20,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let history = UsageHistory(url: directory.appending(path: "usage.json"))
     let apps = AppsProvider(history: history)
     let model = LauncherModel(
-      providers: [MathProvider(), apps], history: history, folder: directory)
+      providers: [MathProvider(), apps], files: FilesProvider(), history: history, folder: directory)
     do {
       try AnswerRenderer.installFiles(in: directory)
       try ExtensionHost.installFiles(in: directory)

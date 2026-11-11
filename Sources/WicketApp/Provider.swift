@@ -144,6 +144,8 @@ enum RowAction: Codable, Sendable, Equatable {
   case copy(String)
   case paste(String)
   case run(Address)
+  /// Show an existing file or folder in Finder. Nothing is opened or run.
+  case reveal(URL)
   /// Host only, never decoded: send the text to the agent as a question.
   case ask(String)
   /// Host only, never decoded: show an extension's failure report.
@@ -168,6 +170,13 @@ enum RowAction: Codable, Sendable, Equatable {
           debugDescription: "Open requires a safe existing file or http, https or mailto URL")
       }
       self = .open(url)
+    case "reveal":
+      let url = try c.decode(URL.self, forKey: .url)
+      guard OpenPolicy.revealable(url) else {
+        throw DecodingError.dataCorruptedError(
+          forKey: .url, in: c, debugDescription: "Reveal requires an existing file URL")
+      }
+      self = .reveal(url)
     case "copy": self = .copy(try c.decode(String.self, forKey: .text))
     case "paste": self = .paste(OpenPolicy.paste(try c.decode(String.self, forKey: .text)))
     case "run": self = .run(try Address(from: decoder))
@@ -182,6 +191,9 @@ enum RowAction: Codable, Sendable, Equatable {
     switch self {
     case .open(let url):
       try c.encode("open", forKey: .type)
+      try c.encode(url, forKey: .url)
+    case .reveal(let url):
+      try c.encode("reveal", forKey: .type)
       try c.encode(url, forKey: .url)
     case .copy(let text):
       try c.encode("copy", forKey: .type)
@@ -214,6 +226,10 @@ enum OpenPolicy {
     var directory: ObjCBool = false
     guard FileManager.default.fileExists(atPath: file.path, isDirectory: &directory) else { return false }
     return directory.boolValue || !FileManager.default.isExecutableFile(atPath: file.path)
+  }
+  /// Revealing selects an item in Finder and runs nothing, so any existing file or folder will do.
+  static func revealable(_ url: URL) -> Bool {
+    url.isFileURL && FileManager.default.fileExists(atPath: url.path)
   }
   static func paste(_ text: String) -> String { text.components(separatedBy: .newlines).joined() }
 }

@@ -58,8 +58,9 @@ enum Ranking {
   ///
   /// 1. A math result.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
-  /// 3. Name matches: apps, extension commands and the Settings row, by tier, then usage for
-  ///    this exact input, then fuzzy score, then kind, then title. Usage never crosses a tier.
+  /// 3. Name matches: apps, files, extension commands and the Settings row, by tier, then usage for
+  ///    this exact input, then fuzzy score, then kind in that order, then title. Usage never crosses
+  ///    a tier.
   /// 4. Ask agent: on top when nothing is strong or the input ends with "?", otherwise right after
   ///    the last prefix or exact match, so it stays above the loose matches.
   /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
@@ -71,11 +72,12 @@ enum Ranking {
   /// - Parameters:
   ///   - math: Rows from the math source.
   ///   - apps: Rows from the app source, already filtered to what matches the input.
+  ///   - files: Rows from file search, the best by file name.
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
   static func compose(
-    query input: String, math: [Row], apps: [Row], patterns: [String: Pattern],
+    query input: String, math: [Row], apps: [Row], files: [Row], patterns: [String: Pattern],
     extensions: [String: ExtensionManifest], problems: [String: String], usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)
@@ -111,8 +113,8 @@ enum Ranking {
     let mathRows = math.map { Result(provider: "math", row: $0) }
     if !mathRows.isEmpty { reason = "math result" }
 
-    // Name matches. New kinds, such as file results, go between apps and commands.
-    enum Kind: Int { case app, command, settings }
+    // Name matches.
+    enum Kind: Int { case app, file, command, settings }
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
     func candidate(_ result: Result, _ kind: Kind, names: [String], requireMatch: Bool) -> Candidate? {
       var score = 0
@@ -127,6 +129,9 @@ enum Ranking {
     var candidates = apps.compactMap {
       candidate(
         Result(provider: "apps", row: $0), .app, names: [$0.title] + ($0.keywords ?? []), requireMatch: false)
+    }
+    candidates += (query.isEmpty ? [] : files).compactMap {
+      candidate(Result(provider: "files", row: $0), .file, names: [$0.title], requireMatch: true)
     }
     for id in extensions.keys where !answered.contains(id) {
       let manifest = extensions[id]!

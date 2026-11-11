@@ -223,6 +223,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
       record()
       hide()
     case .run, .ask, .report: break
+    case .reveal(let url):
+      guard OpenPolicy.revealable(url) else {
+        model.actionProblem = "This file no longer exists"
+        return
+      }
+      NSWorkspace.shared.activateFileViewerSelecting([url])
+      record()
+      hide()
     case .paste(let text):
       guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),
         !previousApp.isTerminated

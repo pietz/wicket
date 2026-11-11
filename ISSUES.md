@@ -29,6 +29,7 @@ Conversation and confirmations:
 Settings and panel:
 - Text size at all four steps, live, with long titles, code, tables and confirmations. Shortcut recording and physical delivery of the global hotkey, including a recorded conflict. Login-item approval and relaunch. Agent pickers before any conversation, switching between Claude and ChatGPT, unavailable choices, Regular versus Fast (fast is untested against a real account). Sources: switching sources off and on, the Settings result, adding the web-search and currency examples by hand (currency fetches live ECB rates).
 - `wicket://` links, never run with a real build yet: `open "wicket://weather?input=berlin"` with the app closed (cold launch) and open (panel hidden and visible); the same in Wicket Dev with `wicket-dev://`, which must not reach the released app; `wicket://settings`; a `wicket://` link clicked in an answer and in a body; an agent `<item open="wicket://…"/>`; an external link to a command that runs on open (input only, so it must have no side effects).
+- File search on a real panel: file icons and folder subtitles; file rows arriving about 170 ms after typing without the input row moving; the list growing at once and shrinking only after 300 ms, which should feel steady rather than laggy; selection staying put while batches arrive (and Return right after typing, before files arrive, running what was first then); Return opening a document, a folder and an iCloud Drive file; Reveal in Finder from the context menu, including for a script that only reveals; results from `~/Library/CloudStorage` and a mounted volume.
 - Panel stability while typing and while late extension results arrive; the glass look in light and dark; IME composition; Spaces and fullscreen; VoiceOver and larger text; contrast over busy backgrounds; selection and trackpad scrolling in answers; live `answers.css` editing; sustained WebKit memory after hiding.
 
 ## Product
@@ -39,6 +40,9 @@ Settings and panel:
 - **Renderer memory and speed** were measured only on a prototype (242 ms first paint, 37 ms later, 95 MB before and 178 MB after first web-view use). A matched measurement of the integrated app, with the same answers and machine, cold and warm, process-tree memory before, during and after the release delay, is still to do.
 - **Agents inherit the user's own configuration**, including MCP servers, which costs start time and memory per question. Wicket says so; a lean profile is a later option.
 - Conversations do not survive an app restart.
+
+- **File search limits.** Spotlight caps hits at 500 before sorting, so for a common prefix the best name may be outside the sample; relevance was never measured against labelled ground truth. Loose files directly in home are not searched (a scope must be a folder). Files on FAT and exFAT volumes usually carry the executable bit, so `OpenPolicy` refuses to open them and they only reveal. Reveal in Finder has no key yet, only the context menu (ROADMAP, Actions menu).
+- **Omitted sources are now on.** File search needed existing `config.json` files, which list only math and apps, to pick up a new built-in, so a source the list omits is on and only `"enabled": false` switches one off. A hand-written `"providers": []` no longer turns every built-in off.
 
 ## Process I/O
 

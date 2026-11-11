@@ -99,7 +99,7 @@ struct LauncherView: View {
               }
               .frame(
                 height: PaletteLayout.rowsHeight(
-                  model.results.count,
+                  model.sizedRows,
                   prominentFirst: model.prominentFirst, rowHeight: textSize.rowHeight)
               )
               .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
@@ -356,7 +356,7 @@ struct LauncherView: View {
   }
 
   @ViewBuilder private func icon(_ result: Result) -> some View {
-    if case .open(let url) = result.row.actions.first, url.isFileURL {
+    if let url = result.row.actions.first?.fileURL {
       Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
     } else {
       Image(systemName: result.row.icon ?? "app").font(.system(size: 20)).foregroundStyle(
@@ -366,11 +366,19 @@ struct LauncherView: View {
 }
 
 extension RowAction {
+  /// The file an open or reveal action is about, whose system icon the row shows.
+  var fileURL: URL? {
+    switch self {
+    case .open(let url), .reveal(let url): url.isFileURL ? url : nil
+    default: nil
+    }
+  }
   var label: String {
     switch self {
     case .open: "Open"
     case .copy: "Copy"
     case .paste: "Paste into previous app"
+    case .reveal: "Reveal in Finder"
     case .run(let address):
       switch address.targetID {
       case nil: "Run again"
@@ -406,7 +414,7 @@ extension LauncherModel {
       return PaletteLayout.header + min(answer + itemsHeight, CGFloat(cap)) + PaletteLayout.footer
     }
     return PaletteLayout.rowsHeight(
-      results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
+      sizedRows, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
       + PaletteLayout.footer
   }
 }

@@ -6,7 +6,7 @@ Short and current. [SPEC.md](SPEC.md) says what Wicket is, [ISSUES.md](ISSUES.md
 
 The rewrite replaces 0.0.x with a smaller core (agent through the installed `claude` and `codex`, apps, math, extensions, voice, native Settings) and keeps the release machinery: same bundle id, team, Sparkle key and cask, so installed 0.0.15 copies update through Sparkle. Open before or soon after publishing: the checks at the top of [ISSUES.md](ISSUES.md).
 
-Done on the way: stable signing. Wicket Dev signs with the Apple Development identity and the release with Developer ID, from `Scripts/build-app.sh`.
+Done on the way: stable signing. Wicket Dev signs with the Apple Development identity and the release with Developer ID, from `Scripts/build-app.sh`. Since 0.1.2: addresses with one action dispatcher, and file search through Spotlight with open and reveal and a panel that shrinks only after 300 ms ([SPEC.md](SPEC.md), File search).
 
 ## Next, from first use of 0.1
 
@@ -23,15 +23,14 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 
 Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they matter:
 
-1. **File search** over the Spotlight index, no index of our own. Prototype `NSMetadataQuery` against the old `MDQuery` with a result cap and compare latency, quality and code size. Start with filename search, open and reveal, cancellation as the input changes, bounded results. Results join the name-match tier after apps in kind order. Together with it: the panel grows at once but shrinks after 300 ms.
-2. **Clipboard history** (new, not in 0.0.x): the most-used launcher feature Wicket lacks. A small core feature, since an extension cannot watch the pasteboard: opt-in, text only at first, stored locally in the config folder's data, searchable from the panel with paste and copy, with a retention limit, deletion, and excluded apps (password managers and anything marking its pasteboard items concealed or transient). Images and files after real use.
-4. **Actions menu (⌘K)** with extension rows (Turn off, Reveal in Finder, Move to Trash); ⌘1 to ⌘9 direct picks; a listen shortcut; a Show in menu bar setting.
-5. **Shell commands.** A configurable prefix (default `>`) with two destinations, the user's terminal or output shown in Wicket. Start with a lightweight runner, not a terminal emulator: command, output, exit status, working directory, bounded streaming, cancellation. 0.0.x ran a fresh login shell in the home folder per command with stdin closed; decide whether follow-ups share state. Interactive programs go to the external terminal. Do not persist output by default.
-6. **Finder selection as agent context** ("summarize these"). Needs an Apple events permission and entitlement, which 0.1 deliberately does not request until the feature exists.
-7. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
-8. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history, Fix with Agent and Move to Trash came with it.
-9. **Charts in answers.** The agent describes the data (kind, labels, values) in a tag and Wicket draws it, so the model never designs the chart: bar, line and maybe donut, in theme colors, as SVG built by Wicket from validated numbers, never by the model. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines.
-10. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
+1. **Clipboard history** (new, not in 0.0.x): the most-used launcher feature Wicket lacks. A small core feature, since an extension cannot watch the pasteboard: opt-in, text only at first, stored locally in the config folder's data, searchable from the panel with paste and copy, with a retention limit, deletion, and excluded apps (password managers and anything marking its pasteboard items concealed or transient). Images and files after real use.
+2. **Actions menu (⌘K)** with extension rows (Turn off, Reveal in Finder, Move to Trash) and a keyboard path to a file's Reveal in Finder, which is only in the context menu today; ⌘1 to ⌘9 direct picks; a listen shortcut; a Show in menu bar setting.
+3. **Shell commands.** A configurable prefix (default `>`) with two destinations, the user's terminal or output shown in Wicket. Start with a lightweight runner, not a terminal emulator: command, output, exit status, working directory, bounded streaming, cancellation. 0.0.x ran a fresh login shell in the home folder per command with stdin closed; decide whether follow-ups share state. Interactive programs go to the external terminal. Do not persist output by default.
+4. **Finder selection as agent context** ("summarize these"). Needs an Apple events permission and entitlement, which 0.1 deliberately does not request until the feature exists.
+5. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
+6. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history, Fix with Agent and Move to Trash came with it.
+7. **Charts in answers.** The agent describes the data (kind, labels, values) in a tag and Wicket draws it, so the model never designs the chart: bar, line and maybe donut, in theme colors, as SVG built by Wicket from validated numbers, never by the model. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines.
+8. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
 
 ## Next: static views
 
@@ -42,7 +41,8 @@ Step 2 of the address work (addresses and one dispatcher are built, see [SPEC.md
 - No web search feature: in a launcher with an agent, asking replaces most searching. The optional `examples/web-search` stays only as a reference extension.
 - Automatic window updates through Observation instead of hand-wired callbacks, once panel stability can be checked by eye (see ISSUES, launcher state).
 - Merge the Microphone and EngineCapture classes only with a hands-on voice test.
-- Whether file search and shell commands fit the extension contract or need native host capabilities: compare startup and query latency, cancellation, state and platform access first. Reuse the contract where it fits.
+- Whether shell commands fit the extension contract or need a native host capability: compare startup and query latency, cancellation, state and platform access first. Reuse the contract where it fits. File search was decided native (SPEC, File search).
+- File search beyond names (content, kinds, dates) and loose files directly in home: only after real use shows the need.
 - Show automatic pattern-triggered extension runs in Sources, so users see when an enabled extension runs.
 
 ## Later, ideas

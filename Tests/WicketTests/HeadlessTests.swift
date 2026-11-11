@@ -35,9 +35,13 @@ func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue
   if case .status(let status) = exit { return (status, value) }
   throw ExtensionFailure("CLI \(exit): \(diagnostic)")
 }
+/// Built-ins the list omits are switched off here, so a test names exactly what runs and the real disk
+/// (file search) never decides a result unless asked.
 func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   var config = Configuration()
-  config.providers = ids
+  config.providers =
+    ids
+    + Configuration.builtins.filter { id in !ids.contains { $0.id == id } }.map { .init($0, enabled: false) }
   try config.save(at: root.appending(path: "config.json"))
 }
 

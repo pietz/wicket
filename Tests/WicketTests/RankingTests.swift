@@ -17,12 +17,14 @@ private func manifest(_ name: String, keyword: String? = nil, match: String? = n
     ExtensionManifest.self, from: JSONSerialization.data(withJSONObject: object))
 }
 private func compose(
-  _ query: String, math: [Row] = [], apps: [Row] = [], patterns: [String: Ranking.Pattern] = [:],
+  _ query: String, math: [Row] = [], apps: [Row] = [], files: [Row] = [],
+  patterns: [String: Ranking.Pattern] = [:],
   extensions: [String: ExtensionManifest] = [:], problems: [String: String] = [:],
   usage: UsageStore = UsageStore()
 ) -> Ranking.Output {
   Ranking.compose(
-    query: query, math: math, apps: apps, patterns: patterns, extensions: extensions, problems: problems,
+    query: query, math: math, apps: apps, files: files, patterns: patterns, extensions: extensions,
+    problems: problems,
     usage: usage)
 }
 private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\.row.title) }
@@ -223,4 +225,21 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "deploy", patterns: ["extension:deploy": .items([Row(id: "r", title: "Result", actions: [])])],
     extensions: extensions)
   #expect(titles(answered) == ["Result", "Ask agent"])
+}
+
+@Test func filesRankAfterEquallyMatchedAppsAndBeforeCommands() {
+  func file(_ name: String) -> Row { Row(id: "/Users/me/Documents/" + name, title: name, actions: []) }
+  // Both are prefixes of "note": the app comes first, then the file, then the command.
+  #expect(
+    titles(
+      compose(
+        "note", apps: [app("Notes")], files: [file("Notes.txt")],
+        extensions: ["extension:n": manifest("Notebook")]))
+      == ["Notes", "Notes.txt", "Notebook", "Ask agent"])
+  // A file the input is a prefix of beats an app where it only starts a later word.
+  let output = compose("ed", apps: [app("BBEdit")], files: [file("edits.md")])
+  #expect(titles(output) == ["edits.md", "Ask agent", "BBEdit"])
+  #expect(output.strongReason == "title prefix: files:/Users/me/Documents/edits.md")
+  // Files are name matches like any other: none in the empty list.
+  #expect(!compose("", files: [file("a.txt")]).results.contains { $0.provider == "files" })
 }

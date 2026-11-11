@@ -42,7 +42,8 @@ struct Configuration: Codable, Equatable, Sendable {
   var hotkey = Shortcut.default
   /// 0 is an opaque system surface; 1 is the unmodified system material.
   var backgroundTransparency: Double = 0.15
-  var providers = [ProviderEntry("math"), ProviderEntry("apps")]
+  static let builtins = ["math", "apps", "files"]
+  var providers = builtins.map { ProviderEntry($0) }
   init() {}
   private enum CodingKeys: String, CodingKey {
     case hotkey, backgroundTransparency, providers, agent, voice, textSize
@@ -72,12 +73,15 @@ struct Configuration: Codable, Equatable, Sendable {
         forKey: .providers, in: c, debugDescription: "Provider ids must be nonempty and unique")
     }
   }
-  /// Every source and whether it is on: the configured list, then discovered extensions it omits.
-  /// An omitted extension is on; an omitted built-in is off. The order of the list is only how
-  /// the file was written. It never affects how results are ranked.
+  /// Every source and whether it is on: the configured list, then the built-ins and discovered
+  /// extensions it omits, which are on, so a new built-in such as files reaches existing files.
+  /// Only `enabled: false` switches a source off. The order of the list is only how the file was
+  /// written. It never affects how results are ranked.
   func sources(extensions: some Sequence<String>) -> [ProviderEntry] {
     let listed = Set(providers.map(\.id))
-    return providers + Set(extensions).subtracting(listed).sorted().map { ProviderEntry($0) }
+    return providers
+      + (Self.builtins.filter { !listed.contains($0) } + Set(extensions).subtracting(listed).sorted())
+      .map { ProviderEntry($0) }
   }
   func isEnabled(_ id: String, extensions: some Sequence<String>) -> Bool {
     sources(extensions: extensions).contains { $0.id == id && $0.enabled }
