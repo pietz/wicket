@@ -221,7 +221,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       model.writePasteboard(text)
       record()
       hide()
-    case .run, .ask, .report: break
+    case .run, .ask: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

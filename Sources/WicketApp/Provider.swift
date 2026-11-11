@@ -148,8 +148,6 @@ enum RowAction: Codable, Sendable, Equatable {
   case reveal(URL)
   /// Host only, never decoded: send the text to the agent as a question.
   case ask(String)
-  /// Host only, never decoded: show an extension's failure report.
-  case report(String)
 
   /// Fill the input with the text and send nothing.
   static func agent(_ text: String) -> RowAction { .run(Address(extensionName: "agent", input: text)) }
@@ -195,9 +193,6 @@ enum RowAction: Codable, Sendable, Equatable {
       try address.encode(to: encoder)
     case .ask(let text):
       try c.encode("ask", forKey: .type)
-      try c.encode(text, forKey: .text)
-    case .report(let text):
-      try c.encode("report", forKey: .type)
       try c.encode(text, forKey: .text)
     }
   }

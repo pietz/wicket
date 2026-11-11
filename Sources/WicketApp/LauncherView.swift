@@ -385,7 +385,6 @@ extension RowAction {
       default: "Open"
       }
     case .ask: "Ask"
-    case .report: "Show details"
     }
   }
 }

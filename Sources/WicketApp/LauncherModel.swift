@@ -312,8 +312,7 @@ final class LauncherModel {
           } catch {
             guard let self, !Task.isCancelled, generation == current else { return }
             patterns[entry.id] = .failed(
-              summary: error.localizedDescription.components(separatedBy: "\n").first ?? "",
-              report: report(command, request: request, error: error))
+              error.localizedDescription.components(separatedBy: "\n").first ?? "")
           }
           guard let self, !Task.isCancelled, generation == current else { return }
           pending.remove(entry.id)
@@ -429,7 +428,6 @@ final class LauncherModel {
       if let result { record(result) }
       go(address, from: result?.provider)
     case .ask(let text): ask(text)
-    case .report(let report): if let id = result?.provider { showFailure(report, of: id) }
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
@@ -473,14 +471,6 @@ final class LauncherModel {
   private func takeOver() {
     if agent.active { agent.reset() }
     cancelWork()
-  }
-  private func showFailure(_ report: String, of id: String) {
-    guard extensions.commands[id] != nil else { return }
-    cancelWork()
-    command = CommandState(id: id)
-    command?.problem = report
-    listed = []
-    onResultsChange?()
   }
   func ask(_ text: String? = nil) {
     let text = text ?? input

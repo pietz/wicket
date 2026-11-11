@@ -209,11 +209,14 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
 @Test func failedPatternsAndInvalidManifestsGoAtTheEnd() {
   let output = compose(
     "deploy now", apps: [app("Deploy Tool")],
-    patterns: ["extension:deploy": .failed(summary: "exit 7", report: "report")],
+    patterns: ["extension:deploy": .failed("exit 7")],
     extensions: ["extension:deploy": manifest("Deploy", keyword: "deploy", match: "^deploy")],
     problems: ["extension:broken": "bad json"])
   #expect(titles(output) == ["Ask agent", "Deploy Tool", "Deploy failed", "extension:broken needs repair"])
   #expect(output.results.last?.row.actions == [.agent("bad json")])
+  #expect(
+    output.results.dropLast().last?.row.actions
+      == [.run(Address(id: "extension:deploy", input: "deploy now"))])
   #expect(output.results.map(\.row.id).suffix(2) == ["error", "discovery-error"])
 }
 

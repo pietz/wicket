@@ -43,9 +43,7 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(
     try action(#"{"type":"open","url":"wicket://weather?input=x"}"#)
       == .run(Address(extensionName: "weather", input: "x")))
-  for json in [#"{"type":"ask","text":"x"}"#, #"{"type":"report","text":"x"}"#] {
-    #expect(throws: (any Error).self) { try action(json) }
-  }
+  #expect(throws: (any Error).self) { try action(#"{"type":"ask","text":"x"}"#) }
 }
 
 @Test func outsidersNameATargetAndAnInputButNeverArguments() throws {
@@ -118,9 +116,12 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   // A pattern result with a body: enters with the query kept and shows the body.
   try await press("page one") { $0.row.id == "detail" }
   #expect(model.command?.id == "extension:page" && model.input == "page one" && model.body == "## Details")
-  // A failed pattern: the error row shows the report.
+  // A failed pattern: the error row enters the command with the query kept, which runs it again and
+  // shows the failure with its report, where the header offers Ask agent.
   try await press("broken now") { $0.row.id == "error" }
-  #expect(model.command?.id == "extension:broken" && model.command?.problem?.contains("REPAIR") == true)
+  #expect(model.command?.id == "extension:broken" && model.input == "broken now")
+  let problem = try #require(model.command?.problem)
+  #expect(problem.contains("REPAIR") && problem.contains("Command:") && problem.contains("broken now"))
   // An invalid manifest: the repair row fills the input with the brief and sends nothing.
   try await press("zzz") { $0.row.id == "discovery-error" }
   #expect(model.input.contains("Invalid wicket.json") && model.command == nil && !model.agent.active)

@@ -156,7 +156,7 @@ Provider IDs come from the built-in defaults and discovered extensions, not a se
 
 Built-in providers and extensions share `view(for: ProviderRequest) async throws -> ProviderView`. The request, view, items and actions are plain Codable values. The host owns trigger scheduling, selection and usage. Ask agent is a host row.
 
-Every row carries a real action, the host's own included: an extension's command row, fallback, detail and error rows, Settings and Ask agent. One function, `LauncherModel.activate`, does what Return, a button, a menu item or a link asks for, so a row's `id` is only its identity and nothing infers behavior from it. The host's own actions that must not be public (`ask`, which sends a question, and `report`, which shows a failure) have a wire spelling for headless output but are never decoded: an extension cannot write them.
+Every row carries a real action, the host's own included: an extension's command row, fallback, detail and error rows, Settings and Ask agent. One function, `LauncherModel.activate`, does what Return, a button, a menu item or a link asks for, so a row's `id` is only its identity and nothing infers behavior from it. The host's own action that must not be public, `ask`, which sends a question, has a wire spelling for headless output but is never decoded: an extension cannot write it.
 
 ```json
 {"input":"10 km in mi","arguments":[]}
@@ -351,7 +351,7 @@ A folder under `extensions/` with `wicket.json` and an executable in any languag
 - Provider IDs are `math`, `apps`, `files`, `clipboard` and `extension:<folder-name>`. Users can switch sources on or off or replace built-ins with extensions. Sources the list omits take their default: on, except `clipboard`. Ordering is fixed; see Result order.
 - Within a chosen extension command, exact title/alias, then prefix, then the order the extension returned. Learned usage plays no part there, and picks made inside a command are not recorded. Rows need not match the query to remain visible.
 - Strong means math, a nonempty successful pattern result, or a name match with tier 1 or 2. Empty input keeps apps first and suppresses fallbacks. If nothing is strong, Ask agent moves on top and fallbacks follow it, ordered by name.
-- A pattern result with a body becomes a row to enter the command; at the root only items contribute. Detail and fallback choices preserve root input; only a name choice clears it. A selected failure row opens the full native error. Each is an ordinary action: a `run` address for the first three, `report` for the failure.
+- A pattern result with a body becomes a row to enter the command; at the root only items contribute. Detail and fallback choices preserve root input; only a name choice clears it. A selected failure row enters the command with the root input, which runs it again and shows the full native error with its report, as entering it any other way would. Each is an ordinary `run` address.
 - Request and response are single JSON values, so a later long-running protocol can reuse them line by line.
 
 ## Headless command-line mode
