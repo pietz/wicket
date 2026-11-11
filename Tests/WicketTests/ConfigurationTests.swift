@@ -58,14 +58,14 @@ func invalidShortcut(spelling: String) {
   #expect(try Configuration.load(at: url) == Configuration())
 }
 
-@Test func omittedSourcesAreOnAndFollowTheListWhileOnlyEnabledFalseSwitchesOff() {
+@Test func omittedSourcesTakeTheirDefaultAndFollowTheList() {
   var config = Configuration()
   config.providers = [.init("extension:b", enabled: false), .init("math"), .init("files", enabled: false)]
   let sources = config.sources(extensions: ["extension:z", "extension:b", "extension:a"])
   #expect(
     sources == [
       .init("extension:b", enabled: false), .init("math"), .init("files", enabled: false), .init("apps"),
-      .init("extension:a"), .init("extension:z"),
+      .init("clipboard", enabled: false), .init("extension:a"), .init("extension:z"),
     ])
   #expect(
     config.isEnabled("extension:a", extensions: ["extension:a"])

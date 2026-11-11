@@ -379,13 +379,13 @@ extension RowAction {
     case .reveal: "Reveal in Finder"
     case .run(let address):
       switch address.targetID {
-      case nil: "Run again"
+      // A command's own run says what it asks for, as a row's ["delete", id] does.
+      case nil: address.arguments?.first?.capitalized ?? "Run again"
       case "agent": "Ask agent…"
       default: "Open"
       }
     case .ask: "Ask"
     case .report: "Show details"
-    case .forget: "Delete"
     }
   }
 }

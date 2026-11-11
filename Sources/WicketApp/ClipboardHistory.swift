@@ -8,52 +8,20 @@ import os
   var types: [NSPasteboard.PasteboardType]? { get }
   var accessBehavior: NSPasteboard.AccessBehavior { get }
   func string(forType type: NSPasteboard.PasteboardType) -> String?
-  /// Replaces the contents with `text` and returns the new change count.
-  func write(_ text: String) -> Int
 }
-extension NSPasteboard: PasteboardAccess {
-  func write(_ text: String) -> Int {
-    clearContents()
-    setString(text, forType: .string)
-    return changeCount
-  }
-}
+extension NSPasteboard: PasteboardAccess {}
 
 /// The texts the user copied, newest first, kept in `clipboard-history.json` in the private folder
-/// (`Edition.privateDirectory`), outside the agent's working folder. Off until `clipboard.enabled`; while
+/// (`Edition.privateDirectory`), outside the agent's working folder. Off until the `clipboard` source is on; while
 /// on, it polls the pasteboard's change count, which costs no read of the contents, and reads the text
-/// only after a change. Wicket's own writes go through `write` and are never captured. Never logs what
-/// was copied.
+/// only after a change. Never logs what was copied.
 @MainActor @Observable
-final class ClipboardHistory {
+final class ClipboardHistory: Provider {
+  let id = "clipboard"
   struct Clip: Codable, Equatable, Sendable {
     let id: String
     let text: String
     let copied: Date
-    /// The first nonblank line with spaces collapsed, and the line count, worked out once per clip.
-    let title: String
-    let lines: Int
-    init(id: String, text: String, copied: Date) {
-      self.id = id
-      self.text = text
-      self.copied = copied
-      title = text.drop { $0.isWhitespace }.prefix { !$0.isNewline }.prefix(300)
-        .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-      lines = text.utf8.reduce(1) { $0 + ($1 == 10 ? 1 : 0) }
-    }
-    private enum CodingKeys: String, CodingKey { case id, text, copied }
-    init(from decoder: any Decoder) throws {
-      let c = try decoder.container(keyedBy: CodingKeys.self)
-      self.init(
-        id: try c.decode(String.self, forKey: .id), text: try c.decode(String.self, forKey: .text),
-        copied: try c.decode(Date.self, forKey: .copied))
-    }
-    func encode(to encoder: any Encoder) throws {
-      var c = encoder.container(keyedBy: CodingKeys.self)
-      try c.encode(id, forKey: .id)
-      try c.encode(text, forKey: .text)
-      try c.encode(copied, forKey: .copied)
-    }
   }
   /// Items that password managers and other apps mark as not for history (nspasteboard.org).
   nonisolated static let skipped: [NSPasteboard.PasteboardType] = [
@@ -64,30 +32,25 @@ final class ClipboardHistory {
   nonisolated static let maxRows = 100
   /// Longer texts are not kept, so one copied log cannot bloat the file and memory.
   nonisolated static let maxBytes = 256 * 1024
+  /// Retention: the newest this many, for this long.
+  nonisolated static let maxEntries = 500
+  nonisolated static let maxDays = 30
 
   private(set) var clips: [Clip]
-  private(set) var settings = Configuration.Clipboard()
+  private(set) var enabled = false
   private let pasteboard: any PasteboardAccess
-  private let frontmost: () -> String?
   private let interval: Duration?
   private let writer: LatestWriter<[Clip]>
   private var lastChange: Int?
-  /// The change count of Wicket's own last write, which is not the user's copy.
-  private var ownChange: Int?
-  /// The frontmost app at the previous poll: a copy made in an excluded app that the user left before the
-  /// next poll is still skipped.
-  private var lastFrontmost: String?
   private var polling: Task<Void, Never>?
   nonisolated private static let log = Logger(subsystem: "app.wicket", category: "clipboard")
 
   /// `interval` nil never polls on its own; tests call `poll()`.
   init(
     url: URL, pasteboard: any PasteboardAccess = NSPasteboard.general,
-    frontmost: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
     interval: Duration? = .milliseconds(500)
   ) {
     self.pasteboard = pasteboard
-    self.frontmost = frontmost
     self.interval = interval
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
@@ -97,43 +60,22 @@ final class ClipboardHistory {
       do {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try Self.writePrivately(encoder.encode(clips), to: url)
+        // Owner-only: the folder is created 0700, so the file is unreachable for others whatever its mode.
+        try FileManager.default.createDirectory(
+          at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+          attributes: [.posixPermissions: 0o700])
+        try encoder.encode(clips).write(to: url, options: .atomic)
       } catch {
         Self.log.error("clipboard: save failed, code \((error as NSError).code, privacy: .public)")
       }
     }
   }
 
-  /// Writes owner-only from the first byte: the folder is created 0700, the data goes to a temporary file
-  /// created 0600, which then replaces `url` atomically.
-  nonisolated private static func writePrivately(_ data: Data, to url: URL) throws {
-    try FileManager.default.createDirectory(
-      at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(UUID())")
-    let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
-    guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    do {
-      let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-      try handle.write(contentsOf: data)
-      try handle.close()
-      guard rename(temporary.path, url.path) == 0 else {
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-      }
-    } catch {
-      unlink(temporary.path)
-      throw error
-    }
-  }
-
-  /// Applies `clipboard` from config: starts or stops watching and applies the limits.
-  func configure(_ settings: Configuration.Clipboard, now: Date = Date()) {
-    self.settings = settings
-    if settings.enabled {
-      if lastChange == nil {
-        lastChange = pasteboard.changeCount
-        lastFrontmost = frontmost()
-      }
+  /// Applies the `clipboard` source's switch: starts or stops watching and expires old clips.
+  func configure(enabled: Bool, now: Date = Date()) {
+    self.enabled = enabled
+    if enabled {
+      if lastChange == nil { lastChange = pasteboard.changeCount }
       if polling == nil, let interval {
         polling = Task { [weak self] in
           while (try? await Task.sleep(for: interval, tolerance: interval / 2)) != nil {
@@ -155,31 +97,19 @@ final class ClipboardHistory {
 
   /// Reads the pasteboard once if it changed since the last look.
   func poll(now: Date = Date()) {
-    guard settings.enabled else { return }
+    guard enabled else { return }
     expire(now: now)
-    let app = frontmost()
-    let previousApp = lastFrontmost
-    lastFrontmost = app
     let count = pasteboard.changeCount
     guard count != lastChange else { return }
     lastChange = count
     let started = ContinuousClock.now
-    // The copy happened sometime since the last poll, in either app: skip it if either is excluded.
-    guard count != ownChange,
-      ![app, previousApp].contains(where: { $0.map(settings.excludedApps.contains) ?? false }),
-      readable, let types = pasteboard.types, !types.contains(where: Self.skipped.contains),
+    guard readable, let types = pasteboard.types, !types.contains(where: Self.skipped.contains),
       let text = pasteboard.string(forType: .string)
     else { return }
     capture(text, now: now)
     Self.log.debug(
       "clipboard: \(self.clips.count, privacy: .public) clips, read in \(ContinuousClock.now - started, privacy: .public)"
     )
-  }
-
-  /// Puts `text` on the pasteboard for the user. Every pasteboard write of Wicket's goes through here, so
-  /// the history does not take its own copy or paste back in.
-  func write(_ text: String) {
-    ownChange = pasteboard.write(text)
   }
 
   /// Adds a copied text on top; copying it again moves the existing clip there.
@@ -206,17 +136,24 @@ final class ClipboardHistory {
   /// oldest clip is last, so it runs on every poll, on each configuration (at launch, also while off) and
   /// whenever the panel opens.
   func expire(now: Date = Date()) {
-    let oldest = now.addingTimeInterval(-Double(settings.maxDays) * 24 * 3600)
-    guard clips.count > settings.maxEntries || (clips.last.map { $0.copied < oldest } ?? false) else {
+    let oldest = now.addingTimeInterval(-Double(Self.maxDays) * 24 * 3600)
+    guard clips.count > Self.maxEntries || (clips.last.map { $0.copied < oldest } ?? false) else {
       return
     }
-    let kept = clips.prefix(settings.maxEntries).filter { $0.copied >= oldest }
+    let kept = clips.prefix(Self.maxEntries).filter { $0.copied >= oldest }
     guard kept.count != clips.count else { return }
     clips = Array(kept)
     save()
   }
 
   private func save() { writer.submit(clips) }
+
+  /// The command behind the reserved address `clipboard`, answered like an extension's: the input
+  /// filters, and `["delete", id]` deletes that clip first, as a row's Delete asks.
+  func view(for request: ProviderRequest) async -> ProviderView {
+    if request.arguments.count == 2, request.arguments[0] == "delete" { delete(request.arguments[1]) }
+    return ProviderView(items: rows(matching: request.input))
+  }
 
   /// The rows for the clipboard view: newest first, each word of the input somewhere in the text,
   /// ignoring case and diacritics. Return pastes, and the clip can also be copied or deleted.
@@ -229,9 +166,14 @@ final class ClipboardHistory {
     let matches = clips.lazy.filter { clip in words.allSatisfy { clip.text.localizedStandardContains($0) } }
     return matches.prefix(Self.maxRows).map { clip in
       let age = ages.localizedString(for: clip.copied, relativeTo: now)
+      // The first nonblank line with spaces collapsed, and the line count.
+      let title = clip.text.drop { $0.isWhitespace }.prefix { !$0.isNewline }.prefix(300)
+        .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+      let lines = clip.text.utf8.reduce(1) { $0 + ($1 == 10 ? 1 : 0) }
       return Row(
-        id: clip.id, title: clip.title, subtitle: clip.lines > 1 ? "\(age) · \(clip.lines) lines" : age,
-        icon: "doc.on.clipboard", actions: [.paste(clip.text), .copy(clip.text), .forget(clip.id)])
+        id: clip.id, title: title, subtitle: lines > 1 ? "\(age) · \(lines) lines" : age,
+        icon: "doc.on.clipboard",
+        actions: [.paste(clip.text), .copy(clip.text), .run(Address(arguments: ["delete", clip.id]))])
     }
   }
 

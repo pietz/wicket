@@ -336,11 +336,14 @@ struct SettingsPane: View {
       ForEach(sources, id: \.id) { source in
         let id = source.id
         Toggle(
-          extensions.commands[id]?.manifest.name
-            ?? id.replacingOccurrences(of: "extension:", with: "").capitalized,
+          id == "clipboard"
+            ? ClipboardHistory.title
+            : extensions.commands[id]?.manifest.name
+              ?? id.replacingOccurrences(of: "extension:", with: "").capitalized,
           isOn: Binding(
             get: { source.enabled },
             set: { enabled in store.change { try $0.setProvider(id, enabled: enabled) } }))
+        if id == "clipboard" { clipboardRows(enabled: source.enabled) }
       }
     } header: {
       Text("Sources")
@@ -350,26 +353,24 @@ struct SettingsPane: View {
     Section {
       Button("Reveal Extensions Folder") { reveal(extensions.folder.appending(path: "extensions")) }
     }
-    Section {
-      Toggle(
-        "Clipboard history", isOn: binding(config.clipboard.enabled, key: "enabled", group: "clipboard"))
-      if config.clipboard.enabled, !clipboard.readable {
-        Label(
-          "macOS asks before Wicket reads the clipboard. Allow Wicket under Paste from Other Apps in Privacy & Security.",
-          systemImage: "exclamationmark.triangle")
-      }
-      LabeledContent("Saved texts", value: "\(clipboard.clips.count)")
-      Button("Clear History…") { confirmingClear = true }.disabled(clipboard.clips.isEmpty)
-        .confirmationDialog("Clear clipboard history?", isPresented: $confirmingClear) {
-          Button("Clear History", role: .destructive) { clipboard.clear() }
-        } message: {
-          Text("Deletes every saved text. This can't be undone.")
-        }
-    } footer: {
-      Text(
-        "Keeps the last \(config.clipboard.maxEntries) texts you copy for \(config.clipboard.maxDays) days, only on this Mac, where the agent cannot see them. Skips password managers and anything they mark as concealed. Type clip to search it."
-      )
+  }
+  @ViewBuilder private func clipboardRows(enabled: Bool) -> some View {
+    Text(
+      "Keeps the last \(ClipboardHistory.maxEntries) texts you copy for \(ClipboardHistory.maxDays) days, only on this Mac, where the agent cannot see them. Skips anything password managers mark as concealed. Type clip to search it."
+    )
+    .font(.callout).foregroundStyle(.secondary)
+    if enabled, !clipboard.readable {
+      Label(
+        "macOS asks before Wicket reads the clipboard. Allow Wicket under Paste from Other Apps in Privacy & Security.",
+        systemImage: "exclamationmark.triangle")
     }
+    LabeledContent("Saved texts", value: "\(clipboard.clips.count)")
+    Button("Clear History…") { confirmingClear = true }.disabled(clipboard.clips.isEmpty)
+      .confirmationDialog("Clear clipboard history?", isPresented: $confirmingClear) {
+        Button("Clear History", role: .destructive) { clipboard.clear() }
+      } message: {
+        Text("Deletes every saved text. This can't be undone.")
+      }
   }
 
   private func binding<T>(_ value: T, key: String, group: String? = nil) -> Binding<T> {

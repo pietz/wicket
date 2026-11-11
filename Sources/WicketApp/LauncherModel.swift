@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 
-/// The command screen: an extension's, or the clipboard history (`clipboard`). Nil at search.
+/// The command screen: an extension's, or the clipboard history's. Nil at search.
 struct CommandState {
   let id: String
   var arguments: [String] = []
@@ -94,9 +94,10 @@ final class LauncherModel {
     command = nil
     input = ""
   }
-  /// Every pasteboard write of Wicket's: through the clipboard history, which then does not keep it.
+  /// Every pasteboard write of Wicket's: its copy and paste actions.
   func writePasteboard(_ text: String) {
-    if let clipboard { clipboard.write(text) } else { _ = NSPasteboard.general.write(text) }
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
   }
   /// The one owner of configuration. The model only reads it.
   let store: ConfigurationStore
@@ -152,17 +153,19 @@ final class LauncherModel {
   private let history: UsageHistory
   var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
   let clipboard: ClipboardHistory?
-  /// The clipboard history while it is switched on; otherwise nil, with a message saying how to switch it on.
-  private func openClipboard() -> ClipboardHistory? {
-    guard let clipboard, configuration.clipboard.enabled else {
-      actionProblem = "Clipboard history is off. Switch it on in Settings, Sources."
-      return nil
+  /// What answers a command's requests: an extension's command through the host, or a built-in provider
+  /// (the clipboard history). Nil when there is no such command.
+  private func commandSource(_ id: String) -> (@MainActor (ProviderRequest) async throws -> ProviderView)? {
+    if let command = extensions.commands[id] {
+      let host = extensions
+      return { try await host.view(command, request: $0) }
     }
-    return clipboard
+    guard let clipboard, clipboard.id == id else { return nil }
+    return { await clipboard.view(for: $0) }
   }
   /// The open command's name, for the input placeholder and the footer.
   var commandName: String? {
-    command?.id == "clipboard" ? ClipboardHistory.title : extensionCommand?.manifest.name
+    extensionCommand?.manifest.name ?? (command?.id == clipboard?.id ? ClipboardHistory.title : nil)
   }
 
   init(
@@ -190,7 +193,7 @@ final class LauncherModel {
       guard let self else { return }
       if let configuration {
         if !configuration.voice.enabled { stopVoice() }
-        clipboard?.configure(configuration.clipboard)
+        clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
         onResultsChange?()
       }
       onConfigurationChange(configuration, problem)
@@ -212,21 +215,13 @@ final class LauncherModel {
     guard !agent.active else { return }
     cancelWork()
     let speaking = voice?.active == true
-    if command?.id == "clipboard" {
-      if let clipboard = openClipboard() {
-        listed = clipboard.rows(matching: input).map { Result(provider: "clipboard", row: $0) }
-        retainSelection()
-        onResultsChange?()
-        return
-      }
-      // Switched off while open: back to search.
-      command = nil
-    }
     if let state = command {
-      guard let extensionCommand = extensions.commands[state.id],
-        configuration.isEnabled(state.id, extensions: extensions.ids)
-      else {
-        command?.problem = "This extension was removed or switched off. Press Esc to go back."
+      let source = commandSource(state.id)
+      guard let source, configuration.isEnabled(state.id, extensions: extensions.ids) else {
+        command?.problem =
+          source == nil
+          ? "This extension was removed. Press Esc to go back."
+          : "\(commandName ?? state.id) is switched off. Switch it on in Settings, Sources, or press Esc to go back."
         listed = []
         retainSelection()
         onResultsChange?()
@@ -236,19 +231,21 @@ final class LauncherModel {
       command?.problem = nil
       let version = generation
       let request = ProviderRequest(input: input, arguments: state.arguments)
-      let host = extensions
+      let extensionCommand = extensionCommand
       tasks.append(
         Task { [weak self] in
           do {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
-            let view = try await host.view(extensionCommand, request: request)
+            let view = try await source(request)
             guard let self, !Task.isCancelled, generation == version else { return }
             command?.turn = UUID().uuidString
             command?.view = view
             listed = Ranking.order(view.items, provider: state.id, query: input)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
-            command?.problem = report(extensionCommand, request: request, error: error)
+            command?.problem =
+              extensionCommand.map { report($0, request: request, error: error) }
+              ?? error.localizedDescription
             listed = []
           }
           guard let self, generation == version else { return }
@@ -359,7 +356,7 @@ final class LauncherModel {
       patterns: patterns,
       extensions: extensions.commands.filter { enabled.contains($0.key) }.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
-      clipboard: configuration.clipboard.enabled, usage: history.store, now: Date())
+      sources: enabled, usage: history.store, now: Date())
     listed = ranked.results
     strongReason = ranked.strongReason
     retainSelection()
@@ -400,7 +397,7 @@ final class LauncherModel {
     guard !agent.active, let command, body != nil else { return nil }
     return Result(
       provider: command.id,
-      row: Row(id: "detail", title: extensionCommand?.manifest.name ?? "Details", actions: viewActions))
+      row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up.
@@ -432,9 +429,6 @@ final class LauncherModel {
       go(address, from: result?.provider)
     case .ask(let text): ask(text)
     case .report(let report): if let id = result?.provider { showFailure(report, of: id) }
-    case .forget(let id):
-      clipboard?.delete(id)
-      refresh()
     case .open, .reveal, .copy, .paste: return false
     }
     return true
@@ -444,25 +438,19 @@ final class LauncherModel {
     returnAction.map { activate($0, from: selected) } ?? false
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
-  /// that omits its target names; any provider that is not an extension means the root. An empty target
+  /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root.
   func go(_ address: Address, from origin: String? = nil) {
-    let own = origin?.hasPrefix("extension:") == true ? origin : nil
+    let own = origin.flatMap { commandSource($0) == nil ? nil : $0 }
     switch address.extensionName == nil ? own : address.targetID {
     case "settings": onSettings()
     case "agent": fill(address.input ?? input)
-    case "clipboard":
-      guard openClipboard() != nil else { return }
-      takeOver()
-      let reopened = command?.id == "clipboard"
-      if !reopened { command = CommandState(id: "clipboard") }
-      input = address.input ?? (reopened ? input : "")
     case nil:
       takeOver()
       command = nil
       input = address.input ?? ""
     case let id?:
-      guard extensions.commands[id] != nil else {
+      guard commandSource(id) != nil else {
         actionProblem = "No extension named \(Address(id: id).extensionName ?? id)"
         return
       }

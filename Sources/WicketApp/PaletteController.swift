@@ -221,7 +221,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       model.writePasteboard(text)
       record()
       hide()
-    case .run, .ask, .report, .forget: break
+    case .run, .ask, .report: break
     case .reveal(let url):
       guard OpenPolicy.revealable(url) else {
         model.actionProblem = "This file no longer exists"

@@ -77,10 +77,10 @@ enum Ranking {
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
-  ///   - clipboard: Whether clipboard history is on, which offers its row.
+  ///   - sources: The enabled source IDs; `clipboard` offers the Clipboard History row.
   static func compose(
     query input: String, math: [Row], apps: [Row], files: [Row], patterns: [String: Pattern],
-    extensions: [String: ExtensionManifest], problems: [String: String], clipboard: Bool = false,
+    extensions: [String: ExtensionManifest], problems: [String: String], sources: Set<String> = [],
     usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)
@@ -157,7 +157,7 @@ enum Ranking {
             id: "open", title: "Settings", icon: "gearshape",
             actions: [.run(Address(extensionName: "settings"))], keywords: ["preferences"]))
       ]
-      if clipboard {
+      if sources.contains("clipboard") {
         rows.append(
           Result(
             provider: "clipboard",

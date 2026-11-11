@@ -92,7 +92,7 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
 /// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","arguments":["hourly"]}`,
 /// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no arguments. `agent`,
 /// `settings` and `clipboard` are reserved targets: `agent` fills the input and never sends, `clipboard` is
-/// the clipboard history, and an empty `extension`, as in a URL without one, is a root query.
+/// the clipboard history command, and an empty `extension`, as in a URL without one, is a root query.
 struct Address: Codable, Sendable, Equatable {
   var extensionName: String?
   var input: String?
@@ -150,13 +150,11 @@ enum RowAction: Codable, Sendable, Equatable {
   case ask(String)
   /// Host only, never decoded: show an extension's failure report.
   case report(String)
-  /// Host only, never decoded: delete a clipboard history entry by its ID.
-  case forget(String)
 
   /// Fill the input with the text and send nothing.
   static func agent(_ text: String) -> RowAction { .run(Address(extensionName: "agent", input: text)) }
 
-  private enum CodingKeys: String, CodingKey { case type, url, text, id }
+  private enum CodingKeys: String, CodingKey { case type, url, text }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     switch try c.decode(String.self, forKey: .type) {
@@ -212,9 +210,6 @@ enum RowAction: Codable, Sendable, Equatable {
     case .report(let text):
       try c.encode("report", forKey: .type)
       try c.encode(text, forKey: .text)
-    case .forget(let id):
-      try c.encode("forget", forKey: .type)
-      try c.encode(id, forKey: .id)
     }
   }
 }

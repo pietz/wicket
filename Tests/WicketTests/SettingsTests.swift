@@ -50,7 +50,8 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(config.agent.effort == "high" && config.agent.mode == "workspace-write")
     #expect(
       config.providers == [
-        .init("math", enabled: false), .init("apps"), .init("files"), .init("extension:new"),
+        .init("math", enabled: false), .init("apps"), .init("files"), .init("clipboard", enabled: false),
+        .init("extension:new"),
       ])
     try file.set("model", to: nil, in: "agent")
     #expect(try Configuration.load(at: file.url).agent.model == nil)
