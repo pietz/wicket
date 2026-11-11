@@ -5,15 +5,19 @@ import Foundation
 struct ProviderRequest: Codable, Sendable, Equatable {
   let input: String
   let arguments: [String]
-  init(input: String, arguments: [String] = []) {
+  /// True only on the one request caused by the user choosing a run action; reruns are never chosen.
+  let chosen: Bool
+  init(input: String, arguments: [String] = [], chosen: Bool = false) {
     self.input = input
     self.arguments = arguments
+    self.chosen = chosen
   }
-  private enum CodingKeys: String, CodingKey { case input, arguments }
+  private enum CodingKeys: String, CodingKey { case input, arguments, chosen }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     input = try c.decode(String.self, forKey: .input)
     arguments = try c.decodeIfPresent([String].self, forKey: .arguments) ?? []
+    chosen = try c.decodeIfPresent(Bool.self, forKey: .chosen) ?? false
   }
 }
 

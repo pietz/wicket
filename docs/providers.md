@@ -3,7 +3,7 @@
 The Swift values in `Sources/WicketApp/Provider.swift` and the shipped [extension contract](../Sources/WicketApp/Resources/extension-contract.md) describe the same boundary. The latter contains the complete manifest, request, view, action and trigger formats for an agent authoring an extension.
 
 ```swift
-ProviderRequest(input: String, arguments: [String] = [])
+ProviderRequest(input: String, arguments: [String] = [], chosen: Bool = false)
 ProviderView(body: String?, items: [Row], actions: [RowAction])
 Row(id: String, title: String, subtitle: String?, icon: String?,
     actions: [RowAction], keywords: [String]?, prominent: Bool?)

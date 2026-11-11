@@ -15,10 +15,10 @@ Name/keyword matches offer a command without running it. Enter starts with empty
 ## One stdin request, one stdout view, then exit
 
 ```json
-{"input":"10 km in mi","arguments":[]}
+{"input":"10 km in mi","arguments":[],"chosen":false}
 ```
 
-Typing inside a command sends a new request; Escape leaves it. A run action replaces `arguments` for subsequent requests in that command. Arguments are JSON data, never extra executable argv. **A request with an input and no arguments must have no side effects**: Wicket sends one on every keystroke, and a link or an agent may open a command with an input. Side effects belong behind an action the user chooses, such as a `run` item with arguments. Use stderr for diagnostics. The process must exit successfully within 10 seconds. Stdout <=1 MiB; stderr <=256 KiB, with its last 4 KiB shown on failure. Cancellation, timeout and quit stop the process tree. Do not daemonize. Stdout is one JSON view with no logs or fences, or plain Markdown (below).
+Typing inside a command sends a new request; Escape leaves it. A run action replaces `arguments` for subsequent requests in that command, so typing keeps the view it chose. Arguments are JSON data, never extra executable argv. `chosen` is true only on the one request caused by the user choosing one of your `run` actions with `arguments`; keystroke reruns, links and patterns send false. **Only a request with `chosen:true` may have side effects** (deploy, delete, send), and only for the arguments that request carries; every other request must be safe to repeat. Use stderr for diagnostics. The process must exit successfully within 10 seconds. Stdout <=1 MiB; stderr <=256 KiB, with its last 4 KiB shown on failure. Cancellation, timeout and quit stop the process tree. Do not daemonize. Stdout is one JSON view with no logs or fences, or plain Markdown (below).
 
 Stdout that starts with `{` is read as a JSON view and fails with the decoding path if it is not one. Anything else is Markdown: the body of the view, with the tags below and `<item/>` rows as in an agent's reply. Use it when a script only has text to show, e.g. `print("## Done")`. Empty output is an error.
 
@@ -70,4 +70,4 @@ The offline units pattern is installed in `extensions/units`. Two optional examp
 
 ## Headless tests with the real pipeline
 
-The same Wicket executable supports `WICKET_CONFIG_DIR=/path/to/wicket Wicket --query '10 km in mi'`: it prints ordered `{provider,row}` entries in `items` plus `askAgent:{onTop,reason}` using the real config, usage, app scan, triggers and enabled extensions. No window, hotkey or status item is created. For a direct command use `Wicket --extension <folder> --input '10 km in mi' --arguments '[]'`; naming an extension runs it even when it is switched off. Stdout is the decoded view, or `{error}` with exit 1. A query contains inline error rows if a pattern fails. Test the actual view and an invalid input. The executable's absolute path is supplied with agent instructions.
+The same Wicket executable supports `WICKET_CONFIG_DIR=/path/to/wicket Wicket --query '10 km in mi'`: it prints ordered `{provider,row}` entries in `items` plus `askAgent:{onTop,reason}` using the real config, usage, app scan, triggers and enabled extensions. No window, hotkey or status item is created. For a direct command use `Wicket --extension <folder> --input '10 km in mi' --arguments '[]'`, adding `--chosen` to send the request a choice would; naming an extension runs it even when it is switched off. Stdout is the decoded view, or `{error}` with exit 1. A query contains inline error rows if a pattern fails. Test the actual view and an invalid input. The executable's absolute path is supplied with agent instructions.

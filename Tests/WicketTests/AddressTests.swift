@@ -240,3 +240,34 @@ private func url(_ text: String) -> Address? { Address(url: URL(string: text)!) 
   #expect(problems["extension:Agent"]?.contains("reserved") == true)
   #expect(problems["extension:clipboard"]?.contains("reserved") == true)
 }
+
+/// Only the request a choice causes is chosen: typing reruns the same arguments without it.
+@MainActor @Test func onlyTheRequestAChoiceCausesIsChosen() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let script = """
+    import json,sys; r=json.load(sys.stdin)
+    print(json.dumps({'body':'/'.join(r['arguments'])+':'+json.dumps(r['chosen'])+':'+r['input'],
+      'items':[{'id':'deploy','title':'Deploy','actions':[{'type':'run','arguments':['deploy']}]}]}))
+    """
+  let folder = try extensionFolder(root, name: "ship", fields: ["command": ["/usr/bin/python3", "ship.py"]])
+  try Data(script.utf8).write(to: folder.appending(path: "ship.py"))
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  await model.extensions.reload()
+  model.go(Address(id: "extension:ship"))
+  await model.settled()
+  #expect(model.body == ":false:")
+  model.select(try #require(model.results.first).id)
+  #expect(model.activateReturn())
+  await model.settled()
+  #expect(model.body == "deploy:true:")
+  model.input = "p"
+  await model.settled()
+  #expect(model.body == "deploy:false:p")
+  // A link is an outsider: choosing it opens the command but is never chosen.
+  #expect(model.activate(.run(try #require(url("wicket://ship?input=prod")))))
+  await model.settled()
+  #expect(model.body == ":false:prod")
+  await model.finish()
+}

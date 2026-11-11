@@ -177,7 +177,8 @@ private func temporaryFolder() throws -> URL {
   #expect(await history.view(for: ProviderRequest(input: "alp")).items.map(\.title) == ["alpha one"])
   // Delete is the row's own run action, answered with the updated list.
   let alpha = try #require(history.clips.last)
-  let view = await history.view(for: ProviderRequest(input: "", arguments: ["delete", alpha.id]))
+  let view = await history.view(
+    for: ProviderRequest(input: "", arguments: ["delete", alpha.id], chosen: true))
   #expect(view.items.map(\.title) == ["beta two"] && history.clips.map(\.text) == ["beta two"])
 }
 

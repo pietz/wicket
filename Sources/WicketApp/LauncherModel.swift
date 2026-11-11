@@ -5,6 +5,8 @@ import Observation
 struct CommandState {
   let id: String
   var arguments: [String] = []
+  /// The next request is the one the user's choice caused; any later one is a rerun.
+  var chosen = false
   var view = ProviderView()
   var problem: String?
   var busy = false
@@ -216,6 +218,7 @@ final class LauncherModel {
     cancelWork()
     let speaking = voice?.active == true
     if let state = command {
+      command?.chosen = false
       let source = commandSource(state.id)
       guard let source, configuration.isEnabled(state.id, extensions: extensions.ids) else {
         command?.problem =
@@ -230,7 +233,7 @@ final class LauncherModel {
       command?.busy = true
       command?.problem = nil
       let version = generation
-      let request = ProviderRequest(input: input, arguments: state.arguments)
+      let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.chosen)
       let extensionCommand = extensionCommand
       tasks.append(
         Task { [weak self] in
@@ -423,7 +426,8 @@ final class LauncherModel {
     switch action {
     case .run(let address):
       if let result { record(result) }
-      go(address, from: result?.provider)
+      // Only an address with arguments is chosen: outsiders (URLs, agent items) never carry arguments.
+      go(address, from: result?.provider, chosen: address.arguments != nil)
     case .send(let text): send(text)
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
@@ -438,8 +442,8 @@ final class LauncherModel {
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
   /// that omits its target names; any provider that is not a command means the root. An empty target
-  /// is always the root.
-  func go(_ address: Address, from origin: String? = nil) {
+  /// is always the root. `chosen` marks the user activating a run action, which the first request says.
+  func go(_ address: Address, from origin: String? = nil, chosen: Bool = false) {
     let own = origin.flatMap { commandSource($0) == nil ? nil : $0 }
     switch address.extensionName == nil ? own : address.targetID {
     case "settings": onSettings()
@@ -460,6 +464,7 @@ final class LauncherModel {
         listed = []
       }
       command?.arguments = address.arguments ?? []
+      command?.chosen = chosen
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       input = address.input ?? (reopened ? input : "")
     }

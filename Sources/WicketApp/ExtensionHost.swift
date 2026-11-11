@@ -98,11 +98,9 @@ final class ExtensionHost {
   static func installFiles(in folder: URL) throws {
     try FileManager.default.createDirectory(
       at: folder.appending(path: "extensions"), withIntermediateDirectories: true)
-    let reference = folder.appending(path: "extension-contract.md")
-    if !FileManager.default.fileExists(atPath: reference.path) {
-      try FileManager.default.copyItem(
-        at: Bundle.module.url(forResource: "extension-contract", withExtension: "md")!, to: reference)
-    }
+    // The contract is Wicket's reference, not the user's: rewritten each launch so agents read this version.
+    try Data(contentsOf: Bundle.module.url(forResource: "extension-contract", withExtension: "md")!)
+      .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
     for name in ["units", "web-search", "currency"] {
       let target = folder.appending(path: (name == "units" ? "extensions/" : "examples/") + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
