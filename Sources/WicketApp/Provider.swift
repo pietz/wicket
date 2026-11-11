@@ -37,10 +37,14 @@ struct ProviderView: Codable, Sendable, Equatable {
   }
 
   private enum CodingKeys: String, CodingKey { case body, items, actions }
+  /// `rows` is the 0.1.0–0.1.2 spelling of `items`; installed extensions are never refreshed, so it is read too.
+  private enum Legacy: String, CodingKey { case rows }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let body = try c.decodeIfPresent(String.self, forKey: .body)
-    let items = try c.decodeIfPresent([Row].self, forKey: .items)
+    let items =
+      try c.decodeIfPresent([Row].self, forKey: .items)
+      ?? decoder.container(keyedBy: Legacy.self).decodeIfPresent([Row].self, forKey: .rows)
     guard body != nil || items != nil else {
       throw DecodingError.dataCorruptedError(
         forKey: .body, in: c, debugDescription: "A view needs a body, items or both")

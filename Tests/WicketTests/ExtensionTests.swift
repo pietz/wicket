@@ -68,9 +68,9 @@ func answering(_ title: String) -> String {
       == ProviderView(body: "Hi", actions: [.copy("a")]))
   #expect(
     try decode(#"{"body":"Hi","items":[\#(itemJSON)]}"#) == ProviderView(body: "Hi", items: [item]))
-  // Old outputs keep working through the ignored `type`, but `rows` and `metadata` are gone.
+  // Installed 0.1.x extensions keep working: `type` is ignored, `rows` reads as items, `metadata` is gone.
   #expect(try decode(#"{"type":"detail","body":"hi"}"#) == ProviderView(body: "hi"))
-  #expect(throws: (any Error).self) { try decode(#"{"type":"list","rows":[\#(itemJSON)]}"#) }
+  #expect(try decode(#"{"type":"list","rows":[\#(itemJSON)]}"#) == ProviderView(items: [item]))
   #expect(
     try decode(#"{"body":"hi","metadata":[{"label":"a","value":"b"}]}"#)
       == ProviderView(body: "hi"))
