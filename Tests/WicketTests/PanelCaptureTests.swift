@@ -27,6 +27,7 @@ private let states = [
   "working", "permission-routine", "permission-high",
   "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
+  "extension-targets",
   "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
   "arguments-long", "arguments-three",
   "settings-general", "settings-voice", "settings-agent", "settings-sources", "settings-error",
@@ -72,6 +73,7 @@ private func expectedText(_ name: String) -> [String] {
       "Actions",
     ]
   }
+  if name.contains("extension-targets") { return ["Berlin this week", "Wed", "Hourly forecast", "Run"] }
   if name.contains("extension-error") {
     return ["Extension report", "Invalid extension view", "REPAIR", "Ask agent"]
   }
@@ -243,7 +245,40 @@ private let nextAnswer =
     let host = model.extensions
     try ExtensionHost.installFiles(in: folder)
     host.onCatalogChange = nil
-    if ["extension-detail", "extension-both", "extension-error"].contains(state) {
+    if state == "extension-targets" {
+      // A body whose days run the extension again, then its JSON items as rows; the third day selected.
+      let demo = folder.appending(path: "extensions/demo")
+      try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
+      try JSONSerialization.data(withJSONObject: [
+        "name": "Weather", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"], "icon": "cloud.sun",
+      ]).write(to: demo.appending(path: "wicket.json"))
+      let days = zip(
+        ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        ["cloud", "cloud.rain", "cloud.heavyrain", "cloud.sun.rain", "cloud.sun", "sun.max", "sun.max"]
+      ).enumerated().map { index, day in
+        "<column><item title=\"\(day.0)\" subtitle=\"\(12 - index % 4)° \(5 + index % 3)°\" icon=\"\(day.1)\" run=\"view=day&day=\(day.0.lowercased())\"/></column>"
+      }
+      let view = ProviderView(
+        body: "## Berlin this week\nMild and wet, dry at the weekend.\n<columns>\(days.joined())</columns>",
+        items: [
+          Row(
+            id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
+            actions: [.run(Address(arguments: ["view": "hourly"]))]),
+          Row(
+            id: "radar", title: "Rain radar", subtitle: "Deutscher Wetterdienst", icon: "map",
+            actions: [.open(URL(string: "https://www.dwd.de")!, title: "Open radar")]),
+        ], actions: [.copy("12°")])
+      try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
+      try Data("import json,sys; json.load(sys.stdin); sys.stdout.write(open('view.json').read())".utf8)
+        .write(
+          to: demo.appending(path: "main.py"))
+      await host.reload()
+      model.input = "demo"
+      await model.settled()
+      _ = model.activateReturn()
+      await model.settled()
+      for _ in 0..<3 { model.move(1) }
+    } else if ["extension-detail", "extension-both", "extension-error"].contains(state) {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
       try JSONSerialization.data(withJSONObject: [
@@ -479,6 +514,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-both":
     #expect(model.body?.contains("A useful extension") == true && model.results.count == 2)
     #expect(model.selected?.row.id == "detail")
+  case "extension-targets":
+    #expect(model.results.count == 9 && model.selected?.row.title == "Wed" && model.selectedTarget == "#2")
   case "arguments-empty": #expect(model.declaredArguments.count == 2 && model.argumentValues.isEmpty)
   case "arguments-filled":
     #expect(model.command == nil && model.argumentValues == ["hours": "12", "minutes": "30"])
@@ -499,8 +536,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
 }
 
 // Opt-in answer gallery for design work: draws each question and reply of a JSON file, an array of
-// `[question, reply]` with an optional third text size (`small`, `large`, `larger`), as an answer
-// in light and dark, named `01-light.png`, `01-dark.png` and so on:
+// `[question, reply]` followed by an optional text size (`small`, `large`, `larger`) and keys pressed
+// once it has arrived (`down`, `up`, `return`, so a target can be selected or its detail opened), as an
+// answer in light and dark, named `01-light.png`, `01-dark.png` and so on:
 //
 //   WICKET_REPLIES=replies.json WICKET_CAPTURE_DIR=/tmp/look swift test --filter replyCapture
 
@@ -517,9 +555,19 @@ func replyCapture(_ index: Int) async throws {
   let directory = URL(fileURLWithPath: try #require(captureDirectory))
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let entry = replies[index]
+  let size = entry.dropFirst(2).first { ["small", "large", "larger"].contains($0) }
   for dark in [false, true] {
     let scenario = try await Scenario.make(
-      "answer" + (entry.count > 2 ? "-" + entry[2] : ""), dark: dark, turn: (entry[0], entry[1]))
+      "answer" + (size.map { "-" + $0 } ?? ""), dark: dark, turn: (entry[0], entry[1]))
+    // Only keys the model handles itself: Return dispatches a detail or a follow-up, never an effect.
+    for key in entry.dropFirst(2) {
+      switch key {
+      case "down": scenario.model.move(1)
+      case "up": scenario.model.move(-1)
+      case "return": scenario.model.activateReturn()
+      default: break
+      }
+    }
     await scenario.controller?.renderer.settled()
     try await Task.sleep(for: .seconds(1))
     try await render(
