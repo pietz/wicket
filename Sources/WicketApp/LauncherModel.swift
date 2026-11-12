@@ -119,7 +119,7 @@ final class LauncherModel {
   }
   var questionExpanded = false
   var historyExpanded = false
-  var conversationHeaderHeight: CGFloat = 58 {
+  var conversationHeaderHeight: CGFloat = 32 {
     didSet { if conversationHeaderHeight != oldValue { onResultsChange?() } }
   }
   var confirmationHeight: CGFloat = 210 {

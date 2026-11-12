@@ -166,7 +166,9 @@ final class AnswerRenderer {
           let reset = currentTurn != renderedTurn
           if cssRevision != appliedCSS {
             let cssVersion = cssRevision
-            let css = try Self.stylesheet(in: folder) + "\n:root { zoom: \(textSize.scale); }"
+            let css =
+              try Self.stylesheet(in: folder)
+              + "\n:root { zoom: \(textSize.scale); --zoom: \(textSize.scale); }"
             _ = try await page.callJavaScript(
               "document.querySelector('#theme').textContent = css;", arguments: ["css": css],
               contentWorld: .defaultClient)

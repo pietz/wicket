@@ -215,7 +215,7 @@ struct LauncherView: View {
             }
           }
           .font(.system(size: 12)).foregroundStyle(.secondary)
-          .padding(.horizontal, 16).frame(height: PaletteLayout.footer - 1)
+          .padding(.horizontal, 20).frame(height: PaletteLayout.footer - 1)
         }
         .frame(height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -344,12 +344,12 @@ struct LauncherView: View {
             }
           }.menuStyle(.borderlessButton).fixedSize()
         }
-      }.buttonStyle(.plain).padding(.horizontal, 18).frame(height: PaletteLayout.header)
+      }.buttonStyle(.plain).padding(.horizontal, 20).frame(height: PaletteLayout.header)
       if let error = model.command?.problem {
         ScrollView {
           Text(error).font(.system(size: 13)).textSelection(.enabled).frame(
             maxWidth: .infinity, alignment: .leading
-          ).padding(18)
+          ).padding(.horizontal, 20).padding(.vertical, 18)
         }.frame(height: PaletteLayout.error)
       } else {
         if model.results.isEmpty {
@@ -386,7 +386,8 @@ struct LauncherView: View {
       // A draft from the `agent` action: nothing is asked yet.
       Text("Press Return to ask \(model.askingName), or edit the question first.")
         .font(.system(size: textSize.points)).foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(18).frame(height: PaletteLayout.answerMin)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+        .frame(height: PaletteLayout.answerMin)
     } else {
       conversation
     }
@@ -409,7 +410,7 @@ struct LauncherView: View {
           }
           HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-              Text(model.agent.question).font(.system(size: 15, weight: .medium))
+              Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
               if longQuestion {
@@ -422,9 +423,10 @@ struct LauncherView: View {
             } label: {
               Image(systemName: "doc.on.doc")
             }
-            .buttonStyle(.plain).help("Copy answer as Markdown").disabled(model.agent.answer.isEmpty)
+            .buttonStyle(.plain).foregroundStyle(.secondary).help("Copy answer as Markdown")
+            .disabled(model.agent.answer.isEmpty)
           }
-        }.padding(.horizontal, 18).padding(.vertical, 16)
+        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
           .onGeometryChange(for: CGFloat.self) {
             $0.size.height
           } action: {
@@ -442,12 +444,14 @@ struct LauncherView: View {
           }
         } else if let problem = model.agent.problem ?? renderer.problem {
           Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(18).frame(minHeight: renderer.height)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+            .frame(minHeight: renderer.height)
         } else if model.agent.busy && model.agent.answer.isEmpty {
           HStack(spacing: 12) {
             ProgressView().controlSize(.small)
             Text(model.agent.status).font(.system(size: textSize.points)).foregroundStyle(.secondary)
-          }.frame(maxWidth: .infinity, alignment: .leading).padding(18).frame(height: PaletteLayout.answerMin)
+          }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+            .frame(height: PaletteLayout.answerMin)
         } else {
           answerBody
           if !model.results.isEmpty { itemList }
@@ -458,8 +462,8 @@ struct LauncherView: View {
   private var longQuestion: Bool {
     (model.agent.question as NSString).boundingRect(
       with: NSSize(width: 560, height: CGFloat.greatestFiniteMagnitude),
-      options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .medium)]
-    ).height > 38
+      options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)]
+    ).height > 34
   }
   @ViewBuilder private var answerBody: some View {
     if let page = renderer.page {
