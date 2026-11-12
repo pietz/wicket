@@ -51,7 +51,7 @@ enum AgentCLI {
     let executable = environment["WICKET_EXECUTABLE"] ?? Bundle.main.executableURL?.path ?? "Wicket"
     var base =
       (try? String(
-        contentsOf: Bundle.module.url(forResource: "agent-instructions", withExtension: "md")!,
+        contentsOf: Bundle.wicket.url(forResource: "agent-instructions", withExtension: "md")!,
         encoding: .utf8)) ?? ""
     for (key, value) in [
       "{{executable}}": executable, "{{folder}}": folder.path,

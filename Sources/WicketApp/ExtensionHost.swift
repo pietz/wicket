@@ -135,7 +135,7 @@ final class ExtensionHost {
     try FileManager.default.createDirectory(
       at: folder.appending(path: "extensions"), withIntermediateDirectories: true)
     // The contract is Wicket's reference, not the user's: rewritten each launch so agents read this version.
-    try Data(contentsOf: Bundle.module.url(forResource: "extension-contract", withExtension: "md")!)
+    try Data(contentsOf: Bundle.wicket.url(forResource: "extension-contract", withExtension: "md")!)
       .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
     // Each bundled extension is its manifest and, unless it is only items, its program.
     for name in ["units", "web-search", "currency", "quicklinks", "note"] {
@@ -143,7 +143,7 @@ final class ExtensionHost {
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
       for (source, destination) in [(name + ".json", "wicket.json"), (name + ".py", "main.py")] {
-        guard let url = Bundle.module.url(forResource: source, withExtension: nil) else { continue }
+        guard let url = Bundle.wicket.url(forResource: source, withExtension: nil) else { continue }
         try FileManager.default.copyItem(at: url, to: target.appending(path: destination))
       }
     }

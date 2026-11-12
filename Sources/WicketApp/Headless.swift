@@ -7,6 +7,8 @@ public enum Headless {
     CommandLine.arguments.dropFirst().first.map { $0.hasPrefix("--") } ?? false
   }
   public static func run() async -> Int32 {
+    // Resolved here so a headless run of a bundle proves its resources are found; the panel needs them at launch.
+    _ = Bundle.wicket
     var options: [String: String] = [:]
     func value(_ key: String) -> String? { options[key] }
     let folder = Edition.current.configDirectory()

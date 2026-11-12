@@ -53,3 +53,11 @@ enum Edition: Equatable {
       path: self == .dev ? "app.wicket.Wicket.dev" : "app.wicket.Wicket", directoryHint: .isDirectory)
   }
 }
+
+extension Bundle {
+  /// Wicket's resources. An app keeps SwiftPM's resource bundle in `Contents/Resources`; older toolchains'
+  /// `Bundle.module` looks only beside the app and in the build folder, which exists only on the Mac that
+  /// built it (0.2.0 started nowhere else). `Bundle.module` remains for `swift run` and the tests.
+  static let wicket =
+    Bundle.main.resourceURL.flatMap { Bundle(url: $0.appending(path: "Wicket_WicketApp.bundle")) } ?? .module
+}

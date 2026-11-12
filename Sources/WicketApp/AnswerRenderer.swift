@@ -68,13 +68,13 @@ final class AnswerRenderer {
     let target = folder.appending(path: "theme.css")
     if !FileManager.default.fileExists(atPath: target.path) {
       try FileManager.default.copyItem(
-        at: Bundle.module.url(forResource: "theme-template", withExtension: "css")!, to: target)
+        at: Bundle.wicket.url(forResource: "theme-template", withExtension: "css")!, to: target)
     }
   }
   /// The bundled theme in a cascade layer, then the owner's `theme.css`, whose rules always win.
   static func stylesheet(in folder: URL) throws -> String {
     let base = try String(
-      contentsOf: Bundle.module.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
+      contentsOf: Bundle.wicket.url(forResource: "answers", withExtension: "css")!, encoding: .utf8)
     let own = (try? String(contentsOf: folder.appending(path: "theme.css"), encoding: .utf8)) ?? ""
     return "@layer wicket {\n\(base)\n}\n\(own)"
   }
@@ -133,7 +133,7 @@ final class AnswerRenderer {
           ready = true
         }
         let script = try String(
-          contentsOf: Bundle.module.url(forResource: "bridge", withExtension: "js")!,
+          contentsOf: Bundle.wicket.url(forResource: "bridge", withExtension: "js")!,
           encoding: .utf8)
         while true {
           try Task.checkCancellation()

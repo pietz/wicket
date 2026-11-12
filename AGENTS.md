@@ -5,7 +5,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 ## Layout
 
 - `Sources/WicketApp`: everything (AppKit shell, panel, providers, agent, extensions, voice, settings, `Edition`, `Updater`). One library module so tests can `@testable import` it. `Sources/Wicket/main.swift` is the thin executable: headless mode for `--` arguments, otherwise the app.
-- `Sources/WicketApp/Resources`: answer stylesheet, bridge script, agent instructions, extension contract and the bundled units extension, found through `Bundle.module`.
+- `Sources/WicketApp/Resources`: answer stylesheet, bridge script, agent instructions, extension contract and the bundled units extension, found through `Bundle.wicket`.
 - `Tests/WicketTests`: headless tests with fakes at the hardware edges (voice, agent, hotkey); recorded agent streams in `Fixtures/`.
 - `Resources`: Info.plist, entitlements and icons for the app bundle. `Scripts`: `check.sh`, `build-app.sh`, `release.sh`, `land.sh`, `verify-session.sh`, `hooks/`. `appcast.xml` and `Casks/wicket.rb` are the update feed and the Homebrew cask, written by `release.sh`.
 
