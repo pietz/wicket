@@ -146,7 +146,10 @@ private let nextAnswer =
     return (state, .medium)
   }
 
-  static func make(_ state: String, dark: Bool) async throws -> Scenario {
+  static func make(
+    _ state: String, dark: Bool,
+    turn: (question: String, reply: String) = ("How is the launch going?", launchAnswer)
+  ) async throws -> Scenario {
     _ = NSApplication.shared
     let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let folder = try scratch()
@@ -174,7 +177,7 @@ private let nextAnswer =
     scenario.keep.append(transcriber)
 
     if name.hasPrefix("answer") || name.hasPrefix("conversation") {
-      try await finishTurn(model.agent, "How is the launch going?", launchAnswer)
+      try await finishTurn(model.agent, turn.question, turn.reply)
     }
     switch name {
     case "apps": model.input = "cal"
@@ -390,16 +393,21 @@ private let nextAnswer =
 /// Draws the view offscreen. Web views are drawn from their own snapshots: the composited layer of a
 /// web view in a window that is never shown sometimes stays blank however long one waits (whole
 /// batches of pages did, now and then), while a snapshot is rendered by WebKit itself.
+/// Web views are hidden for the first draw: a page that did paint would otherwise be drawn twice,
+/// doubling every translucent color.
 @MainActor private func render(_ view: NSView, to url: URL) async throws {
   view.layoutSubtreeIfNeeded()
   guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
     throw ExtensionFailure("No render target")
   }
-  view.cacheDisplay(in: view.bounds, to: bitmap)
   func webViews(_ view: NSView) -> [WKWebView] {
     (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webViews)
   }
-  for web in webViews(view) where !web.isHiddenOrHasHiddenAncestor && !web.visibleRect.isEmpty {
+  let shown = webViews(view).filter { !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty }
+  for web in shown { web.isHidden = true }
+  view.cacheDisplay(in: view.bounds, to: bitmap)
+  for web in shown { web.isHidden = false }
+  for web in shown {
     // Only the part a scroll region shows.
     let configuration = WKSnapshotConfiguration()
     configuration.rect = web.visibleRect
@@ -488,4 +496,35 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   }
   #expect(scenario.controller?.panel.isVisible != true && scenario.controller?.panel.isKeyWindow != true)
   await scenario.finish()
+}
+
+// Opt-in answer gallery for design work: draws each question and reply of a JSON file, an array of
+// `[question, reply]` with an optional third text size (`small`, `large`, `larger`), as an answer
+// in light and dark, named `01-light.png`, `01-dark.png` and so on:
+//
+//   WICKET_REPLIES=replies.json WICKET_CAPTURE_DIR=/tmp/look swift test --filter replyCapture
+
+private let replies: [[String]] =
+  ProcessInfo.processInfo.environment["WICKET_REPLIES"].flatMap {
+    try? JSONDecoder().decode([[String]].self, from: Data(contentsOf: URL(fileURLWithPath: $0)))
+  } ?? []
+
+@MainActor
+@Test(
+  .enabled(if: captureDirectory != nil && !replies.isEmpty, "Set WICKET_REPLIES and WICKET_CAPTURE_DIR"),
+  arguments: replies.indices)
+func replyCapture(_ index: Int) async throws {
+  let directory = URL(fileURLWithPath: try #require(captureDirectory))
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let entry = replies[index]
+  for dark in [false, true] {
+    let scenario = try await Scenario.make(
+      "answer" + (entry.count > 2 ? "-" + entry[2] : ""), dark: dark, turn: (entry[0], entry[1]))
+    await scenario.controller?.renderer.settled()
+    try await Task.sleep(for: .seconds(1))
+    try await render(
+      scenario.view,
+      to: directory.appending(path: String(format: "%02d-%@.png", index + 1, dark ? "dark" : "light")))
+    await scenario.finish()
+  }
 }
