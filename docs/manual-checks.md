@@ -19,8 +19,9 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 1. Type `saf`. Safari is on top. Return opens it and closes the launcher.
 2. Type an exact app name (`Notes`). It is first even if other apps contain the word.
 3. Type a loose match (`vsc` for Visual Studio Code). It shows up, below exact and prefix matches.
-4. Open the launcher with an empty field. Apps come first, Ask agent follows them.
-5. Use one app often for a day: it should win ties against similar names, never beat a better match.
+4. Type the start of a later word of an app (`pass` with 1Password or Proton Pass installed). Those apps are above every file named `pass…`, and at most eight files follow them, then Ask agent.
+5. Open the launcher with an empty field. Apps come first, Ask agent follows them.
+6. Use one app often for a day: it should win ties against similar names, never beat a better match.
 
 ## 3. Math and units
 

@@ -32,11 +32,48 @@ private func compose(
 }
 private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\.row.title) }
 
-@Test func tierIsExactThenPrefixThenNothingAndIgnoresCaseAndSpaces() {
+@Test func tierIsExactThenWordPrefixThenNothingAndIgnoresCaseAndSpaces() {
   func tier(_ query: String, _ names: [String]) -> Int { Ranking.tier(Fold.query(query), names) }
   #expect(tier("safari", ["Safari"]) == 2 && tier("SAF", ["Safari"]) == 1 && tier("ari", ["Safari"]) == 0)
   #expect(tier("vs code", ["VS Code"]) == 2 && tier("vsc", ["VS Code"]) == 1)
   #expect(tier("pref", ["Settings", "preferences"]) == 1 && tier("x", []) == 0 && tier("", ["Safari"]) == 0)
+  // A prefix from any word start the fuzzy matcher knows: spaces, camelCase, a letter after a digit.
+  #expect(tier("pass", ["Proton Pass"]) == 1 && tier("pass", ["1Password"]) == 1)
+  #expect(
+    tier("stack", ["OrbStack"]) == 1 && tier("edit", ["BBEdit"]) == 1 && tier("365", ["Office365"]) == 1)
+  #expect(tier("pass word", ["1Password"]) == 1 && tier("proton pass", ["Proton Pass"]) == 2)
+  // Inside a word is not a word start.
+  #expect(tier("word", ["Password"]) == 0 && tier("ass", ["Proton Pass"]) == 0)
+}
+
+@Test func aWholeTitlePrefixScoresAboveALaterWordPrefix() {
+  let query = Fold.query("pass")
+  func score(_ title: String) -> Int { FuzzyMatcher.score(query, words: [query], SearchKey(title))! }
+  #expect(score("Pass Manager Deluxe Edition") > score("Proton Pass"))
+  #expect(score("Passwords") > score("1Password"))
+  // Nothing but the score separates them: same kind, tier and usage, and the later title sorts first.
+  #expect(
+    titles(compose("pass", apps: [app("A Pass"), app("Pass Manager")])) == [
+      "Pass Manager", "A Pass", "Ask agent",
+    ])
+}
+
+@Test func filesComeAfterAppsAndCommandsThatMatchAsWell() {
+  func file(_ name: String) -> Row { Row(id: "/Users/me/Documents/" + name, title: name, actions: []) }
+  let apps = ["Passwords", "1Password", "Proton Pass", "Podcasts"].map { app($0) }
+  let files = ["passport.pdf", "pass.txt", "passwords old.csv"].map(file)
+  let extensions = ["extension:password": manifest("Password")]
+  #expect(
+    titles(compose("pass", apps: apps, files: files, extensions: extensions)) == [
+      "Passwords", "Password", "1Password", "Proton Pass", "pass.txt", "passport.pdf", "passwords old.csv",
+      "Ask agent", "Podcasts",
+    ])
+  // Usage learned for this exact input still lifts a file the user picked before.
+  var usage = UsageStore()
+  usage.record(Result(provider: "files", row: files[0]).id, query: "pass", now: Date())
+  #expect(
+    titles(compose("pass", apps: apps, files: files, extensions: extensions, usage: usage)).first
+      == "passport.pdf")
 }
 
 @Test func aPrefixMatchLeadsAndSafariComesBeforeLooseApps() {
@@ -77,7 +114,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
 
 @Test func aPatternExtensionKeepsItsRowsTogetherAndOrdersThemByTierUsageThenReturnedOrder() {
   let rows = [
-    Row(id: "a", title: "Later weather", actions: []), Row(id: "b", title: "Weather b", actions: []),
+    Row(id: "a", title: "Rain later", actions: []), Row(id: "b", title: "Weather b", actions: []),
     Row(id: "c", title: "Weather c", actions: []), Row(id: "d", title: "weather", actions: []),
   ]
   var usage = UsageStore()
@@ -91,17 +128,17 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "weather", apps: [app("Weather app")], patterns: ["extension:w": .items(rows)],
     extensions: ["extension:w": manifest("W", match: ".")], usage: usage)
   #expect(
-    titles(output) == ["weather", "Weather c", "Weather b", "Later weather", "Weather app", "Ask agent"])
+    titles(output) == ["weather", "Weather c", "Weather b", "Rain later", "Weather app", "Ask agent"])
 }
 
 @Test func rowsInsideAChosenCommandKeepReturnedOrderAfterExactAndPrefixMatches() {
   let rows = [
-    Row(id: "a", title: "Later weather", actions: []), Row(id: "b", title: "Weather b", actions: []),
+    Row(id: "a", title: "Rain later", actions: []), Row(id: "b", title: "Weather b", actions: []),
     Row(id: "c", title: "Weather c", actions: []), Row(id: "d", title: "weather", actions: []),
   ]
   #expect(
     Ranking.order(rows, provider: "extension:w", query: "weather").map(\.row.title) == [
-      "weather", "Weather b", "Weather c", "Later weather",
+      "weather", "Weather b", "Weather c", "Rain later",
     ])
   #expect(Ranking.order(rows, provider: "extension:w", query: "").map(\.row.id) == ["a", "b", "c", "d"])
 }
@@ -153,7 +190,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
 }
 
 @Test func usageReordersWithinATierButNeverAcrossTiers() {
-  let apps = [app("Calendar"), app("Calculator"), app("Local Cal"), app("Cal")]
+  let apps = [app("Calendar"), app("Calculator"), app("Medical"), app("Cal")]
   var usage = UsageStore()
   func use(_ title: String, times: Int, query: String = "cal") {
     for _ in 0..<times {
@@ -162,19 +199,19 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   }
   #expect(
     titles(compose("cal", apps: apps, usage: usage)) == [
-      "Cal", "Calculator", "Calendar", "Ask agent", "Local Cal",
+      "Cal", "Calculator", "Calendar", "Ask agent", "Medical",
     ])
   use("Calendar", times: 3)
-  use("Local Cal", times: 500)
+  use("Medical", times: 500)
   use("Calendar", times: 500, query: "ca")  // another query does not count
   #expect(
     titles(compose("cal", apps: apps, usage: usage)) == [
-      "Cal", "Calendar", "Calculator", "Ask agent", "Local Cal",
+      "Cal", "Calendar", "Calculator", "Ask agent", "Medical",
     ])
   use("Calculator", times: 100_000)
   #expect(
     titles(compose("cal", apps: apps, usage: usage)) == [
-      "Cal", "Calculator", "Calendar", "Ask agent", "Local Cal",
+      "Cal", "Calculator", "Calendar", "Ask agent", "Medical",
     ])
   // An exact match always beats a habit on a prefix match.
   use("Calendar", times: 1_000_000, query: "cal")
@@ -240,12 +277,12 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
 
 @Test func failedPatternsAndInvalidManifestsGoAtTheEnd() {
   let output = compose(
-    "deploy now", apps: [app("Tool to Deploy Now")],
+    "deploy now", apps: [app("Tool to Redeploy Now")],
     patterns: ["extension:deploy": .failed("exit 7")],
     extensions: ["extension:deploy": manifest("Deploy", keyword: "deploy", match: "^deploy")],
     problems: ["extension:broken": "bad json"])
   #expect(
-    titles(output) == ["Ask agent", "Tool to Deploy Now", "Deploy failed", "extension:broken needs repair"])
+    titles(output) == ["Ask agent", "Tool to Redeploy Now", "Deploy failed", "extension:broken needs repair"])
   #expect(output.results.last?.row.actions == [.agent("Fix this extension. bad json")])
   #expect(
     output.results.dropLast().last?.row.actions
@@ -263,19 +300,19 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(titles(answered) == ["Result", "Ask agent"])
 }
 
-@Test func filesRankAfterEquallyMatchedAppsAndBeforeCommands() {
+@Test func filesRankAfterEveryOtherKindInTheirTier() {
   func file(_ name: String) -> Row { Row(id: "/Users/me/Documents/" + name, title: name, actions: []) }
-  // Both are prefixes of "note": the app comes first, then the file, then the command.
+  // All are prefixes of "note": the app, then the command, then the file.
   #expect(
     titles(
       compose(
         "note", apps: [app("Notes")], files: [file("Notes.txt")],
         extensions: ["extension:n": manifest("Notebook")]))
-      == ["Notes", "Notes.txt", "Notebook", "Ask agent"])
-  // A file the input is a prefix of beats an app where it only starts a later word.
-  let output = compose("ed", apps: [app("BBEdit")], files: [file("edits.md")])
-  #expect(titles(output) == ["edits.md", "Ask agent", "BBEdit"])
-  #expect(output.strongReason == "title prefix: files:/Users/me/Documents/edits.md")
+      == ["Notes", "Notebook", "Notes.txt", "Ask agent"])
+  // A file whose name the input starts still beats an app it matches only loosely.
+  let output = compose("dit", apps: [app("BBEdit")], files: [file("ditto.md")])
+  #expect(titles(output) == ["ditto.md", "Ask agent", "BBEdit"])
+  #expect(output.strongReason == "title prefix: files:/Users/me/Documents/ditto.md")
 }
 
 private func command(_ json: String) throws -> ExtensionCommand {

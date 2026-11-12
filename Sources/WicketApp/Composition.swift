@@ -12,14 +12,23 @@ struct Result: Identifiable, Sendable {
 /// How the launcher orders what its sources produced. Pure: nothing here reads configuration,
 /// the filesystem or a clock, so one function can serve the panel, the headless mode and tests.
 enum Ranking {
-  /// How well a query matches the best of some names: 2 exact, 1 prefix, 0 otherwise.
-  /// Names and query are folded and ignore whitespace. An empty query matches nothing.
+  /// How well a query matches the best of some names: 2 exact, 1 a prefix of the name from the start
+  /// of any of its words ("pass" in "Proton Pass" or "1Password"), 0 otherwise. Names and query are
+  /// folded and ignore whitespace. An empty query matches nothing.
   static func tier(_ query: [UInt32], _ names: [String]) -> Int {
-    names.map { tier(query, folded: Fold.query($0)) }.max() ?? 0
+    names.map { tier(query, SearchKey($0)) }.max() ?? 0
   }
-  /// The same rule for a name that is already folded, such as a `SearchKey`'s `compact`.
-  static func tier(_ query: [UInt32], folded name: [UInt32]) -> Int {
-    query.isEmpty ? 0 : (name == query ? 2 : (name.starts(with: query) ? 1 : 0))
+  /// The same rule for a prepared name. Words start where the fuzzy matcher's do (`SearchKey.boundary`).
+  static func tier(_ query: [UInt32], _ key: SearchKey) -> Int {
+    if query.isEmpty { return 0 }
+    if key.compact == query { return 2 }
+    var offset = 0  // where key.scalars[index] is in key.compact
+    for (index, scalar) in key.scalars.enumerated() {
+      if Unicode.Scalar(scalar)?.properties.isWhitespace ?? false { continue }
+      if key.boundary[index] > 0, key.compact[offset...].starts(with: query) { return 1 }
+      offset += 1
+    }
+    return 0
   }
 
   /// What a pattern extension did for the current input.
@@ -32,8 +41,9 @@ enum Ranking {
   /// The most apps the empty input lists: a short list of the most used, not every installed app.
   static let emptyApps = 20
 
-  /// What a name match is, which breaks ties in this order.
-  enum Kind: Int, Sendable { case app, file, command, item, host }
+  /// What a name match is, which breaks ties in this order. Files come last: within a tier and with
+  /// equal usage, a file never outranks any other kind, since its name says less about intent.
+  enum Kind: Int, Sendable { case app, command, item, host, file }
 
   /// One source of name matches (apps, files, an extension's items): its rows, already filtered to
   /// what matches the input.
@@ -72,11 +82,12 @@ enum Ranking {
   ///
   /// 1. A math result.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
-  /// 3. Name matches: apps, files, extension commands, extension items and the host's rows (Settings,
-  ///    and Clipboard History when it is on), by tier, then usage for this exact input, then fuzzy
-  ///    score, then kind in that order, then title. Usage never crosses a tier.
+  /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, and
+  ///    Clipboard History when it is on) and files, by tier, then usage for this exact input, then
+  ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
+  ///    never crosses a tier.
   /// 4. Ask agent: on top when nothing is strong or the input ends with "?", otherwise right after
-  ///    the last prefix or exact match, so it stays above the loose matches.
+  ///    the last word-prefix or exact match, so it stays above the loose matches.
   /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
   /// 6. Error and repair rows.
   ///
@@ -143,7 +154,7 @@ enum Ranking {
           return nil
         }
         score = best
-        tier = keys.map { Self.tier(query, folded: $0.compact) }.max() ?? 0
+        tier = keys.map { Self.tier(query, $0) }.max() ?? 0
       }
       return Candidate(
         result: result, kind: kind, tier: tier,
@@ -182,6 +193,7 @@ enum Ranking {
       if a.tier != b.tier { return a.tier > b.tier }
       if query.isEmpty, a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
       if a.usage != b.usage { return a.usage > b.usage }
+      if (a.kind == .file) != (b.kind == .file) { return b.kind == .file }
       if a.score != b.score { return a.score > b.score }
       if a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
       let order = a.result.row.title.localizedStandardCompare(b.result.row.title)

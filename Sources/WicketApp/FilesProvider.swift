@@ -15,7 +15,8 @@ enum FileSearch {
   static let minimumLength = 2
   /// Spotlight caps hits before any sorting, so this is an arbitrary sample the fuzzy matcher picks from.
   static let candidates = 500
-  static let shown = 20
+  /// File rows at the root: enough to find a file, few enough not to bury the apps and commands.
+  static let shown = 8
 
   /// Folders of build output, dependencies, caches or app data, compared case-insensitively.
   static let noiseFolders: Set<String> = [

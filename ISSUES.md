@@ -57,6 +57,7 @@ Two independent reviews (GPT-6 Astra, Claude Fable 5.2) that then read each othe
 - Conversations do not survive an app restart.
 
 - **File search limits.** Spotlight caps hits at 500 before sorting, so for a common prefix the best name may be outside the sample; relevance was never measured against labelled ground truth. Loose files directly in home are not searched (a scope must be a folder). Files on FAT and exFAT volumes usually carry the executable bit, so `OpenPolicy` refuses to open them and they only reveal. Reveal in Finder has no key yet, only the context menu (ROADMAP, Actions menu).
+- **A file can make one word strong.** Since a prefix at any word start is tier 1 (0.2.3), almost every file Spotlight returns for a single word is a strong match, so a word like `kubernetes` that names a file puts Ask agent after up to eight file rows and hides fallbacks such as web search, where before only a file whose whole name started with the word did. Sentences are unaffected (the whole input must start a word). If it bothers in use, let files count as strong only for a whole-name prefix.
 - **Omitted sources are now on.** File search needed existing `config.json` files, which list only math and apps, to pick up a new built-in, so a source the list omits is on and only `"enabled": false` switches one off. A hand-written `"providers": []` no longer turns every built-in off.
 
 ### Items, arguments and submit (review of 12 Nov 2026)

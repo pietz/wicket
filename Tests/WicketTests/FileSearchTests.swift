@@ -202,7 +202,7 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   model.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
-  #expect(await eventually { model.results.count == 13 })
+  #expect(await eventually { model.results.count == FileSearch.shown + 1 })
   #expect(model.sizedRows == 8)
   model.input = "invx"
   #expect(model.results.count == 1 && model.sizedRows == 8)
