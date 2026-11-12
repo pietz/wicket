@@ -102,6 +102,11 @@ final class AnswerRenderer {
     update(text, turn: turn, streaming: false)
     await withCheckedContinuation { waiting.append($0) }
   }
+  /// Returns once no render is scheduled or running, like `LauncherModel.settled`.
+  func settled() async {
+    guard renderTask != nil else { return }
+    await withCheckedContinuation { waiting.append($0) }
+  }
   private func resumeWaiting() {
     for continuation in waiting { continuation.resume() }
     waiting.removeAll()

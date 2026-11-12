@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 import Vision
+import WebKit
 
 @testable import WicketApp
 
@@ -386,12 +387,31 @@ private let nextAnswer =
   }
 }
 
-@MainActor private func render(_ view: NSView, to url: URL) throws {
+/// Draws the view offscreen. Web views are drawn from their own snapshots: the composited layer of a
+/// web view in a window that is never shown sometimes stays blank however long one waits (whole
+/// batches of pages did, now and then), while a snapshot is rendered by WebKit itself.
+@MainActor private func render(_ view: NSView, to url: URL) async throws {
   view.layoutSubtreeIfNeeded()
   guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
     throw ExtensionFailure("No render target")
   }
   view.cacheDisplay(in: view.bounds, to: bitmap)
+  func webViews(_ view: NSView) -> [WKWebView] {
+    (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webViews)
+  }
+  for web in webViews(view) where !web.isHiddenOrHasHiddenAncestor && !web.visibleRect.isEmpty {
+    // Only the part a scroll region shows.
+    let configuration = WKSnapshotConfiguration()
+    configuration.rect = web.visibleRect
+    let image = try await web.takeSnapshot(configuration: configuration)
+    var frame = web.convert(web.visibleRect, to: view)
+    // The bitmap's context is never flipped.
+    if view.isFlipped { frame.origin.y = view.bounds.height - frame.maxY }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
+    NSGraphicsContext.restoreGraphicsState()
+  }
   try bitmap.representation(using: .png, properties: [:])?.write(to: url)
 }
 
@@ -411,9 +431,12 @@ func panelCapture(_ state: String) async throws {
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   for dark in [false, true] {
     let scenario = try await Scenario.make(state, dark: dark)
-    try await Task.sleep(for: .seconds(2))  // Let WebKit paint.
+    // Under the load of this run, with every state drawn at once, WebKit took up to five seconds to load
+    // its empty page, more than the fixed wait there was: wait for the render.
+    await scenario.controller?.renderer.settled()
     let target = directory.appending(path: "\(state)-\(dark ? "dark" : "light").png")
-    try render(scenario.view, to: target)
+    try await Task.sleep(for: .seconds(1))
+    try await render(scenario.view, to: target)
     let text = try recognizedText(in: target)
     let missing = expectedText(state).filter { !text.localizedCaseInsensitiveContains($0) }
     #expect(missing.isEmpty, "\(target.lastPathComponent) is missing \(missing). Recognized text: \(text)")
