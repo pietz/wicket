@@ -142,3 +142,66 @@ import Testing
   #expect(model.focusedArgument == nil)
   await model.finish()
 }
+
+/// The slots follow the typed text in the real fields: each keystroke moves them with it, the text is
+/// never left scrolled inside a field that grew, and long text stops at the slots and scrolls.
+@MainActor @Test func slotsFollowTheTypedTextUpToTheEnd() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "caffeinate",
+    fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  await model.extensions.reload()
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let panel = controller.panel
+  controller.show(orderFront: false, listen: false)
+  let input = try #require(panel.input)
+  func slot(_ label: String) -> NSTextField? {
+    func find(_ view: NSView) -> NSTextField? {
+      if let field = view as? NSTextField, field !== input, field.placeholderString == label { return field }
+      return view.subviews.lazy.compactMap(find).first
+    }
+    return find(panel.contentView!)
+  }
+  func frame(_ view: NSView?) -> NSRect { view.map { $0.convert($0.bounds, to: nil) } ?? .zero }
+  let editor = try #require(input.currentEditor() as? NSTextView)
+  let clip = try #require(editor.superview as? NSClipView)
+  var lastSlot: CGFloat = 0
+  var start: CGFloat?
+  for character in "caff" {
+    editor.insertText(String(character), replacementRange: editor.selectedRange())
+    await model.settled()
+    panel.contentView?.layoutSubtreeIfNeeded()
+    // The text starts at the field's start, and the first slot sits just after it.
+    start = start ?? clip.bounds.origin.x
+    #expect(clip.bounds.origin.x == start)
+    let hours = frame(slot("hours"))
+    #expect(hours.minX >= frame(input).maxX && hours.minX - frame(input).maxX < 20)
+    #expect(hours.minX > lastSlot)
+    lastSlot = hours.minX
+  }
+  #expect(frame(input).width < 120 && frame(slot("minutes")).minX > frame(slot("hours")).maxX)
+  // Long text in the open command: the slots stop at the end of the pill, fully visible, and the
+  // input scrolls inside the width they leave.
+  model.go(Address(id: "extension:caffeinate"), chosen: true)
+  await model.settled()
+  model.editInput(String(repeating: "keep the build server awake ", count: 4))
+  await model.settled()
+  panel.contentView?.layoutSubtreeIfNeeded()
+  let pillEnd = PaletteLayout.margin + PaletteLayout.width - 2 * PaletteLayout.margin - 18
+  // Before the microphone, if it shows.
+  #expect(frame(slot("minutes")).maxX + 9 <= pillEnd && frame(slot("minutes")).maxX + 9 > pillEnd - 40)
+  #expect(frame(input).maxX <= frame(slot("hours")).minX && frame(input).width > 300)
+  // Replacing the long text with a short one shows it from the start again, in a narrow field.
+  let field = try #require(input.currentEditor() as? NSTextView)
+  #expect((field.superview as? NSClipView)?.bounds.origin.x != start)
+  field.selectAll(nil)
+  field.insertText("now", replacementRange: field.selectedRange())
+  await model.settled()
+  panel.contentView?.layoutSubtreeIfNeeded()
+  #expect((field.superview as? NSClipView)?.bounds.origin.x == start && frame(input).width < 120)
+  controller.hide()
+  await model.finish()
+}

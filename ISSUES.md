@@ -65,7 +65,7 @@ Two independent reviews (GPT-6 Astra, Claude Fable 5.2) that then read each othe
 - **A catalog change reruns an open command and cancels its running request**, also a chosen one. An extension that rewrites its `wicket.json` to refresh items must do so last; another extension rewriting its manifest at that moment still interrupts. Refresh only when the open command's own entry changed.
 - **The 20 best items per extension are picked by fuzzy score alone**, in manifest order among equals, before tier and usage apply. In a large list a much used item can stay out for a short input; looking usage up per item costs a JSON encoding each.
 - **Return twice in a submit command sends twice**: the input and slot values stay after a submit, so a second Return repeats it. Decide whether a submit clears them.
-- **Slots at the trailing end** of the pill, not after the typed text, because a field that grows per keystroke fights AppKit's scrolling and IME text.
+- **Slots after the typed text** are checked offscreen only (captures and a field-level test): the input grows with each keystroke and the text never stayed scrolled. A real window still has to show it: the caret staying visible while typing at 21 points, Japanese or Chinese IME composition right before a slot (marked text is not measured, so the input scrolls while composing), dictated text arriving in the input, pasting a long text, and a click on the free space after the slots focusing the input.
 
 ## Process I/O
 

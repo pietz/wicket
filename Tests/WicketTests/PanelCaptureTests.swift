@@ -26,7 +26,8 @@ private let states = [
   "working", "permission-routine", "permission-high",
   "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
-  "extension-error", "arguments-empty", "arguments-filled", "arguments-command",
+  "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
+  "arguments-long", "arguments-three",
   "settings-general", "settings-voice", "settings-agent", "settings-sources", "settings-error",
   "settings-conflict",
 ]
@@ -75,6 +76,9 @@ private func expectedText(_ name: String) -> [String] {
   }
   if name.contains("arguments-empty") { return ["caff", "Caffeinate", "hours", "minutes"] }
   if name.contains("arguments-filled") { return ["caff", "Caffeinate", "4", "30"] }
+  if name.contains("arguments-open") { return ["Caffeinate", "hours", "minutes"] }
+  if name.contains("arguments-long") { return ["hours", "minutes", "Awake"] }
+  if name.contains("arguments-three") { return ["caff", "hours", "minutes", "seconds"] }
   if name.contains("arguments-command") { return ["Caffeinate", "4", "30", "Awake for 4 h 30 min"] }
   if name.contains("extension-pattern") { return ["6.2137119", "Copy conversion", "Ask agent"] }
   if name.contains("extension-list") { return ["wicket launcher", "Search for", "Search the web"] }
@@ -290,13 +294,15 @@ private let nextAnswer =
     }
   }
 
-  /// A command with two declared arguments, as the root row with its slots and as the open command.
+  /// A command with two declared arguments (three in `arguments-three`), as the root row with its slots
+  /// and as the open command: filled, empty, and with a long input pushing the slots to the end.
   private static func configureArguments(_ state: String, _ model: LauncherModel) async throws {
     let folder = model.agent.folder.appending(path: "extensions/caffeinate")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try JSONSerialization.data(withJSONObject: [
       "name": "Caffeinate", "command": ["/usr/bin/python3", "main.py"], "icon": "cup.and.saucer",
-      "arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]],
+      "arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]
+        + (state == "arguments-three" ? [["name": "seconds"]] : []),
     ]).write(to: folder.appending(path: "wicket.json"))
     let code = """
       import json,sys; a=json.load(sys.stdin)['arguments']
@@ -306,12 +312,16 @@ private let nextAnswer =
     await model.extensions.reload()
     model.input = "caff"
     await model.settled()
-    if state != "arguments-empty" {
+    if state == "arguments-filled" || state == "arguments-command" {
       model.setArgument("hours", to: "4")
       model.setArgument("minutes", to: "30")
     }
-    if state == "arguments-command" {
+    if ["arguments-command", "arguments-open", "arguments-long"].contains(state) {
       _ = model.activateReturn()
+      await model.settled()
+    }
+    if state == "arguments-long" {
+      model.input = "a long note about why the build server should stay awake through the night"
       await model.settled()
     }
   }
@@ -443,6 +453,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.command == nil && model.argumentValues == ["hours": "4", "minutes": "30"])
   case "arguments-command":
     #expect(model.argumentValues.count == 2 && model.results.first?.row.title == "Awake for 4 h 30 min")
+  case "arguments-open", "arguments-long": #expect(model.command != nil && model.argumentValues.isEmpty)
+  case "arguments-three": #expect(model.declaredArguments.count == 3)
   case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
   case "extension-pattern": #expect(model.results.first?.row.title.contains("6.21") == true)
   case "extension-fallback": #expect(model.results.contains { $0.row.id == "fallback" })

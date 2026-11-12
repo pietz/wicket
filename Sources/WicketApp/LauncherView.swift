@@ -20,9 +20,17 @@ struct SearchField: NSViewRepresentable {
     field.font = .systemFont(ofSize: size)
     field.textColor = .labelColor
     field.focusRingType = .none
+    // Since macOS 14 views draw outside their bounds by default; text longer than the field must not.
+    field.clipsToBounds = true
     field.delegate = context.coordinator
     register(field)
     return field
+  }
+  /// Exactly the width it is given: the layout sizes fields from their text, never the reverse, and
+  /// AppKit's intrinsic width would let long text push the field past the slots.
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+    guard let width = proposal.width else { return nil }
+    return CGSize(width: width, height: proposal.height ?? nsView.intrinsicContentSize.height)
   }
   func updateNSView(_ field: NSTextField, context: Context) {
     context.coordinator.text = $text
@@ -69,6 +77,36 @@ final class FocusReportingField: NSTextField {
   }
 }
 
+/// The input followed directly by its argument slots, like `Caffeinate [hours] [minutes]`: the input is
+/// as wide as its text up to the room the slots leave, so the slots sit where the eyes are and stay
+/// fully visible; past that the input scrolls. Without slots the input takes the whole width. The
+/// input's start never moves.
+struct InputBar: Layout {
+  var spacing: CGFloat = 6
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+    return CGSize(
+      width: proposal.width ?? sizes.reduce(0) { $0 + $1.width + spacing },
+      height: proposal.height ?? sizes.map(\.height).max() ?? 0)
+  }
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    guard let input = subviews.first else { return }
+    let slots = subviews.dropFirst().map { $0.sizeThatFits(.unspecified) }
+    let room = bounds.width - slots.reduce(0) { $0 + spacing + $1.width }
+    let width =
+      slots.isEmpty ? bounds.width : max(0, min(input.sizeThatFits(.unspecified).width, room))
+    input.place(
+      at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+      proposal: ProposedViewSize(width: width, height: bounds.height))
+    var x = bounds.minX + width
+    for (slot, size) in zip(subviews.dropFirst(), slots) {
+      x += spacing
+      slot.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(size))
+      x += size.width
+    }
+  }
+}
+
 struct LauncherView: View {
   @Bindable var model: LauncherModel
   let renderer: AnswerRenderer
@@ -89,16 +127,14 @@ struct LauncherView: View {
           Image(systemName: model.agent.active ? "sparkles" : "magnifyingglass").font(
             .system(size: 19, weight: .medium)
           ).foregroundStyle(.secondary).frame(width: 24)
-          SearchField(
-            text: Binding(get: { model.input }, set: { model.editInput($0) }),
-            placeholder: model.agent.active
-              ? (model.agent.question.isEmpty ? "Ask \(model.askingName)…" : "Ask a follow-up…")
-              : (model.commandName ?? "Search or ask anything…"),
-            focused: model.focusedArgument == nil,
-            onFocus: { if model.focusedArgument != nil { model.focusedArgument = nil } },
-            register: registerInput
-          ).frame(height: 30)
-          ForEach(model.declaredArguments, id: \.name) { argumentSlot($0) }
+          InputBar {
+            input
+            ForEach(model.declaredArguments, id: \.name) { argumentSlot($0) }
+          }
+          .frame(height: 30)
+          // The free space after the slots belongs to the input.
+          .contentShape(Rectangle())
+          .onTapGesture { model.focusedArgument = nil }
           if model.configuration.voice.enabled, model.takesSpeech {
             Button {
               model.toggleVoice()
@@ -184,8 +220,28 @@ struct LauncherView: View {
     // The host can briefly be taller than its new content. Never centre the input in it.
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
-  /// A declared argument's slot after the input: as wide as its text within fixed bounds, so the pill and
-  /// the input's start never move. Fixed sizes, like the input.
+  /// The main input, sized by a hidden copy of its text (or placeholder) so the slots can follow it; the
+  /// field itself never sizes itself. The first 200 characters are enough to fill any width.
+  private var input: some View {
+    let placeholder =
+      model.agent.active
+      ? (model.agent.question.isEmpty ? "Ask \(model.askingName)…" : "Ask a follow-up…")
+      : (model.commandName ?? "Search or ask anything…")
+    return Text(model.input.isEmpty ? placeholder : String(model.input.prefix(200)))
+      .font(.system(size: 21)).lineLimit(1).hidden()
+      .padding(.trailing, 8)  // Room for the caret and the field's own inset.
+      .frame(minWidth: 0, maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
+      .overlay {
+        SearchField(
+          text: Binding(get: { model.input }, set: { model.editInput($0) }),
+          placeholder: placeholder,
+          focused: model.focusedArgument == nil,
+          onFocus: { if model.focusedArgument != nil { model.focusedArgument = nil } },
+          register: registerInput)
+      }
+  }
+  /// A declared argument's slot after the input's text: as wide as its own text within fixed bounds.
+  /// Fixed sizes, like the input.
   private func argumentSlot(_ argument: ExtensionManifest.Argument) -> some View {
     let label = argument.placeholder ?? argument.name
     let value = model.argumentValues[argument.name] ?? ""
