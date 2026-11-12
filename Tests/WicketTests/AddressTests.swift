@@ -98,16 +98,16 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   let outside = url("wicket://deploy?input=prod&arguments=%7B%22a%22%3A%22b%22%7D&extension=other")
   #expect(outside == link("deploy", "prod") && outside?.arguments == nil)
   // The same goes for what an agent writes: its items and the links in its text.
-  let view = ProviderView(
-    reply: #"<item title="Open" open="wicket://deploy?input=prod&arguments=%5B%22delete%22%5D"/>"#
-      + #"<item title="Root" open="wicket://?input=hello"/><item title="Why" ask="Why?"/>"#)
+  let page = Page(
+    body: #"<item title="Open" open="wicket://deploy?input=prod&arguments=%5B%22delete%22%5D"/>"#
+      + #"<item title="Root" open="wicket://?input=hello"/><item title="Why" ask="Why?"/>"#, runs: false)
   #expect(
-    view.items.map(\.actions) == [
+    page.targets.map(\.actions) == [
       [.run(link("deploy", "prod"))],
       [.run(link("", "hello"))],
       [.agent("Why?")],
     ])
-  #expect(view.items.allSatisfy { $0.actions.count == 1 })
+  #expect(page.targets.allSatisfy { $0.actions.count == 1 })
   #expect(AnswerLink.allowed(URL(string: "wicket://deploy?input=x")))
   // The wire has no spelling that gives a URL arguments, whichever action carries it.
   #expect(
@@ -245,10 +245,11 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   }
   let markdown = try await run("printf '## Done\\n<stat label=\"Total\" value=\"42\"/>\\n'")
   #expect(markdown.body == "## Done\n<stat label=\"Total\" value=\"42\"/>" && markdown.items.isEmpty)
-  // The reply parser also reads its item tags, with the outsider rules.
+  // Its item tags stay where they stand; the page reads them as an extension's own.
   let tagged = try await run(
     "printf 'See <item title=\"Docs\" open=\"https://example.com\"/>'")
-  #expect(tagged.body == "See" && tagged.items.map(\.title) == ["Docs"])
+  #expect(tagged.body == #"See <item title="Docs" open="https://example.com"/>"# && tagged.items.isEmpty)
+  #expect(Page(body: tagged.body ?? "", runs: true).targets.map(\.title) == ["Docs"])
   // JSON, even after whitespace, is still a view.
   #expect(try await run("printf '\\n  {\"body\":\"json\"}'") == ProviderView(body: "json"))
   for broken in [
@@ -366,7 +367,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   request = try await activate(.run(try #require(url("wicket://ship?input=prod"))))
   #expect(!request.chosen && request.input == "prod")
   let agentItem = try #require(
-    ProviderView(reply: #"<item title="Ship" open="wicket://ship?input=a"/>"#).items.first)
+    Page(body: #"<item title="Ship" open="wicket://ship?input=a"/>"#, runs: false).targets.first)
   request = try await activate(agentItem.actions[0], from: Result(provider: "answer", row: agentItem))
   #expect(!request.chosen && request.input == "a")
   // The host's Show details and error rows only show what a pattern produced.

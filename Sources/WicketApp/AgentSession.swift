@@ -17,9 +17,9 @@ final class AgentSession {
   private(set) var busy = false
   private(set) var turnID = UUID().uuidString
   private(set) var question = ""
-  private(set) var answer = "" { didSet { view = ProviderView(reply: answer) } }
-  /// The answer as the same view an extension returns: Markdown body and native items.
-  private(set) var view = ProviderView(body: "")
+  private(set) var answer = "" { didSet { page = Page(body: answer, runs: false) } }
+  /// The answer as a page, with what it lets the user act on where it stands. Never a run action.
+  private(set) var page = Page(body: "", runs: false)
   private(set) var status = ""
   private(set) var problem: String?
   private(set) var permissions: [AgentPermission] = []

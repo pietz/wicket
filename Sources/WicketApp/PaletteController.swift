@@ -130,11 +130,20 @@ final class PaletteController: NSObject, NSWindowDelegate {
       self.panel.makeKey()
     }
     renderer.onHeight = { [weak self] in self?.resize() }
-    model.preparePage = { [weak self] body, turn, capped in
+    // A click on a page's target is Return on it, if it was made on the page shown now.
+    renderer.onTarget = { [weak self] id, turn in
+      guard let self, model.clickTarget(id, turn: turn) else { return }
+      run()
+    }
+    model.onSelectionChange = { [weak self] in
+      guard let self else { return }
+      renderer.selected = model.selectedTarget
+    }
+    model.preparePage = { [weak self] page, turn in
       guard let self, isOpen else { return }
       renderer.textSize = model.configuration.textSize
-      renderer.capped = capped
-      await renderer.render(body, turn: turn)
+      renderer.selected = nil
+      await renderer.render(page, turn: turn)
     }
   }
   func toggle(eventTime: TimeInterval) {
@@ -198,17 +207,15 @@ final class PaletteController: NSObject, NSWindowDelegate {
     panel.contentView?.layoutSubtreeIfNeeded()
     panel.invalidateShadow()
   }
-  /// The screen that is open: the conversation if there is one, otherwise an extension's body.
+  /// The page that is open: a detail, the conversation's answer or an extension's body. A list has
+  /// none, and the renderer is not touched.
   private func renderContent() {
+    guard let page = model.page else { return }
     renderer.textSize = model.configuration.textSize
-    renderer.capped = model.results.isEmpty
-    if model.agent.active {
-      renderer.update(
-        model.agent.view.body ?? "", turn: model.agent.turnID,
-        streaming: model.agent.busy && model.agent.streaming)
-    } else if let body = model.body {
-      renderer.update(body, turn: model.command?.turn ?? "", streaming: false)
-    }
+    renderer.selected = model.selectedTarget
+    renderer.update(
+      page, turn: model.pageTurn,
+      streaming: model.agent.active && !model.inDetail && model.agent.busy && model.agent.streaming)
   }
   /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
   func open(_ url: URL) {
@@ -230,7 +237,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       model.writePasteboard(text)
       record()
       hide()
-    case .run, .send: break
+    case .run, .send, .detail: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

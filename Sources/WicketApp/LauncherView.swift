@@ -158,7 +158,7 @@ struct LauncherView: View {
         VStack(spacing: 0) {
           if model.agent.active {
             agentContent
-          } else if model.command?.problem != nil || model.body != nil {
+          } else if model.command?.problem != nil || model.page != nil {
             extensionContent
           } else {
             ScrollViewReader { proxy in
@@ -207,8 +207,10 @@ struct LauncherView: View {
                 Text("↩ Follow up")
               }
               Text(
-                model.agent.busy
-                  ? "Esc Cancel" : model.agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
+                model.inDetail
+                  ? "Esc Back"
+                  : model.agent.busy
+                    ? "Esc Cancel" : model.agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
               Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
               Text(model.command == nil ? "esc Close" : "esc Back")
@@ -265,7 +267,7 @@ struct LauncherView: View {
       .padding(.horizontal, 9).frame(height: 28)
       .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.08)))
   }
-  /// One item row, shared by the list and the items below a body.
+  /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
   private func resultRow(_ result: Result) -> some View {
     HStack(spacing: 10) {
       icon(result).frame(width: 26, height: 26)
@@ -352,36 +354,11 @@ struct LauncherView: View {
           ).padding(.horizontal, 20).padding(.vertical, 18)
         }.frame(height: PaletteLayout.error)
       } else {
-        if model.results.isEmpty {
-          answerBody
-        } else {
-          // One scroll region: the page at its full height, then the native items.
-          ScrollViewReader { proxy in
-            ScrollView {
-              VStack(spacing: 0) {
-                answerBody
-                itemList
-              }
-            }
-            .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
-          }
-        }
+        answerBody
       }
     }
   }
-  /// The native items below a page, shared by a command's view and a conversation's answer.
-  private var itemList: some View {
-    VStack(spacing: 0) {
-      Divider()
-      LazyVStack(spacing: 2) { ForEach(model.results) { result in resultRow(result) } }.padding(10)
-    }
-  }
-  private var agentContent: some View {
-    ScrollViewReader { proxy in
-      agentScroll.onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
-    }
-  }
-  @ViewBuilder private var agentScroll: some View {
+  @ViewBuilder private var agentContent: some View {
     if model.agent.question.isEmpty {
       // A draft from the `agent` action: nothing is asked yet.
       Text("Press Return to ask \(model.askingName), or edit the question first.")
@@ -419,7 +396,7 @@ struct LauncherView: View {
               }
             }
             Button {
-              model.writePasteboard(model.agent.view.body ?? "")
+              model.writePasteboard(model.agent.answer)
             } label: {
               Image(systemName: "doc.on.doc")
             }
@@ -454,7 +431,6 @@ struct LauncherView: View {
             .frame(height: PaletteLayout.answerMin)
         } else {
           answerBody
-          if !model.results.isEmpty { itemList }
         }
       }
     }
@@ -513,18 +489,12 @@ extension RowAction {
     case .run(let address):
       address.extensionName == nil ? "Run" : address.targetID == "agent" ? "Ask agent…" : "Open"
     case .send: "Ask"
+    case .detail: "Show details"
     }
   }
 }
 
 extension LauncherModel {
-  /// The native items under a page, with their divider; none when the list is empty.
-  var itemsHeight: CGFloat {
-    results.isEmpty || agent.problem != nil
-      ? 0
-      : PaletteLayout.itemsHeight(
-        results.count, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
-  }
   func cardHeight(answer: CGFloat, cap: Double) -> CGFloat {
     if agent.active, agent.question.isEmpty { return PaletteLayout.answerMin + PaletteLayout.footer }
     if agent.active {
@@ -532,14 +502,12 @@ extension LauncherModel {
         560,
         conversationHeaderHeight
           + (agent.permissions.isEmpty
-            ? (agent.busy && agent.answer.isEmpty ? PaletteLayout.answerMin : answer + itemsHeight)
+            ? (agent.busy && agent.answer.isEmpty ? PaletteLayout.answerMin : answer)
             : confirmationHeight))
         + PaletteLayout.footer
     }
     if command?.problem != nil { return PaletteLayout.header + PaletteLayout.error + PaletteLayout.footer }
-    if body != nil {
-      return PaletteLayout.header + min(answer + itemsHeight, CGFloat(cap)) + PaletteLayout.footer
-    }
+    if page != nil { return PaletteLayout.header + min(answer, CGFloat(cap)) + PaletteLayout.footer }
     return PaletteLayout.rowsHeight(
       sizedRows, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
       + PaletteLayout.footer

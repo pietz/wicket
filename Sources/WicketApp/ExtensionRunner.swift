@@ -81,7 +81,7 @@ struct ExtensionRunner: Sendable {
       // A view is JSON, which starts with `{`, and a broken one stays an error. Anything else is Markdown.
       let text = String(decoding: out.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { throw failure("Extension printed nothing") }
-      guard text.hasPrefix("{") else { return ProviderView(reply: text) }
+      guard text.hasPrefix("{") else { return ProviderView(body: text) }
       do { return try JSONDecoder().decode(ProviderView.self, from: out.data) } catch {
         // DecodingError's description includes the coding path and missing/incorrect field.
         throw failure(Self.decodingMessage(error))

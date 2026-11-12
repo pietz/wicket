@@ -5,12 +5,9 @@ import Foundation
 enum PaletteLayout {
   static let margin: CGFloat = 40
   static let width: CGFloat = 640 + 2 * margin
-  static func itemsHeight(_ count: Int, prominentFirst: Bool = false, rowHeight: Double = 40) -> CGFloat {
-    CGFloat(count) * (rowHeight + 2) - 2 + 20 + (prominentFirst ? 20 : 0)
-  }
   /// The list card: at least one row, at most eight before it scrolls.
   static func rowsHeight(_ count: Int, prominentFirst: Bool = false, rowHeight: Double = 40) -> CGFloat {
-    itemsHeight(max(1, min(count, 8)), prominentFirst: prominentFirst, rowHeight: rowHeight)
+    CGFloat(max(1, min(count, 8))) * (rowHeight + 2) - 2 + 20 + (prominentFirst ? 20 : 0)
   }
   static let search: CGFloat = 56, gap: CGFloat = 8, header: CGFloat = 40, footer: CGFloat = 35
   static let error: CGFloat = 220, permission: CGFloat = 114

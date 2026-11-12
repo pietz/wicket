@@ -10,7 +10,9 @@ import WebKit
   let renderer = AnswerRenderer(folder: folder) { _ in }
   defer { renderer.release() }
   renderer.update(
-    "## Bridge proof\n<script>document.body.dataset.agent='ran'</script>", turn: "test", streaming: false)
+    Page(body: "## Bridge proof\n<script>document.body.dataset.agent='ran'</script>", runs: false),
+    turn: "test",
+    streaming: false)
   var text = ""
   let deadline = ContinuousClock.now + .seconds(8)
   while ContinuousClock.now < deadline {

@@ -23,7 +23,7 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 
 Done (12 Nov 2026, concept review finding 2): arguments are named, an object of strings; a manifest declares up to three `arguments` and may set `submit`; `chosen` means the user activated it; every action takes a `title`. Step 2, the same day: the declared arguments are slots in the input bar; type "caff", Tab into `hours` and `minutes`, Return runs.
 
-From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<item title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; `<item>` is read in every body, a JSON body included; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
+From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<item title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
 
 ## Next, from the concept review
 
@@ -45,7 +45,7 @@ w-stat { … }
 - **Attribute order stops being layout.** The built-in styles place fields by name.
 - `theme.css` keeps the tokens.
 
-To settle in a design session: the comment's exact form; whether an owner's file replaces the bundled one or layers over it; whether `item` (the one tag the page does not draw) is in the registry; how a component takes a list of values (a chart: an attribute such as `values="3,5,8"` or a fenced block); and the parts CSS cannot draw, which stay the host's (SF Symbols, local images, charts from numbers: content names, the host resolves, and agent text still loads nothing remote).
+To settle in a design session: the comment's exact form; whether an owner's file replaces the bundled one or layers over it; how a component says it can be a target (Swift must know which tags carry actions); how a component takes a list of values (a chart: an attribute such as `values="3,5,8"` or a fenced block); and the parts CSS cannot draw, which stay the host's (SF Symbols, local images, charts from numbers: content names, the host resolves, and agent text still loads nothing remote).
 
 ### Why answers look worse than 0.0.x
 
@@ -54,7 +54,7 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 ### Smaller contract steps
 
 - **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. It gives a run a way to end the interaction, which copy and open have and the first Wicket had as `close` (finding 3).
-- **Richer rows before a focus model in the page.** `accessory` (a trailing value), `section` (a header over consecutive rows) and a file path as `icon`, so a reply whose content is the list of things to act on needs no second copy of it as components (finding 5).
+- **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). Still open from the vocabulary proposals: `label` and `value` on a row (a time, a trailing value), so `fact` and `event` can become items, and a table row as a target.
 - **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10).
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or take Ask agent's place (finding 1).
 - View `actions` without a body; lossless paste for extensions; a URL that fills declared arguments, with bindings.

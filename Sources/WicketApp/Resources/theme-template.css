@@ -9,6 +9,8 @@
   --edge: ...;                       the hairline around a card
   --track: ...;                      empty part of bars
   --accent: AccentColor;             links and bars
+  --label: ...; --secondary: ...;    a row's title and subtitle, as in the native list
+  --selection: ...;                  the selected row, card or tile
   --positive: ...; --warning: ...; --negative: ...; --info: ...;      fills, bars and dots
   --positive-ink: ...; --warning-ink: ...; --negative-ink: ...;      toned text
   --tint: 16%;                       strength of a toned fill
@@ -18,6 +20,8 @@
 
 Use light-dark(light, dark) for a color that differs between appearances.
 Components are w-answer, w-stats/w-stat, w-facts/w-fact, w-bars/w-bar, w-timeline/w-event,
-w-badge, w-card, w-columns/w-column and w-callout. Attributes arrive as data-* attributes and
-as [data-field="name"] spans; tones as [data-tone=positive|warning|negative].
+w-badge, w-card, w-columns/w-column, w-callout and w-items/w-item. Attributes arrive as data-*
+attributes and as [data-field="name"] spans; tones as [data-tone=positive|warning|negative]. What the
+user can act on has [data-target], and the selected one [data-selected]. A row copies the native
+list's metrics: change them only together with the launcher's own look.
 */

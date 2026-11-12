@@ -110,7 +110,8 @@ enum AnswerMarkdown {
         let range = (2...4).map { attr.range(at: $0) }.first { $0.location != NSNotFound }!
         let value = ns.substring(with: range)
         attrs += " data-\(key)=\"\(escape(value))\""
-        fields += "<span data-field=\"\(key)\">\(escape(value))</span>"
+        // A target's id is for the bridge, not text.
+        if key != "target" { fields += "<span data-field=\"\(key)\">\(escape(value))</span>" }
         if let number = Double(value), number.isFinite, abs(number) <= 1_000_000 {
           numbers += "--\(key):\(number);"
         }
@@ -173,10 +174,10 @@ enum AnswerMarkdown {
     return group(pieces.joined())
   }
   /// Item tags and the element that holds a run of them.
-  static let groups = ["stat": "stats", "fact": "facts", "bar": "bars", "event": "timeline"]
+  static let groups = ["stat": "stats", "fact": "facts", "bar": "bars", "event": "timeline", "item": "items"]
   private static let runs = try! NSRegularExpression(
     pattern:
-      #"<w-(stat|fact|bar|event)\b[^>]*>(?:(?!</w-\1>).)*</w-\1>(?:\s*<w-\1\b[^>]*>(?:(?!</w-\1>).)*</w-\1>)*\s*"#,
+      #"<w-(stat|fact|bar|event|item)\b[^>]*>(?:(?!</w-\1>).)*</w-\1>(?:\s*<w-\1\b[^>]*>(?:(?!</w-\1>).)*</w-\1>)*\s*"#,
     options: .dotMatchesLineSeparators)
   /// Wraps each run of adjacent items of one kind in its group element.
   private static func group(_ html: String) -> String {

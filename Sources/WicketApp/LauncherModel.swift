@@ -10,6 +10,8 @@ struct CommandState {
   var next = Cause.address
   enum Cause { case rerun, address, choice }
   var view = ProviderView()
+  /// The view's body as a page, with its items after it; nil for a list.
+  var page: Page?
   var problem: String?
   var busy = false
   var turn = UUID().uuidString
@@ -54,9 +56,47 @@ final class LauncherModel {
       onResultsChange?()
     }
   }
-  /// The rows under the open page: the conversation's items while there is one, else the list.
+  /// What the arrow keys walk: the open page's targets in reading order, else the list.
   var results: [Result] {
-    agent.active ? agent.view.items.map { Result(provider: "answer", row: $0) } : listed
+    guard let page else { return listed }
+    let provider = agent.active ? "answer" : command?.id ?? ""
+    return page.targets.map { Result(provider: provider, row: $0) }
+  }
+  /// The page shown: an open detail, the conversation's answer, or the open command's body.
+  var page: Page? {
+    if let detail = openDetails.last { return detail.page }
+    if agent.active { return agent.question.isEmpty ? nil : agent.page }
+    return command?.problem == nil ? command?.page : nil
+  }
+  /// Which page is shown, for the renderer (a new one starts at its top) and for clicks, which count
+  /// only on the page they were made on.
+  var pageTurn: String { openDetails.last?.turn ?? baseTurn }
+  private var baseTurn: String { agent.active ? agent.turnID : command?.turn ?? "" }
+  /// An item's content opened as its own page, over the page it came from: the selection and the
+  /// scroll position there come back with Escape. Details belong to one page (`base`); a new answer or
+  /// view leaves them.
+  private struct Detail {
+    let page: Page
+    let base: String
+    let turn: String
+    let selection: String?
+    let touched: Bool
+  }
+  private var details: [Detail] = []
+  private var openDetails: [Detail] { details.first?.base == baseTurn ? details : [] }
+  var inDetail: Bool { !openDetails.isEmpty }
+  /// The selected target's id as the page knows it.
+  var selectedTarget: String? { page == nil ? nil : results.first { $0.id == selection }?.row.id }
+  /// Opens an item's content as its own page, with no model call and no extension run. Its items may
+  /// run the open command as the page it came from could.
+  private func openDetail(_ markdown: String, from result: Result?) {
+    details = openDetails
+    details.append(
+      Detail(
+        page: Page(body: markdown, runs: !agent.active), base: baseTurn,
+        turn: pageTurn + ">" + (result?.row.id ?? ""), selection: selection, touched: selectionTouched))
+    clearSelection()
+    onResultsChange?()
   }
   private(set) var isRefreshing = false
   private(set) var command: CommandState? {
@@ -74,10 +114,9 @@ final class LauncherModel {
   private var arriving: Arrival?
   private var deadline: Task<Void, Never>?
   var arrivalDeadline: Duration = .milliseconds(150)
-  /// Prepares an arriving page before it is shown: the controller renders and measures its body, so the
-  /// card's height is known when the page appears. Arguments are the body, its turn and whether it is
-  /// capped (no items below it).
-  var preparePage: ((String, String, Bool) async -> Void)?
+  /// Prepares an arriving page before it is shown: the controller renders and measures it, so the
+  /// card's height is known when the page appears. Arguments are the page and its turn.
+  var preparePage: ((Page, String) async -> Void)?
   /// The command requests go to: the arriving one during a switch, else the open one.
   private var target: CommandState? {
     get { arriving.map(\.command) ?? command }
@@ -96,8 +135,11 @@ final class LauncherModel {
       drafted = [:]
       // The draft is gone, so the input takes the keys again.
       if command == nil { focusTarget = nil }
+      onSelectionChange?()
     }
   }
+  /// The page paints its selection from here, at once rather than with the next render.
+  var onSelectionChange: (() -> Void)?
   func select(_ id: String?) {
     selectionTouched = true
     selection = id
@@ -349,7 +391,7 @@ final class LauncherModel {
       let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.next == .choice)
       if let view = immediateView(state.id, request) {
         showArrival()
-        show(view, of: state.id, turn: UUID().uuidString)
+        show(view, page: nil, of: state.id, turn: UUID().uuidString)
         retainSelection()
         onResultsChange?()
         return
@@ -363,12 +405,13 @@ final class LauncherModel {
             let view = try await source(request)
             guard let self, !Task.isCancelled, generation == version else { return }
             let turn = UUID().uuidString
-            if arriving != nil, let body = view.body, let preparePage {
-              await preparePage(body, turn, view.items.isEmpty)
+            let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
+            if arriving != nil, let page, let preparePage {
+              await preparePage(page, turn)
               guard !Task.isCancelled, generation == version else { return }
             }
             showArrival()
-            show(view, of: state.id, turn: turn)
+            show(view, page: page, of: state.id, turn: turn)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
             showArrival()
@@ -482,12 +525,13 @@ final class LauncherModel {
       for task in tasks { await task.value }
     } while seen != generation
   }
-  /// A command's view, ordered by what is typed.
-  private func show(_ view: ProviderView, of id: String, turn: String) {
+  /// A command's view: a list ordered by what is typed, or a page.
+  private func show(_ view: ProviderView, page: Page?, of id: String, turn: String) {
     command?.turn = turn
     command?.view = view
+    command?.page = page
     command?.busy = false
-    listed = Ranking.order(view.items, provider: id, query: input)
+    listed = page == nil ? Ranking.order(view.items, provider: id, query: input) : []
   }
   private func compose() {
     showArrival()
@@ -515,6 +559,12 @@ final class LauncherModel {
     if !selectionTouched {
       selection = itemsWait ? nil : rows.first?.id
     } else if let chosen = selection, !rows.contains(where: { $0.id == chosen }) {
+      // On a page a target that went away takes the selection with it: Return never moves to a neighbor.
+      if page != nil {
+        clearSelection()
+        resetSelection = false
+        return
+      }
       if !pending.isEmpty {
         resetSelection = false
         return
@@ -526,7 +576,7 @@ final class LauncherModel {
     previousRows = rows.map(\.id)
   }
   var prominentFirst: Bool { results.first.map { $0.row.prominent == true } ?? false }
-  /// The open command's Markdown body, shown above its items.
+  /// The open command's Markdown body.
   var body: String? {
     guard let command, command.problem == nil else { return nil }
     return command.view.body
@@ -536,7 +586,7 @@ final class LauncherModel {
   /// Whether the input has the first say, so items wait for an arrow key and typing leaves them: in a
   /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
   /// it runs the view's actions.
-  private var itemsWait: Bool { agent.active || submits || body != nil }
+  private var itemsWait: Bool { agent.active || submits || page != nil }
   /// The open command runs on Return only (`submit` in its manifest).
   var submits: Bool { extensionCommand?.manifest.submit == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
@@ -552,7 +602,7 @@ final class LauncherModel {
           id: "submit", title: commandName ?? "Run",
           actions: [.run(Address(input: input, arguments: filledArguments(of: command)))]))
     }
-    guard body != nil else { return nil }
+    guard body != nil, !inDetail else { return nil }
     return Result(
       provider: command.id,
       row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
@@ -622,6 +672,15 @@ final class LauncherModel {
     select(id)
     return false
   }
+  /// A click on a page's target selects it and runs it. It counts only on the page it was made on, so a
+  /// click that raced a new answer or view is ignored. True when the caller should run Return.
+  func clickTarget(_ id: String, turn: String) -> Bool {
+    guard page != nil, turn == pageTurn, let target = results.first(where: { $0.row.id == id }) else {
+      return false
+    }
+    select(target.id)
+    return true
+  }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     let rows = results
@@ -648,6 +707,7 @@ final class LauncherModel {
       // Activating a run action is the user's choice; following a link never is.
       go(address, from: result?.provider, chosen: !address.link)
     case .send(let text): send(text)
+    case .detail(let markdown): openDetail(markdown, from: result)
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
@@ -730,6 +790,14 @@ final class LauncherModel {
     // Escape while a command is being entered stays where it was; a way back is already on its way.
     if let arrival = arriving {
       if !arrival.back { stopArriving() }
+      return true
+    }
+    // A detail goes back to where the user was on the page under it.
+    if let detail = openDetails.last {
+      details = Array(openDetails.dropLast())
+      selection = detail.selection
+      selectionTouched = detail.touched
+      onResultsChange?()
       return true
     }
     if agent.active {

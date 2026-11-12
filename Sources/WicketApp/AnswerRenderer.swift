@@ -21,6 +21,19 @@ struct AnswerNavigation: WebPage.NavigationDeciding {
   }
 }
 
+/// Receives the bridge's clicks on targets from the isolated world. Page scripts cannot reach it, and
+/// it passes on only an id and the turn of the page it was made on; Swift decides what that means.
+private final class TargetClicks: NSObject, WKScriptMessageHandler {
+  let receive: @MainActor (String, String) -> Void
+  init(_ receive: @escaping @MainActor (String, String) -> Void) { self.receive = receive }
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    guard let body = message.body as? [String: Any], let id = body["id"] as? String,
+      let turn = body["turn"] as? String
+    else { return }
+    receive(id, turn)
+  }
+}
+
 /// Canvas created when the panel opens and released after it stays hidden. Agent text enters only through the safe Markdown adapter.
 @MainActor @Observable
 final class AnswerRenderer {
@@ -28,9 +41,21 @@ final class AnswerRenderer {
   private(set) var height: Double = PaletteLayout.answerMin
   private(set) var problem: String?
   var onHeight: (() -> Void)?
+  /// A click on a target: its id and the turn of the page it was made on.
+  var onTarget: ((String, String) -> Void)?
   var cap: Double = PaletteLayout.answerMax
-  /// False when the page sits above native items in one scroll region, so it shows its full height.
-  var capped = true
+  /// The selected target's id. A change is painted at once, outside the render batch, so an arrow key
+  /// never waits for Markdown; every render paints it again.
+  var selected: String? {
+    didSet {
+      guard selected != oldValue, ready, let page else { return }
+      let script = bridge
+      Task {
+        _ = try? await page.callJavaScript(
+          script, arguments: Self.paint(selected), contentWorld: .defaultClient)
+      }
+    }
+  }
   var releaseDelay: Duration = .seconds(60)
   var textSize = Configuration.TextSize.medium {
     didSet {
@@ -50,12 +75,17 @@ final class AnswerRenderer {
   private var shellLoad: Task<Void, any Error>?
   private var revision = 0
   private var renderID = 0
-  private var source = ""
+  private var source = Page(body: "", runs: false)
   private var turn = ""
   private var renderedTurn = ""
   private var streaming = false
   private var cssRevision = 0
   private var appliedCSS = -1
+  private var appliedIcons = ""
+  /// Where each page was scrolled when another replaced it, so going back to it returns there.
+  private var positions: [String: Double] = [:]
+  private let bridge = try! String(
+    contentsOf: Bundle.wicket.url(forResource: "bridge", withExtension: "js")!, encoding: .utf8)
   /// Callers of `render` waiting for the pass that measures their page.
   private var waiting: [CheckedContinuation<Void, Never>] = []
 
@@ -80,16 +110,21 @@ final class AnswerRenderer {
     let own = (try? String(contentsOf: folder.appending(path: "theme.css"), encoding: .utf8)) ?? ""
     return "@layer wicket {\n\(base)\n}\n\(own)"
   }
+  /// Images are allowed only as `data:` URLs, which only the host writes: the target icons. Markdown
+  /// images and raw HTML never reach the page.
   private func shell() -> String {
     """
     <!doctype html><html><head><meta charset="utf-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; font-src 'none'">
-    <style id="theme"></style></head><body><main></main></body></html>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; font-src 'none'">
+    <style id="theme"></style><style id="icons"></style></head><body><main></main></body></html>
     """
   }
-  func update(_ text: String, turn: String, streaming: Bool) {
+  private static func paint(_ selected: String?) -> [String: Any] {
+    ["html": NSNull(), "selected": selected ?? NSNull()]
+  }
+  func update(_ page: Page, turn: String, streaming: Bool) {
     releaseTask?.cancel()
-    source = text
+    source = page
     self.turn = turn
     self.streaming = streaming
     revision += 1
@@ -98,8 +133,8 @@ final class AnswerRenderer {
   }
   /// Renders a page and returns once it is measured (or rendering stopped), so a page can be shown
   /// at its height from the first frame.
-  func render(_ text: String, turn: String) async {
-    update(text, turn: turn, streaming: false)
+  func render(_ page: Page, turn: String) async {
+    update(page, turn: turn, streaming: false)
     await withCheckedContinuation { waiting.append($0) }
   }
   /// Returns once no render is scheduled or running, like `LauncherModel.settled`.
@@ -119,6 +154,9 @@ final class AnswerRenderer {
     config.defaultNavigationPreferences.allowsContentJavaScript = false
     config.loadsSubresources = false
     config.deviceSensorAuthorization = .init(decision: .deny)
+    config.userContentController.add(
+      TargetClicks { [weak self] id, turn in self?.onTarget?(id, turn) }, contentWorld: .defaultClient,
+      name: "target")
     let page = WebPage(configuration: config, navigationDecider: AnswerNavigation(open: open))
     self.page = page
     watcher = FileWatcher(
@@ -154,21 +192,21 @@ final class AnswerRenderer {
           try Task.checkCancellation()
           ready = true
         }
-        let script = try String(
-          contentsOf: Bundle.wicket.url(forResource: "bridge", withExtension: "js")!,
-          encoding: .utf8)
+        let script = bridge
         while true {
           try Task.checkCancellation()
           let version = revision
-          let text = source
+          let text = source.source
+          let icons = PageIcons.stylesheet(for: source.targets)
           let currentTurn = turn
           let isStreaming = streaming
           let reset = currentTurn != renderedTurn
           if cssRevision != appliedCSS {
             let cssVersion = cssRevision
+            // A page row is as tall as a native one, which does not grow in proportion to the text.
             let css =
               try Self.stylesheet(in: folder)
-              + "\n:root { zoom: \(textSize.scale); --zoom: \(textSize.scale); }"
+              + "\n:root { zoom: \(textSize.scale); --zoom: \(textSize.scale); --row: \(textSize.rowHeight / textSize.scale)px; }"
             _ = try await page.callJavaScript(
               "document.querySelector('#theme').textContent = css;", arguments: ["css": css],
               contentWorld: .defaultClient)
@@ -178,16 +216,26 @@ final class AnswerRenderer {
             let html = await Task.detached { AnswerMarkdown.html(text, streaming: isStreaming) }.value
             try Task.checkCancellation()
             let result = try await page.callJavaScript(
-              script, arguments: ["html": html, "reset": reset], contentWorld: .defaultClient)
+              script,
+              arguments: [
+                "html": html, "reset": reset, "turn": currentTurn, "selected": selected ?? NSNull(),
+                "icons": icons == appliedIcons ? NSNull() : icons,
+                "restore": reset ? positions[currentTurn] ?? 0 : NSNull(),
+              ], contentWorld: .defaultClient)
             try Task.checkCancellation()
-            if let values = result as? [String: Any], let measured = values["height"] as? Double,
-              measured.isFinite
-            {
-              height = PaletteLayout.answerHeight(
-                measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
-                cap: capped ? cap : .infinity
-              )
-              onHeight?()
+            appliedIcons = icons
+            if let values = result as? [String: Any] {
+              if reset, let left = values["left"] as? Double {
+                positions[renderedTurn] = left
+                positions[currentTurn] = nil
+                if positions.count > 16 { positions.removeAll() }
+              }
+              if let measured = values["height"] as? Double, measured.isFinite {
+                height = PaletteLayout.answerHeight(
+                  measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
+                  cap: cap)
+                onHeight?()
+              }
             }
             renderedTurn = currentTurn
             problem = nil
@@ -225,6 +273,8 @@ final class AnswerRenderer {
     ready = false
     renderedTurn = ""
     appliedCSS = -1
+    appliedIcons = ""
+    positions.removeAll()
     height = PaletteLayout.answerMin
   }
 }

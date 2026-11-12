@@ -28,8 +28,9 @@ protocol Provider {
   func view(for request: ProviderRequest) async throws -> ProviderView
 }
 
-/// One view with optional parts: Markdown `body` (the answer page), native `items` below it and
-/// `actions` for the header. At least one of body and items is present on the wire.
+/// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows
+/// after the body on a page) and `actions` for the header. At least one of body and items is present on
+/// the wire.
 struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
@@ -163,6 +164,8 @@ struct RowAction: Codable, Sendable, Equatable {
     case reveal(URL)
     /// Host only, never decoded: send the text to the agent as a question.
     case send(String)
+    /// Host only, never decoded: show this Markdown as its own page, an item's detail. Escape returns.
+    case detail(String)
   }
   var kind: Kind
   var title: String?
@@ -221,6 +224,9 @@ struct RowAction: Codable, Sendable, Equatable {
       try address.encode(to: encoder)
     case .send(let text):
       try c.encode("send", forKey: .type)
+      try c.encode(text, forKey: .text)
+    case .detail(let text):
+      try c.encode("detail", forKey: .type)
       try c.encode(text, forKey: .text)
     }
   }

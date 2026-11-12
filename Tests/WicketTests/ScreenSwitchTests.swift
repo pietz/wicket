@@ -143,9 +143,8 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   model.arrivalDeadline = .seconds(5)
   var prepared: [String] = []
   var release: CheckedContinuation<Void, Never>?
-  model.preparePage = { body, _, capped in
-    prepared.append(body)
-    #expect(capped)
+  model.preparePage = { page, _ in
+    prepared.append(page.source)
     await withCheckedContinuation { release = $0 }
   }
   model.go(Address(id: "test"), chosen: true)

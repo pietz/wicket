@@ -36,24 +36,24 @@ Looks like: a small capsule tinted in its tone; a warning is grey with an amber 
 `<callout tone="warning">Restart required after installing.</callout>`
 Looks like: a rounded box tinted in its tone, blue without one; a warning is a grey box with an amber dot.
 
-**Card**: a self-contained group inside a longer reply, such as one option or one item of several. Holds Markdown and components; `title` is optional. Never wrap the whole reply in a card.
-`<card title="Berlin">` … `</card>`
-Looks like: the page's one raised box, with a semibold title.
+**Card**: a self-contained group inside a longer reply, such as one option or one item of several. Holds Markdown and components; `title` is optional. Never wrap the whole reply in a card. When the whole card is one thing to act on, such as a place that opens in Maps, give it one action as an item takes (`open`, `copy` or `ask`, and `action`); such a card holds no items.
+`<card title="Oslo Kaffebar" open="https://maps.apple.com/?q=Oslo+Kaffebar+Berlin" action="Open in Maps">` … `</card>`
+Looks like: the page's one raised box, with a semibold title; with an action the user selects it whole.
 
-**Columns**: two or three things side by side, or up to seven short cards such as the days of a forecast. Each `<column>` holds Markdown and components; anything longer becomes a Markdown table.
+**Columns**: two or three things side by side, or up to seven short cards or items such as the days of a forecast. Each `<column>` holds Markdown and components; anything longer becomes a Markdown table.
 `<columns><column>` … `</column><column>` … `</column></columns>`
 Looks like: equal columns without borders; five or more cards become small centered tiles.
 
-**Item**: something the user can act on with Return: a link, a file, text to copy or a follow-up question. Give exactly one of `open` (an http, https or mailto URL, an absolute or `~` file path, or a `wicket://` address), `copy` (the text) or `ask` (a follow-up that fills the input without sending it); `subtitle` and an SF Symbol `icon` are optional. An `open` that is not a safe URL or existing document is dropped. After you write an extension, end the reply with an item that opens it: `wicket://<folder>?input=<percent-encoded input>`.
+**Item**: something the user can act on with Return, where it stands: a link, a file, text to copy, a follow-up question, or one thing of several to look at closer. Give one of `open` (an http, https or mailto URL, an absolute or `~` file path, or a `wicket://` address), `copy` (the text) or `ask` (a follow-up that fills the input without sending it); `subtitle`, `action` (what Return does, such as `Join in Zoom`) and an SF Symbol `icon` are optional. An `open` that is not a safe URL or existing document is dropped. An item can also, or instead, hold its detail: Markdown and components between `<item …>` and `</item>`, which Return opens as its own page, such as one day of a forecast or one meeting. After you write an extension, end the reply with an item that opens it: `wicket://<folder>?input=<percent-encoded input>`.
 `<item title="Swift Testing" subtitle="Apple's guide" open="https://developer.apple.com/documentation/testing"/>`
-`<item title="Weather" open="wicket://weather?input=berlin"/>`
-Looks like: consecutive items form one list of native rows below the answer, each with an icon, the title and a grey subtitle; the user moves into the list with the arrow keys.
+`<item title="Standup" subtitle="09:30 · Zoom" open="https://zoom.us/j/123" action="Join in Zoom">` details `</item>`
+Looks like: a row of the launcher's own list, with an icon, the title and a grey subtitle; consecutive items form one list, and an item in a column is a tile. The arrow keys select items and cards with an action in reading order.
 
 ## Rules
 
 - Each component starts its own line. Attribute values use double quotes; write `“”` inside them.
 - `tone` is `positive`, `warning` or `negative`, and only when the color carries meaning; leave it out otherwise.
-- Items are not part of the page: they always show as a list below the answer, however the tags are placed, so put them last and use them instead of a Markdown list of links.
+- What the user can act on carries its action where it stands, as an item or a card, and is never listed again. Use items instead of a Markdown list of links.
 - Headings, tables, lists, emphasis, code and links stay Markdown; right-align number columns with `---:`. Links must be `http`, `https` or `mailto`.
 - No HTML, styles, scripts or images. Other tags show as plain text, so a placeholder such as `<name>` goes in backticks. Never wrap the whole reply in a code fence.
 
