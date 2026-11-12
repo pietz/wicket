@@ -357,7 +357,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   model.input = "p"
   await model.settled()
   #expect(try requests().last.map { !$0.chosen && $0.arguments == ["a": "1"] && $0.input == "p" } == true)
-  model.catalogChanged()
+  model.sourcesChanged(["extension:ship"])
   await model.settled()
   #expect(try requests().last?.chosen == false)
   // Links: a JSON open of a wicket URL, an outside URL, an agent item. Never chosen, never arguments.

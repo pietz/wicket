@@ -245,17 +245,29 @@ final class LauncherModel {
       onResultsChange?()
     }
     agent.onChange = inputChanged
-    extensions.onCatalogChange = { [weak self] in self?.catalogChanged() }
+    extensions.onCatalogChange = { [weak self] in self?.sourcesChanged($0) }
     store.onChange = { [weak self] configuration, problem in
       guard let self else { return }
       if let configuration {
         if !configuration.voice.enabled { stopVoice() }
         clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
+        if configuration != applied {
+          clearTransientProblems()
+          // Of a configuration, only a source switched on or off changes what a command answers.
+          let ids = extensions.ids
+          let switched = Set(configuration.sources(extensions: ids).map(\.id)).filter {
+            applied.isEnabled($0, extensions: ids) != configuration.isEnabled($0, extensions: ids)
+          }
+          applied = configuration
+          sourcesChanged(switched)
+        }
         onResultsChange?()
       }
       onConfigurationChange(configuration, problem)
     }
   }
+  /// The configuration last reacted to.
+  private var applied = Configuration()
   private func cancelWork() {
     generation += 1
     for task in tasks { task.cancel() }
@@ -297,8 +309,12 @@ final class LauncherModel {
     stopArriving()
     if entering { listed = [] }
   }
-  func catalogChanged() {
-    // A changed/deleted command cancels its in-flight invocation too.
+  /// What sources answer changed without the user: the installed apps, the extension catalog or which
+  /// sources are on. The root composes again. An open command reruns only when `ids` names it (its
+  /// manifest changed, it went away, or it was switched on or off), which also cancels its running
+  /// request; anything else would replace what the user is looking at for no reason of its own.
+  func sourcesChanged(_ ids: Set<String>) {
+    if let id = target?.id, !ids.contains(id) { return }
     refresh()
   }
   func refresh() {

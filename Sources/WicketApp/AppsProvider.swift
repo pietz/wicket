@@ -11,6 +11,7 @@ struct AppRecord: Sendable, Hashable {
 final class AppsProvider: Provider {
   let id = "apps"
   var onChange: (() -> Void)?
+  private var rows: [Row] = []
   private var index = SearchIndex([])
   private var watcher: FileWatcher?
   private var rescanTask: Task<Void, Never>?
@@ -33,15 +34,18 @@ final class AppsProvider: Provider {
     }
   }
 
-  private func rescan() async {
-    index = await Task.detached(priority: .userInitiated) {
-      SearchIndex(
-        Self.scan(Self.scopes).map { app in
-          Row(
-            id: app.url.path, title: app.name, subtitle: "Application", actions: [.open(app.url)],
-            keywords: app.alternates)
-        })
+  /// Calls `onChange` only when the apps differ: FSEvents also report writes inside app bundles.
+  func rescan() async {
+    let rows = await Task.detached(priority: .userInitiated) {
+      Self.scan(Self.scopes).map { app in
+        Row(
+          id: app.url.path, title: app.name, subtitle: "Application", actions: [.open(app.url)],
+          keywords: app.alternates)
+      }
     }.value
+    guard rows != self.rows else { return }
+    self.rows = rows
+    index = SearchIndex(rows)
     onChange?()
   }
 

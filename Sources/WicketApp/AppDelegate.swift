@@ -31,7 +31,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       model.installProblem = error.localizedDescription
     }
     palette = PaletteController(model: model)
-    apps.onChange = { [weak model] in model?.refresh() }
+    apps.onChange = { [weak model] in model?.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name
     updater = Updater()
@@ -80,14 +80,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     model.onConfigurationChange = { [weak self] config, _ in
       guard let self else { return }
       if let config, config != applied || hotkey.inEffect == nil {
-        let changed = config != applied
         applied = config
         configuration.hotkeyProblem = hotkey.apply(config.hotkey)
         shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"
-        if changed {
-          model.clearTransientProblems()
-          model.refresh()
-        }
       }
       status.button?.toolTip =
         model.problem ?? "\(name): \(hotkey.inEffect?.symbols ?? "use menu to open")"

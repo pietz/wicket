@@ -133,7 +133,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   model.input = "draft"
   model.setArgument("text", to: "hello")
   model.refresh()
-  model.catalogChanged()
+  model.sourcesChanged(["extension:note"])
   await model.settled()
   #expect(try requests().count == 1 && model.selection == nil)
   // Return sends one chosen request with the input and the arguments.
@@ -278,4 +278,52 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
     let fallback = try await passwords(invalid)
     #expect(fallback.count == 5 && fallback.allSatisfy { $0.count == 20 })
   }
+}
+
+@MainActor @Test func anOpenCommandRerunsOnlyForTheUserOrItsOwnChange() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (folder, requests) = try logging(root, name: "Password", fields: [:])
+  _ = try extensionFolder(root, name: "other")
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  model.go(Address(id: "extension:password"))
+  await model.settled()
+  #expect(try requests().count == 1)
+  // What does not concern it reruns nothing: an app rescan, another extension's change, a setting, or
+  // another source switched off.
+  model.sourcesChanged(["apps"])
+  try Data(#"{"name":"Other","command":["/bin/sh","main.sh"],"icon":"star"}"#.utf8)
+    .write(to: root.appending(path: "extensions/other/wicket.json"))
+  await model.extensions.reload()
+  #expect(model.extensions.commands["extension:other"]?.manifest.icon == "star")
+  model.store.update { $0.backgroundTransparency = 0.5 }
+  model.store.update { $0.providers = [.init("extension:other", enabled: false)] }
+  await model.settled()
+  #expect(try requests().count == 1)
+  // Its own manifest changing or it being switched off and on does.
+  var manifest =
+    try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "wicket.json")))
+    as! [String: Any]
+  manifest["icon"] = "key"
+  try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
+  await model.extensions.reload()
+  await model.settled()
+  #expect(try requests().count == 2)
+  model.store.update { $0.providers = [.init("extension:password", enabled: false)] }
+  model.store.update { $0.providers = [] }
+  await model.settled()
+  #expect(try requests().count == 3 && model.command?.problem == nil)
+  await model.finish()
+}
+
+@MainActor @Test func anAppRescanThatFindsTheSameAppsChangesNothing() async {
+  let apps = AppsProvider()
+  var changes = 0
+  apps.onChange = { changes += 1 }
+  await apps.rescan()
+  await apps.rescan()
+  #expect(changes == 1)
 }

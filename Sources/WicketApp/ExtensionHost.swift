@@ -46,7 +46,8 @@ final class ExtensionHost {
   private(set) var problems: [String: String] = [:]
   /// Every discovered extension ID, including invalid manifests.
   var ids: [String] { Array(commands.keys) + Array(problems.keys) }
-  var onCatalogChange: (() -> Void)?
+  /// Called with the IDs whose manifest or problem changed, appeared or went away.
+  var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
   var runner = ExtensionRunner()
   private var watcher: FileWatcher?
@@ -75,10 +76,12 @@ final class ExtensionHost {
       guard let self, !Task.isCancelled, revision == version else { return }
       // FSEvents also report an extension's own cache and log writes. An unchanged catalog must not
       // restart the launcher's work, or an extension that writes in its folder cancels itself.
-      guard commands != self.commands || problems != self.problems else { return }
+      let changed = Set(commands.keys).union(self.commands.keys).filter { commands[$0] != self.commands[$0] }
+        .union(Set(problems.keys).union(self.problems.keys).filter { problems[$0] != self.problems[$0] })
+      guard !changed.isEmpty else { return }
       self.commands = commands
       self.problems = problems
-      onCatalogChange?()
+      onCatalogChange?(changed)
     }
   }
   nonisolated static func discover(_ root: URL) -> ([String: ExtensionCommand], [String: String]) {

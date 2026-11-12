@@ -255,7 +255,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   model.select(model.selection)  // Mouse or keyboard intent now pins the identity.
   let chosen = model.selection
   try FileManager.default.removeItem(at: gate)
-  model.catalogChanged()
+  model.sourcesChanged([])
   #expect(model.selection == chosen)
   try Data().write(to: gate)
   await model.settled()
