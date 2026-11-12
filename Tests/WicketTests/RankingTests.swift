@@ -74,6 +74,10 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(
     titles(compose("pass", apps: apps, files: files, extensions: extensions, usage: usage)).first
       == "passport.pdf")
+  // A file is strong only when its whole name starts with the input: file search returns every file
+  // with a word like the input, and they must not push Ask agent down or hide the fallbacks.
+  let loose = compose("kube", files: [file("notes kubernetes.md")])
+  #expect(titles(loose) == ["Ask agent", "notes kubernetes.md"] && loose.strongReason == nil)
 }
 
 @Test func aPrefixMatchLeadsAndSafariComesBeforeLooseApps() {

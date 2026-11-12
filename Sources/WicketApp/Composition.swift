@@ -19,9 +19,12 @@ enum Ranking {
     names.map { tier(query, SearchKey($0)) }.max() ?? 0
   }
   /// The same rule for a prepared name. Words start where the fuzzy matcher's do (`SearchKey.boundary`).
-  static func tier(_ query: [UInt32], _ key: SearchKey) -> Int {
+  /// A file passes `words: false` and is a prefix match only from the start of its name: file search
+  /// returns every file with a word starting like the input, and they must not all be strong.
+  static func tier(_ query: [UInt32], _ key: SearchKey, words: Bool = true) -> Int {
     if query.isEmpty { return 0 }
     if key.compact == query { return 2 }
+    if !words { return key.compact.starts(with: query) ? 1 : 0 }
     var offset = 0  // where key.scalars[index] is in key.compact
     for (index, scalar) in key.scalars.enumerated() {
       if Unicode.Scalar(scalar)?.properties.isWhitespace ?? false { continue }
@@ -154,7 +157,7 @@ enum Ranking {
           return nil
         }
         score = best
-        tier = keys.map { Self.tier(query, $0) }.max() ?? 0
+        tier = keys.map { Self.tier(query, $0, words: kind != .file) }.max() ?? 0
       }
       return Candidate(
         result: result, kind: kind, tier: tier,
