@@ -219,65 +219,25 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.finish()
 }
 
-/// The note example through the real pipeline: it takes its text from the input, writes only on a
-/// chosen request, shows a hint before the first note and then the newest notes first.
-@MainActor @Test func theNoteExampleAppendsTheInputOnlyOnAChosenRequest() async throws {
+/// Headless `--extension` sends the input, the arguments object and `chosen` exactly as given, and
+/// refuses arguments that are not an object of strings.
+@MainActor @Test func headlessExtensionRunsSendTheirArgumentsAndChosen() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  try ExtensionHost.installFiles(in: root)
-  let folder = root.appending(path: "extensions/note")
-  try FileManager.default.copyItem(at: root.appending(path: "examples/note"), to: folder)
-  let note = try JSONDecoder().decode(
-    ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
-  #expect(note.submit && note.arguments.isEmpty)
-  func view(_ arguments: [String]) async throws -> JSONValue {
-    let output = try await cli(root, ["--extension", "note"] + arguments)
-    #expect(output.0 == 0)
-    return output.1
-  }
-  func titles(_ arguments: [String]) async throws -> [String?] {
-    try await view(arguments)["items"].array.map { $0["title"].string }
-  }
-  #expect(try await view([])["body"].string == "Type a note and press Return.")
-  #expect(try await view(["--input", "unchosen"])["body"].string == "Type a note and press Return.")
-  #expect(try await titles(["--input", "buy milk", "--chosen"]) == ["buy milk"])
-  #expect(try await titles(["--chosen"]) == ["buy milk"])
-  #expect(try await titles(["--input", "call  Ada", "--chosen"]) == ["call Ada", "buy milk"])
-  let notes = try String(contentsOf: folder.appending(path: "notes.md"), encoding: .utf8)
-  #expect(notes.split(separator: "\n").count == 2 && notes.hasSuffix(" call Ada\n"))
-  let refused = try await cli(root, ["--extension", "note", "--arguments", #"["buy milk"]"#, "--chosen"])
-  #expect(refused.0 == 1 && refused.1["error"].string != nil)
+  let (_, requests) = try logging(root, name: "Caffeinate", fields: ["arguments": [["name": "hours"]]])
+  let plain = try await cli(root, ["--extension", "caffeinate"])
+  #expect(plain.0 == 0 && plain.1["items"].array.count == 2)
+  let full = try await cli(
+    root, ["--extension", "caffeinate", "--input", "now", "--arguments", #"{"hours":"2"}"#, "--chosen"])
+  #expect(full.0 == 0)
+  #expect(
+    try requests().map { [$0.input, $0.arguments["hours"] ?? "-", String($0.chosen)] } == [
+      ["", "-", "false"], ["now", "2", "true"],
+    ])
+  let refused = try await cli(root, ["--extension", "caffeinate", "--arguments", #"["2"]"#, "--chosen"])
+  #expect(try refused.0 == 1 && refused.1["error"].string != nil && requests().count == 2)
   let help = try await cli(root, ["--help"])
   #expect(help.1["usage"].string?.contains("--arguments JSON_OBJECT") == true)
-}
-
-/// The password example: its two declared arguments set the length and the count, and anything
-/// invalid or out of range falls back to the defaults.
-@MainActor @Test func thePasswordExampleListsPasswordsShapedByItsArguments() async throws {
-  let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
-  try ExtensionHost.installFiles(in: root)
-  try FileManager.default.copyItem(
-    at: root.appending(path: "examples/password"), to: root.appending(path: "extensions/password"))
-  func passwords(_ arguments: String) async throws -> [String] {
-    let output = try await cli(root, ["--extension", "password", "--arguments", arguments])
-    #expect(output.0 == 0)
-    let items = output.1["items"].array
-    #expect(items.allSatisfy { $0["actions"].array.first?["text"] == $0["title"] })
-    return items.compactMap { $0["title"].string }
-  }
-  let defaults = try await passwords("{}")
-  #expect(defaults.count == 5 && defaults.allSatisfy { $0.count == 20 } && Set(defaults).count == 5)
-  let short = try await passwords(#"{"length":"8","count":"3"}"#)
-  #expect(short.count == 3 && short.allSatisfy { $0.count == 8 })
-  #expect(
-    try await passwords(#"{"length":"128","count":"20"}"#).map(\.count) == Array(repeating: 128, count: 20))
-  for invalid in [
-    #"{"length":"129","count":"21"}"#, #"{"length":"0","count":"-1"}"#, #"{"length":"x","count":"2.5"}"#,
-  ] {
-    let fallback = try await passwords(invalid)
-    #expect(fallback.count == 5 && fallback.allSatisfy { $0.count == 20 })
-  }
 }
 
 @MainActor @Test func anOpenCommandRerunsOnlyForTheUserOrItsOwnChange() async throws {

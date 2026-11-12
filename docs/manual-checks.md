@@ -70,9 +70,8 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 1. Sources lists Math, Apps and the units extension. Turn units off: `10 km to mi` no longer converts. Turn it back on.
 2. Copy `~/.config/wicket/examples/web-search` into `~/.config/wicket/extensions/`. It shows up in Sources within a second, enabled.
 3. Ask the agent: `build a wicket extension that shows the current week number`. It writes a folder into `extensions/`; type its name or keyword and run it.
-4. Copy `~/.config/wicket/examples/password` into `extensions/` and type `pass`. Fields `20` and `5` appear right after the typed text. Tab into them (Tab again returns to the input, Shift+Tab goes back), type `12` and `3`, press Return: the command opens with three 12-character passwords, and changing a field reruns it. Return copies the selected one. Try the fields with an input method such as Japanese, with paste, with a click on the row instead of Return, and while voice is listening. Arrow down to another row: the fields go away and typing goes to the input. Check their look in light and dark.
-5. Copy `examples/note` into `extensions/` and enter Note: before the first note it says Type a note and press Return. Type one and press Return: it is listed.
-6. Break a `wicket.json` on purpose. Sources shows the problem; the rest keeps working.
+4. Ask the agent for a command with arguments (`build a caffeinate extension with hours and minutes`). Type its name: fields named `hours` and `minutes` appear right after the typed text, and the row or body says the default. Tab into them (Tab again returns to the input, Shift+Tab goes back), fill them, press Return: the command opens with those values, and Return with empty fields uses the default. Try the fields with an input method such as Japanese, with paste, with a click on the row instead of Return, and while voice is listening. Arrow down to another row: the fields go away and typing goes to the input. Check their look in light and dark.
+5. Break a `wicket.json` on purpose. Sources shows the problem; the rest keeps working.
 
 ## 8. Settings (General)
 

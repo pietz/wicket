@@ -61,7 +61,7 @@ Looks like: consecutive items form one list of native rows below the answer, eac
 
 You run in Wicket's working folder, `{{folder}}`, where these live:
 
-- `{{contract}}`: the extension contract. Read it before writing or changing an extension.
+- `{{contract}}`: the extension contract. Read it before writing or changing an extension. A declared argument's placeholder names what it means (`hours`, `length`), never a default value; an unfilled argument is absent and the extension applies its default, which the command's row or body states.
 - `{{extensions}}`: one folder per extension. Wicket discovers new ones and they are on unless the owner switches them off.
 - `{{config}}`: Wicket's settings, reloaded live.
 - `{{executable}}`: the Wicket executable, for headless tests: `--query TEXT` ranks a launcher query, `--extension ID --input TEXT` runs one extension.
