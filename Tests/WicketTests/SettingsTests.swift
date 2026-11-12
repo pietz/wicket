@@ -308,9 +308,11 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     FileManager.default.fileExists(atPath: root.appending(path: "examples/web-search/wicket.json").path))
   #expect(FileManager.default.fileExists(atPath: root.appending(path: "extensions/units/wicket.json").path))
   #expect(FileManager.default.fileExists(atPath: root.appending(path: "examples/currency/main.py").path))
-  #expect(
-    try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples/note").path).sorted()
-      == ["main.py", "wicket.json"])
+  for example in ["note", "password"] {
+    #expect(
+      try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples/" + example).path)
+        .sorted() == ["main.py", "wicket.json"])
+  }
   try FileManager.default.copyItem(at: root.appending(path: "examples/web-search"), to: web)
   let marker = web.appending(path: "user-file")
   try Data("keep".utf8).write(to: marker)
