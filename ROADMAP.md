@@ -25,6 +25,48 @@ Done (12 Nov 2026, concept review finding 2): arguments are named, an object of 
 
 From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<item title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; `<item>` is read in every body, a JSON body included; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
 
+## Next, from the concept review
+
+From [the concept review](docs/research/concept-review.md) of 12 Nov 2026. Built from it: manifest items in root search, named arguments with slots in the input bar, `submit`, and `chosen` as the user's activation. Decided for later, in this order:
+
+### A component is one file (design before building)
+
+Today a component is described in four files (the stylesheet, the agent instructions, the extension contract, the theme template), Swift knows which tags group and that `badge` is inline, and a component the owner adds in `theme.css` is unknown to the agent. The direction: one file per component, as an extension is one folder.
+
+```css
+/* stat: a key number. Repeat the tag for up to three side by side.
+   <stat label="Monthly cost" value="€24" delta="€6 less" tone="positive"/> */
+w-stat { … }
+```
+
+- **One source.** `components/<name>.css` in the bundle, and the same folder in the Wicket folder, whose files add components or replace bundled ones by name. The leading comment is the registration: the name, when to use it and one line of syntax. Wicket builds the Components part of the agent instructions and the Body tags part of the extension contract from these comments, so a new component is known to the agent and to extension authors the moment its file is saved.
+- **Only registered names become elements.** Any other tag stays literal text. That fixes `<br>` breaking a table and `<details>` in prose vanishing (review, finding 6), and makes "other tags show as plain text" true.
+- **Swift knows no component.** Any run of the same tag gets one generic wrapper, and inline or block is declared in the file, so the grouping table and the `badge` special case go.
+- **Attribute order stops being layout.** The built-in styles place fields by name.
+- `theme.css` keeps the tokens.
+
+To settle in a design session: the comment's exact form; whether an owner's file replaces the bundled one or layers over it; whether `item` (the one tag the page does not draw) is in the registry; how a component takes a list of values (a chart: an attribute such as `values="3,5,8"` or a fenced block); and the parts CSS cannot draw, which stay the host's (SF Symbols, local images, charts from numbers: content names, the host resolves, and agent text still loads nothing remote).
+
+### Why answers look worse than 0.0.x
+
+The review traced it to the prompt and missing pictures, not the renderer (finding 4). Include in the planned comparison of prompt variants: one or two composite examples as the old instructions had (an answer over two cards, each with a stat and facts), an `icon` attribute on components, and a stat row that wraps. Then pictures as above.
+
+### Smaller contract steps
+
+- **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. It gives a run a way to end the interaction, which copy and open have and the first Wicket had as `close` (finding 3).
+- **Richer rows before a focus model in the page.** `accessory` (a trailing value), `section` (a header over consecutive rows) and a file path as `icon`, so a reply whose content is the list of things to act on needs no second copy of it as components (finding 5).
+- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10).
+- **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or take Ask agent's place (finding 1).
+- View `actions` without a body; lossless paste for extensions; a URL that fills declared arguments, with bindings.
+
+### Parked: a view that changes over time
+
+Parked by the owner on 12 Nov 2026. When it is built: stdout is a sequence of whole views, each replacing the last, the deadline applies to the first, and the process ends when its view is left. No patch events. It covers cached-then-fresh results, progress and live output, and lets file search use the provider path (finding 8). Background work that outlives the panel (a timer, a notification) is a separate question.
+
+### Later: the agent as a command
+
+`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type and a shell runner or a long-running extension needs no new mode. It needs views over time first, touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own.
+
 ## Next features
 
 Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they matter:

@@ -31,7 +31,7 @@ Both clean-room designs arrived at this skeleton on their own. One called it "co
 
 ## Findings, ranked
 
-### 1. Extensions cannot be data (decided: build)
+### 1. Extensions cannot be data (built on 12 Nov 2026)
 
 An extension reaches the main list only by its name, a fallback, or a `match` regex that starts a process. So quicklinks, emoji and "next meeting" all fake membership with regexes, including `^$`.
 
@@ -43,7 +43,7 @@ Verified consequences:
 
 Concept: every extension already contributes one row to the main list, its name. Let it contribute several, in the same item shape a view uses, read once and ranked like apps. Nothing changes for an extension that does not use it. `match` shrinks back to computed answers (units, currency), and pattern rows should earn their place by tier like everything else.
 
-### 2. `arguments` carries three things at once (decided: build)
+### 2. `arguments` carries three things at once (built on 12 Nov 2026)
 
 The positional string array is used as a location (`["hourly"]`), a verb (`["delete","42"]`) and wizard state (`["form","title","Buy milk","due",…]`). Verified irregularities that follow:
 
@@ -90,7 +90,9 @@ See the design sketch in [ROADMAP.md](../../ROADMAP.md). It also fixes finding 6
 
 A third of the use cases are the same view changing over time: cached pull requests then fresh ones, a deploy's progress, a countdown. Today the pull-request extension is blank for 3 seconds and fails outright at 12. When this is built, the form is a sequence of whole views, each replacing the last; no patch events. Noted for later: the timer could only notify by detaching a daemon that outlived Wicket, which the contract forbids and nothing prevents.
 
-### 9. The agent as a command (see the reply to the owner)
+### 9. The agent as a command (decided: later)
+
+Search, an open command and a conversation are three screens, and the last two are nearly the same: an input, a page and items, Esc to leave. They differ in when they run (every keystroke or Return) and in whether the answer streams. `submit` now gives commands the first; the second is finding 8. Making the conversation a command at the address `agent` would leave one screen type, and a shell runner or a long-running extension would need no new mode. It is a cleanup with a ceiling: permission prompts, follow-ups and the retained conversation stay the agent's own.
 
 ### 10. Clutter
 
@@ -153,4 +155,4 @@ Twelve are clean today. Findings 1 to 5 move thirteen more to clean without a ne
 
 ## Side finding
 
-0.1.4 does not compile with Xcode 26.3 (Swift 6.2.4), which is what the home server has: `ProcessTree.swift:109` uses `$0` inside a `defer`, and `AppleTranscriber.swift:279` captures an `AVAudioPCMBuffer` that only a newer SDK marks Sendable.
+0.1.4 did not compile with Xcode 26.3 (Swift 6.2.4), which is what the home server has: `ProcessTree.swift` used `$0` inside a `defer`, and `AppleTranscriber.swift` captured an `AVAudioPCMBuffer` that only a newer SDK marks Sendable. Both are fixed in spellings that compile clean on Swift 6.2.4 and 6.4.2.
