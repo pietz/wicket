@@ -56,6 +56,8 @@ final class AnswerRenderer {
   private var streaming = false
   private var cssRevision = 0
   private var appliedCSS = -1
+  /// Callers of `render` waiting for the pass that measures their page.
+  private var waiting: [CheckedContinuation<Void, Never>] = []
 
   init(folder: URL, open: @escaping @MainActor (URL) -> Void) {
     self.folder = folder
@@ -94,6 +96,16 @@ final class AnswerRenderer {
     prepare()
     schedule()
   }
+  /// Renders a page and returns once it is measured (or rendering stopped), so a page can be shown
+  /// at its height from the first frame.
+  func render(_ text: String, turn: String) async {
+    update(text, turn: turn, streaming: false)
+    await withCheckedContinuation { waiting.append($0) }
+  }
+  private func resumeWaiting() {
+    for continuation in waiting { continuation.resume() }
+    waiting.removeAll()
+  }
   /// Creates the page and loads its empty shell, so WebKit startup (about 220 ms) is off the first answer.
   @discardableResult private func prepare() -> Task<Void, any Error> {
     if let shellLoad { return shellLoad }
@@ -123,7 +135,12 @@ final class AnswerRenderer {
     let job = renderID
     renderTask = Task { [weak self] in
       guard let self else { return }
-      defer { if renderID == job { renderTask = nil } }
+      defer {
+        if renderID == job {
+          renderTask = nil
+          resumeWaiting()
+        }
+      }
       do {
         try await Task.sleep(for: .milliseconds(40))
         guard let page else { return }
@@ -193,6 +210,7 @@ final class AnswerRenderer {
     renderID += 1
     renderTask?.cancel()
     renderTask = nil
+    resumeWaiting()
     watcher = nil
     shellLoad?.cancel()
     shellLoad = nil

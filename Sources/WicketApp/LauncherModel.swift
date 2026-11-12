@@ -24,7 +24,7 @@ final class LauncherModel {
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
         if agent.active { clearSelection() }
       }
-      if !agent.active { refresh() }
+      if !agent.active, arriving == nil { refresh() }
     }
   }
   let agent: AgentSession
@@ -32,14 +32,18 @@ final class LauncherModel {
   /// The list at search and inside a command.
   private var listed: [Result] = [] { didSet { sizeList() } }
   /// The rows the list card is sized for: more show at once, fewer only after 300 ms, so a late batch
-  /// such as file results does not make the panel shrink and grow again while typing.
+  /// such as file results does not make the panel shrink and grow again while typing. A list for
+  /// another screen is sized at once: the hold is for results of one screen arriving late.
   private(set) var sizedRows = 1
   private var shrinking: Task<Void, Never>?
+  private var sizedFor: String?
   private func sizeList(now: Bool = false) {
     let count = max(1, min(listed.count, 8))
+    let screen = command?.id
     shrinking?.cancel()
     shrinking = nil
-    guard count < sizedRows, !now else {
+    guard count < sizedRows, !now, screen == sizedFor else {
+      sizedFor = screen
       sizedRows = count
       return
     }
@@ -57,6 +61,29 @@ final class LauncherModel {
   private(set) var isRefreshing = false
   private(set) var command: CommandState? {
     didSet { if command?.id != oldValue?.id { resetSelection = true } }
+  }
+  /// The screen being switched to while its first content is on its way: a command (nil for the root)
+  /// and its input. Until it arrives, or `arrivalDeadline` passes, the screen being left stays exactly as
+  /// it was, so the panel's content and height change together in one step (`arrive`).
+  private struct Arrival {
+    var command: CommandState?
+    let input: String
+    /// Going back (Escape): a second Escape waits for it instead of calling it off.
+    var back = false
+  }
+  private var arriving: Arrival?
+  private var deadline: Task<Void, Never>?
+  var arrivalDeadline: Duration = .milliseconds(150)
+  /// Prepares an arriving page before it is shown: the controller renders and measures its body, so the
+  /// card's height is known when the page appears. Arguments are the body, its turn and whether it is
+  /// capped (no items below it).
+  var preparePage: ((String, String, Bool) async -> Void)?
+  /// The command requests go to: the arriving one during a switch, else the open one.
+  private var target: CommandState? {
+    get { arriving.map(\.command) ?? command }
+    set {
+      if arriving != nil { arriving?.command = newValue } else { command = newValue }
+    }
   }
   private var resetSelection = true
   private var previousRows: [String] = []
@@ -144,6 +171,14 @@ final class LauncherModel {
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
   func editInput(_ text: String) {
     stopVoice()
+    // Typing while a command is being entered goes to it: the switch happens now, and what was added to
+    // the input being left is what is typed into the new one.
+    if let arrival = arriving {
+      let old = input
+      showArrival()
+      input = text.hasPrefix(old) ? arrival.input + text.dropFirst(old.count) : text
+      return
+    }
     input = text
   }
   func keyPressed(_ action: PaletteKeyAction) -> Bool {
@@ -173,12 +208,21 @@ final class LauncherModel {
       return { try await host.view(command, request: $0) }
     }
     guard let clipboard, clipboard.id == id else { return nil }
-    return { await clipboard.view(for: $0) }
+    return { clipboard.view(for: $0) }
+  }
+  /// What a command answers without waiting for anything: an extension's manifest items, or the
+  /// clipboard history. Nil when it runs a process.
+  private func immediateView(_ id: String, _ request: ProviderRequest) -> ProviderView? {
+    if let command = extensions.commands[id] {
+      return command.manifest.command == nil ? ProviderView(items: command.ownItems(request.input)) : nil
+    }
+    guard let clipboard, clipboard.id == id else { return nil }
+    return clipboard.view(for: request)
   }
   /// The open command's name, for the input placeholder and the footer.
-  var commandName: String? {
-    extensionCommand?.manifest.name
-      ?? (command != nil && command?.id == clipboard?.id ? ClipboardHistory.title : nil)
+  var commandName: String? { command.flatMap { name(of: $0.id) } }
+  private func name(of id: String) -> String? {
+    extensions.commands[id]?.manifest.name ?? (id == clipboard?.id ? ClipboardHistory.title : nil)
   }
 
   init(
@@ -220,50 +264,98 @@ final class LauncherModel {
     command?.busy = false
     pending.removeAll()
   }
+  /// Stays on the current screen: a switch still waiting for its content is called off.
+  private func stopArriving() {
+    arriving = nil
+    deadline?.cancel()
+    deadline = nil
+  }
+  /// Switches to a screen once its first content is there: a command's first view, or the root's
+  /// built-in results. The current screen stays as it is meanwhile; after `arrivalDeadline` the new one
+  /// shows anyway, quietly loading, so a slow process does not make Return feel dead. A command
+  /// answered without a process switches at once. Ending a conversation waits the same way.
+  private func arrive(_ command: CommandState?, input: String, back: Bool = false) {
+    stopArriving()
+    cancelWork()
+    arriving = Arrival(command: command, input: input, back: back)
+    refresh()
+    guard arriving != nil else { return }
+    deadline = Task { [weak self] in
+      guard let self, (try? await Task.sleep(for: arrivalDeadline)) != nil, arriving != nil else { return }
+      showArrival()
+      retainSelection()
+      onResultsChange?()
+    }
+  }
+  /// Makes the arriving screen the visible one. The caller publishes its content in the same turn.
+  private func showArrival() {
+    guard let arrival = arriving else { return }
+    if agent.active { agent.reset() }
+    let entering = arrival.command?.id != command?.id
+    command = arrival.command
+    input = arrival.input  // No refresh while arriving: its request is already answered or running.
+    stopArriving()
+    if entering { listed = [] }
+  }
   func catalogChanged() {
     // A changed/deleted command cancels its in-flight invocation too.
     refresh()
   }
   func refresh() {
-    guard !agent.active else { return }
+    guard !agent.active || arriving != nil else { return }
     let speaking = voice?.active == true
-    if let state = command {
+    let input = arriving?.input ?? self.input
+    if let state = target {
       let source = commandSource(state.id)
+      let extensionCommand = extensions.commands[state.id]
       // A submit command runs only when an address is followed, Return included: typing, voice and
       // refreshes leave its view and a running request alone, and nothing stays selected.
-      if state.next == .rerun, submits, source != nil {
+      if state.next == .rerun, extensionCommand?.manifest.submit == true, source != nil {
+        showArrival()
         retainSelection()
         onResultsChange?()
         return
       }
       cancelWork()
-      command?.next = .rerun
+      target?.next = .rerun
       guard let source, configuration.isEnabled(state.id, extensions: extensions.ids) else {
-        command?.problem =
+        target?.problem =
           source == nil
           ? "This extension was removed. Press Esc to go back."
-          : "\(commandName ?? state.id) is switched off. Switch it on in Settings, Sources, or press Esc to go back."
+          : "\(name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Sources, or press Esc to go back."
+        showArrival()
         listed = []
         retainSelection()
         onResultsChange?()
         return
       }
-      command?.busy = true
-      command?.problem = nil
-      let version = generation
+      target?.problem = nil
       let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.next == .choice)
-      let extensionCommand = extensionCommand
+      if let view = immediateView(state.id, request) {
+        showArrival()
+        show(view, of: state.id, turn: UUID().uuidString)
+        retainSelection()
+        onResultsChange?()
+        return
+      }
+      target?.busy = true
+      let version = generation
       tasks.append(
         Task { [weak self] in
           do {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
             let view = try await source(request)
             guard let self, !Task.isCancelled, generation == version else { return }
-            command?.turn = UUID().uuidString
-            command?.view = view
-            listed = Ranking.order(view.items, provider: state.id, query: input)
+            let turn = UUID().uuidString
+            if arriving != nil, let body = view.body, let preparePage {
+              await preparePage(body, turn, view.items.isEmpty)
+              guard !Task.isCancelled, generation == version else { return }
+            }
+            showArrival()
+            show(view, of: state.id, turn: turn)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
+            showArrival()
             command?.problem =
               extensionCommand.map { report($0, request: request, error: error) }
               ?? error.localizedDescription
@@ -374,7 +466,15 @@ final class LauncherModel {
       for task in tasks { await task.value }
     } while seen != generation
   }
+  /// A command's view, ordered by what is typed.
+  private func show(_ view: ProviderView, of id: String, turn: String) {
+    command?.turn = turn
+    command?.view = view
+    command?.busy = false
+    listed = Ranking.order(view.items, provider: id, query: input)
+  }
   private func compose() {
+    showArrival()
     isRefreshing = false
     let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
     let commands = extensions.commands.filter { enabled.contains($0.key) }
@@ -551,37 +651,32 @@ final class LauncherModel {
     switch address.extensionName == nil ? own : address.targetID {
     case "settings": onSettings()
     case "agent": fill(address.input ?? input)
-    case nil:
-      takeOver()
-      command = nil
-      input = address.input ?? ""
+    case nil: arrive(nil, input: address.input ?? "")
     case let id?:
       guard commandSource(id) != nil else {
         actionProblem = "No extension named \(Address(id: id).extensionName ?? id)"
         return
       }
-      takeOver()
       let reopened = command?.id == id
-      if !reopened {
-        command = CommandState(id: id)
-        listed = []
-      }
-      command?.arguments = address.arguments ?? [:]
-      command?.next = chosen ? .choice : .address
+      var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandState(id: id)
+      state.arguments = address.arguments ?? [:]
+      state.next = chosen ? .choice : .address
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
-      input = address.input ?? (reopened ? input : "")
+      let input = address.input ?? (reopened ? input : "")
+      guard reopened, !agent.active else { return arrive(state, input: input) }
+      // The same screen: its request reruns in place.
+      stopArriving()
+      cancelWork()
+      command = state
+      self.input = input
     }
-  }
-  /// A conversation ends and the running work stops when an address takes over.
-  private func takeOver() {
-    if agent.active { agent.reset() }
-    cancelWork()
   }
   /// Who Return asks: a draft goes to the agent configured now, since settings apply when it is sent.
   var askingName: String { agent.question.isEmpty ? configuration.agent.agent.title : agent.agentName }
   func send(_ text: String? = nil) {
     let text = text ?? input
     guard !agent.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    stopArriving()
     cancelWork()
     agent.ask(text, settings: configuration.agent)
     questionExpanded = false
@@ -593,6 +688,7 @@ final class LauncherModel {
   /// with the text as its unsent first question.
   func fill(_ text: String) {
     if !agent.active {
+      stopArriving()
       cancelWork()
       command = nil
       agent.open(settings: configuration.agent)
@@ -606,6 +702,7 @@ final class LauncherModel {
     focusTarget = nil
     stopVoice()
     agent.hidden()
+    stopArriving()
     if agent.active { return }
     cancelWork()
     command = nil
@@ -614,19 +711,18 @@ final class LauncherModel {
   }
   func escape() -> Bool {
     focusTarget = nil
+    // Escape while a command is being entered stays where it was; a way back is already on its way.
+    if let arrival = arriving {
+      if !arrival.back { stopArriving() }
+      return true
+    }
     if agent.active {
-      if agent.busy {
-        agent.cancel()
-      } else {
-        agent.reset()
-        input = ""
-      }
+      // Ending the conversation goes back to what was open under it once that has its content.
+      if agent.busy { agent.cancel() } else { arrive(command, input: "", back: true) }
       return true
     }
     if command != nil {
-      cancelWork()
-      command = nil
-      input = ""
+      arrive(nil, input: "", back: true)
       return true
     }
     if !input.isEmpty {

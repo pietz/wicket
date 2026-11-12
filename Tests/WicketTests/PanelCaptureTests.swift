@@ -281,6 +281,7 @@ private let nextAnswer =
         model.input = "web"
         await model.settled()
         _ = model.activateReturn()
+        await model.settled()
         model.input = "wicket launcher"
       case "extension-fallback": model.input = "a useful sentence to search"
       default: model.input = "10 km in mi"

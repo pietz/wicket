@@ -168,16 +168,16 @@ private func temporaryFolder() throws -> URL {
   #expect(decoded == .paste("ab"))
 }
 
-@MainActor @Test func theHistoryAnswersRequestsLikeAnExtension() async throws {
+@MainActor @Test func theHistoryAnswersRequestsLikeAnExtension() throws {
   let (history, _) = makeHistory(try temporaryFolder())
   history.capture("alpha one")
   history.capture("beta two")
   #expect(
-    await history.view(for: ProviderRequest(input: "")).items.map(\.title) == ["beta two", "alpha one"])
-  #expect(await history.view(for: ProviderRequest(input: "alp")).items.map(\.title) == ["alpha one"])
+    history.view(for: ProviderRequest(input: "")).items.map(\.title) == ["beta two", "alpha one"])
+  #expect(history.view(for: ProviderRequest(input: "alp")).items.map(\.title) == ["alpha one"])
   // Delete is the row's own run action, answered with the updated list.
   let alpha = try #require(history.clips.last)
-  let view = await history.view(
+  let view = history.view(
     for: ProviderRequest(input: "", arguments: ["delete": alpha.id], chosen: true))
   #expect(view.items.map(\.title) == ["beta two"] && history.clips.map(\.text) == ["beta two"])
 }

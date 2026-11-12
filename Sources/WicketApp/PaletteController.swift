@@ -130,6 +130,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
       self.panel.makeKey()
     }
     renderer.onHeight = { [weak self] in self?.resize() }
+    model.preparePage = { [weak self] body, turn, capped in
+      guard let self, isOpen else { return }
+      renderer.textSize = model.configuration.textSize
+      renderer.capped = capped
+      await renderer.render(body, turn: turn)
+    }
   }
   func toggle(eventTime: TimeInterval) {
     if panel.isVisible { hide() } else { show(eventTime: eventTime) }
