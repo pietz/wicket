@@ -28,7 +28,7 @@ Wicket ships as a notarized DMG on GitHub Releases, updates itself with Sparkle,
 
 ## Cutting a release
 
-Run `Scripts/check.sh` first. Signing and notarization need the owner's unlocked macOS login session and accessible login keychain; do not start a release while the session is locked or from an unattended locked-session run. Unlock and retry from that session if Keychain access stalls. `WICKET_SIGN_IDENTITY` can override the identity used by `build-app.sh`; `release.sh` still selects the team's Developer ID identity to sign the DMG.
+Run `Scripts/check.sh` first. Signing and notarization need the owner's unlocked macOS login session and accessible login keychain; do not start a release while the session is locked or from an unattended locked-session run. Unlock and retry from that session if Keychain access stalls. On a Mac where the Sparkle key was imported (`generate_keys --account wicket -f <file>`) and not created, the first `sign_update` waits on a Keychain dialog on that Mac's screen: answer it with Always Allow once, or the release stops after notarization. `WICKET_SIGN_IDENTITY` can override the identity used by `build-app.sh`; `release.sh` still selects the team's Developer ID identity to sign the DMG.
 
 ```sh
 Scripts/release.sh 0.0.2
