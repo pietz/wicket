@@ -29,6 +29,9 @@ enum Ranking {
     case failed(String)
   }
 
+  /// The most apps the empty input lists: a short list of the most used, not every installed app.
+  static let emptyApps = 20
+
   /// What a name match is, which breaks ties in this order.
   enum Kind: Int, Sendable { case app, file, command, item, host }
 
@@ -78,7 +81,8 @@ enum Ranking {
   /// 6. Error and repair rows.
   ///
   /// Strong means a math result, a nonempty successful pattern result or a name match with tier 1
-  /// or 2. Empty input lists apps by usage, then Ask agent, and never offers fallbacks.
+  /// or 2. Empty input lists at most `emptyApps` apps, by their use under any input and then by name,
+  /// then extension commands and Ask agent, and never offers fallbacks.
   ///
   /// - Parameters:
   ///   - math: Rows from the math source.
@@ -129,6 +133,7 @@ enum Ranking {
 
     // Name matches. Every row matches by its title and keywords; empty input matches everything given.
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
+    let totals = query.isEmpty ? usage.totals(now: now) : [:]
     func candidate(_ result: Result, _ kind: Kind) -> Candidate? {
       var score = 0
       var tier = 0
@@ -142,7 +147,8 @@ enum Ranking {
       }
       return Candidate(
         result: result, kind: kind, tier: tier,
-        usage: usage.frecency(result.id, query: input, now: now), score: score)
+        usage: query.isEmpty ? totals[result.id] ?? 0 : usage.frecency(result.id, query: input, now: now),
+        score: score)
     }
     var candidates = names.flatMap { source in
       source.rows.compactMap { candidate(Result(provider: source.provider, row: $0), source.kind) }
@@ -199,8 +205,10 @@ enum Ranking {
           ]))
     }
     if query.isEmpty {
+      let apps = candidates.filter { $0.kind == .app }.prefix(emptyApps)
+      let rest = candidates.filter { $0.kind != .app }
       return Output(
-        results: mathRows + patternRows + candidates.map(\.result) + [ask] + failures + repairs,
+        results: mathRows + patternRows + (apps + rest).map(\.result) + [ask] + failures + repairs,
         strongReason: "empty input lists apps first")
     }
 

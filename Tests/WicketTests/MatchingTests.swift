@@ -67,7 +67,8 @@ func topResult(query: String, expected: String) {
   usage.record("apps:Messages", query: "M", now: Date())
   #expect(search(index, "m", usage: usage).first?.title == "Messages")
   #expect(search(index, "ma", usage: usage).first?.title == "Mail")
-  #expect(search(index, "", usage: usage).first?.title == "Mail")
+  // The empty input counts use under every input.
+  #expect(search(index, "", usage: usage).first?.title == "Messages")
 }
 
 @Test func recentUseBreaksEqualFrequency() {

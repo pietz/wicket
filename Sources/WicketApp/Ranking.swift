@@ -42,4 +42,16 @@ extension UsageStore {
   mutating func record(_ id: String, query: String, now: Date) {
     record(Self.key(id, query), now: now)
   }
+  /// Each id's use under every input together. Picks are made after typing, so this, not the empty
+  /// input's own history, is what the empty input ranks by. The keys are decoded in one pass.
+  func totals(now: Date) -> [String: Double] {
+    let pairs = Array(entries)
+    let json = "[" + pairs.map(\.key).joined(separator: ",") + "]"
+    guard let keys = try? JSONDecoder().decode([[String]].self, from: Data(json.utf8)) else { return [:] }
+    var totals: [String: Double] = [:]
+    for (key, pair) in zip(keys, pairs) where key.count == 2 {
+      totals[key[0], default: 0] += Self.decay(pair.value, now: now)
+    }
+    return totals
+  }
 }

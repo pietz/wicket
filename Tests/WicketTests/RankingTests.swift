@@ -214,6 +214,30 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(titles(pattern) == ["Recent", "Ask agent"])
 }
 
+@Test func emptyInputRanksAppsByTheirUseUnderAnyInput() {
+  // Picks are made after typing, so the empty input's own history is nearly always empty.
+  var usage = UsageStore()
+  let notes = Result(provider: "apps", row: app("Notes")).id
+  let safari = Result(provider: "apps", row: app("Safari")).id
+  for query in ["no", "not", "notes"] { usage.record(notes, query: query, now: Date()) }
+  usage.record(safari, query: "saf", now: Date())
+  let apps = ["Calendar", "Notes", "Safari", "Books"].map { app($0) }
+  #expect(
+    titles(compose("", apps: apps, usage: usage)) == ["Notes", "Safari", "Books", "Calendar", "Ask agent"])
+}
+
+@Test func emptyInputShowsAtMostTwentyAppsMostUsedFirst() {
+  var usage = UsageStore()
+  let apps = (0..<300).map { app(String(format: "App %03d", $0)) }
+  usage.record(Result(provider: "apps", row: apps[250]).id, query: "app", now: Date())
+  let output = compose("", apps: apps, extensions: ["extension:deploy": manifest("Deploy")], usage: usage)
+  // The used app first, then by name up to the cap; commands and Ask agent follow as before.
+  #expect(
+    titles(output) == ["App 250"] + (0..<19).map { String(format: "App %03d", $0) } + ["Deploy", "Ask agent"])
+  // Typed input is never capped.
+  #expect(compose("app", apps: apps, usage: usage).results.count == 301)
+}
+
 @Test func failedPatternsAndInvalidManifestsGoAtTheEnd() {
   let output = compose(
     "deploy now", apps: [app("Tool to Deploy Now")],
