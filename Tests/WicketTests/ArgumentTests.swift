@@ -172,6 +172,53 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.finish()
 }
 
+/// A submit sends the input and the declared arguments. What a run action set is sent once, with the
+/// choice that set it, and never again with a later Return.
+@MainActor @Test func aSubmitDoesNotSendARunActionsArgumentsAgain() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let script = """
+    import json,sys; r=json.load(sys.stdin)
+    open('log.jsonl','a').write(json.dumps(r)+'\\n')
+    print(json.dumps({'items':[{'id':'3','title':'Note 3','actions':[
+      {'type':'run','title':'Delete','arguments':{'delete':'3'}}]}]}))
+    """
+  let folder = try extensionFolder(
+    root, name: "notes",
+    fields: [
+      "name": "Notes", "command": ["/usr/bin/python3", "main.py"], "arguments": [["name": "text"]],
+      "submit": true,
+    ])
+  try Data(script.utf8).write(to: folder.appending(path: "main.py"))
+  func requests() throws -> [ProviderRequest] {
+    try String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8).split(separator: "\n")
+      .map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
+  }
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  await model.extensions.reload()
+  model.input = "notes"
+  await model.settled()
+  #expect(model.activateReturn())
+  await model.settled()
+  model.move(1)
+  #expect(model.activateReturn())
+  await model.settled()
+  #expect(try requests().last?.arguments == ["delete": "3"])
+  // The next note: the Delete is not part of what Return sends.
+  model.setArgument("text", to: "buy milk")
+  #expect(model.returnAction == .run(Address(input: "", arguments: ["text": "buy milk"])))
+  #expect(model.activateReturn())
+  await model.settled()
+  let last = try #require(try requests().last)
+  #expect(last.chosen && last.arguments == ["text": "buy milk"])
+  // A conversation opened over the command offers no slots.
+  #expect(model.declaredArguments.map(\.name) == ["text"])
+  model.agent.open(settings: model.configuration.agent)
+  #expect(model.declaredArguments.isEmpty && model.focusedArgument == nil)
+  await model.finish()
+}
+
 /// The note example through the real pipeline: only a chosen request with a text writes, and every
 /// request shows the newest notes first. `--arguments` is a JSON object; an array is refused.
 @MainActor @Test func theNoteExampleAppendsOnlyOnAChosenRequestWithAText() async throws {
@@ -193,8 +240,11 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(try await titles(["--chosen"]) == ["buy milk"])
   #expect(
     try await titles(["--arguments", #"{"text":"call  Ada"}"#, "--chosen"]) == ["call Ada", "buy milk"])
+  // Typed into the command's input, the note is taken as well.
+  #expect(
+    try await titles(["--input", "typed note", "--chosen"]) == ["typed note", "call Ada", "buy milk"])
   let notes = try String(contentsOf: folder.appending(path: "notes.md"), encoding: .utf8)
-  #expect(notes.split(separator: "\n").count == 2 && notes.hasSuffix(" call Ada\n"))
+  #expect(notes.split(separator: "\n").count == 3 && notes.hasSuffix(" typed note\n"))
   let refused = try await cli(root, ["--extension", "note", "--arguments", #"["buy milk"]"#, "--chosen"])
   #expect(refused.0 == 1 && refused.1["error"].string != nil)
   let help = try await cli(root, ["--help"])

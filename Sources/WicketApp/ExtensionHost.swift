@@ -20,14 +20,22 @@ struct ExtensionCommand: Sendable, Equatable {
   static func == (a: Self, b: Self) -> Bool {
     a.id == b.id && a.folder == b.folder && a.manifest == b.manifest
   }
-  /// The items that are name matches at the root for this input. They take the extension's icon and
-  /// name where they have none, and their ids never meet the command row's.
+  /// The items that are name matches at the root for this input. They take the extension's name
+  /// where they have no subtitle, and their ids never meet the command row's.
   func rootItems(_ input: String) -> [Row] {
     items.best(input, limit: Self.rootItems).map {
-      Row(
-        id: "item:" + $0.id, title: $0.title, subtitle: $0.subtitle ?? manifest.name,
-        icon: $0.icon ?? manifest.icon, actions: $0.actions, keywords: $0.keywords, prominent: $0.prominent)
+      shown($0, id: "item:" + $0.id, subtitle: $0.subtitle ?? manifest.name)
     }
+  }
+  /// The command's own view when there is no program: its items, filtered by what is typed.
+  func ownItems(_ input: String) -> [Row] {
+    items.matches(input).map { shown($0, id: $0.id, subtitle: $0.subtitle) }
+  }
+  /// An item takes the extension's icon where it has none.
+  private func shown(_ row: Row, id: String, subtitle: String?) -> Row {
+    Row(
+      id: id, title: row.title, subtitle: subtitle, icon: row.icon ?? manifest.icon, actions: row.actions,
+      keywords: row.keywords, prominent: row.prominent)
   }
 }
 
@@ -102,7 +110,7 @@ final class ExtensionHost {
     try Task.checkCancellation()
     // Without a program the command is its items, filtered by what is typed. Nothing runs.
     guard command.manifest.command != nil else {
-      return ProviderView(items: command.items.matches(request.input))
+      return ProviderView(items: command.ownItems(request.input))
     }
     let id = UUID()
     let runner = runner

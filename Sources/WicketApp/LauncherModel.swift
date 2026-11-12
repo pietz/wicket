@@ -434,12 +434,18 @@ final class LauncherModel {
         provider: command.id,
         row: Row(
           id: "submit", title: commandName ?? "Run",
-          actions: [.run(Address(input: input, arguments: command.arguments))]))
+          actions: [.run(Address(input: input, arguments: filledArguments(of: command)))]))
     }
     guard body != nil else { return nil }
     return Result(
       provider: command.id,
       row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
+  }
+  /// What a submit sends besides the input: the declared arguments. What a run action set stays out,
+  /// or a Delete chosen once would be sent again with every later Return.
+  private func filledArguments(of command: CommandState) -> [String: String] {
+    let declared = Set(declaredArguments.map(\.name))
+    return command.arguments.filter { declared.contains($0.key) }
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up. On a command row it enters the command with what was filled into its
@@ -455,6 +461,7 @@ final class LauncherModel {
   /// The arguments the user can fill in: inside a command its own declared ones, at the root those of
   /// the selected extension command row. Empty when there are none.
   var declaredArguments: [ExtensionManifest.Argument] {
+    guard !agent.active else { return [] }
     if command != nil { return extensionCommand?.manifest.arguments ?? [] }
     guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
     return extensions.commands[row.provider]?.manifest.arguments ?? []

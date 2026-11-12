@@ -78,7 +78,8 @@ func answering(_ title: String) -> String {
     ["id": "a", "title": "Alpha", "keywords": ["docs"], "actions": []],
     ["id": "c", "title": "Gamma", "actions": []],
   ]
-  let folder = try extensionFolder(root, name: "links", fields: ["name": "Links", "items": items])
+  let folder = try extensionFolder(
+    root, name: "links", fields: ["name": "Links", "icon": "bookmark", "items": items])
   // No program: the manifest alone is the extension.
   var manifest =
     try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "wicket.json")))
@@ -105,6 +106,8 @@ func answering(_ title: String) -> String {
   model.input = ""
   await model.settled()
   #expect(model.results.map(\.row.title) == ["Beta Docs", "Alpha", "Gamma"])
+  // Inside its own command an item shows the extension's icon too, and no subtitle of the host's.
+  #expect(model.results.allSatisfy { $0.row.icon == "bookmark" && $0.row.subtitle == nil })
   model.input = "docs"
   await model.settled()
   // Filtered and ordered like any command's items: an exact keyword before the manifest's order.

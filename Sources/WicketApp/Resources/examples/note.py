@@ -1,8 +1,9 @@
 #!/usr/bin/python3
-"""Return appends the text to notes.md in this folder; every request shows the last few notes."""
+"""Return appends the note (the declared argument, or what is typed) to notes.md in this folder;
+every request shows the last few notes."""
 import datetime, json, os, sys
 request = json.load(sys.stdin)
-text = " ".join(request.get("arguments", {}).get("text", "").split())
+text = " ".join((request.get("arguments", {}).get("text") or request.get("input", "")).split())
 if request.get("chosen") and text:
     with open("notes.md", "a", encoding="utf-8") as notes:
         notes.write(f"- {datetime.datetime.now():%Y-%m-%d %H:%M} {text}\n")

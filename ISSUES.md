@@ -58,6 +58,14 @@ Two independent reviews (GPT-6 Astra, Claude Fable 5.2) that then read each othe
 - **File search limits.** Spotlight caps hits at 500 before sorting, so for a common prefix the best name may be outside the sample; relevance was never measured against labelled ground truth. Loose files directly in home are not searched (a scope must be a folder). Files on FAT and exFAT volumes usually carry the executable bit, so `OpenPolicy` refuses to open them and they only reveal. Reveal in Finder has no key yet, only the context menu (ROADMAP, Actions menu).
 - **Omitted sources are now on.** File search needed existing `config.json` files, which list only math and apps, to pick up a new built-in, so a source the list omits is on and only `"enabled": false` switches one off. A hand-written `"providers": []` no longer turns every built-in off.
 
+### Items, arguments and submit (review of 12 Nov 2026)
+
+- **Entering a command by its name is now chosen.** An extension written against the old rule that acts on any chosen request (`if chosen: deploy()`) now acts when it is entered. The bundled programs do not; extensions the agent wrote earlier need a look. Array `arguments` are refused with a decoding error, after the program ran.
+- **A catalog change reruns an open command and cancels its running request**, also a chosen one. An extension that rewrites its `wicket.json` to refresh items must do so last; another extension rewriting its manifest at that moment still interrupts. Refresh only when the open command's own entry changed.
+- **The 20 best items per extension are picked by fuzzy score alone**, in manifest order among equals, before tier and usage apply. In a large list a much used item can stay out for a short input; looking usage up per item costs a JSON encoding each.
+- **Return twice in a submit command sends twice**: the input and slot values stay after a submit, so a second Return repeats it. Decide whether a submit clears them.
+- **Slots at the trailing end** of the pill, not after the typed text, because a field that grows per keystroke fights AppKit's scrolling and IME text.
+
 ## Process I/O
 
 - **No backpressure on a slow consumer.** `FileHandle.chunks(limit:perLine:)` stops reading once a flood exceeds its limit, but it yields into an unbounded `AsyncStream` and never waits for the consumer, so a slow reader of a fast writer that stays under the limit can still let read-ahead pile up. Bounded for floods, not backpressured.
@@ -73,5 +81,7 @@ From a review of an earlier snapshot, rechecked against the current code. The fi
 - **`model.problem` carries several things** (config errors, hotkey conflicts, provider errors, paste errors) and is cleared by checking `hasPrefix("Config:")`. Keep each source separate and let the footer pick.
 - **Two hardware serialization schemes in voice.** `Microphone` (lock plus an opening stream) and `EngineCapture` (serial queue) both serialize open and close. One class on one serial queue would do. Only with a hands-on voice test: a review fix here once broke Bluetooth voice.
 - **Small leftovers.** `ProcessTree.exitStatus` and `Shutdown.notRunning` are unused. `Result` (in `Composition.swift`) shadows `Swift.Result`; rename it when touching those lines. `SettingsActivation` exists only to call a deprecated method without a warning. `ExtensionFailure` is used as the general message-carrying error, including by the headless mode.
+- **A flaky voice test.** `transcriptActivityCannotExtendTheHardLimit` failed once in four full runs on 12 Nov 2026 (a 500 ms limit against 20 ms sleeps under parallel load); like the disabled permission test it needs an injectable clock.
+- **Capture test.** Nine states whose text WebKit draws (answers, conversations, extension detail) fail the text-recognition check on the home server, before and after the changes of 12 Nov 2026.
 - **Tests.** The hotkey `Handle` fake is declared four times in `SettingsTests` and `KeyHandlingTests`; share one. `HeadlessTests` runs `.build/debug/Wicket` from a hard-coded path and silently depends on a debug build existing (`Scripts/check.sh` builds first); say so in the test or build the product from it.
 - **Voice permission test is disabled.** `permissionWaitDoesNotUseStartupOrCaptureDeadlines` raced its 250 ms startup timer against the session's first update under parallel test load (failed about one full run in three). Not a product bug; re-enable it once `VoiceInput` takes an injectable clock or sleep so the test fires deadlines itself.
