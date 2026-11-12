@@ -181,6 +181,10 @@ import Testing
     #expect(hours.minX >= frame(input).maxX && hours.minX - frame(input).maxX < 20)
     #expect(hours.minX > lastSlot)
     lastSlot = hours.minX
+    // Every field keeps its own height and is centred on the slots' line: a text field draws its text
+    // at its top, so a taller frame lifts the text (0.2.2 drew the input 2 points high).
+    let field = frame(input)
+    #expect(field.height == input.intrinsicContentSize.height && abs(field.midY - hours.midY) < 1)
   }
   #expect(frame(input).width < 120 && frame(slot("minutes")).minX > frame(slot("hours")).maxX)
   // Long text in the open command: the slots stop at the end of the pill, fully visible, and the
@@ -193,7 +197,8 @@ import Testing
   let pillEnd = PaletteLayout.margin + PaletteLayout.width - 2 * PaletteLayout.margin - 18
   // Before the microphone, if it shows.
   #expect(frame(slot("minutes")).maxX + 9 <= pillEnd && frame(slot("minutes")).maxX + 9 > pillEnd - 40)
-  #expect(frame(input).maxX <= frame(slot("hours")).minX && frame(input).width > 300)
+  // Scrolled text stops a little before the first slot, not at its edge.
+  #expect(frame(input).maxX + 8 <= frame(slot("hours")).minX && frame(input).width > 300)
   // Replacing the long text with a short one shows it from the start again, in a narrow field.
   let field = try #require(input.currentEditor() as? NSTextView)
   #expect((field.superview as? NSClipView)?.bounds.origin.x != start)

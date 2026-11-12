@@ -27,10 +27,11 @@ struct SearchField: NSViewRepresentable {
     return field
   }
   /// Exactly the width it is given: the layout sizes fields from their text, never the reverse, and
-  /// AppKit's intrinsic width would let long text push the field past the slots.
+  /// AppKit's intrinsic width would let long text push the field past the slots. Always its own height:
+  /// a text field draws its text at the top, so a taller frame would lift the text above the centre.
   func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
     guard let width = proposal.width else { return nil }
-    return CGSize(width: width, height: proposal.height ?? nsView.intrinsicContentSize.height)
+    return CGSize(width: width, height: nsView.intrinsicContentSize.height)
   }
   func updateNSView(_ field: NSTextField, context: Context) {
     context.coordinator.text = $text
@@ -83,6 +84,8 @@ final class FocusReportingField: NSTextField {
 /// input's start never moves.
 struct InputBar: Layout {
   var spacing: CGFloat = 6
+  /// Scrolled text stops this far before the slots, the room text that fits keeps for its caret.
+  var scrollGap: CGFloat = 8
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
     return CGSize(
@@ -93,11 +96,14 @@ struct InputBar: Layout {
     guard let input = subviews.first else { return }
     let slots = subviews.dropFirst().map { $0.sizeThatFits(.unspecified) }
     let room = bounds.width - slots.reduce(0) { $0 + spacing + $1.width }
-    let width =
-      slots.isEmpty ? bounds.width : max(0, min(input.sizeThatFits(.unspecified).width, room))
+    let natural = input.sizeThatFits(.unspecified).width
+    let width = slots.isEmpty ? bounds.width : max(0, min(natural, room))
+    // Text longer than the room is clipped a little before the first slot, not at its edge; the slots
+    // stay where they are.
     input.place(
       at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
-      proposal: ProposedViewSize(width: width, height: bounds.height))
+      proposal: ProposedViewSize(
+        width: !slots.isEmpty && natural > room ? max(0, room - scrollGap) : width, height: bounds.height))
     var x = bounds.minX + width
     for (slot, size) in zip(subviews.dropFirst(), slots) {
       x += spacing

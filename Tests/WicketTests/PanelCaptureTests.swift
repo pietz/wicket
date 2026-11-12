@@ -75,11 +75,11 @@ private func expectedText(_ name: String) -> [String] {
     return ["Extension report", "Invalid extension view", "REPAIR", "Ask agent"]
   }
   if name.contains("arguments-empty") { return ["caff", "Caffeinate", "hours", "minutes"] }
-  if name.contains("arguments-filled") { return ["caff", "Caffeinate", "4", "30"] }
+  if name.contains("arguments-filled") { return ["caff", "Caffeinate", "12", "30"] }
   if name.contains("arguments-open") { return ["Caffeinate", "hours", "minutes"] }
   if name.contains("arguments-long") { return ["hours", "minutes", "Awake"] }
   if name.contains("arguments-three") { return ["caff", "hours", "minutes", "seconds"] }
-  if name.contains("arguments-command") { return ["Caffeinate", "4", "30", "Awake for 4 h 30 min"] }
+  if name.contains("arguments-command") { return ["Caffeinate", "12", "30", "Awake for 12 h 30 min"] }
   if name.contains("extension-pattern") { return ["6.2137119", "Copy conversion", "Ask agent"] }
   if name.contains("extension-list") { return ["wicket launcher", "Search for", "Search the web"] }
   if name.contains("extension-fallback") { return ["Ask agent", "Search the web"] }
@@ -313,7 +313,7 @@ private let nextAnswer =
     model.input = "caff"
     await model.settled()
     if state == "arguments-filled" || state == "arguments-command" {
-      model.setArgument("hours", to: "4")
+      model.setArgument("hours", to: "12")
       model.setArgument("minutes", to: "30")
     }
     if ["arguments-command", "arguments-open", "arguments-long"].contains(state) {
@@ -450,9 +450,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.selected?.row.id == "detail")
   case "arguments-empty": #expect(model.declaredArguments.count == 2 && model.argumentValues.isEmpty)
   case "arguments-filled":
-    #expect(model.command == nil && model.argumentValues == ["hours": "4", "minutes": "30"])
+    #expect(model.command == nil && model.argumentValues == ["hours": "12", "minutes": "30"])
   case "arguments-command":
-    #expect(model.argumentValues.count == 2 && model.results.first?.row.title == "Awake for 4 h 30 min")
+    #expect(model.argumentValues.count == 2 && model.results.first?.row.title == "Awake for 12 h 30 min")
   case "arguments-open", "arguments-long": #expect(model.command != nil && model.argumentValues.isEmpty)
   case "arguments-three": #expect(model.declaredArguments.count == 3)
   case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
