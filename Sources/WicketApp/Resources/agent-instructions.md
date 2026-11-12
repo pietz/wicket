@@ -54,7 +54,7 @@ Looks like: consecutive items form one list of native rows below the answer, eac
 - Each component starts its own line. Attribute values use double quotes; write `“”` inside them.
 - `tone` is `positive`, `warning` or `negative`, and only when the color carries meaning; leave it out otherwise.
 - Items are not part of the page: they always show as a list below the answer, however the tags are placed, so put them last and use them instead of a Markdown list of links.
-- Headings, tables, lists, emphasis, code and links stay Markdown. Links must be `http`, `https` or `mailto`.
+- Headings, tables, lists, emphasis, code and links stay Markdown; right-align number columns with `---:`. Links must be `http`, `https` or `mailto`.
 - No HTML, styles, scripts or images. Other tags show as plain text, so a placeholder such as `<name>` goes in backticks. Never wrap the whole reply in a code fence.
 
 ## Wicket documentation

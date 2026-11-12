@@ -33,6 +33,18 @@ import Testing
   #expect(html.contains("Still readable"))
 }
 
+@MainActor @Test func tableColumnsKeepTheirAlignmentAndTheThemeHonorsIt() throws {
+  let html = AnswerMarkdown.html("| Item | Kind | Price |\n| :-- | :-: | --: |\n| Tea | drink | 3.50 |")
+  for cell in [#"<th align="left">Item"#, #"<th align="center">Kind"#, #"<th align="right">Price"#] {
+    #expect(html.contains(cell))
+  }
+  #expect(html.contains(#"<td align="right">3.50</td>"#))
+  // The theme sets cells to the left, so it must give aligned columns their own rule.
+  let css = try AnswerRenderer.stylesheet(in: FileManager.default.temporaryDirectory)
+  #expect(css.contains(#"td[align="right"] { text-align: right; }"#))
+  #expect(css.contains(#"td[align="center"] { text-align: center; }"#))
+}
+
 @Test func hostileAnswerCannotIntroduceActiveElementsOrURLs() {
   let html = AnswerMarkdown.html(
     """
