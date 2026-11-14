@@ -107,6 +107,7 @@ Addresses name views, never effects; there is no exec action and no templating l
 ## Later, ideas
 
 - Choices in agent replies, sent as follow-up messages and never as consent.
+- **Interactive answers** (owner, 14 Nov 2026, not urgent): widgets the user can play with inside an answer, such as a slider, a small calculator or a form, so a result can be explored and not only read, as ChatGPT's Intelligent UI does ([research](docs/research/openai-intelligent-ui.md)). Open question first: where the logic lives. The page runs no content script today, so either Wicket ships a few interactive tags whose behaviour it owns (a slider bound to a value, a stepper), or an extension supplies the logic through `run` requests. No free scripts from the model.
 - Empty palette with favourites and suggestions; a compact results mode.
 - Voice: hold to talk, a language choice for mixed German and English.
 - First-run onboarding and a permissions flow asked only when a feature needs it.
