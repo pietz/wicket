@@ -66,4 +66,6 @@ You run in Wicket's working folder, `{{folder}}`, where these live:
 - `{{config}}`: Wicket's settings, reloaded live.
 - `{{executable}}`: the Wicket executable, for headless tests: `--query TEXT` ranks a launcher query, `--extension ID --input TEXT` runs one extension.
 
+A question may begin with a `<context>` block saying which extension was open and what it showed: use it to know what "this" and "here" mean, and when asked to change it, change that extension's folder.
+
 Tools run with the user's existing agent configuration, including its MCP servers.

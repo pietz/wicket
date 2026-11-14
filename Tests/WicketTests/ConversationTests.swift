@@ -248,3 +248,56 @@ import Testing
   controller.renderer.release()
   await model.finish()
 }
+
+@MainActor @Test func aNewConversationFromAnExtensionCarriesWhatItShowed() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  // A submit command, so typing the question leaves the view of the request it answered.
+  let long = String(repeating: "Wind 12 km/h. ", count: 600)
+  let folder = try extensionFolder(
+    root, name: "weather",
+    script: "cat >/dev/null\nprintf '{\"body\":\"## Hamburg\\\\n\(long)\"}'",
+    fields: ["name": "Weather", "submit": true])
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.update { $0.providers = [.init("extension:weather")] }
+  await model.extensions.reload()
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  // At the root nothing goes with the question.
+  model.send("What time is it?")
+  #expect(await eventually { fake.running })
+  #expect(fake.prompts.last?.text == "What time is it?" && model.agent.source == nil)
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  model.agent.reset()
+
+  model.go(Address(id: "weather", input: "Hamburg", arguments: ["view": "day"]))
+  await model.settled()
+  #expect(model.body?.hasPrefix("## Hamburg") == true)
+  let path = try #require(model.extensionCommand).folder.path
+  #expect(path.hasSuffix(folder.path))
+  model.editInput("add the wind here")
+  model.send()
+  #expect(await eventually { fake.running })
+  let prompt = try #require(fake.prompts.last?.text)
+  #expect(
+    prompt.hasPrefix(
+      "<context>\nThe user asked from the Weather command (\(path), folder `weather`), input \"Hamburg\", arguments {\"view\":\"day\"}.\nIt showed:\n{\"body\":\"## Hamburg"
+    ))
+  #expect(prompt.hasSuffix("[cut: the view was longer than this]\n</context>\n\nadd the wind here"))
+  #expect(prompt.count < LauncherModel.contextLimit + 400)
+  // The conversation shows only the user's words, and where they asked from.
+  #expect(model.agent.question == "add the wind here" && model.agent.source == "Weather")
+  fake.text("Done")
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+
+  // A follow-up carries only its text.
+  model.send("and the gusts")
+  #expect(await eventually { fake.prompts.last?.text == "and the gusts" })
+  #expect(model.agent.source == nil)
+  #expect(model.agent.previous.last?.question == "add the wind here")
+  fake.end()
+  await model.finish()
+}

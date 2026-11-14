@@ -417,6 +417,9 @@ struct LauncherView: View {
           }
           HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
+              if let source = model.agent.source {
+                Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
+              }
               Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

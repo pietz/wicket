@@ -10,6 +10,8 @@ struct CommandState {
   var next = Cause.address
   enum Cause { case rerun, address, choice }
   var view = ProviderView()
+  /// The input of the request that answered `view`.
+  var viewInput = ""
   /// The view's body as a page, with its items after it; nil for a list.
   var page: Page?
   var problem: String?
@@ -395,7 +397,7 @@ final class LauncherModel {
       let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.next == .choice)
       if let view = immediateView(state.id, request) {
         showArrival()
-        show(view, page: nil, of: state.id, turn: UUID().uuidString)
+        show(view, page: nil, of: state.id, input: input, turn: UUID().uuidString)
         retainSelection()
         onResultsChange?()
         return
@@ -415,7 +417,7 @@ final class LauncherModel {
               guard !Task.isCancelled, generation == version else { return }
             }
             showArrival()
-            show(view, page: page, of: state.id, turn: turn)
+            show(view, page: page, of: state.id, input: input, turn: turn)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
             showArrival()
@@ -530,9 +532,10 @@ final class LauncherModel {
     } while seen != generation
   }
   /// A command's view: a list ordered by what is typed, or a page.
-  private func show(_ view: ProviderView, page: Page?, of id: String, turn: String) {
+  private func show(_ view: ProviderView, page: Page?, of id: String, input: String, turn: String) {
     command?.turn = turn
     command?.view = view
+    command?.viewInput = input
     command?.page = page
     command?.busy = false
     listed = page == nil ? Ranking.order(view.items, provider: id, query: input) : []
@@ -756,13 +759,42 @@ final class LauncherModel {
   func send(_ text: String? = nil) {
     let text = text ?? input
     guard !agent.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    // Only a new conversation asked from an extension's command learns what it showed.
+    let context = agent.active ? nil : commandContext
     stopArriving()
     cancelWork()
-    agent.ask(text, settings: configuration.agent)
+    agent.ask(text, context: context?.text, from: context?.name, settings: configuration.agent)
     questionExpanded = false
     clearSelection()
     input = ""
   }
+  /// The open extension command and what it shows, as a `<context>` block for the agent, with the
+  /// command's name for the question header. Nil at the root, for the host's own commands and for a
+  /// command whose request failed.
+  var commandContext: (text: String, name: String)? {
+    guard let command, command.problem == nil, let owner = extensionCommand else { return nil }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    func json(_ value: some Encodable) -> String {
+      String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
+    }
+    struct Shown: Encodable {
+      let body: String?
+      let items: [Row]
+    }
+    var shown = json(Shown(body: command.view.body, items: command.view.items))
+    if shown.count > Self.contextLimit {
+      shown = String(shown.prefix(Self.contextLimit)) + "\n[cut: the view was longer than this]"
+    }
+    let name = owner.manifest.name
+    var asked =
+      "The user asked from the \(name) command (\(owner.folder.path), folder `\(owner.folder.lastPathComponent)`)"
+    asked += ", input \(json(command.viewInput))"
+    if !command.arguments.isEmpty { asked += ", arguments \(json(command.arguments))" }
+    return ("<context>\n\(asked).\nIt showed:\n\(shown)\n</context>", name)
+  }
+  /// About 4 KB of the open view goes to the agent.
+  static let contextLimit = 4000
   /// The `agent` action: the text becomes the input and nothing is sent. In a conversation the next
   /// Return is the follow-up. Anywhere else an open command is left and an empty conversation opens
   /// with the text as its unsent first question.

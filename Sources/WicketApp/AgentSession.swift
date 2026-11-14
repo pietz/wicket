@@ -17,6 +17,8 @@ final class AgentSession {
   private(set) var busy = false
   private(set) var turnID = UUID().uuidString
   private(set) var question = ""
+  /// The command the question was asked from, whose context went with it; nil for a follow-up.
+  private(set) var source: String?
   private(set) var answer = "" { didSet { page = Page(body: answer, runs: false) } }
   /// The answer as a page, with what it lets the user act on where it stands. Never a run action.
   private(set) var page = Page(body: "", runs: false)
@@ -93,7 +95,9 @@ final class AgentSession {
     active = true
     onChange?()
   }
-  func ask(_ input: String, settings: AgentConfiguration) {
+  /// Asks `input`, which the conversation shows. A `context` block goes before it to the agent only.
+  func ask(_ input: String, context: String? = nil, from source: String? = nil, settings: AgentConfiguration)
+  {
     let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !busy, !input.isEmpty else { return }
     if chosen.agent != settings.agent { reset() }
@@ -113,6 +117,8 @@ final class AgentSession {
     acceptingUpdates = false
     cancelling = false
     question = input
+    self.source = context == nil ? nil : source
+    let prompt = context.map { "\($0)\n\n\(input)" } ?? input
     answer = ""
     pendingAnswer = ""
     messageID = nil
@@ -141,7 +147,7 @@ final class AgentSession {
         acceptingUpdates = true
         status = "Thinking…"
         arm(startupLimit)
-        connection.prompt(input, settings: chosen)
+        connection.prompt(prompt, settings: chosen)
       } catch {
         guard generation == version else { return }
         if cancelling {
@@ -301,6 +307,7 @@ final class AgentSession {
     continuing = false
     busy = false
     sessionID = nil
+    source = nil
     answer = ""
     pendingAnswer = ""
     messageID = nil
