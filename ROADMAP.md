@@ -49,7 +49,7 @@ To settle in a design session: the comment's exact form; whether an owner's file
 
 ### Why answers look worse than 0.0.x
 
-The review traced it to the prompt and missing pictures, not the renderer (finding 4). Include in the planned comparison of prompt variants: one or two composite examples as the old instructions had (an answer over two cards, each with a stat and facts), an `icon` attribute on components, and a stat row that wraps. Then pictures as above.
+The review traced it to the prompt and missing pictures, not the renderer (finding 4). The prompt comparison on `experiment/answers` (14 Nov 2026) settled the first part: three short shapes in the instructions (SPEC, Instructions). Still open: an `icon` attribute on components other than items, and a stat row that wraps.
 
 ### Smaller contract steps
 

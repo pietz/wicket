@@ -1120,10 +1120,41 @@ func separateAgentMessagesAreSeparateParagraphsStreamingOrNot(_ streaming: Bool)
   fake.text(".", message: "a")
   fake.text("", message: "b")
   fake.text("# Result", message: "b")
-  fake.tool("Read file")
   fake.text("Done", message: "c")
   fake.end()
   #expect(await eventually { !session.busy })
   #expect(session.answer == "Checking.\n\n# Result\n\nDone")
+  await session.shutdown()
+}
+
+/// "Let me check the weather…" before a search is narration: the tool's title replaces it as the
+/// status, and the answer is what follows the last tool call, unless nothing does.
+@MainActor @Test(arguments: [true, false])
+func textBeforeAToolCallIsNarrationNotTheAnswer(_ streaming: Bool) async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let fake = FakeAgent()
+  let session = AgentSession(folder: folder)
+  session.connect = { _, _, _ in fake }
+  var settings = AgentConfiguration()
+  settings.streamAnswers = streaming
+  session.ask("Weather in Hamburg?", settings: settings)
+  #expect(await eventually { fake.running })
+  fake.text("Let me check the weather in Hamburg.", message: "a")
+  fake.tool("WebSearch Hamburg weather")
+  #expect(session.answer.isEmpty && session.status == "WebSearch Hamburg weather")
+  fake.text("One more source.", message: "b")
+  fake.tool("WebFetch wetter.com")
+  fake.text("<stat label=\"Now\" value=\"9°\"/>", message: "c")
+  fake.end()
+  #expect(await eventually { !session.busy })
+  #expect(session.answer == "<stat label=\"Now\" value=\"9°\"/>")
+  session.ask("Write the extension", settings: settings)
+  #expect(await eventually { fake.running })
+  fake.text("I'll write it now.", message: "d")
+  fake.tool("Write wicket.json")
+  fake.end()
+  #expect(await eventually { !session.busy })
+  #expect(session.answer == "I'll write it now.")
   await session.shutdown()
 }
