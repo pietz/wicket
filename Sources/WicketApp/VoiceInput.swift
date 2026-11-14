@@ -1,5 +1,28 @@
 import Foundation
 import Observation
+import os
+
+/// Voice diagnostics for `log show --predicate 'subsystem == "app.wicket" AND category == "voice"'`:
+/// reason kinds, permission states, device kinds, formats, error domains and codes, and timings. Never
+/// transcripts, locales, device names or UIDs.
+enum VoiceLog {
+  static let logger = Logger(subsystem: "app.wicket", category: "voice")
+  static func milliseconds(since start: ContinuousClock.Instant) -> Int {
+    let elapsed = ContinuousClock.now - start
+    return Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+  }
+  /// A VoiceError by its case; anything else by its domain and code, which name the failing API.
+  static func describe(_ error: any Error) -> String {
+    if let error = error as? VoiceError { return "\(error.kind)" }
+    let error = error as NSError
+    return "\(error.domain) \(error.code)"
+  }
+}
+
+/// Why capture stopped: the one thing the log needs to tell a key or edit from a failure.
+enum VoiceStop: String, Sendable {
+  case toggle, key, escape, edit, hidden, run, busy, disabled, quit, ended, failed, startTimeout, silence
+}
 
 enum VoiceUpdate: Sendable {
   case permission(Bool)
@@ -53,9 +76,13 @@ final class VoiceInput {
     self.write = write
   }
   var active: Bool { state != .idle }
-  func toggle() { if active { stop() } else { start() } }
-  func arm() { if !permissionDenied, !active { start() } }
+  func toggle() { if active { stop(.toggle) } else { start() } }
+  func arm() {
+    if permissionDenied { VoiceLog.logger.log("voice not armed: microphone denied earlier this run") }
+    if !permissionDenied, !active { start() }
+  }
   private func start() {
+    VoiceLog.logger.log("voice start, after a previous teardown: \(self.shutdown != nil, privacy: .public)")
     problem = nil
     state = .starting
     generation += 1
@@ -106,7 +133,13 @@ final class VoiceInput {
             }
           case .audio(let time):
             firstAudio = time - opened
+            VoiceLog.logger.log(
+              "voice first audio buffer, \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
+            )
           case .ready:
+            VoiceLog.logger.log(
+              "voice engine running, \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
+            )
             permissionDenied = false
             state = .listening
             guard generation == current else { return }
@@ -123,11 +156,12 @@ final class VoiceInput {
           }
         }
         guard let self, generation == current else { return }
-        stop()
+        stop(.ended)
       } catch {
         guard let self, generation == current else { return }
+        VoiceLog.logger.error("voice failed: \(VoiceLog.describe(error), privacy: .public)")
         permissionDenied = error as? VoiceError == .microphoneDenied
-        stop()
+        stop(.failed)
         problem = (error as? VoiceError)?.description ?? "Couldn't listen. Try again."
       }
     }
@@ -144,8 +178,11 @@ final class VoiceInput {
       "Last voice session: \(Date())\nOpen to first audio: \(milliseconds(firstAudio))\nOpen to first transcript: \(milliseconds(firstTranscript))\n"
     )
   }
-  func stop() {
+  func stop(_ reason: VoiceStop) {
     guard active else { return }
+    VoiceLog.logger.log(
+      "voice stop: \(reason.rawValue, privacy: .public) while \(self.state == .listening ? "listening" : "starting", privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
+    )
     generation += 1
     transcriber?.stop()
     shutdown = transcriber?.shutdown ?? shutdown
@@ -162,9 +199,8 @@ final class VoiceInput {
   /// Any key hands input to typing. Escape stops capture before navigating.
   func keyPressed(isEscape: Bool) -> Bool {
     guard active else { return false }
-    let consumed = isEscape
-    stop()
-    return consumed
+    stop(isEscape ? .escape : .key)
+    return isEscape
   }
   private func stopAfterSilence() {
     guard active, !requestingPermission else { return }
@@ -175,7 +211,7 @@ final class VoiceInput {
       try? await Task.sleep(until: deadline, clock: .continuous)
       guard !Task.isCancelled, let self, generation == current else { return }
       let starting = state == .starting
-      stop()
+      stop(starting ? .startTimeout : .silence)
       if starting { problem = "Voice didn't start. Check permissions and try again." }
     }
   }
@@ -192,6 +228,18 @@ enum VoiceError: Error, Equatable, CustomStringConvertible {
     case .inputChanged: "Microphone changed. Open Wicket again to retry."
     case .conversionFailed: "Couldn't convert microphone audio. Check Sound → Input."
     case .usageMissing: "Open the Wicket app bundle to use voice."
+    }
+  }
+  /// The case alone, for the log.
+  var kind: String {
+    switch self {
+    case .microphoneDenied: "microphoneDenied"
+    case .noMicrophone: "noMicrophone"
+    case .noLanguage: "noLanguage"
+    case .modelMissing: "modelMissing"
+    case .usageMissing: "usageMissing"
+    case .conversionFailed: "conversionFailed"
+    case .inputChanged: "inputChanged"
     }
   }
 }

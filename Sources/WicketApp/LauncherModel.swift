@@ -194,11 +194,16 @@ final class LauncherModel {
   private let makeTranscriber: (() -> any Transcriber)?
   private let timingURL: URL
   var takesSpeech: Bool { !agent.busy && agent.permissions.isEmpty }
-  func stopVoice() { voice?.stop() }
+  func stopVoice(_ reason: VoiceStop) { voice?.stop(reason) }
   func armVoice() { prepareVoice()?.arm() }
   func toggleVoice() { prepareVoice()?.toggle() }
   private func prepareVoice() -> VoiceInput? {
-    guard configuration.voice.enabled, takesSpeech else { return nil }
+    guard configuration.voice.enabled, takesSpeech else {
+      VoiceLog.logger.log(
+        "voice not armed: \(self.configuration.voice.enabled ? "agent busy or asking" : "disabled", privacy: .public)"
+      )
+      return nil
+    }
     if voice == nil {
       voice = VoiceInput(
         transcriber: { [weak self] in
@@ -207,7 +212,7 @@ final class LauncherModel {
         timingURL: timingURL,
         write: { [weak self] text in
           guard let self, takesSpeech else {
-            self?.stopVoice()
+            self?.stopVoice(.busy)
             return
           }
           input = text
@@ -218,7 +223,7 @@ final class LauncherModel {
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
   func editInput(_ text: String) {
-    stopVoice()
+    stopVoice(.edit)
     // Typing while a command is being entered goes to it: the switch happens now, and what was added to
     // the input being left is what is typed into the new one.
     if let arrival = arriving {
@@ -289,7 +294,7 @@ final class LauncherModel {
     self.history = history
     let inputChanged: () -> Void = { [weak self] in
       guard let self else { return }
-      if !takesSpeech { stopVoice() }
+      if !takesSpeech { stopVoice(.busy) }
       onResultsChange?()
     }
     agent.onChange = inputChanged
@@ -297,7 +302,7 @@ final class LauncherModel {
     store.onChange = { [weak self] configuration, problem in
       guard let self else { return }
       if let configuration {
-        if !configuration.voice.enabled { stopVoice() }
+        if !configuration.voice.enabled { stopVoice(.disabled) }
         clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
         if configuration != applied {
           clearTransientProblems()
@@ -814,7 +819,7 @@ final class LauncherModel {
     resetSelection = true
     drafted = [:]
     focusTarget = nil
-    stopVoice()
+    stopVoice(.hidden)
     agent.hidden()
     stopArriving()
     if agent.active { return }
@@ -863,7 +868,7 @@ final class LauncherModel {
     history.record(result.id, input: input ?? self.input)
   }
   func finish() async {
-    stopVoice()
+    stopVoice(.quit)
     await voice?.shutdown?.value
     cancelWork()
     await extensions.shutdown()

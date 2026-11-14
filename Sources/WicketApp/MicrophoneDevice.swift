@@ -13,6 +13,22 @@ struct MicrophoneDevice: Equatable, Sendable {
       kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort,
     ].contains(transport)
   }
+  /// The transport, for the log: never the name or UID.
+  var kind: String {
+    switch transport {
+    case kAudioDeviceTransportTypeBuiltIn: "built-in"
+    case kAudioDeviceTransportTypeUSB: "usb"
+    case kAudioDeviceTransportTypeBluetooth: "bluetooth"
+    case kAudioDeviceTransportTypeBluetoothLE: "bluetooth-le"
+    case kAudioDeviceTransportTypeVirtual: "virtual"
+    case kAudioDeviceTransportTypeAggregate: "aggregate"
+    case kAudioDeviceTransportTypeAutoAggregate: "auto-aggregate"
+    case kAudioDeviceTransportTypeContinuityCaptureWired: "continuity-wired"
+    case kAudioDeviceTransportTypeContinuityCaptureWireless: "continuity-wireless"
+    case kAudioDeviceTransportTypeAirPlay: "airplay"
+    default: wired ? "other-wired" : "other"
+    }
+  }
   static func select(_ devices: [Self], uid: String?) -> Self? {
     let inputs = devices.filter(\.hasInput)
     if let uid, let chosen = inputs.first(where: { $0.uid == uid }) { return chosen }

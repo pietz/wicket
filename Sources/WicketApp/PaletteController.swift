@@ -194,7 +194,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
   }
   func hide() {
     isOpen = false
-    model.stopVoice()
+    model.stopVoice(.hidden)
     panel.orderOut(nil)
     model.dismiss()
     renderer.closed()
@@ -226,7 +226,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// Return, a button or a menu item. Moving between views goes through the model's dispatcher; what is
   /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
-    model.stopVoice()
+    model.stopVoice(.run)
     guard !opening, let action = chosen ?? model.returnAction else { return }
     let result = model.selected
     if model.activate(action, from: result) { return }

@@ -80,7 +80,7 @@ import Testing
   fake.feeds[1].yield(.transcript("current"))
   #expect(await eventually { input == "current" })
   #expect(voice.problem == nil && voice.state == .listening)
-  voice.stop()
+  voice.stop(.toggle)
 }
 
 @MainActor
@@ -106,7 +106,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   #expect(await eventually { voice.problem == "Couldn't listen. Try again." })
   voice.toggle()
   #expect(voice.problem == nil && voice.state == .starting && fake.feeds.count == 2)
-  voice.stop()
+  voice.stop(.toggle)
 }
 
 @MainActor @Test func voiceSilenceAndStartupAreBounded() async {
@@ -424,7 +424,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
   voice.toggle()
-  voice.stop()
+  voice.stop(.toggle)
   if case .terminated = fake.feeds[0].yield(.ready) {
   } else {
     Issue.record("Stopped fake left its stream open")
@@ -553,7 +553,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
     try await Task.sleep(for: .milliseconds(20))
   }
   #expect(voice.state == .idle && fake.stops == 1 && voice.problem == nil)
-  voice.stop()
+  voice.stop(.toggle)
 }
 
 // Disabled: under parallel load the 250 ms startup timer can fire before the session reads the
@@ -649,10 +649,10 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
     })
   let text = try String(contentsOf: url, encoding: .utf8)
   #expect(text.contains("first audio:") && text.contains(" ms") && !text.contains("private words"))
-  voice.stop()
+  voice.stop(.toggle)
   voice.arm()
   #expect(try String(contentsOf: url, encoding: .utf8) == text)  // Opening does no disk write.
-  voice.stop()
+  voice.stop(.toggle)
   #expect(
     await eventually { (try? String(contentsOf: url, encoding: .utf8).contains("first audio: none")) == true }
   )
@@ -677,7 +677,7 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   model.armVoice()
   controller.hide()
   #expect(fake.stops == 1 && panel.hides == 1)
-  model.stopVoice()
+  model.stopVoice(.toggle)
   controller.hide()
   #expect(panel.hides == 2)
   // The main actor still runs while shutdown is suspended. No window is ordered front.

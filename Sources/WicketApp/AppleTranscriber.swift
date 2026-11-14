@@ -16,6 +16,9 @@ import Speech
     return AsyncThrowingStream { continuation in
       let worker = Task.detached(priority: .userInitiated) {
         do {
+          VoiceLog.logger.log(
+            "voice transcriber starting, microphone chosen in Settings: \(uid?.isEmpty == false, privacy: .public)"
+          )
           try await Self.listen(
             capture, uid: uid, yield: { continuation.yield($0) }, fail: { continuation.finish(throwing: $0) })
           continuation.finish()
@@ -45,6 +48,9 @@ import Speech
     try validateUsage(Bundle.main.infoDictionary ?? [:])
     try Task.checkCancellation()
     let permission = AVAudioApplication.shared.recordPermission
+    VoiceLog.logger.log(
+      "voice permissions: record \(String(describing: permission.kind), privacy: .public), capture \(String(describing: AVCaptureDevice.authorizationStatus(for: .audio).kind), privacy: .public), speech \(String(describing: SFSpeechRecognizer.authorizationStatus().kind), privacy: .public)"
+    )
     let micAllowed: Bool
     if permission == .undetermined {
       yield(.permission(true))
@@ -55,12 +61,18 @@ import Speech
     }
     try Task.checkCancellation()
     guard micAllowed else { throw VoiceError.microphoneDenied }
-    guard SpeechTranscriber.isAvailable else { throw VoiceError.noLanguage }
+    guard SpeechTranscriber.isAvailable else {
+      VoiceLog.logger.error("voice: SpeechTranscriber unavailable")
+      throw VoiceError.noLanguage
+    }
     guard
       let locale = VoiceLanguage.choose(
         preferred: Locale.preferredLanguages, supported: await SpeechTranscriber.supportedLocales
       )
-    else { throw VoiceError.noLanguage }
+    else {
+      VoiceLog.logger.error("voice: no supported preferred language")
+      throw VoiceError.noLanguage
+    }
     let transcriber = SpeechTranscriber(
       locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults],
       attributeOptions: [])
@@ -68,6 +80,7 @@ import Speech
       throw VoiceError.modelMissing
     }
     guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+      VoiceLog.logger.error("voice: no analyzer audio format")
       throw VoiceError.noLanguage
     }
     try Task.checkCancellation()
@@ -158,6 +171,7 @@ private final class EngineCapture: @unchecked Sendable {
   private let format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation
   private let fail: @Sendable (VoiceError) -> Void
   private let uid: String?, firstAudio: @Sendable () -> Void
+  private let opened = ContinuousClock.now
   init(
     format: AVAudioFormat, uid: String?, feed: AsyncStream<AnalyzerInput>.Continuation,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
@@ -175,6 +189,9 @@ private final class EngineCapture: @unchecked Sendable {
       ) { [weak self] _ in
         guard let self else { return }
         queue.async { [self] in
+          VoiceLog.logger.log(
+            "voice engine configuration change, \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening; stopped \(self.stopped, privacy: .public), running \(self.engine.isRunning, privacy: .public)"
+          )
           guard !stopped else { return }
           guard !engine.isRunning else { return }
           close()
@@ -189,12 +206,28 @@ private final class EngineCapture: @unchecked Sendable {
   }
   private func open() throws {
     let input = engine.inputNode
-    guard let device = MicrophoneDevice.select(MicrophoneDevices.available(), uid: uid) else {
+    let devices = MicrophoneDevices.available()
+    let defaultInput = devices.first(where: \.isDefault)
+    VoiceLog.logger.log(
+      "voice inputs: \(devices.count, privacy: .public), system default \(defaultInput?.kind ?? "none", privacy: .public), chosen in Settings and present: \(devices.contains { $0.uid == self.uid }, privacy: .public)"
+    )
+    guard let device = MicrophoneDevice.select(devices, uid: uid) else {
+      VoiceLog.logger.error("voice: no usable input device")
       throw VoiceError.noMicrophone
     }
-    do { try input.auAudioUnit.setDeviceID(device.id) } catch { throw VoiceError.noMicrophone }
+    VoiceLog.logger.log(
+      "voice device: \(device.kind, privacy: .public), system default \(device.isDefault, privacy: .public), chosen in Settings \(device.uid == self.uid, privacy: .public)"
+    )
+    do { try input.auAudioUnit.setDeviceID(device.id) } catch {
+      VoiceLog.logger.error("voice: setDeviceID failed: \(VoiceLog.describe(error), privacy: .public)")
+      throw VoiceError.noMicrophone
+    }
     let inputFormat = input.outputFormat(forBus: 0)
-    try Microphone.validate(input: input.inputFormat(forBus: 0), output: inputFormat)
+    let hardware = input.inputFormat(forBus: 0)
+    VoiceLog.logger.log(
+      "voice formats: hardware \(hardware.sampleRate, privacy: .public) Hz \(hardware.channelCount, privacy: .public) ch, node \(inputFormat.sampleRate, privacy: .public) Hz \(inputFormat.channelCount, privacy: .public) ch, equal \(hardware == inputFormat, privacy: .public)"
+    )
+    try Microphone.validate(input: hardware, output: inputFormat)
     let conversion = try Conversion(input: inputFormat, output: format)
     nonisolated(unsafe) var received = false
     input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [feed, fail, firstAudio] buffer, _ in
@@ -204,11 +237,17 @@ private final class EngineCapture: @unchecked Sendable {
       }
       do {
         if let converted = try conversion.convert(buffer) { feed.yield(AnalyzerInput(buffer: converted)) }
-      } catch { fail(.conversionFailed) }
+      } catch {
+        VoiceLog.logger.error("voice: conversion failed")
+        fail(.conversionFailed)
+      }
     }
     tapped = true
     engine.prepare()
-    try engine.start()
+    do { try engine.start() } catch {
+      VoiceLog.logger.error("voice: engine start failed: \(VoiceLog.describe(error), privacy: .public)")
+      throw error
+    }
   }
   private func close() {
     stopped = true
@@ -279,6 +318,39 @@ final class Conversion: @unchecked Sendable {
       supplied = true
       status.pointee = .haveData
       return buffer
+    }
+  }
+}
+
+extension AVAudioApplication.recordPermission {
+  fileprivate var kind: String {
+    switch self {
+    case .granted: "granted"
+    case .denied: "denied"
+    case .undetermined: "undetermined"
+    @unknown default: "unknown"
+    }
+  }
+}
+extension AVAuthorizationStatus {
+  fileprivate var kind: String {
+    switch self {
+    case .authorized: "authorized"
+    case .denied: "denied"
+    case .restricted: "restricted"
+    case .notDetermined: "notDetermined"
+    @unknown default: "unknown"
+    }
+  }
+}
+extension SFSpeechRecognizerAuthorizationStatus {
+  fileprivate var kind: String {
+    switch self {
+    case .authorized: "authorized"
+    case .denied: "denied"
+    case .restricted: "restricted"
+    case .notDetermined: "notDetermined"
+    @unknown default: "unknown"
     }
   }
 }

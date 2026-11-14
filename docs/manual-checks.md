@@ -2,7 +2,7 @@
 
 A walk through everything Wicket 0.1 does, for a person on a real Mac. Each step says what to try and what should happen. Note what feels wrong, not only what breaks. Run it before a release and whenever a change touches the panel, voice or the agent.
 
-Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.log` (Wicket Dev: `~/Library/Logs/Wicket Dev/agent.log`), voice latencies to `voice-timing.txt` in the config folder.
+Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.log` (Wicket Dev: `~/Library/Logs/Wicket Dev/agent.log`), voice latencies to `voice-timing.txt` in the config folder, and why voice stopped to the unified log: `/usr/bin/log show --predicate 'subsystem == "app.wicket" AND category == "voice"' --last 5m`.
 
 ## 1. Open and close
 
