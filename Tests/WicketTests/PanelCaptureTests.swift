@@ -24,7 +24,7 @@ private let states = [
   "empty", "apps", "math", "ask", "answer", "listening",
   "conversation-multi", "conversation-expanded", "conversation-reopen", "conversation-long",
   "conversation-long-expanded",
-  "working", "permission-routine", "permission-high",
+  "working", "working-text", "permission-routine", "permission-high",
   "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
   "extension-targets",
@@ -61,6 +61,9 @@ private func expectedText(_ name: String) -> [String] {
   }
   if name.contains("conversation") {
     return ["Ask a follow-up", "Previous questions", "What should I build next", "Build something useful"]
+  }
+  if name.contains("working-text") {
+    return ["What should I build next", "Build something useful", "Cancel"]
   }
   if name.contains("working") { return ["What should I build next", "Thinking", "Cancel"] }
   if name.contains("listening") { return ["rainbows", "Ask agent", "Listening", "Ask", "Close"] }
@@ -169,7 +172,7 @@ private let nextAnswer =
     model.store.update {
       $0.voice.enabled = name == "listening"
       $0.textSize = size
-      $0.agent.streamAnswers = false
+      $0.agent.streamAnswers = name == "working-text"
     }
     let panel = CapturePanel()
     panel.appearance = appearance
@@ -194,7 +197,7 @@ private let nextAnswer =
       model.input = "Could this work offline?"
       model.dismiss()
       model.reopen()
-    case _ where name.hasPrefix("conversation") || name.hasPrefix("permission") || name == "working":
+    case _ where name.hasPrefix("conversation") || name.hasPrefix("permission") || name.hasPrefix("working"):
       let agent = FakeAgent()
       scenario.keep.append(agent)
       model.agent.connect = { _, _, _ in agent }
@@ -209,6 +212,9 @@ private let nextAnswer =
       if name.hasPrefix("permission") {
         agent.onEvent(.permission(permissionRequest(high: name == "permission-high", folder: folder)))
         #expect(await eventually { !model.agent.permissions.isEmpty })
+      } else if name == "working-text" {
+        agent.text(nextAnswer)
+        #expect(await eventually { !model.agent.answer.isEmpty })
       } else if name != "working" {
         agent.text(nextAnswer)
         agent.end()
@@ -499,6 +505,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(scenario.controller == nil && scenario.view.frame.size == CGSize(width: 560, height: 480))
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)
   case "working": #expect(model.agent.busy && model.agent.answer.isEmpty)
+  case "working-text": #expect(model.agent.busy && !model.agent.answer.isEmpty)
   case "conversation-reopen": #expect(model.agent.continuing && model.input == "Could this work offline?")
   case _ where state.hasPrefix("conversation"):
     #expect(

@@ -184,6 +184,10 @@ struct LauncherView: View {
           }
           Divider()
           HStack(spacing: 12) {
+            // Busy once the answer has begun: before that the answer area shows its own spinner.
+            if voiceStatus == nil, model.agent.active, model.agent.busy, !model.agent.answer.isEmpty {
+              ProgressView().controlSize(.small).padding(.trailing, -4)
+            }
             Text(
               voiceStatus
                 ?? (model.agent.active
