@@ -215,7 +215,7 @@ import Testing
   }
 }
 
-@MainActor @Test func aHiddenConversationOverAnExtensionDetailLetsTheRendererRelease() async throws {
+@MainActor @Test func aHiddenConversationOverAnExtensionDetailKeepsTheCanvas() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "show.py"]])
@@ -228,13 +228,13 @@ import Testing
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
-  controller.renderer.releaseDelay = .milliseconds(200)
   controller.show(orderFront: false, listen: false)
   model.input = "test"
   await model.settled()
   #expect(model.activateReturn())
   await model.settled()
-  #expect(model.body == "Extension detail" && controller.renderer.page != nil)
+  let canvas = try #require(controller.renderer.page)
+  #expect(model.body == "Extension detail")
   // Ask the agent from the detail, then hide while it works.
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
@@ -244,7 +244,9 @@ import Testing
   fake.text("Still working")
   try await Task.sleep(for: .milliseconds(100))
   fake.text(" on it")
-  #expect(await eventually { controller.renderer.page == nil })
+  // The canvas lives as long as the app: hiding never releases it, so reopening never waits for WebKit.
+  try await Task.sleep(for: .milliseconds(300))
+  #expect(controller.renderer.page === canvas)
   controller.renderer.release()
   await model.finish()
 }

@@ -53,9 +53,9 @@ One view with optional parts. At least one of `body` or `items` is required (an 
 {"body":"## Berlin\n<stat label=\"Now\" value=\"12°C\"/>","items":[{"id":"hourly","title":"Hourly forecast","actions":[{"type":"run","arguments":{"view":"hourly","city":"berlin"}}]}],"actions":[{"type":"copy","text":"12°C"}]}
 ```
 
-- **Items only** is a native list: fast, keyboard-driven, and the only shape whose items a pattern result shows at the launcher root. Put a short answer in the item title when it fits.
+- **Items only** is a list: fast, keyboard-driven, and the only shape whose items a pattern result shows at the launcher root. Put a short answer in the item title when it fits.
 - **Body only** is a page. The body is Markdown with the tags below, drawn by the same safe WebView as agent answers. The native header shows the command name and the view `actions`. What the page lets the user act on stands where it is written: items and cards with an action (Body tags).
-- **Body and items** draws the items on the page after the body, as rows that look like the native list's. On a page nothing is selected until an arrow key: Return runs the view's first action, Down and Up walk the page's items and cards in reading order, Return runs the selected one's first action, typing or Up from the first deselects. The footer says what Return does, by the action's `title` when it has one. The view `actions` stay in the header.
+- **Body and items** draws the items on the page after the body, as rows that look like the list's. On a page nothing is selected until an arrow key: Return runs the view's first action, Down and Up walk the page's items and cards in reading order, Return runs the selected one's first action, a right click offers all of its actions, typing or Up from the first deselects. The footer says what Return does, by the action's `title` when it has one. The view `actions` stay in the header.
 
 At the root, a pattern result contributes only its items. A pattern result with a body shows one row that enters the command. `actions` are the header actions of a view with a body and are ignored without one.
 

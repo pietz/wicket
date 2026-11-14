@@ -307,12 +307,13 @@ import Testing
   let renderer = AnswerRenderer(folder: folder) { _ in }
   defer { renderer.release() }
   var clicks: [[String]] = []
-  renderer.onTarget = { clicks.append([$0, $1]) }
+  renderer.onTarget = { id, turn, click in clicks.append([id, turn, click == .menu ? "menu" : "click"]) }
   let page = Page(
     body:
       "Text with a [link](https://example.com).\n<item title=\"One\" copy=\"1\"/>\n<card title=\"Two\" copy=\"2\">Card [link](https://example.com)</card>",
     runs: false)
-  await renderer.render(page, turn: "turn-1")
+  renderer.update(page, turn: "turn-1", streaming: false)
+  await renderer.settled()
   let web = try #require(renderer.page)
   func run(_ script: String) async throws -> Any? {
     try await web.callJavaScript(script, contentWorld: .defaultClient)
@@ -330,39 +331,136 @@ import Testing
   _ = try await run(
     "const r = document.createRange(); r.selectNodeContents(document.querySelector('w-card')); getSelection().addRange(r); document.querySelector('w-card').click()"
   )
+  // A right click on a target asks for its menu in place of WebKit's; elsewhere WebKit keeps its own.
+  let prevented =
+    try await run(
+      "const e = new MouseEvent('contextmenu', {bubbles: true, cancelable: true}); document.querySelector('w-card').dispatchEvent(e); const p = new MouseEvent('contextmenu', {bubbles: true, cancelable: true}); document.querySelector('p').dispatchEvent(p); return [e.defaultPrevented, p.defaultPrevented]"
+    ) as? [Bool]
   try await Task.sleep(for: .milliseconds(200))
-  #expect(clicks == [["#0", "turn-1"]])
-  // The page holds no action, and its icons are drawn from data.
+  #expect(clicks == [["#0", "turn-1", "click"], ["#1", "turn-1", "menu"]] && prevented == [true, false])
+  // The page holds no action, and its icons come from the host's scheme.
   let html = try await run("return document.documentElement.outerHTML") as? String ?? ""
-  #expect(!html.contains("copy=") && html.contains("data:image/png;base64"))
+  #expect(!html.contains("copy=") && html.contains("mask-image: url(wicket-icon://symbol/doc.on.doc)"))
 }
 
-@MainActor @Test func aListNeverTouchesThePage() async throws {
+@MainActor @Test func theListIsDrawnInTheCanvasOnEveryKeystroke() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let model = LauncherModel(
-    providers: [MathProvider()], history: UsageHistory(url: folder.appending(path: "usage.json")),
+    providers: [MathProvider(), FixedRows()],
+    history: UsageHistory(url: folder.appending(path: "usage.json")),
     folder: folder)
   let controller = PaletteController(model: model, flatSurfaces: true, panel: PalettePanel())
+  defer { controller.renderer.release() }
   controller.show(orderFront: false, listen: false)
-  for input in ["2+2", "c", ""] {
-    model.input = input
-    await model.settled()
-    model.move(1)
-  }
-  await controller.renderer.settled()
-  // The page is made ready when the panel opens, and nothing is drawn into it for the root's list.
   let page = try #require(controller.renderer.page)
-  var shell: String?
-  for _ in 0..<200 where shell == nil {
-    shell =
-      try? await page.callJavaScript(
-        "return document.querySelector('main')?.innerHTML ?? null", contentWorld: .defaultClient) as? String
-    if shell == nil { try await Task.sleep(for: .milliseconds(20)) }
+  func rows() async throws -> [String] {
+    try await page.callJavaScript(
+      "return [...document.querySelectorAll('w-list w-item')].map(r => r.dataset.target + (r.hasAttribute('data-selected') ? '*' : ''))",
+      contentWorld: .defaultClient) as? [String] ?? []
   }
-  #expect(shell == "" && model.page == nil && controller.renderer.selected == nil)
+  model.input = "2+2"
+  await model.settled()
+  await controller.renderer.settled()
+  #expect(try await rows() == ["math:result*", "agent:ask"])
+  model.input = "ca"
+  await model.settled()
+  await controller.renderer.settled()
+  #expect(try await rows() == ["apps:calculator*", "apps:calendar", "agent:ask"])
+  // An arrow key paints the selection in place; the rows are not sent again.
+  model.move(1)
+  await controller.renderer.settled()
+  var painted: [String] = []
+  for _ in 0..<50 where !painted.contains("apps:calendar*") {
+    painted = try await rows()
+  }
+  #expect(painted == ["apps:calculator", "apps:calendar*", "agent:ask"])
+  // A click selects a row and a double click runs it; a right click selects it and offers every action.
+  #expect(!model.clickTarget("agent:ask", turn: AnswerRenderer.listTurn) && model.selection == "agent:ask")
+  #expect(model.clickTarget("apps:calculator", turn: AnswerRenderer.listTurn, count: 2))
+  #expect(model.selection == "apps:calculator")
+  #expect(model.menuActions("apps:calendar", turn: AnswerRenderer.listTurn)?.count == 2)
+  #expect(model.menuActions("apps:calendar", turn: "an answer") == nil)
+  // App icons are served by the host's scheme, keyed by path so WebKit caches them.
+  let icons =
+    try await page.callJavaScript(
+      "return [...document.querySelectorAll('w-list w-item > :first-child')].map(i => i.outerHTML)",
+      contentWorld: .defaultClient) as? [String] ?? []
+  #expect(
+    icons == [
+      #"<img src="wicket-icon://file/System/Applications/Calculator.app" alt="">"#,
+      #"<img src="wicket-icon://file/System/Applications/Calendar.app" alt="">"#,
+      #"<i style="mask-image:url(wicket-icon://symbol/sparkles)"></i>"#,
+    ])
+  let loaded =
+    try await page.callJavaScript(
+      """
+      return await Promise.all(['file/System/Applications/Calendar.app', 'symbol/sparkles', 'symbol/no.such'].map(
+        path => new Promise(done => {
+          const image = new Image();
+          image.onload = () => done(image.naturalWidth);
+          image.onerror = () => done(0);
+          image.src = 'wicket-icon://' + path;
+        })))
+      """, contentWorld: .defaultClient) as? [Int]
+  #expect(loaded == [52, 52, 0])
   controller.hide()
   await model.finish()
+}
+
+/// Calendar and Calculator, each with an open and a reveal action.
+@MainActor private final class FixedRows: Provider {
+  let id = "apps"
+  func view(for request: ProviderRequest) async throws -> ProviderView {
+    let rows = ["Calendar", "Calculator"].map { name in
+      let url = URL(fileURLWithPath: "/System/Applications/\(name).app")
+      return Row(
+        id: name.lowercased(), title: name, subtitle: "Application", actions: [.open(url), .reveal(url)])
+    }
+    return .init(items: rows.filter { $0.title.localizedCaseInsensitiveContains(request.input) })
+  }
+}
+
+@MainActor @Test func theOwnersThemeCannotBreakTheList() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  // A stray brace to escape its layer, !important, hidden ancestors, a cover and broken tokens.
+  try """
+  } w-list, w-item { display: none !important; height: 0 !important; }
+  body { display: none; opacity: 0; transform: scale(0); --row: 0px; --zoom: 9; }
+  body::before { content: "x"; position: fixed; inset: 0; z-index: 2147483647; background: red; }
+  w-item { visibility: hidden; font-size: 40px; --label: red; }
+  w-stat { color: rgb(1, 2, 3); }
+  """.write(to: folder.appending(path: "theme.css"), atomically: true, encoding: .utf8)
+  let renderer = AnswerRenderer(folder: folder) { _ in }
+  defer { renderer.release() }
+  renderer.prepare()
+  let row = Result(provider: "apps", row: Row(id: "a", title: "Alpha", actions: []))
+  renderer.showList(ListRows.html([row], empty: "No results"))
+  await renderer.settled()
+  let web = try #require(renderer.page)
+  var style: [String] = []
+  for _ in 0..<100 where style.isEmpty {
+    style =
+      try await web.callJavaScript(
+        """
+        const row = document.querySelector('w-list w-item'); if (!row) return [];
+        const s = getComputedStyle(row), b = getComputedStyle(document.body);
+        return [s.display, s.visibility, String(row.getBoundingClientRect().height), s.fontSize,
+          b.display, b.opacity, getComputedStyle(document.body, '::before').content]
+        """, contentWorld: .defaultClient) as? [String] ?? []
+    if style.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+  }
+  #expect(style == ["flex", "visible", "40", "14px", "block", "1", "none"])
+  // A page is still the theme's to restyle.
+  renderer.update(
+    Page(body: "<stat label=\"Total\" value=\"42\"/>", runs: false), turn: "page", streaming: false)
+  await renderer.settled()
+  let color =
+    try await web.callJavaScript(
+      "return getComputedStyle(document.querySelector('w-stat')).color", contentWorld: .defaultClient)
+    as? String
+  #expect(color == "rgb(1, 2, 3)")
 }
 
 @MainActor @Test func aPageThatComesBackReturnsToWhereItWasScrolled() async throws {
@@ -371,11 +469,120 @@ import Testing
   let renderer = AnswerRenderer(folder: folder) { _ in }
   defer { renderer.release() }
   let long = Page(body: (0..<80).map { "Line \($0)" }.joined(separator: "\n\n"), runs: false)
-  await renderer.render(long, turn: "answer")
+  func show(_ page: Page, _ turn: String) async {
+    renderer.update(page, turn: turn, streaming: false)
+    await renderer.settled()
+  }
+  await show(long, "answer")
   let web = try #require(renderer.page)
   _ = try await web.callJavaScript("scrollTo(0, 300)", contentWorld: .defaultClient)
-  await renderer.render(Page(body: "# Tue\n\nRain.", runs: false), turn: "answer>#3")
+  await show(Page(body: "# Tue\n\nRain.", runs: false), "answer>#3")
   #expect(try await web.callJavaScript("return scrollY", contentWorld: .defaultClient) as? Double == 0)
-  await renderer.render(long, turn: "answer")
+  // The list in between keeps where the page was.
+  renderer.showList("")
+  await renderer.settled()
+  await show(long, "answer")
   #expect(try await web.callJavaScript("return scrollY", contentWorld: .defaultClient) as? Double == 300)
+}
+
+/// Twenty rows named after the input, each with a real app's icon, so every list is twenty rows long.
+@MainActor private final class TwentyApps: Provider {
+  let id = "apps"
+  private let apps =
+    (try? FileManager.default.contentsOfDirectory(atPath: "/System/Applications"))?
+    .filter { $0.hasSuffix(".app") }.sorted().prefix(20) ?? []
+  func view(for request: ProviderRequest) async throws -> ProviderView {
+    .init(
+      items: apps.map { name in
+        Row(
+          id: name, title: request.input + " " + name.dropLast(4), subtitle: "Application",
+          actions: [.open(URL(fileURLWithPath: "/System/Applications/" + name))])
+      })
+  }
+}
+
+/// Opt-in: `WICKET_MEASURE=1 swift test --filter canvasTimings`. Prints how long a keystroke takes to a
+/// composed list and to rows laid out in the canvas, an arrow key's paint round trip, and the memory of
+/// the app and of its WebContent process with the canvas alive. Offscreen, so no screen paint.
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
+func canvasTimings() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  func footprint(_ pid: pid_t) -> Double {
+    var info = rusage_info_v4()
+    let result = withUnsafeMutablePointer(to: &info) {
+      $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
+    }
+    return result == 0 ? Double(info.ri_phys_footprint) / 1_048_576 : -1
+  }
+  func webContent() -> Set<pid_t> {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+    task.arguments = ["-f", "com.apple.WebKit.WebContent"]
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    try? task.run()
+    task.waitUntilExit()
+    return Set(
+      String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).split(separator: "\n")
+        .compactMap { pid_t($0) })
+  }
+  let before = webContent()
+  let appBefore = footprint(getpid())
+  let model = LauncherModel(
+    providers: [MathProvider(), TwentyApps()],
+    history: UsageHistory(url: folder.appending(path: "usage.json")),
+    folder: folder)
+  let controller = PaletteController(model: model, flatSurfaces: true, panel: PalettePanel())
+  defer { controller.renderer.release() }
+  let clock = ContinuousClock()
+  let cold = clock.now
+  controller.prewarm()
+  await controller.renderer.settled()
+  let warm = clock.now - cold
+  controller.show(orderFront: false, listen: false)
+  await model.settled()
+  await controller.renderer.settled()
+  var composed: [Double] = []
+  var drawn: [Double] = []
+  var arrows: [Double] = []
+  var counts: [Int] = []
+  func ms(_ duration: Duration) -> Double {
+    Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000
+  }
+  for round in 0..<50 {
+    for input in ["a", "e", "i", "o", "r"] {
+      let start = clock.now
+      model.input = input + (round.isMultiple(of: 2) ? "" : " ")
+      await model.settled()
+      counts.append(model.results.count)
+      let middle = clock.now
+      await controller.renderer.settled()
+      composed.append(ms(middle - start))
+      drawn.append(ms(clock.now - middle))
+      let arrow = clock.now
+      model.move(1)
+      await controller.renderer.settled()
+      arrows.append(ms(clock.now - arrow))
+    }
+  }
+  try await Task.sleep(for: .seconds(1))
+  let pages = webContent().subtracting(before)
+  func median(_ values: [Double]) -> String {
+    let sorted = values.sorted()
+    return String(
+      format: "median %.2f ms, p90 %.2f ms", sorted[sorted.count / 2], sorted[sorted.count * 9 / 10])
+  }
+  print(
+    """
+    CANVAS cold page to ready: \(ms(warm)) ms
+    CANVAS rows per list: \(counts.min() ?? 0) to \(counts.max() ?? 0)
+    CANVAS keystroke to composed list: \(median(composed))
+    CANVAS keystroke to rows laid out in the canvas: \(median(zip(composed, drawn).map(+)))
+    CANVAS arrow key to selection painted: \(median(arrows))
+    CANVAS app footprint \(appBefore) MB before, \(footprint(getpid())) MB with the canvas alive
+    CANVAS WebContent \(pages.map { footprint($0) }) MB
+    """)
+  controller.hide()
+  await model.finish()
 }

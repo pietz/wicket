@@ -130,22 +130,28 @@ final class PaletteController: NSObject, NSWindowDelegate {
       self.panel.makeKey()
     }
     renderer.onHeight = { [weak self] in self?.resize() }
-    // A click on a page's target is Return on it, if it was made on the page shown now.
-    renderer.onTarget = { [weak self] id, turn in
-      guard let self, model.clickTarget(id, turn: turn) else { return }
-      run()
+    // A click on a row or target is handled as the model says, if it was made on what is shown now; a
+    // right click offers all of its actions.
+    renderer.onTarget = { [weak self] id, turn, click in
+      guard let self else { return }
+      switch click {
+      case .click(let count): if model.clickTarget(id, turn: turn, count: count) { run() }
+      case .menu: if let actions = model.menuActions(id, turn: turn) { showMenu(actions) }
+      }
     }
     model.onSelectionChange = { [weak self] in
       guard let self else { return }
       renderer.selected = model.selectedTarget
     }
+    // The list keeps its selection while the arriving page is laid out unseen behind it.
     model.preparePage = { [weak self] page, turn in
       guard let self, isOpen else { return }
       renderer.textSize = model.configuration.textSize
-      renderer.selected = nil
       await renderer.render(page, turn: turn)
     }
   }
+  /// Loads the canvas at launch, so neither the first keystroke nor the first answer waits for WebKit.
+  func prewarm() { renderer.prepare() }
   func toggle(eventTime: TimeInterval) {
     if panel.isVisible { hide() } else { show(eventTime: eventTime) }
   }
@@ -173,7 +179,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       x: (visible.midX - PaletteLayout.width / 2).rounded(),
       y: (visible.maxY - visible.height * 0.2 + PaletteLayout.margin).rounded())
     model.reopen()
-    renderer.opened()
+    renderer.prepare()
     renderer.cap = PaletteLayout.answerCap(available: anchor.y - visible.minY)
     isOpen = true
     renderContent()
@@ -197,7 +203,6 @@ final class PaletteController: NSObject, NSWindowDelegate {
     model.stopVoice()
     panel.orderOut(nil)
     model.dismiss()
-    renderer.closed()
   }
   private func resize() {
     guard panel.isVisible || anchor != .zero else { return }
@@ -207,15 +212,30 @@ final class PaletteController: NSObject, NSWindowDelegate {
     panel.contentView?.layoutSubtreeIfNeeded()
     panel.invalidateShadow()
   }
-  /// The page that is open: a detail, the conversation's answer or an extension's body. A list has
-  /// none, and the renderer is not touched.
+  /// What the canvas draws: the open page (a detail, the conversation's answer or an extension's body),
+  /// or the list. The conversation's other states and an extension's error are native and leave it.
   private func renderContent() {
-    guard let page = model.page else { return }
     renderer.textSize = model.configuration.textSize
     renderer.selected = model.selectedTarget
-    renderer.update(
-      page, turn: model.pageTurn,
-      streaming: model.agent.active && !model.inDetail && model.agent.busy && model.agent.streaming)
+    if let page = model.page {
+      renderer.update(
+        page, turn: model.pageTurn,
+        streaming: model.agent.active && !model.inDetail && model.agent.busy && model.agent.streaming)
+    } else if !model.agent.active, model.command?.problem == nil {
+      renderer.showList(
+        ListRows.html(model.results, empty: model.command?.busy == true ? "Running…" : "No results"))
+    }
+  }
+  /// A row's or target's actions as a native menu at the pointer; the chosen one runs as Return would.
+  private func showMenu(_ actions: [RowAction]) {
+    guard !actions.isEmpty, let view = panel.contentView else { return }
+    let menu = NSMenu()
+    for action in actions {
+      let item = MenuAction(action.label) { [weak self] in self?.run(action) }
+      menu.addItem(item)
+    }
+    menu.popUp(
+      positioning: nil, at: view.convert(panel.mouseLocationOutsideOfEventStream, from: nil), in: view)
   }
   /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
   func open(_ url: URL) {
@@ -302,4 +322,16 @@ final class PaletteController: NSObject, NSWindowDelegate {
     NSLog(
       "Wicket hotkey to visible: %.2f ms", (ProcessInfo.processInfo.systemUptime - started) * 1000)
   }
+}
+
+/// A menu item that runs a closure.
+private final class MenuAction: NSMenuItem {
+  private let perform: () -> Void
+  init(_ title: String, perform: @escaping () -> Void) {
+    self.perform = perform
+    super.init(title: title, action: #selector(choose), keyEquivalent: "")
+    target = self
+  }
+  required init(coder: NSCoder) { fatalError("Not used") }
+  @objc private func choose() { perform() }
 }

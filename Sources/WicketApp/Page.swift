@@ -216,3 +216,30 @@ struct Page: Equatable, Sendable {
     return URL(string: value).flatMap { $0.isFileURL ? nil : $0 }
   }
 }
+
+/// A list as the canvas draws it: one row per result in the native list's metrics (`canvas.css`), each
+/// a target named by its result id, so the bridge paints the selection and reports clicks as it does
+/// for a page. Like a page, it holds no action. Built per keystroke, so it is plain string work.
+enum ListRows {
+  static func html(_ results: [Result], empty: String) -> String {
+    guard !results.isEmpty else { return "<w-empty>\(AnswerMarkdown.escape(empty))</w-empty>" }
+    return results.enumerated().map { index, result in
+      let row = result.row
+      let icon = PageIcons.url(for: row)
+      func field(_ name: String, _ value: String?) -> String {
+        value.map { "<span data-field=\"\(name)\">\(AnswerMarkdown.escape($0))</span>" } ?? ""
+      }
+      let prominent = index == 0 && row.prominent == true
+      let text =
+        prominent
+        ? "<w-stack>" + field("title", row.title) + field("subtitle", row.subtitle ?? "") + "</w-stack>"
+        : field("title", row.title)
+          + (result.provider == "apps" ? field("accessory", row.subtitle) : field("subtitle", row.subtitle))
+      return "<w-item data-target=\"\(AnswerMarkdown.escape(result.id))\" role=\"button\""
+        + (prominent ? " data-prominent" : "") + ">"
+        + (PageIcons.isSymbol(icon)
+          ? "<i style=\"mask-image:url(\(icon))\"></i>" : "<img src=\"\(icon)\" alt=\"\">")
+        + text + "</w-item>"
+    }.joined()
+  }
+}

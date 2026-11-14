@@ -1,4 +1,5 @@
-/* Wicket's bundled theme. It loads in the `wicket` cascade layer, so every rule in the owner's theme.css wins.
+/* Wicket's bundled theme for pages. It loads in the `wicket` cascade layer, so every rule in the owner's theme.css
+   (layer `user`) wins; the list's rows are the core's (canvas.css), which neither reaches.
    One rhythm: blocks 16 apart, siblings in a group 8, 2 to 4 inside a component. Weights 400, 500, 600.
    Color only on marks: values stay in ink, a tone colors a delta, a dot, a bar or a light tint. */
 :root {
@@ -10,7 +11,7 @@
   --edge: light-dark(transparent, rgb(255 255 255 / 6%));
   --track: var(--line);
   --accent: AccentColor;
-  /* A page row's colors are the native list's: label, secondary label and its selection. */
+  /* A page row's colors are the list's: label, secondary label and its selection. */
   --label: light-dark(rgb(0 0 0 / 85%), rgb(255 255 255 / 85%));
   --secondary: light-dark(rgb(0 0 0 / 50%), rgb(255 255 255 / 55%));
   --selection: light-dark(rgb(0 0 0 / 8.5%), rgb(255 255 255 / 8.5%));
@@ -51,7 +52,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: transparent; overflow-x: hidden; }
-/* 20 points on every text size (the page is zoomed by it), so page text and native rows share one edge. */
+/* 20 points on every text size (the page is zoomed by it), so page text and the list's rows share one edge. */
 main {
   padding: 12px calc(20px / var(--zoom, 1)) 16px;
   overflow-wrap: anywhere;
@@ -161,12 +162,12 @@ w-columns:has(> w-column:nth-child(5)) w-card[data-title]::before { font-size: v
   w-stat { padding: 0; border-left: 0; }
 }
 
-/* Targets: what Return acts on, where it is written. An item is a row in the native list's metrics
+/* Targets: what Return acts on, where it is written. An item is a row in the list's metrics
    (its height, a 26-point icon, 10 points apart, a 14-point title, a grey subtitle, a 12-point selection),
    whatever the text size: --zoom undoes the page's zoom. The host paints [data-selected]. */
 w-items { display: flex; flex-direction: column; gap: calc(2px / var(--zoom, 1)); margin: 0 calc(-10px / var(--zoom, 1)); }
 w-item { display: flex; align-items: center; gap: calc(10px / var(--zoom, 1)); height: var(--row, 40px); min-width: 0; padding: 0 calc(10px / var(--zoom, 1)); border-radius: calc(12px / var(--zoom, 1)); color: var(--label); cursor: default; user-select: none; -webkit-user-select: none; scroll-margin: 10px; }
-w-item::before { content: ""; flex: none; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); background: var(--image, var(--secondary)) center / contain no-repeat; mask: var(--icon, none) center / contain no-repeat; }
+w-item::before { content: ""; flex: none; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); background: var(--secondary); mask: none center / contain no-repeat; }
 w-item [data-field] { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 w-item [data-field=title] { flex: 0 1 auto; }
 w-item [data-field=subtitle] { flex: 0 1000 auto; color: var(--secondary); }

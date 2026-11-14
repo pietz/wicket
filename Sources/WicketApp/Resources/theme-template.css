@@ -1,5 +1,7 @@
-/* Your Wicket theme. Rules here override the bundled theme, which updates with the app.
-   Wicket reloads this file on save. Start with the tokens; uncomment and change what you want.
+/* Your Wicket theme for answers and extension pages. Rules here override the bundled theme, which
+   updates with the app. Wicket reloads this file on save. Start with the tokens; uncomment and change
+   what you want. The search and command lists are Wicket's own and ignore this file, and !important
+   is removed here, so a rule can never hide or break them.
 
 :root {
   --ink: CanvasText;                 text
@@ -9,7 +11,7 @@
   --edge: ...;                       the hairline around a card
   --track: ...;                      empty part of bars
   --accent: AccentColor;             links and bars
-  --label: ...; --secondary: ...;    a row's title and subtitle, as in the native list
+  --label: ...; --secondary: ...;    a page row's title and subtitle
   --selection: ...;                  the selected row, card or tile
   --positive: ...; --warning: ...; --negative: ...; --info: ...;      fills, bars and dots
   --positive-ink: ...; --warning-ink: ...; --negative-ink: ...;      toned text
@@ -22,6 +24,6 @@ Use light-dark(light, dark) for a color that differs between appearances.
 Components are w-answer, w-stats/w-stat, w-facts/w-fact, w-bars/w-bar, w-timeline/w-event,
 w-badge, w-card, w-columns/w-column, w-callout and w-items/w-item. Attributes arrive as data-*
 attributes and as [data-field="name"] spans; tones as [data-tone=positive|warning|negative]. What the
-user can act on has [data-target], and the selected one [data-selected]. A row copies the native
-list's metrics: change them only together with the launcher's own look.
+user can act on has [data-target], and the selected one [data-selected]. A row copies the list's
+metrics: change them only together with the launcher's own look.
 */

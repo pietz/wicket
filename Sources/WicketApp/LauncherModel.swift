@@ -89,8 +89,9 @@ final class LauncherModel {
   private var details: [Detail] = []
   private var openDetails: [Detail] { details.first?.base == baseTurn ? details : [] }
   var inDetail: Bool { !openDetails.isEmpty }
-  /// The selected target's id as the page knows it.
-  var selectedTarget: String? { page == nil ? nil : results.first { $0.id == selection }?.row.id }
+  /// The selected row's id as the canvas knows it: a list row by its result id, a page's target by its
+  /// own.
+  var selectedTarget: String? { page == nil ? selection : results.first { $0.id == selection }?.row.id }
   /// Opens an item's content as its own page, with no model call and no extension run. Its items may
   /// run the open command as the page it came from could.
   private func openDetail(_ markdown: String, from result: Result?) {
@@ -676,14 +677,36 @@ final class LauncherModel {
     select(id)
     return false
   }
-  /// A click on a page's target selects it and runs it. It counts only on the page it was made on, so a
-  /// click that raced a new answer or view is ignored. True when the caller should run Return.
-  func clickTarget(_ id: String, turn: String) -> Bool {
-    guard page != nil, turn == pageTurn, let target = results.first(where: { $0.row.id == id }) else {
-      return false
+  /// What a click on the canvas is about: a row of the list shown now (`AnswerRenderer.listTurn`) or a
+  /// target of the page shown now, so a click that raced a new list, answer or view is ignored.
+  private func clicked(_ id: String, turn: String) -> Result? {
+    if turn == AnswerRenderer.listTurn { return page == nil ? listed.first { $0.id == id } : nil }
+    guard page != nil, turn == pageTurn else { return nil }
+    return results.first { $0.row.id == id }
+  }
+  /// A click on the canvas. A row is selected by one click (`click`) and run by two; a page's target
+  /// runs on its first, and the second of a double click is ignored, so nothing runs twice. True when
+  /// the caller should run Return.
+  func clickTarget(_ id: String, turn: String, count: Int = 1) -> Bool {
+    guard let target = clicked(id, turn: turn) else { return false }
+    if turn != AnswerRenderer.listTurn {
+      guard count == 1 else { return false }
+      select(target.id)
+      return true
     }
+    // The first click on the selected command row with a draft already entered it.
+    if count == 2, !(command == nil && target.id == selection && !drafted.isEmpty) {
+      select(target.id)
+      return true
+    }
+    return count == 1 && click(target.id)
+  }
+  /// A right click on a row or target selects it and offers all of its actions; nil when it was made
+  /// on content that was replaced.
+  func menuActions(_ id: String, turn: String) -> [RowAction]? {
+    guard let target = clicked(id, turn: turn) else { return nil }
     select(target.id)
-    return true
+    return target.row.actions
   }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {

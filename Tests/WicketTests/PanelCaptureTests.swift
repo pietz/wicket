@@ -464,6 +464,21 @@ private let nextAnswer =
   try bitmap.representation(using: .png, properties: [:])?.write(to: url)
 }
 
+/// Waits for the canvas's icons: they load from the host's scheme after the rows are drawn, the first
+/// time of a run while every state draws at once.
+@MainActor private func iconsLoaded(_ renderer: AnswerRenderer?) async {
+  await renderer?.settled()
+  _ = try? await renderer?.page?.callJavaScript(
+    """
+    const urls = [...document.querySelectorAll('[style*="wicket-icon:"]')].map(e => e.getAttribute('style'))
+      .concat([document.querySelector('#icons').textContent])
+      .flatMap(text => [...text.matchAll(/url\\((wicket-icon:[^)]+)\\)/g)].map(m => m[1]));
+    await Promise.all(urls.flatMap(url => [null, 'anonymous'].map(cors => {
+      const image = new Image(); image.crossOrigin = cors; image.src = url; return image.decode().catch(() => {});
+    })));
+    """, contentWorld: .defaultClient)
+}
+
 private func recognizedText(in url: URL) throws -> String {
   let request = VNRecognizeTextRequest()
   request.recognitionLevel = .accurate
@@ -482,7 +497,7 @@ func panelCapture(_ state: String) async throws {
     let scenario = try await Scenario.make(state, dark: dark)
     // Under the load of this run, with every state drawn at once, WebKit took up to five seconds to load
     // its empty page, more than the fixed wait there was: wait for the render.
-    await scenario.controller?.renderer.settled()
+    await iconsLoaded(scenario.controller?.renderer)
     let target = directory.appending(path: "\(state)-\(dark ? "dark" : "light").png")
     try await Task.sleep(for: .seconds(1))
     try await render(scenario.view, to: target)
@@ -575,7 +590,7 @@ func replyCapture(_ index: Int) async throws {
       default: break
       }
     }
-    await scenario.controller?.renderer.settled()
+    await iconsLoaded(scenario.controller?.renderer)
     try await Task.sleep(for: .seconds(1))
     try await render(
       scenario.view,

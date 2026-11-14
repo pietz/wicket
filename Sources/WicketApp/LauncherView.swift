@@ -182,32 +182,20 @@ struct LauncherView: View {
         .padding(.horizontal, 18).frame(height: PaletteLayout.search)
 
         VStack(spacing: 0) {
-          if model.agent.active {
-            agentContent
-          } else if model.command?.problem != nil || model.page != nil {
-            extensionContent
-          } else {
-            ScrollViewReader { proxy in
-              ScrollView {
-                LazyVStack(spacing: 2) {
-                  if model.results.isEmpty {
-                    Text(model.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
-                      .frame(height: PaletteLayout.header)
-                  }
-                  ForEach(model.results) { result in resultRow(result) }
-                }.padding(10)
+          // One canvas for the list and every page, always at this place in the view tree: a WebPage can
+          // be shown by one web view only, and moving it to another branch made a second one for a moment.
+          // Only a conversation scrolls here; the list and a page scroll inside the canvas.
+          ScrollView {
+            VStack(spacing: 0) {
+              if model.agent.active {
+                if !model.agent.question.isEmpty { conversationHeader }
+              } else if model.command?.problem != nil || model.page != nil {
+                extensionHeader
               }
-              .frame(
-                height: PaletteLayout.rowsHeight(
-                  model.sizedRows,
-                  prominentFirst: model.prominentFirst, rowHeight: textSize.rowHeight)
-              )
-              .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
-              .onChange(of: model.results.map(\.id)) { _, _ in
-                if let id = model.selection { proxy.scrollTo(id) }
-              }
+              nativeBody
+              canvas(height: canvasHeight)
             }
-          }
+          }.scrollDisabled(!model.agent.active)
           Divider()
           HStack(spacing: 12) {
             // Busy once the answer has begun: before that the answer area shows its own spinner.
@@ -297,173 +285,125 @@ struct LauncherView: View {
       .padding(.horizontal, 9).frame(height: 28)
       .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.08)))
   }
-  /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
-  private func resultRow(_ result: Result) -> some View {
-    HStack(spacing: 10) {
-      icon(result).frame(width: 26, height: 26)
-      if result.row.prominent == true, result.id == model.results.first?.id {
-        VStack(alignment: .leading, spacing: 0) {
-          Text(result.row.title).font(
-            .system(size: 24 * textSize.scale, weight: .medium).monospacedDigit())
-          Text(result.row.subtitle ?? "").font(.system(size: 12)).foregroundStyle(
-            .secondary)
-        }.lineLimit(1)
-      } else {
-        Text(result.row.title).font(.system(size: 14 * textSize.scale)).lineLimit(1)
-          .layoutPriority(
-            1)
-        if let subtitle = result.row.subtitle, result.provider != "apps" {
-          Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-      }
-      Spacer(minLength: 8)
-      if result.provider == "apps", let subtitle = result.row.subtitle {
-        Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
-    }
-    .padding(.horizontal, 10).frame(
-      height: (result.row.prominent == true)
-        && result.id == model.results.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
-    )
-    .background {
-      if result.id == model.selection {
-        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
-          .primary.opacity(0.1))
-      }
-    }
-    .contentShape(Rectangle()).id(result.id)
-    .onTapGesture(count: 2) {
-      model.select(result.id)
-      run(nil)
-    }
-    .onTapGesture { if model.click(result.id) { run(nil) } }
-    .contextMenu {
-      ForEach(Array(result.row.actions.enumerated()), id: \.offset) { _, action in
-        Button(action.label) {
-          model.select(result.id)
-          run(action)
-        }
-      }
-    }
-    .accessibilityElement(children: .combine)
-    .accessibilityAddTraits(
-      result.id == model.selection ? [.isSelected, .isButton] : .isButton)
-  }
   private var voiceStatus: String? {
     if model.voice?.state == .starting { return "Starting voice…" }
     if model.voice?.state == .listening { return "Listening…" }
     return model.voice?.problem
   }
   private var cardHeight: CGFloat { model.cardHeight(answer: renderer.height, cap: renderer.cap) }
-  private var extensionContent: some View {
-    VStack(spacing: 0) {
-      HStack {
-        Text(model.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
-          .lineLimit(1)
-        Spacer()
-        if model.command?.busy == true { ProgressView().controlSize(.small) }
-        if let error = model.command?.problem {
-          Button("Copy") {
-            model.writePasteboard(error)
-          }
-          Button("Ask agent") { model.send(error) }
-        } else if !model.viewActions.isEmpty {
-          Menu("Actions") {
-            ForEach(Array(model.viewActions.enumerated()), id: \.offset) { _, action in
-              Button(action.label) { run(action) }
-            }
-          }.menuStyle(.borderlessButton).fixedSize()
-        }
-      }.buttonStyle(.plain).padding(.horizontal, 20).frame(height: PaletteLayout.header)
+  private var extensionHeader: some View {
+    HStack {
+      Text(model.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
+        .lineLimit(1)
+      Spacer()
+      if model.command?.busy == true { ProgressView().controlSize(.small) }
       if let error = model.command?.problem {
-        ScrollView {
-          Text(error).font(.system(size: 13)).textSelection(.enabled).frame(
-            maxWidth: .infinity, alignment: .leading
-          ).padding(.horizontal, 20).padding(.vertical, 18)
-        }.frame(height: PaletteLayout.error)
-      } else {
-        answerBody
-      }
-    }
-  }
-  @ViewBuilder private var agentContent: some View {
-    if model.agent.question.isEmpty {
-      // A draft from the `agent` action: nothing is asked yet.
-      Text("Press Return to ask \(model.askingName), or edit the question first.")
-        .font(.system(size: textSize.points)).foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-        .frame(height: PaletteLayout.answerMin)
-    } else {
-      conversation
-    }
-  }
-  private var conversation: some View {
-    ScrollView {
-      VStack(spacing: 0) {
-        VStack(alignment: .leading, spacing: 12) {
-          if !model.agent.previous.isEmpty {
-            DisclosureGroup(
-              "Previous questions · \(model.agent.previous.count)", isExpanded: $model.historyExpanded
-            ) {
-              ForEach(model.agent.previous) { turn in
-                VStack(alignment: .leading, spacing: 8) {
-                  Text(turn.question).fontWeight(.medium)
-                  Text(turn.answer).textSelection(.enabled)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
-              }
-            }.font(.system(size: textSize.points)).foregroundStyle(.secondary)
-          }
-          HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-              Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
-                .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-              if longQuestion {
-                Button(model.questionExpanded ? "Show less" : "Show more") { model.questionExpanded.toggle() }
-                  .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
-              }
-            }
-            Button {
-              model.writePasteboard(model.agent.answer)
-            } label: {
-              Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.plain).foregroundStyle(.secondary).help("Copy answer as Markdown")
-            .disabled(model.agent.answer.isEmpty)
-          }
-        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
-          .onGeometryChange(for: CGFloat.self) {
-            $0.size.height
-          } action: {
-            model.conversationHeaderHeight = $0
-          }
-        if let permission = model.agent.permissions.first {
-          ConfirmationView(
-            content: .agent(permission, name: model.agent.agentName, folder: model.agent.folder),
-            size: textSize, decide: { model.agent.decide($0) }
-          )
-          .id(permission.id).onGeometryChange(for: CGFloat.self) {
-            $0.size.height
-          } action: {
-            model.confirmationHeight = $0
-          }
-        } else if let problem = model.agent.problem ?? renderer.problem {
-          Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-            .frame(minHeight: renderer.height)
-        } else if model.agent.busy && model.agent.answer.isEmpty {
-          HStack(spacing: 12) {
-            ProgressView().controlSize(.small)
-            Text(model.agent.status).font(.system(size: textSize.points)).foregroundStyle(.secondary)
-          }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-            .frame(height: PaletteLayout.answerMin)
-        } else {
-          answerBody
+        Button("Copy") {
+          model.writePasteboard(error)
         }
+        Button("Ask agent") { model.send(error) }
+      } else if !model.viewActions.isEmpty {
+        Menu("Actions") {
+          ForEach(Array(model.viewActions.enumerated()), id: \.offset) { _, action in
+            Button(action.label) { run(action) }
+          }
+        }.menuStyle(.borderlessButton).fixedSize()
       }
+    }.buttonStyle(.plain).padding(.horizontal, 20).frame(height: PaletteLayout.header)
+  }
+  /// What stands in place of the canvas: a draft, a permission, a problem, the wait for an answer, or
+  /// an extension's error. Nothing while the canvas shows.
+  @ViewBuilder private var nativeBody: some View {
+    if model.agent.active {
+      if model.agent.question.isEmpty {
+        // A draft from the `agent` action: nothing is asked yet.
+        Text("Press Return to ask \(model.askingName), or edit the question first.")
+          .font(.system(size: textSize.points)).foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+          .frame(height: PaletteLayout.answerMin)
+      } else if let permission = model.agent.permissions.first {
+        ConfirmationView(
+          content: .agent(permission, name: model.agent.agentName, folder: model.agent.folder),
+          size: textSize, decide: { model.agent.decide($0) }
+        )
+        .id(permission.id).onGeometryChange(for: CGFloat.self) {
+          $0.size.height
+        } action: {
+          model.confirmationHeight = $0
+        }
+      } else if let problem = model.agent.problem ?? renderer.problem {
+        Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+          .frame(minHeight: renderer.height)
+      } else if model.agent.busy && model.agent.answer.isEmpty {
+        HStack(spacing: 12) {
+          ProgressView().controlSize(.small)
+          Text(model.agent.status).font(.system(size: textSize.points)).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+          .frame(height: PaletteLayout.answerMin)
+      }
+    } else if let error = model.command?.problem {
+      ScrollView {
+        Text(error).font(.system(size: 13)).textSelection(.enabled).frame(
+          maxWidth: .infinity, alignment: .leading
+        ).padding(.horizontal, 20).padding(.vertical, 18)
+      }.frame(height: PaletteLayout.error)
     }
+  }
+  /// The canvas's height: the list's rows, the page's measured height, or none while a native body
+  /// stands in its place.
+  private var canvasHeight: CGFloat {
+    if model.agent.active {
+      let agent = model.agent
+      let native =
+        agent.question.isEmpty || !agent.permissions.isEmpty || agent.problem != nil
+        || renderer.problem != nil
+        || (agent.busy && agent.answer.isEmpty)
+      return native ? 0 : renderer.height
+    }
+    if model.command?.problem != nil { return 0 }
+    if model.page != nil { return renderer.height }
+    return PaletteLayout.rowsHeight(
+      model.sizedRows, prominentFirst: model.prominentFirst, rowHeight: textSize.rowHeight)
+  }
+  private var conversationHeader: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if !model.agent.previous.isEmpty {
+        DisclosureGroup(
+          "Previous questions · \(model.agent.previous.count)", isExpanded: $model.historyExpanded
+        ) {
+          ForEach(model.agent.previous) { turn in
+            VStack(alignment: .leading, spacing: 8) {
+              Text(turn.question).fontWeight(.medium)
+              Text(turn.answer).textSelection(.enabled)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+          }
+        }.font(.system(size: textSize.points)).foregroundStyle(.secondary)
+      }
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
+          Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+            .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          if longQuestion {
+            Button(model.questionExpanded ? "Show less" : "Show more") { model.questionExpanded.toggle() }
+              .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
+          }
+        }
+        Button {
+          model.writePasteboard(model.agent.answer)
+        } label: {
+          Image(systemName: "doc.on.doc")
+        }
+        .buttonStyle(.plain).foregroundStyle(.secondary).help("Copy answer as Markdown")
+        .disabled(model.agent.answer.isEmpty)
+      }
+    }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
+      .onGeometryChange(for: CGFloat.self) {
+        $0.size.height
+      } action: {
+        model.conversationHeaderHeight = $0
+      }
   }
   private var longQuestion: Bool {
     (model.agent.question as NSString).boundingRect(
@@ -471,11 +411,12 @@ struct LauncherView: View {
       options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)]
     ).height > 34
   }
-  @ViewBuilder private var answerBody: some View {
+  /// The page that draws the list's rows and every page, alive as long as the app.
+  @ViewBuilder private func canvas(height: CGFloat) -> some View {
     if let page = renderer.page {
-      WebView(page).webViewContentBackground(.hidden).frame(height: renderer.height)
+      WebView(page).webViewContentBackground(.hidden).frame(height: height)
     } else {
-      Color.clear.frame(height: renderer.height)
+      Color.clear.frame(height: height)
     }
   }
   @ViewBuilder private func surface(radius: CGFloat) -> some View {
@@ -490,18 +431,10 @@ struct LauncherView: View {
     }
   }
 
-  @ViewBuilder private func icon(_ result: Result) -> some View {
-    if let url = result.row.actions.first?.fileURL {
-      Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
-    } else {
-      Image(systemName: result.row.icon ?? "app").font(.system(size: 20)).foregroundStyle(
-        .secondary)
-    }
-  }
 }
 
 extension RowAction {
-  /// The file an open or reveal action is about, whose system icon the row shows.
+  /// The file an open or reveal action is about, whose system icon the row shows (`PageIcons`).
   var fileURL: URL? {
     switch kind {
     case .open(let url), .reveal(let url): url.isFileURL ? url : nil
