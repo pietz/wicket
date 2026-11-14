@@ -34,21 +34,25 @@ final class LauncherModel {
   /// The list at search and inside a command.
   private var listed: [Result] = [] { didSet { sizeList() } }
   /// The rows the list card is sized for: more show at once, fewer only after 300 ms, so a late batch
-  /// such as file results does not make the panel shrink and grow again while typing. A list for
-  /// another screen is sized at once: the hold is for results of one screen arriving late.
+  /// such as file results does not make the panel shrink and grow again while typing. The pause counts
+  /// from the first shorter list and is not restarted by later ones; once no source is pending the list
+  /// is final and sized at once. A list for another screen is sized at once too: the hold is for
+  /// results of one screen arriving late.
   private(set) var sizedRows = 1
   private var shrinking: Task<Void, Never>?
   private var sizedFor: String?
   private func sizeList(now: Bool = false) {
     let count = max(1, min(listed.count, 8))
     let screen = command?.id
-    shrinking?.cancel()
-    shrinking = nil
-    guard count < sizedRows, !now, screen == sizedFor else {
+    let settled = pending.isEmpty && command?.busy != true
+    guard count < sizedRows, !now, !settled, screen == sizedFor else {
+      shrinking?.cancel()
+      shrinking = nil
       sizedFor = screen
       sizedRows = count
       return
     }
+    guard shrinking == nil else { return }
     shrinking = Task { [weak self] in
       guard (try? await Task.sleep(for: .milliseconds(300))) != nil, let self else { return }
       shrinking = nil

@@ -209,3 +209,43 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   #expect(await eventually { model.sizedRows == 1 })
   model.input = ""
 }
+
+@MainActor @Test func theListShrinksOnTimeWhileALateQueryFindsNothing() async throws {
+  let spotlight = FakeSpotlight()
+  let (model, folder) = try model(spotlight)
+  defer { try? FileManager.default.removeItem(at: folder) }
+  model.input = "inv"
+  #expect(await eventually { spotlight.started == [invoice] })
+  spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
+  #expect(await eventually { model.sizedRows == 8 })
+  model.input = "invxq"
+  let query = #"kMDItemFSName == "invxq*"cdw"#
+  #expect(await eventually { spotlight.started.last == query })
+  // Empty batches recompose the list every 150 ms while the query runs, which ends only after them.
+  // The pause counts from the first shorter list, so the card is one row high before the query ends.
+  for _ in 0..<6 {
+    spotlight.send(query, [])
+    try await Task.sleep(for: .milliseconds(150))
+  }
+  #expect(model.sizedRows == 1)
+  spotlight.send(query, [], finish: true)
+  await model.settled()
+  #expect(model.results.map(\.provider) == ["agent"] && model.sizedRows == 1)
+  model.input = ""
+}
+
+@MainActor @Test func theListShrinksAtOnceWhenNothingIsPending() async throws {
+  let spotlight = FakeSpotlight()
+  let (model, folder) = try model(spotlight)
+  defer { try? FileManager.default.removeItem(at: folder) }
+  model.input = "inv"
+  #expect(await eventually { spotlight.started == [invoice] })
+  spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
+  #expect(await eventually { model.sizedRows == 8 })
+  model.input = "invxq"
+  let query = #"kMDItemFSName == "invxq*"cdw"#
+  #expect(await eventually { spotlight.started.last == query })
+  spotlight.send(query, [], finish: true)
+  await model.settled()
+  #expect(model.sizedRows == 1)
+}
