@@ -168,6 +168,9 @@ w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card) { padding: 10p
 w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card)[data-title]::before { order: -2; padding: 0; font-size: var(--small); font-weight: 500; color: var(--muted); }
 w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card)[data-icon]::after { position: static; order: -1; align-self: center; width: 26px; height: 26px; }
 w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card) > * { font-weight: 600; }
+/* A cell is too narrow for values side by side, so they stack there as they do on a narrow page. */
+w-grid w-values { grid-auto-flow: row; row-gap: 8px; }
+w-grid w-values > w-value { padding: 0; border-left: 0; }
 @media (max-width: 420px) {
   w-grid:not(:has(> :nth-child(5))), w-values { grid-auto-flow: row; }
   w-values > w-value { padding: 0; border-left: 0; }
