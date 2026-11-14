@@ -3,31 +3,31 @@ import Testing
 
 @testable import WicketApp
 
-@Test func replyItemsBecomeTargetsWhereTheyStand() throws {
+@Test func replyRowsBecomeTargetsWhereTheyStand() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let note = root.appending(path: "note.txt")
   try Data("hi".utf8).write(to: note)
   let reply = """
     Short answer.
-    <item title="Swift Testing" subtitle="Apple's guide" open="https://developer.apple.com/documentation/testing"/>
+    <row title="Swift Testing" subtitle="Apple's guide" open="https://developer.apple.com/documentation/testing"/>
     More text.
-    <item title="The note" open="\(note.path)" icon="doc.text"/>
-    <item title="Copy it" copy="42" icon="no.such.symbol" target="#9"/>
-    <item title="Why?" ask='Why is it 42?' action="Ask why"/>
-    `<item title="Literal" copy="no"/>`
+    <row title="The note" open="\(note.path)" icon="doc.text"/>
+    <row title="Copy it" copy="42" icon="no.such.symbol" target="#9"/>
+    <row title="Why?" ask='Why is it 42?' action="Ask why"/>
+    `<row title="Literal" copy="no"/>`
     """
   let page = Page(body: reply, runs: false)
-  // Each item stays where it was written, with its id and no action; code stays text.
+  // Each row stays where it was written, with its id and icon and no action; code stays text.
   #expect(
     page.source == """
       Short answer.
-      <item target="#0" title="Swift Testing" subtitle="Apple's guide"/>
+      <row target="#0" title="Swift Testing" subtitle="Apple's guide" icon="link"/>
       More text.
-      <item target="#1" title="The note"/>
-      <item target="#2" title="Copy it"/>
-      <item target="#3" title="Why?"/>
-      `<item title="Literal" copy="no"/>`
+      <row target="#1" title="The note" icon="doc.text"/>
+      <row target="#2" title="Copy it" icon="doc.on.doc"/>
+      <row target="#3" title="Why?" icon="sparkles"/>
+      `<row title="Literal" copy="no"/>`
       """)
   #expect(page.targets.map(\.id) == ["#0", "#1", "#2", "#3"])
   #expect(page.targets.map(\.title) == ["Swift Testing", "The note", "Copy it", "Why?"])
@@ -39,20 +39,21 @@ import Testing
     ])
   // A known symbol is kept; an unknown one falls back to the action's own icon.
   #expect(page.targets.map(\.icon) == ["link", "doc.text", "doc.on.doc", "sparkles"])
+  #expect(page.symbols == ["link", "doc.text", "doc.on.doc", "sparkles"])
   // The renderer draws them as rows in one group, and the page never holds an action.
   let html = AnswerMarkdown.html(page.source)
-  #expect(html.contains(##"<w-items><w-item data-target="#0""##))
+  #expect(html.contains(##"<w-rows><w-row data-target="#0""##))
   #expect(!html.contains("developer.apple.com") && !html.contains("Why is it 42") && !html.contains(">#0<"))
 }
 
 @Test func aReplyWithoutTargetsIsUnchangedAndAnUnfinishedTagWaits() {
   #expect(Page(body: "Plain <b>text</b>", runs: false) == Page(body: "Plain <b>text</b>", runs: false))
   #expect(Page(body: "Plain <b>text</b>", runs: false).source == "Plain <b>text</b>")
-  let streaming = Page(body: "Text\n<item title=\"Half\" copy=\"x", runs: false)
+  let streaming = Page(body: "Text\n<row title=\"Half\" copy=\"x", runs: false)
   #expect(streaming.targets.isEmpty && streaming.source.hasPrefix("Text"))
 }
 
-@Test func unsafeOrIncompleteItemsAreDropped() throws {
+@Test func unsafeOrIncompleteTargetsAreDroppedAndRowsWithoutActionsShown() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let script = root.appending(path: "run.sh")
@@ -61,37 +62,43 @@ import Testing
   try Data("x".utf8).write(to: program)
   try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: program.path)
   let dropped = [
-    #"<item title="Script" open="\#(script.path)"/>"#,
-    #"<item title="Program" open="\#(program.path)"/>"#,
-    #"<item title="Missing" open="/no/such/file.txt"/>"#,
-    #"<item title="Script URL" open="javascript:alert(1)"/>"#,
-    #"<item title="File URL" open="file://\#(root.path)"/>"#,
-    #"<item title="Relative" open="notes.txt"/>"#,
-    #"<item title="Two" open="https://example.com" copy="x"/>"#,
-    #"<item title="None"/>"#,
-    #"<item open="https://example.com"/>"#,
-    #"<item title="  " copy="x"/>"#,
-    #"<item title="Refused detail" open="\#(script.path)">More</item>"#,
+    #"<row title="Script" open="\#(script.path)"/>"#,
+    #"<row title="Program" open="\#(program.path)"/>"#,
+    #"<row title="Missing" open="/no/such/file.txt"/>"#,
+    #"<row title="Script URL" open="javascript:alert(1)"/>"#,
+    #"<row title="File URL" open="file://\#(root.path)"/>"#,
+    #"<row title="Relative" open="notes.txt"/>"#,
+    #"<row title="Two" open="https://example.com" copy="x"/>"#,
+    #"<row open="https://example.com"/>"#,
+    #"<row title="  " copy="x"/>"#,
+    #"<row title="Refused detail" open="\#(script.path)">More</row>"#,
   ]
   for tag in dropped {
     let page = Page(body: "Answer\n" + tag, runs: false)
     #expect(page.targets.isEmpty && page.source == "Answer\n", Comment(rawValue: tag))
   }
   let kept = Page(
-    body: #"<item title="Home" open="~"/><item title="Mail" open="mailto:a@b.co"/>"#, runs: false)
+    body: #"<row title="Home" open="~"/><row title="Mail" open="mailto:a@b.co"/>"#, runs: false)
   #expect(kept.targets.count == 2)
   #expect(kept.targets[0].actions == [.open(URL(fileURLWithPath: NSHomeDirectory()))])
+  // A row with no action and no detail only shows, its unknown icon left out.
+  let shown = Page(body: #"<row label="Owner" value="Ada" icon="no.such.symbol"/>"#, runs: false)
+  #expect(
+    shown.targets.isEmpty && shown.source == #"<row label="Owner" value="Ada"/>"# && shown.symbols.isEmpty)
+  let quiet = Page(body: ##"<row label="9:00" title="Standup" icon="clock" target="#3"/>"##, runs: false)
+  #expect(quiet.targets.isEmpty && quiet.source == #"<row label="9:00" title="Standup" icon="clock"/>"#)
+  #expect(quiet.symbols == ["clock"])
 }
 
-@Test func targetsFollowReadingOrderAcrossItemsCardsAndJSONItems() {
+@Test func targetsFollowReadingOrderAcrossRowsCardsAndJSONItems() {
   let body = """
-    <item title="First" copy="1"/>
-    <columns><column><card title="Father Carpenter" open="https://maps.apple.com/?q=a" action="Open in Maps">
+    <row title="First" copy="1"/>
+    <grid><card title="Father Carpenter" icon="cup.and.saucer" open="https://maps.apple.com/?q=a" action="Open in Maps">
     Courtyard, filter coffee.
-    </card></column><column><card title="Oslo" open="https://maps.apple.com/?q=b">Tables.</card></column></columns>
+    </card><card title="Oslo" open="https://maps.apple.com/?q=b">Tables.</card></grid>
     <card title="Plain">Only words.</card>
     <card title="Holder" copy="never">
-    <item title="Inside" copy="2"/>
+    <row title="Inside" copy="2"/>
     </card>
     <card title="Refused" open="javascript:x">Words.</card>
     """
@@ -104,19 +111,20 @@ import Testing
   #expect(page.targets.map(\.id) == ["#0", "#1", "#2", "#3", "##0", "last"])
   #expect(
     page.targets[1].actions == [.open(URL(string: "https://maps.apple.com/?q=a")!, title: "Open in Maps")])
-  #expect(page.source.contains(##"<card target="#1" title="Father Carpenter">"##))
+  #expect(page.source.contains(##"<card target="#1" title="Father Carpenter" icon="cup.and.saucer">"##))
   // A card that holds targets, has none or names a refused action is no target, and keeps no action.
   #expect(page.source.contains(#"<card title="Holder">"#) && page.source.contains(#"<card title="Refused">"#))
   #expect(page.source.contains(#"<card title="Plain">"#) && !page.source.contains("never"))
   // JSON items follow the body as rows.
   #expect(
     page.source.hasSuffix(
-      "\n\n<item target=\"##0\" title=\"Hash\"/>\n\n<item target=\"last\" title=\"Last\"/>"))
+      "\n\n<row target=\"##0\" title=\"Hash\" icon=\"app\"/>\n\n<row target=\"last\" title=\"Last\" icon=\"app\"/>"
+    ))
 }
 
 @Test func onlyAnExtensionsOwnOutputMayRunIt() {
   let body =
-    #"<item title="Tuesday" run="view=day&day=tue" action="Show Tuesday"/><card title="Week" run="view=week">7 days</card>"#
+    #"<row title="Tuesday" run="view=day&day=tue" action="Show Tuesday"/><card title="Week" run="view=week">7 days</card>"#
   let own = Page(body: body, runs: true)
   #expect(
     own.targets.map(\.actions) == [
@@ -124,24 +132,24 @@ import Testing
       [.run(Address(arguments: ["view": "week"]))],
     ])
   #expect(own.targets[0].icon == "arrow.right")
-  // In an agent's reply the attribute means nothing: the item has no action and is dropped, the card
-  // is only a card.
+  // In an agent's reply the attribute means nothing: the row and the card only show.
   let agent = Page(body: body, runs: false)
-  #expect(agent.targets.isEmpty && agent.source == #"<card title="Week">7 days</card>"#)
+  #expect(agent.targets.isEmpty && agent.source == #"<row title="Tuesday"/><card title="Week">7 days</card>"#)
 }
 
-@Test func anItemsContentIsItsDetail() {
+@Test func aRowsContentIsItsDetail() {
   let body = """
-    <item title="Standup" subtitle="09:30 · 15 min" open="https://meet.example.com/a" action="Join in Meet">
+    <row title="Standup" subtitle="09:30 · 15 min" open="https://meet.example.com/a" action="Join in Meet">
     **Agenda**: the release.
-    <item title="Notes" copy="notes"/>
-    </item>
+    <row title="Notes" copy="notes"/>
+    </row>
     After.
     """
   let page = Page(body: body, runs: false)
   #expect(page.targets.map(\.id) == ["#0"])
-  // Closed it is a row: its content, and the items in it, are not part of the page.
-  #expect(page.source == "<item target=\"#0\" title=\"Standup\" subtitle=\"09:30 · 15 min\"/>\nAfter.")
+  // Closed it is a row: its content, and the rows in it, are not part of the page.
+  #expect(
+    page.source == "<row target=\"#0\" title=\"Standup\" subtitle=\"09:30 · 15 min\" icon=\"link\"/>\nAfter.")
   let actions = page.targets[0].actions
   #expect(actions.first?.label == "Show details" && actions.last?.label == "Join in Meet")
   guard case .detail(let detail) = actions[0].kind else {
@@ -156,9 +164,9 @@ import Testing
     opened.targets[1].actions == [.open(URL(string: "https://meet.example.com/a")!, title: "Join in Meet")])
   // A detail alone is enough for a target; still streaming, it shows but cannot be chosen yet, and
   // what follows is its content, not the page.
-  let open = Page(body: "Week\n<item title=\"Tue\" icon=\"cloud.rain\">Rain all day", runs: false)
-  #expect(open.targets.isEmpty && open.source == "Week\n<item title=\"Tue\"/>")
-  let closed = Page(body: "Week\n<item title=\"Tue\" icon=\"cloud.rain\">Rain all day</item>", runs: false)
+  let open = Page(body: "Week\n<row title=\"Tue\" icon=\"cloud.rain\">Rain all day", runs: false)
+  #expect(open.targets.isEmpty && open.source == "Week\n<row title=\"Tue\" icon=\"cloud.rain\"/>")
+  let closed = Page(body: "Week\n<row title=\"Tue\" icon=\"cloud.rain\">Rain all day</row>", runs: false)
   #expect(closed.targets.map(\.icon) == ["cloud.rain"] && closed.targets[0].actions.count == 1)
 }
 
@@ -179,7 +187,7 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, fake) = try await answered(
-    "Here.\n<card title=\"Docs\" open=\"https://example.com\" action=\"Read the docs\">Long text.</card>\n<item title=\"Next\" ask=\"What about tests?\"/>",
+    "Here.\n<card title=\"Docs\" open=\"https://example.com\" action=\"Read the docs\">Long text.</card>\n<row title=\"Next\" ask=\"What about tests?\"/>",
     root: root)
   fake.end()
   #expect(await eventually { !model.agent.busy })
@@ -200,7 +208,7 @@ import Testing
   // Typing goes back to the follow-up.
   model.editInput("And")
   #expect(model.selection == nil && model.returnAction == .send(model.input))
-  // The `<item ask>` action fills the input and sends nothing.
+  // The `<row ask>` action fills the input and sends nothing.
   model.move(1)
   model.move(1)
   #expect(model.selected?.row.actions == [.agent("What about tests?")])
@@ -213,7 +221,7 @@ import Testing
 @MainActor @Test func aSelectionSurvivesStreamingAndAStaleClickIsIgnored() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let (model, fake) = try await answered("<item title=\"One\" copy=\"1\"/>\n", root: root)
+  let (model, fake) = try await answered("<row title=\"One\" copy=\"1\"/>\n", root: root)
   #expect(await eventually { model.results.count == 1 })
   model.move(1)
   #expect(model.selectedTarget == "#0")
@@ -221,7 +229,7 @@ import Testing
   #expect(await eventually { model.agent.answer.contains("Still") })
   // An unfinished card is no target yet; the selection stays where it was.
   #expect(model.results.count == 1 && model.selectedTarget == "#0")
-  fake.text("ing.</card>\n<item title=\"Three\" copy=\"3\"/>")
+  fake.text("ing.</card>\n<row title=\"Three\" copy=\"3\"/>")
   #expect(await eventually { model.results.count == 3 })
   #expect(model.selectedTarget == "#0")
   // A click from another page, or on a target this page does not have, does nothing.
@@ -238,7 +246,7 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, fake) = try await answered(
-    "Week\n<item title=\"Mon\" copy=\"m\"/>\n<item title=\"Tue\" subtitle=\"Rain\">Rain until 15:00.\n<item title=\"Radar\" open=\"https://example.com/radar\"/></item>",
+    "Week\n<row title=\"Mon\" copy=\"m\"/>\n<row title=\"Tue\" subtitle=\"Rain\">Rain until 15:00.\n<row title=\"Radar\" open=\"https://example.com/radar\"/></row>",
     root: root)
   fake.end()
   #expect(await eventually { !model.agent.busy && model.results.count == 2 })
@@ -274,7 +282,7 @@ import Testing
     if request['arguments'].get('view') == 'day':
         print(json.dumps({'body': '## ' + request['arguments']['day']}))
     else:
-        print(json.dumps({'body': '## Week\\n<columns><column><item title="Tue" icon="cloud.rain" run="view=day&day=tue"/></column></columns>',
+        print(json.dumps({'body': '## Week\\n<grid><card title="Tue" icon="cloud.rain" run="view=day&day=tue">Rain</card></grid>',
           'items': [{'id': 'radar', 'title': 'Radar', 'actions': [{'type': 'copy', 'text': 'radar'}]}],
           'actions': [{'type': 'copy', 'text': 'week'}]}))
     """
@@ -310,7 +318,7 @@ import Testing
   renderer.onTarget = { clicks.append([$0, $1]) }
   let page = Page(
     body:
-      "Text with a [link](https://example.com).\n<item title=\"One\" copy=\"1\"/>\n<card title=\"Two\" copy=\"2\">Card [link](https://example.com)</card>",
+      "Text with a [link](https://example.com).\n<row title=\"One\" copy=\"1\"/>\n<card title=\"Two\" copy=\"2\">Card [link](https://example.com)</card>",
     runs: false)
   await renderer.render(page, turn: "turn-1")
   let web = try #require(renderer.page)
@@ -324,7 +332,7 @@ import Testing
   }
   #expect(painted == "#1")
   // A click on a target says which one and on which page; a link inside it and text keep theirs.
-  _ = try await run("document.querySelector('w-item').click()")
+  _ = try await run("document.querySelector('w-row').click()")
   _ = try await run("document.querySelector('w-card a').click(); document.querySelector('p').click()")
   // A drag that selected text is no click.
   _ = try await run(

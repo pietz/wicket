@@ -1,23 +1,31 @@
 import AppKit
 
-/// The icons of a page's rows, as the native list draws them: an SF Symbol in the secondary color or a
-/// file's own icon, in a 26-point square. The page loads nothing, so they arrive drawn, as `data:`
-/// images in a stylesheet keyed by target id; which symbol or file comes from the target in Swift.
+/// The icons of a page's rows and cards, as the native list draws them: an SF Symbol in the secondary
+/// color or a file's own icon, in a 26-point square. The page loads nothing, so they arrive drawn, as
+/// `data:` images in a stylesheet: a symbol for every tag that names it, a file's icon for the target
+/// that opens or reveals it, which comes from the target in Swift.
 @MainActor enum PageIcons {
   private static var images: [String: String] = [:]
 
-  static func stylesheet(for targets: [Row]) -> String {
+  static func stylesheet(for page: Page) -> String {
     var variables: [String: Int] = [:]
     var rules = ""
-    for row in targets {
-      let file = row.actions.first { if case .detail = $0.kind { false } else { true } }?.fileURL
-      let key = file.map { "f:" + $0.path } ?? "s:" + (row.icon ?? "app")
-      guard image(key) != nil else { continue }
+    func variable(_ key: String) -> Int? {
+      guard image(key) != nil else { return nil }
       let index = variables[key] ?? variables.count
       variables[key] = index
-      rules +=
-        "w-item[data-target=\(cssString(row.id))] { "
-        + (file == nil ? "--icon: var(--i\(index)); }\n" : "--image: var(--i\(index)); }\n")
+      return index
+    }
+    for symbol in page.symbols {
+      guard let index = variable("s:" + symbol) else { continue }
+      rules += "[data-icon=\(cssString(symbol))] { --icon: var(--i\(index)); }\n"
+    }
+    for row in page.targets {
+      guard
+        let file = row.actions.first(where: { if case .detail = $0.kind { false } else { true } })?.fileURL,
+        let index = variable("f:" + file.path)
+      else { continue }
+      rules += "[data-target=\(cssString(row.id))] { --image: var(--i\(index)); --icon: none; }\n"
     }
     let declarations = variables.sorted { $0.value < $1.value }.map { "--i\($1): url(\(images[$0]!));" }
     return ":root { " + declarations.joined(separator: " ") + " }\n" + rules

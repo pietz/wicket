@@ -197,7 +197,7 @@ final class AnswerRenderer {
           try Task.checkCancellation()
           let version = revision
           let text = source.source
-          let icons = PageIcons.stylesheet(for: source.targets)
+          let icons = PageIcons.stylesheet(for: source)
           let currentTurn = turn
           let isStreaming = streaming
           let reset = currentTurn != renderedTurn

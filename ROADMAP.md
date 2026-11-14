@@ -23,7 +23,7 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 
 Done (12 Nov 2026, concept review finding 2): arguments are named, an object of strings; a manifest declares up to three `arguments` and may set `submit`; `chosen` means the user activated it; every action takes a `title`. Step 2, the same day: the declared arguments are slots in the input bar; type "caff", Tab into `hours` and `minutes`, Return runs.
 
-From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<item title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
+From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<row title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
 
 ## Next, from the concept review
 
@@ -34,9 +34,9 @@ From [the concept review](docs/research/concept-review.md) of 12 Nov 2026. Built
 Today a component is described in four files (the stylesheet, the agent instructions, the extension contract, the theme template), Swift knows which tags group and that `badge` is inline, and a component the owner adds in `theme.css` is unknown to the agent. The direction: one file per component, as an extension is one folder.
 
 ```css
-/* stat: a key number. Repeat the tag for up to three side by side.
-   <stat label="Monthly cost" value="€24" delta="€6 less" tone="positive"/> */
-w-stat { … }
+/* value: a value under a small grey label. Consecutive values share a row.
+   <value label="Monthly cost" value="€24" delta="−€6" tone="positive"/> */
+w-value { … }
 ```
 
 - **One source.** `components/<name>.css` in the bundle, and the same folder in the Wicket folder, whose files add components or replace bundled ones by name. The leading comment is the registration: the name, when to use it and one line of syntax. Wicket builds the Components part of the agent instructions and the Body tags part of the extension contract from these comments, so a new component is known to the agent and to extension authors the moment its file is saved.
@@ -49,13 +49,13 @@ To settle in a design session: the comment's exact form; whether an owner's file
 
 ### Why answers look worse than 0.0.x
 
-The review traced it to the prompt and missing pictures, not the renderer (finding 4). Include in the planned comparison of prompt variants: one or two composite examples as the old instructions had (an answer over two cards, each with a stat and facts), an `icon` attribute on components, and a stat row that wraps. Then pictures as above.
+The review traced it to the prompt and missing pictures, not the renderer (finding 4). Include in the planned comparison of prompt variants: one or two composite examples as the old instructions had (a large value over two cards, each with values and rows) and a row of values that wraps. Icons on rows and cards came with the six tags (after 0.3.0). Then pictures as above.
 
 ### Smaller contract steps
 
 - **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. It gives a run a way to end the interaction, which copy and open have and the first Wicket had as `close` (finding 3).
-- **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). Still open from the vocabulary proposals: `label` and `value` on a row (a time, a trailing value), so `fact` and `event` can become items, and a table row as a target.
-- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10).
+- **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). `label` and `value` on a row came with the six tags (after 0.3.0), which made facts and events rows. Still open: a table row as a target.
+- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10). The one exception is the old tag names: an old tag never fails, so no repair row would ever bring the agent to it, and the parser maps them (SPEC, Rich answers).
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or take Ask agent's place (finding 1).
 - View `actions` without a body; lossless paste for extensions; a URL that fills declared arguments, with bindings.
 

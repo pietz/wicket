@@ -28,7 +28,7 @@ func answering(_ title: String) -> String {
     Result(provider: "extension:a", row: Row(id: "b:c", title: "A", actions: [])).id
       != Result(provider: "extension:a:b", row: Row(id: "c", title: "B", actions: [])).id)
   let view = ProviderView(
-    body: "<stat label=\"Total\" value=\"42\"/>", items: [Row(id: "more", title: "More", actions: [])],
+    body: "<value label=\"Total\" value=\"42\"/>", items: [Row(id: "more", title: "More", actions: [])],
     actions: [
       .open(URL(string: "https://example.com")!), .copy("42"), .paste("42"),
       .run(Address(arguments: ["id": "42"]), title: "Refresh"), .agent("Explain 42"),

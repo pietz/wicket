@@ -90,25 +90,23 @@ enum AnswerMarkdown {
         i += 1
         continue
       }
-      let name = ns.substring(with: match.range(at: 1))
-      guard !name.hasPrefix("w-") else {
+      let written = ns.substring(with: match.range(at: 1))
+      guard !written.hasPrefix("w-") else {
         i = end + 1
         continue
       }
-      // Wicket groups repeated items itself; an explicit group tag adds nothing.
-      if groups.values.contains(name) {
+      // Wicket groups repeated tags itself; an explicit group tag adds nothing.
+      if wrappers.contains(written) {
         pieces.append(String(decoding: bytes[cursor..<i], as: UTF8.self))
         cursor = end + 1
         i = cursor
         continue
       }
+      let (name, values) = canonical(written, Self.values(original))
       var attrs = ""
       var fields = ""
       var numbers = ""
-      for attr in attributes.matches(in: original, range: NSRange(location: 0, length: ns.length)) {
-        let key = ns.substring(with: attr.range(at: 1))
-        let range = (2...4).map { attr.range(at: $0) }.first { $0.location != NSNotFound }!
-        let value = ns.substring(with: range)
+      for (key, value) in values {
         attrs += " data-\(key)=\"\(escape(value))\""
         // A target's id is for the bridge, not text.
         if key != "target" { fields += "<span data-field=\"\(key)\">\(escape(value))</span>" }
@@ -173,23 +171,67 @@ enum AnswerMarkdown {
     pieces.append(ns.substring(from: cursor))
     return group(pieces.joined())
   }
-  /// Item tags and the element that holds a run of them.
-  static let groups = ["stat": "stats", "fact": "facts", "bar": "bars", "event": "timeline", "item": "items"]
-  private static let runs = try! NSRegularExpression(
-    pattern:
-      #"<w-(stat|fact|bar|event|item)\b[^>]*>(?:(?!</w-\1>).)*</w-\1>(?:\s*<w-\1\b[^>]*>(?:(?!</w-\1>).)*</w-\1>)*\s*"#,
+  /// A tag's attributes, in the order written.
+  static func values(_ tag: String) -> [(String, String)] {
+    let ns = tag as NSString
+    return attributes.matches(in: tag, range: NSRange(location: 0, length: ns.length)).map { match in
+      let range = (2...4).map { match.range(at: $0) }.first { $0.location != NSNotFound }!
+      return (ns.substring(with: match.range(at: 1)), ns.substring(with: range))
+    }
+  }
+
+  /// The tag names from before they were named by their look (0.3.0 and before). Extensions an agent wrote then
+  /// still print them, so they keep their look; the instructions never teach them. Each becomes its new
+  /// tag, with attributes renamed and others added where missing; a `column` is a bare cell of a grid.
+  static let aliases: [String: (name: String, renamed: [String: String], added: [(String, String)])] = [
+    "answer": ("value", [:], [("size", "large")]), "stat": ("value", [:], []),
+    "fact": ("row", [:], []), "event": ("row", ["time": "label", "detail": "subtitle"], []),
+    "item": ("row", [:], []), "bar": ("progress", [:], []), "callout": ("card", [:], [("tone", "info")]),
+    "columns": ("grid", [:], []), "column": ("cell", [:], []),
+  ]
+  /// The tags a run of which Wicket groups, and the element that holds the run.
+  static let groups = ["value": "values", "row": "rows", "progress": "progresses"]
+  /// Group elements, today's and the old ones: Wicket writes them, so a written one is dropped.
+  static let wrappers = Set(groups.values).union(["stats", "facts", "bars", "timeline", "items"])
+  static func canonical(_ name: String, _ values: [(String, String)]) -> (String, [(String, String)]) {
+    guard let alias = aliases[name] else { return (name, values) }
+    let renamed = values.map { (alias.renamed[$0.0] ?? $0.0, $0.1) }
+    return (alias.name, renamed + alias.added.filter { key, _ in !renamed.contains { $0.0 == key } })
+  }
+
+  /// One value, row or progress tag; a run of the same kind is one group. A large value stands alone,
+  /// and rows without a title (properties, a label and a value) never join a list of titled rows, so
+  /// an extension's properties stay quiet above the JSON items that follow them.
+  private static let groupable = try! NSRegularExpression(
+    pattern: #"<w-(value|row|progress)\b([^>]*)>(?:(?!</w-\1>).)*</w-\1>\s*"#,
     options: .dotMatchesLineSeparators)
-  /// Wraps each run of adjacent items of one kind in its group element.
+  /// Wraps each run of adjacent tags of one kind in its group element.
   private static func group(_ html: String) -> String {
     let ns = html as NSString
     var pieces: [String] = []
     var cursor = 0
-    for run in runs.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
-      let holder = "w-" + groups[ns.substring(with: run.range(at: 1))]!
-      pieces.append(ns.substring(with: NSRange(location: cursor, length: run.range.location - cursor)))
-      pieces.append("<\(holder)>\(ns.substring(with: run.range))</\(holder)>\n")
-      cursor = NSMaxRange(run.range)
+    var run: (kind: String, key: String, range: NSRange)?
+    func close() {
+      guard let (kind, _, range) = run else { return }
+      pieces.append(ns.substring(with: NSRange(location: cursor, length: range.location - cursor)))
+      let holder = "w-" + groups[kind]!
+      pieces.append("<\(holder)>\(ns.substring(with: range))</\(holder)>\n")
+      cursor = NSMaxRange(range)
+      run = nil
     }
+    for match in groupable.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+      let kind = ns.substring(with: match.range(at: 1))
+      let attributes = ns.substring(with: match.range(at: 2))
+      let alone = kind == "value" && attributes.contains(#"data-size="large""#)
+      let key = kind == "row" && !attributes.contains("data-title=") ? "property" : kind
+      if let current = run, current.key == key, NSMaxRange(current.range) == match.range.location, !alone {
+        run = (kind, key, NSUnionRange(current.range, match.range))
+        continue
+      }
+      close()
+      if !alone { run = (kind, key, match.range) }
+    }
+    close()
     pieces.append(ns.substring(from: cursor))
     return pieces.joined()
   }

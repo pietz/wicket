@@ -10,7 +10,7 @@ function paint(scroll) {
     old.removeAttribute('aria-current');
   }
   const target = selected === null ? null
-    : [...document.querySelectorAll('w-item[data-target], w-card[data-target]')].find(t => t.dataset.target === selected);
+    : [...document.querySelectorAll('w-row[data-target], w-card[data-target]')].find(t => t.dataset.target === selected);
   if (!target) return;
   target.setAttribute('data-selected', '');
   target.setAttribute('aria-current', 'true');
@@ -24,7 +24,7 @@ if (!globalThis.listening) {
   globalThis.listening = true;
   document.addEventListener('click', event => {
     if (event.button !== 0 || event.target.closest('a') || !getSelection().isCollapsed) return;
-    const target = event.target.closest('w-item[data-target], w-card[data-target]');
+    const target = event.target.closest('w-row[data-target], w-card[data-target]');
     if (target) webkit.messageHandlers.target.postMessage({id: target.dataset.target, turn: globalThis.turn});
   });
 }
@@ -53,7 +53,7 @@ const following = scrolling.scrollHeight - scrolling.scrollTop - innerHeight < 2
 if (icons !== null) document.querySelector('#icons').textContent = icons;
 const template = document.createElement('template'); template.innerHTML = html;
 const next = document.createElement('main'); next.append(template.content);
-for (const target of next.querySelectorAll('w-item[data-target], w-card[data-target]')) target.setAttribute('role', 'button');
+for (const target of next.querySelectorAll('w-row[data-target], w-card[data-target]')) target.setAttribute('role', 'button');
 patch(root, next);
 globalThis.turn = turn;
 paint(false);

@@ -15,7 +15,7 @@ import Testing
 }
 @Test func largeTagInputHasBoundedProcessingCost() {
   let input =
-    "<callout" + String(repeating: " ", count: 12_000) + "<\n"
+    "<card" + String(repeating: " ", count: 12_000) + "<\n"
     + String(repeating: "<badge label=\"Ready\"/>", count: 4000)
   let start = ContinuousClock.now
   let html = AnswerMarkdown.html(input)

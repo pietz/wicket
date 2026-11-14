@@ -8,14 +8,14 @@ import Testing
     # Heading
     A **bold** answer with [a link](https://example.com).
 
-    <stat label="Revenue" value="€12k" delta="+8%"/>
-    <facts><fact label="Owner" value="Ada"/></facts>
-    <callout tone="warning">**Careful** here</callout>
+    <value label="Revenue" value="€12k" delta="+8%"/>
+    <row label="Owner" value="Ada"/>
+    <card tone="warning">**Careful** here</card>
     <badges><badge label="Ready"/></badges>
     <card>## Next step
     Choose one.</card>
-    <columns><column>Left</column><column>Right</column></columns>
-    <bars><bar label="Done" value="7 of 10" percent="70"/></bars>
+    <grid><card>Left</card><card>Right</card></grid>
+    <progress label="Done" value="7 of 10" percent="70"/>
     <future>Still readable</future>
 
     | A | B |
@@ -23,7 +23,7 @@ import Testing
     | 1 | 2 |
     """
   let html = AnswerMarkdown.html(source)
-  for name in ["stat", "facts", "callout", "badge", "card", "columns", "bars", "future"] {
+  for name in ["values", "rows", "card", "badge", "grid", "progresses", "future"] {
     #expect(html.contains("<w-" + name))
   }
   #expect(html.contains("<strong>Careful</strong>"))
@@ -54,9 +54,9 @@ import Testing
     <img src="https://example.com/x" onerror="evil()">
     ![hidden](file:///etc/passwd)
     [script](javascript:alert%281%29) [local](file:///Applications/Calculator.app)
-    <stat label='" onmouseover="evil()' value="<img src=x>" style="color:red" percent="Infinity"/>
-    <stat label="safe" percent="50; background:url(https://example.com)"/>
-    [malformed](<stat label="x"/>)
+    <value label='" onmouseover="evil()' value="<img src=x>" style="color:red" percent="Infinity"/>
+    <progress label="safe" percent="50; background:url(https://example.com)"/>
+    [malformed](<value label="x"/>)
     """)
   for active in [
     "<script", "<iframe", "<style", "<img", " onmouseover=\"", " style=\"color:",
@@ -72,21 +72,21 @@ import Testing
 
 @Test func codeIsLiteralAndIncompleteTagsWaitWithoutSwallowingFollowingText() {
   let source = """
-    `<stat label="literal"/>`
+    `<value label="literal"/>`
 
     ```xml
     <card>literal too</card>
     ```
 
-    <stat label="Visible" value="42"/>After
-    <callout tone="warn
+    <value label="Visible" value="42"/>After
+    <card tone="warn
     """
   let html = AnswerMarkdown.html(source)
-  #expect(html.contains("&lt;stat"))
+  #expect(html.contains("&lt;value"))
   #expect(html.contains("&lt;card&gt;literal too"))
-  #expect(html.contains("</w-stat>"))
+  #expect(html.contains("</w-value>"))
   #expect(html.contains("After"))
-  #expect(!html.contains("<w-callout"))
+  #expect(!html.contains("<w-card"))
 }
 
 @Test func clickedLinksUseOnlyExplicitSafeSchemes() {
@@ -109,14 +109,14 @@ import Testing
   try AnswerRenderer.installFiles(in: folder)
   let theme = folder.appending(path: "theme.css")
   #expect(try String(contentsOf: theme, encoding: .utf8).contains("--accent"))
-  try "w-stat { color: red; }".write(to: theme, atomically: true, encoding: .utf8)
+  try "w-value { color: red; }".write(to: theme, atomically: true, encoding: .utf8)
   try AnswerRenderer.installFiles(in: folder)
   let css = try AnswerRenderer.stylesheet(in: folder)
-  #expect(css.hasPrefix("@layer wicket {") && css.contains("w-callout"))
-  #expect(css.hasSuffix("}\nw-stat { color: red; }"))
+  #expect(css.hasPrefix("@layer wicket {") && css.contains("w-progress"))
+  #expect(css.hasSuffix("}\nw-value { color: red; }"))
   // One text for the agent: display rules, then where Wicket's files are, filled in for this folder.
   let instructions = AgentCLI.instructions(in: folder, environment: ["WICKET_EXECUTABLE": "/x/Wicket"])
-  #expect(instructions.contains("<stat label=") && !instructions.contains("{{"))
+  #expect(instructions.contains("<value label=") && !instructions.contains("{{"))
   #expect(!instructions.contains("additions"))
   for path in [
     "/x/Wicket", folder.path, folder.appending(path: "config.json").path,
@@ -135,27 +135,73 @@ import Testing
   #expect(renderer.page == nil)
 }
 
-@Test func repeatedItemsGroupThemselvesAndExplicitGroupsAreIgnored() {
+@Test func repeatedTagsGroupThemselvesAndExplicitGroupsAreIgnored() {
   let html = AnswerMarkdown.html(
     """
-    <stat label="A" value="1"/>
-    <stat label="B" value="2"/>
+    <value size="large" value="42"/>
+    <value label="A" value="1"/>
+    <value label="B" value="2"/>
 
     Between.
 
-    <facts>
-    <fact label="Owner" value="Ada"/>
-    </facts>
-    <event time="9:00" title="Standup"/>
+    <rows>
+    <row label="Owner" value="Ada"/>
+    </rows>
+    <row label="9:00" title="Standup"/>
+    <row title="Docs" subtitle="Example"/>
+    <progress label="Done" percent="70"/>
     """)
-  #expect(html.components(separatedBy: "<w-stats>").count == 2)
+  // A large value stands alone; the values after it share one row.
+  #expect(html.contains(#"<w-value data-size="large""#) && !html.contains(#"<w-values><w-value data-size"#))
+  #expect(html.components(separatedBy: "<w-values>").count == 2)
   #expect(
     html.range(
-      of: #"<w-stats><w-stat[^<]*(<span[^<]*</span>)*</w-stat>\s*<w-stat"#, options: .regularExpression)
+      of: #"<w-values><w-value[^<]*(<span[^<]*</span>)*</w-value>\s*<w-value"#, options: .regularExpression)
       != nil)
-  #expect(html.components(separatedBy: "<w-facts>").count == 2)
-  #expect(html.contains("<w-timeline><w-event"))
-  #expect(!html.contains("facts&gt;"))
+  // Properties (a label and a value) and titled rows are separate lists.
+  #expect(html.components(separatedBy: "<w-rows>").count == 3)
+  #expect(html.contains(#"</w-row></w-rows>\#n<w-rows><w-row data-label="9:00""#))
+  #expect(
+    html.contains(
+      #"data-title="Standup" style=""><span data-field="label">9:00</span><span data-field="title">Standup</span></w-row><w-row"#
+    ))
+  #expect(html.contains("<w-progresses><w-progress"))
+  #expect(!html.contains("rows&gt;"))
+}
+
+/// Extensions the agent wrote before the tags were named by their look still print the old names.
+@Test func oldTagNamesBecomeTheirNewTags() {
+  let old = """
+    <answer value="42" detail="The answer"/>
+    <stat label="A" value="1" delta="+1" tone="positive"/>
+    <facts><fact label="Owner" value="Ada"/></facts>
+    <event time="9:00" title="Standup" detail="Room 2"/>
+    <bars><bar label="Disk" value="70%" percent="70"/></bars>
+    <callout>Note</callout>
+    <callout tone="warning">Careful</callout>
+    <columns><column><card title="Mon">Rain</card></column><column>Sun</column></columns>
+    <item title="Docs" open="https://example.com"/>
+    """
+  let new = """
+    <value value="42" detail="The answer" size="large"/>
+    <value label="A" value="1" delta="+1" tone="positive"/>
+    <row label="Owner" value="Ada"/>
+    <row label="9:00" title="Standup" subtitle="Room 2"/>
+    <progress label="Disk" value="70%" percent="70"/>
+    <card tone="info">Note</card>
+    <card tone="warning">Careful</card>
+    <grid><cell><card title="Mon">Rain</card></cell><cell>Sun</cell></grid>
+    <row title="Docs" open="https://example.com"/>
+    """
+  func html(_ body: String) -> String {
+    // Ids are random per render; the markup around them is what is compared.
+    AnswerMarkdown.html(Page(body: body, runs: false).source)
+  }
+  #expect(html(old) == html(new))
+  #expect(html(old).contains(#"<w-row data-label="9:00" data-title="Standup" data-subtitle="Room 2""#))
+  // The page reads an old item as a row: a target where it stands.
+  #expect(Page(body: old, runs: false).targets.map(\.title) == ["Docs"])
+  #expect(Page(body: old, runs: false).source.hasSuffix(##"<row target="#0" title="Docs" icon="link"/>"##))
 }
 
 @MainActor @Test func agentRowIsAlwaysPresentAndQuestionsOutrankWeakMatches() async throws {
@@ -194,7 +240,7 @@ import Testing
     folder, name: "demo", script: "cat >/dev/null\ncat view.json", fields: ["keyword": "demo"])
   let view = ProviderView(
     body:
-      "## A useful extension\n<stat label=\"Total\" value=\"42\"/>\n<callout>Written by a program, displayed by Wicket.</callout>"
+      "## A useful extension\n<value label=\"Total\" value=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>"
   )
   try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
   let model = LauncherModel(
@@ -206,10 +252,10 @@ import Testing
   #expect(model.activateReturn())
   await model.settled()
   let body = try #require(model.body)
-  #expect(body.contains("Wicket.</callout>"))
-  #expect(!body.contains(#"<\/callout>"#))
+  #expect(body.contains("Wicket.</card>"))
+  #expect(!body.contains(#"<\/card>"#))
   let html = AnswerMarkdown.html(body)
-  #expect(html.contains("</w-callout>"))
-  #expect(!html.contains("&lt;/callout&gt;"))
+  #expect(html.contains("</w-card>"))
+  #expect(!html.contains("&lt;/card&gt;"))
   await model.finish()
 }

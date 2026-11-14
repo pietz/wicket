@@ -97,10 +97,10 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   // A URL has no way to carry arguments: a query item of that name is ignored.
   let outside = url("wicket://deploy?input=prod&arguments=%7B%22a%22%3A%22b%22%7D&extension=other")
   #expect(outside == link("deploy", "prod") && outside?.arguments == nil)
-  // The same goes for what an agent writes: its items and the links in its text.
+  // The same goes for what an agent writes: its rows and the links in its text.
   let page = Page(
-    body: #"<item title="Open" open="wicket://deploy?input=prod&arguments=%5B%22delete%22%5D"/>"#
-      + #"<item title="Root" open="wicket://?input=hello"/><item title="Why" ask="Why?"/>"#, runs: false)
+    body: #"<row title="Open" open="wicket://deploy?input=prod&arguments=%5B%22delete%22%5D"/>"#
+      + #"<row title="Root" open="wicket://?input=hello"/><row title="Why" ask="Why?"/>"#, runs: false)
   #expect(
     page.targets.map(\.actions) == [
       [.run(link("deploy", "prod"))],
@@ -243,12 +243,12 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     let folder = try extensionFolder(root, name: "plain", script: script)
     return try await ExtensionRunner().run(command(folder), request: .init(input: ""))
   }
-  let markdown = try await run("printf '## Done\\n<stat label=\"Total\" value=\"42\"/>\\n'")
-  #expect(markdown.body == "## Done\n<stat label=\"Total\" value=\"42\"/>" && markdown.items.isEmpty)
-  // Its item tags stay where they stand; the page reads them as an extension's own.
+  let markdown = try await run("printf '## Done\\n<value label=\"Total\" value=\"42\"/>\\n'")
+  #expect(markdown.body == "## Done\n<value label=\"Total\" value=\"42\"/>" && markdown.items.isEmpty)
+  // Its row tags stay where they stand; the page reads them as an extension's own.
   let tagged = try await run(
-    "printf 'See <item title=\"Docs\" open=\"https://example.com\"/>'")
-  #expect(tagged.body == #"See <item title="Docs" open="https://example.com"/>"# && tagged.items.isEmpty)
+    "printf 'See <row title=\"Docs\" open=\"https://example.com\"/>'")
+  #expect(tagged.body == #"See <row title="Docs" open="https://example.com"/>"# && tagged.items.isEmpty)
   #expect(Page(body: tagged.body ?? "", runs: true).targets.map(\.title) == ["Docs"])
   // JSON, even after whitespace, is still a view.
   #expect(try await run("printf '\\n  {\"body\":\"json\"}'") == ProviderView(body: "json"))
@@ -367,7 +367,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   request = try await activate(.run(try #require(url("wicket://ship?input=prod"))))
   #expect(!request.chosen && request.input == "prod")
   let agentItem = try #require(
-    Page(body: #"<item title="Ship" open="wicket://ship?input=a"/>"#, runs: false).targets.first)
+    Page(body: #"<row title="Ship" open="wicket://ship?input=a"/>"#, runs: false).targets.first)
   request = try await activate(agentItem.actions[0], from: Result(provider: "answer", row: agentItem))
   #expect(!request.chosen && request.input == "a")
   // The host's Show details and error rows only show what a pattern produced.

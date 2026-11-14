@@ -57,15 +57,15 @@ main {
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
-main, w-card, w-column, w-callout, blockquote { display: flex; flex-direction: column; gap: 16px; }
-w-card, w-column, w-callout, blockquote { gap: 8px; min-width: 0; }
-:is(main, w-card, w-column, w-callout, blockquote) > * { margin: 0; }
+main, w-card, w-cell, blockquote { display: flex; flex-direction: column; gap: 16px; }
+w-card, w-cell, blockquote { gap: 8px; min-width: 0; }
+:is(main, w-card, w-cell, blockquote) > * { margin: 0; }
 
 /* Markdown */
 h1, h2 { font-size: var(--title); line-height: 1.3; font-weight: 600; }
 h3, h4, h5, h6 { font-size: var(--body); line-height: 1.3; font-weight: 600; }
-:is(main, w-card, w-column) > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 8px; }
-:is(main, w-card, w-column) > :is(h1, h2, h3, h4, h5, h6) { margin-bottom: -8px; }
+:is(main, w-card, w-cell) > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 8px; }
+:is(main, w-card, w-cell) > :is(h1, h2, h3, h4, h5, h6) { margin-bottom: -8px; }
 strong { font-weight: 600; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -92,92 +92,109 @@ th[align="right"], td[align="right"] { text-align: right; }
 
 /* Components: attributes arrive as data-* and as [data-field] spans. An unknown tag shows its fields as text. */
 [data-field] { display: inline; }
-[data-field=tone], [data-field=percent] { display: none; }
-:not(w-answer, w-stat, w-fact, w-bar, w-event, w-badge, w-item) > [data-field] + [data-field]::before { content: " · "; }
+[data-field]:is([data-field=tone], [data-field=percent], [data-field=size], [data-field=icon]) { display: none; }
+:not(w-value, w-row, w-progress, w-badge) > [data-field] + [data-field]::before { content: " · "; }
 [data-tone=positive] { --tone: var(--positive); --tone-ink: var(--positive-ink); }
 [data-tone=warning] { --tone: var(--warning); --tone-ink: var(--warning-ink); }
 [data-tone=negative] { --tone: var(--negative); --tone-ink: var(--negative-ink); }
+[data-tone=info] { --tone: var(--info); }
 
-w-answer { display: grid; gap: 4px; }
-w-answer [data-field=value] { display: block; font-size: var(--big); line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; }
-w-answer [data-field=detail] { display: block; color: var(--muted); }
-
-/* Stats have no box: thin vertical lines between them, the value in ink, only the delta toned. */
-w-stats { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-w-stat { display: grid; align-content: start; gap: 2px; padding: 0 16px; border-left: 1px solid var(--line); }
-w-stat:first-child { padding-left: 0; border-left: 0; }
-w-stat [data-field=label] { display: block; order: -1; font-size: var(--small); font-weight: 500; color: var(--muted); }
-w-stat [data-field=value] { display: block; font-size: var(--stat); line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
-w-stat [data-field=delta] { display: block; font-size: var(--small); font-weight: 500; color: var(--tone-ink, var(--muted)); }
+/* A value: a small grey label over the value, then a grey detail and a delta; only the delta takes the
+   tone. Values in a row have no box, only thin vertical lines between them. A large value is the
+   headline: no label above it by default, and it stands alone. */
+w-value { display: grid; align-content: start; gap: 2px; }
+w-value [data-field] { display: block; }
+w-value [data-field=label] { order: -1; font-size: var(--small); font-weight: 500; color: var(--muted); }
+w-value [data-field=value] { font-size: var(--stat); line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
+w-value [data-field=detail] { color: var(--muted); }
+w-value [data-field=delta] { font-size: var(--small); font-weight: 500; color: var(--tone-ink, var(--muted)); }
 /* A toned delta that starts with a sign shows a small up or down mark in its place. */
-w-stat[data-tone]:is([data-delta^="+"], [data-delta^="-"], [data-delta^="−"]) [data-field=delta]::first-letter { font-size: 0; }
-w-stat[data-tone][data-delta^="+"] [data-field=delta]::before { content: "▲"; float: left; margin-right: 4px; }
-w-stat[data-tone]:is([data-delta^="-"], [data-delta^="−"]) [data-field=delta]::before { content: "▼"; float: left; margin-right: 4px; }
+w-value[data-tone]:is([data-delta^="+"], [data-delta^="-"], [data-delta^="−"]) [data-field=delta]::first-letter { font-size: 0; }
+w-value[data-tone][data-delta^="+"] [data-field=delta]::before { content: "▲"; float: left; margin-right: 4px; }
+w-value[data-tone]:is([data-delta^="-"], [data-delta^="−"]) [data-field=delta]::before { content: "▼"; float: left; margin-right: 4px; }
+w-value[data-size=large] { gap: 4px; }
+w-value[data-size=large] [data-field=value] { font-size: var(--big); letter-spacing: -0.015em; }
+w-values { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+w-values > w-value { padding: 0 16px; border-left: 1px solid var(--line); }
+w-values > w-value:first-child { padding-left: 0; border-left: 0; }
 
-/* Facts and events: quiet rows on one grid, no rule under every row. */
-w-facts { display: grid; grid-template-columns: minmax(64px, max-content) 1fr; gap: 6px 16px; }
-w-fact { display: grid; grid-column: 1/-1; grid-template-columns: subgrid; }
-w-fact [data-field=label] { display: block; color: var(--muted); }
-w-fact [data-field=value] { display: block; }
+/* Rows that only show: quiet lines on one grid, no rule under each; a grey label or an icon on the
+   left, the title, a small grey subtitle under it and a value at the end. A label with a value and no
+   title reads as a property. */
+w-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; row-gap: 6px; }
+w-rows:has(> w-row > [data-field=subtitle]):not(:has(> [data-target])) { row-gap: 10px; }
+w-row { display: grid; grid-column: 1/-1; grid-template-columns: subgrid; align-items: baseline; min-width: 0; }
+w-row [data-field] { display: block; min-width: 0; }
+w-row [data-field=label] { grid-column: 1; grid-row: 1 / span 2; min-width: 64px; padding-right: 16px; color: var(--muted); }
+w-row [data-field=title] { grid-column: 2; font-weight: 500; }
+w-row [data-field=subtitle] { grid-column: 2; font-size: var(--small); color: var(--muted); }
+w-row [data-field=value] { grid-column: 3; grid-row: 1; padding-left: 16px; text-align: right; }
+w-row:not([data-title]) [data-field=label] { min-width: 80px; }
+w-row:not([data-title]) [data-field=value] { grid-column: 2 / -1; padding-left: 0; text-align: left; }
+w-row::before { content: ""; grid-column: 1; grid-row: 1 / span 2; align-self: center; width: 18px; height: 18px; margin-right: 12px; background: var(--image, var(--secondary)) center / contain no-repeat; mask: var(--icon, none) center / contain no-repeat; }
+w-row:is([data-label], :not([data-icon]))::before { display: none; }
 
-w-timeline { display: grid; grid-template-columns: minmax(48px, max-content) 1fr; gap: 10px 16px; }
-w-event { display: grid; grid-column: 1/-1; grid-template-columns: subgrid; }
-w-event [data-field=time] { display: block; grid-row: span 2; color: var(--muted); }
-w-event [data-field=title] { display: block; font-weight: 500; }
-w-event [data-field=detail] { display: block; grid-column: 2; font-size: var(--small); color: var(--muted); }
+/* Progress: thin and quieter than its text. */
+w-progresses { display: grid; gap: 10px; }
+w-progress { display: grid; grid-template-columns: 1fr auto; column-gap: 16px; row-gap: 5px; }
+w-progress [data-field=label], w-progress [data-field=value] { display: block; }
+w-progress [data-field=value] { color: var(--muted); }
+w-progress::after { content: ""; grid-column: 1/-1; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--tone, var(--accent)) clamp(0%, calc(var(--percent, 0) * 1%), 100%), var(--track) 0); }
 
-/* Bars: thin and quieter than their text. */
-w-bars { display: grid; gap: 10px; }
-w-bar { display: grid; grid-template-columns: 1fr auto; column-gap: 16px; row-gap: 5px; }
-w-bar [data-field=label], w-bar [data-field=value] { display: block; }
-w-bar [data-field=value] { color: var(--muted); }
-w-bar::after { content: ""; grid-column: 1/-1; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--tone, var(--accent)) clamp(0%, calc(var(--percent, 0) * 1%), 100%), var(--track) 0); }
-
-/* A card is the one box: a raised neutral surface. A callout is a card with a tint. */
-w-card, w-callout { padding: 12px 14px; border-radius: var(--radius); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
+/* A card is the one box: a raised neutral surface, tinted in its tone. Its icon sits at the top right. */
+w-card { position: relative; padding: 12px 14px; border-radius: var(--radius); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
 w-card[data-title]::before { content: attr(data-title); font-weight: 600; }
-:is(w-card, w-callout) + :is(w-card, w-callout) { margin-top: -8px; }
-w-callout { background: color-mix(in oklch, var(--tone, var(--info)) var(--tint), transparent); box-shadow: none; }
+w-card[data-icon]::after { content: ""; position: absolute; top: 12px; right: 14px; width: 20px; height: 20px; background: var(--secondary); mask: var(--icon, none) center / contain no-repeat; }
+w-card[data-icon][data-title]::before { padding-right: 28px; }
+w-card + w-card { margin-top: -8px; }
+w-card[data-tone] { background: color-mix(in oklch, var(--tone) var(--tint), transparent); box-shadow: none; }
 /* Amber turns brown as a tint, so a warning is the neutral surface with an amber dot. */
-w-callout[data-tone=warning] { position: relative; padding-left: 32px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
-w-callout[data-tone=warning]::before { content: ""; position: absolute; left: 15px; top: calc(12px + 0.725em - 3.5px); width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
+w-card[data-tone=warning] { padding-left: 32px; background: radial-gradient(circle at 18.5px calc(12px + 0.725em), var(--warning) 3.5px, transparent 4px), var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
 
 w-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 w-badge { display: inline-block; padding: 1px 8px; margin-right: 2px; border-radius: 999px; font-size: var(--small); font-weight: 500; line-height: 1.5; color: var(--muted); background: color-mix(in oklch, var(--ink) 8%, transparent); }
-:is(main, w-card, w-column, w-callout) > w-badge { align-self: start; }
+:is(main, w-card, w-cell) > w-badge { align-self: start; }
 w-badges w-badge { margin: 0; }
 w-badge[data-tone] { color: var(--ink); background: color-mix(in oklch, var(--tone) var(--tint), transparent); }
 w-badge[data-tone=warning] { background: color-mix(in oklch, var(--ink) 8%, transparent); }
 w-badge[data-tone=warning]::before { content: ""; display: inline-block; margin-right: 5px; vertical-align: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
 p:has(> w-badge) { line-height: 1.7; }
 
-w-columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
-w-column > w-card:only-child { flex: 1; }
-/* Many short columns, such as the days of a forecast, become small centered cards. */
-w-columns:has(> w-column:nth-child(5)) w-card { padding: 10px 4px; gap: 4px; text-align: center; }
-w-columns:has(> w-column:nth-child(5)) w-card[data-title]::before { font-size: var(--small); font-weight: 500; color: var(--muted); }
+/* A grid: its children side by side as equal cells. Five or more cards, such as the days of a
+   forecast, become small centered tiles: a grey title, the icon, then the text in semibold. */
+w-grid { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+w-grid > w-card + w-card { margin-top: 0; }
+w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card) { padding: 10px 4px; gap: 4px; text-align: center; }
+w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card)[data-title]::before { order: -2; padding: 0; font-size: var(--small); font-weight: 500; color: var(--muted); }
+w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card)[data-icon]::after { position: static; order: -1; align-self: center; width: 26px; height: 26px; }
+w-grid:has(> :nth-child(5)) :is(w-grid > w-card, w-cell > w-card) > * { font-weight: 600; }
 @media (max-width: 420px) {
-  w-columns:not(:has(> w-column:nth-child(5))), w-stats { grid-auto-flow: row; }
-  w-stat { padding: 0; border-left: 0; }
+  w-grid:not(:has(> :nth-child(5))), w-values { grid-auto-flow: row; }
+  w-values > w-value { padding: 0; border-left: 0; }
 }
 
-/* Targets: what Return acts on, where it is written. An item is a row in the native list's metrics
-   (its height, a 26-point icon, 10 points apart, a 14-point title, a grey subtitle, a 12-point selection),
-   whatever the text size: --zoom undoes the page's zoom. The host paints [data-selected]. */
-w-items { display: flex; flex-direction: column; gap: calc(2px / var(--zoom, 1)); margin: 0 calc(-10px / var(--zoom, 1)); }
-w-item { display: flex; align-items: center; gap: calc(10px / var(--zoom, 1)); height: var(--row, 40px); min-width: 0; padding: 0 calc(10px / var(--zoom, 1)); border-radius: calc(12px / var(--zoom, 1)); color: var(--label); cursor: default; user-select: none; -webkit-user-select: none; scroll-margin: 10px; }
-w-item::before { content: ""; flex: none; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); background: var(--image, var(--secondary)) center / contain no-repeat; mask: var(--icon, none) center / contain no-repeat; }
-w-item [data-field] { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-w-item [data-field=title] { flex: 0 1 auto; }
-w-item [data-field=subtitle] { flex: 0 1000 auto; color: var(--secondary); }
-w-item[data-selected] { background: var(--selection); }
+/* Targets: what Return acts on, where it is written. A list holding one is the launcher's own list
+   (its row height, a 26-point icon or the grey label in its place, 10 points apart, a 14-point title,
+   a grey subtitle, the value at the end, a 12-point selection), whatever the text size: --zoom undoes
+   the page's zoom. The host paints [data-selected]. */
+w-rows:has(> [data-target]) { display: flex; flex-direction: column; gap: calc(2px / var(--zoom, 1)); margin: 0 calc(-10px / var(--zoom, 1)); }
+w-rows:has(> [data-target]) > w-row { display: flex; align-items: center; gap: calc(10px / var(--zoom, 1)); height: var(--row, 40px); padding: 0 calc(10px / var(--zoom, 1)); border-radius: calc(12px / var(--zoom, 1)); color: var(--label); cursor: default; user-select: none; -webkit-user-select: none; scroll-margin: 10px; }
+w-rows:has(> [data-target]) > w-row::before { display: block; flex: none; margin: 0; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); }
+w-rows:has(> [data-target]) > w-row:not([data-icon])::before { visibility: hidden; }
+w-rows:has(> [data-target]) > w-row[data-label]::before { display: none; }
+w-rows:has(> [data-target]) > w-row [data-field] { min-width: 0; padding: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: inherit; font-weight: 400; }
+w-rows:has(> [data-target]) > w-row [data-field=label] { flex: none; min-width: 3.4em; color: var(--secondary); }
+w-rows:has(> [data-target]) > w-row [data-field=title] { flex: 0 1 auto; }
+w-rows:has(> [data-target]) > w-row [data-field=subtitle] { flex: 0 1000 auto; color: var(--secondary); }
+w-rows:has(> [data-target]) > w-row [data-field=value] { flex: none; margin-left: auto; color: var(--secondary); }
+w-row[data-selected] { background: var(--selection); }
 w-card[data-target] { cursor: default; scroll-margin: 10px; }
 w-card[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
 
-/* An item in a column is a tile, such as a day of a forecast: a card with its title, icon and subtitle. */
-w-column w-items { flex: 1; margin: 0; }
-w-column w-item { flex: 1; flex-direction: column; justify-content: center; gap: 4px; height: auto; padding: 10px 4px; border-radius: var(--radius); text-align: center; color: var(--ink); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
-w-column w-item [data-field] { max-width: 100%; }
-w-column w-item [data-field=title] { order: -1; font-size: var(--small); font-weight: 500; color: var(--muted); }
-w-column w-item [data-field=subtitle] { flex: none; font-weight: 600; color: var(--ink); }
-w-column w-item[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
+/* Bodies with the old tags (0.3.0 and before) put a row alone in a column for a tile, such as a day of a forecast. */
+w-cell > w-rows:has(> [data-target]) { flex: 1; margin: 0; }
+w-cell > w-rows:has(> [data-target]) > w-row { flex: 1; flex-direction: column; justify-content: center; gap: 4px; height: auto; padding: 10px 4px; border-radius: var(--radius); text-align: center; color: var(--ink); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
+w-cell > w-rows:has(> [data-target]) > w-row [data-field] { max-width: 100%; }
+w-cell > w-rows:has(> [data-target]) > w-row [data-field=title] { order: -1; font-size: var(--small); font-weight: 500; color: var(--muted); }
+w-cell > w-rows:has(> [data-target]) > w-row [data-field=subtitle] { flex: none; font-weight: 600; color: var(--ink); }
+w-cell > w-rows > w-row[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
