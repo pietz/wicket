@@ -1,0 +1,62 @@
+/* Wicket's core canvas styles: the list's rows and which part of the canvas shows. They stand outside
+   every cascade layer, so they win over the bundled theme (`@layer wicket`) and the owner's theme.css
+   (`@layer user`, parsed on its own with every !important removed). The list is reset with `all` and
+   takes its colors from its own tokens, so no rule of a theme reaches a search row; what could hide or
+   move it from an ancestor is held in place on the root and the body, which keep only what they pass
+   on to a page. A page stays the theme's to restyle. */
+:root[data-mode=list], :root[data-mode=list] > body {
+  display: block; position: static; float: none; inset: auto; width: auto; height: auto; min-height: 0;
+  max-height: none; margin: 0; padding: 0; border: 0; overflow: visible; opacity: 1; visibility: visible;
+  transform: none; translate: none; rotate: none; scale: none; filter: none; backdrop-filter: none;
+  clip-path: none; mask: none; contain: none; content-visibility: visible; columns: auto;
+  writing-mode: horizontal-tb; background: none;
+}
+:root[data-mode=list] > body { zoom: 1; }
+:root[data-mode=list]::before, :root[data-mode=list]::after,
+:root[data-mode=list] > body::before, :root[data-mode=list] > body::after { content: none; }
+/* The page is laid out (and measured) while the list shows, so an arriving page appears at its height. */
+w-page { display: contents; }
+:root[data-mode=list] w-page { display: block; height: 0; overflow: hidden; visibility: hidden; contain: layout paint; }
+:root[data-mode=page] w-list { display: none; }
+
+/* The native list's metrics: 10 points around, rows 2 apart and as tall as the text size makes them
+   (`--row`), a 26-point icon, 10 points apart, a 14-point title, the grey subtitle on its line or an
+   app's kind at the end, and the 12-point selection fill. `--zoom` undoes the zoom for fixed parts. */
+w-list {
+  all: initial; display: flex; flex-direction: column; gap: calc(2px / var(--zoom)); padding: calc(10px / var(--zoom));
+  font: 14px/normal system-ui, -apple-system, sans-serif; direction: ltr; color-scheme: light dark;
+  cursor: default; -webkit-user-select: none; user-select: none;
+}
+w-list, w-list * {
+  --label: light-dark(rgb(0 0 0 / 85%), rgb(255 255 255 / 85%));
+  --secondary: light-dark(rgb(0 0 0 / 50%), rgb(255 255 255 / 55%));
+  --selection: light-dark(rgb(0 0 0 / 8.5%), rgb(255 255 255 / 8.5%));
+}
+w-list * { all: unset; }
+w-list *::before, w-list *::after { content: none; }
+w-list > w-item {
+  display: flex; flex: none; align-items: center; gap: calc(10px / var(--zoom)); height: var(--row);
+  min-width: 0; padding: 0 calc(10px / var(--zoom)); border-radius: calc(12px / var(--zoom));
+  color: var(--label); scroll-margin: calc(10px / var(--zoom));
+}
+w-list > w-item[data-selected] { background: var(--selection); }
+/* A file's icon is an image; a symbol is a mask over the secondary color. */
+w-list > w-item > :is(img, i) {
+  display: block; flex: none; width: calc(26px / var(--zoom)); height: calc(26px / var(--zoom));
+}
+w-list > w-item > i { background: var(--secondary); mask-position: center; mask-size: contain; mask-repeat: no-repeat; }
+w-list [data-field] { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+w-list [data-field=title] { flex: 0 1 auto; }
+w-list [data-field=subtitle] { flex: 0 1000 auto; color: var(--secondary); }
+w-list [data-field=accessory] {
+  flex: 0 1000 auto; margin-left: auto; padding-left: calc(8px / var(--zoom)); font-size: 13px; color: var(--secondary);
+}
+/* A calculation: the result large, its expression under it. */
+w-list > w-item[data-prominent] { height: calc(var(--row) + 20px / var(--zoom)); }
+w-list w-stack { display: flex; flex-direction: column; min-width: 0; }
+w-list w-stack [data-field=title] { font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; }
+w-list w-stack [data-field=subtitle] { font-size: calc(12px / var(--zoom)); }
+w-list > w-empty {
+  display: flex; align-items: center; justify-content: center; height: calc(40px / var(--zoom));
+  font-size: calc(13px / var(--zoom)); color: var(--secondary);
+}

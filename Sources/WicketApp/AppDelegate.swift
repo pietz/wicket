@@ -31,6 +31,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       model.installProblem = error.localizedDescription
     }
     palette = PaletteController(model: model)
+    palette.prewarm()
     apps.onChange = { [weak model] in model?.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name

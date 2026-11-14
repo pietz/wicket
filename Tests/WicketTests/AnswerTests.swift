@@ -40,7 +40,7 @@ import Testing
   }
   #expect(html.contains(#"<td align="right">3.50</td>"#))
   // The theme sets cells to the left, so it must give aligned columns their own rule.
-  let css = try AnswerRenderer.stylesheet(in: FileManager.default.temporaryDirectory)
+  let css = try AnswerRenderer.stylesheet(in: FileManager.default.temporaryDirectory).core
   #expect(css.contains(#"td[align="right"] { text-align: right; }"#))
   #expect(css.contains(#"td[align="center"] { text-align: center; }"#))
 }
@@ -112,8 +112,8 @@ import Testing
   try "w-value { color: red; }".write(to: theme, atomically: true, encoding: .utf8)
   try AnswerRenderer.installFiles(in: folder)
   let css = try AnswerRenderer.stylesheet(in: folder)
-  #expect(css.hasPrefix("@layer wicket {") && css.contains("w-progress"))
-  #expect(css.hasSuffix("}\nw-value { color: red; }"))
+  #expect(css.core.hasPrefix("@layer wicket, user;\n@layer wicket {") && css.core.contains("w-progress"))
+  #expect(css.core.contains("w-list") && css.own == "w-value { color: red; }")
   // One text for the agent: display rules, then where Wicket's files are, filled in for this folder.
   let instructions = AgentCLI.instructions(in: folder, environment: ["WICKET_EXECUTABLE": "/x/Wicket"])
   #expect(instructions.contains("<value label=") && !instructions.contains("{{"))
@@ -134,7 +134,7 @@ import Testing
   #expect(AgentCLI.instructions(in: folder).hasSuffix("additions\n\nAnswer in German.\n"))
   let renderer = AnswerRenderer(folder: folder) { _ in }
   #expect(renderer.page == nil)
-  renderer.opened()
+  renderer.prepare()
   #expect(renderer.page != nil)
   renderer.release()
   #expect(renderer.page == nil)
