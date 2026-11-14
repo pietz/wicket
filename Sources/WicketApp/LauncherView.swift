@@ -9,6 +9,10 @@ struct SearchField: NSViewRepresentable {
   @Binding var text: String
   let placeholder: String
   var size: CGFloat = 21
+  /// Room the field may draw into before, above and below its frame, never after it: AppKit puts the
+  /// field editor a few points left of and above the field while editing, so clipping at the frame cut
+  /// the first letter. Zero clips at the frame.
+  var bleed: CGFloat = 0
   var focused = false
   var onFocus: () -> Void = {}
   var register: (NSTextField) -> Void = { _ in }
@@ -21,7 +25,7 @@ struct SearchField: NSViewRepresentable {
     field.textColor = .labelColor
     field.focusRingType = .none
     // Since macOS 14 views draw outside their bounds by default; text longer than the field must not.
-    field.clipsToBounds = true
+    field.bleed = bleed
     field.delegate = context.coordinator
     register(field)
     return field
@@ -71,6 +75,28 @@ struct SearchField: NSViewRepresentable {
 /// Says when it takes the keys, whether by a click or by the model.
 final class FocusReportingField: NSTextField {
   var onFocus: () -> Void = {}
+  /// Clips at the trailing edge only, with this much room on the other sides (`SearchField.bleed`).
+  /// `clipsToBounds` has no insets, so a mask layer does it.
+  var bleed: CGFloat = 0 {
+    didSet {
+      clipsToBounds = bleed == 0
+      wantsLayer = true
+      layer?.mask = bleed == 0 ? nil : CALayer()
+      layer?.mask?.backgroundColor = NSColor.black.cgColor
+      updateMask()
+    }
+  }
+  override func setFrameSize(_ size: NSSize) {
+    super.setFrameSize(size)
+    updateMask()
+  }
+  private func updateMask() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer?.mask?.frame = CGRect(
+      x: -bleed, y: -bleed, width: bounds.width + bleed, height: bounds.height + 2 * bleed)
+    CATransaction.commit()
+  }
   override func becomeFirstResponder() -> Bool {
     guard super.becomeFirstResponder() else { return false }
     onFocus()
@@ -246,7 +272,7 @@ struct LauncherView: View {
       .overlay {
         SearchField(
           text: Binding(get: { model.input }, set: { model.editInput($0) }),
-          placeholder: placeholder,
+          placeholder: placeholder, bleed: 6,
           focused: model.focusedArgument == nil,
           onFocus: { if model.focusedArgument != nil { model.focusedArgument = nil } },
           register: registerInput)

@@ -199,6 +199,12 @@ import Testing
   #expect(frame(slot("minutes")).maxX + 9 <= pillEnd && frame(slot("minutes")).maxX + 9 > pillEnd - 40)
   // Scrolled text stops a little before the first slot, not at its edge.
   #expect(frame(input).maxX + 8 <= frame(slot("hours")).minX && frame(input).width > 300)
+  // The input clips only at its end: the field editor sits a little before and above the field while
+  // editing, and clipping there cut the first letter. Slots clip all round.
+  let mask = try #require(input.layer?.mask?.frame)
+  #expect(!input.clipsToBounds && mask.maxX == input.bounds.width && clip.frame.minX < 0)
+  #expect(mask.minX <= clip.frame.minX && mask.minY <= clip.frame.minY && mask.maxY >= clip.frame.maxY)
+  #expect(slot("hours")?.clipsToBounds == true && slot("hours")?.layer?.mask == nil)
   // Replacing the long text with a short one shows it from the start again, in a narrow field.
   let field = try #require(input.currentEditor() as? NSTextView)
   #expect((field.superview as? NSClipView)?.bounds.origin.x != start)
