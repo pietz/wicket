@@ -31,6 +31,9 @@ final class AgentSession {
   private var connection: (any AgentConnection)?
   private var chosen = AgentConfiguration()
   private var pendingAnswer = ""
+  /// What the agent said before its last tool call ("Let me check…"): narration, not the answer,
+  /// unless nothing follows it.
+  private var narration = ""
   private var messageID: String?
   var streaming: Bool { chosen.streamAnswers }
   private func publishAnswer() {
@@ -121,6 +124,7 @@ final class AgentSession {
     let prompt = context.map { "\($0)\n\n\(input)" } ?? input
     answer = ""
     pendingAnswer = ""
+    narration = ""
     messageID = nil
     status = "Connecting to \(settings.agent.title)…"
     permissions = []
@@ -212,7 +216,12 @@ final class AgentSession {
       }
     case .tool(let title):
       guard acceptingUpdates else { return }
-      publishAnswer()
+      // The answer is what follows the last tool call; what came before it was narration.
+      if !answer.isEmpty || !pendingAnswer.isEmpty {
+        narration = answer + pendingAnswer
+        answer = ""
+        pendingAnswer = ""
+      }
       messageID = nil
       status = title
     case .permission(let permission):
@@ -267,6 +276,7 @@ final class AgentSession {
   /// The turn is over, however it ended: its process ends with it.
   private func finishTurn(_ outcome: String = "turn ended") {
     publishAnswer()
+    if answer.isEmpty { answer = narration }
     declineAll()
     busy = false
     acceptingUpdates = false
@@ -310,6 +320,7 @@ final class AgentSession {
     source = nil
     answer = ""
     pendingAnswer = ""
+    narration = ""
     messageID = nil
     question = ""
     status = ""

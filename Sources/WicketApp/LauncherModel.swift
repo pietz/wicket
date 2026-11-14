@@ -763,7 +763,9 @@ final class LauncherModel {
     let context = agent.active ? nil : commandContext
     stopArriving()
     cancelWork()
-    agent.ask(text, context: context?.text, from: context?.name, settings: configuration.agent)
+    var settings = configuration.agent
+    settings.textSize = configuration.textSize
+    agent.ask(text, context: context?.text, from: context?.name, settings: settings)
     questionExpanded = false
     clearSelection()
     input = ""

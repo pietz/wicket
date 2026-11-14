@@ -221,6 +221,17 @@ func command(_ folder: URL) throws -> ExtensionCommand {
       == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one=1/two=2", actions: [])]))
 }
 
+/// `./main.py` without its execute bit is not "missing": the repair brief says what is wrong.
+@Test func aProgramWithoutItsExecuteBitSaysSo() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let ext = try extensionFolder(root, fields: ["command": ["./main.sh"]])
+  let error = await #expect(throws: ExtensionFailure.self) {
+    try await ExtensionRunner().run(command(ext), request: .init(input: ""))
+  }
+  #expect(error?.message == "./main.sh isn't executable: run chmod +x ./main.sh in its folder")
+}
+
 @Test func theWorkingDirectoryIsTheExtensionsOwnFolder() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

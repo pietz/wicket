@@ -44,9 +44,11 @@ enum AgentCLI {
 
   /// What the agent is told once per conversation, as system or developer instructions: the bundled
   /// `agent-instructions.md` with its placeholders filled in, then the owner's `instructions.md`
-  /// if it has any text.
+  /// if it has any text. The canvas is described as the user sees it: the answer card's width, the
+  /// answer area's cap and the page's 14-point body (answers.css) zoomed by the text size.
   static func instructions(
-    in folder: URL, environment: [String: String] = ProcessInfo.processInfo.environment
+    in folder: URL, textSize: Configuration.TextSize = .medium,
+    environment: [String: String] = ProcessInfo.processInfo.environment
   ) -> String {
     let executable = environment["WICKET_EXECUTABLE"] ?? Bundle.main.executableURL?.path ?? "Wicket"
     var base =
@@ -58,6 +60,9 @@ enum AgentCLI {
       "{{config}}": folder.appending(path: "config.json").path,
       "{{contract}}": folder.appending(path: "extension-contract.md").path,
       "{{extensions}}": folder.appending(path: "extensions").path,
+      "{{width}}": "\(Int(PaletteLayout.width - 2 * PaletteLayout.margin))",
+      "{{height}}": "\(Int(PaletteLayout.answerMax))",
+      "{{fontSize}}": "\(Int((14 * textSize.scale).rounded()))",
     ] {
       base = base.replacingOccurrences(of: key, with: value)
     }
@@ -76,7 +81,7 @@ enum AgentCLI {
   ) throws -> any AgentConnection {
     let agent = settings.agent
     let cli = try executable(agent, in: environment)
-    let instructions = instructions(in: folder)
+    let instructions = instructions(in: folder, textSize: settings.textSize)
     switch agent {
     case .claude:
       return try link(ClaudeTranslator(), cli, settings, folder, resume, instructions, log)

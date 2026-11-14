@@ -11,6 +11,9 @@ struct AgentConfiguration: Codable, Equatable, Sendable {
   var mode: String?
   var speed: String?
   var streamAnswers = true
+  /// The size answers are drawn at, which the instructions state. It is General's Text size, set
+  /// when a question is sent, and never saved under `agent`.
+  var textSize = Configuration.TextSize.medium
   init() {}
   enum CodingKeys: String, CodingKey {
     case agent = "name"

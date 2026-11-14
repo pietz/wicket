@@ -68,7 +68,8 @@ struct Page: Equatable, Sendable {
         guard item.depth == 0 else { continue }
         open = nil
         let content = body[item.start..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
-        pieces.append(row(item.values, detail: content) ?? "")
+        // `<row …></row>` with nothing between is a row without a detail, not an empty page.
+        pieces.append(row(item.values, detail: content.isEmpty ? nil : content) ?? "")
         cursor = range.upperBound
         continue
       }

@@ -48,6 +48,12 @@ struct ExtensionRunner: Sendable {
     if argv[0].contains("/") {
       executable =
         argv[0].hasPrefix("/") ? URL(fileURLWithPath: argv[0]) : command.folder.appending(path: argv[0])
+      // Process reports a file without its execute bit as missing, which sends a repair the wrong way.
+      if FileManager.default.fileExists(atPath: executable.path),
+        !FileManager.default.isExecutableFile(atPath: executable.path)
+      {
+        throw ExtensionFailure("\(argv[0]) isn't executable: run chmod +x \(argv[0]) in its folder")
+      }
     } else {
       guard let found = Launch.which(argv[0], in: environment) else {
         throw ExtensionFailure("Executable not found: \(argv[0])")

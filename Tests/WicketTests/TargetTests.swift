@@ -168,6 +168,9 @@ import Testing
   #expect(open.targets.isEmpty && open.source == "Week\n<row title=\"Tue\" icon=\"cloud.rain\"/>")
   let closed = Page(body: "Week\n<row title=\"Tue\" icon=\"cloud.rain\">Rain all day</row>", runs: false)
   #expect(closed.targets.map(\.icon) == ["cloud.rain"] && closed.targets[0].actions.count == 1)
+  // Nothing between the tags is no detail: Return opens the row's own action, not an empty page.
+  let empty = Page(body: "<row title=\"DB\" open=\"https://www.bahn.de\">\n</row>", runs: false)
+  #expect(empty.targets.first?.actions == [.open(URL(string: "https://www.bahn.de")!, title: nil)])
 }
 
 /// A conversation whose answer is `reply`, through the real session and a fake agent.

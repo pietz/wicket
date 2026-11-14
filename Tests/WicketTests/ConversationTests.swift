@@ -301,3 +301,24 @@ import Testing
   fake.end()
   await model.finish()
 }
+
+/// The instructions state the text size of General, which lives outside the agent's settings.
+@MainActor @Test func aQuestionCarriesTheTextSizeToTheInstructions() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let fake = FakeAgent()
+  var sizes: [Configuration.TextSize] = []
+  model.agent.connect = { settings, _, _ in
+    sizes.append(settings.textSize)
+    return fake
+  }
+  model.store.update { $0.textSize = .larger }
+  model.send("Weather in Hamburg?")
+  #expect(await eventually { fake.running })
+  #expect(sizes == [.larger])
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  await model.agent.shutdown()
+}

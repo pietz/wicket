@@ -52,6 +52,10 @@ enum AnswerMarkdown {
     let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
     let bytes = Array(source.utf8)
     var tokens: [String: String] = [:]
+    /// The tokens that open (+1) or close (−1) a card, grid or cell, whose lines keep their breaks.
+    var boxes: [String: Int] = [:]
+    /// The open containers, so a row written straight into a grid gets a cell of its own: a tile.
+    var open: [String] = []
     var pieces: [String] = []
     var cursor = 0
     var i = 0
@@ -114,13 +118,26 @@ enum AnswerMarkdown {
           numbers += "--\(key):\(number);"
         }
       }
-      let markup =
-        original.hasPrefix("</")
+      let closing = original.hasPrefix("</")
+      let selfClosing = original.hasSuffix("/>")
+      var tile = false
+      if closing, let last = open.lastIndex(of: name) {
+        open.removeSubrange(last...)
+        tile = name == "row" && open.last == "grid"
+      } else if !closing {
+        tile = name == "row" && open.last == "grid"
+        if !selfClosing, ["grid", "card", "cell", "row"].contains(name) { open.append(name) }
+      }
+      var markup =
+        closing
         ? "</w-\(name)>"
-        : "<w-\(name)\(attrs) style=\"\(numbers)\">"
-          + (original.hasSuffix("/>") ? fields + "</w-\(name)>" : "")
+        : "<w-\(name)\(attrs) style=\"\(numbers)\">" + (selfClosing ? fields + "</w-\(name)>" : "")
+      if tile {
+        markup = closing ? markup + "</w-cell>" : "<w-cell>" + markup + (selfClosing ? "</w-cell>" : "")
+      }
       let key = nonce + "T\(tokens.count)END"
       tokens[key] = markup
+      if !selfClosing, ["grid", "card", "cell"].contains(name) { boxes[key] = closing ? -1 : 1 }
       pieces.append(String(decoding: bytes[cursor..<i], as: UTF8.self))
       pieces.append(name == "badge" ? key : "\n\n\(key)\n\n")
       cursor = end + 1
@@ -138,6 +155,10 @@ enum AnswerMarkdown {
       cmark_parser_free(parser)
     }
     let iterator = cmark_iter_new(root)!
+    // Inside a card, grid or cell each line is its own (a day's high, low and sky), so a soft break
+    // there is a hard one. Tokens of containers stand alone as paragraphs, in reading order.
+    var depth = 0
+    var breaks: [UnsafeMutablePointer<cmark_node>] = []
     while cmark_iter_next(iterator) != CMARK_EVENT_DONE {
       guard cmark_iter_get_event_type(iterator) == CMARK_EVENT_ENTER, let node = cmark_iter_get_node(iterator)
       else { continue }
@@ -147,8 +168,18 @@ enum AnswerMarkdown {
       {
         cmark_node_set_url(node, "")
       }
+      if type == CMARK_NODE_TEXT, !boxes.isEmpty,
+        let box = boxes[String(cString: cmark_node_get_literal(node))]
+      {
+        depth += box
+      }
+      if type == CMARK_NODE_SOFTBREAK, depth > 0 { breaks.append(node) }
     }
     cmark_iter_free(iterator)
+    for soft in breaks {
+      cmark_node_insert_before(soft, cmark_node_new(CMARK_NODE_LINEBREAK))
+      cmark_node_free(soft)
+    }
     let rendered = cmark_render_html(root, CMARK_OPT_DEFAULT, cmark_parser_get_syntax_extensions(parser))!
     defer { free(rendered) }
     var result = String(cString: rendered).replacingOccurrences(

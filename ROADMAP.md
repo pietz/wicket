@@ -49,7 +49,7 @@ To settle in a design session: the comment's exact form; whether an owner's file
 
 ### Why answers look worse than 0.0.x
 
-The review traced it to the prompt and missing pictures, not the renderer (finding 4). Include in the planned comparison of prompt variants: one or two composite examples as the old instructions had (a large value over two cards, each with values and rows) and a row of values that wraps. Icons on rows and cards came with the six tags (after 0.3.0). Then pictures as above.
+The review traced it to the prompt and missing pictures, not the renderer (finding 4). The instructions now open with the agent's role and the canvas as a screen of a given size (14 Nov 2026, SPEC, Instructions); over eight Sonnet questions forecasts became tiles with details and nothing narrated, without a composite example. Icons on rows and cards came with the six tags (after 0.3.0). Still open: the same eight questions with Codex, a row of values that wraps, then pictures as above.
 
 ### Smaller contract steps
 

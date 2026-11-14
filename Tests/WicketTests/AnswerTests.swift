@@ -118,6 +118,11 @@ import Testing
   let instructions = AgentCLI.instructions(in: folder, environment: ["WICKET_EXECUTABLE": "/x/Wicket"])
   #expect(instructions.contains("<value label=") && !instructions.contains("{{"))
   #expect(!instructions.contains("additions"))
+  // The canvas as the user sees it: the card's width, the answer's cap and the body at the text size.
+  #expect(instructions.contains("640 points wide with 500 visible before it scrolls"))
+  for (size, points) in [(Configuration.TextSize.small, 12), (.medium, 14), (.large, 16), (.larger, 18)] {
+    #expect(AgentCLI.instructions(in: folder, textSize: size).contains("system font at \(points) points"))
+  }
   for path in [
     "/x/Wicket", folder.path, folder.appending(path: "config.json").path,
     folder.appending(path: "extension-contract.md").path, folder.appending(path: "extensions").path,
@@ -202,6 +207,36 @@ import Testing
   // The page reads an old item as a row: a target where it stands.
   #expect(Page(body: old, runs: false).targets.map(\.title) == ["Docs"])
   #expect(Page(body: old, runs: false).source.hasSuffix(##"<row target="#0" title="Docs" icon="link"/>"##))
+}
+
+/// A row written straight into a grid is a tile in a cell of its own, which may hold a detail, as an
+/// old item in a column did; rows elsewhere still form one list.
+@Test func aRowInAGridIsATileOfItsOwn() {
+  let body = """
+    <grid><row title="Mon" icon="cloud.rain" subtitle="12° 7°">Rain all day</row><row title="Tue" subtitle="15°"/></grid>
+    <row title="Wed"/>
+    <row title="Thu"/>
+    """
+  let page = Page(body: body, runs: false)
+  #expect(page.targets.map(\.title) == ["Mon"])
+  let html = AnswerMarkdown.html(page.source)
+  #expect(html.components(separatedBy: "<w-cell><w-rows><w-row").count == 3)
+  #expect(html.components(separatedBy: "<w-rows>").count == 4)
+  #expect(html.contains(#"<w-row data-title="Wed""#) && html.contains(#"</w-row><w-row data-title="Thu""#))
+  // Written straight to the renderer, with its content, a row in a grid is a cell too.
+  #expect(
+    AnswerMarkdown.html("<grid><row title=\"Mon\">Rain</row></grid>").contains("<w-cell><w-rows><w-row"))
+}
+
+/// Lines inside a card, grid or cell keep their breaks (a day's high, low and sky); prose elsewhere and
+/// code inside a card do not change.
+@Test func linesInsideABoxKeepTheirBreaks() {
+  let html = AnswerMarkdown.html(
+    "One\ntwo\n\n<card title=\"Mon\">\n12°\n7°\n\n```\na\nb\n```\n</card>\n\n<grid>\nTue\nSun\n</grid>\nThree\nfour"
+  )
+  #expect(html.contains("<p>One\ntwo</p>") && html.contains("<p>Three\nfour</p>"))
+  #expect(html.contains("<p>12°<br />\n7°</p>") && html.contains("<p>Tue<br />\nSun</p>"))
+  #expect(html.contains("<code>a\nb\n</code>"))
 }
 
 @MainActor @Test func agentRowIsAlwaysPresentAndQuestionsOutrankWeakMatches() async throws {

@@ -191,10 +191,13 @@ w-row[data-selected] { background: var(--selection); }
 w-card[data-target] { cursor: default; scroll-margin: 10px; }
 w-card[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
 
-/* Bodies with the old tags (0.3.0 and before) put a row alone in a column for a tile, such as a day of a forecast. */
-w-cell > w-rows:has(> [data-target]) { flex: 1; margin: 0; }
-w-cell > w-rows:has(> [data-target]) > w-row { flex: 1; flex-direction: column; justify-content: center; gap: 4px; height: auto; padding: 10px 4px; border-radius: var(--radius); text-align: center; color: var(--ink); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
-w-cell > w-rows:has(> [data-target]) > w-row [data-field] { max-width: 100%; }
-w-cell > w-rows:has(> [data-target]) > w-row [data-field=title] { order: -1; font-size: var(--small); font-weight: 500; color: var(--muted); }
-w-cell > w-rows:has(> [data-target]) > w-row [data-field=subtitle] { flex: none; font-weight: 600; color: var(--ink); }
-w-cell > w-rows > w-row[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
+/* A row in a grid is a tile, alone in its cell, such as a day of a forecast: the grey title, the icon,
+   then the subtitle in semibold, centered (old bodies put an item alone in a column for the same). */
+w-cell > w-rows:only-child { display: flex; flex: 1; margin: 0; }
+w-cell > w-rows:only-child > w-row:only-child { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: auto; padding: 10px 4px; border-radius: var(--radius); text-align: center; color: var(--ink); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
+w-cell > w-rows:only-child > w-row:only-child::before { margin: 0; width: 26px; height: 26px; }
+w-cell > w-rows:only-child > w-row:only-child [data-field] { max-width: 100%; min-width: 0; padding: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+w-cell > w-rows:only-child > w-row:only-child [data-field=title] { order: -1; font-size: var(--small); font-weight: 500; color: var(--muted); }
+w-cell > w-rows:only-child > w-row:only-child [data-field=subtitle] { flex: none; white-space: normal; font-size: inherit; font-weight: 600; color: var(--ink); }
+w-cell > w-rows:only-child > w-row:only-child :is([data-field=label], [data-field=value]) { color: var(--muted); }
+w-cell > w-rows:only-child > w-row:only-child[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
