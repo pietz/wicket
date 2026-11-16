@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Observation
 import os
 
@@ -8,20 +9,34 @@ import os
   var types: [NSPasteboard.PasteboardType]? { get }
   var accessBehavior: NSPasteboard.AccessBehavior { get }
   func string(forType type: NSPasteboard.PasteboardType) -> String?
+  func data(forType type: NSPasteboard.PasteboardType) -> Data?
+  @discardableResult func declareTypes(_ newTypes: [NSPasteboard.PasteboardType], owner newOwner: Any?) -> Int
+  @discardableResult func setData(_ data: Data?, forType dataType: NSPasteboard.PasteboardType) -> Bool
 }
 extension NSPasteboard: PasteboardAccess {}
 
-/// The texts the user copied, newest first, kept in `clipboard-history.json` in the private folder
-/// (`Edition.privateDirectory`), outside the agent's working folder. Off until the `clipboard` source is on; while
-/// on, it polls the pasteboard's change count, which costs no read of the contents, and reads the text
-/// only after a change. Never logs what was copied.
+/// The texts and images the user copied, newest first, kept in `clipboard-history.json` in the private folder
+/// (`Edition.privateDirectory`), outside the agent's working folder, each image as `<id>.png` beside it. Off
+/// until the `clipboard` source is on; while on, it polls the pasteboard's change count, which costs no read
+/// of the contents, and reads the text, or an image when there is none, only after a change. Never logs what
+/// was copied.
 @MainActor @Observable
 final class ClipboardHistory: Provider {
   let id = "clipboard"
   struct Clip: Codable, Equatable, Sendable {
+    /// A copied image, whose PNG is `<id>.png` beside the list; the list holds only its size and digest.
+    struct Image: Codable, Equatable, Sendable {
+      let width: Int
+      let height: Int
+      let bytes: Int
+      let sha256: String
+    }
     let id: String
+    /// Empty for an image.
     let text: String
     let copied: Date
+    /// Present for an image; a file written before images has none and is a text.
+    var image: Image? = nil
   }
   /// Items that password managers and other apps mark as not for history (nspasteboard.org).
   nonisolated static let skipped: [NSPasteboard.PasteboardType] = [
@@ -35,25 +50,40 @@ final class ClipboardHistory: Provider {
   /// Retention: the newest this many, for this long.
   nonisolated static let maxEntries = 500
   nonisolated static let maxDays = 30
+  /// Images: one larger PNG is not kept, and past the total the oldest images go first.
+  nonisolated static let imageLimits = (each: 10_000_000, total: 200_000_000)
 
   private(set) var clips: [Clip]
   private(set) var enabled = false
   private let pasteboard: any PasteboardAccess
+  private let folder: URL
+  private let imageLimits: (each: Int, total: Int)
   private let interval: Duration?
   private let writer: LatestWriter<[Clip]>
   private var lastChange: Int?
   private var polling: Task<Void, Never>?
   nonisolated private static let log = Logger(subsystem: "app.wicket", category: "clipboard")
 
-  /// `interval` nil never polls on its own; tests call `poll()`.
+  /// `interval` nil never polls on its own; tests call `poll()`. An image entry whose file is gone is dropped,
+  /// and a stray `<uuid>.png` that no entry names is deleted, which a quit between the two writes leaves.
   init(
     url: URL, pasteboard: any PasteboardAccess = NSPasteboard.general,
-    interval: Duration? = .milliseconds(500)
+    interval: Duration? = .milliseconds(500), imageLimits: (each: Int, total: Int) = imageLimits
   ) {
     self.pasteboard = pasteboard
     self.interval = interval
-    clips = PrivateList.read(url)
+    self.imageLimits = imageLimits
+    folder = url.deletingLastPathComponent()
     writer = PrivateList.writer(url, log: Self.log)
+    let stored: [Clip] = PrivateList.read(url)
+    let files = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+    clips = stored.filter { $0.image == nil || files.contains($0.id + ".png") }
+    let named = Set(clips.map { $0.id + ".png" })
+    for name in files where name.hasSuffix(".png") && !named.contains(name) {
+      guard UUID(uuidString: String(name.dropLast(4))) != nil else { continue }
+      try? FileManager.default.removeItem(at: folder.appending(path: name))
+    }
+    if clips.count != stored.count { save() }
   }
 
   /// Applies the `clipboard` source's switch: starts or stops watching and expires old clips.
@@ -88,10 +118,16 @@ final class ClipboardHistory: Provider {
     guard count != lastChange else { return }
     lastChange = count
     let started = ContinuousClock.now
-    guard readable, let types = pasteboard.types, !types.contains(where: Self.skipped.contains),
-      let text = pasteboard.string(forType: .string)
-    else { return }
-    capture(text, now: now)
+    guard readable, let types = pasteboard.types, !types.contains(where: Self.skipped.contains) else {
+      return
+    }
+    if let text = pasteboard.string(forType: .string) {
+      capture(text, now: now)
+    } else if let image = image(types) {
+      capture(png: image.png, width: image.width, height: image.height, now: now)
+    } else {
+      return
+    }
     Self.log.debug(
       "clipboard: \(self.clips.count, privacy: .public) clips, read in \(ContinuousClock.now - started, privacy: .public)"
     )
@@ -101,19 +137,89 @@ final class ClipboardHistory: Provider {
   func capture(_ text: String, now: Date = Date()) {
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf8.count <= Self.maxBytes
     else { return }
-    let previous = clips.firstIndex { $0.text == text }.map { clips.remove(at: $0) }
-    clips.insert(Clip(id: previous?.id ?? UUID().uuidString, text: text, copied: now), at: 0)
+    var next = clips
+    let previous = next.firstIndex { $0.image == nil && $0.text == text }.map { next.remove(at: $0) }
+    next.insert(Clip(id: previous?.id ?? UUID().uuidString, text: text, copied: now), at: 0)
+    replace(with: next)
     expire(now: now)
-    save()
   }
 
-  func delete(_ id: String) {
-    clips.removeAll { $0.id == id }
-    save()
+  /// The pasteboard's image as PNG with its pixel size: its PNG, or its TIFF converted. Nil for none or one
+  /// over the limit, checked before decoding where the bytes allow.
+  private func image(_ types: [NSPasteboard.PasteboardType]) -> (png: Data, width: Int, height: Int)? {
+    if types.contains(.png), let png = pasteboard.data(forType: .png), png.count <= imageLimits.each,
+      let bitmap = NSBitmapImageRep(data: png)
+    {
+      return (png, bitmap.pixelsWide, bitmap.pixelsHigh)
+    }
+    // Uncompressed TIFF is several times its PNG; far larger would not fit anyway and costs a slow conversion.
+    guard types.contains(.tiff), let tiff = pasteboard.data(forType: .tiff),
+      tiff.count <= imageLimits.each * 8,
+      let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:])
+    else { return nil }
+    return (png, bitmap.pixelsWide, bitmap.pixelsHigh)
   }
 
-  func clear() {
-    clips.removeAll()
+  /// Adds a copied image on top, written as `<id>.png` (atomically, in the 0700 folder); the same bytes again
+  /// move the existing clip there. Past the total limit the oldest images go.
+  func capture(png: Data, width: Int, height: Int, now: Date = Date()) {
+    guard !png.isEmpty, png.count <= imageLimits.each else { return }
+    let digest = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
+    var next = clips
+    let previous = next.firstIndex { $0.image?.sha256 == digest }.map { next.remove(at: $0) }
+    let id = previous?.id ?? UUID().uuidString
+    if previous == nil {
+      do {
+        try FileManager.default.createDirectory(
+          at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try png.write(to: imageURL(id), options: .atomic)
+      } catch {
+        Self.log.error("image save failed, code \((error as NSError).code, privacy: .public)")
+        return
+      }
+    }
+    let image = Clip.Image(width: width, height: height, bytes: png.count, sha256: digest)
+    next.insert(Clip(id: id, text: "", copied: now, image: image), at: 0)
+    // Newest first, so once the running total passes the limit, every older image goes.
+    var total = 0
+    replace(
+      with: next.filter { clip in
+        guard let image = clip.image else { return true }
+        total += image.bytes
+        return total <= imageLimits.total
+      })
+    expire(now: now)
+  }
+
+  /// Puts a kept image on the pasteboard as PNG and TIFF, resolved from its ID when the action runs, so no
+  /// action carries image bytes. False when it is no longer kept.
+  func write(_ id: String) -> Bool {
+    guard clips.contains(where: { $0.id == id && $0.image != nil }),
+      let png = try? Data(contentsOf: imageURL(id))
+    else { return false }
+    let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation
+    pasteboard.declareTypes(tiff == nil ? [.png] : [.png, .tiff], owner: nil)
+    pasteboard.setData(png, forType: .png)
+    if let tiff { pasteboard.setData(tiff, forType: .tiff) }
+    return true
+  }
+
+  /// The bytes the kept images take on disk.
+  var imageBytes: Int { clips.reduce(0) { $0 + ($1.image?.bytes ?? 0) } }
+
+  func delete(_ id: String) { replace(with: clips.filter { $0.id != id }) }
+
+  func clear() { replace(with: []) }
+
+  private func imageURL(_ id: String) -> URL { folder.appending(path: id + ".png") }
+
+  /// The one way the list changes: images no longer in it lose their files, and the list is saved.
+  private func replace(with next: [Clip]) {
+    let kept = Set(next.lazy.filter { $0.image != nil }.map(\.id))
+    for clip in clips where clip.image != nil && !kept.contains(clip.id) {
+      try? FileManager.default.removeItem(at: imageURL(clip.id))
+    }
+    clips = next
     save()
   }
 
@@ -125,8 +231,7 @@ final class ClipboardHistory: Provider {
       let kept = PrivateList.retained(
         clips, count: Self.maxEntries, days: Self.maxDays, date: \.copied, now: now)
     else { return }
-    clips = kept
-    save()
+    replace(with: kept)
   }
 
   private func save() { writer.submit(clips) }
@@ -138,17 +243,28 @@ final class ClipboardHistory: Provider {
     return ProviderView(items: rows(matching: request.input))
   }
 
-  /// The rows for the clipboard view: newest first, each word of the input somewhere in the text,
-  /// ignoring case and diacritics. Return pastes, and the clip can also be copied or deleted.
+  /// The rows for the clipboard view: newest first, each word of the input somewhere in the text (an image's
+  /// title for an image), ignoring case and diacritics. Return pastes, and the clip can also be copied or
+  /// deleted; an image's copy and paste name it by ID.
   func rows(matching input: String, now: Date = Date()) -> [Row] {
     expire(now: now)
     let words = input.split(whereSeparator: \.isWhitespace).map(String.init)
     let ages = RelativeDateTimeFormatter()
     ages.unitsStyle = .abbreviated
     ages.dateTimeStyle = .named
-    let matches = clips.lazy.filter { clip in words.allSatisfy { clip.text.localizedStandardContains($0) } }
+    let matches = clips.lazy.filter { clip in
+      let text = clip.image.map(Self.title) ?? clip.text
+      return words.allSatisfy { text.localizedStandardContains($0) }
+    }
     return matches.prefix(Self.maxRows).map { clip in
       let age = ages.localizedString(for: clip.copied, relativeTo: now)
+      let delete = RowAction.run(Address(arguments: ["delete": clip.id]), title: "Delete")
+      if let image = clip.image {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(image.bytes), countStyle: .file)
+        return Row(
+          id: clip.id, title: Self.title(image), subtitle: "\(age) · \(size)", icon: "photo",
+          actions: [RowAction(.clip(clip.id, paste: true)), RowAction(.clip(clip.id, paste: false)), delete])
+      }
       // The first nonblank line with spaces collapsed, and the line count.
       let title = clip.text.drop { $0.isWhitespace }.prefix { !$0.isNewline }.prefix(300)
         .split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -156,11 +272,11 @@ final class ClipboardHistory: Provider {
       return Row(
         id: clip.id, title: title, subtitle: lines > 1 ? "\(age) · \(lines) lines" : age,
         icon: "doc.on.clipboard",
-        actions: [
-          .paste(clip.text), .copy(clip.text), .run(Address(arguments: ["delete": clip.id]), title: "Delete"),
-        ])
+        actions: [.paste(clip.text), .copy(clip.text), delete])
     }
   }
+
+  nonisolated static func title(_ image: Clip.Image) -> String { "Image \(image.width)×\(image.height)" }
 
   func finish() async {
     polling?.cancel()

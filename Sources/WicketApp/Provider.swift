@@ -199,6 +199,8 @@ struct RowAction: Codable, Sendable, Equatable {
     case send(String)
     /// Host only, never decoded: show this Markdown as its own page, an item's detail. Escape returns.
     case detail(String)
+    /// Host only, never decoded: copy or paste the clipboard history's image with this ID, read when it runs.
+    case clip(String, paste: Bool)
   }
   var kind: Kind
   var title: String?
@@ -218,7 +220,7 @@ struct RowAction: Codable, Sendable, Equatable {
     .run(Address(extensionName: "agent", input: text), title: title)
   }
 
-  private enum CodingKeys: String, CodingKey { case type, url, text, title }
+  private enum CodingKeys: String, CodingKey { case type, url, text, title, paste }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     title = try c.decodeIfPresent(String.self, forKey: .title)
@@ -261,6 +263,10 @@ struct RowAction: Codable, Sendable, Equatable {
     case .detail(let text):
       try c.encode("detail", forKey: .type)
       try c.encode(text, forKey: .text)
+    case .clip(let id, let paste):
+      try c.encode("clip", forKey: .type)
+      try c.encode(id, forKey: .text)
+      try c.encode(paste, forKey: .paste)
     }
   }
 }

@@ -235,8 +235,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
     let input = model.input
     func record() { if let result { model.record(result) } }
     switch action.kind {
-    case .copy(let text):
-      model.writePasteboard(text)
+    case .copy, .clip(_, paste: false):
+      guard model.writePasteboard(action.kind) else { return }
       record()
       hide()
     case .run, .send, .detail: break
@@ -244,7 +244,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()
       hide()
-    case .paste(let text):
+    case .paste, .clip(_, paste: true):
       guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),
         !previousApp.isTerminated
       else {
@@ -254,7 +254,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       }
       // An extension's paste lost its newlines when it was decoded; the host's own, such as a clipboard
       // history entry, pastes exactly what was copied.
-      model.writePasteboard(text)
+      guard model.writePasteboard(action.kind) else { return }
       record()
       hide()
       previousApp.activate()

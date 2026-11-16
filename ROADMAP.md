@@ -6,7 +6,7 @@ Short and current. [SPEC.md](SPEC.md) says what Wicket is, [ISSUES.md](ISSUES.md
 
 The rewrite replaces 0.0.x with a smaller core (agent through the installed `claude` and `codex`, apps, math, extensions, voice, native Settings) and keeps the release machinery: same bundle id, team, Sparkle key and cask, so installed 0.0.15 copies update through Sparkle. Open before or soon after publishing: the checks at the top of [ISSUES.md](ISSUES.md).
 
-Done on the way: stable signing. Wicket Dev signs with the Apple Development identity and the release with Developer ID, from `Scripts/build-app.sh`. Since 0.1.2: addresses with one action dispatcher, file search through Spotlight with open and reveal and a panel that shrinks only after 300 ms ([SPEC.md](SPEC.md), File search), and opt-in clipboard history for text ([SPEC.md](SPEC.md), Clipboard history).
+Done on the way: stable signing. Wicket Dev signs with the Apple Development identity and the release with Developer ID, from `Scripts/build-app.sh`. Since 0.1.2: addresses with one action dispatcher, file search through Spotlight with open and reveal and a panel that shrinks only after 300 ms ([SPEC.md](SPEC.md), File search), and opt-in clipboard history for text, then images ([SPEC.md](SPEC.md), Clipboard history).
 
 ## Next, from first use of 0.1
 
@@ -71,7 +71,7 @@ Parked by the owner on 12 Nov 2026. When it is built: stdout is a sequence of wh
 
 Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they matter:
 
-1. **Clipboard history, after real use** of the text version: images and files, pinned entries, and whether entries belong in root search after all.
+1. **Clipboard history, after real use:** images are kept (17 Nov 2026); copied files, pinned entries, and whether entries belong in root search after all are open.
 2. **Actions menu (⌘K)** with extension rows (Turn off, Reveal in Finder, Move to Trash) and a keyboard path to a file's Reveal in Finder and a clipboard entry's Copy and Delete, which are only in the context menu today; ⌘1 to ⌘9 direct picks; a listen shortcut; a Show in menu bar setting.
 3. **Shell commands.** A configurable prefix (default `>`) with two destinations, the user's terminal or output shown in Wicket. Start with a lightweight runner, not a terminal emulator: command, output, exit status, working directory, bounded streaming, cancellation. 0.0.x ran a fresh login shell in the home folder per command with stdin closed; decide whether follow-ups share state. Interactive programs go to the external terminal. Do not persist output by default.
 4. **Finder selection as agent context** ("summarize these"). Needs an Apple events permission and entitlement, which 0.1 deliberately does not request until the feature exists.

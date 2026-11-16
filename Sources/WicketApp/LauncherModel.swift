@@ -197,6 +197,20 @@ final class LauncherModel {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(text, forType: .string)
   }
+  /// Writes a copy or paste action's content: its text, or a kept image resolved from its ID now. False, with
+  /// the reason shown, when the image is gone.
+  func writePasteboard(_ kind: RowAction.Kind) -> Bool {
+    switch kind {
+    case .copy(let text), .paste(let text): writePasteboard(text)
+    case .clip(let id, _):
+      guard clipboard?.write(id) == true else {
+        actionProblem = "This image is no longer in the clipboard history"
+        return false
+      }
+    default: return false
+    }
+    return true
+  }
   /// The one owner of configuration. The model only reads it.
   let store: ConfigurationStore
   var configuration: Configuration { store.configuration }
@@ -780,7 +794,7 @@ final class LauncherModel {
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
-    case .copy, .paste: return false
+    case .copy, .paste, .clip: return false
     }
     return true
   }

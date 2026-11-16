@@ -552,6 +552,7 @@ extension RowAction {
       address.extensionName == nil ? "Run" : address.targetID == "agent" ? "Ask agent…" : "Open"
     case .send: "Ask"
     case .detail: "Show details"
+    case .clip(_, let paste): paste ? "Paste into previous app" : "Copy"
     }
   }
 }

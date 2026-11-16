@@ -385,7 +385,7 @@ struct SettingsPane: View {
     "apps": ("Apps", "square.grid.2x2", "Finds the apps on this Mac by name."),
     "files": ("Files", "doc", "Finds files by name with Spotlight, from three letters on."),
     "clipboard": (
-      ClipboardHistory.title, "doc.on.clipboard", "Keeps the texts you copy to paste them again."
+      ClipboardHistory.title, "doc.on.clipboard", "Keeps the texts and images you copy to paste them again."
     ),
   ]
   private func title(_ id: String) -> String {
@@ -508,7 +508,7 @@ struct SettingsPane: View {
   }
   @ViewBuilder private func clipboardRows(enabled: Bool) -> some View {
     Text(
-      "Keeps the last \(ClipboardHistory.maxEntries) texts you copy for \(ClipboardHistory.maxDays) days, only on this Mac, where the agent cannot see them. Skips anything password managers mark as concealed. Type clip to search it."
+      "Keeps the last \(ClipboardHistory.maxEntries) texts and images you copy for \(ClipboardHistory.maxDays) days, only on this Mac, where the agent cannot see them. Skips anything password managers mark as concealed and images over \(Self.megabytes(ClipboardHistory.imageLimits.each)); past \(Self.megabytes(ClipboardHistory.imageLimits.total)) of images, the oldest go. Type clip to search it."
     )
     .font(.callout).foregroundStyle(.secondary)
     if enabled, !clipboard.readable {
@@ -516,13 +516,17 @@ struct SettingsPane: View {
         "macOS asks before Wicket reads the clipboard. Allow Wicket under Paste from Other Apps in Privacy & Security.",
         systemImage: "exclamationmark.triangle")
     }
-    LabeledContent("Saved texts", value: "\(clipboard.clips.count)")
+    LabeledContent("Saved clips", value: "\(clipboard.clips.count)")
+    LabeledContent("Image storage", value: Self.megabytes(clipboard.imageBytes))
     Button("Clear History…") { confirmingClear = true }.disabled(clipboard.clips.isEmpty)
       .confirmationDialog("Clear clipboard history?", isPresented: $confirmingClear) {
         Button("Clear History", role: .destructive) { clipboard.clear() }
       } message: {
-        Text("Deletes every saved text. This can't be undone.")
+        Text("Deletes every saved text and image. This can't be undone.")
       }
+  }
+  private static func megabytes(_ bytes: Int) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
   }
 
   private func binding<T>(_ value: T, key: String, group: String? = nil) -> Binding<T> {
