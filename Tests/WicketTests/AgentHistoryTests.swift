@@ -241,8 +241,7 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
     ]
   ).events
   #expect(claudeEvents == [.failed("No conversation found with session ID: gone")])
-  var settings = AgentConfiguration()
-  settings.agent = .codex
+  let settings = codexSettings()
   var codex = CodexTranslator(folder: URL(fileURLWithPath: "/tmp"), resume: "gone", settings: settings)
   _ = codex.start()
   _ = codex.prompt("Follow-up", settings: settings)

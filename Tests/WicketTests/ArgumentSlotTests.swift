@@ -42,13 +42,7 @@ import Testing
     guard let editor = field?.currentEditor() else { return false }
     return panel.firstResponder === editor
   }
-  func slot(_ label: String) -> NSTextField? {
-    func find(_ view: NSView) -> NSTextField? {
-      if let field = view as? NSTextField, field !== input, field.placeholderString == label { return field }
-      return view.subviews.lazy.compactMap(find).first
-    }
-    return find(panel.contentView!)
-  }
+  func slot(_ label: String) -> NSTextField? { slotField(label, in: panel, besides: input) }
   func settle() async {
     await model.settled()
     panel.contentView?.layoutSubtreeIfNeeded()
@@ -158,13 +152,7 @@ import Testing
   let panel = controller.panel
   controller.show(orderFront: false, listen: false)
   let input = try #require(panel.input)
-  func slot(_ label: String) -> NSTextField? {
-    func find(_ view: NSView) -> NSTextField? {
-      if let field = view as? NSTextField, field !== input, field.placeholderString == label { return field }
-      return view.subviews.lazy.compactMap(find).first
-    }
-    return find(panel.contentView!)
-  }
+  func slot(_ label: String) -> NSTextField? { slotField(label, in: panel, besides: input) }
   func frame(_ view: NSView?) -> NSRect { view.map { $0.convert($0.bounds, to: nil) } ?? .zero }
   let editor = try #require(input.currentEditor() as? NSTextView)
   let clip = try #require(editor.superview as? NSClipView)
@@ -215,4 +203,15 @@ import Testing
   #expect((field.superview as? NSClipView)?.bounds.origin.x == start && frame(input).width < 120)
   controller.hide()
   await model.finish()
+}
+
+/// The argument slot whose placeholder is `label`: any text field in the panel but the input.
+@MainActor private func slotField(_ label: String, in panel: NSPanel, besides input: NSTextField)
+  -> NSTextField?
+{
+  func find(_ view: NSView) -> NSTextField? {
+    if let field = view as? NSTextField, field !== input, field.placeholderString == label { return field }
+    return view.subviews.lazy.compactMap(find).first
+  }
+  return find(panel.contentView!)
 }

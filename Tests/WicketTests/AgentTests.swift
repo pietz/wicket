@@ -189,7 +189,7 @@ private func codex(_ settings: AgentConfiguration = codexSettings(), resume: Str
     folder: URL(fileURLWithPath: "/tmp/wicket-recorded/codex"), resume: resume, settings: settings,
     instructions: "Rules")
 }
-private func codexSettings() -> AgentConfiguration {
+func codexSettings() -> AgentConfiguration {
   var settings = AgentConfiguration()
   settings.agent = .codex
   return settings

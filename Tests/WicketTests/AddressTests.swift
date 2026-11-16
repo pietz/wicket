@@ -314,12 +314,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   try Data(script.utf8).write(to: folder.appending(path: "ship.py"))
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
-  func requests() throws -> [ProviderRequest] {
-    let log = (try? String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)) ?? ""
-    return try log.split(separator: "\n").map {
-      try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8))
-    }
-  }
+  func requests() throws -> [ProviderRequest] { try WicketTests.requests(in: folder) }
   /// Activates a row and returns the one request that followed.
   func activate(_ action: RowAction, from result: Result? = nil) async throws -> ProviderRequest {
     let before = try requests().count

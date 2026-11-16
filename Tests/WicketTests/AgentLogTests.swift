@@ -9,7 +9,7 @@ private func text(_ url: URL) -> String { (try? String(contentsOf: url, encoding
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let log = AgentLog(folder: folder.appending(path: "Logs"))
-  var settings = codexSettingsForLog()
+  var settings = codexSettings()
   settings.model = "gpt-6.1-terra"
   let command = ["/usr/bin/python3", fixtureURL("cli-peer.py").path, fixtureURL("codex-allow.jsonl").path]
   let run = log.begin(settings, command: command, folder: folder)
@@ -50,7 +50,7 @@ private func text(_ url: URL) -> String { (try? String(contentsOf: url, encoding
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let log = AgentLog(folder: folder.appending(path: "Logs"))
-  let settings = codexSettingsForLog()
+  let settings = codexSettings()
   let run = log.begin(settings, command: ["sh"], folder: folder)
   let lines = try JSONLines(
     command: ["/bin/sh", "-c", "echo boom >&2; exit 3"], folder: folder, log: run)
@@ -79,7 +79,7 @@ private func text(_ url: URL) -> String { (try? String(contentsOf: url, encoding
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let log = AgentLog(folder: folder)
-  let settings = codexSettingsForLog()
+  let settings = codexSettings()
   try Data(repeating: 65, count: AgentLog.limit + 1).write(to: log.file)
   let first = log.begin(settings, command: ["codex"], folder: folder)
   first.note("END", "one")
@@ -112,12 +112,6 @@ private func text(_ url: URL) -> String { (try? String(contentsOf: url, encoding
   #expect(
     AgentLog.standard(edition: .release, environment: ["WICKET_CONFIG_DIR": "/tmp/wicket-x"]).file.path
       == "/tmp/wicket-x/agent.log")
-}
-
-private func codexSettingsForLog() -> AgentConfiguration {
-  var settings = AgentConfiguration()
-  settings.agent = .codex
-  return settings
 }
 
 extension Data {

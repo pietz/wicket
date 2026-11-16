@@ -45,12 +45,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   try Data(script.utf8).write(to: folder.appending(path: "main.py"))
   return (
     folder,
-    {
-      let log = (try? String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)) ?? ""
-      return try log.split(separator: "\n").map {
-        try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8))
-      }
-    }
+    { try requests(in: folder) }
   )
 }
 
@@ -190,10 +185,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
       "submit": true,
     ])
   try Data(script.utf8).write(to: folder.appending(path: "main.py"))
-  func requests() throws -> [ProviderRequest] {
-    try String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8).split(separator: "\n")
-      .map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
-  }
+  func requests() throws -> [ProviderRequest] { try WicketTests.requests(in: folder) }
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   model.input = "notes"

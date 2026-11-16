@@ -24,6 +24,14 @@ extension LauncherModel {
   }
 }
 
+/// The requests a test extension logged, one JSON line each, to `log.jsonl` in its folder.
+func requests(in folder: URL) throws -> [ProviderRequest] {
+  let log = (try? String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)) ?? ""
+  return try log.split(separator: "\n").map {
+    try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8))
+  }
+}
+
 /// Finishes one question through the real session and a fake agent, whose process ends with the turn.
 @MainActor @discardableResult
 func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) async throws -> FakeAgent {
