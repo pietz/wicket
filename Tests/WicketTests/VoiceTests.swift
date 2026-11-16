@@ -543,16 +543,20 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
 @MainActor @Test func transcriptActivityCannotExtendTheHardLimit() async throws {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
-  voice.silenceDuration = .seconds(2)
-  voice.maximumDuration = .milliseconds(500)
+  // The silence deadline is far away, so only the hard limit can stop it. The limit leaves a slow,
+  // loaded test machine time to observe listening first, since it also bounds startup.
+  voice.silenceDuration = .seconds(30)
+  voice.maximumDuration = .seconds(2)
   let started = ContinuousClock.now
   voice.toggle()
   fake.feeds[0].yield(.ready)
-  while voice.active, ContinuousClock.now - started < .milliseconds(5000) {
+  #expect(await eventually { voice.state == .listening })
+  while voice.active, ContinuousClock.now - started < .seconds(20) {
     fake.feeds[0].yield(.transcript("words at \(ContinuousClock.now)"))
     try await Task.sleep(for: .milliseconds(20))
   }
   #expect(voice.state == .idle && fake.stops == 1 && voice.problem == nil)
+  #expect(ContinuousClock.now - started >= voice.maximumDuration)
   voice.stop(.toggle)
 }
 
