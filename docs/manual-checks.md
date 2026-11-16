@@ -68,6 +68,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 3. Speak a question, then press Cmd+Return to ask it. Speech alone never submits.
 4. Try the built-in microphone, a Bluetooth headset and Automatic. Music playing at the time should keep its quality.
 5. Open and close quickly several times. The microphone indicator in the menu bar goes away each time.
+6. Open the launcher and say nothing. About 3 seconds after listening starts, it stops quietly with no message and the microphone indicator goes away; the voice log says `noSpeech`. Click the mic and speak: it listens again. Speak once, then pause for more than 3 seconds: it keeps listening.
 
 ## 7. Extensions (Settings → Sources)
 

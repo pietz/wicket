@@ -129,6 +129,30 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   #expect(voice.problem == nil && fake.stops == 2)
 }
 
+@MainActor @Test func listeningStopsQuietlyWhenNothingIsSaidAtFirst() async throws {
+  let fake = FakeTranscriber()
+  let voice = VoiceInput(transcriber: { fake }, write: { _ in })
+  voice.silenceDuration = .seconds(30)
+  voice.noSpeechDuration = .milliseconds(15)
+  // Startup is not bounded by the no-speech limit: it starts only once capture is ready.
+  voice.toggle()
+  try await Task.sleep(for: .milliseconds(80))
+  #expect(voice.state == .starting && fake.stops == 0)
+  fake.feeds[0].yield(.ready)
+  #expect(await eventually { voice.state == .idle })
+  #expect(voice.problem == nil && fake.stops == 1)
+  // After a first transcript only the inactivity limit applies.
+  voice.noSpeechDuration = .seconds(30)
+  voice.toggle()
+  fake.feeds[1].yield(.ready)
+  #expect(await eventually { voice.state == .listening })
+  voice.noSpeechDuration = .milliseconds(15)
+  fake.feeds[1].yield(.transcript("hello"))
+  try await Task.sleep(for: .milliseconds(80))
+  #expect(voice.state == .listening && fake.stops == 1)
+  voice.stop(.toggle)
+}
+
 @MainActor @Test func continuousVoiceHasAHardLimit() async {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
@@ -301,6 +325,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   #expect(await eventually { model.configuration.voice.enabled })
   #expect(fake.feeds.isEmpty)
   model.toggleVoice()
+  model.voice?.noSpeechDuration = .seconds(30)
   fake.feeds[0].yield(.ready)
   #expect(await eventually { model.voice?.state == .listening })
   try Data(#"{"voice":{"enabled":"yes"}}"#.utf8).write(to: url, options: .atomic)

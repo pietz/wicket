@@ -21,7 +21,8 @@ enum VoiceLog {
 
 /// Why capture stopped: the one thing the log needs to tell a key or edit from a failure.
 enum VoiceStop: String, Sendable {
-  case toggle, key, escape, edit, hidden, run, busy, disabled, quit, ended, failed, startTimeout, silence
+  case toggle, key, escape, edit, hidden, run, busy, disabled, quit, ended, failed, startTimeout, noSpeech,
+    silence
 }
 
 enum VoiceUpdate: Sendable {
@@ -63,6 +64,8 @@ final class VoiceInput {
   @ObservationIgnored private var firstTranscript: Duration?
   @ObservationIgnored private var opened = ContinuousClock.now
   var silenceDuration: Duration = .seconds(60)
+  /// Listening ends this soon after capture is ready when nothing has been said yet.
+  var noSpeechDuration: Duration = .seconds(3)
   var maximumDuration: Duration = .seconds(300)
 
   init(transcriber: @escaping () -> any Transcriber, timingURL: URL? = nil, write: @escaping (String) -> Void)
@@ -206,12 +209,13 @@ final class VoiceInput {
     guard active, !requestingPermission else { return }
     timer?.cancel()
     let current = generation
-    let deadline = min(started + maximumDuration, .now + silenceDuration)
+    let waiting = state == .listening && firstTranscript == nil
+    let deadline = min(started + maximumDuration, .now + (waiting ? noSpeechDuration : silenceDuration))
     timer = Task { [weak self] in
       try? await Task.sleep(until: deadline, clock: .continuous)
       guard !Task.isCancelled, let self, generation == current else { return }
       let starting = state == .starting
-      stop(starting ? .startTimeout : .silence)
+      stop(starting ? .startTimeout : firstTranscript == nil ? .noSpeech : .silence)
       if starting { problem = "Voice didn't start. Check permissions and try again." }
     }
   }
