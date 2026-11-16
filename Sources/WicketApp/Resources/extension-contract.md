@@ -89,7 +89,7 @@ The same language as agent answers: ordinary Markdown plus six tags named by the
 
 ## An answer as an extension
 
-When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from live data (a public API that needs no key), so the same page appears without the agent. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. It calls a network, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
+When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from live data (a public API that needs no key), so the same page appears without the agent, with a detail or a `run` on every row with more to show, since the arrow keys skip a row with neither. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. It calls a network, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
 
 ## Repair
 

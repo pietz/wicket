@@ -32,14 +32,14 @@ Six tags to combine freely: values or rows in a card, cards or rows in a grid.
 **Value**: a number or short text under a small grey `label`, with an optional grey `detail` and a `delta`, which alone takes the `tone` and shows ▲ or ▼ when signed. Consecutive values share one row; up to three fit. `size="large"` is the headline for the direct answer.
 `<value label="Monthly cost" value="€24" delta="−€6" tone="positive"/>`
 
-**Row**: a line of a list: an SF Symbol `icon` or a short grey `label`, the `title`, a grey `subtitle` and a `value` at the end; all optional. Consecutive rows form one list; a label with only a value is a property. In a grid, a row is a tile, its fields stacked. One action makes it selectable: `open` (an http, https or mailto URL, an absolute or `~` path, or a `wicket://` address), `copy` (the text) or `ask` (a follow-up for the user to send), with `action` naming it (`Join in Zoom`). Between `<row …>` and `</row>` goes its detail, a screen of its own that Return opens. A row with an action or a detail needs a `title`.
+**Row**: a line of a list: an SF Symbol `icon` or a short grey `label`, the `title`, a grey `subtitle` and a `value` at the end; all optional. Consecutive rows form one list; a label with only a value is a property. In a grid, a row is a tile, its fields stacked. One action makes it selectable: `open` (an http, https or mailto URL, an absolute or `~` path, or a `wicket://` address), `copy` (the text) or `ask` (a follow-up for the user to send), with `action` naming it (`Join in Zoom`). Between `<row …>` and `</row>` goes its detail, a screen of its own that Return opens; the arrow keys reach only rows with an action or a detail, so give one to every row with more to show. A row with an action or a detail needs a `title`.
 `<row label="09:30" title="Standup" subtitle="Zoom" open="https://zoom.us/j/123" action="Join in Zoom">` details `</row>`
 
 **Card**: the one raised box, holding Markdown and components, with an optional `title`, an `icon` at its corner and a `tone` that tints it. Use it for one self-contained thing among several, or a caveat that must not be missed; never wrap the whole reply. Its facts are values or rows; its text, a caveat's too, is one short line, never a paragraph. It may carry one action as a row does, unless it holds rows with actions.
 `<card title="Oslo Kaffebar" icon="cup.and.saucer" open="https://maps.apple.com/?q=Oslo+Kaffebar+Berlin" action="Open in Maps">` … `</card>`
 
-**Grid**: its children side by side as equal cells: two or three cards to compare, or up to seven short tiles, such as the days of a forecast. Anything longer is a Markdown table.
-`<grid><row title="Mon" icon="cloud.rain" subtitle="12° 7°">` Monday's hours `</row><row title="Tue" icon="sun.max" subtitle="15° 8°"/></grid>`
+**Grid**: its children side by side as equal cells: two or three cards to compare, or up to seven short tiles, such as the days of a forecast, each with its detail. Anything longer is a Markdown table.
+`<grid><row title="Mon" icon="cloud.rain" subtitle="12° 7°">` Monday's hours `</row><row title="Tue" icon="sun.max" subtitle="15° 8°">` Tuesday's hours `</row></grid>`
 
 **Progress**: a thin bar under a `label` and a `value`, for a share, progress or a ranking; `percent` is 0 to 100.
 `<progress label="Disk used" value="420 of 600 GB" percent="70"/>`
