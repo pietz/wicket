@@ -81,9 +81,8 @@ struct SettingsPane: View {
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
   @State private var confirmingClear = false
   @State private var confirmingClearRuns = false
-  /// The Extensions tab's selected source, and the target whose hotkey its recorder records.
+  /// The Extensions tab's selected source.
   @State var selected: String? = "apps"
-  @State private var recording: HotkeyTarget?
   @State private var copyProblem: String?
   private var config: Configuration { store.configuration }
 
@@ -481,7 +480,7 @@ struct SettingsPane: View {
     if !targets.isEmpty {
       Section("Hotkeys") {
         ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
-        if recording != nil { recorderHint }
+        if recorder.target != nil { recorderHint }
         if let problem = store.bindingProblem {
           Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
         }
@@ -496,17 +495,13 @@ struct SettingsPane: View {
           .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
       }
       Button {
-        if recording == target {
+        if recorder.target == target {
           recorder.stop()
         } else {
-          recorder.start(pausing: { paused in
-            pauseHotkey(paused)
-            if !paused { recording = nil }
-          }) { store.bind($0, to: target) }
-          recording = target
+          recorder.record(target, store: store, pausing: pauseHotkey)
         }
       } label: {
-        Text(recording == target ? "Press a shortcut…" : keys?.symbols ?? "Record Hotkey").frame(
+        Text(recorder.target == target ? "Press a shortcut…" : keys?.symbols ?? "Record Hotkey").frame(
           minWidth: 110)
       }
     }

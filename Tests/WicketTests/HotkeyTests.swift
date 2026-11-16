@@ -266,9 +266,9 @@ private final class Handle {}
   await model.settled()
   let row = try #require(model.results.first { $0.row.id == "item:left" })
   model.recordHotkey(for: row)
-  #expect(model.recorder.isRecording && model.recordingRow == row.id && pauses == [true])
+  #expect(model.recorder.isRecording && model.recordsHotkey(of: row) && pauses == [true])
   model.dismiss()
-  #expect(!model.recorder.isRecording && model.recordingRow == nil && pauses == [true, false])
+  #expect(!model.recorder.isRecording && model.recorder.target == nil && pauses == [true, false])
   // A row without an address records nothing.
   model.recordHotkey(for: Result(provider: "apps", row: Row(id: "x", title: "X", actions: [])))
   #expect(!model.recorder.isRecording && pauses == [true, false])

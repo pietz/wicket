@@ -327,7 +327,7 @@ struct LauncherView: View {
         Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
           .lineLimit(1)
       }
-      if model.recordingRow == result.id {
+      if model.recordsHotkey(of: result) {
         Text(model.recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
           .font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary).lineLimit(1)
       } else if let hotkey = model.hotkey(of: result) {

@@ -1018,8 +1018,7 @@ final class LauncherModel {
     guard !configuration.hotkeys.isEmpty, let target = hotkeyTarget(of: result) else { return nil }
     return configuration.hotkeys.first { $0.target == target }?.keys
   }
-  /// The row whose hotkey is being recorded (Set Hotkey…), while `recorder` listens.
-  private(set) var recordingRow: String?
+  /// Records a row's hotkey (Set Hotkey…).
   let recorder = ShortcutRecorder()
   /// The panel the recorder listens in, named because Wicket is not the active app while it is key.
   weak var window: NSWindow?
@@ -1028,14 +1027,11 @@ final class LauncherModel {
   /// Set Hotkey… on a row: the next shortcut pressed becomes its hotkey, under the launcher's rules.
   func recordHotkey(for result: Result) {
     guard let target = hotkeyTarget(of: result) else { return }
-    recordingRow = result.id
-    recorder.start(
-      in: window,
-      pausing: { [weak self] paused in
-        self?.pauseHotkeys(paused)
-        if !paused { self?.recordingRow = nil }
-      },
-      onRecord: { [weak self] in self?.store.bind($0, to: target) })
+    recorder.record(target, in: window, store: store) { [weak self] in self?.pauseHotkeys($0) }
+  }
+  /// Whether Set Hotkey… is recording this row's hotkey.
+  func recordsHotkey(of result: Result) -> Bool {
+    recorder.target != nil && recorder.target == hotkeyTarget(of: result)
   }
   /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
   /// runs it now with a chosen request, as Return on the item would, with the panel hidden; a view that

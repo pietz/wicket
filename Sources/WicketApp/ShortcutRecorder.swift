@@ -8,6 +8,8 @@ import Observation
 final class ShortcutRecorder {
   private(set) var isRecording = false
   private(set) var rejected = false
+  /// The binding `record` is recording, until it stops.
+  private(set) var target: HotkeyTarget?
   @ObservationIgnored private var monitor: Any?
   @ObservationIgnored private var observers: [any NSObjectProtocol] = []
   @ObservationIgnored private var pause: (Bool) -> Void = { _ in }
@@ -41,6 +43,15 @@ final class ShortcutRecorder {
       observe(NSApplication.didResignActiveNotification, object: nil),
     ]
   }
+  /// The next shortcut pressed becomes `target`'s hotkey, under the launcher's rules
+  /// (`ConfigurationStore.bind`): the panel's Set Hotkey… and Settings' Hotkeys alike.
+  func record(
+    _ target: HotkeyTarget, in window: NSWindow? = NSApp.keyWindow, store: ConfigurationStore,
+    pausing pause: @escaping (Bool) -> Void
+  ) {
+    start(in: window, pausing: pause) { store.bind($0, to: target) }
+    self.target = target
+  }
   private func observe(_ name: Notification.Name, object: Any?) -> any NSObjectProtocol {
     NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.stop() }
@@ -55,6 +66,7 @@ final class ShortcutRecorder {
     monitor = nil
     isRecording = false
     rejected = false
+    target = nil
     pause(false)
   }
 }
