@@ -153,15 +153,41 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
   #expect(MicrophoneDevice.select([le, builtin], uid: nil) == builtin)
 }
 
-@Test func microphoneFormatsMustAgreeBeforeInstallingATap() throws {
+// Hardware rate and channels, then the node's: a 32 kHz USB microphone whose node reported 48 kHz first.
+@Test(
+  arguments: [
+    [32000, 2, 48000, 2], [44100, 1, 48000, 1], [48000, 1, 48000, 2], [96000, 4, 48000, 2],
+  ] as [[Double]])
+func tapUsesTheHardwareRateAndChannels(_ formats: [Double]) throws {
+  let hardware = try audio(UInt32(formats[1]), rate: formats[0]).format
+  let tap = try Microphone.tapFormat(
+    hardware: hardware, node: try audio(UInt32(formats[3]), rate: formats[2]).format)
+  #expect(tap.sampleRate == formats[0] && tap.channelCount == UInt32(formats[1]))
+  #expect(tap.commonFormat == .pcmFormatFloat32 && !tap.isInterleaved)
+}
+
+@Test func tapKeepsAnAgreeingNodeFormatAndRejectsUnusableHardware() throws {
   let builtin = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
-  let headset = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
-  let stereo = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2))
-  try Microphone.validate(input: builtin, output: builtin)
-  for other in [headset, stereo, AVAudioFormat()] {
-    #expect(throws: VoiceError.noMicrophone) { try Microphone.validate(input: builtin, output: other) }
-    #expect(throws: VoiceError.noMicrophone) { try Microphone.validate(input: other, output: builtin) }
+  let node = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
+  #expect(try Microphone.tapFormat(hardware: builtin, node: node) === node)
+  let unusable = [
+    AVAudioFormat(),
+    try #require(AVAudioFormat(standardFormatWithSampleRate: 0, channels: 1)),
+    try #require(AVAudioFormat(standardFormatWithSampleRate: .nan, channels: 1)),
+  ]
+  for hardware in unusable {
+    #expect(throws: VoiceError.noMicrophone) { try Microphone.tapFormat(hardware: hardware, node: node) }
   }
+}
+
+@Test func thirtyTwoKilohertzStereoReachesTheAnalyzerFormat() throws {
+  let input = try audio(2, rate: 32000)
+  let tap = try Microphone.tapFormat(hardware: input.format, node: try audio(2).format)
+  let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+  let conversion = try Conversion(input: tap, output: output)
+  let result = try #require(try conversion.convert(input))
+  #expect(result.format == output && result.frameLength > 2000 && result.frameLength <= 2400)
+  #expect(abs(result.floatChannelData![0][500] - 0.75) < 0.001)
 }
 
 @Test(arguments: [

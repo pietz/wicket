@@ -153,11 +153,25 @@ final class Microphone: @unchecked Sendable {
       return task
     }
   }
-  static func validate(input: AVAudioFormat, output: AVAudioFormat) throws {
-    guard input.sampleRate.isFinite, input.sampleRate > 0, input.channelCount > 0,
-      output.sampleRate.isFinite, output.sampleRate > 0, output.channelCount > 0,
-      input == output
-    else { throw VoiceError.noMicrophone }
+  /// The input node cannot convert, so a tap must use the hardware's rate and channel count
+  /// (AVAudioIONode.h); any other rate raises an exception Swift cannot catch. The node's own format
+  /// is kept when it already agrees; otherwise it can be stale, as with a 32 kHz USB microphone
+  /// whose node reported 48 kHz. Conversion resamples either one.
+  static func tapFormat(hardware: AVAudioFormat, node: AVAudioFormat) throws -> AVAudioFormat {
+    guard hardware.sampleRate.isFinite, hardware.sampleRate > 0, hardware.channelCount > 0 else {
+      throw VoiceError.noMicrophone
+    }
+    if node.sameRateAndChannels(hardware), node.commonFormat == .pcmFormatFloat32, !node.isInterleaved {
+      return node
+    }
+    let format =
+      hardware.channelLayout.map {
+        AVAudioFormat(
+          commonFormat: .pcmFormatFloat32, sampleRate: hardware.sampleRate, interleaved: false,
+          channelLayout: $0)
+      } ?? AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channels: hardware.channelCount)
+    guard let format, format.sameRateAndChannels(hardware) else { throw VoiceError.noMicrophone }
+    return format
   }
   func stop() async { await requestStop().value }
 }
@@ -215,22 +229,35 @@ private final class EngineCapture: @unchecked Sendable {
       VoiceLog.logger.error("voice: no usable input device")
       throw VoiceError.noMicrophone
     }
+    // The engine's input already follows the system default; set a device only when it differs.
+    let explicit = input.auAudioUnit.deviceID != device.id
     VoiceLog.logger.log(
-      "voice device: \(device.kind, privacy: .public), system default \(device.isDefault, privacy: .public), chosen in Settings \(device.uid == self.uid, privacy: .public)"
+      "voice device: \(device.kind, privacy: .public), system default \(device.isDefault, privacy: .public), chosen in Settings \(device.uid == self.uid, privacy: .public), set explicitly \(explicit, privacy: .public)"
     )
-    do { try input.auAudioUnit.setDeviceID(device.id) } catch {
-      VoiceLog.logger.error("voice: setDeviceID failed: \(VoiceLog.describe(error), privacy: .public)")
-      throw VoiceError.noMicrophone
+    if explicit {
+      do { try input.auAudioUnit.setDeviceID(device.id) } catch {
+        VoiceLog.logger.error("voice: setDeviceID failed: \(VoiceLog.describe(error), privacy: .public)")
+        throw VoiceError.noMicrophone
+      }
     }
-    let inputFormat = input.outputFormat(forBus: 0)
+    // Read after setting the device, before any tap.
+    let node = input.outputFormat(forBus: 0)
     let hardware = input.inputFormat(forBus: 0)
     VoiceLog.logger.log(
-      "voice formats: hardware \(hardware.sampleRate, privacy: .public) Hz \(hardware.channelCount, privacy: .public) ch, node \(inputFormat.sampleRate, privacy: .public) Hz \(inputFormat.channelCount, privacy: .public) ch, equal \(hardware == inputFormat, privacy: .public)"
+      "voice formats: hardware \(hardware.sampleRate, privacy: .public) Hz \(hardware.channelCount, privacy: .public) ch, node \(node.sampleRate, privacy: .public) Hz \(node.channelCount, privacy: .public) ch, equal \(hardware == node, privacy: .public)"
     )
-    try Microphone.validate(input: hardware, output: inputFormat)
-    let conversion = try Conversion(input: inputFormat, output: format)
+    let tap = try Microphone.tapFormat(hardware: hardware, node: node)
+    VoiceLog.logger.log(
+      "voice tap format: \(tap.sampleRate, privacy: .public) Hz \(tap.channelCount, privacy: .public) ch, node format kept \(tap === node, privacy: .public)"
+    )
+    let conversion = try Conversion(input: tap, output: format)
+    // A tap whose rate disagrees with the hardware raises an uncatchable exception: recheck just before.
+    guard input.inputFormat(forBus: 0).sameRateAndChannels(tap) else {
+      VoiceLog.logger.error("voice: hardware format changed before the tap")
+      throw VoiceError.noMicrophone
+    }
     nonisolated(unsafe) var received = false
-    input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [feed, fail, firstAudio] buffer, _ in
+    input.installTap(onBus: 0, bufferSize: 2048, format: tap) { [feed, fail, firstAudio] buffer, _ in
       if !received {
         received = true
         firstAudio()
@@ -243,6 +270,11 @@ private final class EngineCapture: @unchecked Sendable {
       }
     }
     tapped = true
+    // Starting with a node format that disagrees with the hardware raises the same exception.
+    guard input.outputFormat(forBus: 0).sameRateAndChannels(tap) else {
+      VoiceLog.logger.error("voice: node did not take the tap format")
+      throw VoiceError.noMicrophone
+    }
     engine.prepare()
     do { try engine.start() } catch {
       VoiceLog.logger.error("voice: engine start failed: \(VoiceLog.describe(error), privacy: .public)")
@@ -279,7 +311,10 @@ final class Conversion: @unchecked Sendable {
     ratio = output.sampleRate / input.sampleRate
   }
   func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
-    guard buffer.format == source else { throw VoiceError.conversionFailed }
+    // Not ==: that also compares channel layouts, which do not affect averaging or resampling.
+    guard buffer.format.sameRateAndChannels(source), buffer.format.commonFormat == source.commonFormat,
+      buffer.format.isInterleaved == source.isInterleaved
+    else { throw VoiceError.conversionFailed }
     guard buffer.frameLength > 0 else { return nil }
     var input = buffer
     if source.channelCount > 1 {
@@ -319,6 +354,12 @@ final class Conversion: @unchecked Sendable {
       status.pointee = .haveData
       return buffer
     }
+  }
+}
+
+extension AVAudioFormat {
+  fileprivate func sameRateAndChannels(_ other: AVAudioFormat) -> Bool {
+    sampleRate == other.sampleRate && channelCount == other.channelCount
   }
 }
 
