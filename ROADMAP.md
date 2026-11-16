@@ -81,6 +81,10 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 8. **Bindings, after the first version:** config entries that attach any address to a global hotkey (⌥V for `wicket://clipboard`), a short alias or a favourite in the empty panel, writable by the agent. Cheap because addresses exist; covers per-command hotkeys and favourites.
 9. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
 
+### The macOS 27 glass look
+
+Owner, 16 Nov 2026: make the panel look like it belongs on macOS 27 throughout, using Liquid Glass and its interactions where the frame is native (input, search list, footer, controls), and checking how HTML content sits on the glass (cards over light backgrounds were invisible in 0.3.2). Start from Apple's macOS 27 design guidance and a side-by-side with the system's own panels, judged on the owner's screen.
+
 ## Next: static views
 
 Step 2 of the address work. Built: a manifest's `items`, read once and ranked at the root like apps (best 20 per extension), and a command without a program that Wicket answers from them (see [SPEC.md](SPEC.md) Triggers and ordering). What remains:
