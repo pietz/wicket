@@ -83,7 +83,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 
 1. Record a new shortcut. A conflicting one (Spotlight's ⌘Space) is refused with a message and the old one keeps working.
 2. Text size: all four steps, with an answer open.
-3. Background transparency.
+3. Background transparency: More readable gives a clearly legible tint over a busy wallpaper, More glass untinted glass; the search pill shows clear glass with its lens edge, the result card frosted glass. Turn on Reduce Transparency in System Settings ▸ Accessibility ▸ Display: both become solid. Change the system's Liquid Glass setting (Clear or Tinted) in Appearance and note whether Wicket follows it.
 4. Launch at login, then log out and in.
 
 ## 9. Updates

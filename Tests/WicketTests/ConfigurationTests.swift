@@ -15,6 +15,8 @@ private func config(_ json: String) throws -> Configuration {
   let changed = try config(#"{"backgroundTransparency":0.4}"#)
   #expect(changed.hotkey == .default)
   #expect(changed.backgroundTransparency == 0.4)
+  // Files written with the pre-glass default get the new look.
+  #expect(try config(#"{"backgroundTransparency":0.15}"#).backgroundTransparency == 0.75)
 }
 
 @Test func explicitOrderAndDisable() throws {

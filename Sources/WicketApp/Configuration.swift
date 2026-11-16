@@ -40,8 +40,11 @@ struct Configuration: Codable, Equatable, Sendable {
   var textSize = TextSize.medium
   var agent = AgentConfiguration()
   var hotkey = Shortcut.default
-  /// 0 is an opaque system surface; 1 is the unmodified system material.
-  var backgroundTransparency: Double = 0.15
+  /// 0 is the strongest tint (most readable); 1 is untinted Liquid Glass.
+  var backgroundTransparency: Double = 0.75
+  /// The default before the Liquid Glass look (through 0.3.4), which every new file stored. A stored value equal
+  /// to it reads as unset, so those files get the new default without Wicket rewriting them.
+  static let oldDefaultTransparency = 0.15
   static let builtins = ["apps", "files", "clipboard"]
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.
   static func enabledByDefault(_ id: String) -> Bool { id != "clipboard" }
@@ -56,8 +59,11 @@ struct Configuration: Codable, Equatable, Sendable {
     voice = try c.decodeIfPresent(Voice.self, forKey: .voice) ?? voice
     agent = try c.decodeIfPresent(AgentConfiguration.self, forKey: .agent) ?? agent
     hotkey = try c.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? hotkey
-    backgroundTransparency =
-      try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency) ?? backgroundTransparency
+    if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency),
+      stored != Self.oldDefaultTransparency
+    {
+      backgroundTransparency = stored
+    }
     providers = try c.decodeIfPresent([ProviderEntry].self, forKey: .providers) ?? providers
     guard hotkey.leavesTypingAlone else {
       throw DecodingError.dataCorruptedError(

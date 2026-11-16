@@ -150,9 +150,9 @@ struct SettingsPane: View {
       ) {
         Text("Background transparency")
       } minimumValueLabel: {
-        Text("Solid")
+        Text("More readable")
       } maximumValueLabel: {
-        Text("Clear")
+        Text("More glass")
       } onEditingChanged: { editing in
         transparency.editingChanged(editing, store: store)
       }

@@ -54,7 +54,7 @@ Installing 0.1 over 0.0.x through Sparkle or Homebrew keeps your data, and 0.1 n
 ```json
 {
   "hotkey": "option+space",
-  "backgroundTransparency": 0.15,
+  "backgroundTransparency": 0.75,
   "textSize": "medium",
   "voice": { "enabled": true, "microphone": "" },
   "providers": [
@@ -65,7 +65,7 @@ Installing 0.1 over 0.0.x through Sparkle or Homebrew keeps your data, and 0.1 n
 }
 ```
 
-Transparency ranges from 0 (strong system-surface tint) to 1 (untinted native Liquid Glass). Invalid edits retain the last valid configuration and show an error in the panel and menu icon tooltip. Settings registers a shortcut before saving it. A conflict retains the working shortcut and config value. Command plus a single letter, including Shift variants, is refused to protect editing and app commands. Shortcut letters refer to physical ANSI key positions, following Carbon. Unknown provider ids, such as `math` from before the calculator became an extension (`extension:calculator`), are ignored. Only `"enabled": false` switches a source off; a source the list omits is on, so a new built-in reaches an existing file. Cmd+Return still asks the agent.
+The search pill is clear Liquid Glass and the result card frosted glass, both tinted with the window background. Transparency ranges from 0 (the strongest tint, most readable) to 1 (untinted Liquid Glass); the default 0.75 is a light tint. A file holding 0.15, the default of earlier versions, gets the new default. With Reduce Transparency on in System Settings, the panel is a solid surface. Invalid edits retain the last valid configuration and show an error in the panel and menu icon tooltip. Settings registers a shortcut before saving it. A conflict retains the working shortcut and config value. Command plus a single letter, including Shift variants, is refused to protect editing and app commands. Shortcut letters refer to physical ANSI key positions, following Carbon. Unknown provider ids, such as `math` from before the calculator became an extension (`extension:calculator`), are ignored. Only `"enabled": false` switches a source off; a source the list omits is on, so a new built-in reaches an existing file. Cmd+Return still asks the agent.
 
 Results are ordered by match quality, not by a source order: pattern extension results first (a calculation, a conversion), then apps, extension names and items, the Settings, Agent History and Clipboard History rows and files by exact match, then a match at the start of any word (`pass` finds Proton Pass and 1Password), usage for exactly the typed input and fuzzy score. Within that, files come after everything else that matches as well, and the root shows at most eight. Ask agent is a row only when nothing matches strongly, and then it is on top, with fallback extensions after it; otherwise neither is shown, and Cmd+Return asks. Learned usage never lifts a row into a better tier.
 
@@ -81,7 +81,7 @@ Window commands move the window you were in when you opened Wicket, on its own s
 
 Type `settings` in the launcher, use Settings… in the menu bar, or press Cmd+, while Wicket is active. The native window has four tabs:
 
-- **General:** shortcut recorder, background transparency, Text size (Small to Larger), launch at login and config-folder access.
+- **General:** shortcut recorder, background transparency (More readable to More glass), Text size (Small to Larger), launch at login and config-folder access.
 - **Voice:** listen-on-opening toggle, microphone permission status and a System Settings link. Opening Settings never listens or asks for permission.
 - **Agent:** Claude or ChatGPT, latest models by tier, effort, permissions, speed and Stream answers. Opening the tab asks both CLIs for their models without sending a prompt. Reports are cached per agent for an hour. Loading or failure keeps saved choices.
 - **Agent:** also Agent History: how many runs it holds and Clear History.

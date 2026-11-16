@@ -12,7 +12,7 @@ Done on the way: stable signing. Wicket Dev signs with the Apple Development ide
 
 Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follow-ups, permissions, voice (the first word is caught), result ranking. Needs work:
 
-- **The UI looks bland, not modern.** The whole panel should feel like current macOS: native Liquid Glass, not flat surfaces. A design pass over the panel, the answer card, Previous questions and the permission card.
+- **The UI looks bland, not modern.** The whole panel should feel like current macOS: native Liquid Glass, not flat surfaces. A design pass over the panel, the answer card, Previous questions and the permission card. The panel surfaces are done (The macOS 27 glass look, below).
 - **Answers look worse than 0.0.x.** Decided: keep the one WebKit renderer and fix the language, prompt and theme. Done: the page warms when the panel opens, the bundled theme uses native type and tone colors, the instructions describe each component's use and look, and the owner's `theme.css` and `instructions.md` layer over bundled defaults that update with the app. Step 1 of the new look is in: the owner-approved mock's rhythm, type, split tones, stats without boxes, one card surface and hugging tables for today's tags, a secondary question header, and restraint rules in the instructions. Next: the vocabulary (which tags exist) and selectable things on the page, then compare prompt variants with the live agent test on about 15 real questions, rendered offscreen, and judge on the real glass panel.
 - **Previous questions UI is questionable.** Rethink how earlier questions and answers are shown in a conversation.
 - **Permission card looks plain and offers only Allow once and Don't allow.** Add a third choice, allow for the rest of this conversation (Claude's session-scoped permission updates, Codex's accept for session), and restyle the card.
@@ -83,9 +83,7 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 
 ### The macOS 27 glass look
 
-Owner, 16 Nov 2026: make the panel look like it belongs on macOS 27 throughout, using Liquid Glass and its interactions where the frame is native (input, search list, footer, controls), and checking how HTML content sits on the glass (cards over light backgrounds were invisible in 0.3.2). Start from Apple's macOS 27 design guidance and a side-by-side with the system's own panels, judged on the owner's screen.
-
-Legibility first (owner, 16 Nov 2026): the default must read well over any background. Wicket already has `backgroundTransparency`; consider adding blur strength, and follow the system's own glass choices (the Clear or Tinted Liquid Glass setting and Reduce Transparency) rather than fighting them. Raycast 2 gets real Liquid Glass on web content through WebKit's private `-apple-visual-effect` property ([research](docs/research/raycast-2-ui-stack.md)); an option for answer cards, weighed against relying on private API.
+Done for the panel surfaces (owner, 16 Nov 2026, chosen from real-screen captures): a clear-glass search pill, a frosted (regular) result card, a light window-background tint by default, and the one `backgroundTransparency` slider rescaled from More readable to More glass; Reduce Transparency gets a solid panel (see [SPEC.md](SPEC.md) Panel background). Still open: whether the system's Liquid Glass setting (Clear or Tinted) affects Wicket, checked on the owner's screen ([manual checks](docs/manual-checks.md), Settings); Liquid Glass interactions on the native frame (input, search list, footer, controls); and how HTML content sits on the glass. Raycast 2 gets real Liquid Glass on web content through WebKit's private `-apple-visual-effect` property ([research](docs/research/raycast-2-ui-stack.md)); an option for answer cards, weighed against relying on private API.
 
 ## Next: static views
 

@@ -111,7 +111,10 @@ final class ConfigurationStore {
   var value: Double?
   mutating func editingChanged(_ editing: Bool, store: ConfigurationStore) {
     guard !editing, let value else { return }
-    store.change { try $0.set("backgroundTransparency", to: (value * 100).rounded() / 100) }
+    // The old default reads as unset, so the slider never saves it and skips to its neighbour.
+    let rounded = (value * 100).rounded() / 100
+    let saved = rounded == Configuration.oldDefaultTransparency ? 0.16 : rounded
+    store.change { try $0.set("backgroundTransparency", to: saved) }
     self.value = nil
   }
 }

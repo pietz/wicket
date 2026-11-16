@@ -145,13 +145,14 @@ struct LauncherView: View {
   let registerInput: (NSTextField) -> Void
   let run: (RowAction?) -> Void
   var flatSurfaces = false
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   private var textSize: Configuration.TextSize { model.configuration.textSize }
   var body: some View {
     ZStack(alignment: .top) {
       GlassEffectContainer(spacing: PaletteLayout.gap) {
         VStack(spacing: PaletteLayout.gap) {
-          surface(radius: 28).frame(height: PaletteLayout.search)
-          surface(radius: 22).frame(height: cardHeight)
+          surface(.clear, radius: 28).frame(height: PaletteLayout.search)
+          surface(.regular, radius: 22).frame(height: cardHeight)
         }
       }
       VStack(spacing: PaletteLayout.gap) {
@@ -493,14 +494,16 @@ struct LauncherView: View {
       Color.clear.frame(height: renderer.height)
     }
   }
-  @ViewBuilder private func surface(radius: CGFloat) -> some View {
-    if flatSurfaces {
+  /// Clear glass for the search pill's lens edge, regular (frosted) glass for the card, both tinted
+  /// with the window background; Reduce Transparency gets the flat surface.
+  @ViewBuilder private func surface(_ glass: Glass, radius: CGFloat) -> some View {
+    if flatSurfaces || reduceTransparency {
       RoundedRectangle(cornerRadius: radius).fill(Color(nsColor: .windowBackgroundColor))
     } else {
       Color.clear.glassEffect(
-        .regular.tint(
+        glass.tint(
           Color(nsColor: .windowBackgroundColor).opacity(
-            0.55 * (1 - model.configuration.backgroundTransparency))),
+            0.8 * (1 - model.configuration.backgroundTransparency))),
         in: .rect(cornerRadius: radius, style: .continuous))
     }
   }
