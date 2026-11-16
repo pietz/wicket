@@ -169,27 +169,19 @@ enum Ranking {
       if let found = candidate(Result(provider: id, row: row), .command) { candidates.append(found) }
     }
     if !query.isEmpty {
-      var rows = [
-        Result(
-          provider: "settings",
-          row: Row(
-            id: "open", title: "Settings", icon: "gearshape",
-            actions: [.run(Address(extensionName: "settings"))], keywords: ["preferences"])),
-        Result(
-          provider: "history",
-          row: Row(
-            id: "open", title: AgentHistory.title, icon: "clock.arrow.circlepath",
-            actions: [.run(Address(extensionName: "history"))])),
-      ]
-      if sources.contains("clipboard") {
-        rows.append(
-          Result(
-            provider: "clipboard",
-            row: Row(
-              id: "open", title: ClipboardHistory.title, icon: "doc.on.clipboard",
-              actions: [.run(Address(extensionName: "clipboard"))], keywords: ["pasteboard"])))
+      let hosts =
+        [
+          ("settings", "Settings", "gearshape", ["preferences"]),
+          ("history", AgentHistory.title, "clock.arrow.circlepath", nil),
+        ]
+        + (sources.contains("clipboard")
+          ? [("clipboard", ClipboardHistory.title, "doc.on.clipboard", ["pasteboard"])] : [])
+      candidates += hosts.compactMap { id, title, icon, keywords in
+        let row = Row(
+          id: "open", title: title, icon: icon, actions: [.run(Address(extensionName: id))],
+          keywords: keywords)
+        return candidate(Result(provider: id, row: row), .host)
       }
-      candidates += rows.compactMap { candidate($0, .host) }
     }
     candidates.sort { a, b in
       if a.tier != b.tier { return a.tier > b.tier }
