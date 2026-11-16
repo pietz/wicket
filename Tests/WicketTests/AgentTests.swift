@@ -946,15 +946,20 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(await eventually { !session.busy })
   #expect(session.problem?.contains("took too long") == true)
   #expect(await eventually { silent.stopped })
-  // Once it speaks, the longer limit applies.
+  // Once it speaks, the longer limit applies. The startup limit is generous from here on, so a loaded
+  // machine's late first event is not mistaken for silence.
+  session.startupLimit = .seconds(30)
+  session.turnLimit = .milliseconds(500)
   let slow = FakeAgent()
   session.connect = { _, _, _ in slow }
   session.ask("Hello", settings: .init())
   #expect(await eventually { slow.running })
-  // A turn that keeps reporting runs past the limit: only silence ends it.
-  for _ in 0..<4 {
+  // A turn that keeps reporting runs for twice the limit: only silence ends it. Reports come ten times
+  // as often as the limit, so a late wakeup is not silence either.
+  let reporting = ContinuousClock.now
+  while ContinuousClock.now - reporting < .seconds(1) {
     slow.tool("Working")
-    try await Task.sleep(for: .milliseconds(100))
+    try await Task.sleep(for: .milliseconds(50))
   }
   #expect(session.busy && session.problem == nil)
   slow.end()

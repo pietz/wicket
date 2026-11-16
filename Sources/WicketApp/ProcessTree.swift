@@ -62,7 +62,10 @@ final class ProcessTree: Sendable {
     let started = try process.start()
     pid = process.processIdentifier
     root = Self.member(pid)
-    let group = getpgid(pid)
+    // A child that already exited has no group to ask about, but `Process` made it its group's leader,
+    // and what it left running may still be there.
+    let asked = getpgid(pid)
+    let group = asked < 0 ? pid : asked
     self.group = group > 1 && group != getpgrp() ? group : nil
     input = (process.standardInput as? Pipe)?.fileHandleForWriting
     // A write after the child exited must fail with EPIPE, not kill Wicket with SIGPIPE.
