@@ -42,13 +42,30 @@ struct Configuration: Codable, Equatable, Sendable {
   var hotkey = Shortcut.default
   /// 0 is an opaque system surface; 1 is the unmodified system material.
   var backgroundTransparency: Double = 0.15
+  /// Experiment only: Liquid Glass variants to compare live. Absent keeps today's look.
+  struct GlassTest: Codable, Equatable, Sendable {
+    enum Variant: String, Codable, Sendable { case regular, clear, clearDimmed }
+    var search = Variant.regular
+    var list = Variant.regular
+    var interactive = false
+    var tint = true
+    private enum CodingKeys: String, CodingKey { case search, list, interactive, tint }
+    init(from decoder: any Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      search = try c.decodeIfPresent(Variant.self, forKey: .search) ?? search
+      list = try c.decodeIfPresent(Variant.self, forKey: .list) ?? list
+      interactive = try c.decodeIfPresent(Bool.self, forKey: .interactive) ?? interactive
+      tint = try c.decodeIfPresent(Bool.self, forKey: .tint) ?? tint
+    }
+  }
+  var glassTest: GlassTest?
   static let builtins = ["math", "apps", "files", "clipboard"]
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.
   static func enabledByDefault(_ id: String) -> Bool { id != "clipboard" }
   var providers = builtins.map { ProviderEntry($0, enabled: enabledByDefault($0)) }
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case hotkey, backgroundTransparency, providers, agent, voice, textSize
+    case hotkey, backgroundTransparency, providers, agent, voice, textSize, glassTest
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -59,6 +76,7 @@ struct Configuration: Codable, Equatable, Sendable {
     backgroundTransparency =
       try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency) ?? backgroundTransparency
     providers = try c.decodeIfPresent([ProviderEntry].self, forKey: .providers) ?? providers
+    glassTest = try c.decodeIfPresent(GlassTest.self, forKey: .glassTest)
     guard hotkey.leavesTypingAlone else {
       throw DecodingError.dataCorruptedError(
         forKey: .hotkey, in: c, debugDescription: "Hotkey would consume ordinary typing")

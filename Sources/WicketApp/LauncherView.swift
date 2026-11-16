@@ -145,13 +145,16 @@ struct LauncherView: View {
   let registerInput: (NSTextField) -> Void
   let run: (RowAction?) -> Void
   var flatSurfaces = false
+  @Environment(\.colorScheme) private var colorScheme
   private var textSize: Configuration.TextSize { model.configuration.textSize }
   var body: some View {
     ZStack(alignment: .top) {
       GlassEffectContainer(spacing: PaletteLayout.gap) {
         VStack(spacing: PaletteLayout.gap) {
-          surface(radius: 28).frame(height: PaletteLayout.search)
-          surface(radius: 22).frame(height: cardHeight)
+          surface(radius: 28, variant: model.configuration.glassTest?.search ?? .regular)
+            .frame(height: PaletteLayout.search)
+          surface(radius: 22, variant: model.configuration.glassTest?.list ?? .regular)
+            .frame(height: cardHeight)
         }
       }
       VStack(spacing: PaletteLayout.gap) {
@@ -493,15 +496,28 @@ struct LauncherView: View {
       Color.clear.frame(height: renderer.height)
     }
   }
-  @ViewBuilder private func surface(radius: CGFloat) -> some View {
+  @ViewBuilder private func surface(
+    radius: CGFloat, variant: Configuration.GlassTest.Variant
+  ) -> some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
     if flatSurfaces {
-      RoundedRectangle(cornerRadius: radius).fill(Color(nsColor: .windowBackgroundColor))
+      shape.fill(Color(nsColor: .windowBackgroundColor))
     } else {
-      Color.clear.glassEffect(
-        .regular.tint(
+      let test = model.configuration.glassTest
+      let base: Glass = variant == .regular ? .regular : .clear
+      let tinted =
+        test?.tint ?? true
+        ? base.tint(
           Color(nsColor: .windowBackgroundColor).opacity(
-            0.55 * (1 - model.configuration.backgroundTransparency))),
-        in: .rect(cornerRadius: radius, style: .continuous))
+            0.55 * (1 - model.configuration.backgroundTransparency))) : base
+      ZStack {
+        // Apple's guidance for clear glass: a subtle dimming layer behind content keeps it legible.
+        if variant == .clearDimmed {
+          shape.fill(colorScheme == .dark ? Color.black.opacity(0.35) : Color.white.opacity(0.35))
+        }
+        Color.clear.glassEffect(
+          tinted.interactive(test?.interactive ?? false), in: .rect(cornerRadius: radius, style: .continuous))
+      }
     }
   }
 
