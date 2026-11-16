@@ -84,6 +84,10 @@ struct Shortcut: Hashable, Sendable, CustomStringConvertible {
       case "tab": "⇥"
       case "escape": "⎋"
       case "space": "Space"
+      case "left": "←"
+      case "right": "→"
+      case "up": "↑"
+      case "down": "↓"
       default: key.uppercased()
       }
     return Self.labels.filter { modifiers.contains($0.0) }.map(\.2).joined() + keyName
@@ -113,6 +117,7 @@ struct Shortcut: Hashable, Sendable, CustomStringConvertible {
     "=": 0x18, "-": 0x1B, "]": 0x1E, "[": 0x21, "'": 0x27, ";": 0x29, "\\": 0x2A, ",": 0x2B,
     "/": 0x2C, ".": 0x2F, "`": 0x32,
     "return": 0x24, "tab": 0x30, "space": 0x31, "escape": 0x35,
+    "left": 0x7B, "right": 0x7C, "down": 0x7D, "up": 0x7E,
     "f1": 0x7A, "f2": 0x78, "f3": 0x63, "f4": 0x76, "f5": 0x60, "f6": 0x61, "f7": 0x62,
     "f8": 0x64, "f9": 0x65, "f10": 0x6D, "f11": 0x67, "f12": 0x6F, "f13": 0x69, "f14": 0x6B,
     "f15": 0x71, "f16": 0x6A, "f17": 0x40, "f18": 0x4F, "f19": 0x50, "f20": 0x5A,

@@ -50,6 +50,20 @@ struct ConfigurationFile {
       object["agent"] = agent
     }
   }
+  /// Sets or, with nil, removes the hotkey for `target`, keeping the entry's place and unknown fields.
+  func bind(_ keys: Shortcut?, to target: HotkeyTarget) throws {
+    try edit { object in
+      var entries = object["hotkeys"] as? [[String: Any]] ?? []
+      let index = entries.firstIndex { ($0["address"] as? String).flatMap(HotkeyTarget.init) == target }
+      switch (keys, index) {
+      case (let keys?, let index?): entries[index]["keys"] = keys.description
+      case (let keys?, nil): entries.append(["keys": keys.description, "address": target.description])
+      case (nil, let index?): entries.remove(at: index)
+      case (nil, nil): return
+      }
+      object["hotkeys"] = entries
+    }
+  }
   func setProvider(_ id: String, enabled: Bool) throws {
     try providers { entries in
       if let index = entries.firstIndex(where: { $0["id"] as? String == id }) {

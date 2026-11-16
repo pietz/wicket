@@ -327,6 +327,13 @@ struct LauncherView: View {
         Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
           .lineLimit(1)
       }
+      if model.recordingRow == result.id {
+        Text(model.recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
+          .font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary).lineLimit(1)
+      } else if let hotkey = model.hotkey(of: result) {
+        Text(hotkey.symbols).font(.system(size: 13 * textSize.scale)).foregroundStyle(.tertiary)
+          .lineLimit(1)
+      }
     }
     .padding(.horizontal, 10).frame(
       height: (result.row.prominent == true)
@@ -349,6 +356,13 @@ struct LauncherView: View {
         Button(action.label) {
           model.select(result.id)
           run(action)
+        }
+      }
+      if let target = model.hotkeyTarget(of: result) {
+        Divider()
+        Button("Set Hotkey…") { model.recordHotkey(for: result) }
+        if model.hotkey(of: result) != nil {
+          Button("Remove Hotkey") { model.store.bind(nil, to: target) }
         }
       }
     }

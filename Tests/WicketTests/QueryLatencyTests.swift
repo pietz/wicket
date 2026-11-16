@@ -64,3 +64,47 @@ func queryLatency() async throws {
     "queryLatency: first \(String(format: "%.2f", cold.0)) ms; warm \(summary(warm)); typing \(summary(fast))"
   )
 }
+
+/// Opt-in like `queryLatency`: what `hotkeys` cost the launcher's hotkey-to-visible path. The press itself is
+/// one dictionary lookup in `HotKey` however many are registered, so this times the rest offscreen: showing
+/// the panel and laying out its first list, 20 command rows: with no bindings, with 20 for addresses not on
+/// screen (every row still looks its hotkey up) and with 20 shown, one per row.
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
+func hotkeyToVisibleWithBindings() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  for n in 0..<20 { _ = try extensionFolder(folder, name: "command\(n)") }
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  func median() -> Double {
+    var times: [Double] = []
+    for _ in 0..<200 {
+      controller.hide()
+      let start = ContinuousClock.now
+      controller.show(orderFront: false, listen: false)
+      controller.panel.contentView?.layoutSubtreeIfNeeded()
+      times.append(Double((ContinuousClock.now - start).components.attoseconds) / 1e15)
+    }
+    return times.sorted()[times.count / 2]
+  }
+  func bind(_ target: (Int) -> HotkeyTarget) throws {
+    for n in 0..<20 { model.store.bind(try Shortcut("ctrl+option+f\(n + 1)"), to: target(n)) }
+    #expect(model.configuration.hotkeys.count == 20)
+  }
+  _ = median()
+  let none = median()
+  try bind { HotkeyTarget(target: "extension:elsewhere", item: "\($0)") }
+  #expect(model.results.allSatisfy { model.hotkey(of: $0) == nil })
+  let hidden = median()
+  for n in 0..<20 { model.store.bind(nil, to: HotkeyTarget(target: "extension:elsewhere", item: "\(n)")) }
+  try bind { HotkeyTarget(target: "extension:command\($0)") }
+  #expect(model.results.compactMap { model.hotkey(of: $0) }.count == 20)
+  let shown = median()
+  print(
+    String(
+      format: "hotkeyToVisible (median of 200): no bindings %.3f ms, 20 off screen %.3f ms, 20 shown %.3f ms",
+      none, hidden, shown))
+}

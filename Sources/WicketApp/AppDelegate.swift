@@ -4,10 +4,14 @@ import AppKit
 public final class AppDelegate: NSObject, NSApplicationDelegate {
   private var palette: PaletteController!
   private var configuration: ConfigurationStore!
-  private lazy var hotkey = PaletteHotKey { [weak self] shortcut in
+  private lazy var hotkey = HotKeyRegistration { [weak self] shortcut in
     HotKey(
       keyCode: shortcut.keyCode, modifiers: shortcut.modifiers.rawValue,
       handler: { [weak self] time in self?.palette.toggle(eventTime: time) })
+  }
+  /// `hotkeys` in config.json, registered beside the launcher's and pressed through the palette.
+  private lazy var bindings = CommandHotKeys { shortcut, press in
+    HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers.rawValue, handler: { _ in press() })
   }
   private var settings: SettingsWindowController!
   private var status: NSStatusItem!
@@ -58,13 +62,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     status.menu = menu
     configuration = model.store
     configuration.applyHotkey = { [weak self] in self?.hotkey.apply($0) }
-    settings = SettingsWindowController(
-      store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater
-    ) { [weak self] paused in
+    configuration.applyBinding = { [weak self] keys, target in
+      guard let self else { return nil }
+      return bindings.set(keys, for: target, launcher: hotkey.inEffect)
+    }
+    bindings.onPress = { [weak self] in self?.palette.press($0) }
+    // Either recorder, Settings' or the panel's Set Hotkey…, pauses every hotkey, so it hears the keys.
+    let pause: (Bool) -> Void = { [weak self] paused in
       guard let self else { return }
       hotkey.pause(paused)
-      if !paused { configuration.hotkeyProblem = hotkey.apply(configuration.configuration.hotkey) }
+      bindings.pause(paused)
+      guard !paused else { return }
+      let config = configuration.configuration
+      configuration.hotkeyProblem = hotkey.apply(config.hotkey)
+      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
     }
+    model.pauseHotkeys = pause
+    settings = SettingsWindowController(
+      store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
+      pauseHotkey: pause)
     model.onSettings = { [weak self] in self?.showSettings() }
     let appMenu = NSMenu()
     let root = NSMenuItem()
@@ -83,6 +99,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       if let config, config != applied || hotkey.inEffect == nil {
         applied = config
         configuration.hotkeyProblem = hotkey.apply(config.hotkey)
+        configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
         shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"
       }
       status.button?.toolTip =

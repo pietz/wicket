@@ -61,11 +61,14 @@ Installing 0.1 over 0.0.x through Sparkle or Homebrew keeps your data, and 0.1 n
     { "id": "apps", "enabled": true },
     { "id": "files", "enabled": true }
   ],
-  "agent": { "name": "claude", "model": "sonnet", "effort": "low", "mode": "default" }
+  "agent": { "name": "claude", "model": "sonnet", "effort": "low", "mode": "default" },
+  "hotkeys": [{ "keys": "ctrl+option+left", "address": "wicket://window?item=left" }]
 }
 ```
 
 The search pill is clear Liquid Glass and the result card frosted glass, both tinted with the window background. Transparency ranges from 0 (the strongest tint, most readable) to 1 (untinted Liquid Glass); the default 0.75 is a light tint. A file holding 0.15, the default of earlier versions, gets the new default. With Reduce Transparency on in System Settings, the panel is a solid surface. Invalid edits retain the last valid configuration and show an error in the panel and menu icon tooltip. Settings registers a shortcut before saving it. A conflict retains the working shortcut and config value. Command plus a single letter, including Shift variants, is refused to protect editing and app commands. Shortcut letters refer to physical ANSI key positions, following Carbon. Unknown provider ids, such as `math` from before the calculator became an extension (`extension:calculator`), are ignored. Only `"enabled": false` switches a source off; a source the list omits is on, so a new built-in reaches an existing file. Cmd+Return still asks the agent.
+
+Any command can have a global hotkey of its own: right-click its row (an extension command, an item such as Left Half, Settings, Agent History or Clipboard History), choose Set Hotkey… and press the combination, under the same rules as the launcher's shortcut; Remove Hotkey takes it away, and the row shows it at its right edge. They are kept in `hotkeys`, one entry per address: `wicket://window` for a command, `wicket://window?item=left` for one of its items, `wicket://clipboard` for Clipboard History. An item that runs its extension, as the window commands do, runs with the panel closed (the window just moves) and the panel opens only to show an error; anything else opens the panel there. None are set by default.
 
 Results are ordered by match quality, not by a source order: pattern extension results first (a calculation, a conversion), then apps, extension names and items, the Settings, Agent History and Clipboard History rows and files by exact match, then a match at the start of any word (`pass` finds Proton Pass and 1Password), usage for exactly the typed input and fuzzy score. Within that, files come after everything else that matches as well, and the root shows at most eight. Ask agent is a row only when nothing matches strongly, and then it is on top, with fallback extensions after it; otherwise neither is shown, and Cmd+Return asks. Learned usage never lifts a row into a better tier.
 

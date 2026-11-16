@@ -9,6 +9,10 @@ final class ConfigurationStore {
   private(set) var writeProblem: String?
   var applyHotkey: (Shortcut) -> String? = { _ in nil }
   var hotkeyProblem: String?
+  /// Registers or removes a `hotkeys` binding before it is saved (`CommandHotKeys.set`).
+  var applyBinding: (Shortcut?, HotkeyTarget) -> String? = { _, _ in nil }
+  /// Why a `hotkeys` binding is not in effect, one line each.
+  var bindingProblem: String?
   private(set) var catalogs: [AgentConfiguration.Agent: AgentCatalog] = [:]
   private(set) var discoveryStatus: [String: String] = [:]
   var models: [AgentModel] { catalogs[configuration.agent.agent]?.models ?? [] }
@@ -90,6 +94,16 @@ final class ConfigurationStore {
     guard hotkeyProblem == nil else { return }
     if !change({ try $0.set("hotkey", to: shortcut.description) }) {
       hotkeyProblem = applyHotkey(configuration.hotkey)
+    }
+  }
+  /// The launcher's rule for a binding too: registered first, so a conflict keeps the working one and the
+  /// file value; a failed save restores the registration.
+  func bind(_ keys: Shortcut?, to target: HotkeyTarget) {
+    bindingProblem = applyBinding(keys, target)
+    guard bindingProblem == nil else { return }
+    if !change({ try $0.bind(keys, to: target) }) {
+      _ = applyBinding(configuration.hotkeys.first { $0.target == target }?.keys, target)
+      bindingProblem = writeProblem
     }
   }
   private func failed(_ error: any Error) {

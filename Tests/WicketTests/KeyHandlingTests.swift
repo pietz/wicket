@@ -70,7 +70,7 @@ func plainKeys(code: Int, action: PaletteKeyAction) {
   weak var oldHandle: Handle?
   var acceptsReplacement = false
   var attempts = 0
-  let binding = PaletteHotKey { shortcut in
+  let binding = HotKeyRegistration { shortcut in
     attempts += 1
     if shortcut == replacement && !acceptsReplacement { return nil }
     let handle = Handle()
@@ -91,7 +91,7 @@ func plainKeys(code: Int, action: PaletteKeyAction) {
 }
 
 @MainActor @Test func initialHotkeyConflictLeavesTheMenuAvailable() {
-  let binding = PaletteHotKey { _ in nil }
+  let binding = HotKeyRegistration { _ in nil }
   #expect(binding.apply(.default)?.contains("Menu bar") == true)
   #expect(binding.inEffect == nil)
 }

@@ -146,7 +146,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 
 @MainActor @Test func settingsHotkeyConflictUsesExistingRegistrationResult() throws {
   final class Handle {}
-  let hotkey = PaletteHotKey { shortcut in shortcut.key == "k" ? nil : Handle() }
+  let hotkey = HotKeyRegistration { shortcut in shortcut.key == "k" ? nil : Handle() }
   let store = ConfigurationStore(url: URL(fileURLWithPath: "/unused"))
   #expect(hotkey.apply(.default) == nil)
   store.hotkeyProblem = hotkey.apply(try Shortcut("ctrl+k"))
@@ -206,7 +206,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     let store = ConfigurationStore(url: file.url)
     let original = try Data(contentsOf: file.url)
     var attempted: [Shortcut] = []
-    let hotkey = PaletteHotKey { shortcut in
+    let hotkey = HotKeyRegistration { shortcut in
       #expect((try? Data(contentsOf: file.url)) == original)
       attempted.append(shortcut)
       return shortcut.key == "k" ? nil : Handle()
@@ -251,7 +251,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   try withSettings { file in
     final class Handle {}
     let store = ConfigurationStore(url: file.url)
-    let hotkey = PaletteHotKey { _ in Handle() }
+    let hotkey = HotKeyRegistration { _ in Handle() }
     let original = try Data(contentsOf: file.url)
     let folder = file.url.deletingLastPathComponent()
     store.applyHotkey = { hotkey.apply($0) }

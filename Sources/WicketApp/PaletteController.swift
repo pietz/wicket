@@ -97,6 +97,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
     }
     super.init()
     panel.delegate = self
+    model.window = panel
     panel.setAccessibilityLabel("Wicket Launcher")
     let root = NSHostingView(
       rootView: LauncherView(
@@ -223,6 +224,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
     guard let address = Address(url: url) else { return }
     show()
     model.go(address)
+  }
+  /// A hotkey from `hotkeys` in config.json (`LauncherModel.press`). The panel shows only for a view or a
+  /// failure, and never listens: the hotkey named where to go.
+  func press(_ target: HotkeyTarget) {
+    Task { await model.press(target) { show(listen: false) } }
   }
   /// Return, a button or a menu item. Moving between views goes through the model's dispatcher; what is
   /// left here are the effects on the system.

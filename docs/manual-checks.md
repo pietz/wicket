@@ -102,6 +102,18 @@ Use Wicket (or Wicket Dev) with a few ordinary windows open; nothing here should
 6. Dock on the left, then hidden; a notched display; Terminal (it snaps to its grid: Restore must still work); a full-screen window (row: "… is in full screen"); Finder with no window open (a row says there is no window to move; the desktop does not move).
 7. Open Wicket's Settings, then the launcher, `left`: the row says to switch to the window first, and Settings does not move.
 
+## 11. Hotkeys for commands
+
+Wicket has Accessibility for this section (section 10). No hotkeys are set at the start.
+
+1. Type `left`, right-click Left Half, Set Hotkey…: the row says Press a shortcut. Press ⌃⌥←. The row shows ⌃⌥← at its right edge, and `config.json` has `"hotkeys": [{"keys": "ctrl+option+left", "address": "wicket://window?item=left"}]`.
+2. Close the panel, click into Safari, press ⌃⌥←: the window moves to the left half and no Wicket panel or flash appears. Repeat over Safari in full screen and with Finder and no window: nothing moves and nothing shows (until views can close the panel, a hotkey hides what the command says).
+3. Right-click Right Half, Set Hotkey…, press ⌃⌥← again: refused in the footer as Left Half's, and ⌃⌥← still moves left. Press ⌘C: refused. Press ⌥Space: refused as the launcher's. Press a combination another app holds (if any): refused, nothing saved. Escape cancels without a change; clicking away cancels too.
+4. While recording in the panel, press the launcher's shortcut: it is recorded (and refused), the panel does not toggle. In Settings ▸ General, start recording and press ⌃⌥←: nothing moves.
+5. Set ⌥V on Clipboard History (type `clip`) and a hotkey on the Window command row and on Settings. Each opens the panel there (Settings opens its window), and nothing listens to the microphone.
+6. Make a command fail on purpose: in `config.json` bind an item of an extension whose program exits with an error (ask the agent for one), press it with the panel closed: the panel opens on that command with the error and its Copy and Ask agent buttons, and the program ran once.
+7. Edit `hotkeys` by hand: change a key, add a duplicate key for another address (the footer says which), break an address (`Config:` error, last good hotkeys keep working), remove one (it stops working). Remove Hotkey from the context menu removes the entry and the trailing label.
+
 ## Feedback
 
 For each section: works, broken (what you did, what happened), or feels off (what you expected). Screenshots help for layout.

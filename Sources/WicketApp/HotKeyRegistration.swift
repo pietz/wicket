@@ -1,12 +1,22 @@
+/// One global shortcut and what to do on a conflict: the launcher's, or one of `hotkeys` (`CommandHotKeys`).
 /// Registration policy is tested with fake handles; tests never take a system shortcut.
 @MainActor
-final class PaletteHotKey {
+final class HotKeyRegistration {
   private let register: (Shortcut) -> AnyObject?
+  /// What a conflict says: the shortcut that could not be registered, and the one still in effect.
+  private let inUse: (Shortcut, Shortcut?) -> String
   private var registration: AnyObject?
   private var previous: Shortcut?
   private var paused = false
   var inEffect: Shortcut? { registration == nil ? nil : previous }
-  init(register: @escaping (Shortcut) -> AnyObject?) { self.register = register }
+  init(
+    inUse: @escaping (Shortcut, Shortcut?) -> String = {
+      "\($0.symbols) is in use. \($1?.symbols ?? "Menu bar → Open Wicket") still opens Wicket."
+    }, register: @escaping (Shortcut) -> AnyObject?
+  ) {
+    self.inUse = inUse
+    self.register = register
+  }
 
   func pause(_ paused: Bool) {
     self.paused = paused
@@ -23,8 +33,7 @@ final class PaletteHotKey {
     // Keep the old registration until its replacement succeeds.
     guard let replacement = register(shortcut) else {
       if registration == nil, let previous { registration = register(previous) }
-      return
-        "\(shortcut.symbols) is in use. \(inEffect?.symbols ?? "Menu bar → Open Wicket") still opens Wicket."
+      return inUse(shortcut, inEffect)
     }
     registration = replacement
     previous = shortcut

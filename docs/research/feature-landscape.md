@@ -9,7 +9,7 @@ Updated 16 Nov 2026 for Wicket 0.3.4 (first compiled 6 Nov 2026). A pool of idea
 Ranked by how much a daily launcher user would feel them.
 
 1. **Clipboard history is text only and off by default.** No images, files or pins; Raycast and Alfred keep all three. *Core* (only the host can watch the pasteboard); images, files and pins are ROADMAP "Next features" 1, after real use of the text version.
-2. **No action panel, ⌘1–9, per-command hotkeys or favourites.** A row's second action is only in its context menu. *Core, planned:* the Actions menu (Next features 2) and bindings (Next features 8), which also give favourites in the empty panel.
+2. **No action panel, ⌘1–9 or favourites.** A row's second action is only in its context menu. *Core, planned:* the Actions menu (Next features 2) and bindings (Next features 8), which also give favourites in the empty panel. Per-command hotkeys are built (16 Nov 2026): any command, item or host command, from the row's context menu or `hotkeys` in config.json; apps and quicklinks cannot have one yet.
 3. **No snippets that expand as you type.** Snippets can only be manifest items with a paste action, and an extension's paste drops newlines (ISSUES). *Core* for lossless extension paste (ROADMAP, smaller contract steps); system-wide expansion needs a resident keystroke listener no one-shot extension can hold, so it is *not done* until real use asks.
 4. **The calculator is bare arithmetic.** No functions, dates, time zones or history; currency is an example to copy in; Raycast 2.12 now answers weather, flights and travel times inline. *Extensions* (pattern extensions, like `units` and `currency`); a strip of values in a root row is parked (ROADMAP, richer root rows).
 5. **No system commands or app management.** Lock, sleep, toggles, eject, quit or restart apps. *Extensions:* sample extensions (Next features 9) or written by the agent on request.
@@ -148,7 +148,7 @@ Ranked by how much a daily launcher user would feel them.
 
 | Feature | Alfred | Raycast | Tinycast | Wicket |
 |---|---|---|---|---|
-| Hotkey per command | ✓ | ✓ (fn alone, sided modifiers) | ✓ (double-tap, Globe, hold) | planned (bindings) |
+| Hotkey per command | ✓ | ✓ (fn alone, sided modifiers) | ✓ (double-tap, Globe, hold) | ✓ (chords; commands, items and host commands, not apps) |
 | Deep links | ✓ `alfred://runtrigger` | ✓ | ✓ with consent, Copy Deeplink | ✓ `wicket://`, input only, never chosen |
 | Apple Shortcuts | ✓ | ✓ | ✓ | ✗ |
 | Settings as an editable file | ✓ prefs folder | ✗ | ✓ opt-in mirror | ✓ `config.json` is the truth |

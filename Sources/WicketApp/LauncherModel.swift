@@ -173,7 +173,8 @@ final class LauncherModel {
     actionProblem = nil
   }
   var problem: String? {
-    store.problem ?? store.hotkeyProblem ?? installProblem ?? actionProblem ?? providerProblem
+    store.problem ?? store.hotkeyProblem ?? store.bindingProblem ?? installProblem ?? actionProblem
+      ?? providerProblem
   }
   var questionExpanded = false
   var historyExpanded = false
@@ -940,6 +941,7 @@ final class LauncherModel {
     editInput(text)
   }
   func dismiss() {
+    recorder.stop()
     resetSelection = true
     drafted = [:]
     focusTarget = nil
@@ -994,6 +996,95 @@ final class LauncherModel {
       return true
     }
     return false
+  }
+  /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
+  /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
+  /// no address of its own, such as an app, a file or a fallback.
+  func hotkeyTarget(of result: Result) -> HotkeyTarget? {
+    if ["settings", "history", "clipboard"].contains(result.provider), result.row.id == "open" {
+      return HotkeyTarget(target: result.provider)
+    }
+    guard let owner = extensions.commands[result.provider] else { return nil }
+    if command == nil, result.row.id == "command" { return HotkeyTarget(target: owner.id) }
+    var item = result.row.id
+    if command == nil {
+      // At the root an item's id is prefixed (`ExtensionCommand.rootItems`).
+      guard item.hasPrefix("item:") else { return nil }
+      item.removeFirst(5)
+    }
+    guard owner.manifest.items?.contains(where: { $0.id == item }) == true else { return nil }
+    return HotkeyTarget(target: owner.id, item: item)
+  }
+  /// The hotkey a row shows at its trailing edge.
+  func hotkey(of result: Result) -> Shortcut? {
+    guard !configuration.hotkeys.isEmpty, let target = hotkeyTarget(of: result) else { return nil }
+    return configuration.hotkeys.first { $0.target == target }?.keys
+  }
+  /// The row whose hotkey is being recorded (Set Hotkey…), while `recorder` listens.
+  private(set) var recordingRow: String?
+  let recorder = ShortcutRecorder()
+  /// The panel the recorder listens in, named because Wicket is not the active app while it is key.
+  weak var window: NSWindow?
+  /// Pauses every global hotkey of Wicket's while a recorder listens (AppDelegate).
+  var pauseHotkeys: (Bool) -> Void = { _ in }
+  /// Set Hotkey… on a row: the next shortcut pressed becomes its hotkey, under the launcher's rules.
+  func recordHotkey(for result: Result) {
+    guard let target = hotkeyTarget(of: result) else { return }
+    recordingRow = result.id
+    recorder.start(
+      in: window,
+      pausing: { [weak self] paused in
+        self?.pauseHotkeys(paused)
+        if !paused { self?.recordingRow = nil }
+      },
+      onRecord: { [weak self] in self?.store.bind($0, to: target) })
+  }
+  /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
+  /// runs it now with a chosen request, as Return on the item would, and the panel stays hidden; only a
+  /// failure calls `show` and shows the command with its report. Anything else shows the panel on the
+  /// address: a command, a host command, or an item whose action opens a view. Nothing is recorded as usage.
+  func press(_ target: HotkeyTarget, show: () -> Void) async {
+    let owner = target.target.flatMap { extensions.commands[$0] }
+    let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
+    // A switched-off extension's items run nothing: its address shows that it is off.
+    guard let owner, let item, case .run(let address)? = item.actions.first?.kind,
+      configuration.isEnabled(owner.id, extensions: extensions.ids)
+    else {
+      show()
+      return go(target.address)
+    }
+    let id = address.extensionName == nil ? owner.id : address.targetID
+    guard !address.link, let id, let program = extensions.commands[id], program.manifest.command != nil,
+      configuration.isEnabled(id, extensions: extensions.ids)
+    else {
+      show()
+      return go(address, from: owner.id, chosen: !address.link)
+    }
+    let request = ProviderRequest(
+      input: address.input ?? "", arguments: address.arguments ?? [:], chosen: true)
+    // The view is not shown: until a view can say it is done and close the panel (ROADMAP, A notice),
+    // nothing tells a done run from one whose view explains why nothing happened.
+    do {
+      _ = try await extensions.view(program, request: request)
+    } catch is CancellationError {
+    } catch {
+      show()
+      showFailure(error, of: program, request: request)
+    }
+  }
+  /// A run the user did not watch failed: its command shows the report, as if Return had run it, and
+  /// nothing runs again.
+  private func showFailure(_ error: any Error, of program: ExtensionCommand, request: ProviderRequest) {
+    origin = nil
+    cancelWork()
+    var state = CommandState(id: program.id, arguments: request.arguments, next: .rerun)
+    state.problem = report(program, request: request, error: error)
+    // An arrival sets the input without a rerun.
+    arriving = Arrival(command: state, input: request.input)
+    showArrival()
+    listed = []
+    clearSelection()
+    onResultsChange?()
   }
   private func report(_ command: ExtensionCommand, request: ProviderRequest, error: any Error) -> String {
     "Extension: \(command.folder.path)\nCommand: \(command.manifest.command ?? [])\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
