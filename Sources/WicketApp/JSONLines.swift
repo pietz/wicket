@@ -99,7 +99,6 @@ final class JSONLines {
     if running {
       switch shutdown {
       case .exited(let exit): log?.note("EXIT", "\(exit)")
-      case .notRunning: log?.note("EXIT", "not running")
       case .terminated: log?.note("EXIT", "stopped with SIGTERM")
       case .killed: log?.note("EXIT", "stopped with SIGKILL")
       }

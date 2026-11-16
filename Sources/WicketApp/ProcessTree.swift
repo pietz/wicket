@@ -32,17 +32,11 @@ final class ProcessTree: Sendable {
   /// Writes happen off the caller's thread: a full pipe blocks until the child reads. A serial
   /// queue keeps them in order.
   private let writer = DispatchQueue(label: "app.wicket.process.stdin")
-  /// A reference to the state, so the exit task can record the exit before `self` exists.
-  private let shared = Shared()
-
-  private final class Shared: Sendable {
-    let state = Mutex(State())
-  }
+  private let state = Mutex(State())
 
   private struct State {
     var inputClosed = false
     var stopping: Task<Shutdown, Never>?
-    var exit: Exit?
     /// Every member seen so far, so an orphan stays one after its parent exits.
     var known: Set<Member> = []
   }
@@ -59,7 +53,7 @@ final class ProcessTree: Sendable {
 
   /// Runs `process` (configured, with pipes or file handles for its stdio).
   init(launching process: Process) throws {
-    let started = try process.start()
+    exit = try process.start()
     pid = process.processIdentifier
     root = Self.member(pid)
     // A child that already exited has no group to ask about, but `Process` made it its group's leader,
@@ -82,33 +76,24 @@ final class ProcessTree: Sendable {
     }
     self.outputs = outputs
     self.writeEnds = writeEnds
-    let shared = shared
-    exit = Task {
-      let exit = await started.value
-      shared.state.withLock { $0.exit = exit }
-      return exit
-    }
   }
 
   deinit {
     for fd in outputs { Darwin.close(fd) }
   }
 
-  /// The child's exit, once known.
-  var exitStatus: Exit? { shared.state.withLock { $0.exit } }
-
   // MARK: - stdin
 
   /// Writes to the child's stdin, in order; dropped once stdin is closed.
   func write(_ data: Data) {
-    guard let input, !shared.state.withLock({ $0.inputClosed }) else { return }
+    guard let input, !state.withLock({ $0.inputClosed }) else { return }
     writer.async { try? input.write(contentsOf: data) }
   }
 
   /// Closes the child's stdin after the writes before it.
   func closeInput() {
     guard let input else { return }
-    let closed = shared.state.withLock { state in
+    let closed = state.withLock { state in
       defer { state.inputClosed = true }
       return state.inputClosed
     }
@@ -124,7 +109,7 @@ final class ProcessTree: Sendable {
   @discardableResult
   func stop(after wait: Duration, grace: Duration) -> Task<Shutdown, Never> {
     closeInput()
-    return shared.state.withLock {
+    return state.withLock {
       if let stopping = $0.stopping { return stopping }
       let stopping = Task { await end(after: wait, grace: grace) }
       $0.stopping = stopping
@@ -192,7 +177,7 @@ final class ProcessTree: Sendable {
 
   /// The live members now (see the type), which are remembered from then on.
   func members() -> Set<Member> {
-    var seeds = shared.state.withLock { $0.known }
+    var seeds = state.withLock { $0.known }
     if let root { seeds.insert(root) }
     if let group { seeds.formUnion(Self.processes(inGroup: group).compactMap(Self.member)) }
     if outputs.contains(where: { Self.pipeInfo(getpid(), $0)?.pipe_peerhandle ?? 0 != 0 }) {
@@ -205,7 +190,7 @@ final class ProcessTree: Sendable {
       members.insert(candidate)
       pending += Self.children(of: candidate.pid).compactMap(Self.member)
     }
-    shared.state.withLock { $0.known = members }
+    state.withLock { $0.known = members }
     return members
   }
 
@@ -319,7 +304,6 @@ enum Exit: Sendable, Equatable, CustomStringConvertible {
 
 /// How a process and everything it started ended after their stdin closed.
 enum Shutdown: Sendable, Equatable {
-  case notRunning
   /// They exited by themselves; this is how the process itself did.
   case exited(Exit)
   /// One of them needed SIGTERM.
