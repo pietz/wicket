@@ -25,8 +25,7 @@ struct Transcript: Equatable, Sendable {
   var text: String { join(finalized, volatile) }
 
   /// What a transcript puts into the search field: trimmed, without a trailing full stop, so
-  /// "Safari." still matches the app. A question mark stays, since it tells Wicket the text is a
-  /// request.
+  /// "Safari." still matches the app. A question mark stays, as it was said.
   static func searchText(_ spoken: String) -> String {
     var text = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
     while let last = text.last, last == "." || last == "。" {
