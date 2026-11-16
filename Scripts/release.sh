@@ -11,6 +11,10 @@ version="${1:?usage: Scripts/release.sh <version, like 0.0.2>}"
 sparkle_bin=.build/artifacts/sparkle/Sparkle/bin
 repo=https://github.com/pietz/wicket
 dmg="build/Wicket-$version.dmg"
+# SPARKLE_KEY_FILE: the Sparkle private key exported to a private file (docs/release.md), signed with
+# instead of the login keychain, whose access dialog otherwise waits on the release Mac's screen.
+key_file=${SPARKLE_KEY_FILE:-}
+[[ -z $key_file || -r $key_file ]] || { echo "SPARKLE_KEY_FILE is not a readable file: $key_file" >&2; exit 2; }
 url="$repo/releases/download/v$version/Wicket-$version.dmg"
 
 if ! git diff --quiet HEAD -- appcast.xml Casks/wicket.rb 2>/dev/null; then
@@ -58,8 +62,9 @@ grep -q "status: Accepted" build/notary.log || {
 xcrun stapler staple "$dmg"
 spctl --assess --type open --context context:primary-signature -v "$dmg"
 
-# Sparkle's EdDSA signature, from the "wicket" key in the login keychain.
-enclosure=$("$sparkle_bin/sign_update" --account wicket "$dmg")
+# Sparkle's EdDSA signature, from the "wicket" key in the login keychain or SPARKLE_KEY_FILE.
+if [[ -n $key_file ]]; then signing=(--ed-key-file "$key_file"); else signing=(--account wicket); fi
+enclosure=$("$sparkle_bin/sign_update" "${signing[@]}" "$dmg")
 item="    <item>
       <title>Wicket $version</title>
       <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
