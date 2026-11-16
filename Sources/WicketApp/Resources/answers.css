@@ -179,15 +179,17 @@ w-grid w-values > w-value { padding: 0; border-left: 0; }
 /* Targets: what Return acts on, where it is written. A list holding one is the launcher's own list
    (its row height, a 26-point icon or the grey label in its place, 10 points apart, a 14-point title,
    a grey subtitle, the value at the end, a 12-point selection), whatever the text size: --zoom undoes
-   the page's zoom. The host paints [data-selected]. */
+   the page's zoom. Text is never cut: a long title or subtitle wraps and the row grows (the subtitle
+   gives way first, a title takes at most half). The host paints [data-selected]. */
 w-rows:has(> [data-target]) { display: flex; flex-direction: column; gap: calc(2px / var(--zoom, 1)); margin: 0 calc(-10px / var(--zoom, 1)); }
-w-rows:has(> [data-target]) > w-row { display: flex; align-items: center; gap: calc(10px / var(--zoom, 1)); height: var(--row, 40px); padding: 0 calc(10px / var(--zoom, 1)); border-radius: calc(12px / var(--zoom, 1)); color: var(--label); cursor: default; user-select: none; -webkit-user-select: none; scroll-margin: 10px; }
+w-rows:has(> [data-target]) > w-row { display: flex; align-items: center; gap: calc(10px / var(--zoom, 1)); min-height: var(--row, 40px); padding: calc(8px / var(--zoom, 1)) calc(10px / var(--zoom, 1)); border-radius: calc(12px / var(--zoom, 1)); color: var(--label); cursor: default; user-select: none; -webkit-user-select: none; scroll-margin: 10px; }
 w-rows:has(> [data-target]) > w-row::before { display: block; flex: none; margin: 0; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); }
 w-rows:has(> [data-target]) > w-row:not([data-icon])::before { visibility: hidden; }
 w-rows:has(> [data-target]) > w-row[data-label]::before { display: none; }
-w-rows:has(> [data-target]) > w-row [data-field] { min-width: 0; padding: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: inherit; font-weight: 400; }
+w-rows:has(> [data-target]) > w-row [data-field] { min-width: 0; padding: 0; overflow-wrap: anywhere; font-size: inherit; font-weight: 400; }
 w-rows:has(> [data-target]) > w-row [data-field=label] { flex: none; min-width: 3.4em; color: var(--secondary); }
 w-rows:has(> [data-target]) > w-row [data-field=title] { flex: 0 1 auto; }
+w-rows:has(> [data-target]) > w-row:has(> [data-field=subtitle]) [data-field=title] { flex-shrink: 0; max-width: 50%; }
 w-rows:has(> [data-target]) > w-row [data-field=subtitle] { flex: 0 1000 auto; color: var(--secondary); }
 w-rows:has(> [data-target]) > w-row [data-field=value] { flex: none; margin-left: auto; color: var(--secondary); }
 w-row[data-selected] { background: var(--selection); }
