@@ -31,7 +31,12 @@ final class ConfigurationStore {
   /// Creates the file when missing and reads it. Headless runs pass `watching: false`.
   func start(watching: Bool = true) {
     do {
-      if !FileManager.default.fileExists(atPath: url.path) { try Configuration().save(at: url) }
+      if !FileManager.default.fileExists(atPath: url.path) {
+        // A new file names an agent that is installed: Claude, unless only Codex is.
+        var initial = Configuration()
+        if !AgentCLI.installed(.claude), AgentCLI.installed(.codex) { initial.agent.agent = .codex }
+        try initial.save(at: url)
+      }
     } catch { failed(error) }
     load()
     guard watching else { return }
