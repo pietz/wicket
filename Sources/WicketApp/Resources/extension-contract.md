@@ -91,6 +91,10 @@ The same language as agent answers: ordinary Markdown plus six tags named by the
 
 When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from live data (a public API that needs no key), so the same page appears without the agent, with a detail or a `run` on every row with more to show, since the arrow keys skip a row with neither. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. It calls a network, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
 
+## Changing a built-in
+
+Math, apps, files and clipboard are compiled into Wicket, so their code cannot be edited. To add to what one shows, such as a result in another format, prefer a pattern (`match`) extension: its rows appear at the root next to the built-in's and rank as strong. Only to change the built-in's own behavior, such as what input it accepts, switch it off in `config.json` by setting its entry in `providers` to `{"id": "math", "enabled": false}` (ids `math`, `apps`, `files`, `clipboard`; keep the other entries) and write an extension that replaces it in full. Check both with `--query`.
+
 ## Repair
 
 Failure output is the repair brief: change the extension folder and the next request runs the new files. Do not add approval files or trust settings to an extension. config.json stays in the working folder, so an agent allowed to edit it can change agent.mode.
