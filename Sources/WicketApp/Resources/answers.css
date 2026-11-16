@@ -6,8 +6,8 @@
   --ink: CanvasText;
   --muted: light-dark(rgb(0 0 0 / 55%), rgb(255 255 255 / 58%));
   --line: light-dark(rgb(0 0 0 / 9%), rgb(255 255 255 / 10%));
-  --surface: light-dark(rgb(0 0 0 / 4.5%), rgb(255 255 255 / 7%));
-  --edge: light-dark(transparent, rgb(255 255 255 / 6%));
+  --surface: light-dark(rgb(0 0 0 / 5%), rgb(255 255 255 / 7%));
+  --edge: light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 6%));
   --track: var(--line);
   --accent: AccentColor;
   /* A page row's colors are the native list's: label, secondary label and its selection. */
@@ -147,9 +147,9 @@ w-card[data-title]::before { content: attr(data-title); font-weight: 600; }
 w-card[data-icon]::after { content: ""; position: absolute; top: 12px; right: 14px; width: 20px; height: 20px; background: var(--secondary); mask: var(--icon, none) center / contain no-repeat; }
 w-card[data-icon][data-title]::before { padding-right: 28px; }
 w-card + w-card { margin-top: -8px; }
-w-card[data-tone] { background: color-mix(in oklch, var(--tone) var(--tint), transparent); box-shadow: none; }
+w-card[data-tone] { background: color-mix(in oklch, var(--tone) var(--tint), transparent); }
 /* Amber turns brown as a tint, so a warning is the neutral surface with an amber dot. */
-w-card[data-tone=warning] { padding-left: 32px; background: radial-gradient(circle at 18.5px calc(12px + 0.725em), var(--warning) 3.5px, transparent 4px), var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
+w-card[data-tone=warning] { padding-left: 32px; background: radial-gradient(circle at 18.5px calc(12px + 0.725em), var(--warning) 3.5px, transparent 4px), var(--surface); }
 
 w-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 w-badge { display: inline-block; padding: 1px 8px; margin-right: 2px; border-radius: 999px; font-size: var(--small); font-weight: 500; line-height: 1.5; color: var(--muted); background: color-mix(in oklch, var(--ink) 8%, transparent); }
