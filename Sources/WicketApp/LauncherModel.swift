@@ -9,9 +9,19 @@ struct CommandState {
   /// user's activation makes it chosen; every later request is a rerun.
   var next = Cause.address
   enum Cause { case rerun, address, choice }
-  var view = ProviderView()
-  /// The input of the request that answered `view`.
-  var viewInput = ""
+  /// A view with the input and arguments of the request it answered.
+  struct Shown {
+    var view = ProviderView()
+    var input = ""
+    var arguments: [String: String] = [:]
+  }
+  /// What the command shows now.
+  var shown = Shown()
+  /// What a typed question tells the agent the command showed (`LauncherModel.commandContext`): the
+  /// last view whose request the user did not cause by typing. Typing reruns never replace it, so a
+  /// question typed into a command that is not `submit` sends the view it was asked about, not the
+  /// rerun for its own text. Nil until such a request is answered, and after one fails.
+  var context: Shown?
   /// The view's body as a page, with its items after it; nil for a list.
   var page: Page?
   var problem: String?
@@ -28,7 +38,7 @@ final class LauncherModel {
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
         if agent.active { clearSelection() }
       }
-      if !agent.active, arriving == nil { refresh() }
+      if !agent.active, arriving == nil { refresh(typed: input != oldValue) }
     }
   }
   let agent: AgentSession
@@ -64,7 +74,7 @@ final class LauncherModel {
   }
   /// What the arrow keys walk: the open page's targets in reading order, else the list.
   var results: [Result] {
-    guard let page else { return listed }
+    guard let page else { return agent.active ? [] : listed }
     let provider = agent.active ? "answer" : command?.id ?? ""
     return page.targets.map { Result(provider: provider, row: $0) }
   }
@@ -370,7 +380,8 @@ final class LauncherModel {
     if let id = target?.id, !ids.contains(id) { return }
     refresh()
   }
-  func refresh() {
+  /// `typed`: the input was edited, which a command's context ignores unless an address set it.
+  func refresh(typed: Bool = false) {
     guard !agent.active || arriving != nil else { return }
     let speaking = voice?.active == true
     let input = arriving?.input ?? self.input
@@ -387,7 +398,9 @@ final class LauncherModel {
       }
       cancelWork()
       target?.next = .rerun
+      let remembered = !typed || state.next != .rerun
       guard let source, configuration.isEnabled(state.id, extensions: extensions.ids) else {
+        target?.context = nil
         target?.problem =
           source == nil
           ? "This extension was removed. Press Esc to go back."
@@ -402,7 +415,7 @@ final class LauncherModel {
       let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.next == .choice)
       if let view = immediateView(state.id, request) {
         showArrival()
-        show(view, page: nil, of: state.id, input: input, turn: UUID().uuidString)
+        show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
         retainSelection()
         onResultsChange?()
         return
@@ -422,10 +435,11 @@ final class LauncherModel {
               guard !Task.isCancelled, generation == version else { return }
             }
             showArrival()
-            show(view, page: page, of: state.id, input: input, turn: turn)
+            show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
             showArrival()
+            if remembered { command?.context = nil }
             command?.problem =
               extensionCommand.map { report($0, request: request, error: error) }
               ?? error.localizedDescription
@@ -537,13 +551,17 @@ final class LauncherModel {
     } while seen != generation
   }
   /// A command's view: a list ordered by what is typed, or a page.
-  private func show(_ view: ProviderView, page: Page?, of id: String, input: String, turn: String) {
+  /// `remembered`: the user did not cause the request by typing, so the view becomes its context.
+  private func show(
+    _ view: ProviderView, page: Page?, of id: String, request: ProviderRequest, turn: String,
+    remembered: Bool
+  ) {
     command?.turn = turn
-    command?.view = view
-    command?.viewInput = input
+    command?.shown = CommandState.Shown(view: view, input: request.input, arguments: request.arguments)
+    if remembered { command?.context = command?.shown }
     command?.page = page
     command?.busy = false
-    listed = page == nil ? Ranking.order(view.items, provider: id, query: input) : []
+    listed = page == nil ? Ranking.order(view.items, provider: id, query: request.input) : []
   }
   private func compose() {
     showArrival()
@@ -591,10 +609,10 @@ final class LauncherModel {
   /// The open command's Markdown body.
   var body: String? {
     guard let command, command.problem == nil else { return nil }
-    return command.view.body
+    return command.shown.view.body
   }
   /// The view's own actions, in the header beside the body.
-  var viewActions: [RowAction] { body == nil ? [] : command?.view.actions ?? [] }
+  var viewActions: [RowAction] { body == nil ? [] : command?.shown.view.actions ?? [] }
   /// Whether the input has the first say, so items wait for an arrow key and typing leaves them: in a
   /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
   /// it runs the view's actions.
@@ -765,7 +783,9 @@ final class LauncherModel {
     let text = text ?? input
     guard !agent.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     // Only a new conversation asked from an extension's command learns what it showed.
-    let context = agent.active ? nil : commandContext
+    let context =
+      agent.active ? (agent.question.isEmpty ? origin?.context : nil) : commandContext(typed: true)
+    origin = nil
     stopArriving()
     cancelWork()
     var settings = configuration.agent
@@ -775,30 +795,67 @@ final class LauncherModel {
     clearSelection()
     input = ""
   }
-  /// The open extension command and what it shows, as a `<context>` block for the agent, with the
-  /// command's name for the question header. Nil at the root, for the host's own commands and for a
-  /// command whose request failed.
-  var commandContext: (text: String, name: String)? {
-    guard let command, command.problem == nil, let owner = extensionCommand else { return nil }
+  /// Cmd+Return: asks what is typed. With nothing typed it opens an empty conversation about what is on
+  /// screen, which Escape leaves for exactly that screen again.
+  func askAgent() {
+    guard input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return send() }
+    guard !agent.active else { return }
+    // A switch still on its way would end the conversation when it arrives.
+    stopArriving()
+    origin = Origin(
+      context: commandContext(typed: false), input: input, selection: selection, touched: selectionTouched,
+      drafted: drafted)
+    agent.open(settings: configuration.agent)
+    clearSelection()
+    input = ""
+  }
+  /// Where an empty conversation opened by Cmd+Return came from: what its first question tells the
+  /// agent, and the screen Escape returns to. The command itself stays open under the conversation.
+  private struct Origin {
+    let context: (text: String, name: String)?
+    let input: String
+    let selection: String?
+    let touched: Bool
+    let drafted: [String: String]
+  }
+  private var origin: Origin?
+  /// Escape leaves the empty conversation for the screen under it, as Cmd+Return found it.
+  var returnsOnEscape: Bool { agent.active && agent.question.isEmpty && origin != nil }
+  /// The extension whose view Cmd+Return would send with the question, for the footer and placeholder.
+  var askingAbout: String? {
+    if agent.active { return agent.question.isEmpty ? origin?.context?.name : nil }
+    let typed = !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return contextView(typed: typed) == nil ? nil : extensionCommand?.manifest.name
+  }
+  /// What goes with a question asked from the open command: for a typed question its `context`, else
+  /// what it shows unless that is an error. Nil at the root and for the host's own commands.
+  private func contextView(typed: Bool) -> CommandState.Shown? {
+    guard let command, extensionCommand != nil else { return nil }
+    return typed ? command.context : command.problem == nil ? command.shown : nil
+  }
+  /// The open extension command and what it showed (`contextView`), as a `<context>` block for the
+  /// agent, with the command's name for the question header.
+  private func commandContext(typed: Bool) -> (text: String, name: String)? {
+    guard let shown = contextView(typed: typed), let owner = extensionCommand else { return nil }
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     func json(_ value: some Encodable) -> String {
       String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
     }
-    struct Shown: Encodable {
+    struct Content: Encodable {
       let body: String?
       let items: [Row]
     }
-    var shown = json(Shown(body: command.view.body, items: command.view.items))
-    if shown.count > Self.contextLimit {
-      shown = String(shown.prefix(Self.contextLimit)) + "\n[cut: the view was longer than this]"
+    var view = json(Content(body: shown.view.body, items: shown.view.items))
+    if view.count > Self.contextLimit {
+      view = String(view.prefix(Self.contextLimit)) + "\n[cut: the view was longer than this]"
     }
     let name = owner.manifest.name
     var asked =
       "The user asked from the \(name) command (\(owner.folder.path), folder `\(owner.folder.lastPathComponent)`)"
-    asked += ", input \(json(command.viewInput))"
-    if !command.arguments.isEmpty { asked += ", arguments \(json(command.arguments))" }
-    return ("<context>\n\(asked).\nIt showed:\n\(shown)\n</context>", name)
+    asked += ", input \(json(shown.input))"
+    if !shown.arguments.isEmpty { asked += ", arguments \(json(shown.arguments))" }
+    return ("<context>\n\(asked).\nIt showed:\n\(view)\n</context>", name)
   }
   /// About 4 KB of the open view goes to the agent.
   static let contextLimit = 4000
@@ -807,6 +864,7 @@ final class LauncherModel {
   /// with the text as its unsent first question.
   func fill(_ text: String) {
     if !agent.active {
+      origin = nil
       stopArriving()
       cancelWork()
       command = nil
@@ -840,6 +898,19 @@ final class LauncherModel {
       details = Array(openDetails.dropLast())
       selection = detail.selection
       selectionTouched = detail.touched
+      onResultsChange?()
+      return true
+    }
+    if returnsOnEscape, let origin {
+      // Cmd+Return's empty conversation goes back to the screen under it as it was: nothing reruns.
+      self.origin = nil
+      input = origin.input
+      agent.reset()
+      selection = origin.selection
+      selectionTouched = origin.touched
+      resetSelection = false
+      retainSelection()
+      if selection == origin.selection { drafted = origin.drafted }
       onResultsChange?()
       return true
     }

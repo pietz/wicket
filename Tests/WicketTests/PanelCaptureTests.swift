@@ -27,7 +27,7 @@ private let states = [
   "working", "working-text", "permission-routine", "permission-high",
   "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
-  "extension-targets",
+  "extension-targets", "extension-detail-larger", "asking", "asking-extension",
   "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
   "arguments-long", "arguments-three",
   "settings-general", "settings-voice", "settings-agent", "settings-sources", "settings-error",
@@ -67,8 +67,15 @@ private func expectedText(_ name: String) -> [String] {
   }
   if name.contains("working") { return ["What should I build next", "Thinking", "Cancel"] }
   if name.contains("listening") { return ["rainbows", "Ask agent", "Listening", "Ask", "Close"] }
+  if name.contains("asking-extension") {
+    return ["Ask about Extension report", "Claude will see what Extension report shows", "Ask", "Esc Back"]
+  }
+  if name.contains("asking") { return ["Ask Claude", "Type a question for Claude", "Esc Back"] }
   if name.contains("extension-detail") {
-    return ["Extension report", "A useful extension", "42", "Local extension", "One JSON view", "Actions"]
+    return [
+      "Extension report", "A useful extension", "42", "Local extension", "One JSON view", "Actions",
+      "Ask about Extension report",
+    ]
   }
   if name.contains("extension-both") {
     return [
@@ -223,6 +230,10 @@ private let nextAnswer =
       if name == "conversation-expanded" { model.historyExpanded = true }
       if name == "conversation-long-expanded" { model.questionExpanded = true }
     case _ where name.hasPrefix("extension-"): try await configureExtension(name, model)
+    case "asking": model.askAgent()
+    case "asking-extension":
+      try await configureExtension("extension-detail", model)
+      model.askAgent()
     case _ where name.hasPrefix("arguments-"): try await configureArguments(name, model)
     default: break
     }
@@ -515,9 +526,12 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(
       model.agent.active && model.agent.answer.contains("A good start")
         && model.agent.status == "Ready for a follow-up")
-  case "extension-detail":
+  case "extension-detail", "extension-detail-larger":
     #expect(model.command != nil && model.body?.contains("A useful extension") == true)
-    #expect(model.results.isEmpty)
+    #expect(model.results.isEmpty && model.askingAbout == "Extension report")
+  case "asking", "asking-extension":
+    #expect(model.agent.active && model.agent.question.isEmpty && model.returnsOnEscape)
+    #expect(model.askingAbout == (state == "asking" ? nil : "Extension report"))
   case "extension-both":
     #expect(model.body?.contains("A useful extension") == true && model.results.count == 2)
     #expect(model.selected?.row.id == "detail")

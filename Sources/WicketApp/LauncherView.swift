@@ -237,12 +237,15 @@ struct LauncherView: View {
                 Text("↩ Follow up")
               }
               Text(
-                model.inDetail
+                model.inDetail || model.returnsOnEscape
                   ? "Esc Back"
                   : model.agent.busy
                     ? "Esc Cancel" : model.agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
               Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
+              // The one hint that may grow with a name: it gives way first.
+              Text("⌘↩ " + (model.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
+                .layoutPriority(-1)
               Text(model.command == nil ? "esc Close" : "esc Back")
             }
           }
@@ -263,7 +266,8 @@ struct LauncherView: View {
   private var input: some View {
     let placeholder =
       model.agent.active
-      ? (model.agent.question.isEmpty ? "Ask \(model.askingName)…" : "Ask a follow-up…")
+      ? (model.agent.question.isEmpty
+        ? model.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(model.askingName)…" : "Ask a follow-up…")
       : (model.commandName ?? "Search or ask anything…")
     return Text(model.input.isEmpty ? placeholder : String(model.input.prefix(200)))
       .font(.system(size: 21)).lineLimit(1).hidden()
@@ -390,11 +394,16 @@ struct LauncherView: View {
   }
   @ViewBuilder private var agentContent: some View {
     if model.agent.question.isEmpty {
-      // A draft from the `agent` action: nothing is asked yet.
-      Text("Press Return to ask \(model.askingName), or edit the question first.")
-        .font(.system(size: textSize.points)).foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-        .frame(height: PaletteLayout.answerMin)
+      // A draft from the `agent` action or Cmd+Return: nothing is asked yet.
+      Text(
+        model.returnsOnEscape
+          ? model.askingAbout.map { "\(model.askingName) will see what \($0) shows." }
+            ?? "Type a question for \(model.askingName)."
+          : "Press Return to ask \(model.askingName), or edit the question first."
+      )
+      .font(.system(size: textSize.points)).foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+      .frame(height: PaletteLayout.answerMin)
     } else {
       conversation
     }

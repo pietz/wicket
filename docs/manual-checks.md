@@ -35,16 +35,18 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 
 1. Type a sentence (`what is the tallest building in europe`). Ask agent is on top. Return asks.
 2. Type a single word plus `?` (`kubernetes?`). Ask agent is on top.
-3. With an app match visible, press Cmd+Return. It asks the agent instead of opening the app.
-4. While it works: the status line shows thinking or the tool in use. Type a follow-up draft meanwhile; it stays.
-5. When the answer is there, type a follow-up and press Return. It continues the same conversation.
-6. Click away while it works, reopen. It says Continuing conversation and the answer has arrived.
-7. Escape order: first Escape cancels a running turn, the next ends the conversation, then clears input, then closes.
-8. Previous questions · N appears after several turns and opens earlier answers.
-9. Copy (upper right) copies the answer. Select text in the answer with the mouse.
-10. Ask for links (`give me three links about Swift Testing`). They appear as rows where the answer puts them, with nothing selected; Return still sends a follow-up typed in the field. The first arrow key selects the first row, Return opens it; arrow up from the first row, or typing, deselects. A row with a follow-up fills the field and sends nothing until Return. Next to a native list (root search) the rows look the same: icon, title, grey subtitle, height and selection.
-11. Targets in the page (the owner's test list, also in ISSUES.md): ask `what is the weather in Berlin this week, with each day's details`, `what meetings do I have today` and `find me three quiet cafes near Rosenthaler Platz as cards that open in Maps`. Arrow keys walk tiles, cards and rows in reading order, the footer names the action, Return opens a meeting or a day tile's detail and Esc comes back to the same selection and scroll position; Return on a cafe card opens Maps. Click a card: it runs. Drag across a card's text: it selects text and runs nothing. Hold the arrow key down while an answer streams: the selection never jumps.
-12. Ask for something with a table, a code block, a list and a link. Note how it looks compared with 0.0.x.
+3. With an app match visible, press Cmd+Return. It asks the agent instead of opening the app. The footer showed ⌘↩ Ask agent.
+4. With nothing typed, press Cmd+Return at the root: the bar reads Ask Claude… and Esc Back returns to the root list with its selection. Enter Weather, select a row, press Cmd+Return with nothing typed: the bar reads Ask about Weather…, typing `will it rain` does not rerun Weather, and Escape returns to Weather with its view, input and selection. Press Cmd+Return again, type the question and press Return: the header says "from Weather" and the answer knows the forecast that was shown.
+5. In Weather, type `will it rain tomorrow` (Weather shows an error) and press Cmd+Return. The footer said ⌘↩ Ask about Weather, and the agent gets the forecast from before you typed, not the error.
+6. While it works: the status line shows thinking or the tool in use. Type a follow-up draft meanwhile; it stays.
+7. When the answer is there, type a follow-up and press Return. It continues the same conversation.
+8. Click away while it works, reopen. It says Continuing conversation and the answer has arrived.
+9. Escape order: first Escape cancels a running turn, the next ends the conversation, then clears input, then closes.
+10. Previous questions · N appears after several turns and opens earlier answers.
+11. Copy (upper right) copies the answer. Select text in the answer with the mouse.
+12. Ask for links (`give me three links about Swift Testing`). They appear as rows where the answer puts them, with nothing selected; Return still sends a follow-up typed in the field. The first arrow key selects the first row, Return opens it; arrow up from the first row, or typing, deselects. A row with a follow-up fills the field and sends nothing until Return. Next to a native list (root search) the rows look the same: icon, title, grey subtitle, height and selection.
+13. Targets in the page (the owner's test list, also in ISSUES.md): ask `what is the weather in Berlin this week, with each day's details`, `what meetings do I have today` and `find me three quiet cafes near Rosenthaler Platz as cards that open in Maps`. Arrow keys walk tiles, cards and rows in reading order, the footer names the action, Return opens a meeting or a day tile's detail and Esc comes back to the same selection and scroll position; Return on a cafe card opens Maps. Click a card: it runs. Drag across a card's text: it selects text and runs nothing. Hold the arrow key down while an answer streams: the selection never jumps.
+14. Ask for something with a table, a code block, a list and a link. Note how it looks compared with 0.0.x.
 
 ## 5. Agent settings (Settings → Agent)
 

@@ -322,3 +322,95 @@ import Testing
   #expect(await eventually { !model.agent.busy })
   await model.agent.shutdown()
 }
+
+/// A list command that is not `submit`: every request is logged in `runs`, and an input with "rain"
+/// fails, as a city lookup does when a question is typed into it.
+@MainActor private func cityCommand(_ root: URL) async throws -> (LauncherModel, runs: () -> [String]) {
+  let folder = try extensionFolder(
+    root, name: "weather", fields: ["name": "Weather", "command": ["/usr/bin/python3", "main.py"]])
+  try Data(
+    """
+    import json,sys; r=json.load(sys.stdin); open('runs','a').write(r['input']+'\\n')
+    if 'rain' in r['input']: sys.exit('no such city')
+    print(json.dumps({'items':[{'id':i,'title':(r['input'] or 'Berlin')+' '+i,'actions':[]} for i in 'abc']}))
+    """.utf8
+  ).write(to: folder.appending(path: "main.py"))
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.update { $0.providers = [.init("extension:weather")] }
+  await model.extensions.reload()
+  let runs = {
+    Array(
+      ((try? String(contentsOf: folder.appending(path: "runs"), encoding: .utf8)) ?? "")
+        .components(separatedBy: "\n").dropLast())
+  }
+  return (model, runs)
+}
+
+@MainActor @Test func cmdReturnWithNothingTypedAsksAboutTheScreenAndEscapeGoesBackToIt() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, runs) = try await cityCommand(root)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  // At the root: an empty conversation like the `agent` action's, and Escape is the root again.
+  model.input = " "
+  await model.settled()
+  #expect(model.askingAbout == nil)
+  model.askAgent()
+  #expect(model.agent.active && model.agent.question.isEmpty && model.returnsOnEscape && model.input == "")
+  #expect(model.askingAbout == nil)
+  #expect(model.escape())
+  #expect(!model.agent.active && model.command == nil && model.input == " ")
+
+  model.go(Address(id: "extension:weather"))
+  await model.settled()
+  model.move(1)
+  let selected = try #require(model.selection)
+  #expect(model.selected?.row.title == "Berlin b" && model.askingAbout == "Weather" && runs() == [""])
+  model.askAgent()
+  #expect(model.agent.active && model.agent.question.isEmpty && model.askingAbout == "Weather")
+  // Typing goes to the agent: the extension never reruns and its rows are not walked.
+  model.editInput("will it rain tomorrow")
+  model.move(1)
+  await model.settled()
+  #expect(runs() == [""] && model.results.isEmpty && model.selected == nil)
+  // Escape: the command with its view, input and selection, without a rerun.
+  #expect(model.escape())
+  await model.settled()
+  #expect(!model.agent.active && model.command?.id == "extension:weather" && model.input == "")
+  #expect(runs() == [""] && model.selection == selected && model.selected?.row.title == "Berlin b")
+
+  // Return sends what was typed with the screen Cmd+Return found.
+  model.askAgent()
+  model.editInput("will it rain tomorrow")
+  #expect(model.activateReturn())
+  #expect(await eventually { fake.running })
+  let prompt = try #require(fake.prompts.last?.text)
+  #expect(prompt.contains("input \"\"") && prompt.contains("Berlin b"))
+  #expect(prompt.hasSuffix("</context>\n\nwill it rain tomorrow") && model.agent.source == "Weather")
+  #expect(runs() == [""])
+  fake.end()
+  await model.finish()
+}
+
+@MainActor @Test func aTypedQuestionCarriesTheViewFromBeforeItWasTyped() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, runs) = try await cityCommand(root)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  model.go(Address(id: "extension:weather", input: "Hamburg"))
+  await model.settled()
+  // Typing reruns the command, which fails on the question; the context stays the view it was asked about.
+  model.editInput("will it rain")
+  await model.settled()
+  #expect(runs() == ["Hamburg", "will it rain"] && model.command?.problem != nil)
+  #expect(model.askingAbout == "Weather")
+  model.askAgent()
+  #expect(await eventually { fake.running })
+  let prompt = try #require(fake.prompts.last?.text)
+  #expect(prompt.contains("input \"Hamburg\"") && prompt.contains("Hamburg a"))
+  #expect(!prompt.contains("no such city") && prompt.hasSuffix("\n\nwill it rain"))
+  await model.finish()
+}

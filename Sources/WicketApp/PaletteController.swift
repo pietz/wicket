@@ -113,7 +113,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       switch action {
       case .dismiss: if !model.escape() { hide() }
       case .run: run()
-      case .send: model.send()
+      case .send: model.askAgent()
       case .permission(let allow): model.agent.decide(allow)
       case .move(let delta): model.move(delta)
       case .focus(let delta): model.moveFocus(delta)
