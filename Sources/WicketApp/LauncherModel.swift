@@ -250,6 +250,8 @@ final class LauncherModel {
   }
   var onVoicePermissionFinished: (() -> Void)?
   var onSettings: () -> Void = {}
+  /// Hides the panel: an extension's answer to a chosen request said it is done (`ProviderView.close`).
+  var onClose: () -> Void = {}
   var onResultsChange: (() -> Void)?
   private let providers: [any Provider]
   private let files: FilesProvider?
@@ -441,6 +443,9 @@ final class LauncherModel {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
             let view = try await source(request)
             guard let self, !Task.isCancelled, generation == version else { return }
+            // A chosen request that is done closes the panel, as the user hiding it would, without
+            // showing its view; the effect (a moved window) is the feedback.
+            if view.close, request.chosen { return onClose() }
             let turn = UUID().uuidString
             let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
             if arriving != nil, let page, let preparePage {

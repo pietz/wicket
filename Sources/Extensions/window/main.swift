@@ -134,21 +134,6 @@ enum Move: String, CaseIterable {
   case center
   case nextDisplay = "next-display"
   case restore
-
-  /// What the row says once it is done, about the app whose window moved.
-  func done(_ app: String) -> String {
-    switch self {
-    case .left: "Moved \(app) to the left half"
-    case .right: "Moved \(app) to the right half"
-    case .top: "Moved \(app) to the top half"
-    case .bottom: "Moved \(app) to the bottom half"
-    case .maximize: "Maximized \(app)"
-    case .almostMaximize: "Almost maximized \(app)"
-    case .center: "Centered \(app)"
-    case .nextDisplay: "Moved \(app) to the next display"
-    case .restore: "Restored \(app)"
-    }
-  }
 }
 
 /// A display in the Accessibility API's global coordinates: the origin at the top left of the main
@@ -319,7 +304,7 @@ func setFrame(_ window: AXUIElement, _ rect: CGRect) -> Bool {
 
 // MARK: - Main
 
-/// A row as JSON: what happened, or why nothing did.
+/// A row as JSON: why nothing moved.
 func row(_ title: String, icon: String, subtitle: String? = nil, actions: String = "[]") -> String {
   #"{"id":"status","title":\#(quoted(title)),"#
     + (subtitle.map { #""subtitle":\#(quoted($0)),"# } ?? "")
@@ -329,8 +314,8 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
   row(title, icon: "exclamationmark.triangle", subtitle: subtitle)
 }
 
-/// Does the move on the frontmost app's focused window and says what happened, as a row.
-@MainActor func perform(_ move: Move) -> String {
+/// Does the move on the frontmost app's focused window: nil when it moved, else a row that says why not.
+@MainActor func perform(_ move: Move) -> String? {
   // The panel does not activate Wicket, so the app the user came from is still frontmost.
   guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getppid() else {
     return problem("No window to move", "Switch to the window, then open Wicket")
@@ -384,7 +369,7 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
       Record(pid: app.processIdentifier, before: current, after: frame(of: window) ?? destination))
   }
   saveRecords(records)
-  return row(move.done(name), icon: "checkmark")
+  return nil
 }
 
 var bytes: [UInt8] = []
@@ -399,10 +384,15 @@ if case .other(let range)? = JSON.read(manifest, &position)?["items"] {
   let list = String(decoding: manifest[range], as: UTF8.self)
   items.append(String(list.dropFirst().dropLast()))
 }
-// Only the user's choice moves a window; every other request is the list.
+// Only the user's choice moves a window; every other request is the list. A move that worked closes
+// the panel, since the window moving is the feedback; one that did not shows why above the commands.
 if case .other(let range)? = request?["chosen"], String(decoding: bytes[range], as: UTF8.self) == "true",
   let move = request?["arguments"]?["move"]?.string.flatMap(Move.init(rawValue:))
 {
-  items.insert(perform(move), at: 0)
+  guard let problem = perform(move) else {
+    print(#"{"close":true}"#)
+    exit(0)
+  }
+  items.insert(problem, at: 0)
 }
 print(#"{"items":["# + items.joined(separator: ",") + "]}")

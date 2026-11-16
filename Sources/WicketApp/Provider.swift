@@ -45,20 +45,24 @@ protocol Provider {
 }
 
 /// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows
-/// after the body on a page) and `actions` for the header. At least one of body and items is present on
-/// the wire.
+/// after the body on a page), `actions` for the header and `close`. At least one of body, items and
+/// close is present on the wire.
 struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
   var actions: [RowAction]
+  /// The request did what it was chosen for and the panel closes, as when the user hides it. Only an
+  /// answer to a chosen request closes; on any other the view shows as it is.
+  var close: Bool
 
-  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = []) {
+  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = [], close: Bool = false) {
     self.body = body
     self.items = items
     self.actions = actions
+    self.close = close
   }
 
-  private enum CodingKeys: String, CodingKey { case body, items, actions }
+  private enum CodingKeys: String, CodingKey { case body, items, actions, close }
   /// `rows` is the 0.1.0–0.1.2 spelling of `items`; installed extensions are never refreshed, so it is read too.
   private enum Legacy: String, CodingKey { case rows }
   init(from decoder: any Decoder) throws {
@@ -67,16 +71,25 @@ struct ProviderView: Codable, Sendable, Equatable {
     let items =
       try c.decodeIfPresent([Row].self, forKey: .items)
       ?? decoder.container(keyedBy: Legacy.self).decodeIfPresent([Row].self, forKey: .rows)
-    guard body != nil || items != nil else {
+    let close = try c.decodeIfPresent(Bool.self, forKey: .close) ?? false
+    guard body != nil || items != nil || close else {
       throw DecodingError.dataCorruptedError(
-        forKey: .body, in: c, debugDescription: "A view needs a body, items or both")
+        forKey: .body, in: c, debugDescription: "A view needs a body, items or both, or close")
     }
     guard Row.validIDs(items ?? []) else {
       throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
     }
     self.init(
-      body: body, items: items ?? [], actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? []
-    )
+      body: body, items: items ?? [],
+      actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [], close: close)
+  }
+  /// `close` is written only when set, so a view that does not close reads as it always did.
+  func encode(to encoder: any Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encodeIfPresent(body, forKey: .body)
+    try c.encode(items, forKey: .items)
+    try c.encode(actions, forKey: .actions)
+    if close { try c.encode(true, forKey: .close) }
   }
 }
 

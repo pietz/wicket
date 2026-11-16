@@ -45,7 +45,7 @@ Name/keyword matches offer a command without running it. Enter starts with empty
 
 Stdout that starts with `{` is read as a JSON view and fails with the decoding path if it is not one. Anything else is Markdown: the body of the view, with the tags below and `<row/>` rows as in an agent's reply. Use it when a script only has text to show, e.g. `print("## Done")`. Empty output is an error.
 
-One view with optional parts. At least one of `body` or `items` is required (an empty `items` array alone is an empty list); `type` is not read.
+One view with optional parts. At least one of `body`, `items` or `"close":true` is required (an empty `items` array alone is an empty list); `type` is not read.
 
 ```json
 {"items":[{"id":"result","title":"6.2137119 mi","subtitle":"Copy conversion","icon":"ruler","actions":[{"type":"copy","text":"6.2137119 mi"}]}]}
@@ -56,6 +56,8 @@ One view with optional parts. At least one of `body` or `items` is required (an 
 - **Items only** is a native list: fast, keyboard-driven, and the only shape whose items a pattern result shows at the launcher root. Put a short answer in the item title when it fits.
 - **Body only** is a page. The body is Markdown with the tags below, drawn by the same safe WebView as agent answers. The native header shows the command name and the view `actions`. What the page lets the user act on stands where it is written: rows and cards with an action (Body tags).
 - **Body and items** draws the items on the page after the body, as rows that look like the native list's. On a page nothing is selected until an arrow key: Return runs the view's first action, Down and Up walk the page's rows and cards in reading order, Return runs the selected one's first action, typing or Up from the first deselects. The footer says what Return does, by the action's `title` when it has one. The view `actions` stay in the header.
+
+`{"close":true}` ends a chosen request that did its job: Wicket closes at once, as if the user hid it, and the app the user was in keeps focus. Use it when the effect is the feedback (a moved window, a toggled setting) and nothing is left to show. Wicket honors it only on a `chosen:true` request and ignores it on any other, where the rest of the view shows. When the request could not do its job, answer a row saying why instead, and Wicket stays open.
 
 At the root, a pattern result contributes only its items. A pattern result with a body shows one row that enters the command. `actions` are the header actions of a view with a body and are ignored without one.
 
@@ -93,7 +95,7 @@ When the owner asks to make an answer an extension, the command prints that answ
 
 ## Changing a built-in
 
-The calculator, the unit converter and the window commands are extensions that ship inside Wicket, in `Contents/Resources/Extensions/calculator`, `…/units` and `…/window` of the app bundle whose `Contents/MacOS` holds the Wicket executable. Each folder holds `wicket.json`, the program `main` and its source `main.swift`. To change one, copy its folder into `extensions/` under the same name: the copy replaces the bundled one at once and runs as it is. Edit `main.swift` and rebuild in the folder with `swiftc -O main.swift -o main`. The calculator and units avoid Foundation on purpose (it costs 10 ms per run; the request's `locale` gives the number format), so keep them to the standard library and Darwin; the window commands link AppKit only for the screens and the frontmost app, and move a window only on a chosen request. To add to what one shows, such as a result in another format, prefer your own pattern (`match`) extension: its rows appear at the root next to it and rank as strong. Apps, files and clipboard are compiled into Wicket: to change one, switch it off in `config.json` by setting its entry in `providers` to `{"id": "files", "enabled": false}` (ids `apps`, `files`, `clipboard`; keep the other entries) and write an extension that replaces it in full. Check either with `--query`.
+The calculator, the unit converter and the window commands are extensions that ship inside Wicket, in `Contents/Resources/Extensions/calculator`, `…/units` and `…/window` of the app bundle whose `Contents/MacOS` holds the Wicket executable. Each folder holds `wicket.json`, the program `main` and its source `main.swift`. To change one, copy its folder into `extensions/` under the same name: the copy replaces the bundled one at once and runs as it is. Edit `main.swift` and rebuild in the folder with `swiftc -O main.swift -o main`. The calculator and units avoid Foundation on purpose (it costs 10 ms per run; the request's `locale` gives the number format), so keep them to the standard library and Darwin; the window commands link AppKit only for the screens and the frontmost app, and move a window only on a chosen request, answering `{"close":true}` when it moved. To add to what one shows, such as a result in another format, prefer your own pattern (`match`) extension: its rows appear at the root next to it and rank as strong. Apps, files and clipboard are compiled into Wicket: to change one, switch it off in `config.json` by setting its entry in `providers` to `{"id": "files", "enabled": false}` (ids `apps`, `files`, `clipboard`; keep the other entries) and write an extension that replaces it in full. Check either with `--query`.
 
 ## Repair
 

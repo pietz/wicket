@@ -477,3 +477,56 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   #expect(model.escape() && model.command == nil)
   await model.finish()
 }
+
+/// `close` ends a chosen request: the panel hides at once, as the user hiding it would, and the root is
+/// what reopens. On a request the user did not choose it is ignored and the view shows; a failure keeps
+/// the panel open with its error.
+@MainActor @Test func aChosenAnswerThatClosesHidesThePanel() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let script = """
+    import json,sys; r=json.load(sys.stdin)
+    if r['input'] == 'fail': sys.exit(1)
+    print(json.dumps({'close':True,'items':[{'id':'moved','title':'Moved','actions':[]}]}))
+    """
+  let folder = try extensionFolder(root, name: "shut", fields: ["command": ["/usr/bin/python3", "shut.py"]])
+  try Data(script.utf8).write(to: folder.appending(path: "shut.py"))
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  await model.extensions.reload()
+  var closed = 0
+  model.onClose = {
+    closed += 1
+    model.dismiss()
+  }
+  model.input = "keep"
+  await model.settled()
+
+  // Chosen and done: the panel closes without showing the view, and the root is left as hiding leaves it.
+  model.go(Address(id: "extension:shut", input: "left"), chosen: true)
+  await model.settled()
+  #expect(closed == 1)
+  #expect(model.command == nil && model.input.isEmpty)
+
+  // Typing reruns are not chosen: the same answer shows as a view and nothing closes.
+  model.go(Address(id: "extension:shut", input: "a"))
+  await model.settled()
+  model.input = "ab"
+  await model.settled()
+  #expect(closed == 1)
+  #expect(model.command?.id == "extension:shut" && model.results.map(\.row.id) == ["moved"])
+
+  // A chosen request that fails keeps the panel open with its error.
+  model.go(Address(id: "extension:shut", input: "fail"), chosen: true)
+  await model.settled()
+  #expect(closed == 1)
+  #expect(model.command?.problem != nil)
+
+  // Close alone is a whole view; a view needs one of body, items or close.
+  #expect(
+    try JSONDecoder().decode(ProviderView.self, from: Data(#"{"close":true}"#.utf8))
+      == ProviderView(close: true))
+  #expect(throws: (any Error).self) {
+    try JSONDecoder().decode(ProviderView.self, from: Data(#"{"close":false}"#.utf8))
+  }
+}

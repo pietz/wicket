@@ -53,7 +53,7 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 
 ### Smaller contract steps
 
-- **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. It gives a run a way to end the interaction, which copy and open have and the first Wicket had as `close` (finding 3). The window commands need it most: today the panel stays open over the window they moved (ISSUES).
+- **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. Closing came first on its own (16 Nov 2026): `{"close":true}` on a chosen answer closes the panel with no notice, which the window commands use, since the moving window is the feedback. What is left is the brief notice, for an effect nothing on screen shows.
 - **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). `label` and `value` on a row came with the six tags (after 0.3.0), which made facts and events rows. Still open: a table row as a target.
 - **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10). The one exception is the old tag names: an old tag never fails, so no repair row would ever bring the agent to it, and the parser maps them (SPEC, Rich answers).
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or hide Ask agent (finding 1).

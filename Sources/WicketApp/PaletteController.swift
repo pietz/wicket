@@ -125,6 +125,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       if isOpen { renderContent() }
       resize()
     }
+    model.onClose = { [weak self] in self?.hide() }
     model.onVoicePermissionFinished = { [weak self] in
       guard let self, self.panel.isVisible else { return }
       self.panel.makeKey()
