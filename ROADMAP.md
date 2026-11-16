@@ -85,6 +85,8 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 
 Owner, 16 Nov 2026: make the panel look like it belongs on macOS 27 throughout, using Liquid Glass and its interactions where the frame is native (input, search list, footer, controls), and checking how HTML content sits on the glass (cards over light backgrounds were invisible in 0.3.2). Start from Apple's macOS 27 design guidance and a side-by-side with the system's own panels, judged on the owner's screen.
 
+Legibility first (owner, 16 Nov 2026): the default must read well over any background. Wicket already has `backgroundTransparency`; consider adding blur strength, and follow the system's own glass choices (the Clear or Tinted Liquid Glass setting and Reduce Transparency) rather than fighting them.
+
 ## Next: static views
 
 Step 2 of the address work. Built: a manifest's `items`, read once and ranked at the root like apps (best 20 per extension), and a command without a program that Wicket answers from them (see [SPEC.md](SPEC.md) Triggers and ordering). What remains:
