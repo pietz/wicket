@@ -6,6 +6,15 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.3.4</title>
+      <pubDate>Mon, 16 Nov 2026 12:22:20 +0000</pubDate>
+      <sparkle:version>30</sparkle:version>
+      <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.3.4</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.3.4/Wicket-0.3.4.dmg" type="application/octet-stream" sparkle:edSignature="e+yBc1cxA8dq9TogGGF9DYwRJ8keBupRRmiPuag0yDVIMwsGl4RQ7jW1fSKhNMeJT4kus/BuSbiBYzO3c4RADg==" length="3321472"/>
+    </item>
+    <item>
       <title>Wicket 0.3.3</title>
       <pubDate>Mon, 16 Nov 2026 11:52:11 +0000</pubDate>
       <sparkle:version>29</sparkle:version>
