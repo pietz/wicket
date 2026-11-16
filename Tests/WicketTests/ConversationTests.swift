@@ -23,7 +23,7 @@ import Testing
   #expect(model.agent.answer == "First answer")
   let hidden = Date()
   model.dismiss()
-  model.reopen(now: hidden.addingTimeInterval(299))
+  model.reopen(now: hidden.addingTimeInterval(1199))
   #expect(model.input == "Draft follow-up" && model.agent.continuing)
   model.send()
   #expect(!model.agent.continuing)
@@ -62,9 +62,9 @@ import Testing
   try await finishTurn(session, "Q", "A")
   let later = Date().addingTimeInterval(600)
   session.hidden(now: later)
-  session.reopen(now: later.addingTimeInterval(299))
+  session.reopen(now: later.addingTimeInterval(1199))
   #expect(session.active)
-  session.reopen(now: later.addingTimeInterval(301))
+  session.reopen(now: later.addingTimeInterval(1201))
   #expect(!session.active)
   let fake = FakeAgent()
   session.connect = { _, _, _ in fake }
@@ -143,7 +143,7 @@ import Testing
   #expect(controller.renderer.textSize == .larger)
   model.input = "Keep temporarily"
   model.dismiss()
-  model.reopen(now: Date().addingTimeInterval(301))
+  model.reopen(now: Date().addingTimeInterval(1201))
   #expect(!model.agent.active && model.input.isEmpty && model.command == nil)
   await model.finish()
 }

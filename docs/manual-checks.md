@@ -56,7 +56,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
    - **Auto-accept edits:** file edits go through, commands still ask.
    - **Auto:** the agent decides what needs you; most things go through.
    - **Full access:** nothing asks.
-5. Leave a permission card open, click away, reopen within five minutes: the card is still there.
+5. Leave a permission card open, click away, reopen within 20 minutes: the card is still there.
 
 ## 6. Voice (Settings → Voice)
 

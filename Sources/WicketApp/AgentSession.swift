@@ -55,7 +55,7 @@ final class AgentSession {
   /// The last hide or turn completion. Nil until the first one.
   private var lastActivity: Date?
   var cancelGrace: Duration = .seconds(3)
-  var retention: TimeInterval = 300
+  var retention: TimeInterval = 1200
   /// No event at all from a CLI that started, then no end to the turn.
   var startupLimit: Duration = .seconds(30)
   var turnLimit: Duration = .seconds(600)
