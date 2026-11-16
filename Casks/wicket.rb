@@ -1,6 +1,6 @@
 cask "wicket" do
-  version "0.3.2"
-  sha256 "4b92fd2591ac94c00f1fa208350a7bffee47a67d8822daca83d05563ba7211ea"
+  version "0.3.3"
+  sha256 "6eaa9f9c62e8556efb7e6deaa55914138a4782f41bc84f3c2853a7bfff77e38d"
 
   url "https://github.com/pietz/wicket/releases/download/v#{version}/Wicket-#{version}.dmg"
   name "Wicket"
