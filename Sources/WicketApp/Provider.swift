@@ -253,7 +253,10 @@ struct RowAction: Codable, Sendable, Equatable {
 /// so one vanished or unsafe file refuses only its own action and never the whole view.
 enum OpenPolicy {
   static func allowed(_ url: URL) -> Bool {
-    guard url.isFileURL else { return ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") }
+    // System Settings panes too, so an extension can send the user to the permission it needs.
+    guard url.isFileURL else {
+      return ["http", "https", "mailto", "x-apple.systempreferences"].contains(url.scheme?.lowercased() ?? "")
+    }
     let file = url.resolvingSymlinksInPath()
     let ext = file.pathExtension.lowercased()
     guard
@@ -272,7 +275,9 @@ enum OpenPolicy {
   static func refusal(_ action: RowAction) -> String? {
     switch action.kind {
     case .open(let url) where !allowed(url):
-      guard url.isFileURL else { return "Wicket opens only http, https, mailto and wicket links" }
+      guard url.isFileURL else {
+        return "Wicket opens only http, https, mailto, System Settings and wicket links"
+      }
       return revealable(url) ? "Wicket does not open scripts, installers or executables" : missing
     case .reveal(let url) where !revealable(url): return url.isFileURL ? missing : "Reveal needs a file"
     default: return nil

@@ -255,7 +255,7 @@ import Testing
   #expect(model.selected?.provider == "extension:calculator")
   model.input = ""
   await model.settled()
-  #expect(model.results.map(\.row.title) == ["Calculator", "Convert units"])
+  #expect(model.results.map(\.row.title) == ["Calculator", "Convert units", "Window"])
 }
 
 @Test func commandReturnAsksAndIMEKeepsOwnership() {

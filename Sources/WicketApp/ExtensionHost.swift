@@ -50,7 +50,7 @@ final class ExtensionHost {
   /// Called with the IDs whose manifest or problem changed, appeared or went away.
   var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
-  /// The extensions that ship inside Wicket (calculator, units), each a folder like any other with its
+  /// The extensions that ship inside Wicket (calculator, units, window), each a folder like any other with its
   /// binary and source. A folder of the user's own with the same name wins.
   let bundled: URL?
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.

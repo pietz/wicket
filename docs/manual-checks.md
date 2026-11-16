@@ -73,7 +73,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 
 ## 7. Extensions (Settings → Sources)
 
-1. Sources lists Apps, Calculator and Convert units. Turn units off: `10 km to mi` no longer converts. Turn it back on.
+1. Sources lists Apps, Calculator, Convert units and Window. Turn units off: `10 km to mi` no longer converts. Turn it back on.
 2. Copy `~/.config/wicket/examples/web-search` into `~/.config/wicket/extensions/`. It shows up in Sources within a second, enabled.
 3. Ask the agent: `build a wicket extension that shows the current week number`. It writes a folder into `extensions/`; type its name or keyword and run it.
 4. Ask the agent for a command with arguments (`build a caffeinate extension with hours and minutes`). Type its name: fields named `hours` and `minutes` appear right after the typed text, and the row or body says the default. Tab into them (Tab again returns to the input, Shift+Tab goes back), fill them, press Return: the command opens with those values, and Return with empty fields uses the default. Try the fields with an input method such as Japanese, with paste, with a click on the row instead of Return, and while voice is listening. Arrow down to another row: the fields go away and typing goes to the input. Check their look in light and dark.
@@ -89,6 +89,18 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 ## 9. Updates
 
 1. Check for Updates… says you are up to date, or offers the newest version and installs it.
+
+## 10. Window commands
+
+Use Wicket (or Wicket Dev) with a few ordinary windows open; nothing here should move a window you did not pick.
+
+1. Before granting anything: switch Wicket off in Privacy & Security ▸ Accessibility (or remove it). Click into a Safari window, open Wicket, type `left`, Return. No system prompt appears; the row reads "Allow Wicket in Privacy & Security > Accessibility". Return opens that pane and closes the launcher. Switch Wicket on there (only Wicket: no separate `window` or `main` entry should appear or be needed).
+2. Without restarting Wicket, open it over Safari again, `left`, Return: Safari's window fills the left half below the menu bar and beside the Dock, and the row says "Moved Safari to the left half". If it still asks for the permission, quit and reopen Wicket and note it.
+3. With the panel still open, run Right Half, Top Half, Bottom Half, Maximize, Almost Maximize (a margin of 5 percent on each side) and Center (same size, centered) from the list, then the same by typing `right`, `top`, `bottom`, `max`, `almost max` and `center` at the root after reopening. Each acts on Safari, never on Wicket's panel.
+4. Restore: after Left Half then Maximize, Restore returns to the left half, Restore again to the original frame, a third Restore says "Nothing to restore". Move the window by hand after a command: Restore says there is nothing to restore.
+5. Next Display, with a second display: the window keeps its place and share (a left half lands as a left half), the next Next Display brings it back; with one display the row says "Only one display". Try displays of different sizes and one arranged above the other.
+6. Dock on the left, then hidden; a notched display; Terminal (it snaps to its grid: Restore must still work); a full-screen window (row: "… is in full screen"); Finder with no window open (a row says there is no window to move; the desktop does not move).
+7. Open Wicket's Settings, then the launcher, `left`: the row says to switch to the window first, and Settings does not move.
 
 ## Feedback
 

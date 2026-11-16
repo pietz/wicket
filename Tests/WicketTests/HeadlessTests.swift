@@ -42,7 +42,8 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   var config = Configuration()
   config.providers =
     ids
-    + (Configuration.builtins + ["extension:calculator", "extension:units"]).filter { id in
+    + (Configuration.builtins + ["extension:calculator", "extension:units", "extension:window"]).filter {
+      id in
       !ids.contains { $0.id == id }
     }.map { .init($0, enabled: false) }
   try config.save(at: root.appending(path: "config.json"))

@@ -1,0 +1,11 @@
+{"name":"Window","icon":"macwindow","command":["./main"],"items":[
+{"id":"left","title":"Left Half","keywords":["window"],"icon":"rectangle.lefthalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"left"}}]},
+{"id":"right","title":"Right Half","keywords":["window"],"icon":"rectangle.righthalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"right"}}]},
+{"id":"top","title":"Top Half","keywords":["window"],"icon":"rectangle.tophalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"top"}}]},
+{"id":"bottom","title":"Bottom Half","keywords":["window"],"icon":"rectangle.bottomhalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"bottom"}}]},
+{"id":"maximize","title":"Maximize","keywords":["window","max"],"icon":"rectangle.inset.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"maximize"}}]},
+{"id":"almost-maximize","title":"Almost Maximize","keywords":["window","almost max"],"icon":"rectangle.center.inset.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"almost-maximize"}}]},
+{"id":"center","title":"Center","keywords":["window","centre"],"icon":"rectangle.arrowtriangle.2.inward","actions":[{"type":"run","title":"Move Window","arguments":{"move":"center"}}]},
+{"id":"next-display","title":"Next Display","keywords":["window","monitor","screen"],"icon":"display.2","actions":[{"type":"run","title":"Move Window","arguments":{"move":"next-display"}}]},
+{"id":"restore","title":"Restore","keywords":["window"],"icon":"arrow.uturn.backward","actions":[{"type":"run","title":"Restore Window","arguments":{"move":"restore"}}]}
+]}

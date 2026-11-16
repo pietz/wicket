@@ -23,8 +23,10 @@ let package = Package(
     // copies each binary into the app with its manifest and source.
     .executableTarget(name: "calculator", path: "Sources/Extensions/calculator", exclude: ["wicket.json"]),
     .executableTarget(name: "units", path: "Sources/Extensions/units", exclude: ["wicket.json"]),
+    .executableTarget(name: "window", path: "Sources/Extensions/window", exclude: ["wicket.json"]),
+    // The window extension's geometry is tested as functions (`@testable import window`).
     .testTarget(
-      name: "WicketTests", dependencies: ["WicketApp"], resources: [.copy("Fixtures")]
+      name: "WicketTests", dependencies: ["WicketApp", "window"], resources: [.copy("Fixtures")]
     ),
   ]
 )

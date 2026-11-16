@@ -11,13 +11,12 @@ Ranked by how much a daily launcher user would feel them.
 1. **Clipboard history is text only and off by default.** No images, files or pins; Raycast and Alfred keep all three. *Core* (only the host can watch the pasteboard); images, files and pins are ROADMAP "Next features" 1, after real use of the text version.
 2. **No action panel, ⌘1–9, per-command hotkeys or favourites.** A row's second action is only in its context menu. *Core, planned:* the Actions menu (Next features 2) and bindings (Next features 8), which also give favourites in the empty panel.
 3. **No snippets that expand as you type.** Snippets can only be manifest items with a paste action, and an extension's paste drops newlines (ISSUES). *Core* for lossless extension paste (ROADMAP, smaller contract steps); system-wide expansion needs a resident keystroke listener no one-shot extension can hold, so it is *not done* until real use asks.
-4. **No window management.** Raycast and Tinycast build it in. *Extension:* an extension can call the Accessibility APIs itself (SPEC, "What is fixed and what is hackable"); a good one for the agent to write. Unverified: whether a child process gets Wicket's Accessibility grant.
-5. **The calculator is bare arithmetic.** No functions, dates, time zones or history; currency is an example to copy in; Raycast 2.12 now answers weather, flights and travel times inline. *Extensions* (pattern extensions, like `units` and `currency`); a strip of values in a root row is parked (ROADMAP, richer root rows).
-6. **No system commands or app management.** Lock, sleep, toggles, eject, quit or restart apps. *Extensions:* sample extensions (Next features 9) or written by the agent on request.
-7. **File search is names only, with no folder browsing.** *Core stays as is;* content, kinds, dates and browsing only after real use shows the need (ROADMAP, deferred).
-8. **No shell commands from the panel.** *Core or extension undecided* (Next features 3 and the deferred comparison).
-9. **No AI on the selection, the screen or other apps.** Raycast attaches the focused window, selection and a screenshot. *Not done automatically, by decision* (11 Nov 2026); attaching Finder files or text on purpose is planned (Next features 4, parked idea).
-10. **No store, emoji picker, bookmarks, contacts, notes or calendar.** *Extensions or the agent;* no store by design, a small curated repository later.
+4. **The calculator is bare arithmetic.** No functions, dates, time zones or history; currency is an example to copy in; Raycast 2.12 now answers weather, flights and travel times inline. *Extensions* (pattern extensions, like `units` and `currency`); a strip of values in a root row is parked (ROADMAP, richer root rows).
+5. **No system commands or app management.** Lock, sleep, toggles, eject, quit or restart apps. *Extensions:* sample extensions (Next features 9) or written by the agent on request.
+6. **File search is names only, with no folder browsing.** *Core stays as is;* content, kinds, dates and browsing only after real use shows the need (ROADMAP, deferred).
+7. **No shell commands from the panel.** *Core or extension undecided* (Next features 3 and the deferred comparison).
+8. **No AI on the selection, the screen or other apps.** Raycast attaches the focused window, selection and a screenshot. *Not done automatically, by decision* (11 Nov 2026); attaching Finder files or text on purpose is planned (Next features 4, parked idea).
+9. **No store, emoji picker, bookmarks, contacts, notes or calendar.** *Extensions or the agent;* no store by design, a small curated repository later.
 
 ## Where Wicket is ahead
 
@@ -96,7 +95,7 @@ Ranked by how much a daily launcher user would feel them.
 
 | Feature | Alfred | Raycast | Tinycast | Wicket |
 |---|---|---|---|---|
-| Halves, thirds, next display | ✗ (workflows) | ✓ (custom commands paid) | ✓ 39 actions | ext |
+| Halves, thirds, next display | ✗ (workflows) | ✓ (custom commands paid) | ✓ 39 actions | ✓ bundled extension: halves, maximize, almost maximize, center, next display, restore; no thirds |
 | Saved layouts | ✗ | ✓ (Spaces and full screen fixed in 2.12) | ✓ plus Rooms | ext |
 | Window switcher | ✗ | ✓ | ✓ | ext |
 | Lock, sleep, empty Trash, eject | ✓ | ✓ | ✓ | ext |
