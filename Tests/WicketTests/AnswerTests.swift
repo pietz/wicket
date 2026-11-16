@@ -239,7 +239,7 @@ import Testing
   #expect(html.contains("<code>a\nb\n</code>"))
 }
 
-@MainActor @Test func agentRowIsAlwaysPresentAndQuestionsOutrankWeakMatches() async throws {
+@MainActor @Test func agentRowLeadsOnlyWhenNothingMatchesStrongly() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let model = LauncherModel(
@@ -250,11 +250,11 @@ import Testing
   #expect(model.results.first?.provider == "agent")
   model.input = "2+2"
   #expect(await eventually { !model.isRefreshing })
-  #expect(model.results.map(\.provider) == ["math", "agent"])
+  #expect(model.results.map(\.provider) == ["math"])
   #expect(model.selected?.provider == "math")
   model.input = ""
   #expect(await eventually { !model.isRefreshing })
-  #expect(model.results.count == 1 && model.results.first?.provider == "agent")
+  #expect(model.results.isEmpty)
 }
 
 @Test func commandReturnAsksAndIMEKeepsOwnership() {

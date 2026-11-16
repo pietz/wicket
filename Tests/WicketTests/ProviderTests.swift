@@ -57,17 +57,16 @@ func eventually(_ condition: () -> Bool) async -> Bool {
     providers: [TestProvider("apps"), TestProvider("math")], history: UsageHistory(url: url),
     folder: url.deletingLastPathComponent())
   model.input = "test"
-  #expect(await eventually { !model.isRefreshing && model.results.count == 3 })
-  #expect(model.results.map(\.provider) == ["math", "agent", "apps"])
-  #expect(model.results.map(\.id) == ["math:mathtest", "agent:ask", "apps:appstest"])
+  #expect(await eventually { !model.isRefreshing && model.results.count == 2 })
+  #expect(model.results.map(\.id) == ["math:mathtest", "apps:appstest"])
   model.store.update { $0.providers.reverse() }
   model.refresh()
-  #expect(await eventually { !model.isRefreshing && model.results.count == 3 })
-  #expect(model.results.map(\.provider) == ["math", "agent", "apps"])
+  #expect(await eventually { !model.isRefreshing && model.results.count == 2 })
+  #expect(model.results.map(\.provider) == ["math", "apps"])
   model.store.update { $0.providers[$0.providers.firstIndex { $0.id == "apps" }!].enabled = false }
   model.refresh()
-  #expect(await eventually { model.results.count == 2 })
-  #expect(model.results.map(\.provider) == ["math", "agent"])
+  #expect(await eventually { model.results.count == 1 })
+  #expect(model.results.map(\.provider) == ["math"])
 }
 
 @MainActor @Test func oldQueriesCannotReplaceNewResults() async {
@@ -83,7 +82,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   #expect(await eventually { model.results.first?.row.title == "New" })
   provider.waiting.removeValue(forKey: "old")?.resume(returning: .init(items: [row("Old")]))
   await Task.yield()
-  #expect(model.results.map(\.row.title) == ["New", "Ask agent"])
+  #expect(model.results.map(\.row.title) == ["New"])
 }
 
 @MainActor @Test func mathUsesTheSameProviderContract() async throws {
@@ -112,11 +111,11 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   #expect(await eventually { !model.isRefreshing })
   sizes.removeAll()
   model.input = "second"
-  #expect(model.results.count == 2 && sizes.isEmpty)
+  #expect(model.results.count == 1 && sizes.isEmpty)
   #expect(await eventually { provider.waiting["second"] != nil })
   provider.waiting.removeValue(forKey: "second")?.resume(returning: .init(items: [row("second")]))
   #expect(await eventually { !model.isRefreshing })
-  #expect(sizes == [2])
+  #expect(sizes == [1])
 }
 
 @MainActor @Test func lateExtensionRowsKeepSelectionAndNewQueriesResetIt() async throws {
@@ -144,7 +143,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
   model.input = "weather"
-  #expect(await eventually { !model.isRefreshing && model.results.count == 3 })
+  #expect(await eventually { !model.isRefreshing && model.results.count == 2 })
   let chosen = try #require(model.results.first { $0.provider == "apps" })
   model.select(chosen.id)
   let top = controller.panel.frame.maxY
@@ -153,7 +152,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   #expect(
     model.selection == chosen.id
       && model.results.map(\.provider) == [
-        "extension:weather", "extension:weather", "extension:weather", "agent", "apps",
+        "extension:weather", "extension:weather", "extension:weather", "apps",
       ])
   #expect(controller.panel.frame.maxY == top)
   model.refresh()

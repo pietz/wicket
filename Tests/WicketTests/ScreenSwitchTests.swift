@@ -65,7 +65,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   model.go(Address(id: "test"), chosen: true)
   // The root stays exactly as it was: no rows vanish, the height stays.
   #expect(model.command == nil && model.input == "a" && model.sizedRows == 8)
-  #expect(frames.all.allSatisfy { $0 == .init(command: nil, rows: 13, height: full) })
+  #expect(frames.all.allSatisfy { $0 == .init(command: nil, rows: 12, height: full) })
   #expect(await eventually { model.command != nil })
   // After the deadline the command shows, quietly loading, at its own height in the same publish.
   #expect(model.command?.busy == true && model.input.isEmpty)
@@ -87,7 +87,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   // Every publish is either the root as it was or the command with its row: never one without the other.
   #expect(
     frames.all.allSatisfy {
-      $0 == .init(command: nil, rows: 13, height: full)
+      $0 == .init(command: nil, rows: 12, height: full)
         || $0 == .init(command: "extension:test", rows: 1, height: one)
     })
   #expect(frames.all.last?.command == "extension:test")

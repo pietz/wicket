@@ -93,10 +93,10 @@ func answering(_ title: String) -> String {
   await model.extensions.reload()
   model.input = ""
   await model.settled()
-  #expect(model.results.map(\.row.title) == ["Links", "Ask agent"])
+  #expect(model.results.map(\.row.title) == ["Links"])
   model.input = "docs"
   await model.settled()
-  #expect(model.results.map(\.row.title) == ["Alpha", "Beta Docs", "Ask agent"])
+  #expect(model.results.map(\.row.title) == ["Alpha", "Beta Docs"])
   // An item's run action without `extension` means its own extension.
   let beta = try #require(model.results.first { $0.row.title == "Beta Docs" })
   model.activate(beta.row.actions[0], from: beta)

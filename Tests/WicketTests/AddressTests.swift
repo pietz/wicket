@@ -271,9 +271,11 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(command["row"]["actions"].array.first?["type"].string == "run")
   #expect(command["row"]["actions"].array.first?["extension"].string == "deploy")
   #expect(command["row"]["actions"].array.first?["input"].string == "")
-  let ask = try #require(rows.first { $0["provider"].string == "agent" })
+  #expect(!rows.contains { $0["provider"].string == "agent" })
+  let sentence = try await cli(root, ["--query", "why did it fail"])
+  let ask = try #require(sentence.1["items"].array.first { $0["provider"].string == "agent" })
   #expect(ask["row"]["actions"].array.first?["type"].string == "send")
-  #expect(ask["row"]["actions"].array.first?["text"].string == "ship")
+  #expect(ask["row"]["actions"].array.first?["text"].string == "why did it fail")
 }
 
 @Test func reservedFolderNamesAreDiscoveryProblems() throws {

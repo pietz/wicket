@@ -89,14 +89,13 @@ enum Ranking {
   ///    Clipboard History when it is on) and files, by tier, then usage for this exact input, then
   ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
   ///    never crosses a tier.
-  /// 4. Ask agent: on top when nothing is strong or the input ends with "?", otherwise right after
-  ///    the last word-prefix or exact match, so it stays above the loose matches.
+  /// 4. Ask agent, only when nothing is strong, and then on top.
   /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
   /// 6. Error and repair rows.
   ///
   /// Strong means a math result, a nonempty successful pattern result or a name match with tier 1
   /// or 2. Empty input lists at most `emptyApps` apps, by their use under any input and then by name,
-  /// then extension commands and Ask agent, and never offers fallbacks.
+  /// then extension commands, and never offers Ask agent or fallbacks.
   ///
   /// - Parameters:
   ///   - math: Rows from the math source.
@@ -223,7 +222,7 @@ enum Ranking {
       let apps = candidates.filter { $0.kind == .app }.prefix(emptyApps)
       let rest = candidates.filter { $0.kind != .app }
       return Output(
-        results: mathRows + patternRows + (apps + rest).map(\.result) + [ask] + failures + repairs,
+        results: mathRows + patternRows + (apps + rest).map(\.result) + failures + repairs,
         strongReason: "empty input lists apps first")
     }
 
@@ -243,11 +242,7 @@ enum Ranking {
     let strong = candidates.filter { $0.tier >= 1 }.map(\.result)
     let loose = candidates.filter { $0.tier == 0 }.map(\.result)
     let head = mathRows + patternRows + strong
-    let asksQuestion = input.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
-    let ordered =
-      reason == nil || asksQuestion
-      ? [ask] + head + fallbacks + loose
-      : head + [ask] + loose
+    let ordered = reason == nil ? [ask] + head + fallbacks + loose : head + loose
     return Output(results: ordered + failures + repairs, strongReason: reason)
   }
 }

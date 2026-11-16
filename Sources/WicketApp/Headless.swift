@@ -80,7 +80,7 @@ public enum Headless {
             let row: Row
           }
           struct Ask: Encodable {
-            let onTop: Bool
+            let shown: Bool
             let reason: String
           }
           let input: String
@@ -91,9 +91,8 @@ public enum Headless {
           Output(
             input: input, items: model.results.map { .init(provider: $0.provider, row: $0.row) },
             askAgent: .init(
-              onTop: model.results.first?.provider == "agent",
-              reason: model.results.count == 1
-                ? "only Ask agent is available" : (model.strongReason ?? "no strong match"))))
+              shown: model.results.first?.provider == "agent",
+              reason: model.strongReason ?? "no strong match")))
       } else {
         throw ExtensionFailure(
           "Use --query TEXT, or --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--chosen]")

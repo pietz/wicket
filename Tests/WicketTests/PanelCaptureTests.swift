@@ -549,7 +549,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-fallback": #expect(model.results.contains { $0.row.id == "fallback" })
   case "extension-list": #expect(model.command != nil && !model.results.isEmpty)
   case "listening": #expect(model.voice?.active == true && model.input == "How do rainbows form?")
-  case "empty": #expect(model.results.map(\.row.title) == ["Calculator", "Calendar", "Chess", "Ask agent"])
+  case "empty": #expect(model.results.map(\.row.title) == ["Calculator", "Calendar", "Chess"])
   default: #expect(!model.results.isEmpty)
   }
   #expect(scenario.controller?.panel.isVisible != true && scenario.controller?.panel.isKeyWindow != true)

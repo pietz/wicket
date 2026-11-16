@@ -147,14 +147,14 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   model.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
-  #expect(await eventually { model.results.map(\.row.title) == ["Invoice.pdf", "Ask agent"] })
+  #expect(await eventually { model.results.map(\.row.title) == ["Invoice.pdf"] })
   #expect(model.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], finish: true)
   await model.settled()
-  #expect(model.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf", "Ask agent"])
+  #expect(model.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf"])
   // The next keystroke keeps the files that still match until its own first batch replaces them.
   model.input = "invoice"
-  #expect(model.results.map(\.row.title) == ["Invoice.pdf", "Ask agent"])
+  #expect(model.results.map(\.row.title) == ["Invoice.pdf"])
   let longer = #"kMDItemFSName == "invoice*"cdw"#
   #expect(await eventually { spotlight.started == [invoice, longer] })
   spotlight.send(longer, [], finish: true)
@@ -202,7 +202,7 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   model.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
-  #expect(await eventually { model.results.count == FileSearch.shown + 1 })
+  #expect(await eventually { model.results.count == FileSearch.shown })
   #expect(model.sizedRows == 8)
   model.input = "invx"
   #expect(model.results.count == 1 && model.sizedRows == 8)

@@ -54,7 +54,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   // Nothing but the score separates them: same kind, tier and usage, and the later title sorts first.
   #expect(
     titles(compose("pass", apps: [app("A Pass"), app("Pass Manager")])) == [
-      "Pass Manager", "A Pass", "Ask agent",
+      "Pass Manager", "A Pass",
     ])
 }
 
@@ -66,7 +66,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(
     titles(compose("pass", apps: apps, files: files, extensions: extensions)) == [
       "Passwords", "Password", "1Password", "Proton Pass", "pass.txt", "passport.pdf", "passwords old.csv",
-      "Ask agent", "Podcasts",
+      "Podcasts",
     ])
   // Usage learned for this exact input still lifts a file the user picked before.
   var usage = UsageStore()
@@ -93,7 +93,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let output = compose(
     "2+2", math: [math], apps: [app("2+2 Calculator")], patterns: ["extension:calc": .items([units])],
     extensions: ["extension:calc": manifest("Calc", match: ".")])
-  #expect(titles(output) == ["4", "Four", "2+2 Calculator", "Ask agent"])
+  #expect(titles(output) == ["4", "Four", "2+2 Calculator"])
   #expect(output.strongReason == "math result")
 }
 
@@ -112,7 +112,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
       "extension:units": manifest("Units", match: "."),
       "extension:currency": manifest("Convert currency", match: "."),
     ])
-  #expect(titles(output) == ["Currency", "6.21 mi", "Other", "Ask agent", "10 km Mini Tools"])
+  #expect(titles(output) == ["Currency", "6.21 mi", "Other", "10 km Mini Tools"])
   #expect(output.strongReason == "pattern result: extension:currency")
 }
 
@@ -132,7 +132,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "weather", apps: [app("Weather app")], patterns: ["extension:w": .items(rows)],
     extensions: ["extension:w": manifest("W", match: ".")], usage: usage)
   #expect(
-    titles(output) == ["weather", "Weather c", "Weather b", "Rain later", "Weather app", "Ask agent"])
+    titles(output) == ["weather", "Weather c", "Weather b", "Rain later", "Weather app"])
 }
 
 @Test func rowsInsideAChosenCommandKeepReturnedOrderAfterExactAndPrefixMatches() {
@@ -181,16 +181,10 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(hasFallback(compose("zzz", patterns: ["extension:web": .items([])], extensions: extensions)))
 }
 
-@Test func aTrailingQuestionMarkPutsAskAgentFirstEvenWithAPrefixMatch() {
-  let apps = [app("What? Notes")]
-  #expect(titles(compose("what?", apps: apps)) == ["Ask agent", "What? Notes"])
-  #expect(titles(compose("what?  ", apps: apps)) == ["Ask agent", "What? Notes"])
-  #expect(titles(compose("what", apps: apps)) == ["What? Notes", "Ask agent"])
-}
-
-@Test func askAgentSitsAfterPrefixMatchesAndBeforeLooseOnes() {
+@Test func aStrongMatchHidesAskAgentEvenForAQuestion() {
   let output = compose("cal", apps: [app("Medical Notes"), app("Calendar"), app("Calculator"), app("Cal")])
-  #expect(titles(output) == ["Cal", "Calculator", "Calendar", "Ask agent", "Medical Notes"])
+  #expect(titles(output) == ["Cal", "Calculator", "Calendar", "Medical Notes"])
+  #expect(titles(compose("what?", apps: [app("What? Notes")])) == ["What? Notes"])
 }
 
 @Test func usageReordersWithinATierButNeverAcrossTiers() {
@@ -203,19 +197,19 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   }
   #expect(
     titles(compose("cal", apps: apps, usage: usage)) == [
-      "Cal", "Calculator", "Calendar", "Ask agent", "Medical",
+      "Cal", "Calculator", "Calendar", "Medical",
     ])
   use("Calendar", times: 3)
   use("Medical", times: 500)
   use("Calendar", times: 500, query: "ca")  // another query does not count
   #expect(
     titles(compose("cal", apps: apps, usage: usage)) == [
-      "Cal", "Calendar", "Calculator", "Ask agent", "Medical",
+      "Cal", "Calendar", "Calculator", "Medical",
     ])
   use("Calculator", times: 100_000)
   #expect(
     titles(compose("cal", apps: apps, usage: usage)) == [
-      "Cal", "Calculator", "Calendar", "Ask agent", "Medical",
+      "Cal", "Calculator", "Calendar", "Medical",
     ])
   // An exact match always beats a habit on a prefix match.
   use("Calendar", times: 1_000_000, query: "cal")
@@ -226,21 +220,21 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let extensions = ["extension:deploy": manifest("Deploy", keyword: "set")]
   let output = compose("set", apps: [app("Setapp"), app("Offset Tool")], extensions: extensions)
   // Setapp and Deploy (keyword "set") and Settings are in the same tier ordering: exact first.
-  #expect(titles(output) == ["Deploy", "Setapp", "Settings", "Ask agent", "Offset Tool"])
+  #expect(titles(output) == ["Deploy", "Setapp", "Settings", "Offset Tool"])
   // Settings answers to its alias and to a prefix.
-  #expect(titles(compose("pref")).prefix(2) == ["Settings", "Ask agent"])
-  #expect(titles(compose("settings")).prefix(2) == ["Settings", "Ask agent"])
+  #expect(titles(compose("pref")).first == "Settings")
+  #expect(titles(compose("settings")).first == "Settings")
   #expect(compose("pref").strongReason == "title prefix: settings:open")
   #expect(!titles(compose("")).contains("Settings"))
 }
 
-@Test func emptyInputListsAppsByUsageThenAskAgentAndCommands() {
+@Test func emptyInputListsAppsByUsageThenCommandsWithoutAskAgent() {
   var usage = UsageStore()
   for _ in 0..<3 { usage.record(Result(provider: "apps", row: app("Notes")).id, query: "", now: Date()) }
   let output = compose(
     "", apps: [app("Calendar"), app("Notes")], extensions: ["extension:deploy": manifest("Deploy")],
     usage: usage)
-  #expect(titles(output) == ["Notes", "Calendar", "Deploy", "Ask agent"])
+  #expect(titles(output) == ["Notes", "Calendar", "Deploy"])
   // A command that was picked often still lists after every app.
   let command = Result(provider: "extension:deploy", row: Row(id: "command", title: "Deploy", actions: []))
   for _ in 0..<10 { usage.record(command.id, query: "", now: Date()) }
@@ -248,11 +242,11 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     titles(
       compose(
         "", apps: [app("Calendar"), app("Notes")], extensions: ["extension:deploy": manifest("Deploy")],
-        usage: usage)) == ["Notes", "Calendar", "Deploy", "Ask agent"])
+        usage: usage)) == ["Notes", "Calendar", "Deploy"])
   let pattern = compose(
     "", patterns: ["extension:all": .items([Row(id: "x", title: "Recent", actions: [])])],
     extensions: ["extension:all": manifest("All", match: ".*")])
-  #expect(titles(pattern) == ["Recent", "Ask agent"])
+  #expect(titles(pattern) == ["Recent"])
 }
 
 @Test func emptyInputRanksAppsByTheirUseUnderAnyInput() {
@@ -264,7 +258,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   usage.record(safari, query: "saf", now: Date())
   let apps = ["Calendar", "Notes", "Safari", "Books"].map { app($0) }
   #expect(
-    titles(compose("", apps: apps, usage: usage)) == ["Notes", "Safari", "Books", "Calendar", "Ask agent"])
+    titles(compose("", apps: apps, usage: usage)) == ["Notes", "Safari", "Books", "Calendar"])
 }
 
 @Test func emptyInputShowsAtMostTwentyAppsMostUsedFirst() {
@@ -272,11 +266,11 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let apps = (0..<300).map { app(String(format: "App %03d", $0)) }
   usage.record(Result(provider: "apps", row: apps[250]).id, query: "app", now: Date())
   let output = compose("", apps: apps, extensions: ["extension:deploy": manifest("Deploy")], usage: usage)
-  // The used app first, then by name up to the cap; commands and Ask agent follow as before.
+  // The used app first, then by name up to the cap; commands follow as before.
   #expect(
-    titles(output) == ["App 250"] + (0..<19).map { String(format: "App %03d", $0) } + ["Deploy", "Ask agent"])
+    titles(output) == ["App 250"] + (0..<19).map { String(format: "App %03d", $0) } + ["Deploy"])
   // Typed input is never capped.
-  #expect(compose("app", apps: apps, usage: usage).results.count == 301)
+  #expect(compose("app", apps: apps, usage: usage).results.count == 300)
 }
 
 @Test func failedPatternsAndInvalidManifestsGoAtTheEnd() {
@@ -301,7 +295,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let answered = compose(
     "deploy", patterns: ["extension:deploy": .items([Row(id: "r", title: "Result", actions: [])])],
     extensions: extensions)
-  #expect(titles(answered) == ["Result", "Ask agent"])
+  #expect(titles(answered) == ["Result"])
 }
 
 @Test func filesRankAfterEveryOtherKindInTheirTier() {
@@ -312,10 +306,10 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
       compose(
         "note", apps: [app("Notes")], files: [file("Notes.txt")],
         extensions: ["extension:n": manifest("Notebook")]))
-      == ["Notes", "Notebook", "Notes.txt", "Ask agent"])
+      == ["Notes", "Notebook", "Notes.txt"])
   // A file whose name the input starts still beats an app it matches only loosely.
   let output = compose("dit", apps: [app("BBEdit")], files: [file("ditto.md")])
-  #expect(titles(output) == ["ditto.md", "Ask agent", "BBEdit"])
+  #expect(titles(output) == ["ditto.md", "BBEdit"])
   #expect(output.strongReason == "title prefix: files:/Users/me/Documents/ditto.md")
 }
 
@@ -335,13 +329,13 @@ private func command(_ json: String) throws -> ExtensionCommand {
   // Same tier as the apps: kind breaks the tie after usage and score, so apps first.
   #expect(
     titles(compose("cal", apps: apps, items: items("cal"))) == [
-      "Cal", "Calendar", "Calendar Web", "Ask agent",
+      "Cal", "Calendar", "Calendar Web",
     ])
   let web = Result(provider: "extension:links", row: links.rootItems("cal")[0])
   for _ in 0..<20 { usage.record(web.id, query: "cal", now: Date()) }
   let used = compose("cal", apps: apps, items: items("cal"), usage: usage)
   // Usage lifts the item within the prefix tier but never above the exact match.
-  #expect(titles(used) == ["Cal", "Calendar Web", "Calendar", "Ask agent"])
+  #expect(titles(used) == ["Cal", "Calendar Web", "Calendar"])
   let github = compose("code", items: items("code")).results[0]
   #expect(github.row.title == "GitHub" && github.row.subtitle == "Links" && github.row.icon == "link")
   #expect(

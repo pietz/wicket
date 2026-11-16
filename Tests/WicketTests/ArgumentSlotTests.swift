@@ -27,6 +27,7 @@ import Testing
   _ = try extensionFolder(
     root, name: "caffeinate",
     fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
+  _ = try extensionFolder(root, name: "caffeine")  // Another row to move to.
   let fake = FakeTranscriber()
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
@@ -117,6 +118,7 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(root, name: "caffeinate", fields: ["arguments": [["name": "hours"]]])
+  _ = try extensionFolder(root, name: "caffeine")
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()

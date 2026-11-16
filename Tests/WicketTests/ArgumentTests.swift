@@ -60,6 +60,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   let (_, requests) = try logging(
     root, name: "Caffeinate",
     fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
+  _ = try extensionFolder(root, name: "caffeine")  // A row without arguments.
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()
@@ -75,8 +76,8 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(model.argumentValues == ["hours": "4"])
   #expect(try requests().isEmpty)
   // Another row has none and drops the values; dismissing drops them too.
-  let ask = try #require(model.results.first { $0.provider == "agent" })
-  model.select(ask.id)
+  let other = try #require(model.results.first { $0.provider == "extension:caffeine" })
+  model.select(other.id)
   #expect(model.declaredArguments.isEmpty && model.argumentValues.isEmpty)
   model.select(row.id)
   #expect(model.argumentValues.isEmpty)

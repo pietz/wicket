@@ -57,7 +57,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(allowed.0 == 0)
   #expect(allowed.1["items"].array.first?["provider"].string == "extension:pattern")
   #expect(allowed.1["items"].array.contains { $0["provider"].string == "apps" })
-  #expect(allowed.1["askAgent"]["onTop"] == .bool(false))
+  #expect(allowed.1["askAgent"]["shown"] == .bool(false))
   #expect(allowed.1["askAgent"]["reason"].string == "pattern result: extension:pattern")
   #expect(FileManager.default.fileExists(atPath: marker.path))
   try FileManager.default.removeItem(at: marker)
@@ -86,6 +86,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let weak = try await cli(root, ["--query", "utterly unique sentence QX842"])
   #expect(weak.1["items"].array.first?["provider"].string == "agent")
   #expect(weak.1["items"].array.contains { $0["row"]["id"].string == "fallback" })
+  #expect(weak.1["askAgent"]["shown"] == .bool(true))
   #expect(weak.1["askAgent"]["reason"].string == "no strong match")
   #expect(!FileManager.default.fileExists(atPath: marker.path))
   let strong = try await cli(root, ["--query", "2+2"])
@@ -117,14 +118,14 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(learned.1["items"].array.first?["row"]["title"].string == "Calendar")
 }
 
-@Test func headlessEmptyDisabledListExplainsWhyAskIsTheOnlyRow() async throws {
+@Test func headlessEmptyInputNeverShowsAskAgent() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   try saveProviders([], in: root)
   let output = try await cli(root, ["--query", ""])
-  #expect(output.0 == 0 && output.1["items"].array.count == 1)
-  #expect(output.1["askAgent"]["onTop"] == .bool(true))
-  #expect(output.1["askAgent"]["reason"].string == "only Ask agent is available")
+  #expect(output.0 == 0 && output.1["items"].array.isEmpty)
+  #expect(output.1["askAgent"]["shown"] == .bool(false))
+  #expect(output.1["askAgent"]["reason"].string == "empty input lists apps first")
 }
 
 @Test func headlessUsageStaysWithinTheTypedQuery() async throws {
@@ -174,10 +175,10 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     #expect(equation.1["items"].array.first?["provider"].string == (enabled ? "math" : "agent"))
     let units = try await cli(root, ["--query", "10 km in mi"])
     #expect(units.1["items"].array.first?["provider"].string == "extension:units")
-    #expect(units.1["askAgent"]["onTop"] == .bool(false))
+    #expect(units.1["askAgent"]["shown"] == .bool(false))
     let sentence = try await cli(root, ["--query", "please summarise my quarterly plan"])
     #expect(sentence.1["items"].array.first?["provider"].string == "agent")
-    #expect(sentence.1["askAgent"]["onTop"] == .bool(true))
+    #expect(sentence.1["askAgent"]["shown"] == .bool(true))
   }
 }
 

@@ -19,8 +19,8 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 1. Type `saf`. Safari is on top. Return opens it and closes the launcher.
 2. Type an exact app name (`Notes`). It is first even if other apps contain the word.
 3. Type a loose match (`vsc` for Visual Studio Code). It shows up, below exact and prefix matches.
-4. Type the start of a later word of an app (`pass` with 1Password or Proton Pass installed). Those apps are above every file named `pass…`, and at most eight files follow them, then Ask agent.
-5. Open the launcher with an empty field. Apps come first, Ask agent follows them.
+4. Type the start of a later word of an app (`pass` with 1Password or Proton Pass installed). Those apps are above every file named `pass…`, and at most eight files follow them. No Ask agent row.
+5. Open the launcher with an empty field. Apps and commands only, no Ask agent row.
 6. Use one app often for a day: it should win ties against similar names, never beat a better match.
 
 ## 3. Math and units
@@ -34,7 +34,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 ## 4. Ask the agent
 
 1. Type a sentence (`what is the tallest building in europe`). Ask agent is on top. Return asks.
-2. Type a single word plus `?` (`kubernetes?`). Ask agent is on top.
+2. Type `saf`. Safari is on top and there is no Ask agent row; the footer shows ⌘↩ Ask agent.
 3. With an app match visible, press Cmd+Return. It asks the agent instead of opening the app. The footer showed ⌘↩ Ask agent.
 4. With nothing typed, press Cmd+Return at the root: the bar reads Ask Claude… and Esc Back returns to the root list with its selection. Enter Weather, select a row, press Cmd+Return with nothing typed: the bar reads Ask about Weather…, typing `will it rain` does not rerun Weather, and Escape returns to Weather with its view, input and selection. Press Cmd+Return again, type the question and press Return: the header says "from Weather" and the answer knows the forecast that was shown.
 5. In Weather, type `will it rain tomorrow` (Weather shows an error) and press Cmd+Return. The footer said ⌘↩ Ask about Weather, and the agent gets the forecast from before you typed, not the error.
