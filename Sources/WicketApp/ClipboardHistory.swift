@@ -52,23 +52,8 @@ final class ClipboardHistory: Provider {
   ) {
     self.pasteboard = pasteboard
     self.interval = interval
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    // A missing or unreadable file is an empty history.
-    clips = (try? Data(contentsOf: url)).flatMap { try? decoder.decode([Clip].self, from: $0) } ?? []
-    writer = LatestWriter { clips in
-      do {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        // Owner-only: the folder is created 0700, so the file is unreachable for others whatever its mode.
-        try FileManager.default.createDirectory(
-          at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-          attributes: [.posixPermissions: 0o700])
-        try encoder.encode(clips).write(to: url, options: .atomic)
-      } catch {
-        Self.log.error("clipboard: save failed, code \((error as NSError).code, privacy: .public)")
-      }
-    }
+    clips = PrivateList.read(url)
+    writer = PrivateList.writer(url, log: Self.log)
   }
 
   /// Applies the `clipboard` source's switch: starts or stops watching and expires old clips.
@@ -136,13 +121,11 @@ final class ClipboardHistory: Provider {
   /// oldest clip is last, so it runs on every poll, on each configuration (at launch, also while off) and
   /// whenever the panel opens.
   func expire(now: Date = Date()) {
-    let oldest = now.addingTimeInterval(-Double(Self.maxDays) * 24 * 3600)
-    guard clips.count > Self.maxEntries || (clips.last.map { $0.copied < oldest } ?? false) else {
-      return
-    }
-    let kept = clips.prefix(Self.maxEntries).filter { $0.copied >= oldest }
-    guard kept.count != clips.count else { return }
-    clips = Array(kept)
+    guard
+      let kept = PrivateList.retained(
+        clips, count: Self.maxEntries, days: Self.maxDays, date: \.copied, now: now)
+    else { return }
+    clips = kept
     save()
   }
 

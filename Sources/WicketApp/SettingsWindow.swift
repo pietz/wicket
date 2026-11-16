@@ -9,15 +9,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let store: ConfigurationStore
   private let extensions: ExtensionHost
   private let clipboard: ClipboardHistory
+  private let runs: AgentHistory
   private let updater: Updater?
   private let pauseHotkey: (Bool) -> Void
   init(
-    store: ConfigurationStore, extensions: ExtensionHost, clipboard: ClipboardHistory, updater: Updater?,
-    pauseHotkey: @escaping (Bool) -> Void
+    store: ConfigurationStore, extensions: ExtensionHost, clipboard: ClipboardHistory, runs: AgentHistory,
+    updater: Updater?, pauseHotkey: @escaping (Bool) -> Void
   ) {
     self.store = store
     self.extensions = extensions
     self.clipboard = clipboard
+    self.runs = runs
     self.updater = updater
     self.pauseHotkey = pauseHotkey
   }
@@ -31,7 +33,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ("Agent", "sparkles"), ("Sources", "list.bullet"),
       ].enumerated() {
         let pane = SettingsPane(
-          section: index, store: store, extensions: extensions, clipboard: clipboard,
+          section: index, store: store, extensions: extensions, clipboard: clipboard, runs: runs,
           updater: updater, pauseHotkey: pauseHotkey)
         let controller = NSHostingController(rootView: pane)
         controller.title = item.0
@@ -67,6 +69,7 @@ struct SettingsPane: View {
   let store: ConfigurationStore
   let extensions: ExtensionHost
   let clipboard: ClipboardHistory
+  let runs: AgentHistory
   let updater: Updater?
   let pauseHotkey: (Bool) -> Void
   @State private var automaticChecks: Bool?
@@ -77,6 +80,7 @@ struct SettingsPane: View {
   @State private var inputDevices: [MicrophoneDevice] = []
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
   @State private var confirmingClear = false
+  @State private var confirmingClearRuns = false
   private var config: Configuration { store.configuration }
 
   var body: some View {
@@ -311,6 +315,19 @@ struct SettingsPane: View {
         )
         .textSelection(.enabled).font(.callout)
       }
+    }
+    Section(AgentHistory.title) {
+      Text(
+        "Keeps your last \(AgentHistory.maxEntries) agent runs for \(AgentHistory.maxDays) days, only on this Mac, where the agent cannot see them. Type history to reopen one and follow up."
+      )
+      .font(.callout).foregroundStyle(.secondary)
+      LabeledContent("Saved runs", value: "\(runs.runs.count)")
+      Button("Clear History…") { confirmingClearRuns = true }.disabled(runs.runs.isEmpty)
+        .confirmationDialog("Clear agent history?", isPresented: $confirmingClearRuns) {
+          Button("Clear History", role: .destructive) { runs.clear() }
+        } message: {
+          Text("Deletes every saved run. This can't be undone.")
+        }
     }
   }
   private func option(_ title: String, key: String, help: String) -> some View {

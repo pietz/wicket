@@ -85,8 +85,8 @@ enum Ranking {
   ///
   /// 1. A math result.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
-  /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, and
-  ///    Clipboard History when it is on) and files, by tier, then usage for this exact input, then
+  /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
+  ///    History, and Clipboard History when it is on) and files, by tier, then usage for this exact input, then
   ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
   ///    never crosses a tier.
   /// 4. Ask agent, only when nothing is strong, and then on top.
@@ -179,7 +179,12 @@ enum Ranking {
           provider: "settings",
           row: Row(
             id: "open", title: "Settings", icon: "gearshape",
-            actions: [.run(Address(extensionName: "settings"))], keywords: ["preferences"]))
+            actions: [.run(Address(extensionName: "settings"))], keywords: ["preferences"])),
+        Result(
+          provider: "history",
+          row: Row(
+            id: "open", title: AgentHistory.title, icon: "clock.arrow.circlepath",
+            actions: [.run(Address(extensionName: "history"))])),
       ]
       if sources.contains("clipboard") {
         rows.append(

@@ -29,7 +29,7 @@ private let states = [
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
   "extension-targets", "extension-detail-larger", "asking", "asking-extension",
   "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
-  "arguments-long", "arguments-three",
+  "arguments-long", "arguments-three", "history", "history-reopened",
   "settings-general", "settings-voice", "settings-agent", "settings-sources", "settings-error",
   "settings-conflict",
 ]
@@ -46,6 +46,14 @@ private func expectedText(_ name: String) -> [String] {
     return [
       "Allow Claude to edit files", "Update the weather extension", "2 files", "Don't allow", "Allow once",
     ]
+  }
+  if name.contains("history-reopened") {
+    return [
+      "Previous questions", "And for the whole week", "Build something useful", "Continuing conversation",
+    ]
+  }
+  if name.contains("history") {
+    return ["Agent History", "How is the launch going", "Claude", "What should I build next", "ChatGPT"]
   }
   if name.contains("conversation-reopen") {
     return ["Could this work offline", "Continuing conversation", "End conversation"]
@@ -172,8 +180,9 @@ private let nextAnswer =
 
     let (name, size) = textSize(state)
     let transcriber = FakeTranscriber()
+    let runs = AgentHistory(url: folder.appending(path: "agent-history.json"))
     let model = LauncherModel(
-      providers: [MathProvider(), FixedApps()],
+      providers: [MathProvider(), FixedApps()], agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       transcriber: { transcriber })
     model.store.update {
@@ -235,6 +244,23 @@ private let nextAnswer =
       try await configureExtension("extension-detail", model)
       model.askAgent()
     case _ where name.hasPrefix("arguments-"): try await configureArguments(name, model)
+    case "history", "history-reopened":
+      let hour: TimeInterval = 3600
+      runs.save(
+        .init(
+          id: "older", agent: .codex, session: "t", used: Date().addingTimeInterval(-26 * hour), source: nil,
+          turns: [.init(question: "What should I build next?", answer: nextAnswer)]))
+      runs.save(
+        .init(
+          id: "newer", agent: .claude, session: "s", used: Date().addingTimeInterval(-2 * hour),
+          source: nil,
+          turns: [
+            .init(question: "How is the launch going?", answer: launchAnswer),
+            .init(question: "And for the whole week?", answer: nextAnswer),
+          ]))
+      model.go(Address(extensionName: "history"))
+      await model.settled()
+      if name == "history-reopened" { model.activateReturn() }
     default: break
     }
     controller.show(orderFront: false, listen: false)
@@ -427,6 +453,7 @@ private let nextAnswer =
           url: folder.appending(path: "clipboard-history.json"),
           pasteboard: NSPasteboard(name: .init(UUID().uuidString)),
           interval: nil),
+        runs: AgentHistory(url: folder.appending(path: "agent-history.json")),
         updater: nil, pauseHotkey: { _ in }))
     pane.frame = NSRect(x: 0, y: 0, width: 560, height: 480)
     let window = NSWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -545,6 +572,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "arguments-open", "arguments-long": #expect(model.command != nil && model.argumentValues.isEmpty)
   case "arguments-three": #expect(model.declaredArguments.count == 3)
   case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
+  case "history": #expect(model.command?.id == "history" && model.results.count == 2)
+  case "history-reopened":
+    #expect(model.agent.continuing && model.agent.previous.count == 1 && model.agent.sessionID == "s")
   case "extension-pattern": #expect(model.results.first?.row.title.contains("6.21") == true)
   case "extension-fallback": #expect(model.results.contains { $0.row.id == "fallback" })
   case "extension-list": #expect(model.command != nil && !model.results.isEmpty)

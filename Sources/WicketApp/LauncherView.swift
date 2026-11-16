@@ -436,6 +436,9 @@ struct LauncherView: View {
                 Button(model.questionExpanded ? "Show less" : "Show more") { model.questionExpanded.toggle() }
                   .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
               }
+              if let notice = model.agent.notice {
+                Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
+              }
             }
             Button {
               model.writePasteboard(model.agent.answer)

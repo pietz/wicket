@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 
-/// The command screen: an extension's, or the clipboard history's. Nil at search.
+/// The command screen: an extension's, or a host command's (Clipboard History, Agent History). Nil at search.
 struct CommandState {
   let id: String
   var arguments: [String: String] = [:]
@@ -185,6 +185,7 @@ final class LauncherModel {
   }
   func reopen(now: Date = Date()) {
     clipboard?.expire(now: now)
+    agentHistory?.expire(now: now)
     guard agent.reopen(now: now) else { return }
     cancelWork()
     command = nil
@@ -263,41 +264,50 @@ final class LauncherModel {
   private let history: UsageHistory
   var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
   let clipboard: ClipboardHistory?
-  /// What answers a command's requests: an extension's command through the host, or a built-in provider
-  /// (the clipboard history). Nil when there is no such command.
+  let agentHistory: AgentHistory?
+  /// The host's own commands, answered without a process.
+  private func hostCommand(_ id: String) -> (@MainActor @Sendable (ProviderRequest) -> ProviderView)? {
+    if let clipboard, clipboard.id == id { return { clipboard.view(for: $0) } }
+    if let agentHistory, agentHistory.id == id { return { agentHistory.view(for: $0) } }
+    return nil
+  }
+  /// What answers a command's requests: an extension's command through the host, or a host command.
+  /// Nil when there is no such command.
   private func commandSource(_ id: String) -> (@MainActor (ProviderRequest) async throws -> ProviderView)? {
     if let command = extensions.commands[id] {
       let host = extensions
       return { try await host.view(command, request: $0) }
     }
-    guard let clipboard, clipboard.id == id else { return nil }
-    return { clipboard.view(for: $0) }
+    guard let view = hostCommand(id) else { return nil }
+    return { view($0) }
   }
-  /// What a command answers without waiting for anything: an extension's manifest items, or the
-  /// clipboard history. Nil when it runs a process.
+  /// What a command answers without waiting for anything: an extension's manifest items, or a host
+  /// command. Nil when it runs a process.
   private func immediateView(_ id: String, _ request: ProviderRequest) -> ProviderView? {
     if let command = extensions.commands[id] {
       return command.manifest.command == nil ? ProviderView(items: command.ownItems(request.input)) : nil
     }
-    guard let clipboard, clipboard.id == id else { return nil }
-    return clipboard.view(for: request)
+    return hostCommand(id)?(request)
   }
   /// The open command's name, for the input placeholder and the footer.
   var commandName: String? { command.flatMap { name(of: $0.id) } }
   private func name(of id: String) -> String? {
-    extensions.commands[id]?.manifest.name ?? (id == clipboard?.id ? ClipboardHistory.title : nil)
+    extensions.commands[id]?.manifest.name
+      ?? (id == clipboard?.id ? ClipboardHistory.title : id == agentHistory?.id ? AgentHistory.title : nil)
   }
 
   init(
     providers: [any Provider], files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
-    history: UsageHistory, folder: URL = FileManager.default.temporaryDirectory,
-    transcriber: (() -> any Transcriber)? = nil
+    agentHistory: AgentHistory? = nil, history: UsageHistory,
+    folder: URL = FileManager.default.temporaryDirectory, transcriber: (() -> any Transcriber)? = nil
   ) {
     self.clipboard = clipboard
+    self.agentHistory = agentHistory
     makeTranscriber = transcriber
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
     timingURL = folder.appending(path: "voice-timing.txt")
     agent = AgentSession(folder: folder)
+    agent.history = agentHistory
     extensions = ExtensionHost(folder: folder)
     self.providers = providers
     self.files = files
@@ -399,7 +409,9 @@ final class LauncherModel {
       cancelWork()
       target?.next = .rerun
       let remembered = !typed || state.next != .rerun
-      guard let source, configuration.isEnabled(state.id, extensions: extensions.ids) else {
+      guard let source,
+        state.id == agentHistory?.id || configuration.isEnabled(state.id, extensions: extensions.ids)
+      else {
         target?.context = nil
         target?.problem =
           source == nil
@@ -754,7 +766,14 @@ final class LauncherModel {
   /// is always the root. `chosen` marks the user activating a run action, which the first request says.
   func go(_ address: Address, from origin: String? = nil, chosen: Bool = false) {
     let own = origin.flatMap { commandSource($0) == nil ? nil : $0 }
-    switch address.extensionName == nil ? own : address.targetID {
+    let target = address.extensionName == nil ? own : address.targetID
+    // A run chosen in Agent History opens as a conversation over the list, which Escape returns to.
+    if chosen, target == agentHistory?.id,
+      let run = address.arguments?["open"].flatMap({ agentHistory?.run($0) })
+    {
+      return restore(run)
+    }
+    switch target {
     case "settings": onSettings()
     case "agent": fill(address.input ?? input)
     case nil: arrive(nil, input: address.input ?? "")
@@ -788,10 +807,31 @@ final class LauncherModel {
     origin = nil
     stopArriving()
     cancelWork()
-    var settings = configuration.agent
-    settings.textSize = configuration.textSize
-    agent.ask(text, context: context?.text, from: context?.name, settings: settings)
+    agent.ask(
+      text, context: context?.text, from: context?.name, settings: questionSettings(keeping: agent.reopened))
     questionExpanded = false
+    clearSelection()
+    input = ""
+  }
+  /// What a question goes with: the agent settings at the Text size. A run reopened from Agent History
+  /// keeps its agent, with that agent's defaults when another one is configured now.
+  private func questionSettings(keeping kept: AgentConfiguration.Agent?) -> AgentConfiguration {
+    var settings = configuration.agent
+    if let kept, kept != settings.agent {
+      settings = AgentConfiguration()
+      settings.agent = kept
+      settings.streamAnswers = configuration.agent.streamAnswers
+    }
+    settings.textSize = configuration.textSize
+    return settings
+  }
+  private func restore(_ run: AgentHistory.Run) {
+    origin = nil
+    stopArriving()
+    cancelWork()
+    agent.restore(run, settings: questionSettings(keeping: run.agent))
+    questionExpanded = false
+    historyExpanded = false
     clearSelection()
     input = ""
   }
@@ -946,5 +986,6 @@ final class LauncherModel {
     await agent.shutdown()
     await history.finish()
     await clipboard?.finish()
+    await agentHistory?.finish()
   }
 }

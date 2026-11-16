@@ -28,6 +28,19 @@ final class AgentSession {
   var onChange: (() -> Void)?
   let folder: URL
   private(set) var sessionID: String?
+  /// Where each finished turn is saved, as the run `runID`.
+  var history: AgentHistory?
+  private(set) var runID = UUID().uuidString
+  /// The command the first question was asked from, which the run keeps.
+  private var runSource: String?
+  /// The agent of a run reopened from Agent History, which its follow-ups keep; nil otherwise.
+  private(set) var reopened: AgentConfiguration.Agent?
+  /// One quiet line under the question: the session could not be resumed, so the answer started afresh.
+  private(set) var notice: String?
+  /// The CLI was asked to resume a session and has not confirmed it yet.
+  private var resuming = false
+  /// What the current question sends, context included.
+  private var prompt = ""
   private var connection: (any AgentConnection)?
   private var chosen = AgentConfiguration()
   private var pendingAnswer = ""
@@ -120,7 +133,9 @@ final class AgentSession {
     cancelling = false
     question = input
     self.source = context == nil ? nil : source
-    let prompt = context.map { "\($0)\n\n\(input)" } ?? input
+    if previous.isEmpty { runSource = self.source }
+    notice = nil
+    prompt = context.map { "\($0)\n\n\(input)" } ?? input
     answer = ""
     pendingAnswer = ""
     narration = ""
@@ -128,8 +143,14 @@ final class AgentSession {
     status = "Connecting to \(settings.agent.title)…"
     permissions = []
     lastActivity = Date()
+    launch()
+    onChange?()
+  }
+  /// Starts the CLI for the current question, resuming the session if there is one.
+  private func launch() {
     generation += 1
     let version = generation
+    resuming = sessionID != nil
     task = Task { [weak self] in
       guard let self else { return }
       do {
@@ -161,6 +182,17 @@ final class AgentSession {
         }
       }
     }
+  }
+  /// The CLI no longer has the session (deleted or expired): the question starts a new one, and the
+  /// answers already shown stay. Both CLIs say so at once (checked 16 Nov 2026: Claude Code 2.1.325
+  /// in 0.8 s, codex-cli 0.167.1 in 0.1 s).
+  private func startAfresh() {
+    release(connection, "resume failed; starting afresh")
+    connection = nil
+    acceptingUpdates = false
+    sessionID = nil
+    notice = "Earlier context was not available"
+    launch()
     onChange?()
   }
   /// A turn that never starts or never ends fails instead of waiting forever.
@@ -188,6 +220,7 @@ final class AgentSession {
     switch event {
     case .session(let id):
       sessionID = id
+      resuming = false
     case .text(var text, let id):
       guard acceptingUpdates, !text.isEmpty else { return }
       let boundary = id != messageID
@@ -234,6 +267,7 @@ final class AgentSession {
     case .failed(let message):
       // A process that ended after its turn is not an error.
       guard busy else { return }
+      if resuming, !cancelling { return startAfresh() }
       fail(message)
       return
     }
@@ -282,6 +316,12 @@ final class AgentSession {
     deadline?.cancel()
     release(connection, outcome)
     connection = nil
+    history?.save(
+      AgentHistory.Run(
+        id: runID, agent: chosen.agent, session: sessionID, used: Date(), source: runSource,
+        turns: (previous + [Turn(id: turnID, question: question, answer: answer)]).map {
+          .init(question: $0.question, answer: $0.answer)
+        }))
     onChange?()
   }
   /// Every pending permission is refused, so the CLI is never left waiting on one.
@@ -313,6 +353,11 @@ final class AgentSession {
     continuing = false
     busy = false
     sessionID = nil
+    runID = UUID().uuidString
+    runSource = nil
+    reopened = nil
+    notice = nil
+    resuming = false
     source = nil
     answer = ""
     pendingAnswer = ""
@@ -323,6 +368,29 @@ final class AgentSession {
     problem = nil
     acceptingUpdates = false
     cancelling = false
+    onChange?()
+  }
+  /// Reopens a run from Agent History as it was left: its last answer under its question, the earlier
+  /// turns behind Previous questions, and Continuing conversation. A follow-up resumes its session.
+  func restore(_ run: AgentHistory.Run, settings: AgentConfiguration) {
+    reset()
+    guard let last = run.turns.last else { return }
+    chosen = settings
+    runID = run.id
+    runSource = run.source
+    reopened = run.agent
+    sessionID = run.session
+    previous = run.turns.dropLast().map {
+      Turn(id: UUID().uuidString, question: $0.question, answer: $0.answer)
+    }
+    question = last.question
+    source = run.turns.count == 1 ? run.source : nil
+    answer = last.answer
+    turnID = UUID().uuidString
+    status = "Ready for a follow-up"
+    active = true
+    continuing = true
+    lastActivity = Date()
     onChange?()
   }
   /// Returns once every process this session started has stopped, even one that was still starting.

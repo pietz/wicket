@@ -21,9 +21,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let apps = AppsProvider()
     let clipboard = ClipboardHistory(
       url: Edition.current.privateDirectory().appending(path: "clipboard-history.json"))
+    let runs = AgentHistory(url: Edition.current.privateDirectory().appending(path: "agent-history.json"))
     let model = LauncherModel(
-      providers: [MathProvider(), apps], files: FilesProvider(), clipboard: clipboard, history: history,
-      folder: directory)
+      providers: [MathProvider(), apps], files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
+      history: history, folder: directory)
     do {
       try AnswerRenderer.installFiles(in: directory)
       try ExtensionHost.installFiles(in: directory)
@@ -58,7 +59,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     configuration = model.store
     configuration.applyHotkey = { [weak self] in self?.hotkey.apply($0) }
     settings = SettingsWindowController(
-      store: configuration, extensions: model.extensions, clipboard: clipboard, updater: updater
+      store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater
     ) { [weak self] paused in
       guard let self else { return }
       hotkey.pause(paused)

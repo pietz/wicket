@@ -99,8 +99,9 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
 /// command (empty anywhere else), without `arguments` none. Two spellings, one value: JSON for an
 /// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","arguments":{"view":"hourly"}}`,
 /// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no arguments. `agent`,
-/// `settings` and `clipboard` are reserved targets: `agent` fills the input and never sends, `clipboard` is
-/// the clipboard history command, and an empty `extension`, as in a URL without one, is a root query.
+/// `settings`, `clipboard` and `history` are reserved targets: `agent` fills the input and never sends,
+/// `clipboard` and `history` are the Clipboard History and Agent History commands, and an empty
+/// `extension`, as in a URL without one, is a root query.
 struct Address: Codable, Sendable, Equatable {
   var extensionName: String?
   var input: String?
@@ -114,7 +115,7 @@ struct Address: Codable, Sendable, Equatable {
     case input, arguments
   }
   static let schemes = ["wicket", "wicket-dev"]
-  static let reserved = ["agent", "settings", "clipboard"]
+  static let reserved = ["agent", "settings", "clipboard", "history"]
 
   init(
     extensionName: String? = nil, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false
@@ -143,7 +144,7 @@ struct Address: Codable, Sendable, Equatable {
       input: parts.queryItems?.first { $0.name == "input" }?.value, link: true)
   }
 
-  /// The host's name for the target: `agent`, `settings`, `clipboard`, an extension ID, or nil for the root.
+  /// The host's name for the target: a reserved name, an extension ID, or nil for the root.
   var targetID: String? {
     guard let name = extensionName, !name.isEmpty else { return nil }
     if Self.reserved.contains(name.lowercased()) { return name.lowercased() }
