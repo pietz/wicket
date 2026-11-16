@@ -109,8 +109,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 @MainActor @Test func changeIsVisibleToTheModelImmediatelyAndInvalidEditsKeepTheLastGoodValue() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
   #expect(model.store.change { try $0.set("textSize", to: "large") })
   #expect(model.store.configuration.textSize == .large && model.configuration.textSize == .large)
@@ -124,8 +123,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 @MainActor @Test func footerProblemPicksOneSourceInPriorityOrder() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   #expect(model.problem == nil)
   model.actionProblem = "paste"
   #expect(model.problem == "paste")
@@ -271,8 +269,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 @MainActor @Test func settingsResultOpensSettingsWithoutAnExtensionProvider() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   var opened = 0
   model.onSettings = { opened += 1 }
   model.input = "Settings"
@@ -355,8 +352,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
         ["name": "gap", "default": "0"], ["name": "percent", "default": "90"], ["name": "label"],
       ]
     ])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
   model.store.change { try $0.set("gap", to: "8", forExtension: "echo") }
   model.store.change { try $0.set("stale", to: "x", forExtension: "echo") }

@@ -45,8 +45,7 @@ import Testing
     ProviderView.self, from: JSONSerialization.data(withJSONObject: ["items": items]))
   #expect(view.items.map(\.actions) == targets.map { [.open($0)] })
 
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   // An allowed target is left to the panel to open.
   #expect(!model.activate(.open(document)) && model.actionProblem == nil)
   #expect(!model.activate(.reveal(unsafe[0])) && model.actionProblem == nil)

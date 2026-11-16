@@ -29,8 +29,8 @@ import Testing
     fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
   _ = try extensionFolder(root, name: "caffeine")  // Another row to move to.
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+  let model = LauncherModel.testing(
+    in: root,
     transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
   await model.extensions.reload()
@@ -119,8 +119,7 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(root, name: "caffeinate", fields: ["arguments": [["name": "hours"]]])
   _ = try extensionFolder(root, name: "caffeine")
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   model.input = "caff"
   await model.settled()
@@ -153,8 +152,7 @@ import Testing
   _ = try extensionFolder(
     root, name: "caffeinate",
     fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   let panel = controller.panel

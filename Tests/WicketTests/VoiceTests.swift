@@ -169,8 +169,8 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   var constructions = 0
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: {
       constructions += 1
       return fake
@@ -199,8 +199,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
   model.toggleVoice()
@@ -236,8 +236,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
   model.toggleVoice()
@@ -255,8 +255,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   try await finishTurn(model.agent, "First", "Answer")
   let client = FakeAgent()
@@ -312,8 +312,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   let url = folder.appending(path: "config.json")
   model.store.start()
@@ -343,8 +343,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   _ = try extensionFolder(
     folder, script: answering("spoken result"), fields: ["match": "^voice .+$"])
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
@@ -378,8 +378,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   model.armVoice()
   fake.feeds[0].yield(.ready)
@@ -408,8 +408,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   let client = FakeAgent()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   model.agent.connect = { _, _, _ in client }
   model.store.update { $0.voice.enabled = true }
@@ -458,8 +458,8 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   // Controller stays hidden; these checks never post keys or order a window.
   let controller = PaletteController(model: model, panel: RoutingPanel())
@@ -495,8 +495,8 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   var restored = 0
   model.onVoicePermissionFinished = { restored += 1 }
@@ -540,8 +540,8 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     transcriber: { fake })
   let controller = PaletteController(model: model, panel: RoutingPanel())
   model.armVoice()
@@ -610,8 +610,8 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+  let model = LauncherModel.testing(
+    in: root,
     transcriber: { fake })
   let controller = PaletteController(model: model, panel: RoutingPanel())
   let event = NSAppleEventDescriptor(
@@ -642,8 +642,8 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
       "import json,sys\nr=json.load(sys.stdin)\nopen(\(path),'a').write(r['input']+'\\n')\nprint(json.dumps({'items':[]}))",
     fields: ["match": ".+", "command": ["/usr/bin/python3", "main.sh"]])
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+  let model = LauncherModel.testing(
+    in: root,
     transcriber: { fake })
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
@@ -695,8 +695,8 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
     for await _ in closing {}
     closed = true
   }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+  let model = LauncherModel.testing(
+    in: root,
     transcriber: { fake })
   let panel = HideOrderPanel()
   let controller = PaletteController(model: model, panel: panel)
@@ -728,8 +728,8 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   let fake = FakeTranscriber()
   let (closing, finish) = AsyncStream.makeStream(of: Void.self)
   fake.shutdown = Task { for await _ in closing {} }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+  let model = LauncherModel.testing(
+    in: root,
     transcriber: { fake })
   model.armVoice()
   let voice = model.voice

@@ -11,8 +11,8 @@ import Testing
 func queryLatency() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     bundled: bundledExtensions)
   await model.extensions.reload()
   var published: [(input: String, first: String?, at: ContinuousClock.Instant)] = []
@@ -74,8 +74,7 @@ func hotkeyToVisibleWithBindings() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   for n in 0..<20 { _ = try extensionFolder(folder, name: "command\(n)") }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+  let model = LauncherModel.testing(in: folder)
   model.store.start(watching: false)
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())

@@ -134,8 +134,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
       try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       return folder.appending(path: "wicket.json")
     }())
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   var settings = 0
@@ -202,8 +201,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     let folder = try extensionFolder(root, name: name, fields: ["command": ["/usr/bin/python3", "echo.py"]])
     try Data(echo.utf8).write(to: folder.appending(path: "echo.py"))
   }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   // An extension's own row may name another extension with arguments.
   model.go(Address(extensionName: "two", input: "x", arguments: ["p": "a", "q": "b"]), from: "extension:one")
@@ -314,8 +312,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
       ],
     ])
   try Data(script.utf8).write(to: folder.appending(path: "ship.py"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   func requests() throws -> [ProviderRequest] {
     let log = (try? String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)) ?? ""

@@ -7,8 +7,7 @@ import Testing
 @MainActor @Test func conversationKeepsDraftHistoryAndPendingDecisionAcrossHide() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   let controller = PaletteController(model: model, panel: RoutingPanel())
   let escape = { controller.panel.route(voiceKey(53, "\u{1b}")) }
   let fake = FakeAgent()
@@ -129,8 +128,7 @@ import Testing
 @MainActor @Test func liveTextSizeReachesTheExistingCanvasAndExpiredDraftReturnsToSearch() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   try await finishTurn(model.agent, "Question", "Answer")
   let controller = PaletteController(model: model)
   model.store.update { $0.voice.enabled = false }
@@ -223,8 +221,7 @@ import Testing
     "import json,sys; json.load(sys.stdin); print(json.dumps({'body':'Extension detail'}))"
       .utf8
   ).write(to: ext.appending(path: "show.py"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
@@ -258,8 +255,7 @@ import Testing
     root, name: "weather",
     script: "cat >/dev/null\nprintf '{\"body\":\"## Hamburg\\\\n\(long)\"}'",
     fields: ["name": "Weather", "submit": true])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:weather")] }
   await model.extensions.reload()
   let fake = FakeAgent()
@@ -306,8 +302,7 @@ import Testing
 @MainActor @Test func aQuestionCarriesTheTextSizeToTheInstructions() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   let fake = FakeAgent()
   var sizes: [Configuration.TextSize] = []
   model.agent.connect = { settings, _, _ in
@@ -335,8 +330,7 @@ import Testing
     print(json.dumps({'items':[{'id':i,'title':(r['input'] or 'Berlin')+' '+i,'actions':[]} for i in 'abc']}))
     """.utf8
   ).write(to: folder.appending(path: "main.py"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:weather")] }
   await model.extensions.reload()
   let runs = {

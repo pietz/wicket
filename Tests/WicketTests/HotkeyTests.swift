@@ -155,8 +155,7 @@ private final class Handle {}
         ["id": "page", "title": "Page", "actions": [["type": "open", "url": "wicket://mover?input=x"]]],
       ],
     ])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
   await model.extensions.reload()
   return model

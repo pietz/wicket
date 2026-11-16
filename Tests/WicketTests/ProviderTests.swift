@@ -180,8 +180,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
     try JSONEncoder().encode(ProviderView(items: rows)).write(to: response, options: .atomic)
   }
   try reply([a, b, c])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
@@ -231,8 +230,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
       while not pathlib.Path('\(gate.path)').exists(): time.sleep(0.01)
       print(json.dumps({'items':[{'id':'weather','title':'Weather today','actions':[]}]}))
       """, fields: ["match": ".+", "command": ["/usr/bin/python3", "main.sh"]])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:forecast")] }
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()

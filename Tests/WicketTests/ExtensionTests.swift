@@ -81,8 +81,7 @@ func answering(_ title: String) -> String {
   manifest["command"] = nil
   try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
   try FileManager.default.removeItem(at: folder.appending(path: "main.sh"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:links")] }
   await model.extensions.reload()
   model.input = ""
@@ -147,8 +146,7 @@ func answering(_ title: String) -> String {
     actions: [.copy("view")])
   let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
   _ = try extensionFolder(root, script: "cat >/dev/null\nprintf '%s' '\(json)'")
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = "test"
@@ -178,8 +176,7 @@ func answering(_ title: String) -> String {
   let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
   _ = try extensionFolder(
     root, script: "cat >/dev/null\nprintf '%s' '\(json)'", fields: ["match": "^weather"])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = "weather berlin"
@@ -276,8 +273,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
     root, script: answering("Ready"), fields: ["name": "Deploy", "keyword": "ship", "fallback": true])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = "ship"
@@ -333,8 +329,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let manifest = try JSONDecoder().decode(
     ExtensionManifest.self, from: Data(contentsOf: root.appending(path: "extensions/test/wicket.json")))
   #expect(manifest.matches(""))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = ""
@@ -354,8 +349,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     at: root.appending(path: "extensions"), withIntermediateDirectories: true)
   try saveProviders([], in: root)
   let before = try Data(contentsOf: root.appending(path: "config.json"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update {
     $0.providers = try! Configuration.load(at: root.appending(path: "config.json")).providers
   }
@@ -380,8 +374,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let runs = root.appending(path: "runs")
   _ = try extensionFolder(
     root, script: "echo run >> '\(runs.path)'\nsleep 0.3\n" + answering("Slow"), fields: ["match": "^slow$"])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = "slow"
@@ -400,8 +393,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   _ = try extensionFolder(
     root, script: "touch '\(marker.path)'\n" + answering("Off"),
     fields: ["name": "Deploy", "keyword": "ship", "match": "^ship$"])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test", enabled: false)] }
   await model.extensions.reload()
   model.input = "ship"
@@ -421,8 +413,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let marker = root.appending(path: "pid")
   _ = try extensionFolder(
     root, script: "echo $$ > '\(marker.path)'\nsleep 30\n" + answering("Late"), fields: ["match": "^slow$"])
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   // The shell creates the file before it writes the PID into it.
@@ -454,8 +445,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(r['arguments'].values())+':'+r['input']}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = "test"
@@ -485,8 +475,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     """
   let folder = try extensionFolder(root, name: "shut", fields: ["command": ["/usr/bin/python3", "shut.py"]])
   try Data(script.utf8).write(to: folder.appending(path: "shut.py"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   var closed = 0
   model.onClose = {

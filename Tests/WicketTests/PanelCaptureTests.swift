@@ -479,8 +479,7 @@ private let nextAnswer =
     window.isReleasedWhenClosed = false
     window.appearance = appearance
     window.contentView = pane
-    let model = LauncherModel(
-      providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+    let model = LauncherModel.testing(in: folder)
     let scenario = Scenario(model: model, controller: nil, view: pane, window: window, folder: folder)
     scenario.keep.append(store)
     scenario.keep.append(host)

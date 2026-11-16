@@ -174,8 +174,7 @@ import Testing
 
 /// A conversation whose answer is `reply`, through the real session and a fake agent.
 @MainActor private func answered(_ reply: String, root: URL) async throws -> (LauncherModel, FakeAgent) {
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   model.input = "What is on today?"
@@ -290,8 +289,7 @@ import Testing
     """
   let folder = try extensionFolder(root, script: "", fields: ["command": ["/usr/bin/python3", "main.py"]])
   try Data(script.utf8).write(to: folder.appending(path: "main.py"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.go(Address(id: "test"))
@@ -350,8 +348,8 @@ import Testing
 @MainActor @Test func aListNeverTouchesThePage() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     bundled: bundledExtensions)
   let controller = PaletteController(model: model, flatSurfaces: true, panel: PalettePanel())
   controller.show(orderFront: false, listen: false)

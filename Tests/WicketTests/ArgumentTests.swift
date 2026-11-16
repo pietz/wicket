@@ -61,8 +61,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
     root, name: "Caffeinate",
     fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
   _ = try extensionFolder(root, name: "caffeine")  // A row without arguments.
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   model.input = "caff"
   await model.settled()
@@ -118,8 +117,8 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   let (_, requests) = try logging(
     root, name: "Note", fields: ["arguments": [["name": "text"]], "submit": true])
   let fake = FakeTranscriber()
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+  let model = LauncherModel.testing(
+    in: root,
     transcriber: { fake })
   await model.extensions.reload()
   model.input = "note"
@@ -195,8 +194,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
     try String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8).split(separator: "\n")
       .map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
   }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   model.input = "notes"
   await model.settled()
@@ -246,8 +244,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   defer { try? FileManager.default.removeItem(at: root) }
   let (folder, requests) = try logging(root, name: "Password", fields: [:])
   _ = try extensionFolder(root, name: "other")
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
   await model.extensions.reload()
   model.go(Address(id: "extension:password"))

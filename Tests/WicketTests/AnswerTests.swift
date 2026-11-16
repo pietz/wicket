@@ -242,8 +242,8 @@ import Testing
 @MainActor @Test func agentRowLeadsOnlyWhenNothingMatchesStrongly() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+  let model = LauncherModel.testing(
+    in: folder,
     bundled: bundledExtensions)
   await model.extensions.reload()
   model.input = "What is the answer?"
@@ -279,8 +279,7 @@ import Testing
       "## A useful extension\n<value label=\"Total\" value=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>"
   )
   try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+  let model = LauncherModel.testing(in: folder)
   model.store.update { $0.providers = [.init("extension:demo")] }
   await model.extensions.reload()
   model.input = "demo"

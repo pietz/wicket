@@ -973,8 +973,7 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
 @MainActor @Test func escapeCancelsTheTurnThenLeavesTheConversation() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let model = LauncherModel(
-    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+  let model = LauncherModel.testing(in: folder)
   let fake = FakeAgent()
   var starts = 0
   model.agent.connect = { _, _, _ in
