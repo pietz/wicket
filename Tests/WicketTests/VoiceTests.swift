@@ -566,19 +566,25 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
 @MainActor @Test func transcriptActivityCannotExtendTheHardLimit() async throws {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
-  // The silence deadline is far away, so only the hard limit can stop it. The limit leaves a slow,
-  // loaded test machine time to observe listening first, since it also bounds startup.
+  // The silence and no-speech deadlines are far away, so only the hard limit can stop it. The hard
+  // limit also bounds startup, and a loaded test run can starve the main actor for seconds before the
+  // session reads the buffered ready, so it is shortened only once listening.
   voice.silenceDuration = .seconds(30)
-  voice.maximumDuration = .seconds(2)
+  voice.noSpeechDuration = .seconds(30)
+  voice.maximumDuration = .seconds(30)
   let started = ContinuousClock.now
   voice.toggle()
   fake.feeds[0].yield(.ready)
-  #expect(await eventually { voice.state == .listening })
+  while voice.state == .starting { try await Task.sleep(for: .milliseconds(5)) }
+  #expect(voice.state == .listening, "problem \(voice.problem ?? "none")")
+  voice.maximumDuration = .seconds(2)
   while voice.active, ContinuousClock.now - started < .seconds(20) {
     fake.feeds[0].yield(.transcript("words at \(ContinuousClock.now)"))
     try await Task.sleep(for: .milliseconds(20))
   }
-  #expect(voice.state == .idle && fake.stops == 1 && voice.problem == nil)
+  #expect(
+    voice.state == .idle && fake.stops == 1 && voice.problem == nil,
+    "state \(voice.state), stops \(fake.stops), problem \(voice.problem ?? "none")")
   #expect(ContinuousClock.now - started >= voice.maximumDuration)
   voice.stop(.toggle)
 }
