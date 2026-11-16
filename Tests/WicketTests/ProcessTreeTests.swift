@@ -115,16 +115,6 @@ func isRunning(_ pid: pid_t) -> Bool {
   return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size && info.pbi_status != SZOMB
 }
 
-/// Waits up to 10 seconds (the stand-ins' hangs last 30) for `condition`.
-func within10s(_ condition: () -> Bool) async -> Bool {
-  let deadline = ContinuousClock.now + .seconds(10)
-  while ContinuousClock.now < deadline {
-    if condition() { return true }
-    try? await Task.sleep(for: .milliseconds(10))
-  }
-  return condition()
-}
-
 extension FileHandle {
   fileprivate func chunks() -> AsyncStream<Data> {
     AsyncStream { continuation in

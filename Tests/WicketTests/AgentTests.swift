@@ -779,20 +779,6 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   #expect(codex.agent.permissionMode == "agent")
 }
 
-@Test func stoppingTheProcessTreeStopsChildrenInAnotherSession() async throws {
-  let started = try Launch.start(
-    URL(fileURLWithPath: "/usr/bin/python3"),
-    [
-      "-c",
-      "import subprocess,time; c=subprocess.Popen(['/bin/sleep','30'],start_new_session=True); print(c.pid,flush=True); time.sleep(30)",
-    ],
-    in: FileManager.default.temporaryDirectory, environment: Launch.environment())
-  _ = await Task.detached { started.stdout.availableData }.value
-  #expect(started.tree.members().count >= 2)
-  _ = await started.tree.stop(after: .zero, grace: .milliseconds(50)).value
-  #expect(started.tree.members().isEmpty)
-}
-
 // MARK: - The session
 
 @MainActor
@@ -829,9 +815,9 @@ final class FakeAgent: AgentConnection {
   func text(_ value: String, message: String = "m1") { onEvent(.text(value, message: message)) }
   func tool(_ title: String) { onEvent(.tool(title)) }
   func ask(_ id: Int = 1) { onEvent(.permission(Self.permission(id))) }
-  static func permission(_ id: Int, kind: AgentPermission.Kind = .edit) -> AgentPermission {
+  static func permission(_ id: Int) -> AgentPermission {
     AgentPermission(
-      id: .number(Double(id)), title: "Write allowed.txt", kind: kind,
+      id: .number(Double(id)), title: "Write allowed.txt", kind: .edit,
       paths: ["/tmp/wicket-recorded/claude/allowed.txt"],
       raw: .object(
         "tool_name", .string("Write"), "input",

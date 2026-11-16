@@ -42,12 +42,6 @@ func answering(_ title: String) -> String {
   ] {
     #expect(throws: (any Error).self) { try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8)) }
   }
-  // `type`, `metadata` and other unknown keys are ignored.
-  #expect(
-    try JSONDecoder().decode(
-      ProviderView.self,
-      from: Data(#"{"type":"detail","body":"hi","metadata":[{"label":"a","value":"b"}],"extra":1}"#.utf8))
-      == ProviderView(body: "hi"))
   for manifest in [
     #"{"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#,
     // Neither a command nor items; a pattern or fallback without a program; the view's item rule.

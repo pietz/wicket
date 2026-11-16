@@ -28,7 +28,6 @@ import Testing
           height: model.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
-  func clear() { all.removeAll() }
 }
 
 @MainActor private func launcher(_ script: String?, items: [[String: Any]] = []) async throws -> (

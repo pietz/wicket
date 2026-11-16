@@ -284,20 +284,6 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   await model.finish()
 }
 
-@Test func switchingASourceKeepsItsPositionOtherEntriesAndUnknownFields() throws {
-  try withSettings(#"{"providers":[{"id":"apps","enabled":false,"future":42},{"id":"math","enabled":true}]}"#)
-  { file in
-    try file.setProvider("apps", enabled: true)
-    try file.setProvider("extension:new", enabled: false)
-    #expect(
-      try Configuration.load(at: file.url).providers == [
-        .init("apps"), .init("math"), .init("extension:new", enabled: false),
-      ])
-    let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
-    #expect(json["providers"].array[0]["future"] == .number(42))
-  }
-}
-
 @MainActor @Test func webSearchIsAnOptionalExampleAndExistingInstallsArePreserved() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

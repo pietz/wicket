@@ -47,7 +47,6 @@ import Testing
 }
 
 @Test func aReplyWithoutTargetsIsUnchangedAndAnUnfinishedTagWaits() {
-  #expect(Page(body: "Plain <b>text</b>", runs: false) == Page(body: "Plain <b>text</b>", runs: false))
   #expect(Page(body: "Plain <b>text</b>", runs: false).source == "Plain <b>text</b>")
   let streaming = Page(body: "Text\n<row title=\"Half\" copy=\"x", runs: false)
   #expect(streaming.targets.isEmpty && streaming.source.hasPrefix("Text"))

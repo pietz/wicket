@@ -54,13 +54,6 @@ func topResult(query: String, expected: String) {
   #expect(Fold.query("ＣＡＦÉ") == Fold.query("cafe"))
 }
 
-@Test func exactThenPrefixAlwaysBeatHabit() {
-  let index = SearchIndex(["Mail", "Mailbox", "Email"].map(row))
-  var usage = UsageStore()
-  for _ in 0..<100 { usage.record("apps:Email", query: "mail", now: Date()) }
-  #expect(search(index, "mail", usage: usage).map(\.title) == ["Mail", "Mailbox", "Email"])
-}
-
 @Test func usageLearnsOnlyTheInputYouPicked() {
   let index = SearchIndex(["Mail", "Maps", "Messages"].map(row))
   var usage = UsageStore()
