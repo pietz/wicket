@@ -13,6 +13,8 @@ Nothing here needs code. Each needs a person on a real Mac, or credentials.
 
 ## Needs hands-on verification
 
+- **The bundled units extension needs Python.** It runs `/usr/bin/python3`, which on a Mac without Apple's command line tools is only a stub that asks to install them, so the first `10 km in mi` there would raise that prompt instead of an answer. Fix: rewrite it in a language every Mac runs (for example JavaScript through `osascript -l JavaScript`, measured before choosing), or install it only when Python works. The same limit is why the calculator stays built in (16 Nov 2026).
+
 Everything below is built and covered by headless tests, but was never watched on a real screen, microphone or Mac settings. Audible, on-screen and device-changing checks stay with a person.
 
 Voice, with real audio (`voice-timing.txt` in the config folder records latencies):
