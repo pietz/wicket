@@ -782,10 +782,6 @@ final class LauncherModel {
     }
     return true
   }
-  /// Return on the selected row, or the follow-up of a conversation.
-  @discardableResult func activateReturn() -> Bool {
-    returnAction.map { activate($0, from: selected) } ?? false
-  }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
   /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root. `chosen` marks the user activating a run action, which the first request says.

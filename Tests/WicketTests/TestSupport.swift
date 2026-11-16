@@ -14,6 +14,11 @@ extension ConfigurationStore {
 }
 
 extension LauncherModel {
+  /// Return as the model sees it, without the panel's effects on the system: the selected row's
+  /// action, or the follow-up of a conversation. False for an effect the panel would run.
+  @discardableResult func activateReturn() -> Bool {
+    returnAction.map { activate($0, from: selected) } ?? false
+  }
   /// A model with no built-in providers that keeps its settings and usage in `folder`.
   static func testing(
     in folder: URL, bundled: URL? = ExtensionHost.bundledFolder, transcriber: (() -> any Transcriber)? = nil

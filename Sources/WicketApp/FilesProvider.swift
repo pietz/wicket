@@ -160,8 +160,7 @@ final class FilesProvider: Sendable {
           continuation.yield(rows)
           if first {
             first = false
-            let elapsed = (ContinuousClock.now - start).components
-            let ms = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+            let ms = (ContinuousClock.now - start) / .milliseconds(1)
             Self.logger.info(
               "files: first batch \(rows.count, privacy: .public) of \(hits.count, privacy: .public) in \(ms, format: .fixed(precision: 1), privacy: .public) ms"
             )
