@@ -64,6 +64,16 @@ struct ConfigurationFile {
       object["hotkeys"] = entries
     }
   }
+  /// Sets or, with nil, removes one of an extension's settings, dropping objects left empty.
+  func set(_ key: String, to value: String?, forExtension folder: String) throws {
+    try edit { object in
+      var all = object["extensions"] as? [String: Any] ?? [:]
+      var own = all[folder] as? [String: Any] ?? [:]
+      own[key] = value
+      all[folder] = own.isEmpty ? nil : own
+      object["extensions"] = all.isEmpty ? nil : all
+    }
+  }
   func setProvider(_ id: String, enabled: Bool) throws {
     try providers { entries in
       if let index = entries.firstIndex(where: { $0["id"] as? String == id }) {

@@ -78,7 +78,7 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 5. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
 6. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history, Fix with Agent and Move to Trash came with it.
 7. **Charts in answers.** The agent describes the data (kind, labels, values) in a tag and Wicket draws it, so the model never designs the chart: bar, line and maybe donut, in theme colors, as SVG built by Wicket from validated numbers, never by the model. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines.
-8. **Bindings:** config entries that attach an address to a short alias or a favourite in the empty panel, writable by the agent. Global hotkeys for any address are built (`hotkeys`, SPEC Config and Hotkeys for commands); what is left of them: apps and quicklinks (an item whose action is `open`) as targets, and showing a background run's view that does not close the panel once views can (A notice).
+8. **Bindings:** config entries that attach an address to a short alias or a favourite in the empty panel, writable by the agent. Global hotkeys for any address are built (`hotkeys`, SPEC Config and Hotkeys for commands); what is left of them: apps and quicklinks (an item whose action is `open`) as targets. Settings ▸ Extensions lists and records them per extension, and a background run whose view does not close the panel shows it (16 Nov 2026).
 9. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
 
 ### The macOS 27 glass look
@@ -106,7 +106,7 @@ Addresses name views, never effects; there is no exec action and no templating l
 - No consent step for extensions that run unchosen (patterns, fallbacks), decided 11 Nov 2026: an agent tricked into writing a bad extension already has a shell and could do the same harm directly, so the agent's own permission prompts are the gate. Revisit only if extensions from other people get shared.
 - No agent context feature (selected text, clipboard or frontmost app chips), decided 11 Nov 2026: no real use case for selected text, and the agent reads the clipboard with its own shell when asked.
 - No saved prompts as rows, decided 11 Nov 2026: the owner does not repeat prompts.
-- Show automatic pattern-triggered extension runs in Sources, so users see when an enabled extension runs.
+- Show automatic pattern-triggered extension runs in Settings ▸ Extensions, so users see when an enabled extension runs.
 
 ## Later, ideas
 
@@ -115,7 +115,7 @@ Addresses name views, never effects; there is no exec action and no templating l
 - Empty palette with favourites and suggestions; a compact results mode.
 - Voice: hold to talk, a language choice for mixed German and English.
 - First-run onboarding and a permissions flow asked only when a feature needs it.
-- Forms, preferences and secrets build on declared arguments: a longer list of the same `{name, placeholder}` fields, values kept per extension (secrets in the Keychain) and sent under their names like any argument. Required fields and choice lists only when a real extension needs them.
+- Forms and secrets build on declared arguments: a longer list of the same `{name, placeholder}` fields (secrets in the Keychain). Required fields and choice lists only when a real extension needs them. Preferences are done (16 Nov 2026, the settings step of SPEC's Core or extension decision): manifest `settings` in the shape of `arguments` plus a `default`, set in Settings ▸ Extensions and sent in every request as `settings`. The values live in `config.json` under `extensions` instead of the planned `settings.json` in each extension's folder, because a bundled extension's folder is inside the signed app and cannot be written, and config is already the one validated, live-reloaded file Settings and the agent edit. Next in that decision: extensions as tools the agent can list, from the manifest `description`.
 - The launcher is always available (parked 11 Nov 2026, ranked first by three architecture reviewers, not yet felt in use): the hotkey always lands on root search, even while a turn runs or an approval waits; the one retained conversation keeps running and shows as a live row on top (running, waiting for approval, answered) that Return reopens, never above a strong app match; a new question replaces it. No list of conversations, no notifications. Pick it up if real use shows Esc mid-answer to reach the launcher.
 - Theme customization the agent knows about: once theming is settled (what `theme.css` may change, shared tokens for panel and answers), add it to the Wicket documentation section of the agent instructions.
 - Grid views.

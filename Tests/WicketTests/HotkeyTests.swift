@@ -135,7 +135,8 @@ private final class Handle {}
 }
 
 /// A Window-like extension: manifest items whose `run` sets `move`, and a program that writes each
-/// request it gets to `requests`, fails when `move` is `fail` and otherwise lists `left` as Window does.
+/// request it gets to `requests`, fails when `move` is `fail`, is done (`close`) when it is `left` and
+/// otherwise lists `left` under a row saying why nothing moved, as Window does.
 @MainActor private func windowLike(_ root: URL) async throws -> LauncherModel {
   let item = { (id: String) -> [String: Any] in
     ["id": id, "title": id, "actions": [["type": "run", "arguments": ["move": id]]]]
@@ -143,14 +144,14 @@ private final class Handle {}
   _ = try extensionFolder(
     root, name: "mover",
     script: """
-      cat >> "\(root.path)/requests"; echo >> "\(root.path)/requests"
-      grep -q '"move":"fail"' "\(root.path)/requests" && { echo broke >&2; exit 3; }
-      echo '{"items":[{"id":"left","title":"left","actions":[]}]}'
+      line=$(cat); echo "$line" >> "\(root.path)/requests"
+      case "$line" in *'"move":"fail"'*) echo broke >&2; exit 3;; *'"move":"left"'*) echo '{"close":true}'; exit;; esac
+      echo '{"items":[{"id":"why","title":"Nothing moved","actions":[]},{"id":"left","title":"left","actions":[]}]}'
       """,
     fields: [
       "name": "Mover",
       "items": [
-        item("left"), item("fail"),
+        item("left"), item("fail"), item("stuck"),
         ["id": "page", "title": "Page", "actions": [["type": "open", "url": "wicket://mover?input=x"]]],
       ],
     ])
@@ -185,6 +186,20 @@ private final class Handle {}
   // The report is what shows; the program ran once and does not run again.
   await model.settled()
   #expect(model.command?.problem != nil)
+  let runs = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
+  #expect(runs.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 1)
+}
+
+@MainActor @Test func aBackgroundRunWhoseViewIsNotDoneShowsThePanelOnIt() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = try await windowLike(root)
+  var shown = 0
+  await model.press(HotkeyTarget(target: "extension:mover", item: "stuck")) { shown += 1 }
+  #expect(shown == 1 && model.command?.id == "extension:mover" && model.command?.problem == nil)
+  #expect(model.results.first?.row.title == "Nothing moved" && model.selected?.row.id == "why")
+  // What shows is the view of the run the hotkey caused; nothing runs again.
+  await model.settled()
   let runs = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
   #expect(runs.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 1)
 }

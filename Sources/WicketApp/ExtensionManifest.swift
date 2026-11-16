@@ -2,6 +2,8 @@ import Foundation
 
 struct ExtensionManifest: Codable, Sendable, Equatable {
   let name: String
+  /// One line on what it does, for Settings.
+  let description: String?
   let keyword: String?
   /// The program that answers the command. Without one, Wicket answers it from `items`.
   let command: [String]?
@@ -14,19 +16,24 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let arguments: [Argument]
   /// The command runs on Return with a chosen request, never while typing.
   let submit: Bool
+  /// Values the user sets in Settings, kept in config.json and sent in every `request.settings`.
+  let settings: [Argument]
 
+  /// An argument, or a setting, which may have a `default`.
   struct Argument: Codable, Sendable, Equatable {
     let name: String
     let placeholder: String?
+    let `default`: String?
   }
   static let maxArguments = 3
 
   private enum CodingKeys: String, CodingKey {
-    case name, keyword, command, icon, match, fallback, items, arguments, submit
+    case name, description, keyword, command, icon, match, fallback, items, arguments, submit, settings
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     name = try c.decode(String.self, forKey: .name)
+    description = try c.decodeIfPresent(String.self, forKey: .description)
     keyword = try c.decodeIfPresent(String.self, forKey: .keyword)
     command = try c.decodeIfPresent([String].self, forKey: .command)
     icon = try c.decodeIfPresent(String.self, forKey: .icon)
@@ -35,11 +42,21 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     items = try c.decodeIfPresent([Row].self, forKey: .items)
     arguments = try c.decodeIfPresent([Argument].self, forKey: .arguments) ?? []
     submit = try c.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+    settings = try c.decodeIfPresent([Argument].self, forKey: .settings) ?? []
     let names = arguments.map(\.name)
-    guard names.count <= Self.maxArguments, Set(names).count == names.count, !names.contains("") else {
+    guard names.count <= Self.maxArguments, Set(names).count == names.count, !names.contains(""),
+      arguments.allSatisfy({ $0.default == nil })
+    else {
       throw DecodingError.dataCorruptedError(
         forKey: .arguments, in: c,
-        debugDescription: "At most \(Self.maxArguments) arguments, with nonempty unique names")
+        debugDescription: "At most \(Self.maxArguments) arguments, with nonempty unique names and no default")
+    }
+    let settingNames = settings.map(\.name)
+    guard Set(settingNames).count == settingNames.count, !settingNames.contains(""),
+      command != nil || settings.isEmpty
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .settings, in: c, debugDescription: "Settings need a command and nonempty unique names")
     }
     guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw DecodingError.dataCorruptedError(forKey: .name, in: c, debugDescription: "Name must be nonempty")

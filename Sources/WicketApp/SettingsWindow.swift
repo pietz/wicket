@@ -30,7 +30,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       tabs.tabStyle = .toolbar
       for (index, item) in [
         ("General", "gearshape"), ("Voice", "waveform"),
-        ("Agent", "sparkles"), ("Sources", "list.bullet"),
+        ("Agent", "sparkles"), ("Extensions", "puzzlepiece.extension"),
       ].enumerated() {
         let pane = SettingsPane(
           section: index, store: store, extensions: extensions, clipboard: clipboard, runs: runs,
@@ -81,31 +81,34 @@ struct SettingsPane: View {
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
   @State private var confirmingClear = false
   @State private var confirmingClearRuns = false
+  /// The Extensions tab's selected source, and the target whose hotkey its recorder records.
+  @State var selected: String? = "apps"
+  @State private var recording: HotkeyTarget?
+  @State private var copyProblem: String?
   private var config: Configuration { store.configuration }
 
   var body: some View {
-    Form {
-      if let problem = store.problem {
-        Section {
-          Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-          Text("Keeping the last good configuration. Fix config.json to continue editing.")
-          Button("Open Config Folder") { reveal(store.url.deletingLastPathComponent()) }
+    Group {
+      if section == 3 {
+        HStack(spacing: 0) {
+          extensionList
+          Divider()
+          form { extensionDetail }.id(selected)
+        }
+        .onChange(of: selected) {
+          recorder.stop()
+          copyProblem = nil
+        }
+      } else {
+        form {
+          switch section {
+          case 0: general
+          case 1: voice
+          default: agent
+          }
         }
       }
-      if let problem = store.writeProblem {
-        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-      }
-      Group {
-        switch section {
-        case 0: general
-        case 1: voice
-        case 2: agent
-        default: sourcesSection
-        }
-      }
-      .disabled(store.problem != nil)
     }
-    .formStyle(.grouped)
     .frame(width: 560, height: 480)
     .onAppear {
       if section == 1 { inputDevices = MicrophoneDevices.available() }
@@ -118,6 +121,29 @@ struct SettingsPane: View {
       microphone = AVCaptureDevice.authorizationStatus(for: .audio)
       if section == 1 { inputDevices = MicrophoneDevices.available() }
     }
+  }
+
+  private func form(@ViewBuilder _ content: () -> some View) -> some View {
+    Form {
+      if let problem = store.problem {
+        Section {
+          Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+          Text("Keeping the last good configuration. Fix config.json to continue editing.")
+          Button("Open Config Folder") { reveal(store.url.deletingLastPathComponent()) }
+        }
+      }
+      if let problem = store.writeProblem {
+        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+      }
+      Group { content() }.disabled(store.problem != nil)
+    }
+    .formStyle(.grouped)
+  }
+  private var recorderHint: some View {
+    Text(
+      recorder.rejected ? "Add ⌘, ⌃ or ⌥ (F-keys work alone). Esc cancels." : "Press a shortcut. Esc cancels."
+    )
+    .foregroundStyle(.secondary)
   }
 
   @ViewBuilder private var general: some View {
@@ -133,13 +159,7 @@ struct SettingsPane: View {
           }
         }.frame(minWidth: 120)
       }
-      if recorder.isRecording {
-        Text(
-          recorder.rejected
-            ? "Add ⌘, ⌃ or ⌥ (F-keys work alone). Esc cancels." : "Press a shortcut. Esc cancels."
-        )
-        .foregroundStyle(.secondary)
-      }
+      if recorder.isRecording { recorderHint }
       if let problem = store.hotkeyProblem {
         Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
       }
@@ -360,28 +380,135 @@ struct SettingsPane: View {
     }
   }
 
-  private var sources: [Configuration.ProviderEntry] { config.sources(extensions: extensions.ids) }
-  @ViewBuilder private var sourcesSection: some View {
-    Section {
-      ForEach(sources, id: \.id) { source in
-        let id = source.id
-        Toggle(
-          id == "clipboard"
-            ? ClipboardHistory.title
-            : extensions.commands[id]?.manifest.name
-              ?? id.replacingOccurrences(of: "extension:", with: "").capitalized,
-          isOn: Binding(
-            get: { source.enabled },
-            set: { enabled in store.change { try $0.setProvider(id, enabled: enabled) } }))
-        if id == "clipboard" { clipboardRows(enabled: source.enabled) }
+  // MARK: Extensions
+
+  private static let builtins = [
+    "apps": ("Apps", "square.grid.2x2", "Finds the apps on this Mac by name."),
+    "files": ("Files", "doc", "Finds files by name with Spotlight, from three letters on."),
+    "clipboard": (
+      ClipboardHistory.title, "doc.on.clipboard", "Keeps the texts you copy to paste them again."
+    ),
+  ]
+  private func title(_ id: String) -> String {
+    Self.builtins[id]?.0 ?? extensions.commands[id]?.manifest.name ?? String(id.dropFirst("extension:".count))
+  }
+  private var extensionList: some View {
+    let sources = config.sources(extensions: extensions.ids)
+    return List(selection: $selected) {
+      Section("Built in") {
+        ForEach(sources.filter { Self.builtins[$0.id] != nil }, id: \.id, content: sourceRow)
       }
-    } header: {
-      Text("Sources")
-    } footer: {
-      Text("Turn off sources you don't use.")
+      Section("Extensions") {
+        ForEach(
+          sources.filter { Self.builtins[$0.id] == nil }.sorted { title($0.id) < title($1.id) }, id: \.id,
+          content: sourceRow)
+      }
     }
+    .listStyle(.sidebar)
+    .safeAreaInset(edge: .bottom) {
+      Button("Extensions Folder") { reveal(extensions.folder.appending(path: "extensions")) }.padding(10)
+    }
+    .frame(width: 220)
+  }
+  private func sourceRow(_ source: Configuration.ProviderEntry) -> some View {
+    let id = source.id
+    let icon =
+      extensions.problems[id] != nil
+      ? "exclamationmark.triangle" : Self.builtins[id]?.1 ?? extensions.commands[id]?.manifest.icon
+    return HStack {
+      Label(title(id), systemImage: icon ?? "puzzlepiece.extension")
+      Spacer()
+      Toggle(
+        title(id),
+        isOn: Binding(
+          get: { source.enabled },
+          set: { enabled in store.change { try $0.setProvider(id, enabled: enabled) } })
+      )
+      .labelsHidden().toggleStyle(.switch).controlSize(.mini).disabled(store.problem != nil)
+    }
+    .tag(id)
+  }
+  @ViewBuilder private var extensionDetail: some View {
+    let id = selected ?? "apps"
+    let command = extensions.commands[id]
+    let bundled = command.map(extensions.isBundled) ?? false
     Section {
-      Button("Reveal Extensions Folder") { reveal(extensions.folder.appending(path: "extensions")) }
+      VStack(alignment: .leading, spacing: 4) {
+        Text(title(id)).font(.title3.bold())
+        if let about = Self.builtins[id]?.2 ?? command?.manifest.description {
+          Text(about).foregroundStyle(.secondary)
+        }
+      }
+      if let problem = extensions.problems[id] {
+        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled)
+      }
+      if let command {
+        HStack {
+          Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([command.folder]) }
+          if bundled {
+            Button("Make It Mine") {
+              copyProblem = nil
+              do { try extensions.makeMine(command) } catch { copyProblem = error.localizedDescription }
+            }
+            .help("Copies it into your extensions folder, where you and your agent can change it.")
+          }
+        }
+        if let copyProblem { Text(copyProblem).foregroundStyle(.red) }
+      }
+    } footer: {
+      if bundled { Text("Bundled with Wicket. A copy made yours replaces it.") }
+    }
+    if id == "clipboard" {
+      Section { clipboardRows(enabled: config.isEnabled(id, extensions: [])) }
+    }
+    if let command, !command.manifest.settings.isEmpty {
+      let folder = command.folder.lastPathComponent
+      Section("Settings") {
+        ForEach(command.manifest.settings, id: \.name) { setting in
+          SettingField(setting: setting, saved: config.extensions[folder]?[setting.name]) { value in
+            store.change { try $0.set(setting.name, to: value, forExtension: folder) }
+          }
+        }
+      }
+    }
+    let targets: [(String, HotkeyTarget)] =
+      id == "clipboard"
+      ? [(ClipboardHistory.title, HotkeyTarget(target: id))]
+      : command.map { command in
+        [(command.manifest.name, HotkeyTarget(target: id))]
+          + (command.manifest.items ?? []).map { ($0.title, HotkeyTarget(target: id, item: $0.id)) }
+      } ?? []
+    if !targets.isEmpty {
+      Section("Hotkeys") {
+        ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
+        if recording != nil { recorderHint }
+        if let problem = store.bindingProblem {
+          Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+        }
+      }
+    }
+  }
+  private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
+    let keys = config.hotkeys.first { $0.target == target }?.keys
+    return LabeledContent(title) {
+      if keys != nil {
+        Button("Remove Hotkey", systemImage: "xmark.circle.fill") { store.bind(nil, to: target) }
+          .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
+      }
+      Button {
+        if recording == target {
+          recorder.stop()
+        } else {
+          recorder.start(pausing: { paused in
+            pauseHotkey(paused)
+            if !paused { recording = nil }
+          }) { store.bind($0, to: target) }
+          recording = target
+        }
+      } label: {
+        Text(recording == target ? "Press a shortcut…" : keys?.symbols ?? "Record Hotkey").frame(
+          minWidth: 110)
+      }
     }
   }
   @ViewBuilder private func clipboardRows(enabled: Bool) -> some View {
@@ -407,6 +534,31 @@ struct SettingsPane: View {
     Binding(get: { value }, set: { new in store.change { try $0.set(key, to: new, in: group) } })
   }
   private func reveal(_ folder: URL) { NSWorkspace.shared.open(folder) }
+}
+
+/// One of an extension's settings: saved on Return or when the field loses focus, and removed when emptied,
+/// so the manifest's default, shown as the prompt, applies again.
+private struct SettingField: View {
+  let setting: ExtensionManifest.Argument
+  let saved: String?
+  let save: (String?) -> Void
+  @State private var draft: String?
+  @FocusState private var focused: Bool
+  var body: some View {
+    TextField(
+      setting.placeholder ?? setting.name, text: Binding(get: { draft ?? saved ?? "" }, set: { draft = $0 }),
+      prompt: setting.default.map { Text($0) }
+    )
+    .focused($focused)
+    .onSubmit(commit)
+    .onChange(of: focused) { if !focused { commit() } }
+    .onDisappear(perform: commit)
+  }
+  private func commit() {
+    guard let value = draft else { return }
+    draft = nil
+    if value != saved ?? "" { save(value.isEmpty ? nil : value) }
+  }
 }
 
 @MainActor protocol SettingsActivation {

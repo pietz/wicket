@@ -320,3 +320,83 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   try ExtensionHost.installFiles(in: root)
   #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
 }
+
+// MARK: - Extension settings
+
+@Test func aManifestDeclaresSettingsLikeArgumentsWithDefaults() throws {
+  func manifest(_ json: String) throws -> ExtensionManifest {
+    try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+  }
+  let window = try manifest(
+    #"{"name":"W","description":"Moves windows.","command":["./main"],"settings":[{"name":"gap","placeholder":"Gap","default":"0"},{"name":"note"}]}"#
+  )
+  #expect(window.description == "Moves windows." && window.settings.map(\.name) == ["gap", "note"])
+  #expect(window.settings[0].default == "0" && window.settings[1].placeholder == nil)
+  for invalid in [
+    #"{"name":"W","command":["x"],"settings":[{"name":"a"},{"name":"a"}]}"#,
+    #"{"name":"W","command":["x"],"settings":[{"name":""}]}"#,
+    #"{"name":"W","items":[],"settings":[{"name":"a"}]}"#,
+    #"{"name":"W","command":["x"],"arguments":[{"name":"a","default":"1"}]}"#,
+  ] {
+    #expect(throws: (any Error).self) { try manifest(invalid) }
+  }
+}
+
+@Test func extensionSettingsLiveInConfigAndEmptyValuesAreRemoved() throws {
+  try withSettings(#"{"extensions":{"window":{"future":"keep"}}}"#) { file in
+    try file.set("gap", to: "8", forExtension: "window")
+    try file.set("unit", to: "km", forExtension: "units")
+    #expect(
+      try Configuration.load(at: file.url).extensions == [
+        "window": ["future": "keep", "gap": "8"], "units": ["unit": "km"],
+      ])
+    try file.set("unit", to: nil, forExtension: "units")
+    let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
+    #expect(json["extensions"]["units"] == .null && json["extensions"]["window"]["gap"] == .string("8"))
+    // Values are strings, as arguments are.
+    try Data(#"{"extensions":{"window":{"gap":8}}}"#.utf8).write(to: file.url)
+    #expect(throws: (any Error).self) { try Configuration.load(at: file.url) }
+  }
+}
+
+@MainActor @Test func everyRequestCarriesTheExtensionsSettingsOverItsDefaults() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "echo", script: "cat > \"\(root.path)/request\"; echo done",
+    fields: [
+      "settings": [
+        ["name": "gap", "default": "0"], ["name": "percent", "default": "90"], ["name": "label"],
+      ]
+    ])
+  let model = LauncherModel(
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+  model.store.start(watching: false)
+  model.store.change { try $0.set("gap", to: "8", forExtension: "echo") }
+  model.store.change { try $0.set("stale", to: "x", forExtension: "echo") }
+  await model.extensions.reload()
+  let echo = try #require(model.extensions.commands["extension:echo"])
+  _ = try await model.extensions.view(echo, request: ProviderRequest(input: ""))
+  let request = try JSONDecoder().decode(
+    ProviderRequest.self, from: Data(contentsOf: root.appending(path: "request")))
+  #expect(request.settings == ["gap": "8", "percent": "90"])
+}
+
+@MainActor @Test func makeItMineCopiesABundledExtensionThatThenShadowsIt() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let host = ExtensionHost(folder: root, bundled: bundledExtensions)
+  await host.reload()
+  let window = try #require(host.commands["extension:window"])
+  #expect(host.isBundled(window))
+  try host.makeMine(window)
+  await host.reload()
+  let mine = try #require(host.commands["extension:window"])
+  #expect(
+    !host.isBundled(mine)
+      && mine.folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path)
+      && mine.manifest == window.manifest)
+  #expect(FileManager.default.isExecutableFile(atPath: mine.folder.appending(path: "main").path))
+  // A folder of that name is never replaced.
+  #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
+}

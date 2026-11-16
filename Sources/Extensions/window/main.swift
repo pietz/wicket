@@ -160,14 +160,28 @@ func displayIndex(of window: CGRect, in displays: [Display]) -> Int {
   return overlaps.indices.max { overlaps[$0] < overlaps[$1] } ?? 0
 }
 
+/// The user's settings (`request.settings`): `gap`, the points between a window and the screen's edges
+/// and between halves, and `almostMaximize`, the percent of each side Almost Maximize takes.
+struct Layout: Equatable {
+  var gap: CGFloat = 0
+  var almost: CGFloat = 0.9
+  /// Values that are no number, or out of range, keep the default.
+  init(gap: String? = nil, almostMaximize: String? = nil) {
+    if let value = gap.flatMap(Double.init), (0...200).contains(value) { self.gap = value.rounded() }
+    if let value = almostMaximize.flatMap(Double.init), (10...100).contains(value) { almost = value / 100 }
+  }
+}
+
 /// Where a move puts a window, on whole points of its display's visible frame. Nil for `restore`, which
 /// reads where the window was, and for `nextDisplay` with a single display.
-func target(_ move: Move, window: CGRect, displays: [Display]) -> CGRect? {
+func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = Layout()) -> CGRect? {
   guard !displays.isEmpty else { return nil }
   let index = displayIndex(of: window, in: displays)
-  let screen = displays[index].visible
-  let halfWidth = (screen.width / 2).rounded(.down)
-  let halfHeight = (screen.height / 2).rounded(.down)
+  let visible = displays[index].visible
+  let gap = min(layout.gap, (min(visible.width, visible.height) / 4).rounded(.down))
+  let screen = visible.insetBy(dx: gap, dy: gap)
+  let halfWidth = ((screen.width - gap) / 2).rounded(.down)
+  let halfHeight = ((screen.height - gap) / 2).rounded(.down)
   func centered(_ width: CGFloat, _ height: CGFloat) -> CGRect {
     CGRect(
       x: screen.minX + ((screen.width - width) / 2).rounded(.down),
@@ -177,13 +191,18 @@ func target(_ move: Move, window: CGRect, displays: [Display]) -> CGRect? {
   case .left: return CGRect(x: screen.minX, y: screen.minY, width: halfWidth, height: screen.height)
   case .right:
     return CGRect(
-      x: screen.minX + halfWidth, y: screen.minY, width: screen.width - halfWidth, height: screen.height)
+      x: screen.minX + halfWidth + gap, y: screen.minY, width: screen.width - halfWidth - gap,
+      height: screen.height)
   case .top: return CGRect(x: screen.minX, y: screen.minY, width: screen.width, height: halfHeight)
   case .bottom:
     return CGRect(
-      x: screen.minX, y: screen.minY + halfHeight, width: screen.width, height: screen.height - halfHeight)
+      x: screen.minX, y: screen.minY + halfHeight + gap, width: screen.width,
+      height: screen.height - halfHeight - gap)
   case .maximize: return screen
-  case .almostMaximize: return centered((screen.width * 0.9).rounded(), (screen.height * 0.9).rounded())
+  case .almostMaximize:
+    return centered(
+      min((visible.width * layout.almost).rounded(), screen.width),
+      min((visible.height * layout.almost).rounded(), screen.height))
   case .center: return centered(min(window.width, screen.width), min(window.height, screen.height))
   case .nextDisplay:
     guard displays.count > 1 else { return nil }
@@ -192,6 +211,7 @@ func target(_ move: Move, window: CGRect, displays: [Display]) -> CGRect? {
       (displays[$0].frame.minX, displays[$0].frame.minY) < (displays[$1].frame.minX, displays[$1].frame.minY)
     }
     let next = displays[order[(order.firstIndex(of: index)! + 1) % order.count]].visible
+    let screen = visible
     // The same place and share of the screen, so a left half stays a left half; never past its edges.
     let scaleX = next.width / screen.width
     let scaleY = next.height / screen.height
@@ -315,7 +335,7 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
 }
 
 /// Does the move on the frontmost app's focused window: nil when it moved, else a row that says why not.
-@MainActor func perform(_ move: Move) -> String? {
+@MainActor func perform(_ move: Move, layout: Layout) -> String? {
   // The panel does not activate Wicket, so the app the user came from is still frontmost.
   guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getppid() else {
     return problem("No window to move", "Switch to the window, then open Wicket")
@@ -358,7 +378,7 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
     }
     destination = records.remove(at: index).before
   } else {
-    guard let rect = target(move, window: current, displays: displays) else {
+    guard let rect = target(move, window: current, displays: displays, layout: layout) else {
       return problem("Only one display")
     }
     destination = rect
@@ -389,7 +409,9 @@ if case .other(let range)? = JSON.read(manifest, &position)?["items"] {
 if case .other(let range)? = request?["chosen"], String(decoding: bytes[range], as: UTF8.self) == "true",
   let move = request?["arguments"]?["move"]?.string.flatMap(Move.init(rawValue:))
 {
-  guard let problem = perform(move) else {
+  let settings = request?["settings"]
+  let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
+  guard let problem = perform(move, layout: layout) else {
     print(#"{"close":true}"#)
     exit(0)
   }

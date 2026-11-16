@@ -326,6 +326,7 @@ final class LauncherModel {
     store.onChange = { [weak self] configuration, problem in
       guard let self else { return }
       if let configuration {
+        extensions.settings = configuration.extensions
         if !configuration.voice.enabled { stopVoice(.disabled) }
         clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
         if configuration != applied {
@@ -420,7 +421,7 @@ final class LauncherModel {
         target?.problem =
           source == nil
           ? "This extension was removed. Press Esc to go back."
-          : "\(name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Sources, or press Esc to go back."
+          : "\(name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
         showArrival()
         listed = []
         retainSelection()
@@ -1040,8 +1041,9 @@ final class LauncherModel {
       onRecord: { [weak self] in self?.store.bind($0, to: target) })
   }
   /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
-  /// runs it now with a chosen request, as Return on the item would, and the panel stays hidden; only a
-  /// failure calls `show` and shows the command with its report. Anything else shows the panel on the
+  /// runs it now with a chosen request, as Return on the item would, with the panel hidden; a view that
+  /// says it is done keeps it hidden, and any other view or a failure calls `show` and shows the command
+  /// with it, such as why no window moved. Anything else shows the panel on the
   /// address: a command, a host command, or an item whose action opens a view. Nothing is recorded as usage.
   func press(_ target: HotkeyTarget, show: () -> Void) async {
     let owner = target.target.flatMap { extensions.commands[$0] }
@@ -1062,28 +1064,41 @@ final class LauncherModel {
     }
     let request = ProviderRequest(
       input: address.input ?? "", arguments: address.arguments ?? [:], chosen: true)
-    // The view is not shown: until a view can say it is done and close the panel (ROADMAP, A notice),
-    // nothing tells a done run from one whose view explains why nothing happened.
+    let view: ProviderView
     do {
-      _ = try await extensions.view(program, request: request)
+      view = try await extensions.view(program, request: request)
     } catch is CancellationError {
+      return
     } catch {
       show()
-      showFailure(error, of: program, request: request)
+      return showRun(program, request: request, problem: report(program, request: request, error: error))
     }
+    guard !view.close else { return }
+    let turn = UUID().uuidString
+    let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
+    if let page, let preparePage { await preparePage(page, turn) }
+    show()
+    showRun(program, request: request, view: view, page: page, turn: turn)
   }
-  /// A run the user did not watch failed: its command shows the report, as if Return had run it, and
+  /// A run the user did not watch: its command shows its view or report, as if Return had run it, and
   /// nothing runs again.
-  private func showFailure(_ error: any Error, of program: ExtensionCommand, request: ProviderRequest) {
+  private func showRun(
+    _ program: ExtensionCommand, request: ProviderRequest, view: ProviderView? = nil, page: Page? = nil,
+    turn: String = "", problem: String? = nil
+  ) {
     origin = nil
     cancelWork()
     var state = CommandState(id: program.id, arguments: request.arguments, next: .rerun)
-    state.problem = report(program, request: request, error: error)
+    state.problem = problem
     // An arrival sets the input without a rerun.
     arriving = Arrival(command: state, input: request.input)
     showArrival()
     listed = []
     clearSelection()
+    if let view {
+      show(view, page: page, of: program.id, request: request, turn: turn, remembered: true)
+      retainSelection()
+    }
     onResultsChange?()
   }
   private func report(_ command: ExtensionCommand, request: ProviderRequest, error: any Error) -> String {

@@ -30,14 +30,20 @@ private let states = [
   "extension-targets", "extension-detail-larger", "asking", "asking-extension",
   "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
   "arguments-long", "arguments-three", "history", "history-reopened",
-  "settings-general", "settings-voice", "settings-agent", "settings-sources", "settings-error",
+  "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
+  "settings-error",
   "settings-conflict",
 ]
 
 /// What text recognition must find, so a blank or broken panel fails.
 private func expectedText(_ name: String) -> [String] {
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
-  if name.contains("settings-sources") { return ["Sources", "Weather"] }
+  if name.contains("settings-extensions") { return ["Built in", "Clipboard History", "Weather", "Window"] }
+  if name.contains("settings-window") {
+    return [
+      "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Window",
+    ]
+  }
   if name.contains("settings-") { return [] }
   if name.contains("permission-high") {
     return ["Allow Claude to delete files", "Deletes", "Show details", "Allow deletion"]
@@ -418,7 +424,15 @@ private let nextAnswer =
     let store = ConfigurationStore(url: folder.appending(path: "config.json"))
     var initial = Configuration()
     initial.agent.model = "sonnet"
-    if state == "settings-sources" {
+    if state == "settings-window" {
+      initial.hotkeys = [
+        .init(
+          keys: try Shortcut("ctrl+option+left"),
+          target: HotkeyTarget(target: "extension:window", item: "left"))
+      ]
+      initial.extensions = ["window": ["gap": "8"]]
+    }
+    if state == "settings-extensions" {
       let weather = folder.appending(path: "extensions/weather")
       try FileManager.default.createDirectory(at: weather, withIntermediateDirectories: true)
       try Data(#"{"name":"Weather","command":["/usr/bin/python3","main.py"]}"#.utf8).write(
@@ -439,7 +453,7 @@ private let nextAnswer =
       agent: .claude, in: folder)
     store.discover = { _ in throw AgentFailure("Captures never start an agent") }
     store.checkSignIn = { _ in .signedIn }
-    let host = ExtensionHost(folder: folder)
+    let host = ExtensionHost(folder: folder, bundled: bundledExtensions)
     await host.reload()
     store.start(watching: false)
     if state == "settings-error" {
@@ -448,7 +462,8 @@ private let nextAnswer =
     }
     if state == "settings-conflict" { store.hotkeyProblem = "⌃K is in use. ⌥Space still opens Wicket." }
     let section =
-      ["settings-general", "settings-voice", "settings-agent", "settings-sources"].firstIndex(of: state) ?? 0
+      ["settings-general", "settings-voice", "settings-agent", "settings-extensions"].firstIndex(of: state)
+      ?? (state == "settings-window" ? 3 : 0)
     let pane = NSHostingView(
       rootView: SettingsPane(
         section: section, store: store, extensions: host,
@@ -457,7 +472,8 @@ private let nextAnswer =
           pasteboard: NSPasteboard(name: .init(UUID().uuidString)),
           interval: nil),
         runs: AgentHistory(url: folder.appending(path: "agent-history.json")),
-        updater: nil, pauseHotkey: { _ in }))
+        updater: nil, pauseHotkey: { _ in },
+        selected: state == "settings-window" ? "extension:window" : "apps"))
     pane.frame = NSRect(x: 0, y: 0, width: 560, height: 480)
     let window = NSWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false

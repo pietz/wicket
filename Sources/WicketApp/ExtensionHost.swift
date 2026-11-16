@@ -28,6 +28,10 @@ struct ExtensionCommand: Sendable, Equatable {
       shown($0, id: "item:" + $0.id, subtitle: $0.subtitle ?? manifest.name)
     }
   }
+  /// The manifest's settings: the saved value, else the default; one with neither is left out.
+  func settings(_ saved: [String: String]) -> [String: String] {
+    manifest.settings.reduce(into: [:]) { $0[$1.name] = saved[$1.name] ?? $1.default }
+  }
   /// The command's own view when there is no program: its items, filtered by what is typed.
   func ownItems(_ input: String) -> [Row] {
     items.matches(input).map { shown($0, id: $0.id, subtitle: $0.subtitle) }
@@ -56,6 +60,8 @@ final class ExtensionHost {
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   var runner = ExtensionRunner()
+  /// The `extensions` of config.json: each folder's saved settings.
+  var settings: [String: [String: String]] = [:]
   private var watcher: FileWatcher?
   private var scan: Task<Void, Never>?
   private var revision = 0
@@ -140,7 +146,9 @@ final class ExtensionHost {
     }
     let id = UUID()
     let runner = runner
-    let task = Task { try await runner.run(command, request: request) }
+    var request = request
+    request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
+    let task = Task { [request] in try await runner.run(command, request: request) }
     running[id] = task
     defer { running.removeValue(forKey: id) }
     return try await withTaskCancellationHandler {
@@ -155,6 +163,23 @@ final class ExtensionHost {
     let tasks = Array(running.values)
     for task in tasks { task.cancel() }
     for task in tasks { _ = await task.result }
+  }
+
+  func isBundled(_ command: ExtensionCommand) -> Bool {
+    command.folder.deletingLastPathComponent().standardizedFileURL.path == bundled?.standardizedFileURL.path
+  }
+  /// Copies a bundled extension into the user's extensions folder, where it replaces the bundled one by
+  /// name. Refuses when a folder of that name is there.
+  func makeMine(_ command: ExtensionCommand) throws {
+    let name = command.folder.lastPathComponent
+    let copy = folder.appending(path: "extensions/" + name)
+    guard !FileManager.default.fileExists(atPath: copy.path) else {
+      throw ExtensionFailure("Your extensions folder already has a folder named \(name).")
+    }
+    try FileManager.default.createDirectory(
+      at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: command.folder, to: copy)
+    rescan()
   }
 
   static func installFiles(in folder: URL) throws {

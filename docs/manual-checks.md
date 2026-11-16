@@ -71,13 +71,16 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 5. Open and close quickly several times. The microphone indicator in the menu bar goes away each time.
 6. Open the launcher and say nothing. About 3 seconds after listening starts, it stops quietly with no message and the microphone indicator goes away; the voice log says `noSpeech`. Click the mic and speak: it listens again. Speak once, then pause for more than 3 seconds: it keeps listening.
 
-## 7. Extensions (Settings → Sources)
+## 7. Extensions (Settings → Extensions)
 
-1. Sources lists Apps, Calculator, Convert units and Window. Turn units off: `10 km to mi` no longer converts. Turn it back on.
-2. Copy `~/.config/wicket/examples/web-search` into `~/.config/wicket/extensions/`. It shows up in Sources within a second, enabled.
+1. The list shows Built in (Apps, Files, Clipboard History) and Extensions (Calculator, Convert units, Window), each with a switch. Turn units off: `10 km to mi` no longer converts. Turn it back on. Click each row: the detail shows its name and description; check light and dark, and how the selected row looks.
+2. Copy `~/.config/wicket/examples/web-search` into `~/.config/wicket/extensions/`. It shows up in the list within a second, enabled.
 3. Ask the agent: `build a wicket extension that shows the current week number`. It writes a folder into `extensions/`; type its name or keyword and run it.
 4. Ask the agent for a command with arguments (`build a caffeinate extension with hours and minutes`). Type its name: fields named `hours` and `minutes` appear right after the typed text, and the row or body says the default. Tab into them (Tab again returns to the input, Shift+Tab goes back), fill them, press Return: the command opens with those values, and Return with empty fields uses the default. Try the fields with an input method such as Japanese, with paste, with a click on the row instead of Return, and while voice is listening. Arrow down to another row: the fields go away and typing goes to the input. Check their look in light and dark.
-5. Break a `wicket.json` on purpose. Sources shows the problem; the rest keeps working.
+5. Break a `wicket.json` on purpose. The list shows it with a warning icon and the detail the problem; the rest keeps working.
+6. Window's detail: set Gap to 8 and press Return, then Almost Maximize to 80 and click elsewhere. `config.json` has `"extensions": {"window": {"almostMaximize": "80", "gap": "8"}}`. Left Half, Right Half and Maximize leave 8 points to the screen's edges and between the halves; Almost Maximize takes 80 percent. Empty both fields: the entry goes and the defaults (0, 90) apply.
+7. In Window's Hotkeys, Record Hotkey on Right Half, press ⌃⌥→: it shows there and on the Right Half row in the panel; the remove button clears it in both. A combination already bound or ⌘C is refused below the list, as in the panel.
+8. Show in Finder selects Window's folder inside the app. Make It Mine: `extensions/window` appears with `wicket.json`, `main` and `main.swift`, the button goes away (the copy now replaces the bundled one), and the window commands still work. Press Make It Mine on Calculator after creating `extensions/calculator` by hand: refused with a message, nothing overwritten.
 
 ## 8. Settings (General)
 
@@ -96,7 +99,7 @@ Use Wicket (or Wicket Dev) with a few ordinary windows open; nothing here should
 
 1. Before granting anything: switch Wicket off in Privacy & Security ▸ Accessibility (or remove it). Click into a Safari window, open Wicket, type `left`, Return. No system prompt appears; the row reads "Allow Wicket in Privacy & Security > Accessibility". Return opens that pane and closes the launcher. Switch Wicket on there (only Wicket: no separate `window` or `main` entry should appear or be needed).
 2. Without restarting Wicket, open it over Safari again, `left`, Return: Safari's window fills the left half below the menu bar and beside the Dock, Wicket closes at once with no notice, and Safari keeps focus (type a key: it goes to Safari). If it still asks for the permission, quit and reopen Wicket and note it.
-3. With the panel still open, run Right Half, Top Half, Bottom Half, Maximize, Almost Maximize (a margin of 5 percent on each side) and Center (same size, centered) from the list, then the same by typing `right`, `top`, `bottom`, `max`, `almost max` and `center` at the root after reopening. Each acts on Safari, never on Wicket's panel.
+3. With the panel still open, run Right Half, Top Half, Bottom Half, Maximize, Almost Maximize (a margin of 5 percent on each side, with the default 90) and Center (same size, centered) from the list, then the same by typing `right`, `top`, `bottom`, `max`, `almost max` and `center` at the root after reopening. Each acts on Safari, never on Wicket's panel.
 4. Restore (reopen Wicket for each command: every move closes it): after Left Half then Maximize, Restore returns to the left half and closes Wicket, Restore again to the original frame, a third Restore says "Nothing to restore" and Wicket stays open. Move the window by hand after a command: Restore says there is nothing to restore.
 5. Next Display, with a second display: the window keeps its place and share (a left half lands as a left half), the next Next Display brings it back; with one display the row says "Only one display". Try displays of different sizes and one arranged above the other.
 6. Dock on the left, then hidden; a notched display; Terminal (it snaps to its grid: Restore must still work); a full-screen window (row: "… is in full screen"); Finder with no window open (a row says there is no window to move; the desktop does not move).
@@ -107,7 +110,7 @@ Use Wicket (or Wicket Dev) with a few ordinary windows open; nothing here should
 Wicket has Accessibility for this section (section 10). No hotkeys are set at the start.
 
 1. Type `left`, right-click Left Half, Set Hotkey…: the row says Press a shortcut. Press ⌃⌥←. The row shows ⌃⌥← at its right edge, and `config.json` has `"hotkeys": [{"keys": "ctrl+option+left", "address": "wicket://window?item=left"}]`.
-2. Close the panel, click into Safari, press ⌃⌥←: the window moves to the left half and no Wicket panel or flash appears. Repeat over Safari in full screen and with Finder and no window: nothing moves and nothing shows (until views can close the panel, a hotkey hides what the command says).
+2. Close the panel, click into Safari, press ⌃⌥←: the window moves to the left half and no Wicket panel or flash appears. Repeat over Safari in full screen and with Finder and no window: nothing moves, and the panel opens on Window with the row saying why ("… is in full screen", no window to move); without Accessibility it opens on the row that asks for it.
 3. Right-click Right Half, Set Hotkey…, press ⌃⌥← again: refused in the footer as Left Half's, and ⌃⌥← still moves left. Press ⌘C: refused. Press ⌥Space: refused as the launcher's. Press a combination another app holds (if any): refused, nothing saved. Escape cancels without a change; clicking away cancels too.
 4. While recording in the panel, press the launcher's shortcut: it is recorded (and refused), the panel does not toggle. In Settings ▸ General, start recording and press ⌃⌥←: nothing moves.
 5. Set ⌥V on Clipboard History (type `clip`) and a hotkey on the Window command row and on Settings. Each opens the panel there (Settings opens its window), and nothing listens to the microphone.

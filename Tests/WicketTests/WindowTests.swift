@@ -165,3 +165,31 @@ private func windowView(_ arguments: [String: String] = [:], chosen: Bool = fals
     #expect(missing.isEmpty, "\(file) does not name \(missing)")
   }
 }
+
+// MARK: - Settings
+
+@Test func aGapInsetsEveryMoveAndSeparatesTheHalves() throws {
+  let layout = Layout(gap: "8", almostMaximize: "80")
+  let current = CGRect(x: 10, y: 50, width: 600, height: 600)
+  func moved(_ move: Move) throws -> CGRect {
+    try #require(target(move, window: current, displays: [laptop], layout: layout))
+  }
+  let screen = laptop.visible
+  #expect(try moved(.maximize) == screen.insetBy(dx: 8, dy: 8))
+  let (left, right) = (try moved(.left), try moved(.right))
+  #expect(left.minX == 8 && right.minX - left.maxX == 8 && right.maxX == screen.maxX - 8)
+  #expect(left.minY == screen.minY + 8 && left.height == screen.height - 16)
+  let (top, bottom) = (try moved(.top), try moved(.bottom))
+  #expect(bottom.minY - top.maxY == 8 && bottom.maxY == screen.maxY - 8)
+  // Almost Maximize takes its percent of the visible frame, centered.
+  let almost = try moved(.almostMaximize)
+  #expect(almost.width == (1512 * 0.8).rounded() && almost.height == (859 * 0.8).rounded())
+  #expect(abs(almost.midX - screen.midX) <= 1 && abs(almost.midY - screen.midY) <= 1)
+}
+
+@Test func settingsThatAreNoNumberOrOutOfRangeKeepTheDefaults() {
+  #expect(Layout() == Layout(gap: "0", almostMaximize: "90"))
+  #expect(Layout(gap: "wide", almostMaximize: "150") == Layout())
+  #expect(Layout(gap: "-4", almostMaximize: "5") == Layout())
+  #expect(Layout(gap: "12.4").gap == 12 && Layout(almostMaximize: "75").almost == 0.75)
+}

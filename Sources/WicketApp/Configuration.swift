@@ -70,6 +70,8 @@ struct Configuration: Codable, Equatable, Sendable {
   var agent = AgentConfiguration()
   var hotkey = Shortcut.default
   var hotkeys: [Hotkey] = []
+  /// Each extension's settings by folder name, strings as the manifest declares them: `{"window":{"gap":"8"}}`.
+  var extensions: [String: [String: String]] = [:]
   /// 0 is the strongest tint (most readable); 1 is untinted Liquid Glass.
   var backgroundTransparency: Double = 0.75
   /// The default before the Liquid Glass look (through 0.3.4), which every new file stored. A stored value equal
@@ -81,7 +83,7 @@ struct Configuration: Codable, Equatable, Sendable {
   var providers = builtins.map { ProviderEntry($0, enabled: enabledByDefault($0)) }
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case hotkey, hotkeys, backgroundTransparency, providers, agent, voice, textSize
+    case hotkey, hotkeys, backgroundTransparency, providers, agent, voice, textSize, extensions
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -90,6 +92,7 @@ struct Configuration: Codable, Equatable, Sendable {
     agent = try c.decodeIfPresent(AgentConfiguration.self, forKey: .agent) ?? agent
     hotkey = try c.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? hotkey
     hotkeys = try c.decodeIfPresent([Hotkey].self, forKey: .hotkeys) ?? hotkeys
+    extensions = try c.decodeIfPresent([String: [String: String]].self, forKey: .extensions) ?? extensions
     if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency),
       stored != Self.oldDefaultTransparency
     {

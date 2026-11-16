@@ -11,6 +11,8 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   /// The user's number format, so an extension reads and writes numbers as the user does without a
   /// locale library of its own (the calculator links no Foundation, which costs 10 ms per process).
   let locale: NumberMarks
+  /// An extension's settings from config.json over their manifest defaults (`ExtensionHost.view`).
+  var settings: [String: String] = [:]
   struct NumberMarks: Codable, Sendable, Equatable {
     var decimal: String
     /// Empty where the user's numbers have no grouping.
@@ -28,13 +30,14 @@ struct ProviderRequest: Codable, Sendable, Equatable {
     self.chosen = chosen
     self.locale = locale
   }
-  private enum CodingKeys: String, CodingKey { case input, arguments, chosen, locale }
+  private enum CodingKeys: String, CodingKey { case input, arguments, chosen, locale, settings }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     input = try c.decode(String.self, forKey: .input)
     arguments = try c.decodeIfPresent([String: String].self, forKey: .arguments) ?? [:]
     chosen = try c.decodeIfPresent(Bool.self, forKey: .chosen) ?? false
     locale = try c.decodeIfPresent(NumberMarks.self, forKey: .locale) ?? .current
+    settings = try c.decodeIfPresent([String: String].self, forKey: .settings) ?? [:]
   }
 }
 
