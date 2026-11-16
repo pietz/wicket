@@ -67,7 +67,7 @@ final class ExtensionHost {
   private var watcher: FileWatcher?
   private var scan: Task<Void, Never>?
   private var revision = 0
-  private var running: [UUID: Task<ProviderView, any Error>] = [:]
+  private var running: [UUID: Task<Void, Never>] = [:]
 
   init(folder: URL, bundled: URL? = bundledFolder) {
     self.folder = folder
@@ -140,31 +140,48 @@ final class ExtensionHost {
     return (commands, problems)
   }
 
-  func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
-    try Task.checkCancellation()
-    // Without a program the command is its items, filtered by what is typed. Nothing runs.
-    guard command.manifest.command != nil else {
-      return ProviderView(items: command.ownItems(request.input))
-    }
+  /// Every view the command prints as it prints them, and whether it still runs, the newest when they
+  /// come faster than they are read (`ExtensionRunner.run`). A command without a program answers once
+  /// from its items, and nothing runs. Ending the iteration stops the process.
+  func views(_ command: ExtensionCommand, request: ProviderRequest) -> AsyncThrowingStream<
+    (view: ProviderView, running: Bool), any Error
+  > {
+    let (views, continuation) = AsyncThrowingStream.makeStream(
+      of: (view: ProviderView, running: Bool).self, bufferingPolicy: .bufferingNewest(1))
     let id = UUID()
     let runner = runner
     var request = request
     request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
-    let task = Task { [request] in try await runner.run(command, request: request) }
-    running[id] = task
-    defer { running.removeValue(forKey: id) }
-    return try await withTaskCancellationHandler {
-      try await task.value
-    } onCancel: {
-      task.cancel()
+    let task = Task { [weak self, request] in
+      do {
+        if command.manifest.command == nil {
+          continuation.yield((ProviderView(items: command.ownItems(request.input)), false))
+        } else {
+          try await runner.run(command, request: request) { continuation.yield(($0, $1)) }
+        }
+        try Task.checkCancellation()
+        continuation.finish()
+      } catch { continuation.finish(throwing: error) }
+      self?.running[id] = nil
     }
+    running[id] = task
+    continuation.onTermination = { _ in task.cancel() }
+    return views
+  }
+  /// The last view, for those who show only the final one: patterns, hotkeys and headless.
+  func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
+    var last: ProviderView?
+    for try await shown in views(command, request: request) { last = shown.view }
+    try Task.checkCancellation()
+    guard let last else { throw CancellationError() }
+    return last
   }
   func shutdown() async {
     watcher = nil
     scan?.cancel()
     let tasks = Array(running.values)
     for task in tasks { task.cancel() }
-    for task in tasks { _ = await task.result }
+    for task in tasks { await task.value }
   }
 
   func isBundled(_ command: ExtensionCommand) -> Bool {

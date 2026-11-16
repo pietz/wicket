@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import WicketApp
@@ -51,4 +52,13 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   fake.end()
   #expect(await eventually { !session.busy && fake.stopped })
   return fake
+}
+
+extension ExtensionRunner {
+  /// The last view the program printed, as the host's `view` gives it to patterns and headless.
+  func run(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
+    let last = Mutex<ProviderView?>(nil)
+    try await run(command, request: request) { view, _ in last.withLock { $0 = view } }
+    return try #require(last.withLock { $0 })
+  }
 }

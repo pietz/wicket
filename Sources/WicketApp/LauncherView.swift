@@ -240,7 +240,7 @@ struct LauncherView: View {
               // The one hint that may grow with a name: it gives way first.
               Text("⌘↩ " + (model.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
                 .layoutPriority(-1)
-              Text(model.command == nil ? "esc Close" : "esc Back")
+              Text(model.command == nil ? "esc Close" : model.command?.live == true ? "esc Stop" : "esc Back")
             }
           }
           .font(.system(size: 12)).foregroundStyle(.secondary)

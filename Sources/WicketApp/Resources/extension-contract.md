@@ -41,7 +41,7 @@ Name/keyword matches offer a command without running it. Enter starts with empty
 
 `items` in the manifest are items exactly as in a view (below). Wicket reads them once and ranks them at the root like apps, by title and keywords, with no process while typing; only for typed input, at most the best 20 per extension. An item without `icon` shows the manifest's icon; one without `subtitle` shows the extension name. Without a `command`, choosing the extension's name lists all its items and typing filters them; nothing runs. With a `command`, the program answers as usual and the items are extra root rows, typically `run` actions into the command (a `run` without `extension` means this extension). Use items for a known list (links, snippets, a program's commands); use `match` for an answer computed from what was typed. To refresh items, a program may rewrite its own `wicket.json`: atomically (a temporary file, then rename) and as the last thing a request does, since Wicket rereads it on change and reruns an open command.
 
-## One stdin request, one stdout view, then exit
+## One stdin request, a stdout view, then exit
 
 ```json
 {"input":"10 km in mi","arguments":{"view":"hourly"},"chosen":false,"locale":{"decimal":",","grouping":"."},"settings":{}}
@@ -49,9 +49,21 @@ Name/keyword matches offer a command without running it. Enter starts with empty
 
 `arguments` is an object of strings, empty when there are none: the declared arguments the user filled in and those your `run` actions set. A run action replaces them for later requests in that command, so typing keeps the view it chose; they last until replaced or the command is left. They are JSON data, never extra executable argv. Typing inside a command sends a new request (unless it is a `submit` command); Escape leaves it. `locale` is the user's number format: read and write numbers with its `decimal` mark and `grouping` separator (empty when the user's numbers are not grouped), as the calculator does. `settings` holds your declared settings (above), empty when you declare none.
 
-`chosen` is true only on the one request the user's activation caused: choosing your command row or fallback row (so entering your command by its name is chosen, with empty input and no arguments unless declared ones were filled), choosing one of your `run` actions or manifest items (by Return, a click or the item's hotkey), or Return in a `submit` command. Typing reruns, refreshes, patterns, links (any `wicket://` URL, an agent's item) and the rows that show a pattern's details or error send false. **Only a request with `chosen:true` may have side effects** (deploy, delete, send), and only for the arguments that request carries; every other request must be safe to repeat. Use stderr for diagnostics. The process must exit successfully within 10 seconds. Stdout <=1 MiB; stderr <=256 KiB, with its last 4 KiB shown on failure. Cancellation, timeout and quit stop the process tree. Do not daemonize. Stdout is one JSON view with no logs or fences, or plain Markdown (below).
+`chosen` is true only on the one request the user's activation caused: choosing your command row or fallback row (so entering your command by its name is chosen, with empty input and no arguments unless declared ones were filled), choosing one of your `run` actions or manifest items (by Return, a click or the item's hotkey), or Return in a `submit` command. Typing reruns, refreshes, patterns, links (any `wicket://` URL, an agent's item) and the rows that show a pattern's details or error send false. **Only a request with `chosen:true` may have side effects** (deploy, delete, send), and only for the arguments that request carries; every other request must be safe to repeat. Use stderr for diagnostics. The process must print its view within 10 seconds and exit successfully. Stdout <=1 MiB per view; stderr <=256 KiB, with its last 4 KiB shown on failure. Cancellation, timeout and quit stop the process tree. Do not daemonize. Stdout is one JSON view with no logs or fences, or plain Markdown (below), or views over time.
 
 Stdout that starts with `{` is read as a JSON view and fails with the decoding path if it is not one. Anything else is Markdown: the body of the view, with the tags below and `<row/>` rows as in an agent's reply. Use it when a script only has text to show, e.g. `print("## Done")`. Empty output is an error.
+
+### Views over time
+
+A program may print several views, each a complete JSON view on one line, and flush after each: every line replaces the view before it as it arrives, for progress, live output or cached-then-fresh results. The 10 seconds are for the first view; then the program runs until it exits, or until the user leaves its view, presses Escape (which stops it and keeps the last view) or hides the panel, which stop the process tree. Only an open command shows views as they come; a `match` row, a hotkey and `--extension` show the last one, so make each view whole and print the final one last.
+
+```python
+print(json.dumps({"body": "Counting…"}), flush=True)
+time.sleep(2)
+print(json.dumps({"body": "## 42 files"}), flush=True)
+```
+
+## The view
 
 One view with optional parts. At least one of `body`, `items` or `"close":true` is required (an empty `items` array alone is an empty list); `type` is not read.
 

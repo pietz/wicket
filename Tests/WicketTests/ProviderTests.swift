@@ -41,8 +41,8 @@ private final class TestProvider: Provider {
 }
 
 @MainActor
-func eventually(_ condition: () -> Bool) async -> Bool {
-  for _ in 0..<200 {
+func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) async -> Bool {
+  for _ in 0..<Int(limit / Duration.milliseconds(5)) {
     if condition() { return true }
     try? await Task.sleep(for: .milliseconds(5))
   }

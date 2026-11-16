@@ -59,13 +59,13 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or hide Ask agent (finding 1).
 - View `actions` without a body; lossless paste for extensions; a URL that fills declared arguments, with bindings.
 
-### Parked: a view that changes over time
+### Done: a view that changes over time
 
-Parked by the owner on 12 Nov 2026. When it is built: stdout is a sequence of whole views, each replacing the last, the deadline applies to the first, and the process ends when its view is left. No patch events. It covers cached-then-fresh results, progress and live output, and lets file search use the provider path (finding 8). Background work that outlives the panel (a timer, a notification) is a separate question.
+Parked by the owner on 12 Nov 2026, built on 17 Nov 2026 (SPEC, Views over time): stdout may be one whole view per line, each replacing the last, the deadline applies to the first, and the process ends when its view is left, on Escape or when the panel hides. No patch events. Still open: file search on the provider path (finding 8), and background work that outlives the panel (a timer, a notification), a separate question.
 
 ### Later: the agent as a command
 
-`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type and a shell runner or a long-running extension needs no new mode. It needs views over time first, touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own.
+`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type. Views over time are built; the step touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own.
 
 ## Next features
 
