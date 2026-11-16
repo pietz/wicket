@@ -35,7 +35,7 @@ Six tags to combine freely: values or rows in a card, cards or rows in a grid.
 **Row**: a line of a list: an SF Symbol `icon` or a short grey `label`, the `title`, a grey `subtitle` and a `value` at the end; all optional. Consecutive rows form one list; a label with only a value is a property. In a grid, a row is a tile, its fields stacked. One action makes it selectable: `open` (an http, https or mailto URL, an absolute or `~` path, or a `wicket://` address), `copy` (the text) or `ask` (a follow-up for the user to send), with `action` naming it (`Join in Zoom`). Between `<row …>` and `</row>` goes its detail, a screen of its own that Return opens. A row with an action or a detail needs a `title`.
 `<row label="09:30" title="Standup" subtitle="Zoom" open="https://zoom.us/j/123" action="Join in Zoom">` details `</row>`
 
-**Card**: the one raised box, holding Markdown and components, with an optional `title`, an `icon` at its corner and a `tone` that tints it. Use it for one self-contained thing among several, or a caveat that must not be missed; never wrap the whole reply. It may carry one action as a row does, unless it holds rows with actions.
+**Card**: the one raised box, holding Markdown and components, with an optional `title`, an `icon` at its corner and a `tone` that tints it. Use it for one self-contained thing among several, or a caveat that must not be missed; never wrap the whole reply. Its facts are values or rows; its text, a caveat's too, is one short line, never a paragraph. It may carry one action as a row does, unless it holds rows with actions.
 `<card title="Oslo Kaffebar" icon="cup.and.saucer" open="https://maps.apple.com/?q=Oslo+Kaffebar+Berlin" action="Open in Maps">` … `</card>`
 
 **Grid**: its children side by side as equal cells: two or three cards to compare, or up to seven short tiles, such as the days of a forecast. Anything longer is a Markdown table.
@@ -50,7 +50,7 @@ Six tags to combine freely: values or rows in a card, cards or rows in a grid.
 ## Rules
 
 - Each tag but a badge starts its own line. Attribute values use double quotes; write `“”` inside them.
-- `tone` is `positive`, `warning` or `negative`, only when the color carries meaning.
+- `tone` says something is good or bad for the user: `positive` a gain or success, `negative` a loss or failure, `warning` a risk they must act on. Information, a trend or a caveat has none.
 - Cite sources as rows at the end, never a list or “Sources:” line.
 - Right-align number columns with `---:`. Links are `http`, `https` or `mailto`.
 - No HTML, images or other tags: they show as plain text, so a placeholder such as `<name>` goes in backticks. Never wrap the reply in a code fence.
