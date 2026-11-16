@@ -120,7 +120,7 @@ import Testing
   #expect(history.clips.map(\.text) == ["new"] && pasteboard.reads == 0)
   // Idle while off: opening the panel expires the rest.
   let model = LauncherModel(
-    providers: [], clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")),
+    clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")),
     folder: folder)
   model.reopen(now: start.addingTimeInterval(41 * 24 * 3600))
   #expect(history.clips.isEmpty && pasteboard.reads == 0)
@@ -180,7 +180,7 @@ import Testing
   let folder = try scratch()
   let (history, _) = makeHistory(folder, enabled: false)
   let model = LauncherModel(
-    providers: [], clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")),
+    clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")),
     folder: folder)
   model.store.start(watching: false)
   // Off: no row, and the address opens the command only to say how to switch it on.

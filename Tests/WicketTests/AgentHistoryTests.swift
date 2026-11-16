@@ -25,7 +25,7 @@ private func run(
     folder = try scratch()
     runs = AgentHistory(url: folder.appending(path: "private/agent-history.json"))
     model = LauncherModel(
-      providers: [], agentHistory: runs, history: UsageHistory(url: folder.appending(path: "usage.json")),
+      agentHistory: runs, history: UsageHistory(url: folder.appending(path: "usage.json")),
       folder: folder)
     model.store.start(watching: false)
     model.agent.connect = { [unowned self] settings, _, resume in

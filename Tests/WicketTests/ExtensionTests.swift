@@ -301,7 +301,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   _ = try extensionFolder(root, script: "cat >/dev/null\nprintf '%s' '\(list)'")
   let history = UsageHistory(url: root.appending(path: "usage.json"))
   for _ in 0..<50 { history.record(Result(provider: "extension:test", row: rows[1]).id, input: "x") }
-  let model = LauncherModel(providers: [], history: history, folder: root)
+  let model = LauncherModel(history: history, folder: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   model.input = "test"

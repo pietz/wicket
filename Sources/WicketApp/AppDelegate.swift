@@ -27,7 +27,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       url: Edition.current.privateDirectory().appending(path: "clipboard-history.json"))
     let runs = AgentHistory(url: Edition.current.privateDirectory().appending(path: "agent-history.json"))
     let model = LauncherModel(
-      providers: [apps], files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
+      apps: apps, files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
       history: history, folder: directory)
     do {
       try AnswerRenderer.installFiles(in: directory)

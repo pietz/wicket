@@ -133,7 +133,7 @@ private final class FakeSpotlight: @unchecked Sendable {
   let folder = try scratch()
   return (
     LauncherModel(
-      providers: [], files: spotlight.provider,
+      files: spotlight.provider,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder),
     folder
   )

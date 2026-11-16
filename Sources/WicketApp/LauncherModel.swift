@@ -254,12 +254,13 @@ final class LauncherModel {
   /// Hides the panel: an extension's answer to a chosen request said it is done (`ProviderView.close`).
   var onClose: () -> Void = {}
   var onResultsChange: (() -> Void)?
-  private let providers: [any Provider]
+  /// The installed apps, the one source answered in process besides file search.
+  private let apps: (any Provider)?
   private let files: FilesProvider?
+  private var appRows: [Row] = []
   private var fileRows: [Row] = []
   private var tasks: [Task<Void, Never>] = []
   private var generation = 0
-  private var builtinRows: [String: [Row]] = [:]
   private var itemRows: [Ranking.Names] = []
   private var patterns: [String: Ranking.Pattern] = [:]
   /// Why the root list has a strong match, or nil when nothing matches strongly.
@@ -300,7 +301,7 @@ final class LauncherModel {
   }
 
   init(
-    providers: [any Provider], files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
+    apps: (any Provider)? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
     agentHistory: AgentHistory? = nil, history: UsageHistory,
     folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
     transcriber: (() -> any Transcriber)? = nil
@@ -313,7 +314,7 @@ final class LauncherModel {
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
     extensions = ExtensionHost(folder: folder, bundled: bundled)
-    self.providers = providers
+    self.apps = apps
     self.files = files
     self.history = history
     let inputChanged: () -> Void = { [weak self] in
@@ -478,7 +479,7 @@ final class LauncherModel {
     let current = generation
     let request = ProviderRequest(input: input)
     let host = extensions
-    builtinRows.removeAll()
+    appRows = []
     patterns.removeAll()
     let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
     // Extension items are in memory: matched once per input, not on every batch that recomposes.
@@ -491,10 +492,9 @@ final class LauncherModel {
       active.contains { $0.id == files.id } && FileSearch.predicate(for: input) != nil ? files : nil
     }
     if files == nil { fileRows = [] }
-    let builtins = active.compactMap { entry in providers.first { $0.id == entry.id } }
-    var remaining = builtins.count
-    var builtinsReady = remaining == 0
-    // The list is published once the built-ins answered and, for up to `patternHold`, the pattern
+    let apps = apps.flatMap { apps in active.contains { $0.id == apps.id } ? apps : nil }
+    var appsReady = apps == nil
+    // The list is published once the apps answered and, for up to `patternHold`, the pattern
     // extensions whose regex matched, so a calculation lands with the rest of the list rather than
     // after it, without an Ask agent row first. A slower pattern adds its rows when it finishes.
     let matched = Set(
@@ -504,26 +504,23 @@ final class LauncherModel {
       guard holding, (try? await Task.sleep(for: Self.patternHold)) != nil, let self, generation == current
       else { return }
       holding = false
-      if builtinsReady { compose() }
+      if appsReady { compose() }
     }
     tasks.append(hold)
-    for provider in builtins {
+    if let apps {
       tasks.append(
         Task { [weak self] in
           do {
-            let view = try await provider.view(for: request)
+            let view = try await apps.view(for: request)
             guard let self, !Task.isCancelled, generation == current else { return }
-            builtinRows[provider.id] = view.items
+            appRows = view.items
           } catch {
             guard let self, !Task.isCancelled, generation == current else { return }
-            providerProblem = "\(provider.id): \(error.localizedDescription)"
+            providerProblem = "\(apps.id): \(error.localizedDescription)"
           }
           guard let self, !Task.isCancelled, generation == current else { return }
-          remaining -= 1
-          if remaining == 0 {
-            builtinsReady = true
-            if !holding { compose() }
-          }
+          appsReady = true
+          if !holding { compose() }
         })
     }
     for entry in active {
@@ -556,7 +553,7 @@ final class LauncherModel {
             holding = false
             hold.cancel()
           }
-          if builtinsReady, !holding { compose() }
+          if appsReady, !holding { compose() }
         })
     }
     // Each batch of file results replaces the previous one; cancelling the task stops the query.
@@ -569,15 +566,15 @@ final class LauncherModel {
             guard let self, !Task.isCancelled, generation == current else { return }
             received = true
             fileRows = rows
-            if builtinsReady, !holding { compose() }
+            if appsReady, !holding { compose() }
           }
           guard let self, !Task.isCancelled, generation == current else { return }
           if !received { fileRows = [] }
           pending.remove(files.id)
-          if builtinsReady, !holding { compose() }
+          if appsReady, !holding { compose() }
         })
     }
-    if builtinsReady, !holding { compose() }
+    if appsReady, !holding { compose() }
   }
   /// How long the root list waits for pattern extensions whose regex matched: a few frames, more than
   /// the bundled calculator's few milliseconds and short enough that a slow pattern never delays typing.
@@ -610,7 +607,7 @@ final class LauncherModel {
     let commands = extensions.commands.filter { enabled.contains($0.key) }
     let names =
       [
-        Ranking.Names(provider: "apps", kind: .app, rows: builtinRows["apps"] ?? []),
+        Ranking.Names(provider: "apps", kind: .app, rows: appRows),
         Ranking.Names(provider: "files", kind: .file, rows: fileRows),
       ] + itemRows
     let ranked = Ranking.compose(

@@ -19,7 +19,7 @@ extension LauncherModel {
     in folder: URL, bundled: URL? = ExtensionHost.bundledFolder, transcriber: (() -> any Transcriber)? = nil
   ) -> LauncherModel {
     LauncherModel(
-      providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+      history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       bundled: bundled, transcriber: transcriber)
   }
 }

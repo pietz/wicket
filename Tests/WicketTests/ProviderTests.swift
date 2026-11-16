@@ -55,7 +55,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
   let root = url.deletingLastPathComponent()
   _ = try extensionFolder(root, name: "pattern", script: answering("Inline"), fields: ["match": "^test$"])
-  let model = LauncherModel(providers: [TestProvider("apps")], history: UsageHistory(url: url), folder: root)
+  let model = LauncherModel(apps: TestProvider("apps"), history: UsageHistory(url: url), folder: root)
   model.store.update { $0.providers = [.init("apps"), .init("extension:pattern")] }
   await model.extensions.reload()
   model.input = "test"
@@ -75,7 +75,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   let url = FileManager.default.temporaryDirectory.appending(
     path: UUID().uuidString + "/usage.json")
   let provider = TestProvider("apps", delayed: true)
-  let model = LauncherModel(providers: [provider], history: UsageHistory(url: url))
+  let model = LauncherModel(apps: provider, history: UsageHistory(url: url))
   model.input = "old"
   #expect(await eventually { provider.waiting["old"] != nil })
   model.input = "new"
@@ -92,7 +92,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   defer { try? FileManager.default.removeItem(at: folder) }
   let provider = TestProvider("apps", delayed: true)
   let model = LauncherModel(
-    providers: [provider], history: UsageHistory(url: folder.appending(path: "usage.json")))
+    apps: provider, history: UsageHistory(url: folder.appending(path: "usage.json")))
   var sizes: [Int] = []
   model.onResultsChange = { sizes.append(model.results.count) }
   model.input = "first"
@@ -125,7 +125,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   let rows = ["a", "b", "c"].map { Row(id: $0, title: "Weather " + $0, actions: []) }
   try JSONEncoder().encode(ProviderView(items: rows)).write(to: response)
   let model = LauncherModel(
-    providers: [TestProvider("apps")], history: UsageHistory(url: root.appending(path: "usage.json")),
+    apps: TestProvider("apps"), history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root)
   model.store.update { $0.providers = [.init("extension:weather"), .init("apps")] }
   model.extensions.onCatalogChange = nil

@@ -188,7 +188,7 @@ private let nextAnswer =
     let transcriber = FakeTranscriber()
     let runs = AgentHistory(url: folder.appending(path: "agent-history.json"))
     let model = LauncherModel(
-      providers: [FixedApps()], agentHistory: runs,
+      apps: FixedApps(), agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       bundled: bundledExtensions, transcriber: { transcriber })
     model.store.update {

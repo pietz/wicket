@@ -46,7 +46,7 @@ import Testing
     try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
   }
   let model = LauncherModel(
-    providers: [ManyApps()], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+    apps: ManyApps(), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()
   model.input = "a"
   await model.settled()
