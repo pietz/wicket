@@ -8,12 +8,11 @@ import os
 enum VoiceLog {
   static let logger = Logger(subsystem: "app.wicket", category: "voice")
   static func milliseconds(since start: ContinuousClock.Instant) -> Int {
-    let elapsed = ContinuousClock.now - start
-    return Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+    Int((ContinuousClock.now - start) / .milliseconds(1))
   }
   /// A VoiceError by its case; anything else by its domain and code, which name the failing API.
   static func describe(_ error: any Error) -> String {
-    if let error = error as? VoiceError { return "\(error.kind)" }
+    if let error = error as? VoiceError { return error.rawValue }
     let error = error as NSError
     return "\(error.domain) \(error.code)"
   }
@@ -173,9 +172,7 @@ final class VoiceInput {
     guard timingURL != nil, !timingSaved else { return }
     timingSaved = true
     func milliseconds(_ value: Duration?) -> String {
-      value.map {
-        "\(Int(Double($0.components.seconds) * 1000 + Double($0.components.attoseconds) / 1e15)) ms"
-      } ?? "none"
+      value.map { "\(Int($0 / .milliseconds(1))) ms" } ?? "none"
     }
     timingWriter.submit(
       "Last voice session: \(Date())\nOpen to first audio: \(milliseconds(firstAudio))\nOpen to first transcript: \(milliseconds(firstTranscript))\n"
@@ -221,7 +218,8 @@ final class VoiceInput {
   }
 }
 
-enum VoiceError: Error, Equatable, CustomStringConvertible {
+/// The raw value is the case alone, for the log.
+enum VoiceError: String, Error, Equatable, CustomStringConvertible {
   case microphoneDenied, noMicrophone, noLanguage, modelMissing, usageMissing, conversionFailed, inputChanged
   var description: String {
     switch self {
@@ -232,18 +230,6 @@ enum VoiceError: Error, Equatable, CustomStringConvertible {
     case .inputChanged: "Microphone changed. Open Wicket again to retry."
     case .conversionFailed: "Couldn't convert microphone audio. Check Sound → Input."
     case .usageMissing: "Open the Wicket app bundle to use voice."
-    }
-  }
-  /// The case alone, for the log.
-  var kind: String {
-    switch self {
-    case .microphoneDenied: "microphoneDenied"
-    case .noMicrophone: "noMicrophone"
-    case .noLanguage: "noLanguage"
-    case .modelMissing: "modelMissing"
-    case .usageMissing: "usageMissing"
-    case .conversionFailed: "conversionFailed"
-    case .inputChanged: "inputChanged"
     }
   }
 }
