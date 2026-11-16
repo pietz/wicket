@@ -299,7 +299,8 @@ final class LauncherModel {
   init(
     providers: [any Provider], files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
     agentHistory: AgentHistory? = nil, history: UsageHistory,
-    folder: URL = FileManager.default.temporaryDirectory, transcriber: (() -> any Transcriber)? = nil
+    folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
+    transcriber: (() -> any Transcriber)? = nil
   ) {
     self.clipboard = clipboard
     self.agentHistory = agentHistory
@@ -308,7 +309,7 @@ final class LauncherModel {
     timingURL = folder.appending(path: "voice-timing.txt")
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
-    extensions = ExtensionHost(folder: folder)
+    extensions = ExtensionHost(folder: folder, bundled: bundled)
     self.providers = providers
     self.files = files
     self.history = history
@@ -486,6 +487,19 @@ final class LauncherModel {
     let builtins = active.compactMap { entry in providers.first { $0.id == entry.id } }
     var remaining = builtins.count
     var builtinsReady = remaining == 0
+    // The list is published once the built-ins answered and, for up to `patternHold`, the pattern
+    // extensions whose regex matched, so a calculation lands with the rest of the list rather than
+    // after it, without an Ask agent row first. A slower pattern adds its rows when it finishes.
+    let matched = Set(
+      active.compactMap { extensions.commands[$0.id] }.filter { $0.manifest.matches(input) }.map(\.id))
+    var holding = !matched.isEmpty
+    let hold = Task { [weak self] in
+      guard holding, (try? await Task.sleep(for: Self.patternHold)) != nil, let self, generation == current
+      else { return }
+      holding = false
+      if builtinsReady { compose() }
+    }
+    tasks.append(hold)
     for provider in builtins {
       tasks.append(
         Task { [weak self] in
@@ -501,12 +515,12 @@ final class LauncherModel {
           remaining -= 1
           if remaining == 0 {
             builtinsReady = true
-            compose()
+            if !holding { compose() }
           }
         })
     }
     for entry in active {
-      guard let command = extensions.commands[entry.id], command.manifest.matches(input) else { continue }
+      guard matched.contains(entry.id), let command = extensions.commands[entry.id] else { continue }
       pending.insert(entry.id)
       tasks.append(
         Task { [weak self] in
@@ -531,7 +545,11 @@ final class LauncherModel {
           }
           guard let self, !Task.isCancelled, generation == current else { return }
           pending.remove(entry.id)
-          if builtinsReady { compose() }
+          if holding, pending.isDisjoint(with: matched) {
+            holding = false
+            hold.cancel()
+          }
+          if builtinsReady, !holding { compose() }
         })
     }
     // Each batch of file results replaces the previous one; cancelling the task stops the query.
@@ -544,16 +562,19 @@ final class LauncherModel {
             guard let self, !Task.isCancelled, generation == current else { return }
             received = true
             fileRows = rows
-            if builtinsReady { compose() }
+            if builtinsReady, !holding { compose() }
           }
           guard let self, !Task.isCancelled, generation == current else { return }
           if !received { fileRows = [] }
           pending.remove(files.id)
-          if builtinsReady { compose() }
+          if builtinsReady, !holding { compose() }
         })
     }
-    if builtinsReady { compose() }
+    if builtinsReady, !holding { compose() }
   }
+  /// How long the root list waits for pattern extensions whose regex matched: a few frames, more than
+  /// the bundled calculator's few milliseconds and short enough that a slow pattern never delays typing.
+  static let patternHold = Duration.milliseconds(30)
   /// Waits until no work is left, including work a refresh started while this was waiting.
   func settled() async {
     var seen = generation
@@ -586,7 +607,7 @@ final class LauncherModel {
         Ranking.Names(provider: "files", kind: .file, rows: fileRows),
       ] + itemRows
     let ranked = Ranking.compose(
-      query: input, math: builtinRows["math"] ?? [], names: names, patterns: patterns,
+      query: input, names: names, patterns: patterns,
       extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       sources: enabled, usage: history.store, now: Date())
@@ -972,10 +993,9 @@ final class LauncherModel {
   private func report(_ command: ExtensionCommand, request: ProviderRequest, error: any Error) -> String {
     "Extension: \(command.folder.path)\nCommand: \(command.manifest.command ?? [])\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
   }
-  /// Only picks that root search can learn from: not inside a chosen command, and not computed
-  /// answers or fallbacks.
+  /// Only picks that root search can learn from: not inside a chosen command, and not fallbacks.
   func record(_ result: Result, input: String? = nil) {
-    guard command == nil, result.provider != "math", result.row.id != "fallback" else { return }
+    guard command == nil, result.row.id != "fallback" else { return }
     history.record(result.id, input: input ?? self.input)
   }
   func finish() async {

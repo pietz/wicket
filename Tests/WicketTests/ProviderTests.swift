@@ -49,24 +49,26 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   return condition()
 }
 
-@MainActor @Test func sourceOrderInTheFileNeverChangesResultsAndDisablingRemovesRows() async {
+@MainActor @Test func sourceOrderInTheFileNeverChangesResultsAndDisablingRemovesRows() async throws {
   let url = FileManager.default.temporaryDirectory.appending(
     path: UUID().uuidString + "/usage.json")
   defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-  let model = LauncherModel(
-    providers: [TestProvider("apps"), TestProvider("math")], history: UsageHistory(url: url),
-    folder: url.deletingLastPathComponent())
+  let root = url.deletingLastPathComponent()
+  _ = try extensionFolder(root, name: "pattern", script: answering("Inline"), fields: ["match": "^test$"])
+  let model = LauncherModel(providers: [TestProvider("apps")], history: UsageHistory(url: url), folder: root)
+  model.store.update { $0.providers = [.init("apps"), .init("extension:pattern")] }
+  await model.extensions.reload()
   model.input = "test"
-  #expect(await eventually { !model.isRefreshing && model.results.count == 2 })
-  #expect(model.results.map(\.id) == ["math:mathtest", "apps:appstest"])
+  await model.settled()
+  #expect(model.results.map(\.row.title) == ["Inline", "appstest"])
   model.store.update { $0.providers.reverse() }
   model.refresh()
-  #expect(await eventually { !model.isRefreshing && model.results.count == 2 })
-  #expect(model.results.map(\.provider) == ["math", "apps"])
+  await model.settled()
+  #expect(model.results.map(\.provider) == ["extension:pattern", "apps"])
   model.store.update { $0.providers[$0.providers.firstIndex { $0.id == "apps" }!].enabled = false }
   model.refresh()
-  #expect(await eventually { model.results.count == 1 })
-  #expect(model.results.map(\.provider) == ["math"])
+  await model.settled()
+  #expect(model.results.map(\.provider) == ["extension:pattern"])
 }
 
 @MainActor @Test func oldQueriesCannotReplaceNewResults() async {
@@ -83,18 +85,6 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   provider.waiting.removeValue(forKey: "old")?.resume(returning: .init(items: [row("Old")]))
   await Task.yield()
   #expect(model.results.map(\.row.title) == ["New"])
-}
-
-@MainActor @Test func mathUsesTheSameProviderContract() async throws {
-  let provider: any Provider = MathProvider()
-  let view = try await provider.view(for: ProviderRequest(input: "2+2"))
-  #expect(
-    view
-      == .init(items: [
-        Row(
-          id: "result", title: "4", subtitle: "Copy result", icon: "equal", actions: [.copy("4")],
-          prominent: true)
-      ]))
 }
 
 @MainActor @Test func refreshingNeverPublishesAnEmptyIntermediateList() async throws {
@@ -247,7 +237,9 @@ func eventually(_ condition: () -> Bool) async -> Bool {
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
   model.input = "weather"
-  #expect(model.selected?.provider == "agent")
+  // The list waits a moment for the matching pattern, then shows without it.
+  #expect(model.results.isEmpty)
+  #expect(await eventually { model.selected?.provider == "agent" })
   try Data().write(to: gate)
   await model.settled()
   #expect(model.selected?.provider == "extension:forecast")

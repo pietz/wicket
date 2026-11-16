@@ -24,7 +24,7 @@ write_config() {
   cat > "$check_dir/config.json" <<JSON
 {
   "hotkey": "$2", "backgroundTransparency": $3,
-  "providers": [{"id":"math","enabled":$4},{"id":"apps","enabled":true}],
+  "providers": [{"id":"extension:calculator","enabled":$4},{"id":"apps","enabled":true}],
   "agent": {"name":"$name","model":"$model","effort":"low","mode":"$mode"}
 }
 JSON
@@ -33,7 +33,7 @@ write_config claude option+space 0.15 true
 WICKET_CONFIG_DIR="$check_dir" "$exe" > "$check_dir/app.log" 2>&1 &
 wicket_pid=$!
 trap 'kill -TERM "$wicket_pid" 2>/dev/null || true' EXIT INT TERM
-print '\n0:00–1:00  Launcher, input anchor and math'
+print '\n0:00–1:00  Launcher, input anchor and calculator'
 print 'Toggle Option+Space. Immediately type cal, backspace, and type a sentence.'
 print 'Judge the fixed top border, selection, icons and readability. Launch Calculator only if not already open.'
 print 'Summon, type 200*10%+2^3, expect 28, Enter to copy.'
@@ -44,7 +44,7 @@ print '\n1:00–1:40  Ranking, live config, owner hands'
 print 'New hotkey Ctrl+Option+Shift+Return. Type 2+2: only Ask agent. Do not submit it.'
 print 'Search c, select a lower prefix app, launch, reopen c and check learned ordering.'
 print 'Owner: check IME composition and editing; dismiss over another Space/fullscreen if convenient.'
-read -r 'answer?Enter to restore shortcut and math: '
+read -r 'answer?Enter to restore shortcut and calculator: '
 write_config claude option+space 0.15 true
 print '\n1:40–2:30  Ask, rich answer and follow-up'
 print 'Ask: Remember LANTERN-47. Show a stat with value 42 and a warning callout. No tools.'

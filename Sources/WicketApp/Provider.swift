@@ -8,17 +8,33 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   let arguments: [String: String]
   /// True only on the one request the user's activation caused; reruns, refreshes and links never are.
   let chosen: Bool
-  init(input: String, arguments: [String: String] = [:], chosen: Bool = false) {
+  /// The user's number format, so an extension reads and writes numbers as the user does without a
+  /// locale library of its own (the calculator links no Foundation, which costs 10 ms per process).
+  let locale: NumberMarks
+  struct NumberMarks: Codable, Sendable, Equatable {
+    var decimal: String
+    /// Empty where the user's numbers have no grouping.
+    var grouping: String
+    static var current: Self {
+      let locale = Locale.autoupdatingCurrent
+      return Self(decimal: locale.decimalSeparator ?? ".", grouping: locale.groupingSeparator ?? "")
+    }
+  }
+  init(
+    input: String, arguments: [String: String] = [:], chosen: Bool = false, locale: NumberMarks = .current
+  ) {
     self.input = input
     self.arguments = arguments
     self.chosen = chosen
+    self.locale = locale
   }
-  private enum CodingKeys: String, CodingKey { case input, arguments, chosen }
+  private enum CodingKeys: String, CodingKey { case input, arguments, chosen, locale }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     input = try c.decode(String.self, forKey: .input)
     arguments = try c.decodeIfPresent([String: String].self, forKey: .arguments) ?? [:]
     chosen = try c.decodeIfPresent(Bool.self, forKey: .chosen) ?? false
+    locale = try c.decodeIfPresent(NumberMarks.self, forKey: .locale) ?? .current
   }
 }
 

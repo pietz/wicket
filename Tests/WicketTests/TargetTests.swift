@@ -352,8 +352,8 @@ import Testing
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let model = LauncherModel(
-    providers: [MathProvider()], history: UsageHistory(url: folder.appending(path: "usage.json")),
-    folder: folder)
+    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+    bundled: bundledExtensions)
   let controller = PaletteController(model: model, flatSurfaces: true, panel: PalettePanel())
   controller.show(orderFront: false, listen: false)
   for input in ["2+2", "c", ""] {

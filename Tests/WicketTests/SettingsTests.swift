@@ -41,7 +41,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     for (key, value) in [("model", "gpt-6"), ("effort", "high"), ("mode", "workspace-write")] {
       try file.set(key, to: value, in: "agent")
     }
-    try file.setProvider("math", enabled: false)
+    try file.setProvider("files", enabled: false)
     try file.setProvider("extension:new", enabled: true)
     let config = try Configuration.load(at: file.url)
     #expect(config.hotkey == (try Shortcut("ctrl+option+k")))
@@ -50,7 +50,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(config.agent.effort == "high" && config.agent.mode == "workspace-write")
     #expect(
       config.providers == [
-        .init("math", enabled: false), .init("apps"), .init("files"), .init("clipboard", enabled: false),
+        .init("apps"), .init("files", enabled: false), .init("clipboard", enabled: false),
         .init("extension:new"),
       ])
     try file.set("model", to: nil, in: "agent")
@@ -306,7 +306,9 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   #expect(!FileManager.default.fileExists(atPath: web.path))
   #expect(
     FileManager.default.fileExists(atPath: root.appending(path: "examples/web-search/wicket.json").path))
-  #expect(FileManager.default.fileExists(atPath: root.appending(path: "extensions/units/wicket.json").path))
+  // Units ships inside the app now (`ExtensionHost.bundled`), so nothing is installed into extensions.
+  #expect(
+    try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "extensions").path).isEmpty)
   #expect(FileManager.default.fileExists(atPath: root.appending(path: "examples/currency/main.py").path))
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples").path).sorted() == [

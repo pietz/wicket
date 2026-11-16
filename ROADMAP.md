@@ -128,7 +128,7 @@ Addresses name views, never effects; there is no exec action and no templating l
 - A small curated public extension repository, after the core is stable. Not a marketplace.
 - Re-check the router and voice when macOS 27.3's on-device AI options ship ([research](docs/research/siri-ai.md)).
 - Lean agent profile (fewer MCP servers) if agent start time and memory disturb.
-- Read the extension contract, `units` and the examples straight from the app bundle instead of installing copies, so they update with the app and `installFiles` goes.
+- Read the extension contract and the examples straight from the app bundle instead of installing copies, as the calculator and units already are, so they update with the app and `installFiles` goes.
 
 ## Release housekeeping
 

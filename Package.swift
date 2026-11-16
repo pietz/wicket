@@ -19,6 +19,10 @@ let package = Package(
       ],
       resources: [.process("Resources")]),
     .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
+    // The bundled extensions: plain Swift without Foundation, one process per request. build-app.sh
+    // copies each binary into the app with its manifest and source.
+    .executableTarget(name: "calculator", path: "Sources/Extensions/calculator", exclude: ["wicket.json"]),
+    .executableTarget(name: "units", path: "Sources/Extensions/units", exclude: ["wicket.json"]),
     .testTarget(
       name: "WicketTests", dependencies: ["WicketApp"], resources: [.copy("Fixtures")]
     ),

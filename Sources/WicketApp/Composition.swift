@@ -83,22 +83,20 @@ enum Ranking {
 
   /// The whole list at the root of the launcher, best first:
   ///
-  /// 1. A math result.
-  /// 2. Pattern extension results, one extension after another by name, each in its own order.
-  /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
+  /// 1. Pattern extension results, one extension after another by name, each in its own order.
+  /// 2. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
   ///    History, and Clipboard History when it is on) and files, by tier, then usage for this exact input, then
   ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
   ///    never crosses a tier.
-  /// 4. Ask agent, only when nothing is strong, and then on top.
-  /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
-  /// 6. Error and repair rows.
+  /// 3. Ask agent, only when nothing is strong, and then on top.
+  /// 4. Fallback extensions, only when nothing is strong, right after Ask agent.
+  /// 5. Error and repair rows.
   ///
-  /// Strong means a math result, a nonempty successful pattern result or a name match with tier 1
+  /// Strong means a nonempty successful pattern result or a name match with tier 1
   /// or 2. Empty input lists at most `emptyApps` apps, by their use under any input and then by name,
   /// then extension commands, and never offers Ask agent or fallbacks.
   ///
   /// - Parameters:
-  ///   - math: Rows from the math source.
   ///   - names: Name matches from apps, file search and extension items. Only apps list anything
   ///     for empty input.
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
@@ -106,7 +104,7 @@ enum Ranking {
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
   ///   - sources: The enabled source IDs; `clipboard` offers the Clipboard History row.
   static func compose(
-    query input: String, math: [Row], names: [Names], patterns: [String: Pattern],
+    query input: String, names: [Names], patterns: [String: Pattern],
     extensions: [String: ExtensionManifest], problems: [String: String], sources: Set<String> = [],
     usage: UsageStore, now: Date = Date()
   ) -> Output {
@@ -141,8 +139,6 @@ enum Ranking {
               icon: "exclamationmark.triangle", actions: [.run(Address(id: id, input: input, link: true))])))
       }
     }
-    let mathRows = math.map { Result(provider: "math", row: $0) }
-    if !mathRows.isEmpty { reason = "math result" }
 
     // Name matches. Every row matches by its title and keywords; empty input matches everything given.
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
@@ -227,7 +223,7 @@ enum Ranking {
       let apps = candidates.filter { $0.kind == .app }.prefix(emptyApps)
       let rest = candidates.filter { $0.kind != .app }
       return Output(
-        results: mathRows + patternRows + (apps + rest).map(\.result) + failures + repairs,
+        results: patternRows + (apps + rest).map(\.result) + failures + repairs,
         strongReason: "empty input lists apps first")
     }
 
@@ -246,7 +242,7 @@ enum Ranking {
     }
     let strong = candidates.filter { $0.tier >= 1 }.map(\.result)
     let loose = candidates.filter { $0.tier == 0 }.map(\.result)
-    let head = mathRows + patternRows + strong
+    let head = patternRows + strong
     let ordered = reason == nil ? [ask] + head + fallbacks + loose : head + loose
     return Output(results: ordered + failures + repairs, strongReason: reason)
   }

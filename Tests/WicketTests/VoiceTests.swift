@@ -170,8 +170,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   let fake = FakeTranscriber()
   var constructions = 0
   let model = LauncherModel(
-    providers: [MathProvider()], history: UsageHistory(url: folder.appending(path: "usage.json")),
-    folder: folder,
+    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
     transcriber: {
       constructions += 1
       return fake
@@ -187,7 +186,6 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   fake.feeds[0].yield(.transcript("2+2."))
   #expect(await eventually { model.input == "2+2" })
   await model.settled()
-  #expect(model.results.first?.row.title == "4")
   model.store.update { $0.voice.enabled = false }
   #expect(model.voice?.state == .idle && fake.stops == 1 && model.input == "2+2")
   fake.feeds[0].yield(.transcript("late"))
@@ -645,16 +643,16 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
     fields: ["match": ".+", "command": ["/usr/bin/python3", "main.sh"]])
   let fake = FakeTranscriber()
   let model = LauncherModel(
-    providers: [MathProvider()], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
     transcriber: { fake })
-  model.store.update { $0.providers = [.init("math"), .init("extension:test")] }
+  model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
   await model.settled()
   model.armVoice()
   fake.feeds[0].yield(.ready)
   for number in 1...4 {
     fake.feeds[0].yield(.transcript("2+\(number)"))
-    #expect(await eventually { model.results.first?.row.title == String(2 + number) })
+    #expect(await eventually { model.input == "2+\(number)" })
     try await Task.sleep(for: .milliseconds(80))
     #expect(!FileManager.default.fileExists(atPath: log.path))
   }

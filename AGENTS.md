@@ -5,7 +5,8 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 ## Layout
 
 - `Sources/WicketApp`: everything (AppKit shell, panel, providers, agent, extensions, voice, settings, `Edition`, `Updater`). One library module so tests can `@testable import` it. `Sources/Wicket/main.swift` is the thin executable: headless mode for `--` arguments, otherwise the app.
-- `Sources/WicketApp/Resources`: answer stylesheet, bridge script, agent instructions, extension contract and the bundled units extension, found through `Bundle.wicket`.
+- `Sources/WicketApp/Resources`: answer stylesheet, bridge script, agent instructions, extension contract and the examples, found through `Bundle.wicket`.
+- `Sources/Extensions`: the bundled extensions (calculator, units), one executable target each in plain Swift without Foundation (it costs 10 ms per process); `build-app.sh` puts each binary with its `wicket.json` and `main.swift` in `Contents/Resources/Extensions`.
 - `Tests/WicketTests`: headless tests with fakes at the hardware edges (voice, agent, hotkey); recorded agent streams in `Fixtures/`.
 - `Resources`: Info.plist, entitlements and icons for the app bundle. `Scripts`: `check.sh`, `build-app.sh`, `release.sh`, `land.sh`, `verify-session.sh`, `hooks/`. `appcast.xml` and `Casks/wicket.rb` are the update feed and the Homebrew cask, written by `release.sh`.
 
@@ -26,7 +27,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 
 - Once per clone: `git config core.hooksPath Scripts/hooks`, so every commit runs `Scripts/check.sh`.
 - Check (definition of done): `Scripts/check.sh` builds with warnings as errors, runs the tests and lints formatting against `.swift-format` (2 spaces, 110 columns). It must pass before a commit. Fix formatting with `swift format format --in-place --recursive Sources Tests Package.swift`.
-- Test: `swift test`. Opt-in: `WICKET_CAPTURE_DIR=<folder> swift test --filter panelCapture` (offscreen captures), `WICKET_REPLIES=<file.json> WICKET_CAPTURE_DIR=<folder> swift test --filter replyCapture` (answers from `[question, reply]` pairs, then an optional text size and keys such as `down` or `return` to select a target or open a detail, for design work) and `WICKET_LIVE_AGENT=1 swift test --filter liveAgentScratchConversation` (real CLIs in scratch folders).
+- Test: `swift test`. Opt-in: `WICKET_CAPTURE_DIR=<folder> swift test --filter panelCapture` (offscreen captures), `WICKET_REPLIES=<file.json> WICKET_CAPTURE_DIR=<folder> swift test --filter replyCapture` (answers from `[question, reply]` pairs, then an optional text size and keys such as `down` or `return` to select a target or open a detail, for design work) `WICKET_LIVE_AGENT=1 swift test --filter liveAgentScratchConversation` (real CLIs in scratch folders) and `WICKET_MEASURE=1 swift test -c release -Xswiftc -enable-testing --filter queryLatency` (keystroke to list with the bundled calculator, for the root's hot path).
 - Land a builder's branch with `Scripts/land.sh <commits>`: it cherry-picks, then runs the full check, since parallel branches can each pass and still break together.
 - Build: `Scripts/build-app.sh` produces `build/Wicket Dev.app` (⌃⌥Space, `~/.config/wicket-dev`, no updates, runs beside an installed Wicket); `Scripts/build-app.sh --release` produces the signed `build/Wicket.app` for `Scripts/release.sh`. The released app comes only from `release.sh` ([docs/release.md](docs/release.md)); never push, tag or release without the owner.
 - Headless: `Wicket --query TEXT` or `Wicket --extension ID --input TEXT` inside a bundle, always with `WICKET_CONFIG_DIR` pointing at a temporary folder (never the real one) when testing.

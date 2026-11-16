@@ -197,7 +197,8 @@ func answering(_ title: String) -> String {
 
 func command(_ folder: URL) throws -> ExtensionCommand {
   try #require(
-    ExtensionHost.discover(folder.deletingLastPathComponent()).0["extension:" + folder.lastPathComponent])
+    ExtensionHost.discover(folder.deletingLastPathComponent(), bundled: nil).0[
+      "extension:" + folder.lastPathComponent])
 }
 
 @Test func requestIsJSONAndTheProgramRunsFromItsOwnFolder() async throws {
@@ -361,7 +362,9 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let before = try Data(contentsOf: root.appending(path: "config.json"))
   let model = LauncherModel(
     providers: [], history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
-  model.store.update { $0.providers = Configuration.builtins.map { .init($0, enabled: false) } }
+  model.store.update {
+    $0.providers = try! Configuration.load(at: root.appending(path: "config.json")).providers
+  }
   model.extensions.start()
   let ext = try extensionFolder(root, name: "new", script: answering("Fresh"), fields: ["match": "^new$"])
   #expect(await eventually { model.extensions.commands["extension:new"] != nil })

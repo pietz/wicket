@@ -4,6 +4,7 @@ import Testing
 @testable import WicketApp
 
 func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue) {
+  _ = bundledExtensions  // Beside the executable, where an unbundled Wicket looks for them.
   let executable = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent().appending(path: ".build/debug/Wicket")
   let p = Process()
@@ -35,13 +36,15 @@ func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue
   if case .status(let status) = exit { return (status, value) }
   throw ExtensionFailure("CLI \(exit): \(diagnostic)")
 }
-/// Built-ins the list omits are switched off here, so a test names exactly what runs and the real disk
-/// (file search) never decides a result unless asked.
+/// Built-ins and bundled extensions the list omits are switched off here, so a test names exactly what
+/// runs and the real disk (file search) never decides a result unless asked.
 func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   var config = Configuration()
   config.providers =
     ids
-    + Configuration.builtins.filter { id in !ids.contains { $0.id == id } }.map { .init($0, enabled: false) }
+    + (Configuration.builtins + ["extension:calculator", "extension:units"]).filter { id in
+      !ids.contains { $0.id == id }
+    }.map { .init($0, enabled: false) }
   try config.save(at: root.appending(path: "config.json"))
 }
 
@@ -82,7 +85,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let marker = root.appending(path: "fallback-ran")
   _ = try extensionFolder(
     root, name: "web", script: "touch '\(marker.path)'\n" + answering("Search"), fields: ["fallback": true])
-  try saveProviders([.init("math"), .init("apps"), .init("extension:web")], in: root)
+  try saveProviders([.init("extension:calculator"), .init("apps"), .init("extension:web")], in: root)
   let weak = try await cli(root, ["--query", "utterly unique sentence QX842"])
   #expect(weak.1["items"].array.first?["provider"].string == "agent")
   #expect(weak.1["items"].array.contains { $0["row"]["id"].string == "fallback" })
@@ -91,24 +94,29 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(!FileManager.default.fileExists(atPath: marker.path))
   let strong = try await cli(root, ["--query", "2+2"])
   #expect(!strong.1["items"].array.contains { $0["row"]["id"].string == "fallback" })
-  #expect(strong.1["items"].array.first?["provider"].string == "math")
+  #expect(strong.1["items"].array.first?["provider"].string == "extension:calculator")
   let invoked = try await cli(root, ["--extension", "web", "--input", "QX842"])
   #expect(invoked.0 == 0 && invoked.1["items"] != .null)
   #expect(FileManager.default.fileExists(atPath: marker.path))
 }
 
-@Test func headlessMathLeadsWhateverTheConfiguredOrderAndUsageComesFromTheRealFiles() async throws {
+@Test func headlessPatternsLeadByNameWhateverTheConfiguredOrderAndUsageComesFromTheRealFiles() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
-    root, name: "calc", script: answering("Inline result"), fields: ["match": "^2\\+2$"])
+    root, name: "inline", script: answering("Inline result"), fields: ["match": "^2\\+2$"])
   for list in [
-    [Configuration.ProviderEntry("math"), .init("extension:calc")], [.init("extension:calc"), .init("math")],
+    [Configuration.ProviderEntry("extension:calculator"), .init("extension:inline")],
+    [.init("extension:inline"), .init("extension:calculator")],
   ] {
     try saveProviders(list, in: root)
     let output = try await cli(root, ["--query", "2+2"])
-    #expect(output.1["items"].array.prefix(2).map { $0["provider"].string } == ["math", "extension:calc"])
-    #expect(output.1["askAgent"]["reason"].string == "math result")
+    #expect(
+      output.1["items"].array.prefix(2).map { $0["provider"].string } == [
+        "extension:calculator", "extension:inline",
+      ])
+    #expect(output.1["items"].array.first?["row"]["title"].string == "4")
+    #expect(output.1["askAgent"]["reason"].string == "pattern result: extension:calculator")
   }
   try saveProviders([.init("apps")], in: root)
   var usage = UsageStore()
@@ -165,34 +173,33 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 @MainActor @Test func headlessRankingPutsTheBestMatchFirstOnTheRealMachine() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  try ExtensionHost.installFiles(in: root)
-  for list in [[Configuration.ProviderEntry("math"), .init("apps")], [.init("apps"), .init("math")], []] {
+  let all = [
+    Configuration.ProviderEntry("extension:calculator"), .init("apps"), .init("extension:units"),
+  ]
+  for list in [all, all.reversed(), []] {
     try saveProviders(list, in: root)
     let enabled = !list.isEmpty
     let safari = try await cli(root, ["--query", "saf"])
     #expect(safari.1["items"].array.first?["row"]["title"].string == (enabled ? "Safari" : "Ask agent"))
     let equation = try await cli(root, ["--query", "2+2"])
-    #expect(equation.1["items"].array.first?["provider"].string == (enabled ? "math" : "agent"))
+    #expect(
+      equation.1["items"].array.first?["provider"].string == (enabled ? "extension:calculator" : "agent"))
     let units = try await cli(root, ["--query", "10 km in mi"])
-    #expect(units.1["items"].array.first?["provider"].string == "extension:units")
-    #expect(units.1["askAgent"]["shown"] == .bool(false))
+    #expect(units.1["items"].array.first?["provider"].string == (enabled ? "extension:units" : "agent"))
+    #expect(units.1["askAgent"]["shown"] == .bool(!enabled))
     let sentence = try await cli(root, ["--query", "please summarise my quarterly plan"])
     #expect(sentence.1["items"].array.first?["provider"].string == "agent")
     #expect(sentence.1["askAgent"]["shown"] == .bool(true))
   }
 }
 
-@Test(arguments: [
-  ("10 km in mi", "6.2137119 mi"), ("20 c in k", "293.15 K"), ("300 K to f", "80.33 °F"),
-  ("2 gal to l", "7.5708236 l"), ("5 ft to cm", "152.4 cm"), ("16 oz in lb", "1 lb"),
-  ("100 kmh in mph", "62.137119 mph"),
-])
-@MainActor func bundledUnitsConvert(input: String, expected: String) async throws {
+@Test func headlessRunsTheBundledExtensionsByName() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  try ExtensionHost.installFiles(in: root)
-  let output = try await cli(root, ["--extension", "units", "--input", input])
-  #expect(output.1["items"].array.first?["title"].string == expected)
+  let units = try await cli(root, ["--extension", "units", "--input", "10 km in mi"])
+  #expect(units.1["items"].array.first?["title"].string == "6.2137119 mi")
+  let calculator = try await cli(root, ["--extension", "calculator", "--input", "12*7"])
+  #expect(calculator.1["items"].array.first?["title"].string == "84")
 }
 
 @MainActor @Test func theQuicklinksExampleIsItemsOnlyAndHeadlessShowsItsItems() async throws {

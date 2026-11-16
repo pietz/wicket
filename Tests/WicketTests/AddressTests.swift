@@ -284,7 +284,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   for name in ["settings", "Agent", "clipboard", "fine"] {
     _ = try extensionFolder(root, name: name, fields: ["command": ["/usr/bin/true"]])
   }
-  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"))
+  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
   #expect(Set(commands.keys) == ["extension:fine"])
   #expect(problems["extension:settings"]?.contains("reserved") == true)
   #expect(problems["extension:Agent"]?.contains("reserved") == true)

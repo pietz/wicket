@@ -243,18 +243,19 @@ import Testing
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let model = LauncherModel(
-    providers: [MathProvider()], history: UsageHistory(url: folder.appending(path: "usage.json")),
-    folder: folder)
+    providers: [], history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
+    bundled: bundledExtensions)
+  await model.extensions.reload()
   model.input = "What is the answer?"
   #expect(await eventually { !model.isRefreshing })
   #expect(model.results.first?.provider == "agent")
   model.input = "2+2"
-  #expect(await eventually { !model.isRefreshing })
-  #expect(model.results.map(\.provider) == ["math"])
-  #expect(model.selected?.provider == "math")
+  await model.settled()
+  #expect(model.results.map(\.provider) == ["extension:calculator"])
+  #expect(model.selected?.provider == "extension:calculator")
   model.input = ""
-  #expect(await eventually { !model.isRefreshing })
-  #expect(model.results.isEmpty)
+  await model.settled()
+  #expect(model.results.map(\.row.title) == ["Calculator", "Convert units"])
 }
 
 @Test func commandReturnAsksAndIMEKeepsOwnership() {

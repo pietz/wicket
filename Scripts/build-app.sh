@@ -1,6 +1,7 @@
 #!/bin/zsh
-# Builds Wicket as an app bundle from the SwiftPM package, with the SwiftPM resource bundle in
-# Contents/Resources and Sparkle in Contents/Frameworks.
+# Builds Wicket as an app bundle from the SwiftPM package, with the SwiftPM resource bundle and the
+# bundled extensions (each binary with its manifest and source) in Contents/Resources and Sparkle in
+# Contents/Frameworks.
 #   Scripts/build-app.sh             Wicket Dev, release config: build/Wicket Dev.app
 #   Scripts/build-app.sh debug       Wicket Dev, debug config
 #   Scripts/build-app.sh --release   Wicket, Developer ID, for Scripts/release.sh: build/Wicket.app
@@ -20,7 +21,8 @@ case "${1:-}" in
   *) echo "usage: Scripts/build-app.sh [debug | --release]" >&2; exit 2 ;;
 esac
 
-swift build -c "$config" --product Wicket -Xswiftc -warnings-as-errors
+# Every product: Wicket and the bundled extensions.
+swift build -c "$config" -Xswiftc -warnings-as-errors
 bin="$(swift build -c "$config" --show-bin-path)"
 
 if [[ $edition == release ]]; then
@@ -48,6 +50,15 @@ cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
 ditto "$bin/Wicket_WicketApp.bundle" "$app/Contents/Resources/Wicket_WicketApp.bundle"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# The bundled extensions, found by ExtensionHost.bundledFolder: what a user copies into their
+# extensions folder to change one.
+extensions=(calculator units)
+for name in $extensions; do
+  mkdir -p "$app/Contents/Resources/Extensions/$name"
+  cp "Sources/Extensions/$name/wicket.json" "Sources/Extensions/$name/main.swift" \
+    "$app/Contents/Resources/Extensions/$name/"
+  cp "$bin/$name" "$app/Contents/Resources/Extensions/$name/main"
+done
 
 # SwiftPM links the executable against Sparkle at an absolute .build path; point it at the bundle.
 exe="$app/Contents/MacOS/Wicket"
@@ -68,9 +79,10 @@ else
     -c "Delete :SUFeedURL" -c "Delete :SUPublicEDKey" -c "Delete :SUEnableAutomaticChecks" "$plist"
 fi
 
-# Inside out, never --deep: Sparkle's helpers (as Sparkle's docs list them), the framework, then
-# the app. Downloader.xpc keeps its own entitlements.
+# Inside out, never --deep: the extension binaries, Sparkle's helpers (as Sparkle's docs list them),
+# the framework, then the app. Downloader.xpc keeps its own entitlements.
 sign() { codesign --force --sign "$identity" $runtime $timestamp "$@" >/dev/null; }
+for name in $extensions; do sign "$app/Contents/Resources/Extensions/$name/main"; done
 sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
 sign "$sparkle/XPCServices/Installer.xpc"
 sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"

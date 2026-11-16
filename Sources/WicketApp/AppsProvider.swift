@@ -126,16 +126,3 @@ final class AppsProvider: Provider {
   }
 
 }
-
-@MainActor
-final class MathProvider: Provider {
-  let id = "math"
-  func view(for request: ProviderRequest) async throws -> ProviderView {
-    guard let answer = Math.evaluate(request.input) else { return .init() }
-    return .init(items: [
-      Row(
-        id: "result", title: answer.title, subtitle: "Copy result", icon: "equal",
-        actions: [.copy(answer.copy)], prominent: true)
-    ])
-  }
-}

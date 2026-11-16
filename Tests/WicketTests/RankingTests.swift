@@ -17,13 +17,13 @@ private func manifest(_ name: String, keyword: String? = nil, match: String? = n
     ExtensionManifest.self, from: JSONSerialization.data(withJSONObject: object))
 }
 private func compose(
-  _ query: String, math: [Row] = [], apps: [Row] = [], files: [Row] = [], items: [String: [Row]] = [:],
+  _ query: String, apps: [Row] = [], files: [Row] = [], items: [String: [Row]] = [:],
   patterns: [String: Ranking.Pattern] = [:],
   extensions: [String: ExtensionManifest] = [:], problems: [String: String] = [:],
   usage: UsageStore = UsageStore()
 ) -> Ranking.Output {
   Ranking.compose(
-    query: query, math: math,
+    query: query,
     names: [
       .init(provider: "apps", kind: .app, rows: apps), .init(provider: "files", kind: .file, rows: files),
     ]
@@ -85,16 +85,6 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "saf", apps: [app("Sam's Folder Archive"), app("Safari"), app("Self Assessment Form")])
   #expect(titles(output).first == "Safari")
   #expect(output.strongReason == "title prefix: apps:/Applications/Safari.app")
-}
-
-@Test func anEquationPutsMathFirstEvenBesideAPatternResultAndAPrefixMatch() {
-  let math = Row(id: "result", title: "4", actions: [.copy("4")], prominent: true)
-  let units = Row(id: "u", title: "Four", actions: [])
-  let output = compose(
-    "2+2", math: [math], apps: [app("2+2 Calculator")], patterns: ["extension:calc": .items([units])],
-    extensions: ["extension:calc": manifest("Calc", match: ".")])
-  #expect(titles(output) == ["4", "Four", "2+2 Calculator"])
-  #expect(output.strongReason == "math result")
 }
 
 @Test func aPatternResultComesBeforeNameMatchesAndSeveralAreOrderedByName() {
@@ -169,7 +159,6 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   func hasFallback(_ output: Ranking.Output) -> Bool { output.results.contains { $0.row.id == "fallback" } }
   #expect(hasFallback(compose("zzz", extensions: extensions)))
   #expect(!hasFallback(compose("saf", apps: [app("Safari")], extensions: extensions)))
-  #expect(!hasFallback(compose("2+2", math: [Row(id: "r", title: "4", actions: [])], extensions: extensions)))
   #expect(
     !hasFallback(
       compose(

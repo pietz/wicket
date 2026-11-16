@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 
@@ -49,13 +50,21 @@ final class ExtensionHost {
   /// Called with the IDs whose manifest or problem changed, appeared or went away.
   var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
+  /// The extensions that ship inside Wicket (calculator, units), each a folder like any other with its
+  /// binary and source. A folder of the user's own with the same name wins.
+  let bundled: URL?
+  /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
+  nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   var runner = ExtensionRunner()
   private var watcher: FileWatcher?
   private var scan: Task<Void, Never>?
   private var revision = 0
   private var running: [UUID: Task<ProviderView, any Error>] = [:]
 
-  init(folder: URL) { self.folder = folder }
+  init(folder: URL, bundled: URL? = bundledFolder) {
+    self.folder = folder
+    self.bundled = bundled
+  }
   func start() {
     rescan()
     watcher = FileWatcher(paths: [folder.appending(path: "extensions").path], latency: 0.2) { [weak self] _ in
@@ -70,9 +79,10 @@ final class ExtensionHost {
     revision += 1
     let version = revision
     let root = folder.appending(path: "extensions")
+    let bundled = bundled
     scan?.cancel()
     scan = Task { [weak self] in
-      let (commands, problems) = await Task.detached { Self.discover(root) }.value
+      let (commands, problems) = await Task.detached { Self.discover(root, bundled: bundled) }.value
       guard let self, !Task.isCancelled, revision == version else { return }
       // FSEvents also report an extension's own cache and log writes. An unchanged catalog must not
       // restart the launcher's work, or an extension that writes in its folder cancels itself.
@@ -84,17 +94,30 @@ final class ExtensionHost {
       onCatalogChange?(changed)
     }
   }
-  nonisolated static func discover(_ root: URL) -> ([String: ExtensionCommand], [String: String]) {
+  /// The bundled extensions, then the user's: a folder of the user's own replaces the bundled one of the
+  /// same name, unless it is an unmodified copy an earlier Wicket installed (`retired`).
+  nonisolated static func discover(_ root: URL, bundled: URL?) -> (
+    [String: ExtensionCommand], [String: String]
+  ) {
     var commands: [String: ExtensionCommand] = [:]
     var problems: [String: String] = [:]
-    for folder
-      in (try? FileManager.default.contentsOfDirectory(
-        at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-    {
-      guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
-        FileManager.default.fileExists(atPath: folder.appending(path: "wicket.json").path)
-      else { continue }
+    func folders(_ root: URL?) -> [URL] {
+      guard let root else { return [] }
+      return
+        ((try? FileManager.default.contentsOfDirectory(
+          at: root, includingPropertiesForKeys: [.isDirectoryKey]))
+        ?? []).filter {
+          (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            && FileManager.default.fileExists(atPath: $0.appending(path: "wicket.json").path)
+        }
+    }
+    let shipped = folders(bundled)
+    let own = folders(root).filter { folder in
+      !shipped.contains { $0.lastPathComponent == folder.lastPathComponent } || !isRetired(folder)
+    }
+    for folder in shipped + own {
       let id = "extension:" + folder.lastPathComponent
+      (commands[id], problems[id]) = (nil, nil)
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(folder.lastPathComponent.lowercased()) {
         problems[id] = "\(folder.path)\n\(folder.lastPathComponent) is a reserved name. Rename the folder."
@@ -140,9 +163,9 @@ final class ExtensionHost {
     // The contract is Wicket's reference, not the user's: rewritten each launch so agents read this version.
     try Data(contentsOf: Bundle.wicket.url(forResource: "extension-contract", withExtension: "md")!)
       .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
-    // Each bundled extension is its manifest and, unless it is only items, its program.
-    for name in ["units", "web-search", "currency", "quicklinks"] {
-      let target = folder.appending(path: (name == "units" ? "extensions/" : "examples/") + name)
+    // Each example is its manifest and, unless it is only items, its program.
+    for name in ["web-search", "currency", "quicklinks"] {
+      let target = folder.appending(path: "examples/" + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
       for (source, destination) in [(name + ".json", "wicket.json"), (name + ".py", "main.py")] {
@@ -150,5 +173,21 @@ final class ExtensionHost {
         try FileManager.default.copyItem(at: url, to: target.appending(path: destination))
       }
     }
+  }
+
+  /// Copies of today's bundled extensions that earlier versions installed into the extensions folder:
+  /// the SHA-256 of `wicket.json` followed by `main.py`, for units as 0.1.0 to 0.1.2 and 0.1.3 to 0.3.4
+  /// shipped it in Python. An unmodified copy stays on disk but no longer hides the bundled extension;
+  /// an edited one is the user's own and wins.
+  nonisolated static let retired = [
+    "2e2fc50d60375a1bbcb2b44473e3770ae54c4a6b653a1989548f8923e616a913",
+    "49c113315f8660efe5ae712bf6dfd0dcf4e70dfd92953242b2209bfbb3a0c1c7",
+  ]
+  nonisolated static func isRetired(_ folder: URL) -> Bool {
+    guard let manifest = try? Data(contentsOf: folder.appending(path: "wicket.json")),
+      let program = try? Data(contentsOf: folder.appending(path: "main.py"))
+    else { return false }
+    let digest = SHA256.hash(data: manifest + program).map { String(format: "%02x", $0) }.joined()
+    return retired.contains(digest)
   }
 }

@@ -182,9 +182,9 @@ private let nextAnswer =
     let transcriber = FakeTranscriber()
     let runs = AgentHistory(url: folder.appending(path: "agent-history.json"))
     let model = LauncherModel(
-      providers: [MathProvider(), FixedApps()], agentHistory: runs,
+      providers: [FixedApps()], agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
-      transcriber: { transcriber })
+      bundled: bundledExtensions, transcriber: { transcriber })
     model.store.update {
       $0.voice.enabled = name == "listening"
       $0.textSize = size
@@ -202,7 +202,10 @@ private let nextAnswer =
     }
     switch name {
     case "apps": model.input = "cal"
-    case "math": model.input = "200*10%+2^3"
+    case "math":
+      await model.extensions.reload()
+      model.input = "200*10%+2^3"
+      await model.settled()
     case "ask": model.input = "How do rainbows form?"
     case "listening":
       model.armVoice()

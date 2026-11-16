@@ -42,7 +42,7 @@ struct Configuration: Codable, Equatable, Sendable {
   var hotkey = Shortcut.default
   /// 0 is an opaque system surface; 1 is the unmodified system material.
   var backgroundTransparency: Double = 0.15
-  static let builtins = ["math", "apps", "files", "clipboard"]
+  static let builtins = ["apps", "files", "clipboard"]
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.
   static func enabledByDefault(_ id: String) -> Bool { id != "clipboard" }
   var providers = builtins.map { ProviderEntry($0, enabled: enabledByDefault($0)) }
@@ -77,12 +77,15 @@ struct Configuration: Codable, Equatable, Sendable {
   }
   /// Every source and whether it is on: the configured list, which decides, then the built-ins and
   /// discovered extensions it omits, at their default (`enabledByDefault`), so a new built-in such as
-  /// files reaches existing files. The order of the list is only how the file was written. It never
-  /// affects how results are ranked.
+  /// files reaches existing files. An entry for a source that is gone, such as `math` before the
+  /// calculator became an extension or a deleted extension, stays in the file but is no source. The
+  /// order of the list is only how the file was written. It never affects how results are ranked.
   func sources(extensions: some Sequence<String>) -> [ProviderEntry] {
+    let known = Set(Self.builtins).union(extensions)
     let listed = Set(providers.map(\.id))
-    return providers
-      + (Self.builtins.filter { !listed.contains($0) } + Set(extensions).subtracting(listed).sorted())
+    return providers.filter { known.contains($0.id) }
+      + (Self.builtins.filter { !listed.contains($0) }
+      + known.subtracting(Self.builtins).subtracting(listed).sorted())
       .map { ProviderEntry($0, enabled: Self.enabledByDefault($0)) }
   }
   func isEnabled(_ id: String, extensions: some Sequence<String>) -> Bool {

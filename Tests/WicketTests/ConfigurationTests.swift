@@ -60,17 +60,21 @@ func invalidShortcut(spelling: String) {
 
 @Test func omittedSourcesTakeTheirDefaultAndFollowTheList() {
   var config = Configuration()
-  config.providers = [.init("extension:b", enabled: false), .init("math"), .init("files", enabled: false)]
+  config.providers = [
+    .init("extension:b", enabled: false), .init("math"), .init("files", enabled: false),
+    .init("extension:gone"),
+  ]
   let sources = config.sources(extensions: ["extension:z", "extension:b", "extension:a"])
+  // An entry for a source that is gone (math from when the calculator was built in, a deleted extension) is no source.
   #expect(
     sources == [
-      .init("extension:b", enabled: false), .init("math"), .init("files", enabled: false), .init("apps"),
+      .init("extension:b", enabled: false), .init("files", enabled: false), .init("apps"),
       .init("clipboard", enabled: false), .init("extension:a"), .init("extension:z"),
     ])
   #expect(
     config.isEnabled("extension:a", extensions: ["extension:a"])
       && !config.isEnabled("extension:b", extensions: ["extension:b"]))
   // A config written before file search existed gets it.
-  config.providers = [.init("math"), .init("apps")]
+  config.providers = [.init("apps")]
   #expect(config.isEnabled("files", extensions: []))
 }
