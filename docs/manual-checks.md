@@ -117,6 +117,17 @@ Wicket has Accessibility for this section (section 10). No hotkeys are set at th
 6. Make a command fail on purpose: in `config.json` bind an item of an extension whose program exits with an error (ask the agent for one), press it with the panel closed: the panel opens on that command with the error and its Copy and Ask agent buttons, and the program ran once.
 7. Edit `hotkeys` by hand: change a key, add a duplicate key for another address (the footer says which), break an address (`Config:` error, last good hotkeys keep working), remove one (it stops working). Remove Hotkey from the context menu removes the entry and the trailing label.
 
+## 12. Action panel (⌘K)
+
+1. Type a file name that Files finds. The footer shows ⌘K Actions. Press ⌘K: the bar reads Actions for <the file> and the card lists Open and Reveal in Finder. Down, Return reveals it in Finder and closes the panel.
+2. Type `left`, select Left Half, press ⌘K: Run (or Open), then Set Hotkey…. Choose Set Hotkey…: the panel goes back to the list and the row says Press a shortcut. Press ⌃⌥←. ⌘K again now ends with Remove Hotkey.
+3. Press ⌘K, then Escape: the same list with the same row selected. ⌘K twice does the same. Press ⌘K and type a letter: the panel closes and the letter is the whole search.
+4. Open Clipboard History, select a clip, ⌘K: Paste into previous app, Copy, Delete. Delete removes it and stays in Clipboard History.
+5. Ask the agent for a week's weather with days as rows. Arrow to a day, ⌘K: Show details and its action. Escape: the same day selected and the answer scrolled where it was. With a long answer scrolled down, ⌘K and Escape keep the position.
+6. In an extension page with view actions (Window's detail is none; use one the agent wrote), nothing selected: the footer shows ⌘K Actions, ⌘K lists the view's actions, and the header's Actions button opens the same list.
+7. While the panel is open over an answer, press ⌘Return: it closes and asks the agent as from the answer. While an agent asks for permission, ⌘K does nothing and the card stays in view.
+8. With a Japanese or Chinese input method, press ⌘K and start composing: the composition works and becomes the search when committed.
+
 ## Feedback
 
 For each section: works, broken (what you did, what happened), or feels off (what you expected). Screenshots help for layout.

@@ -45,6 +45,19 @@ func plainKeys(code: Int, action: PaletteKeyAction) {
       keyCode: 8, characters: "c", modifiers: [.command, .shift], hasMarkedText: false) == .consume)
 }
 
+@Test func commandKOpensActionsUnlessAPermissionIsAsking() {
+  #expect(
+    PaletteKeyAction.decide(keyCode: 40, characters: "k", modifiers: .command, hasMarkedText: false)
+      == .actions)
+  #expect(
+    PaletteKeyAction.decide(
+      keyCode: 40, characters: "k", modifiers: .command, hasMarkedText: false, permissionPending: true)
+      == .consume)
+  #expect(
+    PaletteKeyAction.decide(keyCode: 40, characters: "k", modifiers: .command, hasMarkedText: true)
+      == .passThrough)
+}
+
 @Test func navigationDoesNotTakeOverTextEditing() {
   #expect(
     PaletteKeyAction.decide(keyCode: 45, characters: "n", modifiers: .control, hasMarkedText: false)

@@ -201,6 +201,8 @@ struct RowAction: Codable, Sendable, Equatable {
     case detail(String)
     /// Host only, never decoded: copy or paste the clipboard history's image with this ID, read when it runs.
     case clip(String, paste: Bool)
+    /// Host only, never decoded: record a row's hotkey (Set Hotkey…), or with `record` false remove it.
+    case hotkey(HotkeyTarget, record: Bool)
   }
   var kind: Kind
   var title: String?
@@ -267,6 +269,9 @@ struct RowAction: Codable, Sendable, Equatable {
       try c.encode("clip", forKey: .type)
       try c.encode(id, forKey: .text)
       try c.encode(paste, forKey: .paste)
+    case .hotkey(let target, let record):
+      try c.encode(record ? "setHotkey" : "removeHotkey", forKey: .type)
+      try c.encode(target.description, forKey: .text)
     }
   }
 }

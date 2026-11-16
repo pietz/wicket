@@ -110,6 +110,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       case .dismiss: if !model.escape() { hide() }
       case .run: run()
       case .send: model.askAgent()
+      case .actions: model.toggleActions()
       case .permission(let allow): model.agent.decide(allow)
       case .move(let delta): model.move(delta)
       case .focus(let delta): model.moveFocus(delta)
@@ -229,8 +230,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
     model.stopVoice(.run)
-    guard !opening, let action = chosen ?? model.returnAction else { return }
-    let result = model.selected
+    guard !opening, let (action, result) = model.pick(chosen) else { return }
     if model.activate(action, from: result) { return }
     let input = model.input
     func record() { if let result { model.record(result) } }
@@ -239,7 +239,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       guard model.writePasteboard(action.kind) else { return }
       record()
       hide()
-    case .run, .send, .detail: break
+    case .run, .send, .detail, .hotkey: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

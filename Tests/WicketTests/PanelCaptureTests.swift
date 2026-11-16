@@ -21,7 +21,7 @@ import WebKit
 private let captureDirectory = ProcessInfo.processInfo.environment["WICKET_CAPTURE_DIR"]
 
 private let states = [
-  "empty", "apps", "math", "ask", "answer", "listening",
+  "empty", "apps", "actions", "math", "ask", "answer", "listening",
   "conversation-multi", "conversation-expanded", "conversation-reopen", "conversation-long",
   "conversation-long-expanded",
   "working", "working-text", "permission-routine", "permission-high",
@@ -97,6 +97,7 @@ private func expectedText(_ name: String) -> [String] {
       "Actions",
     ]
   }
+  if name.contains("actions") { return ["Actions for Settings", "Open", "Set Hotkey", "esc Back"] }
   if name.contains("extension-targets") { return ["Berlin this week", "Wed", "Hourly forecast", "Run"] }
   if name.contains("extension-error") {
     return ["Extension report", "Invalid extension view", "REPAIR", "Ask agent"]
@@ -247,6 +248,10 @@ private let nextAnswer =
       }
       if name == "conversation-expanded" { model.historyExpanded = true }
       if name == "conversation-long-expanded" { model.questionExpanded = true }
+    case "actions":
+      model.input = "settings"
+      await model.settled()
+      model.toggleActions()
     case _ where name.hasPrefix("extension-"): try await configureExtension(name, model)
     case "asking": model.askAgent()
     case "asking-extension":
@@ -500,7 +505,13 @@ private let nextAnswer =
   func webViews(_ view: NSView) -> [WKWebView] {
     (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webViews)
   }
-  let shown = webViews(view).filter { !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty }
+  // SwiftUI's opacity, as under the action panel, is an ancestor's alpha, which a snapshot ignores.
+  func transparent(_ view: NSView?) -> Bool {
+    view.map { $0.alphaValue == 0 || transparent($0.superview) } ?? false
+  }
+  let shown = webViews(view).filter {
+    !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty && !transparent($0)
+  }
   for web in shown { web.isHidden = true }
   view.cacheDisplay(in: view.bounds, to: bitmap)
   for web in shown { web.isHidden = false }
@@ -580,6 +591,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-both":
     #expect(model.body?.contains("A useful extension") == true && model.results.count == 2)
     #expect(model.selected?.row.id == "detail")
+  case "actions": #expect(model.actionsTitle == "Settings" && model.results.count == 2)
   case "extension-targets":
     #expect(model.results.count == 9 && model.selected?.row.title == "Wed" && model.selectedTarget == "#2")
   case "arguments-empty": #expect(model.declaredArguments.count == 2 && model.argumentValues.isEmpty)

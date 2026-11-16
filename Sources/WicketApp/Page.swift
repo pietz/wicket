@@ -219,16 +219,7 @@ struct Page: Equatable, Sendable {
     return .target(
       Row(
         id: id, title: title, subtitle: value("subtitle").flatMap { $0.isEmpty ? nil : $0 },
-        icon: symbol(values) ?? defaultIcon(named), actions: actions))
-  }
-
-  private static func defaultIcon(_ action: RowAction?) -> String {
-    switch action?.kind {
-    case .open: "link"
-    case .copy: "doc.on.doc"
-    case .run(let address): address.targetID == "agent" ? "sparkles" : "arrow.right"
-    default: "text.page"
-    }
+        icon: symbol(values) ?? named?.symbol ?? "text.page", actions: actions))
   }
 
   /// An http, https, mailto or `wicket://` URL, or a file path that is absolute or starts with `~`.

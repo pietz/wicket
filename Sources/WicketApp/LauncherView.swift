@@ -183,32 +183,20 @@ struct LauncherView: View {
         .padding(.horizontal, 18).frame(height: PaletteLayout.search)
 
         VStack(spacing: 0) {
-          if model.agent.active {
-            agentContent
-          } else if model.command?.problem != nil || model.page != nil {
-            extensionContent
-          } else {
-            ScrollViewReader { proxy in
-              ScrollView {
-                LazyVStack(spacing: 2) {
-                  if model.results.isEmpty {
-                    Text(model.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
-                      .frame(height: PaletteLayout.header)
-                  }
-                  ForEach(model.results) { result in resultRow(result) }
-                }.padding(10)
-              }
-              .frame(
-                height: PaletteLayout.rowsHeight(
-                  model.sizedRows,
-                  prominentFirst: model.prominentFirst, rowHeight: textSize.rowHeight)
-              )
-              .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
-              .onChange(of: model.results.map(\.id)) { _, _ in
-                if let id = model.selection { proxy.scrollTo(id) }
+          // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
+          let actions = model.actionsTitle != nil
+          ZStack(alignment: .top) {
+            Group {
+              if model.agent.active {
+                agentContent
+              } else if model.command?.problem != nil || model.page != nil {
+                extensionContent
               }
             }
+            .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
+            if actions || !model.agent.active && model.command?.problem == nil && model.page == nil { list }
           }
+          .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
           Divider()
           HStack(spacing: 12) {
             // Busy once the answer has begun: before that the answer area shows its own spinner.
@@ -227,6 +215,9 @@ struct LauncherView: View {
             if !model.agent.permissions.isEmpty {
               Text("⌘↩ Allow")
               Text("Esc Don't allow")
+            } else if model.actionsTitle != nil {
+              Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
+              Text("esc Back")
             } else if model.agent.active {
               if let action = model.selected?.row.actions.first {
                 Text("↩ " + action.label)
@@ -237,6 +228,7 @@ struct LauncherView: View {
               } else {
                 Text("↩ Follow up")
               }
+              if model.offersActions { Text("⌘K Actions") }
               Text(
                 model.inDetail || model.returnsOnEscape
                   ? "Esc Back"
@@ -244,6 +236,7 @@ struct LauncherView: View {
                     ? "Esc Cancel" : model.agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
               Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
+              if model.offersActions { Text("⌘K Actions").lineLimit(1) }
               // The one hint that may grow with a name: it gives way first.
               Text("⌘↩ " + (model.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
                 .layoutPriority(-1)
@@ -265,18 +258,21 @@ struct LauncherView: View {
   /// The main input, sized by a hidden copy of its text (or placeholder) so the slots can follow it; the
   /// field itself never sizes itself. The first 200 characters are enough to fill any width.
   private var input: some View {
+    // The action panel's field is empty and says what the panel is for; typing returns to the input.
+    let text = model.actionsTitle == nil ? model.input : ""
     let placeholder =
-      model.agent.active
-      ? (model.agent.question.isEmpty
-        ? model.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(model.askingName)…" : "Ask a follow-up…")
-      : (model.commandName ?? "Search or ask anything…")
-    return Text(model.input.isEmpty ? placeholder : String(model.input.prefix(200)))
+      model.actionsTitle.map { "Actions for \($0)" }
+      ?? (model.agent.active
+        ? (model.agent.question.isEmpty
+          ? model.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(model.askingName)…" : "Ask a follow-up…")
+        : (model.commandName ?? "Search or ask anything…"))
+    return Text(text.isEmpty ? placeholder : String(text.prefix(200)))
       .font(.system(size: 21)).lineLimit(1).hidden()
       .padding(.trailing, 8)  // Room for the caret and the field's own inset.
       .frame(minWidth: 0, maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
       .overlay {
         SearchField(
-          text: Binding(get: { model.input }, set: { model.editInput($0) }),
+          text: Binding(get: { text }, set: { model.editInput($0) }),
           placeholder: placeholder, bleed: 6,
           focused: model.focusedArgument == nil,
           onFocus: { if model.focusedArgument != nil { model.focusedArgument = nil } },
@@ -301,6 +297,29 @@ struct LauncherView: View {
       }
       .padding(.horizontal, 9).frame(height: 28)
       .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.primary.opacity(0.08)))
+  }
+  /// The native list: search results, a command's items, or the action panel's actions.
+  private var list: some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        LazyVStack(spacing: 2) {
+          if model.results.isEmpty {
+            Text(model.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
+              .frame(height: PaletteLayout.header)
+          }
+          ForEach(model.results) { result in resultRow(result) }
+        }.padding(10)
+      }
+      .frame(
+        height: PaletteLayout.rowsHeight(
+          model.sizedRows,
+          prominentFirst: model.prominentFirst, rowHeight: textSize.rowHeight)
+      )
+      .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
+      .onChange(of: model.results.map(\.id)) { _, _ in
+        if let id = model.selection { proxy.scrollTo(id) }
+      }
+    }
   }
   /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
   private func resultRow(_ result: Result) -> some View {
@@ -352,17 +371,10 @@ struct LauncherView: View {
     }
     .onTapGesture { if model.click(result.id) { run(nil) } }
     .contextMenu {
-      ForEach(Array(result.row.actions.enumerated()), id: \.offset) { _, action in
+      ForEach(Array(model.actions(of: result).enumerated()), id: \.offset) { _, action in
         Button(action.label) {
           model.select(result.id)
           run(action)
-        }
-      }
-      if let target = model.hotkeyTarget(of: result) {
-        Divider()
-        Button("Set Hotkey…") { model.recordHotkey(for: result) }
-        if model.hotkey(of: result) != nil {
-          Button("Remove Hotkey") { model.store.bind(nil, to: target) }
         }
       }
     }
@@ -389,11 +401,7 @@ struct LauncherView: View {
           }
           Button("Ask agent") { model.send(error) }
         } else if !model.viewActions.isEmpty {
-          Menu("Actions") {
-            ForEach(Array(model.viewActions.enumerated()), id: \.offset) { _, action in
-              Button(action.label) { run(action) }
-            }
-          }.menuStyle(.borderlessButton).fixedSize()
+          Button("Actions") { model.toggleActions(model.viewRow) }
         }
       }.buttonStyle(.plain).padding(.horizontal, 20).frame(height: PaletteLayout.header)
       if let error = model.command?.problem {
@@ -553,12 +561,33 @@ extension RowAction {
     case .send: "Ask"
     case .detail: "Show details"
     case .clip(_, let paste): paste ? "Paste into previous app" : "Copy"
+    case .hotkey(_, let record): record ? "Set Hotkey…" : "Remove Hotkey"
+    }
+  }
+  /// The SF Symbol of its kind: its row in the action panel, and a page's target row without an icon.
+  var symbol: String {
+    switch kind {
+    case .open: "link"
+    case .copy: "doc.on.doc"
+    case .paste: "doc.on.clipboard"
+    case .reveal: "folder"
+    case .run(let address): address.targetID == "agent" ? "sparkles" : "arrow.right"
+    case .send: "sparkles"
+    case .detail: "text.page"
+    case .hotkey(_, let record): record ? "keyboard" : "xmark.circle"
+    case .clip(_, let paste): paste ? "doc.on.clipboard" : "doc.on.doc"
     }
   }
 }
 
 extension LauncherModel {
   func cardHeight(answer: CGFloat, cap: Double) -> CGFloat {
+    let list =
+      PaletteLayout.rowsHeight(
+        sizedRows, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
+      + PaletteLayout.footer
+    // The action panel is a list, over whatever it was opened on.
+    if actionsTitle != nil { return list }
     if agent.active, agent.question.isEmpty { return PaletteLayout.answerMin + PaletteLayout.footer }
     if agent.active {
       return min(
@@ -571,8 +600,6 @@ extension LauncherModel {
     }
     if command?.problem != nil { return PaletteLayout.header + PaletteLayout.error + PaletteLayout.footer }
     if page != nil { return PaletteLayout.header + min(answer, CGFloat(cap)) + PaletteLayout.footer }
-    return PaletteLayout.rowsHeight(
-      sizedRows, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
-      + PaletteLayout.footer
+    return list
   }
 }

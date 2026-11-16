@@ -54,7 +54,7 @@ final class LauncherModel {
   private var shrinking: Task<Void, Never>?
   private var sizedFor: String?
   private func sizeList(now: Bool = false) {
-    let count = max(1, min(listed.count, 8))
+    let count = max(1, min(results.count, 8))
     let screen = command?.id
     let settled = pending.isEmpty && command?.busy != true
     guard count < sizedRows, !now, !settled, screen == sizedFor else {
@@ -68,12 +68,14 @@ final class LauncherModel {
     shrinking = Task { [weak self] in
       guard (try? await Task.sleep(for: .milliseconds(300))) != nil, let self else { return }
       shrinking = nil
-      sizedRows = max(1, min(listed.count, 8))
+      sizedRows = max(1, min(results.count, 8))
       onResultsChange?()
     }
   }
-  /// What the arrow keys walk: the open page's targets in reading order, else the list.
+  /// What the arrow keys walk: the action panel's rows, the open page's targets in reading order, else
+  /// the list.
   var results: [Result] {
+    if let actionPanel { return actionPanel.rows }
     guard let page else { return agent.active ? [] : listed }
     let provider = agent.active ? "answer" : command?.id ?? ""
     return page.targets.map { Result(provider: provider, row: $0) }
@@ -102,7 +104,9 @@ final class LauncherModel {
   private var openDetails: [Detail] { details.first?.base == baseTurn ? details : [] }
   var inDetail: Bool { !openDetails.isEmpty }
   /// The selected target's id as the page knows it.
-  var selectedTarget: String? { page == nil ? nil : results.first { $0.id == selection }?.row.id }
+  var selectedTarget: String? {
+    page == nil || actionPanel != nil ? nil : results.first { $0.id == selection }?.row.id
+  }
   /// Opens an item's content as its own page, with no model call and no extension run. Its items may
   /// run the open command as the page it came from could.
   private func openDetail(_ markdown: String, from result: Result?) {
@@ -113,6 +117,71 @@ final class LauncherModel {
         turn: pageTurn + ">" + (result?.row.id ?? ""), selection: selection, touched: selectionTouched))
     clearSelection()
     onResultsChange?()
+  }
+  /// The action panel (⌘K): a row's actions as rows of their own in place of the list or page, and where
+  /// the user was, which Escape, ⌘K again and typing return to.
+  private struct ActionPanel {
+    let source: Result
+    let rows: [Result]
+    let selection: String?
+    let touched: Bool
+    let drafted: [String: String]
+  }
+  private var actionPanel: ActionPanel?
+  /// The title of the row whose actions the panel lists; nil while it is closed.
+  var actionsTitle: String? { actionPanel?.source.row.title }
+  /// What can be done with a row: its own actions, then the host's (Set Hotkey…, and Remove Hotkey when
+  /// one is set). The context menu and the action panel list exactly these.
+  func actions(of result: Result) -> [RowAction] {
+    guard let target = hotkeyTarget(of: result) else { return result.row.actions }
+    let bound = configuration.hotkeys.contains { $0.target == target }
+    return result.row.actions + [RowAction(.hotkey(target, record: true))]
+      + (bound ? [RowAction(.hotkey(target, record: false))] : [])
+  }
+  /// The row ⌘K is about: the selected one, or on a page with nothing selected the view itself.
+  private var actionSource: Result? { selectedRow ?? viewRow }
+  private var selectedRow: Result? { results.first { $0.id == selection } }
+  /// The open command's page as a row: its title and the view's own actions. Nil in a detail.
+  var viewRow: Result? {
+    guard !agent.active, let command, body != nil, !inDetail else { return nil }
+    return Result(
+      provider: command.id, row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
+  }
+  /// Whether ⌘K has more to offer than Return, for the footer.
+  var offersActions: Bool { actionPanel == nil && actionSource.map { actions(of: $0).count > 1 } == true }
+  /// ⌘K: lists the actions of `source`, else of the selected row or the view, as single-action rows, so
+  /// arrows, Return and clicks work as in any list. Again, it returns to where the user was.
+  func toggleActions(_ source: Result? = nil) {
+    if actionPanel != nil { return closeActions() }
+    guard arriving == nil, agent.permissions.isEmpty, let source = source ?? actionSource else { return }
+    let rows = actions(of: source).enumerated().map { index, action in
+      Result(
+        provider: "actions",
+        row: Row(id: String(index), title: action.label, icon: action.symbol, actions: [action]))
+    }
+    guard let first = rows.first else { return }
+    actionPanel = ActionPanel(
+      source: source, rows: rows, selection: selection, touched: selectionTouched, drafted: drafted)
+    focusTarget = nil
+    select(first.id)
+    sizeList(now: true)
+    onResultsChange?()
+  }
+  /// Back to where ⌘K was pressed, with the same selection.
+  private func closeActions() {
+    guard let panel = actionPanel else { return }
+    actionPanel = nil
+    returnTo(panel.selection, touched: panel.touched, drafted: panel.drafted)
+    sizeList(now: true)
+    onResultsChange?()
+  }
+  /// What Return or a menu item runs, and the row it came from. An action chosen in the action panel
+  /// closes it and belongs to the row the panel was opened for.
+  func pick(_ chosen: RowAction? = nil) -> (action: RowAction, from: Result?)? {
+    guard let action = chosen ?? returnAction else { return nil }
+    guard let panel = actionPanel else { return (action, selected) }
+    closeActions()
+    return (action, panel.source)
   }
   private(set) var isRefreshing = false
   private(set) var command: CommandState? {
@@ -252,6 +321,9 @@ final class LauncherModel {
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
   func editInput(_ text: String) {
     stopVoice(.edit)
+    // Typing in the action panel's empty field closes it, and what the field shows is the input: never
+    // joined to the earlier input, which would rewrite the field under an input method's marked text.
+    closeActions()
     // Typing while a command is being entered goes to it: the switch happens now, and what was added to
     // the input being left is what is typed into the new one.
     if let arrival = arriving {
@@ -336,6 +408,8 @@ final class LauncherModel {
     let inputChanged: () -> Void = { [weak self] in
       guard let self else { return }
       if !takesSpeech { stopVoice(.busy) }
+      // A permission card needs to be seen.
+      if !agent.permissions.isEmpty { closeActions() }
       onResultsChange?()
     }
     agent.onChange = inputChanged
@@ -397,6 +471,7 @@ final class LauncherModel {
   /// Makes the arriving screen the visible one. The caller publishes its content in the same turn.
   private func showArrival() {
     guard let arrival = arriving else { return }
+    actionPanel = nil
     if agent.active { agent.reset() }
     let entering = arrival.command?.id != command?.id
     command = arrival.command
@@ -637,6 +712,7 @@ final class LauncherModel {
     onResultsChange?()
   }
   private func retainSelection() {
+    guard actionPanel == nil else { return }
     let rows = results
     if resetSelection { selectionTouched = false }
     if !selectionTouched {
@@ -669,26 +745,20 @@ final class LauncherModel {
   /// Whether the input has the first say, so items wait for an arrow key and typing leaves them: in a
   /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
   /// it runs the view's actions.
-  private var itemsWait: Bool { agent.active || submits || page != nil }
+  private var itemsWait: Bool { actionPanel == nil && (agent.active || submits || page != nil) }
   /// The open command runs on Return only (`submit` in its manifest).
   var submits: Bool { extensionCommand?.manifest.submit == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
   /// filled in as a chosen request, a page runs the view's own actions, and a conversation sends the
   /// follow-up.
   var selected: Result? {
-    if let row = results.first(where: { $0.id == selection }) { return row }
-    guard !agent.active, let command else { return nil }
-    if submits {
-      return Result(
-        provider: command.id,
-        row: Row(
-          id: "submit", title: commandName ?? "Run",
-          actions: [.run(Address(input: input, arguments: filledArguments(of: command)))]))
-    }
-    guard body != nil, !inDetail else { return nil }
+    if let row = selectedRow { return row }
+    guard !agent.active, let command, submits else { return viewRow }
     return Result(
       provider: command.id,
-      row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
+      row: Row(
+        id: "submit", title: commandName ?? "Run",
+        actions: [.run(Address(input: input, arguments: filledArguments(of: command)))]))
   }
   /// What a submit sends besides the input: the declared arguments. What a run action set stays out,
   /// or a Delete chosen once would be sent again with every later Return.
@@ -710,7 +780,7 @@ final class LauncherModel {
   /// The arguments the user can fill in: inside a command its own declared ones, at the root those of
   /// the selected extension command row. Empty when there are none.
   var declaredArguments: [ExtensionManifest.Argument] {
-    guard !agent.active else { return [] }
+    guard !agent.active, actionPanel == nil else { return [] }
     if command != nil { return extensionCommand?.manifest.arguments ?? [] }
     guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
     return extensions.commands[row.provider]?.manifest.arguments ?? []
@@ -758,7 +828,9 @@ final class LauncherModel {
   /// A click on a page's target selects it and runs it. It counts only on the page it was made on, so a
   /// click that raced a new answer or view is ignored. True when the caller should run Return.
   func clickTarget(_ id: String, turn: String) -> Bool {
-    guard page != nil, turn == pageTurn, let target = results.first(where: { $0.row.id == id }) else {
+    guard page != nil, actionPanel == nil, turn == pageTurn,
+      let target = results.first(where: { $0.row.id == id })
+    else {
       return false
     }
     select(target.id)
@@ -791,6 +863,9 @@ final class LauncherModel {
       go(address, from: result?.provider, chosen: !address.link)
     case .send(let text): send(text)
     case .detail(let markdown): openDetail(markdown, from: result)
+    case .hotkey(let target, record: true):
+      recorder.record(target, in: window, store: store) { [weak self] in self?.pauseHotkeys($0) }
+    case .hotkey(let target, record: false): store.bind(nil, to: target)
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
@@ -842,6 +917,7 @@ final class LauncherModel {
     let context =
       agent.active ? (agent.question.isEmpty ? origin?.context : nil) : commandContext(typed: true)
     origin = nil
+    actionPanel = nil
     stopArriving()
     cancelWork()
     agent.ask(
@@ -864,6 +940,7 @@ final class LauncherModel {
   }
   private func restore(_ run: AgentHistory.Run) {
     origin = nil
+    actionPanel = nil
     stopArriving()
     cancelWork()
     agent.restore(run, settings: questionSettings(keeping: run.agent))
@@ -875,6 +952,7 @@ final class LauncherModel {
   /// Cmd+Return: asks what is typed. With nothing typed it opens an empty conversation about what is on
   /// screen, which Escape leaves for exactly that screen again.
   func askAgent() {
+    closeActions()
     guard input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return send() }
     guard !agent.active else { return }
     // A switch still on its way would end the conversation when it arrives.
@@ -942,6 +1020,7 @@ final class LauncherModel {
   func fill(_ text: String) {
     if !agent.active {
       origin = nil
+      actionPanel = nil
       stopArriving()
       cancelWork()
       command = nil
@@ -952,6 +1031,7 @@ final class LauncherModel {
   }
   func dismiss() {
     recorder.stop()
+    actionPanel = nil
     resetSelection = true
     drafted = [:]
     focusTarget = nil
@@ -966,6 +1046,10 @@ final class LauncherModel {
   }
   func escape() -> Bool {
     focusTarget = nil
+    if actionPanel != nil {
+      closeActions()
+      return true
+    }
     // Escape while a command is being entered stays where it was; a way back is already on its way.
     if let arrival = arriving {
       if !arrival.back { stopArriving() }
@@ -984,11 +1068,7 @@ final class LauncherModel {
       self.origin = nil
       input = origin.input
       agent.reset()
-      selection = origin.selection
-      selectionTouched = origin.touched
-      resetSelection = false
-      retainSelection()
-      if selection == origin.selection { drafted = origin.drafted }
+      returnTo(origin.selection, touched: origin.touched, drafted: origin.drafted)
       onResultsChange?()
       return true
     }
@@ -1006,6 +1086,14 @@ final class LauncherModel {
       return true
     }
     return false
+  }
+  /// Back on a screen as the user left it: its selection, and the root's draft for a row still there.
+  private func returnTo(_ selection: String?, touched: Bool, drafted: [String: String]) {
+    self.selection = selection
+    selectionTouched = touched
+    resetSelection = false
+    retainSelection()
+    if self.selection == selection { self.drafted = drafted }
   }
   /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
   /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
@@ -1030,17 +1118,13 @@ final class LauncherModel {
     guard !configuration.hotkeys.isEmpty, let target = hotkeyTarget(of: result) else { return nil }
     return configuration.hotkeys.first { $0.target == target }?.keys
   }
-  /// Records a row's hotkey (Set Hotkey…).
+  /// Records a row's hotkey: Set Hotkey… (`activate`) makes the next shortcut pressed its hotkey, under
+  /// the launcher's rules.
   let recorder = ShortcutRecorder()
   /// The panel the recorder listens in, named because Wicket is not the active app while it is key.
   weak var window: NSWindow?
   /// Pauses every global hotkey of Wicket's while a recorder listens (AppDelegate).
   var pauseHotkeys: (Bool) -> Void = { _ in }
-  /// Set Hotkey… on a row: the next shortcut pressed becomes its hotkey, under the launcher's rules.
-  func recordHotkey(for result: Result) {
-    guard let target = hotkeyTarget(of: result) else { return }
-    recorder.record(target, in: window, store: store) { [weak self] in self?.pauseHotkeys($0) }
-  }
   /// Whether Set Hotkey… is recording this row's hotkey.
   func recordsHotkey(of result: Result) -> Bool {
     recorder.target != nil && recorder.target == hotkeyTarget(of: result)

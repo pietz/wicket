@@ -2,6 +2,8 @@
 enum PaletteKeyAction: Equatable, Sendable {
   enum Edit: Equatable, Sendable { case cut, copy, paste, selectAll, undo, redo }
   case dismiss, run, send
+  /// ⌘K: the selected row's actions (`LauncherModel.toggleActions`).
+  case actions
   case permission(Bool)
   case move(Int)
   /// Tab and Shift+Tab between the input and the argument slots.
@@ -45,6 +47,8 @@ enum PaletteKeyAction: Equatable, Sendable {
       case "v": return .edit(.paste)
       case "a": return .edit(.selectAll)
       case "z": return .edit(.undo)
+      // A pending permission keeps the keys: its card stays in view.
+      case "k": return permissionPending ? .consume : .actions
       default: return .consume
       }
     }

@@ -77,7 +77,7 @@ Keep each item ID stable across updates so selection follows the same result. Fo
 
 The same program can return a body when arguments are `{"view":"forecast","city":"berlin"}`. Keep `weather-berlin` as the ID when its temperature changes.
 
-Items require a nonempty unique `id`, `title` and `actions` array (may be empty). Optional `keywords` is an array of aliases used for matching tiers; optional `prominent:true` gives the first result the calculator-sized presentation. `subtitle` and SF Symbol `icon` are optional. File open and reveal actions get the native file/app icon. Return uses the first action; in a list all of them are in the item's context menu, on a page only the first is reachable. Unknown action kinds, wrong types, missing fields and duplicate item IDs are errors; extra keys are tolerated.
+Items require a nonempty unique `id`, `title` and `actions` array (may be empty). Optional `keywords` is an array of aliases used for matching tiers; optional `prominent:true` gives the first result the calculator-sized presentation. `subtitle` and SF Symbol `icon` are optional. File open and reveal actions get the native file/app icon. Return uses the first action; ⌘K lists all of them for the selected item, in a list and on a page alike (with nothing selected on a page, the view's `actions`), as does the item's context menu in a list. Unknown action kinds, wrong types, missing fields and duplicate item IDs are errors; extra keys are tolerated.
 
 ## Actions
 
@@ -85,7 +85,7 @@ Items require a nonempty unique `id`, `title` and `actions` array (may be empty)
 [{"type":"open","url":"https://example.com"},{"type":"reveal","url":"file:///Users/me/Documents/report.pdf"},{"type":"copy","text":"hello"},{"type":"paste","text":"hello"},{"type":"run","title":"Delete","arguments":{"delete":"42"}},{"type":"agent","text":"Explain this result"}]
 ```
 
-Every action takes an optional `title`, which names it in the context menu and the header Actions menu. Without one, an action is named by its kind (Open, Reveal in Finder, Copy, Paste into previous app, Ask agent…), and a `run` is Run for this extension and Open for another target. Give every `run` that does something a title.
+Every action takes an optional `title`, which names it in the action panel (⌘K) and the context menu. Without one, an action is named by its kind (Open, Reveal in Finder, Copy, Paste into previous app, Ask agent…), and a `run` is Run for this extension and Open for another target. Give every `run` that does something a title.
 
 `run` goes to an address: `{"type":"run","extension":"weather","input":"berlin","arguments":{"view":"hourly"}}`. Every field but `title` is part of the address and optional, and an omitted one means this one, as now: no `extension` is this extension, no `input` keeps what is typed in the open command (empty when entering another extension), no `arguments` means none. The target runs with that request, chosen. `extension` is a folder name; `agent` fills the input like the agent action, `settings` opens Settings, `clipboard` opens the clipboard history and `history` the agent history, so never name a folder `agent`, `settings`, `clipboard` or `history`.
 

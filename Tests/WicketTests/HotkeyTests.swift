@@ -264,11 +264,12 @@ import Testing
   model.input = "left"
   await model.settled()
   let row = try #require(model.results.first { $0.row.id == "item:left" })
-  model.recordHotkey(for: row)
+  let set = try #require(model.actions(of: row).last)
+  #expect(set.label == "Set Hotkey…" && model.activate(set, from: row))
   #expect(model.recorder.isRecording && model.recordsHotkey(of: row) && pauses == [true])
   model.dismiss()
   #expect(!model.recorder.isRecording && model.recorder.target == nil && pauses == [true, false])
-  // A row without an address records nothing.
-  model.recordHotkey(for: Result(provider: "apps", row: Row(id: "x", title: "X", actions: [])))
-  #expect(!model.recorder.isRecording && pauses == [true, false])
+  // A row without an address offers no hotkey.
+  let app = Result(provider: "apps", row: Row(id: "x", title: "X", actions: [.copy("x")]))
+  #expect(model.actions(of: app) == [.copy("x")])
 }
