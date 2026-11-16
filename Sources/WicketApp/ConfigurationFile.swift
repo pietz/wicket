@@ -74,6 +74,25 @@ struct ConfigurationFile {
       object["extensions"] = all.isEmpty ? nil : all
     }
   }
+  /// Removes what is kept only for an extension that is gone: its switch, its settings and the hotkeys
+  /// whose address targets it.
+  func forget(extension folder: String) throws {
+    let id = "extension:" + folder
+    try edit { object in
+      if let entries = object["providers"] as? [[String: Any]] {
+        object["providers"] = entries.filter { $0["id"] as? String != id }
+      }
+      if var all = object["extensions"] as? [String: Any] {
+        all[folder] = nil
+        object["extensions"] = all.isEmpty ? nil : all
+      }
+      if let entries = object["hotkeys"] as? [[String: Any]] {
+        object["hotkeys"] = entries.filter {
+          ($0["address"] as? String).flatMap(HotkeyTarget.init)?.target != id
+        }
+      }
+    }
+  }
   func setProvider(_ id: String, enabled: Bool) throws {
     try providers { entries in
       if let index = entries.firstIndex(where: { $0["id"] as? String == id }) {

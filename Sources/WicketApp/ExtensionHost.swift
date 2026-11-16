@@ -60,6 +60,8 @@ final class ExtensionHost {
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   var runner = ExtensionRunner()
+  /// Moves a folder to the Trash, so it can be put back; tests replace it.
+  var moveToTrash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
   /// The `extensions` of config.json: each folder's saved settings.
   var settings: [String: [String: String]] = [:]
   private var watcher: FileWatcher?
@@ -180,6 +182,26 @@ final class ExtensionHost {
       at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
     try FileManager.default.copyItem(at: command.folder, to: copy)
     rescan()
+  }
+
+  /// The user's own folder behind a listed ID, a broken one included; nil for a bundled extension.
+  func ownFolder(_ id: String) -> URL? {
+    if let command = commands[id] { return isBundled(command) ? nil : command.folder }
+    guard problems[id] != nil else { return nil }
+    let own = folder.appending(path: "extensions/" + id.dropFirst("extension:".count))
+    return FileManager.default.fileExists(atPath: own.path) ? own : nil
+  }
+  /// Whether a bundled extension has this folder name, so it takes the place of the user's when that goes.
+  func hasBundled(_ name: String) -> Bool {
+    bundled.map { FileManager.default.fileExists(atPath: $0.appending(path: name + "/wicket.json").path) }
+      ?? false
+  }
+  /// Moves the user's own folder for this ID to the Trash. The folder watcher then drops it from the list.
+  func trash(_ id: String) throws {
+    guard let own = ownFolder(id) else {
+      throw ExtensionFailure("Only your own extensions can be moved to the Trash.")
+    }
+    try moveToTrash(own)
   }
 
   static func installFiles(in folder: URL) throws {

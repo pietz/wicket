@@ -84,6 +84,7 @@ struct SettingsPane: View {
   /// The Extensions tab's selected source.
   @State var selected: String? = "apps"
   @State private var copyProblem: String?
+  @State private var confirmingTrash = false
   private var config: Configuration { store.configuration }
 
   var body: some View {
@@ -398,9 +399,7 @@ struct SettingsPane: View {
         ForEach(sources.filter { Self.builtins[$0.id] != nil }, id: \.id, content: sourceRow)
       }
       Section("Extensions") {
-        ForEach(
-          sources.filter { Self.builtins[$0.id] == nil }.sorted { title($0.id) < title($1.id) }, id: \.id,
-          content: sourceRow)
+        ForEach(extensionSources(sources), id: \.id, content: sourceRow)
       }
     }
     .listStyle(.sidebar)
@@ -408,6 +407,9 @@ struct SettingsPane: View {
       Button("Extensions Folder") { reveal(extensions.folder.appending(path: "extensions")) }.padding(10)
     }
     .frame(width: 220)
+  }
+  private func extensionSources(_ sources: [Configuration.ProviderEntry]) -> [Configuration.ProviderEntry] {
+    sources.filter { Self.builtins[$0.id] == nil }.sorted { title($0.id) < title($1.id) }
   }
   private func sourceRow(_ source: Configuration.ProviderEntry) -> some View {
     let id = source.id
@@ -431,6 +433,7 @@ struct SettingsPane: View {
     let id = selected ?? "apps"
     let command = extensions.commands[id]
     let bundled = command.map(extensions.isBundled) ?? false
+    let own = extensions.ownFolder(id) != nil
     Section {
       VStack(alignment: .leading, spacing: 4) {
         Text(title(id)).font(.title3.bold())
@@ -441,16 +444,19 @@ struct SettingsPane: View {
       if let problem = extensions.problems[id] {
         Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled)
       }
-      if let command {
+      if command != nil || own {
         HStack {
-          Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([command.folder]) }
-          if bundled {
+          if let command {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([command.folder]) }
+          }
+          if let command, bundled {
             Button("Make It Mine") {
               copyProblem = nil
               do { try extensions.makeMine(command) } catch { copyProblem = error.localizedDescription }
             }
             .help("Copies it into your extensions folder, where you and your agent can change it.")
           }
+          if own { trashButton(id) }
         }
         if let copyProblem { Text(copyProblem).foregroundStyle(.red) }
       }
@@ -486,6 +492,33 @@ struct SettingsPane: View {
         }
       }
     }
+  }
+  /// The user's own extension goes to the Trash, so it can be put back. With no bundled one of its name
+  /// to take its place, what config.json keeps only for it goes too, and the selection moves to a neighbour.
+  private func trashButton(_ id: String) -> some View {
+    let name = String(id.dropFirst("extension:".count))
+    let restores = extensions.hasBundled(name)
+    return Button("Move to Trash…") { confirmingTrash = true }
+      .disabled(store.problem != nil)
+      .confirmationDialog("Move “\(title(id))” to the Trash?", isPresented: $confirmingTrash) {
+        Button("Move to Trash", role: .destructive) {
+          let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
+          copyProblem = nil
+          do { try extensions.trash(id) } catch {
+            copyProblem = error.localizedDescription
+            return
+          }
+          guard !restores else { return }
+          store.change { try $0.forget(extension: name) }
+          let index = others.firstIndex(of: id) ?? 0
+          selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
+        }
+      } message: {
+        Text(
+          restores
+            ? "The built-in version comes back in its place, with your settings and hotkeys. You can restore your copy from the Trash."
+            : "Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
+      }
   }
   private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
     let keys = config.hotkeys.first { $0.target == target }?.keys

@@ -379,3 +379,56 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   // A folder of that name is never replaced.
   #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
 }
+
+@MainActor @Test func onlyTheUsersOwnExtensionsGoToTheTrashBrokenAndShadowingOnesIncluded() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let trash = root.appending(path: "Trash")
+  try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+  let host = ExtensionHost(folder: root, bundled: bundledExtensions)
+  host.moveToTrash = {
+    try FileManager.default.moveItem(at: $0, to: trash.appending(path: $0.lastPathComponent))
+  }
+  _ = try extensionFolder(root, name: "echo")
+  let broken = root.appending(path: "extensions/broken")
+  try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+  try Data("{".utf8).write(to: broken.appending(path: "wicket.json"))
+  await host.reload()
+  try host.makeMine(try #require(host.commands["extension:window"]))
+  await host.reload()
+  #expect(host.problems["extension:broken"] != nil)
+  #expect(host.ownFolder("extension:calculator") == nil)
+  #expect(throws: ExtensionFailure.self) { try host.trash("extension:calculator") }
+  #expect(!host.hasBundled("echo") && host.hasBundled("window"))
+  for id in ["extension:echo", "extension:broken", "extension:window"] { try host.trash(id) }
+  await host.reload()
+  #expect(host.commands["extension:echo"] == nil && host.problems["extension:broken"] == nil)
+  // The bundled window comes back in place of the user's copy.
+  #expect(try host.isBundled(#require(host.commands["extension:window"])))
+  #expect(
+    try FileManager.default.contentsOfDirectory(atPath: trash.path).sorted() == ["broken", "echo", "window"])
+}
+
+@Test func forgettingAnExtensionRemovesOnlyItsSwitchSettingsAndHotkeys() throws {
+  try withSettings(
+    #"""
+    {"future":"keep",
+     "providers":[{"id":"apps","enabled":true},{"id":"extension:echo","enabled":false},{"id":"extension:echoes","enabled":false}],
+     "extensions":{"echo":{"gap":"8"},"window":{"gap":"4"}},
+     "hotkeys":[{"keys":"ctrl+option+e","address":"wicket://echo"},{"keys":"ctrl+option+i","address":"wicket://echo?item=one"},
+                {"keys":"ctrl+option+left","address":"wicket://window?item=left"}]}
+    """#
+  ) { file in
+    try file.forget(extension: "echo")
+    let config = try Configuration.load(at: file.url)
+    #expect(config.providers.map(\.id) == ["apps", "extension:echoes"])
+    #expect(config.extensions == ["window": ["gap": "4"]])
+    #expect(config.hotkeys.map(\.target) == [HotkeyTarget(target: "extension:window", item: "left")])
+    let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
+    #expect(json["future"] == .string("keep"))
+    // Nothing kept for it: the file is left as it was, with no keys added.
+    try Data("{}".utf8).write(to: file.url)
+    try file.forget(extension: "echo")
+    #expect(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url)) == .object([:]))
+  }
+}
