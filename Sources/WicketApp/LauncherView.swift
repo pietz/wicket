@@ -151,8 +151,8 @@ struct LauncherView: View {
     ZStack(alignment: .top) {
       GlassEffectContainer(spacing: PaletteLayout.gap) {
         VStack(spacing: PaletteLayout.gap) {
-          surface(.clear, radius: 28).frame(height: PaletteLayout.search)
-          surface(.regular, radius: 22).frame(height: cardHeight)
+          surface(radius: 28).frame(height: PaletteLayout.search)
+          surface(radius: 22).frame(height: cardHeight)
         }
       }
       VStack(spacing: PaletteLayout.gap) {
@@ -508,14 +508,14 @@ struct LauncherView: View {
       Color.clear.frame(height: renderer.height)
     }
   }
-  /// Clear glass for the search pill's lens edge, regular (frosted) glass for the card, both tinted
-  /// with the window background; Reduce Transparency gets the flat surface.
-  @ViewBuilder private func surface(_ glass: Glass, radius: CGFloat) -> some View {
+  /// Regular (frosted) glass for the search pill and the card alike, tinted with the window background;
+  /// Reduce Transparency gets the flat surface.
+  @ViewBuilder private func surface(radius: CGFloat) -> some View {
     if flatSurfaces || reduceTransparency {
       RoundedRectangle(cornerRadius: radius).fill(Color(nsColor: .windowBackgroundColor))
     } else {
       Color.clear.glassEffect(
-        glass.tint(
+        .regular.tint(
           Color(nsColor: .windowBackgroundColor).opacity(
             0.8 * (1 - model.configuration.backgroundTransparency))),
         in: .rect(cornerRadius: radius, style: .continuous))
