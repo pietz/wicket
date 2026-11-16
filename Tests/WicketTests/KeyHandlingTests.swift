@@ -64,7 +64,6 @@ func plainKeys(code: Int, action: PaletteKeyAction) {
 }
 
 @MainActor @Test func conflictingHotkeyEditKeepsTheWorkingRegistration() throws {
-  final class Handle {}
   let original = Shortcut.default
   let replacement = try Shortcut("ctrl+option+shift+w")
   weak var oldHandle: Handle?

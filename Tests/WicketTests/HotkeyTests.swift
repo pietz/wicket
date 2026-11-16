@@ -4,7 +4,6 @@ import Testing
 @testable import WicketApp
 
 /// A registration handle: alive while the fake registration holds it.
-private final class Handle {}
 
 @Test func aHotkeyTargetSpellsItsAddressAndReadsItBack() throws {
   let item = HotkeyTarget(target: "extension:window", item: "left")

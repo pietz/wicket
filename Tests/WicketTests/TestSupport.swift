@@ -24,6 +24,9 @@ extension LauncherModel {
   }
 }
 
+/// What a fake hotkey registration returns: any object stands for a registered shortcut.
+final class Handle {}
+
 /// The requests a test extension logged, one JSON line each, to `log.jsonl` in its folder.
 func requests(in folder: URL) throws -> [ProviderRequest] {
   let log = (try? String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)) ?? ""

@@ -143,7 +143,6 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 }
 
 @MainActor @Test func settingsHotkeyConflictUsesExistingRegistrationResult() throws {
-  final class Handle {}
   let hotkey = HotKeyRegistration { shortcut in shortcut.key == "k" ? nil : Handle() }
   let store = ConfigurationStore(url: URL(fileURLWithPath: "/unused"))
   #expect(hotkey.apply(.default) == nil)
@@ -200,7 +199,6 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 
 @MainActor @Test func hotkeyRegistersBeforePersistingAndConflictNeverWrites() throws {
   try withSettings { file in
-    final class Handle {}
     let store = ConfigurationStore(url: file.url)
     let original = try Data(contentsOf: file.url)
     var attempted: [Shortcut] = []
@@ -247,7 +245,6 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 
 @MainActor @Test func failedHotkeyWriteRestoresRegistrationAndAllowsRetry() throws {
   try withSettings { file in
-    final class Handle {}
     let store = ConfigurationStore(url: file.url)
     let hotkey = HotKeyRegistration { _ in Handle() }
     let original = try Data(contentsOf: file.url)
