@@ -951,8 +951,11 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   session.connect = { _, _, _ in slow }
   session.ask("Hello", settings: .init())
   #expect(await eventually { slow.running })
-  slow.tool("Working")
-  try await Task.sleep(for: .milliseconds(80))
+  // A turn that keeps reporting runs past the limit: only silence ends it.
+  for _ in 0..<4 {
+    slow.tool("Working")
+    try await Task.sleep(for: .milliseconds(100))
+  }
   #expect(session.busy && session.problem == nil)
   slow.end()
   #expect(await eventually { !session.busy })
@@ -960,7 +963,7 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   slow.onEvent(.failed("Claude Code exited with status 1."))
   #expect(session.problem == nil && session.status == "Ready for a follow-up")
   #expect(await eventually { slow.stopped })
-  // A turn that never ends expires, is declined whatever it still asks, and loses its process.
+  // A turn that goes silent expires, is declined whatever it still asks, and loses its process.
   let endless = FakeAgent()
   session.connect = { _, _, _ in endless }
   session.ask("Hello", settings: .init())

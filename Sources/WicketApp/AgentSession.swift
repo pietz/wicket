@@ -41,7 +41,6 @@ final class AgentSession {
     answer += pendingAnswer
     pendingAnswer = ""
   }
-  private var heard = false
   private var acceptingUpdates = false
   /// Cancel was pressed for this turn: nothing new is prompted or allowed from then on.
   private var cancelling = false
@@ -56,7 +55,8 @@ final class AgentSession {
   private var lastActivity: Date?
   var cancelGrace: Duration = .seconds(3)
   var retention: TimeInterval = 1200
-  /// No event at all from a CLI that started, then no end to the turn.
+  /// No event at all from a CLI that started, then no event for this long during the turn: a working
+  /// agent is never cut off, a hung one is.
   var startupLimit: Duration = .seconds(30)
   var turnLimit: Duration = .seconds(600)
   /// Everything stays for `retention` after the last hide or completion, whichever is later.
@@ -112,7 +112,6 @@ final class AgentSession {
     permissionExpiry?.cancel()
     cancelDeadline?.cancel()
     turnID = UUID().uuidString
-    heard = false
     problem = nil
     chosen = settings
     active = true
@@ -185,10 +184,7 @@ final class AgentSession {
   }
 
   private func receive(_ event: AgentEvent) {
-    if !heard {
-      heard = true
-      arm(turnLimit)
-    }
+    arm(turnLimit)
     switch event {
     case .session(let id):
       sessionID = id
