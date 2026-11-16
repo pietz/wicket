@@ -1,313 +1,233 @@
-# Feature landscape: Alfred, Raycast, Tinycast, Monarch
+# Feature landscape: Alfred, Raycast, Tinycast and Wicket
 
-A pool of ideas for Wicket, compiled 2026-11-06. It records what four macOS launchers do; it is **not** a commitment to build any of it. [SPEC.md](../../SPEC.md) and [ROADMAP.md](../../ROADMAP.md) are the source of truth for what Wicket does and will do. Written while 0.0.x was current, so mentions of Wicket's own features describe that version.
+Updated 16 Nov 2026 for Wicket 0.3.4 (first compiled 6 Nov 2026). A pool of ideas: it records what other macOS launchers do and is **not** a commitment to build any of it. [SPEC.md](../../SPEC.md) and [ROADMAP.md](../../ROADMAP.md) say what Wicket does and will do.
 
-Versions covered:
+**Monarch is dropped:** its data was mostly unverified (no changelog or manual loaded), and what it showed that others don't (encrypted clipboard, query history, file content search) is covered by Alfred 6 or noted in the tables. **Tinycast stays:** it is the only other native Swift launcher for macOS 26 that runs the user's agent CLIs, and it shows things nobody else does (runs Raycast extensions natively, AI that is fully off, on-device dictation models, settings that can never grant capabilities, a written "not planned" list).
 
-- **Alfred:** 5.7.2 (Dec 2025) stable. Alfred 6 is announced and in closed beta ("this autumn"). Its additions are marked "A6".
-- **Raycast:** 2.x (2.0 in Aug 2026, through 2.11 on 4 Nov 2026). Paid tiers are marked "Pro".
-- **Tinycast:** main as of 2026-11-06. Most features ship **off** and are switched on in Settings.
-- **Monarch:** 0.9.53 (Sep 2026), pre-1.0, by a solo developer in NYC.
+## Where Wicket's biggest gaps are
 
-Legend:
+Ranked by how much a daily launcher user would feel them.
 
-- ✓ = yes
-- ✗ = no
-- partial = works in a limited way (the cell says how)
-- ? = not confirmed
-- PP = Alfred Powerpack (paid)
-- Pro = Raycast paid tier
+1. **Clipboard history is text only and off by default.** No images, files or pins; Raycast and Alfred keep all three. *Core* (only the host can watch the pasteboard); images, files and pins are ROADMAP "Next features" 1, after real use of the text version.
+2. **No action panel, ⌘1–9, per-command hotkeys or favourites.** A row's second action is only in its context menu. *Core, planned:* the Actions menu (Next features 2) and bindings (Next features 8), which also give favourites in the empty panel.
+3. **No snippets that expand as you type.** Snippets can only be manifest items with a paste action, and an extension's paste drops newlines (ISSUES). *Core* for lossless extension paste (ROADMAP, smaller contract steps); system-wide expansion needs a resident keystroke listener no one-shot extension can hold, so it is *not done* until real use asks.
+4. **No window management.** Raycast and Tinycast build it in. *Extension:* an extension can call the Accessibility APIs itself (SPEC, "What is fixed and what is hackable"); a good one for the agent to write. Unverified: whether a child process gets Wicket's Accessibility grant.
+5. **The calculator is bare arithmetic.** No functions, dates, time zones or history; currency is an example to copy in; Raycast 2.12 now answers weather, flights and travel times inline. *Extensions* (pattern extensions, like `units` and `currency`); a strip of values in a root row is parked (ROADMAP, richer root rows).
+6. **No system commands or app management.** Lock, sleep, toggles, eject, quit or restart apps. *Extensions:* sample extensions (Next features 9) or written by the agent on request.
+7. **File search is names only, with no folder browsing.** *Core stays as is;* content, kinds, dates and browsing only after real use shows the need (ROADMAP, deferred).
+8. **No shell commands from the panel.** *Core or extension undecided* (Next features 3 and the deferred comparison).
+9. **No AI on the selection, the screen or other apps.** Raycast attaches the focused window, selection and a screenshot. *Not done automatically, by decision* (11 Nov 2026); attaching Finder files or text on purpose is planned (Next features 4, parked idea).
+10. **No store, emoji picker, bookmarks, contacts, notes or calendar.** *Extensions or the agent;* no store by design, a small curated repository later.
 
-Wicket column:
+## Where Wicket is ahead
 
-- ✓ = built
-- 0.0.1 = planned for the first alpha
-- later = on the roadmap after 0.0.1
-- ext = should be an extension, not core
-- blank = not decided
+- **The agent builds commands that then run without a model.** Ask, then "make this an extension": a folder that runs instantly from then on. None of the others does this; Raycast's Glaze builds whole apps in a separate product.
+- **Your own Claude Code or Codex, free.** Full tool use, your MCP servers and in-panel permission prompts. Raycast's equivalent needs a paid plan; Tinycast also uses CLIs.
+- **Answers are screens, not text.** Six components (`value`, `row`, `card`, `grid`, `progress`, `badge`) with selectable targets and details, restyled by your `theme.css`.
+- **Ask about what is open.** Cmd+Return inside an extension sends its view and folder, so "add the wind here" needs no names.
+- **Agent History resumes the real session**, also after a restart, from a private file the agent cannot read.
+- **The simplest extension contract.** Any language, one JSON request and view per run, pattern results inline at the root, items without code, live reload, a headless mode to test them.
+- **Voice on opening, on device and free.** Raycast's dictation is paid.
+- **Plain files and a small app.** One `config.json` as the truth, no account, no telemetry, native Swift with two dependencies.
 
-Monarch data is thinner than the others. Its manual and changelog pages did not load, so many cells come from its homepage, Setapp and reviews.
+## Versions and legend
+
+- **Wicket:** 0.3.4 (16 Nov 2026), checked against the code and SPEC.
+- **Raycast:** 2.12 (13 Nov 2026). Paid tiers Pro, Plus and Max are marked "paid".
+- **Alfred:** 5.8.1 (24 Sep 2026). Alfred 6 is still announced for "this autumn" and in a small closed beta (forum reports, not official); its additions are marked "A6". PP is the paid Powerpack.
+- **Tinycast:** main as of 6 Nov 2026, **not re-checked** for this update. Most features ship off.
+
+✓ yes, ✗ no, partial (the cell says how), ? not confirmed. In the Wicket column: ✓ built; example: an optional example extension to copy in; ext: should be an extension, none shipped; planned: on the ROADMAP; no: decided against.
 
 ## Core launching and search
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| App search | ✓ | ✓ | ✓ fixed folders, pinyin | ✓ own index | ✓ |
-| File search | ✓ Spotlight index | ✓ own Rust indexer (v2; dropped Spotlight) | ✓ own crawled index, needs Full Disk Access, off by default | ✓ own index, plus content search | ✓ Spotlight |
-| File navigation (browse folders, Tab into them) | ✓ PP (`/`, `~`, ⌘↓) | partial | ✗ (explicitly not planned) | ? | |
-| File buffer (collect several files, act on all) | ✓ PP | ✗ | ✗ | ✗ | |
-| Learned ranking / frecency | ✓ | ? (not documented) | ✓ | partial | ✓ |
-| Keywords per command | ✓ | ✓ | ✓ | ✓ | 0.0.1 (aliases removed) |
-| Favorites / pinned items on empty query | ✗ | ✓ | ✓ (⌘1–9 on favorites only) | ? | |
-| Running apps, quit app, quit all | ✓ | ✓ | ✓ | ✓ | |
-| Restart app | ✗ | ✓ (2.9) | ✓ | ✗ | |
-| Uninstall app with leftovers | ✗ | ✓ | ✓ (to Trash only) | ✗ | ext |
-| Quicklinks (URL templates with placeholders) | ✓ custom web searches | ✓ | ✓ (input, clipboard, selection, date) | ✓ "Superlinks", match open tabs | |
-| Web search fallbacks | ✓ (customisable PP; free in A6) | ✓ | ✓ | ✓ | |
-| Browser bookmarks | ✓ Safari, Chrome | ✓ (store ext) | ✗ | ✓ 4 browsers | ext |
-| Contacts | ✓ PP (overhauled in A6) | ✓ (store ext) | ✗ (later, as plugin) | partial (photos) | ext |
-| Query history | ✗ (A6 adds it) | ? | ✗ (explicitly not planned) | ✓ | |
-| Search Settings panes | ✓ (5.7) | ✓ | ✓ | ✓ | |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| App search | ✓ | ✓ (alternate names, Spotlight keywords in 2.5) | ✓ fixed folders, pinyin | ✓ |
+| File search | ✓ Spotlight index | ✓ own indexer, in root search | ✓ own crawled index, needs Full Disk Access | ✓ Spotlight, names only, best 8 in root search, open and reveal |
+| File navigation (browse folders) | ✓ PP | partial | ✗ (not planned) | ✗ (after real use) |
+| File buffer (act on several files) | ✓ PP | ✗ | ✗ | ✗ |
+| Learned ranking | ✓ | ? (not documented) | ✓ | ✓ ties only, 7-day half-life |
+| Keywords per command | ✓ | ✓ | ✓ | ✓ extension `keyword`, item `keywords` |
+| Favourites on the empty panel | ✗ | ✓ | ✓ | partial (20 most used apps); planned |
+| Running apps, quit app | ✓ | ✓ | ✓ | ext |
+| Restart app | ✗ | ✓ (2.9) | ✓ | ext |
+| Uninstall app with leftovers | ✗ | ✓ | ✓ (to Trash) | ext |
+| Quicklinks with placeholders | ✓ custom web searches | ✓ | ✓ | example (`quicklinks`, no placeholders) |
+| Fallbacks for unmatched input | ✓ (customisable PP; free in A6) | ✓ (Quick AI can be the fallback) | ✓ | ✓ Ask agent on top, then fallback extensions; web search is an example |
+| Pattern commands in root search (regex runs a script inline) | ✗ (keyword first) | ? (none documented) | ✗ | ✓ `match` |
+| Browser bookmarks | ✓ Safari, Chrome | ✓ (store; AI browser tools in 2.12) | ✗ | ext |
+| Contacts | ✓ PP (overhauled in A6) | ✓ built in, create and edit (2.10–2.12) | ✗ | ext |
+| Query history | ✗ (A6 adds it) | ? | ✗ (not planned) | ✗ (Agent History keeps questions) |
+| System Settings panes | ✓ (updated for macOS 27 in 5.8.1) | ✓ | ✓ | ✗ |
 
 ## Calculator and conversions
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Arithmetic and functions | ✓ (advanced via `=`) | ✓ | ✓ | ✓ | ✓ |
-| Units | ✗ (workflow) | ✓ | ✓ | ✓ | ✓ |
-| Currency, live rates | ✗ (web lookup) | ✓ | ✓ | ✓ (buggy in 2024 review) | ✓ ECB daily |
-| Crypto | ✗ | ✓ | ✓ | ? | |
-| Dates and durations (`days until …`) | ✗ | ✓ | ✓ (named holidays) | ✓ | ext |
-| Time zones (`5pm ldn in sf`) | ✗ | ✓ | ✓ | ✓ | ext |
-| Variables | ✗ | ? | ? | ✓ | |
-| Calculation history | ✗ | ✓ | ✓ | ? | |
-| Locale-aware number format | ✓ | ? | ✓ | ? | ✓ |
-| Natural-language maths via AI | ✗ | partial (Quick AI fallback) | ✗ | ✗ | later (AI proposes, engine computes) |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Arithmetic | ✓ (advanced via `=`) | ✓ functions, trig, bases, fractions | ✓ | partial: operators, powers, percentages; no functions |
+| Units | ✗ (workflow) | ✓ incl. CSS px/rem, notes to Hz | ✓ | ✓ bundled `units` extension |
+| Currency | ✗ (web lookup) | ✓ | ✓ | example (`currency`, ECB daily) |
+| Crypto | ✗ | ✓ | ✓ | ✗ |
+| Dates, week numbers, workdays | ✗ | ✓ | ✓ (named holidays) | ext |
+| Time zones | ✗ | ✓ cities, airports | ✓ | ext |
+| Money tools (tip, VAT, split) | ✗ | ✓ (2.12) | ? | ext |
+| Weather, flights, travel time inline | ✗ | ✓ opt-in (2.12) | ✗ | ext; richer root rows parked |
+| Variables | ✗ | ? (not in the manual) | ? | ✗ |
+| Calculation history | ✗ | ✓ 3 months | ✓ | ✗ |
+| Locale-aware numbers | ✓ | ✓ | ✓ | ✓ either decimal mark |
 
 ## Clipboard and snippets
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Clipboard history | ✓ PP: text, images, files | ✓ text, images, files, links, colors | ✓ text, images (on by default) | ✓ unlimited | later |
-| Retention control | ? | ✓ (1 day–3 months free; longer Pro) | ✓ | ✓ unlimited | |
-| OCR / search text in images | ✗ | ✓ (also QR codes) | ✓ | ✗ | |
-| Per-app ignore list | ✓ | ✓ (password apps by default) | ✓ (menu-bar helpers leak) | ✓ pause | |
-| Encrypted store | ✗ | ? | ✗ (decided against: slower) | ✓ | |
-| Paste as plain text | ✓ | ✓ | ✓ | ? | |
-| Pin clips | ✗ | ✓ | ✓ (⌘1–0) | ✗ | |
-| Clip → snippet | ✓ (⌘S) | ? | ✗ (not planned) | ✗ | |
-| AI search over clipboard | ✗ | ✓ "Ask Clipboard" | ✗ | ✗ | |
-| Snippets with system-wide keyword expansion | ✓ PP | ✓ | ✓ (off; doubles as consent) | partial (in-app only) | later (core or ext undecided) |
-| Placeholders (date, clipboard, cursor) | ✓ | ✓ (incl. `{calculator}`) | ✓ (arguments, nested snippets) | ✓ | |
-| Snippet import | ✗ | ✓ TextExpander, aText, Espanso | ✗ | ✗ | |
-| Snippets stored as plain files | ✗ (prefs bundle) | ✗ | ✓ Markdown files | ? | |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Clipboard history | ✓ PP: text, images, files | ✓ text, images, files, links, colours | ✓ text, images | partial: text only, off by default; images and files planned |
+| Retention | ? | free 3 months, paid unlimited | ✓ configurable | fixed: 500 texts, 30 days |
+| OCR in images | ✗ | ✓ | ✓ | ✗ |
+| Skips secrets | ✓ app ignore list | ✓ password apps | ✓ | ✓ concealed and transient markers; no app list |
+| Pin clips | ✗ | ✓ | ✓ | planned |
+| AI over clipboard | ✗ | ✓ search and rewrite (2.3) | ✗ | ✗ (kept out of the agent's reach) |
+| Snippets with system-wide expansion | ✓ PP | ✓ | ✓ (off by default) | ✗ (not until real use asks) |
+| Snippets as a list to paste | ✓ | ✓ | ✓ Markdown files | partial: manifest items with `paste`, newlines lost |
+| Placeholders (date, clipboard, cursor) | ✓ | ✓ | ✓ | ✗ |
+| Snippet import | ✗ | ✓ TextExpander, aText, Espanso | ✗ | ✗ |
 
-## Window management
+## Window management and system
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Halves, thirds, quarters, maximize | ✗ (workflows) | ✓ | ✓ 39 actions | ✗ | ext |
-| Move to next display | ✗ | ✓ | ✓ | ✗ | ext |
-| Custom sizes | ✗ | ✓ Pro | ✓ | ✗ | ext |
-| Saved layouts (apps at positions) | ✗ | ✓ (8 windows/display) | ✓ | ✗ | ext |
-| "Rooms" / project workspaces | ✗ | ✗ | ✓ (adapted from Rooms, MIT) | ✗ | |
-| Window switcher | ✗ | ✓ | ✓ | ✗ | |
-| Move windows between Spaces | ✗ | ? | partial (macOS 27 removed the API) | ✗ | |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Halves, thirds, next display | ✗ (workflows) | ✓ (custom commands paid) | ✓ 39 actions | ext |
+| Saved layouts | ✗ | ✓ (Spaces and full screen fixed in 2.12) | ✓ plus Rooms | ext |
+| Window switcher | ✗ | ✓ | ✓ | ext |
+| Lock, sleep, empty Trash, eject | ✓ | ✓ | ✓ | ext |
+| Toggles (dark mode, Bluetooth) | partial | ✓ | ✓ | ext |
+| Shell command from the panel | ✓ PP (`>`) | ✓ script commands | ✓ custom commands | planned (core or extension undecided) |
+| Camera preview | ✗ | ✗ | ✓ | ✗ |
 
-## System commands
+## AI and agents
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Lock, sleep, restart, empty trash | ✓ | ✓ | ✓ | ✓ | ext |
-| Eject volumes | ✓ | ✓ | ? | ? | ext |
-| Toggles (dark mode, Bluetooth, mute, hidden files) | partial | ✓ | ✓ | ✓ (audio device, mic, wallpaper) | ext |
-| Terminal / shell command from palette | ✓ PP (`>`) | ✓ script commands | ✓ custom commands (no `!` prefix) | ✓ saved shell commands | ext |
-| Kill process | ✗ | ✓ (store ext) | ✗ | ✓ | ext |
-| Homebrew | ✗ | ✓ (store ext) | ✗ | ✓ | ext |
-| Camera preview | ✗ | ✗ | ✓ | ✗ | |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Ask from the panel | ✗ (workflow; A6 "Brain Outsourcing" example) | ✓ paid, Quick AI | ✓ Tab | ✓ Cmd+Return, from anywhere |
+| Agent that uses tools and runs code | ✗ | ✓ paid, AI Chat plans and runs code (2.3) | ✓ through the CLIs | ✓ through Claude Code or Codex |
+| Permission prompts | ✗ | ✓ Ask, Auto, Always Allow | ? | ✓ Allow once, Don't allow |
+| Answers as components | partial (Markdown, tables in A6) | partial (Markdown, Mermaid, charts) | ? | ✓ six components with selectable targets and details |
+| Past runs, reopen and continue | ✗ | ✓ chat sidebar, projects | ✓ searchable, pinnable | ✓ Agent History, resumes the CLI session |
+| Ask about the open command | ✗ | partial (`@` extensions, Send Element to AI) | ✗ | ✓ the extension's view is sent |
+| AI on the selection | ✗ (A6 "Text Transform" example) | ✓ AI Commands | ✓ Quick Actions | no (decided 11 Nov 2026) |
+| Screen or window context | ✗ | ✓ Screen Awareness, Send Window to AI | ✗ (not planned) | no; Finder files on purpose planned |
+| Scheduled prompts | ✗ | ✓ Automations | ✗ | ✗ |
+| Profile, memory, skills | ✗ | ✓ | ✗ | partial: the CLI's own (CLAUDE.md, skills) |
+| Hosted AI with vendor credits | ✗ | ✓ paid (500 to 7,500 a month) | ✗ | no |
+| Bring your own API key | ✓ (workflow; A6 example) | ✓ paid | ✓ | ✗ |
+| Use a Claude or ChatGPT subscription | ✗ | ✓ paid, through the local Claude Code or Codex | ✓ Codex, Claude and more | ✓ free, Claude Code and Codex |
+| Local models | partial (community) | ✓ through extensions (Ollama, LM Studio, 2.5) | ✓ any localhost endpoint | ? only what the CLI is set up for |
+| Apple Foundation Models | ✗ | ? | ✓ | ✗ |
+| Extensions call the host's AI | ✗ | ✓ AI extensions | ✗ | partial: an `ask` action fills the question |
+| AI writes extensions for you | ✗ | partial: Glaze, a separate app builder | ✗ | ✓ the core loop |
+| MCP in the agent | ✗ | ✓ paid | ✓ passed to the CLIs | ✓ inherited from the CLI |
+| MCP server (launcher exposed to agents) | ✗ | ✗ (community bridges only) | ✗ | ✗ (`ui.ask` parked) |
 
-## AI
+## Extensions
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Quick AI from the palette | ✗ (official ChatGPT workflow) | ✓ Pro | ✓ Tab asks what you typed | ✗ | 0.0.1 |
-| AI chat window with history | partial (workflow Text View) | ✓ (branching, projects) | ✓ searchable, pinnable | ✗ | later |
-| AI on selected text | ✗ (A6 "Text Transform" example) | ✓ AI Commands | ✓ Quick Actions: grammar, rewrite, translate, summarise, custom | partial (non-AI "Instant Send") | later |
-| Screen / window context | ✗ | ✓ Screen Awareness, Send Window to AI | ✗ (not planned) | ✗ | |
-| Scheduled AI prompts | ✗ | ✓ Automations | ✗ | ✗ | |
-| Agents / presets / memory | ✗ | ✓ Agents, Skills, Memory | ✗ | ✗ | |
-| Hosted AI (vendor's credits) | ✗ | ✓ credits (Pro 500/mo) | ✗ | ✗ | ✗ (principle 5) |
-| Bring your own API key | ✓ (workflow) | ✓ Pro (most proxied via Raycast) | ✓ | ✗ | later |
-| Use existing ChatGPT / Claude subscription | ✗ | ✓ "Bring Your Own Subscription" | ✓ Codex, Claude, Grok, OpenCode, Cursor CLIs | ✗ | 0.0.1 (Codex, Claude Code) |
-| Local models | partial (community Ollama) | ✓ Pro (Ollama) | ✓ any localhost endpoint | ✗ | |
-| Apple Foundation Models | ✗ | ? | ✓ default route for Quick Actions | ✗ | later (small jobs only) |
-| Extensions can call the host's AI | ✗ | ✓ AI extensions, `@` mentions | ✗ (not planned) | ✗ | |
-| AI writes extensions for you | ✗ | ✗ | ✗ | ✗ | 0.0.1 (ask Run Agent to build one) |
-| AI off by default | n/a | ✗ (free tier has none) | ✓ (off means fully off) | n/a | |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Model | visual workflows (PP) | React and TypeScript on bundled Node | runs Raycast extensions (about 80%) | one JSON request and view per run, any executable; or a manifest of items |
+| Script commands | ✓ Script Filter JSON | ✓ | ✓ | ✓ |
+| List and detail | ✓ | ✓ | ✓ | ✓ native list; Markdown page with components |
+| Grid | ✓ | ✓ | ✓ | partial: `grid` tiles in a page |
+| Form | partial | ✓ | ✓ | partial: up to three named arguments as slots in the bar |
+| Custom native UI | A6 UI toolkit, also outside the Alfred window | ✗ declarative | ✗ | ✗ (HTML page, restyled by `theme.css`) |
+| Menu bar extras, background refresh | ✗ | ✓ | ✓ | ✗ (views over time parked) |
+| Extension preferences | ✓ | ✓ | ✓ | planned (on top of arguments) |
+| Store | Gallery, invitation only | thousands, reviewed | Raycast store and GitHub | no; curated repository later |
+| Live reload | ✓ | ✓ | ? | ✓ |
+| Sandboxing | ✗ | ✗ | ✗ | ✗ (enabled means trusted) |
+| Headless testing | ✗ | ✗ | ✗ | ✓ `--query`, `--extension` |
 
-## Extensions and workflows
+## Automation, voice and appearance
 
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Model | visual canvas of objects (PP) | React + TypeScript on bundled Node | runs Raycast extensions (about 80%; frozen); native plugins planned | none yet; only custom commands and Superlinks | one JSON request and response over stdio per run, any executable |
-| Languages | any script | TS/JS (+ script commands in bash, Python, Swift, Ruby, AppleScript…) | JS (Raycast bundles), shell | shell | any |
-| Lightweight "script commands" | ✓ Script Filter JSON | ✓ script commands with metadata comments | ✓ custom commands with arguments | ✓ | 0.0.1 (one-shot answers) |
-| List / detail | ✓ (+ Text View) | ✓ | ✓ | ✗ | 0.0.1 |
-| Grid | ✓ (5.5) | ✓ | ✓ | ✗ | later |
-| Form | partial (dialog conditional) | ✓ | ✓ | ✗ | later |
-| Custom native UI | A6 "Alfred UI" toolkit (can run outside the Alfred window?) | ✗ declarative only | ✗ | ✗ | later (level 3) |
-| Menu bar extras | ✗ | ✓ | ✓ | ✗ | |
-| Background refresh commands | ✗ | ✓ | ✓ | ✗ | |
-| Extension preferences UI | ✓ workflow configuration | ✓ | ✓ | ✗ | |
-| Store | Gallery: hundreds, invitation only | thousands, PR-reviewed | installs Raycast store + GitHub | ✗ | ✗ (agent-written; sharing later) |
-| Hot reload while authoring | ✓ | ✓ (<1 s) | ? | n/a | 0.0.1 |
-| Sandboxing | ✗ | ✗ | ✗ (explicitly: "install only what you trust") | n/a | ✗ (review before enable) |
-
-## Automation
-
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Global hotkey per command / app | ✓ | ✓ (fn, sided modifiers in v2) | ✓ (double-tap, Globe key, hold) | ✓ (Feb 2026) | 0.0.1 |
-| App toggle hotkey (focus/hide) | ✓ | ✓ | ✓ | ✓ | |
-| Deeplinks / URL scheme | ✓ `alfred://runtrigger` | ✓ args, `fallbackText`, consent on first run | ✓ args, consent from outside, Copy Deeplink (⇧⌘C) | ? | |
-| Run Apple Shortcuts | ✓ (workflow action) | ✓ | ✓ (off by default) | ✓ | |
-| Be driven by Shortcuts / App Intents | ? | ? | ✗ | ? | |
-| AppleScript control of the launcher | ✓ | ? | ✗ | ? | |
-| Settings as an editable file | ✓ (prefs folder) | ✗ (`providers.yaml` only) | ✓ opt-in mirror, live reload | ✗ | ✓ (the file is the truth) |
-| Import from another launcher | ✗ | ✓ window-manager presets | ✓ Raycast v2 export only | ✗ | |
-
-## Productivity built-ins
-
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Notes | ✗ | ✓ Raycast Notes | ✓ Markdown files, floating | ✓ Markdown folder, Obsidian-friendly | ext |
-| Calendar / next meeting | ✗ | ✓ My Schedule, join links | ✓ join card on empty palette, auto-join | ? | ext |
-| Reminders | ✗ | ? | ✗ | ✗ | ext |
-| Emoji picker | ✗ (snippet pack) | ✓ | ✓ grid | ✓ multi-select | ext |
-| Dictionary | ✓ `define` | ? | ✓ native dictionaries | partial | ext |
-| Menu bar item search | ? | ✓ (store ext) | ✓ | ? | |
-| Translator | ✗ | ✓ Pro | ✓ Apple Translation | ✗ | ext |
-| Colour picker | ✗ | ✓ (store ext) | ✗ | ✓ | ext |
-| Music controls | ✓ PP mini player | ✓ (store ext) | ✗ | ✗ | ext |
-| Focus mode, timers | ✗ | ✓ Focus | ✗ (not planned) | ✗ | ext |
-| Password manager | ✓ PP 1Password | ✓ (store ext) | ✗ | ✗ | ext |
-
-## Voice
-
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Dictation into any app | ✗ | ✓ Pro (styles per app; on-device?) | ✓ experimental, off by default, local Core ML (Parakeet, Qwen3-ASR) | ✗ | |
-| Speak a query into the palette | ✗ | ✓ Dictate to AI (2.11) | ✗ (not planned: "won't become Siri") | ✗ | later (speak on summon) |
-| Spoken answers | ✗ | ? | ✗ | ✗ | later |
-
-## MCP
-
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| MCP client (tools in AI chat) | ✗ | ✓ Pro (stdio, HTTP, OAuth) | ✓ (off by default; passes servers to Codex and Claude) | ✗ | later |
-| MCP tools as palette commands | ✗ | ✗ | ✗ | ✗ | later |
-| MCP server (launcher exposed to agents) | ✗ | ? | ✗ | ✗ | later |
-
-## Appearance and UX
-
-| Feature | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Themes | ✓ (editor PP) | ✓ Pro custom | ✗ (no theme editor; not planned) | ? (dark only in 2024) | |
-| Liquid Glass | A6 "Glassy" | ✓ | ✓ native glass | ? | ✓ |
-| Compact mode (bar until typing) | ✗ | ✓ | ✓ default, with up to 4 shortcut buttons | ? | |
-| Interface size | ✗ | ? | ✓ | ✗ | |
-| Multiple monitors | ✓ default, mouse or active screen | ✓ | ✓ follow the cursor | ? | |
-| Remember dragged window position | ✗ | ? | ✓ | ✓ | |
-| Action panel | ✓ → or fn (Universal Actions) | ✓ ⌘K | ✓ ⌘K | partial (Tab modes) | 0.0.1 |
-| ⌘1–9 quick pick | ✓ | ✓ | partial (favorites only) | ? | 0.0.1 |
-| Ctrl-N / Ctrl-P | ✓ | ✓ | ✓ (no Vim j/k) | ? | |
-| Empty-palette content | ✗ | ✓ favorites, suggestions | ✓ favorites, next meeting | ? | |
-| Pop to root after a timeout | ✗ | ✓ | ✓ | ? | |
-| Act on selection from anywhere | ✓ PP Universal Actions | ✓ | ✗ (not planned) | ✓ Instant Send | later (AI actions) |
+| Feature | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Hotkey per command | ✓ | ✓ (fn alone, sided modifiers) | ✓ (double-tap, Globe, hold) | planned (bindings) |
+| Deep links | ✓ `alfred://runtrigger` | ✓ | ✓ with consent, Copy Deeplink | ✓ `wicket://`, input only, never chosen |
+| Apple Shortcuts | ✓ | ✓ | ✓ | ✗ |
+| Settings as an editable file | ✓ prefs folder | ✗ | ✓ opt-in mirror | ✓ `config.json` is the truth |
+| Import from another launcher | ✗ | ✓ | ✓ Raycast export | ✗ |
+| Dictation into any app | ✗ | ✓ paid | ✓ local Core ML, off by default | ✗ |
+| Speak a query | ✗ | ✓ Dictate to AI with app context (2.11) | ✗ (not planned) | ✓ on every opening, on device |
+| Themes | ✓ (more built in with A6) | ✓ paid | ✗ | partial: `theme.css` for answers, transparency, text size |
+| Liquid Glass | A6 "Glassy" | ✓ (via private WebKit CSS) | ✓ | ✓ |
+| Compact mode | ✗ | ✓ | ✓ default | ✗ (idea) |
+| Action panel | ✓ Universal Actions | ✓ ⌘K | ✓ ⌘K | partial: context menu, view Actions menu; ⌘K planned |
+| ⌘1–9, Ctrl-N/P | ✓ ✓ | ✓ ✓ | partial, ✓ | planned, ✓ |
+| Back to root on close | ✗ | ✓ after a timeout | ✓ | ✓ at once; a conversation is kept 20 minutes |
 
 ## Privacy and platform
 
-| | Alfred | Raycast | Tinycast | Monarch | Wicket |
-|---|---|---|---|---|---|
-| Account | ✗ (licence key) | for AI, sync | ✗ | ✗ (licence key) | ✗ |
-| Sync | ✓ prefs folder via Dropbox, iCloud | ✓ Pro cloud | ✗ (export/import file) | ✗ (paid sync rejected) | (settings file can live anywhere) |
-| Telemetry | ✗ (stated) | some, details ? | ✗ | ✗ (claimed) | ✗ |
-| Price | free core; PP £34 / £59 lifetime | Free; Pro $10, Pro+ $20, Max $50 /mo | free (donations) | $30–39 one-time; Setapp | |
-| Open source | ✗ | ✗ (extensions repo only) | ✓ AGPL-3.0 | ✗ | licence undecided |
-| Tech stack | native (Obj-C/Swift?), A6 DMG under 6 MB | Swift host + WKWebView + React + Node + Rust core | Swift 6, SwiftUI/AppKit, no deps | Rust + Tauri? (one binary analysis) | Swift 6, SwiftUI/AppKit, no deps |
-| Memory reported | ~80 MB idle (competitor review) | 350–450 MB (vendor, v2.0), host −50% in 2.6 | "under 100 MB"; 38–40 MB measured here | ? (leak reports) | 18–24 MB measured |
-| Platforms | macOS | macOS, Windows beta, iOS | macOS 26+ | macOS 12.7+, Apple Silicon | macOS 26+ |
-| Auto-update | ✓ | ✓ | ✓ GitHub Releases, no Sparkle | ✓ | later |
-| Backup / export | ✓ prefs folder | ✓ `.rayconfig` | ✓ `.tinycast` (capability flags never imported) | ? | |
+| | Alfred | Raycast | Tinycast | Wicket |
+|---|---|---|---|---|
+| Account | ✗ | for AI and sync | ✗ | ✗ |
+| Sync | ✓ prefs folder | ✓ paid | ✗ | a plain folder |
+| Telemetry | ✗ (stated) | ? | ✗ | ✗ (Sparkle checks daily) |
+| Price | free; PP £34 (v5), £59 lifetime | free; Pro $10, Plus $20, Max $50 a month | free | free |
+| Open source | ✗ | ✗ | ✓ AGPL-3.0 | source on GitHub, licence undecided |
+| Stack | native; A6 DMG under 6 MB | Swift shell, React in WKWebView, Node, Rust | Swift 6, no dependencies | Swift 6, SwiftUI and AppKit; WebKit for answers; swift-cmark, Sparkle |
+| Idle memory | about 80 MB (anecdotal) | 350–450 MB at 2.0 (vendor), cut in 2.6–2.12, no new total | 38–40 MB (measured here) | not measured since 0.1; the answer web view adds about 80 MB until 60 s after hiding (prototype) |
+| Platforms | macOS (A6: 12+) | macOS, Windows, iOS | macOS 26+ | macOS 26+ |
+| Auto-update | ✓ | ✓ | ✓ | ✓ Sparkle |
 
-## Notable ideas for Wicket
+## Ideas still open
 
-Not on the roadmap yet, and each fits the thesis.
+Not on the roadmap yet, each fitting the thesis. Built since 6 Nov: `wicket://` addresses, fallback extensions, extension items, declared arguments, Agent History.
 
-1. **Copy Deeplink (Tinycast) plus a `wicket://` scheme with consent for outside links.** It gives Karabiner, Shortcuts and agents one way to drive any item, and costs little in the core.
-2. **Script-command metadata header (Raycast).** A single file with `# @wicket.title` comments is the lowest rung of the extension ladder, and the easiest one for an agent to get right.
-3. **Alfred Script Filter JSON adapter.** It is close to protocol 2's one process per run. Adding it brings years of existing workflows almost for free, and nobody else runs them.
-4. **Fallback list for unmatched queries (all four).** It is an ordered, user-editable list: web search, Ask AI, define word. It fits the host-owned "fallback" relevance tier directly.
-5. **Favorites and suggestions on the empty palette (Raycast, Tinycast).** An empty query is the fastest screen the palette has; it should show something useful without adding a source.
-6. **Compact mode (Raycast, Tinycast).** Show only the bar until there are results. It makes the palette look smaller and suits a "small door" brand.
-7. **Hotkeys beyond chords (Tinycast).** Double-tap a modifier, the Globe key, and hold-to-talk. Hold-to-talk is the natural trigger for voice if speak-on-summon proves too eager.
-8. **Menu bar item search (Tinycast, Raycast).** It needs deep Accessibility integration, which is a core-worthy reason, and it is universally useful.
-9. **Paste-back target capture (Tinycast).** Record the frontmost app and caret target at summon so results paste to the right place. Clipboard, snippets and selection AI all depend on it.
-10. **Settings import that can never grant capabilities (Tinycast).** Keys that act as consent (keystroke listening, MCP, auto-paste) never live in the settings file or backups. This matters because agents edit `settings.json`.
-11. **Ask Clipboard and OCR on clipboard images (Raycast).** It pairs clipboard history with AI using Apple Vision on-device, with no new dependency.
-12. **Scheduled AI prompts (Raycast Automations).** They map directly onto Codex or Claude runs on a timer, and the output lands as a notification or a note.
-13. **MCP tools in AI chat via the agent CLI (Tinycast).** Wicket hands its MCP server list to Codex and Claude rather than running its own tool loop, which matches "no agent loop of our own".
-14. **Uninstall app with leftovers, trash only (Tinycast).** It is a good showcase extension: a list view, a confirmation, and no core code.
-15. **Query history, searchable (Alfred 6, Monarch).** Both added it while Tinycast refused it. It is cheap and, with voice, useful for re-running a spoken query.
+1. **Script-command metadata header (Raycast).** A single file with `# @wicket.title` comments as the lowest rung of the extension ladder.
+2. **Alfred Script Filter adapter.** Close to Wicket's one process per run; brings existing workflows almost free. A thin adapter or nothing.
+3. **Compact mode (Raycast, Tinycast).** Only the bar until there are results.
+4. **Hotkeys beyond chords (Tinycast, Raycast).** Double-tap, Globe, fn alone, hold to talk.
+5. **Menu bar item search (Tinycast, Raycast).** Needs deep Accessibility work, a core-worthy reason.
+6. **Settings import that never grants capabilities (Tinycast).** Matters because the agent edits `config.json`.
+7. **OCR on clipboard images (Raycast).** Apple Vision on device, with the image history.
+8. **Scheduled prompts (Raycast Automations).** Codex or Claude runs on a timer, the answer in Agent History.
+9. **Query history (Alfred 6).** Cheap, and useful for re-running a spoken query.
 
-### What others decided against, and the lesson
+## What others decided against, and the lesson
 
 | Decision | Who | Why | Lesson for Wicket |
 |---|---|---|---|
-| Full Raycast compatibility, stopped at about 80% | Tinycast | 25k lines of runtime to chase another vendor's API; native plugins are the future | Our protocol must be the only target. Treat compatibility shims (Alfred JSON) as thin adapters or skip them |
-| Act on selection from anywhere; send selection to AI | Tinycast | "macOS often won't share the selection" | Our M4 needs the Accessibility-plus-copy fallback, and a clear failure message when an app refuses |
-| More CLI AI tools (Pi, etc.) | Tinycast | Providers can block CLIs at any time | Pin and test adapter versions, as Architecture v2 says; keep API keys as the escape hatch |
-| AI "smart" search, AI command suggestions | Tinycast | Search stays fast and on-device | Matches our "AI never on the keystroke path" rule |
-| Voice control, Siri-style assistant | Tinycast | Scope | We are taking that bet deliberately; it is a differentiator, not a consensus feature |
-| Keyboard layouts other than US QWERTY for paste and expansion | Tinycast | Synthetic keys by position break on other layouts | Paste via a layout-aware key code from day one; non-US layouts are not an edge case for us |
-| IME fixes | Tinycast | Each fix broke someone else | Keep the field a stock text field; avoid custom key handling in the query field |
-| Clipboard encryption | Tinycast (Monarch does encrypt) | Slower; data never leaves the Mac | Pick one stance and document it |
-| ⌘1–9 on every result | Tinycast | Muscle memory breaks when results shift | Our selection-by-id design makes this safer; check it against late results before shipping |
-| Space as Tab or Enter, `!` shell prefix | Tinycast | Space types a space; avoid magic prefixes | Keep the keyboard model small and predictable |
-| Electron, Tauri, Flutter, Qt; native on both platforms | Raycast | Chose WebView + Node for one cross-platform UI | It costs 350–450 MB; our native, macOS-only choice is the counter-position |
-| Spotlight for file search | Raycast (v2), Tinycast, Monarch | Speed, substring match, works with indexing off | We chose Spotlight; revisit if users hit the "indexing off" or substring cases |
-| BYOK and local models behind Pro | Raycast | Monetisation | A free, local-first AI path is a real wedge |
-| Paid cloud sync | Monarch | Rejected | A plain settings file in a synced folder covers most of it |
+| Full Raycast compatibility, stopped at about 80% | Tinycast | 25k lines chasing another vendor's API | Our contract is the only target; adapters stay thin or absent |
+| Act on the selection from anywhere | Tinycast | macOS often won't share the selection | Attach on purpose, with a clear failure message |
+| AI "smart" search | Tinycast | Search stays fast and on device | Matches "typing never starts a model" |
+| Voice assistant | Tinycast | Scope | Wicket takes that bet deliberately |
+| Non-US layouts for paste and expansion | Tinycast | Synthetic keys by position break | Paste with a layout-aware key code |
+| Clipboard encryption | Tinycast | Slower; data never leaves the Mac | Wicket chose a private 0700 folder outside the agent's reach |
+| ⌘1–9 on every result | Tinycast | Muscle memory breaks when results shift | Check against late results before shipping |
+| Native UI, one cross-platform web UI instead | Raycast | Windows and hiring | 350–450 MB; native frame, HTML content is our counter-position |
+| Spotlight for file search | Raycast 2, Tinycast | Speed, substring match, works with indexing off | Wicket kept Spotlight; revisit if users hit those cases |
+| Own AI and BYOK only on paid plans | Raycast | Monetisation | Free use of your own agent is a real wedge |
 
 ## Sources
 
-Tinycast (local clone at `reference/tinycast`, main as of 2026-11-06):
+Raycast (checked 16 Nov 2026):
 
-- `README.md`
-- `docs/not-planned.md`
-- `docs/features/*.md`: ai, apple-shortcuts, backup, calculator, calendar, camera, clipboard, custom-commands, deeplinks, dictation, dictionary, emoji, extensions, file-search, hotkeys, launcher, mcp, menu-search, navigation, notes, palette, quick-actions, quicklinks, raycast-import, settings-file, snippets, uninstall, updates, window-layouts, window-management, window-rooms
+- [Changelog 2.3–2.12](https://www.raycast.com/changelog), including [2.5](https://www.raycast.com/changelog/macos/2-5) and [2.3](https://www.raycast.com/changelog/macos/2-3)
+- [Calculator manual](https://manual.raycast.com/calculator)
+- [New in v2](https://manual.raycast.com/new-in-v2)
+- [Pricing](https://www.raycast.com/pricing)
+- [Bring Your Own Subscription](https://manual.raycast.com/ai/bring-your-own-subscription)
+- [Model Context Protocol](https://manual.raycast.com/model-context-protocol); MCP server search found only community bridges such as [RayBridge](https://glama.ai/mcp/servers/@jlokos/raybridge/tree/429ad9eb95cd8328cb9f10ab71637af99ee8bd3b)
+- [Technical deep dive](https://www.raycast.com/blog/a-technical-deep-dive-into-the-new-raycast) and [our bundle check](raycast-2-ui-stack.md)
+- Glaze: [AlternativeTo](https://alternativeto.net/news/2026/7/raycast-launches-glaze-a-new-ai-tool-for-creating-custom-desktop-apps-from-prompts/), [Implicator, Apr 2026](https://www.implicator.ai/raycast-bakes-its-ai-app-builder-glaze-into-the-launcher-this-month/) (extension generation described as a vision, not shipped)
+- Unchanged from 6 Nov: manual pages for clipboard history, snippets, window management, script commands, calendar; [developer docs](https://developers.raycast.com)
 
-Raycast:
+Alfred (checked 16 Nov 2026):
 
-- https://www.raycast.com/pricing
-- https://www.raycast.com/changelog (2.2–2.11)
-- https://raycast.com/blog/a-technical-deep-dive-into-the-new-raycast
-- https://manual.raycast.com/new-in-v2
-- https://manual.raycast.com/ai, including the model-context-protocol, local-models, ai-credits and raycast-ai-privacy-security pages
-- manual.raycast.com pages: calculator, clipboard-history, snippets, window-management, script-commands, calendar, extensions
-- https://developers.raycast.com
-- https://developers.raycast.com/information/lifecycle/deeplinks
+- [Changelog](https://www.alfredapp.com/changelog/) (5.8.1, 24 Sep 2026)
+- [Alfred 6 page](https://www.alfredapp.com/v6/) and [announcement](https://www.alfredapp.com/blog/announcements/alfred-6-coming-soon/)
+- [Powerpack prices](https://www.alfredapp.com/powerpack/buy/)
+- Beta status: [MacPowerUsers thread](https://talk.macpowerusers.com/t/alfred-6-is-coming-this-autumn-sign-up/46881) (community, unverified)
+- Unchanged from 6 Nov: help pages for file search, web search, calculator, snippets, clipboard, system, Universal Actions, Script Filter JSON, grid and text views, external triggers, sync; the memory figure is anecdotal ([cmd-space.app](https://www.cmd-space.app/blog/alfred-v6-status-2025))
 
-Alfred (direct fetches of alfredapp.com failed, so some facts come from search summaries of these pages):
+Tinycast: a local clone of [douo/tinycast](https://github.com/douo/tinycast) at main on 6 Nov 2026 (`README.md`, `docs/not-planned.md`, `docs/features/*.md`), not re-checked; memory measured on this machine then.
 
-- https://www.alfredapp.com/powerpack/
-- https://www.alfredapp.com/help/powerpack/license-types/
-- https://www.alfredapp.com/v6/
-- https://www.alfredapp.com/blog/announcements/alfred-6-coming-soon/
-- https://www.alfredapp.com/blog/announcements/alfred-6-expanded-sneak-peek/
-- https://www.alfredforum.com/topic/24095-first-alfred-6-sneak-peek-%F0%9F%91%80/
-- https://www.ifun.de/alfred-6-mac-launcher-bekommt-neue-native-workflow-oberflaeche-290436/
-- Help pages: features/file-search, troubleshooting/indexing, features/web-search, features/calculator, features/snippets, features/clipboard, features/system, features/universal-actions, getting-started/preferences-search, getting-started/cheatsheet
-- Workflow help: workflows/inputs/script-filter/json, workflows/user-interface/grid, workflows/user-interface/text, workflows/utilities, workflows/triggers/external, workflows/inbound-configuration
-- Other help: appearance, advanced/sync, kb/alfred-security
-- https://alfred.app/frequently-asked-questions
-- https://alfred.app/submit/
-- https://en.wikipedia.org/wiki/Alfred_(software)
-- https://alternativeto.net/news/2024/3/alfred-5-5-has-been-released-with-new-workflow-views-and-chatgpt-dall-e-integration
-- https://www.cmd-space.app/blog/alfred-v6-status-2025 (a competitor's blog, used only for the memory figure, flagged as anecdotal)
-
-Monarch:
-
-- https://www.monarchlauncher.com
-- https://www.monarchlauncher.com/download
-- https://monarchlauncher.featurebase.app/
-- https://setapp.com/apps/monarch
-- https://setapp.com/apps/monarch/customer-reviews
-- https://formulae.brew.sh/cask/monarch
-- https://desktopinsights.com/apps/monarch (the stack analysis)
-- https://alternativeto.net/software/monarch-launcher/about
-- https://adam.kostarelas.com/blog/search-for-perfect-macos-launcher/
-- https://nerdymomocat.github.io/posts/i-used-monarch-launcher
-- https://www.fileminutes.com/blog/best-spotlight-alternatives-for-mac-5-launchers-compared/
-
-Wicket figures: the 0.0.x docs/architecture.md "Performance" (in git history) (Tinycast 38–40 MB and Wicket 18–24 MB idle, measured on this machine).
+Wicket: SPEC.md, ROADMAP.md, ISSUES.md, README.md and `Sources/` at 0.3.4.
