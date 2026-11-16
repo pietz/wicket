@@ -4,30 +4,22 @@ import WebKit
 
 @testable import WicketApp
 
-@MainActor @Test func isolatedBridgeRunsWhilePageScriptsStayBlocked() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func isolatedBridgeRunsWhilePageScriptsStayBlocked() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let renderer = AnswerRenderer(folder: folder) { _ in }
   defer { renderer.release() }
-  renderer.update(
+  // Waits for the renderer's own acknowledgement, not a clock: under load the WebKit shell alone can
+  // take longer than any fixed deadline.
+  await renderer.render(
     Page(body: "## Bridge proof\n<script>document.body.dataset.agent='ran'</script>", runs: false),
-    turn: "test",
-    streaming: false)
-  var text = ""
-  let deadline = ContinuousClock.now + .seconds(8)
-  while ContinuousClock.now < deadline {
-    try await Task.sleep(for: .milliseconds(30))
-    if let page = renderer.page {
-      text =
-        (try? await page.callJavaScript(
-          "return document.querySelector('main')?.textContent;", contentWorld: .defaultClient)) as? String
-        ?? ""
-      if text.contains("Bridge proof") { break }
-    }
-  }
+    turn: "test")
   #expect(renderer.problem == nil)
-  #expect(text.contains("Bridge proof"))  // The actual bundled bridge patched this DOM.
   let page = try #require(renderer.page)
+  let text =
+    try await page.callJavaScript(
+      "return document.querySelector('main')?.textContent;", contentWorld: .defaultClient) as? String
+  #expect(text?.contains("Bridge proof") == true)  // The actual bundled bridge patched this DOM.
   #expect(
     try await page.callJavaScript(
       "return document.body.dataset.agent === undefined;", contentWorld: .defaultClient) as? Bool == true)
