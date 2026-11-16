@@ -227,6 +227,8 @@ final class LauncherModel {
             self?.stopVoice(.busy)
             return
           }
+          // Like typing, speech during a screen switch switches at once; a transcript is the whole input.
+          showArrival()
           input = text
         })
     }
