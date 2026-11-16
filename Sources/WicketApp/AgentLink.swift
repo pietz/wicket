@@ -45,9 +45,6 @@ protocol AgentConnection: AnyObject {
   /// Ends the process, with the reason it is let go for when the run's log has no other ending.
   func stop(_ reason: String) async
 }
-extension AgentConnection {
-  func stop() async { await stop("stopped") }
-}
 
 /// What a translator answers with: events for the session and lines for the CLI.
 struct Step {

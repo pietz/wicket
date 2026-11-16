@@ -41,7 +41,7 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
 
 @Test func microphoneStopBeforeStartAndDoubleStart() async throws {
   let stopped = Microphone()
-  await stopped.stop()
+  await stopped.requestStop().value
   var opened = 0
   #expect(throws: CancellationError.self) {
     try stopped.start {
@@ -63,8 +63,8 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
     }
   }
   #expect(opened == 1)
-  await microphone.stop()
-  await microphone.stop()
+  await microphone.requestStop().value
+  await microphone.requestStop().value
   #expect(closed.withLock { $0 } == 1)
 }
 
@@ -93,7 +93,7 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
   release.signal()
   await shutdown.value
   await opening.value
-  await microphone.stop()
+  await microphone.requestStop().value
   #expect(closed.withLock { $0 } == 1)
 }
 

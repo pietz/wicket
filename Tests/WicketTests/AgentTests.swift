@@ -546,7 +546,7 @@ private func replay<T: Translator>(
   }
   link.prompt(ask, settings: settings)
   let finished = await eventually { events.contains { if case .finished = $0 { true } else { false } } }
-  await link.stop()
+  await link.stop("stopped")
   try #require(finished, "events: \(events)")
   return events
 }

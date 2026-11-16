@@ -173,7 +173,6 @@ final class Microphone: @unchecked Sendable {
     guard let format, format.sameRateAndChannels(hardware) else { throw VoiceError.noMicrophone }
     return format
   }
-  func stop() async { await requestStop().value }
 }
 
 /// Serialize engine changes and teardown, including notifications queued during startup.
