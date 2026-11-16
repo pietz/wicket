@@ -116,7 +116,6 @@ enum Ranking {
         return order == .orderedSame ? $0 < $1 : order == .orderedAscending
       }
     }
-    func icon(_ id: String) -> String? { extensions[id]?.icon }
 
     // Pattern results and failures.
     var patternRows: [Result] = []
@@ -236,14 +235,12 @@ enum Ranking {
         Result(
           provider: $0,
           row: Row(
-            id: "fallback", title: extensions[$0]!.name, subtitle: input, icon: icon($0),
+            id: "fallback", title: extensions[$0]!.name, subtitle: input, icon: extensions[$0]!.icon,
             actions: [.run(Address(id: $0, input: input))]))
       }
     }
-    let strong = candidates.filter { $0.tier >= 1 }.map(\.result)
-    let loose = candidates.filter { $0.tier == 0 }.map(\.result)
-    let head = patternRows + strong
-    let ordered = reason == nil ? [ask] + head + fallbacks + loose : head + loose
+    // Sorted by tier, so the strong come first; with none strong there are no pattern rows either.
+    let ordered = (reason == nil ? [ask] + fallbacks : patternRows) + candidates.map(\.result)
     return Output(results: ordered + failures + repairs, strongReason: reason)
   }
 }

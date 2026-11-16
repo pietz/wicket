@@ -58,13 +58,7 @@ final class AnswerRenderer {
   }
   var releaseDelay: Duration = .seconds(60)
   var textSize = Configuration.TextSize.medium {
-    didSet {
-      if textSize != oldValue {
-        cssRevision += 1
-        revision += 1
-        schedule()
-      }
-    }
+    didSet { if textSize != oldValue { restyle() } }
   }
   let folder: URL
   private let open: @MainActor (URL) -> Void
@@ -112,13 +106,11 @@ final class AnswerRenderer {
   }
   /// Images are allowed only as `data:` URLs, which only the host writes: the target icons. Markdown
   /// images and raw HTML never reach the page.
-  private func shell() -> String {
-    """
+  private static let shell = """
     <!doctype html><html><head><meta charset="utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; font-src 'none'">
     <style id="theme"></style><style id="icons"></style></head><body><main></main></body></html>
     """
-  }
   private static func paint(_ selected: String?) -> [String: Any] {
     ["html": NSNull(), "selected": selected ?? NSNull()]
   }
@@ -161,16 +153,15 @@ final class AnswerRenderer {
     self.page = page
     watcher = FileWatcher(
       paths: [folder.appending(path: "theme.css").path], latency: 0.2, filesOnly: true
-    ) { [weak self] _ in
-      guard let self else { return }
-      cssRevision += 1
-      revision += 1
-      schedule()
-    }
-    let html = shell()
-    let task = Task { for try await _ in page.load(html: html) {} }
+    ) { [weak self] _ in self?.restyle() }
+    let task = Task { for try await _ in page.load(html: Self.shell) {} }
     shellLoad = task
     return task
+  }
+  private func restyle() {
+    cssRevision += 1
+    revision += 1
+    schedule()
   }
   private func schedule() {
     guard renderTask == nil else { return }
@@ -212,34 +203,32 @@ final class AnswerRenderer {
               contentWorld: .defaultClient)
             appliedCSS = cssVersion
           }
-          do {
-            let html = await Task.detached { AnswerMarkdown.html(text, streaming: isStreaming) }.value
-            try Task.checkCancellation()
-            let result = try await page.callJavaScript(
-              script,
-              arguments: [
-                "html": html, "reset": reset, "turn": currentTurn, "selected": selected ?? NSNull(),
-                "icons": icons == appliedIcons ? NSNull() : icons,
-                "restore": reset ? positions[currentTurn] ?? 0 : NSNull(),
-              ], contentWorld: .defaultClient)
-            try Task.checkCancellation()
-            appliedIcons = icons
-            if let values = result as? [String: Any] {
-              if reset, let left = values["left"] as? Double {
-                positions[renderedTurn] = left
-                positions[currentTurn] = nil
-                if positions.count > 16 { positions.removeAll() }
-              }
-              if let measured = values["height"] as? Double, measured.isFinite {
-                height = PaletteLayout.answerHeight(
-                  measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
-                  cap: cap)
-                onHeight?()
-              }
+          let html = await Task.detached { AnswerMarkdown.html(text, streaming: isStreaming) }.value
+          try Task.checkCancellation()
+          let result = try await page.callJavaScript(
+            script,
+            arguments: [
+              "html": html, "reset": reset, "turn": currentTurn, "selected": selected ?? NSNull(),
+              "icons": icons == appliedIcons ? NSNull() : icons,
+              "restore": reset ? positions[currentTurn] ?? 0 : NSNull(),
+            ], contentWorld: .defaultClient)
+          try Task.checkCancellation()
+          appliedIcons = icons
+          if let values = result as? [String: Any] {
+            if reset, let left = values["left"] as? Double {
+              positions[renderedTurn] = left
+              positions[currentTurn] = nil
+              if positions.count > 16 { positions.removeAll() }
             }
-            renderedTurn = currentTurn
-            problem = nil
+            if let measured = values["height"] as? Double, measured.isFinite {
+              height = PaletteLayout.answerHeight(
+                measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
+                cap: cap)
+              onHeight?()
+            }
           }
+          renderedTurn = currentTurn
+          problem = nil
           if version == revision { break }
           try await Task.sleep(for: .milliseconds(40))
         }

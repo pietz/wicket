@@ -67,15 +67,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       return bindings.set(keys, for: target, launcher: hotkey.inEffect)
     }
     bindings.onPress = { [weak self] in self?.palette.press($0) }
+    let register: (Configuration) -> Void = { [weak self] config in
+      guard let self else { return }
+      configuration.hotkeyProblem = hotkey.apply(config.hotkey)
+      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
+    }
     // Either recorder, Settings' or the panel's Set Hotkey…, pauses every hotkey, so it hears the keys.
     let pause: (Bool) -> Void = { [weak self] paused in
       guard let self else { return }
       hotkey.pause(paused)
       bindings.pause(paused)
-      guard !paused else { return }
-      let config = configuration.configuration
-      configuration.hotkeyProblem = hotkey.apply(config.hotkey)
-      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
+      if !paused { register(configuration.configuration) }
     }
     model.pauseHotkeys = pause
     settings = SettingsWindowController(
@@ -98,8 +100,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       guard let self else { return }
       if let config, config != applied || hotkey.inEffect == nil {
         applied = config
-        configuration.hotkeyProblem = hotkey.apply(config.hotkey)
-        configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
+        register(config)
         shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"
       }
       status.button?.toolTip =

@@ -43,15 +43,10 @@ class PalettePanel: NSPanel {
     {
       makeFirstResponder(input)
     }
-    let flags: [(NSEvent.ModifierFlags, Shortcut.Modifiers)] = [
-      (.command, .command), (.control, .control), (.option, .option), (.shift, .shift),
-    ]
-    let modifiers = flags.reduce(into: Shortcut.Modifiers()) { result, pair in
-      if event.modifierFlags.contains(pair.0) { result.insert(pair.1) }
-    }
     let action = PaletteKeyAction.decide(
       keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
-      modifiers: modifiers, hasMarkedText: (firstResponder as? NSTextView)?.hasMarkedText() == true,
+      modifiers: Shortcut.Modifiers(event.modifierFlags),
+      hasMarkedText: (firstResponder as? NSTextView)?.hasMarkedText() == true,
       permissionPending: permissionPending(), isARepeat: event.isARepeat, hasArguments: hasArguments())
     if beforeAction(action) { return true }
     switch action {
