@@ -194,7 +194,7 @@ extension JSONEncoder {
 
 /// A view's `input` replaces what is typed: on a submitted request only, from its first view that carries
 /// it, never over what the user typed since sending, and without running anything in a submit command.
-@MainActor @Test func aChosenRequestsViewSetsTheInputOnce() async throws {
+@MainActor @Test func aSubmittedRequestsViewSetsTheInputOnce() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   func view(_ body: String, input: String) -> String {

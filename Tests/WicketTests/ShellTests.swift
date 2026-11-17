@@ -157,7 +157,7 @@ private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionComm
   return try command(folder)
 }
 
-@Test func onlyAChosenRequestRunsAndItsOutputComesAsItGrows() async throws {
+@Test func onlyASubmittedRequestRunsAndItsOutputComesAsItGrows() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let temporary = root.appending(path: "tmp")

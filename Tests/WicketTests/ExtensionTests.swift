@@ -465,7 +465,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
 /// `close` ends a submitted request: the panel hides at once, as the user hiding it would, and the root is
 /// what reopens. On a request the user did not choose it is ignored and the view shows; a failure keeps
 /// the panel open with its error.
-@MainActor @Test func aChosenAnswerThatClosesHidesThePanel() async throws {
+@MainActor @Test func aSubmittedAnswerThatClosesHidesThePanel() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let script = """

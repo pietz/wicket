@@ -304,7 +304,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
 
 /// `submitted` is the user activating something: the command and fallback rows, a run action (JSON or the
 /// host's, a manifest item included). Never typing, refreshes, links, details or error rows.
-@MainActor @Test func chosenMeansTheUserActivatedIt() async throws {
+@MainActor @Test func submittedMeansTheUserActivatedIt() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   // Every request is logged; a page with run actions of each shape, or a failure for "fail".

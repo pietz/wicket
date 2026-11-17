@@ -272,7 +272,7 @@ import Testing
   await model.finish()
 }
 
-@MainActor @Test func anExtensionBodyRunsItsOwnCommandWithAChosenRequest() async throws {
+@MainActor @Test func anExtensionBodyRunsItsOwnCommandWithASubmittedRequest() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   // Logs every request; the day view is a page of its own, the week view holds run targets.

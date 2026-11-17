@@ -213,7 +213,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
 
 /// Headless `--extension` sends the input, the arguments object and `submitted` exactly as given, and
 /// refuses arguments that are not an object of strings.
-@MainActor @Test func headlessExtensionRunsSendTheirArgumentsAndChosen() async throws {
+@MainActor @Test func headlessExtensionRunsSendTheirArgumentsAndSubmitted() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (_, requests) = try logging(root, name: "Caffeinate", fields: ["arguments": [["name": "hours"]]])

@@ -160,7 +160,7 @@ import Testing
   return model
 }
 
-@MainActor @Test func pressingAnItemsHotkeyRunsItChosenWithoutThePanel() async throws {
+@MainActor @Test func pressingAnItemsHotkeyRunsItSubmittedWithoutThePanel() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await windowLike(root)
