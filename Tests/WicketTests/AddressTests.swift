@@ -276,6 +276,19 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(ask["row"]["actions"].array.first?["text"].string == "why did it fail")
 }
 
+/// A misspelled manifest key is a repair row that names it and the valid keys, never silently ignored.
+@Test func unknownManifestKeysAreDiscoveryProblems() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "typo", fields: ["keywords": ["t"]])
+  _ = try extensionFolder(root, name: "fine", fields: ["match": "^x", "submit": true, "description": "D"])
+  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
+  #expect(Set(commands.keys) == ["extension:fine"])
+  let problem = try #require(problems["extension:typo"])
+  #expect(problem.contains("Unknown key `keywords`"))
+  #expect(problem.contains("valid keys: name, description, keyword, command"))
+}
+
 @Test func reservedFolderNamesAreDiscoveryProblems() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

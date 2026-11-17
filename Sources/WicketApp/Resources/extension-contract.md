@@ -8,7 +8,7 @@ Write a directory under `extensions/` in the Wicket working folder. Read this re
 {"name":"Deploy","keyword":"deploy","command":["./deploy.py"],"icon":"shippingbox"}
 ```
 
-`name` and a nonempty `command` argv array, `items` or both are required. `description` (one line on what it does, shown in Settings), `keyword`, SF Symbol `icon`, regex `match`, boolean `fallback` (default false), `arguments`, boolean `submit` (default false) and `settings` are optional; all but `description`, `keyword` and `icon` need a `command`. A pattern may also match empty input, allowing an app-index extension to supply the initial app list. Use a relative executable with its execute bit and shebang, or an installed interpreter, e.g. `["/usr/bin/python3","main.py"]`. No shell expansion. Relative paths resolve in the extension folder. Extensions run with the owner's ordinary access, not a sandbox.
+`name` and a nonempty `command` argv array, `items` or both are required. `description` (one line on what it does, shown in Settings), `keyword`, SF Symbol `icon`, regex `match`, boolean `fallback` (default false), `arguments`, boolean `submit` (default false) and `settings` are optional; all but `description`, `keyword` and `icon` need a `command`. Any other key is an error naming it, shown as a repair row. A pattern may also match empty input, allowing an app-index extension to supply the initial app list. Use a relative executable with its execute bit and shebang, or an installed interpreter, e.g. `["/usr/bin/python3","main.py"]`. No shell expansion. Relative paths resolve in the extension folder. Extensions run with the owner's ordinary access, not a sandbox.
 
 ### Arguments and submit: a command that does something
 

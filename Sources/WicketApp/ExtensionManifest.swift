@@ -27,10 +27,24 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   }
   static let maxArguments = 3
 
-  private enum CodingKeys: String, CodingKey {
+  private enum CodingKeys: String, CodingKey, CaseIterable {
     case name, description, keyword, command, icon, match, fallback, items, arguments, submit, settings
   }
+  /// Any key in the file, so a misspelled one (`keywords`, `trigger`) is an error instead of ignored.
+  private struct AnyKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { nil }
+  }
   init(from decoder: any Decoder) throws {
+    let valid = CodingKeys.allCases.map(\.rawValue)
+    let file = try decoder.container(keyedBy: AnyKey.self)
+    if let key = file.allKeys.first(where: { !valid.contains($0.stringValue) }) {
+      throw DecodingError.dataCorruptedError(
+        forKey: key, in: file,
+        debugDescription: "Unknown key `\(key.stringValue)`; valid keys: \(valid.joined(separator: ", "))")
+    }
     let c = try decoder.container(keyedBy: CodingKeys.self)
     name = try c.decode(String.self, forKey: .name)
     description = try c.decodeIfPresent(String.self, forKey: .description)
