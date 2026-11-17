@@ -182,10 +182,11 @@ final class ClipboardHistory: Provider {
   /// Past the total limit the oldest images go. Decoding, converting, hashing and writing run off the main
   /// actor, so a large copy never stalls the panel.
   func capture(image data: Data, now: Date = Date()) async {
-    let limit = imageLimits.each
-    guard let image = await Task.detached(operation: { Self.prepare(data, limit: limit) }).value else {
-      return
-    }
+    let (limit, cleared) = (imageLimits.each, clears)
+    // A Clear History while it was prepared or written means it never comes.
+    guard let image = await Task.detached(operation: { Self.prepare(data, limit: limit) }).value,
+      clears == cleared
+    else { return }
     var id = clips.first { $0.image?.sha256 == image.sha256 }?.id ?? ""
     if id.isEmpty {
       id = UUID().uuidString
@@ -202,8 +203,8 @@ final class ClipboardHistory: Provider {
         }
       }.value
       guard saved else { return }
-      // Switched off while it was written: the file goes, as its entry never comes.
-      guard enabled else {
+      // Switched off or cleared while it was written: the file goes, as its entry never comes.
+      guard enabled, clears == cleared else {
         try? FileManager.default.removeItem(at: url)
         return
       }
@@ -256,7 +257,12 @@ final class ClipboardHistory: Provider {
 
   func delete(_ id: String) { replace(with: clips.filter { $0.id != id }) }
 
-  func clear() { replace(with: []) }
+  /// Counts Clear History, so an image still being prepared from before it is dropped.
+  private var clears = 0
+  func clear() {
+    clears += 1
+    replace(with: [])
+  }
 
   private func imageURL(_ id: String) -> URL { folder.appending(path: id + ".png") }
 

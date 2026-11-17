@@ -384,6 +384,12 @@ private func pngs(_ folder: URL) -> Set<String> {
   #expect(history.clips.count == 1 && !pngs(folder).contains(id + ".png") && pngs(folder).count == 1)
   history.clear()
   #expect(history.clips.isEmpty && pngs(folder).isEmpty)
+  // An image still being prepared when Clear History runs never comes.
+  let pending = Task { await history.capture(image: testImage(2, 2, seed: 3)) }
+  await Task.yield()
+  history.clear()
+  await pending.value
+  #expect(history.clips.isEmpty && pngs(folder).isEmpty)
 }
 
 @MainActor @Test func launchLoadsOldTextFilesAndCleansStrayImages() throws {
