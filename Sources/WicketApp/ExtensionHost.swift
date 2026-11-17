@@ -40,7 +40,7 @@ struct ExtensionCommand: Sendable, Equatable {
   private func shown(_ row: Row, id: String, subtitle: String?) -> Row {
     Row(
       id: id, title: row.title, subtitle: subtitle, icon: row.icon ?? manifest.icon, actions: row.actions,
-      keywords: row.keywords, prominent: row.prominent)
+      keywords: row.keywords, prominent: row.prominent, detail: row.detail)
   }
 }
 

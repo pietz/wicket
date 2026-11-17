@@ -136,6 +136,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
     model.onSelectionChange = { [weak self] in
       guard let self else { return }
       renderer.selected = model.selectedTarget
+      // Beside a list, the selected item's detail, with its neighbors' pictures prepared.
+      if isOpen, model.splits {
+        renderContent()
+        PageIcons.prepare(model.nearbyPictures)
+      }
     }
     model.preparePage = { [weak self] page, turn in
       guard let self, isOpen else { return }
@@ -205,9 +210,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
     panel.contentView?.layoutSubtreeIfNeeded()
     panel.invalidateShadow()
   }
-  /// The page that is open: a detail, the conversation's answer or an extension's body. A list has
-  /// none, and the renderer is not touched.
+  /// The page that is open: a detail, the conversation's answer or an extension's body, or beside a list
+  /// the selected item's detail. Another list has none, and the renderer is not touched.
   private func renderContent() {
+    if let preview = model.preview {
+      renderer.textSize = model.configuration.textSize
+      renderer.selected = nil
+      return renderer.update(preview.page, turn: preview.turn, streaming: false)
+    }
     guard let page = model.page else { return }
     renderer.textSize = model.configuration.textSize
     renderer.selected = model.selectedTarget

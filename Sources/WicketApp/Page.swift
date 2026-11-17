@@ -18,10 +18,13 @@ struct Page: Equatable, Sendable {
   var targets: [Row]
   /// The SF Symbols the page's rows and cards show, each one that exists, once.
   var symbols: [String]
+  /// An image file the host shows at the top of the page (`Row.picture`). Markdown never sets it.
+  var picture: URL?
 
   /// `runs` marks an extension's own output, whose rows and cards may run that extension with
   /// arguments (`run="view=day&day=tue"`). An agent's reply never can: there the attribute is ignored.
-  init(body: String, items: [Row] = [], runs: Bool) {
+  init(body: String, items: [Row] = [], runs: Bool, picture: URL? = nil) {
+    self.picture = picture
     var pieces: [String] = []
     var targets: [Row] = []
     var symbols: [String] = []
@@ -103,9 +106,11 @@ struct Page: Equatable, Sendable {
     }
     var own: [Row] = []
     for item in items {
+      // An item's detail opens with Return, as a row's content does; its own actions stay in ⌘K.
+      let detail = item.detail.map { [RowAction(.detail("# \(item.title)\n\n\($0)"))] } ?? []
       let row = Row(
         id: item.id.hasPrefix("#") ? "#" + item.id : item.id, title: item.title, subtitle: item.subtitle,
-        icon: item.icon, actions: item.actions, keywords: item.keywords, prominent: item.prominent)
+        icon: item.icon, actions: detail + item.actions, keywords: item.keywords, prominent: item.prominent)
       own.append(row)
       let values = [("title", row.title)] + (row.subtitle.map { [("subtitle", $0)] } ?? [])
       pieces.append("\n\n" + tag("row", row.id, values, icon: row.icon ?? "app", close: true))

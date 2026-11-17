@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -106,4 +107,80 @@ func hotkeyToVisibleWithBindings() async throws {
     String(
       format: "hotkeyToVisible (median of 200): no bindings %.3f ms, 20 off screen %.3f ms, 20 shown %.3f ms",
       none, hidden, shown))
+}
+
+/// Opt-in like `queryLatency`: an arrow key in Clipboard History to the selected clip's detail rendered and
+/// laid out in the canvas (the bridge's acknowledgement), offscreen. 40 text clips of about 1 KB and 10
+/// screenshot-sized images (3024×1964), each image the first time it is shown and again.
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
+func detailLatency() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let history = ClipboardHistory(
+    url: folder.appending(path: "clipboard-history.json"), pasteboard: FakePasteboard(), interval: nil)
+  history.configure(enabled: true)
+  for n in 0..<10 {
+    let bitmap = NSBitmapImageRep(
+      bitmapDataPlanes: nil, pixelsWide: 3024, pixelsHigh: 1964, bitsPerSample: 8, samplesPerPixel: 4,
+      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    NSGradient(starting: .systemTeal, ending: .systemIndigo)!.draw(
+      in: NSRect(x: 0, y: 0, width: 3024, height: 1964), angle: Double(n * 30))
+    NSString(string: "Screenshot \(n)").draw(
+      at: NSPoint(x: 200, y: 900), withAttributes: [.font: NSFont.systemFont(ofSize: 200)])
+    NSGraphicsContext.restoreGraphicsState()
+    history.capture(png: bitmap.representation(using: .png, properties: [:])!, width: 3024, height: 1964)
+    for m in 0..<4 {
+      history.capture(
+        (0..<20).map { "Line \($0) of clip \(n)-\(m): some copied text, about fifty characters" }
+          .joined(separator: "\n"))
+    }
+  }
+  let model = LauncherModel(
+    clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+  model.store.start(watching: false)
+  model.store.update { $0.providers = [.init("clipboard")] }
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  model.go(Address(extensionName: "clipboard"))
+  await controller.renderer.settled()
+  func move(_ delta: Int) async -> Double {
+    let start = ContinuousClock.now
+    model.move(delta)
+    await controller.renderer.settled()
+    #expect(controller.renderer.renderedTurn == model.preview?.turn)
+    return Double((ContinuousClock.now - start).components.attoseconds) / 1e15
+  }
+  func summary(_ times: [Double]) -> String {
+    let sorted = times.sorted()
+    return String(
+      format: "median %.2f ms, p90 %.2f ms, max %.2f ms", sorted[sorted.count / 2],
+      sorted[sorted.count * 9 / 10], sorted.last!)
+  }
+  // Newest first: four texts, then an image, ten times. An image's first showing is measured arriving
+  // at once from the text before it, and, every other time, after a pause of 100 ms on that text, as
+  // when reading it, which lets its picture be prepared ahead.
+  var text: [Double] = []
+  var image: [Double] = []
+  var prepared: [Double] = []
+  var cached: [Double] = []
+  for group in 0..<10 {
+    for _ in 0..<3 { text.append(await move(1)) }
+    if group.isMultiple(of: 2) {
+      try await Task.sleep(for: .milliseconds(100))
+      prepared.append(await move(1))
+    } else {
+      image.append(await move(1))
+    }
+    #expect(model.preview?.page.picture != nil)
+    _ = await move(-1)
+    cached.append(await move(1))
+    if group < 9 { text.append(await move(1)) }
+  }
+  print(
+    "detailLatency: text \(summary(text)); image at once \(summary(image)); after a pause \(summary(prepared)); again \(summary(cached))"
+  )
+  controller.hide()
+  await model.finish()
 }

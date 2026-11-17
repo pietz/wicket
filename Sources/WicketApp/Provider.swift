@@ -115,10 +115,15 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   let actions: [RowAction]
   let keywords: [String]?
   let prominent: Bool?
+  /// Markdown with the six tags, like a tag row's content: in a command's list it shows beside the list
+  /// while the item is selected, and on a page Return opens it.
+  let detail: String?
+  /// Host only, never decoded: an image file the host shows above the detail, such as a copied image.
+  var picture: URL? = nil
 
   init(
     id: String, title: String, subtitle: String? = nil, icon: String? = nil, actions: [RowAction],
-    keywords: [String]? = nil, prominent: Bool? = nil
+    keywords: [String]? = nil, prominent: Bool? = nil, detail: String? = nil, picture: URL? = nil
   ) {
     self.id = id
     self.title = title
@@ -127,6 +132,11 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
     self.actions = actions
     self.keywords = keywords
     self.prominent = prominent
+    self.detail = detail
+    self.picture = picture
+  }
+  private enum CodingKeys: String, CodingKey {
+    case id, title, subtitle, icon, actions, keywords, prominent, detail
   }
   /// The one rule for a list of items, in a view or a manifest: ids nonempty and unique.
   static func validIDs(_ rows: [Row]) -> Bool {

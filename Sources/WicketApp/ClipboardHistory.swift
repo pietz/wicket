@@ -245,7 +245,8 @@ final class ClipboardHistory: Provider {
 
   /// The rows for the clipboard view: newest first, each word of the input somewhere in the text (an image's
   /// title for an image), ignoring case and diacritics. Return pastes, and the clip can also be copied or
-  /// deleted; an image's copy and paste name it by ID.
+  /// deleted; an image's copy and paste name it by ID. Each row's detail, shown beside the list, is the
+  /// text as a literal code block or the image, with quiet properties.
   func rows(matching input: String, now: Date = Date()) -> [Row] {
     expire(now: now)
     let words = input.split(whereSeparator: \.isWhitespace).map(String.init)
@@ -263,7 +264,10 @@ final class ClipboardHistory: Provider {
         let size = ByteCountFormatter.string(fromByteCount: Int64(image.bytes), countStyle: .file)
         return Row(
           id: clip.id, title: Self.title(image), subtitle: "\(age) · \(size)", icon: "photo",
-          actions: [RowAction(.clip(clip.id, paste: true)), RowAction(.clip(clip.id, paste: false)), delete])
+          actions: [RowAction(.clip(clip.id, paste: true)), RowAction(.clip(clip.id, paste: false)), delete],
+          detail: Self.properties([
+            ("Dimensions", "\(image.width)×\(image.height)"), ("File size", size), ("Copied", age),
+          ]), picture: imageURL(clip.id))
       }
       // The first nonblank line with spaces collapsed, and the line count.
       let title = clip.text.drop { $0.isWhitespace }.prefix { !$0.isNewline }.prefix(300)
@@ -272,8 +276,49 @@ final class ClipboardHistory: Provider {
       return Row(
         id: clip.id, title: title, subtitle: lines > 1 ? "\(age) · \(lines) lines" : age,
         icon: "doc.on.clipboard",
-        actions: [.paste(clip.text), .copy(clip.text), delete])
+        actions: [.paste(clip.text), .copy(clip.text), delete],
+        detail: Self.detail(clip.text, lines: lines, age: age))
     }
+  }
+
+  /// The detail shows at most this much of a text: enough to recognize it, and cheap to build for every
+  /// row and to draw on each arrow key.
+  nonisolated static let detailLimit = (bytes: 5000, lines: 200)
+
+  /// A text as a literal code block, its fence longer than any run of backticks in it, so nothing in it is
+  /// read as Markdown or a tag, then its properties. One pass over the bytes shown, since every row of the
+  /// view builds one.
+  nonisolated static func detail(_ text: String, lines: Int, age: String) -> String {
+    let bytes = text.utf8
+    var end = bytes.startIndex
+    var newlines = 0
+    var run = 0
+    var longest = 0
+    for byte in bytes.prefix(detailLimit.bytes) {
+      if byte == 10 {
+        newlines += 1
+        if newlines == detailLimit.lines { break }
+      }
+      run = byte == 96 ? run + 1 : 0
+      longest = max(longest, run)
+      bytes.formIndex(after: &end)
+    }
+    // Never into the middle of a character's bytes.
+    while end < bytes.endIndex, UTF8.isContinuation(bytes[end]) { bytes.formIndex(before: &end) }
+    let fence = String(repeating: "`", count: max(3, longest + 1))
+    let more = end < bytes.endIndex ? "\n\nShows the beginning; Return pastes all of it." : ""
+    return "\(fence)\n\(text[..<end])\n\(fence)\(more)\n\n"
+      + properties([
+        ("Copied", age), ("Lines", count(lines)), ("Characters", count(text.count)),
+      ])
+  }
+  nonisolated private static func count(_ value: Int) -> String {
+    value.formatted(IntegerFormatStyle<Int>(locale: .autoupdatingCurrent))
+  }
+
+  /// Label and value pairs as property rows, quiet lines on the page.
+  nonisolated private static func properties(_ pairs: [(String, String)]) -> String {
+    pairs.map { "<row label=\"\($0)\" value=\"\($1)\"/>" }.joined(separator: "\n")
   }
 
   nonisolated static func title(_ image: Clip.Image) -> String { "Image \(image.width)×\(image.height)" }

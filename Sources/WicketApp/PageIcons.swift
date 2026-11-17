@@ -1,11 +1,50 @@
 import AppKit
+import ImageIO
 
-/// The icons of a page's rows and cards, as the native list draws them: an SF Symbol in the secondary
-/// color or a file's own icon, in a 26-point square. The page loads nothing, so they arrive drawn, as
-/// `data:` images in a stylesheet: a symbol for every tag that names it, a file's icon for the target
-/// that opens or reveals it, which comes from the target in Swift.
+/// The images of a page, which loads nothing, so they arrive drawn by the host as `data:` images in a
+/// stylesheet: the icons of its rows and cards, as the native list draws them (an SF Symbol in the
+/// secondary color or a file's own icon, in a 26-point square), a symbol for every tag that names it and
+/// a file's icon for the target that opens or reveals it, which comes from the target in Swift; and the
+/// page's picture (`Page.picture`), which only the host sets.
 @MainActor enum PageIcons {
   private static var images: [String: String] = [:]
+  /// The last few pictures' rules, newest first, drawn or being drawn: arrowing back to an item, or to
+  /// one prepared ahead (`prepare`), draws it at once.
+  private static var pictures: [(url: URL, rule: Task<String, Never>)] = []
+
+  /// The rule that shows the page's picture at its top, at most as wide as the page and 240 points high,
+  /// never enlarged. It is downscaled off the main actor to twice that size: decoding a 3024×1964
+  /// screenshot takes about 50 ms.
+  static func picture(_ url: URL?) async -> String {
+    guard let url else { return "" }
+    return await rule(url).value
+  }
+  /// Starts drawing pictures likely to be shown next, such as those of the items beside the selection.
+  static func prepare(_ urls: [URL]) {
+    for url in urls { _ = rule(url) }
+  }
+  private static func rule(_ url: URL) -> Task<String, Never> {
+    if let kept = pictures.first(where: { $0.url == url }) { return kept.rule }
+    let rule = Task.detached { thumbnail(url) }
+    pictures = [(url, rule)] + pictures.prefix(7)
+    return rule
+  }
+
+  nonisolated private static func thumbnail(_ url: URL) -> String {
+    let options =
+      [
+        kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 720,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+      ] as CFDictionary
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+      let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options),
+      let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+    else { return "" }
+    let width = Double(image.width) / 2
+    let height = Double(image.height) / 2
+    return
+      "main::before { content: \"\"; align-self: start; width: min(100%, \(width)px); aspect-ratio: \(width) / \(height); max-height: 240px; background: url(data:image/png;base64,\(png.base64EncodedString())) left top / contain no-repeat; }\n"
+  }
 
   static func stylesheet(for page: Page) -> String {
     var variables: [String: Int] = [:]

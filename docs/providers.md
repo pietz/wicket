@@ -6,7 +6,8 @@ The Swift values in `Sources/WicketApp/Provider.swift` and the shipped [extensio
 ProviderRequest(input: String, arguments: [String: String] = [:], chosen: Bool = false)
 ProviderView(body: String?, items: [Row], actions: [RowAction])
 Row(id: String, title: String, subtitle: String?, icon: String?,
-    actions: [RowAction], keywords: [String]?, prominent: Bool?)
+    actions: [RowAction], keywords: [String]?, prominent: Bool?,
+    detail: String?)   // and the host-only picture: URL?, never decoded
 RowAction(kind: Kind, title: String?)
 RowAction.open(URL), .reveal(URL), .copy(String), .paste(String)
 RowAction.run(Address), .agent(String)   // each with an optional title:

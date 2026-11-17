@@ -29,7 +29,7 @@ private let states = [
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
   "extension-targets", "extension-detail-larger", "asking", "asking-extension",
   "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
-  "arguments-long", "arguments-three", "history", "history-reopened",
+  "arguments-long", "arguments-three", "history", "history-reopened", "clipboard", "clipboard-image",
   "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
   "settings-error",
   "settings-conflict",
@@ -45,6 +45,13 @@ private func expectedText(_ name: String) -> [String] {
     ]
   }
   if name.contains("settings-") { return [] }
+  if name.contains("clipboard-image") {
+    // Text recognition reads × as x, now and then.
+    return ["Clipboard History", "Image 1200", "Dimensions", "File size", "Copied", "50m ago"]
+  }
+  if name.contains("clipboard") {
+    return ["Clipboard History", "func greet", "Hello", "Copied", "Lines", "Characters", "Paste"]
+  }
   if name.contains("permission-high") {
     return ["Allow Claude to delete files", "Deletes", "Show details", "Allow deletion"]
   }
@@ -125,6 +132,23 @@ private let launchAnswer =
 private let nextAnswer =
   "## Build something useful\nStart with a small weather extension. Put the current temperature in its result row, with the full forecast one step away.\n\nKeep it **local**, quick and easy to change."
 
+/// A picture to copy: a sky, a sun and a hill, 1200×800 pixels.
+@MainActor private func captureImage() -> Data {
+  let bitmap = NSBitmapImageRep(
+    bitmapDataPlanes: nil, pixelsWide: 1200, pixelsHigh: 800, bitsPerSample: 8, samplesPerPixel: 4,
+    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+  NSGraphicsContext.saveGraphicsState()
+  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+  NSGradient(starting: .systemTeal, ending: .systemIndigo)!.draw(
+    in: NSRect(x: 0, y: 0, width: 1200, height: 800), angle: 90)
+  NSColor.systemYellow.setFill()
+  NSBezierPath(ovalIn: NSRect(x: 780, y: 470, width: 200, height: 200)).fill()
+  NSColor.systemGreen.setFill()
+  NSBezierPath(ovalIn: NSRect(x: -300, y: -900, width: 1800, height: 1300)).fill()
+  NSGraphicsContext.restoreGraphicsState()
+  return bitmap.representation(using: .png, properties: [:])!
+}
+
 /// A panel that can never become key, so nothing here can take focus even by accident.
 @MainActor private final class CapturePanel: PalettePanel {
   override var canBecomeKey: Bool { false }
@@ -188,8 +212,13 @@ private let nextAnswer =
     let (name, size) = textSize(state)
     let transcriber = FakeTranscriber()
     let runs = AgentHistory(url: folder.appending(path: "agent-history.json"))
+    let clipboard =
+      name.hasPrefix("clipboard")
+      ? ClipboardHistory(
+        url: folder.appending(path: "private/clipboard-history.json"), pasteboard: FakePasteboard(),
+        interval: nil) : nil
     let model = LauncherModel(
-      apps: FixedApps(), agentHistory: runs,
+      apps: FixedApps(), clipboard: clipboard, agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       bundled: bundledExtensions, transcriber: { transcriber })
     model.store.update {
@@ -248,6 +277,18 @@ private let nextAnswer =
       }
       if name == "conversation-expanded" { model.historyExpanded = true }
       if name == "conversation-long-expanded" { model.questionExpanded = true }
+    case "clipboard", "clipboard-image":
+      let clips = try #require(clipboard)
+      model.store.update { $0.providers = [.init("clipboard")] }
+      let minute: TimeInterval = 60
+      clips.capture(png: captureImage(), width: 1200, height: 800, now: Date() - 50 * minute)
+      clips.capture("https://wicket.app/docs/extensions", now: Date() - 20 * minute)
+      clips.capture("Launch review moved to 15:00, room 2", now: Date() - 9 * minute)
+      clips.capture(
+        "func greet(_ name: String) -> String {\n  // Say hello.\n  \"Hello, \\(name)!\"\n}",
+        now: Date() - 2 * minute)
+      model.go(Address(extensionName: "clipboard"))
+      if name == "clipboard-image" { model.move(3) }
     case "actions":
       model.input = "settings"
       await model.settled()
@@ -603,6 +644,12 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "arguments-three": #expect(model.declaredArguments.count == 3)
   case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
   case "history": #expect(model.command?.id == "history" && model.results.count == 2)
+  case "clipboard":
+    #expect(model.splits && model.selected?.row.title.hasPrefix("func greet") == true)
+    #expect(model.preview?.page.source.contains("Hello") == true)
+  case "clipboard-image":
+    #expect(model.splits && model.selected?.row.title == "Image 1200×800")
+    #expect(model.preview?.page.picture != nil)
   case "history-reopened":
     #expect(model.agent.continuing && model.agent.previous.count == 1 && model.agent.sessionID == "s")
   case "extension-pattern": #expect(model.results.first?.row.title.contains("6.21") == true)

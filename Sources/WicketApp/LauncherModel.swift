@@ -92,6 +92,29 @@ final class LauncherModel {
   /// Which page is shown, for the renderer (a new one starts at its top) and for clicks, which count
   /// only on the page they were made on.
   var pageTurn: String { openDetails.last?.turn ?? baseTurn }
+  /// A command's list whose items carry a `detail` shows the selected one's beside it (`preview`). Not at
+  /// the root, in a conversation, on a page or under the action panel.
+  var splits: Bool {
+    !agent.active && command != nil && page == nil && actionPanel == nil
+      && listed.contains { $0.row.detail != nil }
+  }
+  /// The selected item's detail, written with the view, so an arrow key shows it with no request; empty
+  /// for an item without one. Its turn names the command, so the pane shows no other screen's page.
+  var preview: (page: Page, turn: String)? {
+    guard splits, let command else { return nil }
+    let row = selectedRow?.row
+    return (
+      Page(body: row?.detail ?? "", runs: true, picture: row?.picture), Self.previewTurn(command.id, row?.id)
+    )
+  }
+  /// The pictures of the items beside the selected one, which the canvas prepares ahead of an arrow key.
+  var nearbyPictures: [URL] {
+    guard splits, let index = listed.firstIndex(where: { $0.id == selection }) else { return [] }
+    return [index + 1, index - 1].compactMap { listed.indices.contains($0) ? listed[$0].row.picture : nil }
+  }
+  static func previewTurn(_ command: String, _ item: String?) -> String {
+    "detail:\(command):" + (item ?? "")
+  }
   private var baseTurn: String { agent.active ? agent.turnID : command?.turn ?? "" }
   /// An item's content opened as its own page, over the page it came from: the selection and the
   /// scroll position there come back with Escape. Details belong to one page (`base`); a new answer or

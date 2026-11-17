@@ -71,7 +71,8 @@ final class AnswerRenderer {
   private var renderID = 0
   private var source = Page(body: "", runs: false)
   private var turn = ""
-  private var renderedTurn = ""
+  /// The turn of the page last drawn, so a list's detail pane shows only its own pages.
+  private(set) var renderedTurn = ""
   private var streaming = false
   private var cssRevision = 0
   private var appliedCSS = -1
@@ -176,7 +177,9 @@ final class AnswerRenderer {
         }
       }
       do {
-        try await Task.sleep(for: .milliseconds(40))
+        // A new page renders at once, so an arrow key in a list with details never waits; changes to
+        // the page shown, such as a streamed answer, are batched.
+        if turn == renderedTurn { try await Task.sleep(for: .milliseconds(40)) }
         guard let page else { return }
         if !ready {
           try await prepare().value
@@ -187,8 +190,9 @@ final class AnswerRenderer {
         while true {
           try Task.checkCancellation()
           let version = revision
-          let text = source.source
-          let icons = PageIcons.stylesheet(for: source)
+          let shown = source
+          let text = shown.source
+          let icons = PageIcons.stylesheet(for: shown) + (await PageIcons.picture(shown.picture))
           let currentTurn = turn
           let isStreaming = streaming
           let reset = currentTurn != renderedTurn

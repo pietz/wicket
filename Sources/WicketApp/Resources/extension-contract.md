@@ -91,6 +91,12 @@ The same program can return a body when arguments are `{"view":"forecast","city"
 
 Items require a nonempty unique `id`, `title` and `actions` array (may be empty). Optional `keywords` is an array of aliases used for matching tiers; optional `prominent:true` gives the first result the calculator-sized presentation. `subtitle` and SF Symbol `icon` are optional. File open and reveal actions get the native file/app icon. Return uses the first action; ⌘K lists all of them for the selected item, in a list and on a page alike (with nothing selected on a page, the view's `actions`), as does the item's context menu in a list. Unknown action kinds, wrong types, missing fields and duplicate item IDs are errors; extra keys are tolerated.
 
+Optional `detail` is Markdown with the body tags, the same as a row's detail (Body tags): inside your command, a list whose items carry one shows the selected item's detail beside it, updated as the arrows move, with no request; on a page Return opens it, as a row's detail. Use it for what the user wants to look at before choosing (a clip's full text, a message, a record's fields as `<row label value/>` properties); keep the title short, since the list is narrow then. At the root it is ignored.
+
+```json
+{"items":[{"id":"pr-42","title":"Fix login redirect","icon":"arrow.triangle.pull","detail":"**#42** by ada · 2 files\n\nRedirects to the page the user came from.\n<row label=\"Status\" value=\"Approved\"/>","actions":[{"type":"open","url":"https://github.com/o/r/pull/42"}]}]}
+```
+
 ## Actions
 
 ```json

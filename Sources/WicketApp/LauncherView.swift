@@ -194,7 +194,11 @@ struct LauncherView: View {
               }
             }
             .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
-            if actions || !model.agent.active && model.command?.problem == nil && model.page == nil { list }
+            if model.splits {
+              split
+            } else if actions || !model.agent.active && model.command?.problem == nil && model.page == nil {
+              list
+            }
           }
           .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
           Divider()
@@ -310,16 +314,29 @@ struct LauncherView: View {
           ForEach(model.results) { result in resultRow(result) }
         }.padding(10)
       }
-      .frame(
-        height: PaletteLayout.rowsHeight(
-          model.sizedRows,
-          prominentFirst: model.prominentFirst, rowHeight: textSize.rowHeight)
-      )
+      .frame(height: model.listHeight)
       .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
       .onChange(of: model.results.map(\.id)) { _, _ in
         if let id = model.selection { proxy.scrollTo(id) }
       }
     }
+  }
+  /// A command's list with the selected item's detail beside it on the canvas. The pane shows only this
+  /// command's details, so another screen's page never flashes in it while the first one renders; the
+  /// web view stays mounted meanwhile, since one added after its page rendered stayed blank offscreen.
+  private var split: some View {
+    HStack(spacing: 0) {
+      list.frame(width: PaletteLayout.splitList)
+      Divider()
+      if let page = renderer.page {
+        WebView(page).webViewContentBackground(.hidden)
+          .opacity(
+            renderer.renderedTurn.hasPrefix(LauncherModel.previewTurn(model.command?.id ?? "", nil)) ? 1 : 0)
+      } else {
+        Spacer()
+      }
+    }
+    .frame(height: model.listHeight)
   }
   /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
   private func resultRow(_ result: Result) -> some View {
@@ -336,7 +353,8 @@ struct LauncherView: View {
         Text(result.row.title).font(.system(size: 14 * textSize.scale)).lineLimit(1)
           .layoutPriority(
             1)
-        if let subtitle = result.row.subtitle, result.provider != "apps" {
+        // Beside a detail the list is narrow, and the detail says more.
+        if let subtitle = result.row.subtitle, result.provider != "apps", !model.splits {
           Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -581,11 +599,15 @@ extension RowAction {
 }
 
 extension LauncherModel {
+  /// The list's height: as tall as its rows, or beside a detail always eight rows, so that arrowing
+  /// through details of different lengths never changes it; a longer detail scrolls.
+  var listHeight: CGFloat {
+    PaletteLayout.rowsHeight(
+      splits ? 8 : sizedRows, prominentFirst: !splits && prominentFirst,
+      rowHeight: configuration.textSize.rowHeight)
+  }
   func cardHeight(answer: CGFloat, cap: Double) -> CGFloat {
-    let list =
-      PaletteLayout.rowsHeight(
-        sizedRows, prominentFirst: prominentFirst, rowHeight: configuration.textSize.rowHeight)
-      + PaletteLayout.footer
+    let list = listHeight + PaletteLayout.footer
     // The action panel is a list, over whatever it was opened on.
     if actionsTitle != nil { return list }
     if agent.active, agent.question.isEmpty { return PaletteLayout.answerMin + PaletteLayout.footer }
