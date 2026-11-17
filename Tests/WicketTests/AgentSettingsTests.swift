@@ -121,8 +121,10 @@ private func listed(_ agent: AgentConfiguration.Agent) throws -> [AgentModel] {
   try JSONEncoder().encode(AgentCatalog(models: [], updated: 0)).write(
     to: AgentDiscovery.url(.claude, in: folder), options: .atomic)
   #expect(await eventually { store.catalogs[.claude]?.models.isEmpty == true })
+  // Asking a CLI takes most of `eventually`'s second under load: await the discovery itself.
   store.discoverOptions()
-  #expect(await eventually { store.catalogs[.claude]?.models.isEmpty == false })
+  await store.discovery?.value
+  #expect(store.catalogs[.claude]?.models.isEmpty == false, "\(store.discoveryStatus)")
   #expect(agents.count == 3)
 }
 
