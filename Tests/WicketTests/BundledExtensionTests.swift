@@ -10,9 +10,13 @@ import Testing
 let bundledExtensions: URL = {
   let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent()
-  let products = Bundle.module.bundleURL.deletingLastPathComponent()
-  let folder = products.appending(path: "Extensions")
   let fm = FileManager.default
+  // The test resources sit beside the products, or inside the test bundle with swiftbuild.
+  var products = Bundle.module.bundleURL.deletingLastPathComponent()
+  while !fm.fileExists(atPath: products.appending(path: "Wicket").path), products.path != "/" {
+    products = products.deletingLastPathComponent()
+  }
+  let folder = products.appending(path: "Extensions")
   for name in ["calculator", "units", "window", "shell"] {
     let target = folder.appending(path: name)
     try! fm.createDirectory(at: target, withIntermediateDirectories: true)
