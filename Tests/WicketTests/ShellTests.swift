@@ -120,6 +120,29 @@ import Testing
   #expect(try String(contentsOf: folder.appending(path: "out"), encoding: .utf8) == folder.path + "\n")
 }
 
+@Test func aRunSweepsWhatEarlierRunsLeftInTheTemporaryFolder() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let names = [
+    "wicket-shell-1.command", "wicket-shell-2.command", "wicket-shell-folder-\(getpid())",
+    "wicket-shell-folder-2147483000", "wicket-shell-session.json", "other.command",
+  ]
+  for name in names { try Data().write(to: root.appending(path: name)) }
+  let old = Date(timeIntervalSinceNow: -120)
+  try FileManager.default.setAttributes(
+    [.modificationDate: old], ofItemAtPath: root.appending(path: "wicket-shell-1.command").path)
+  try FileManager.default.setAttributes(
+    [.modificationDate: old], ofItemAtPath: root.appending(path: "other.command").path)
+  sweep(root.path)
+  // The old Terminal file and the gone run's folder file go; a fresh one, a live run's and others stay.
+  let left = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+  #expect(
+    left == [
+      "other.command", "wicket-shell-2.command", "wicket-shell-folder-\(getpid())",
+      "wicket-shell-session.json",
+    ])
+}
+
 /// The bundled program in a scratch `TMPDIR`, as an extension of the test's own.
 private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionCommand {
   let folder = root.appending(path: "extensions/shell")

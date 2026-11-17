@@ -497,6 +497,28 @@ func run(_ session: inout Session) {
   show(view(session, running: false))
 }
 
+/// Removes what earlier runs left in `folder`: a Run in Terminal file once the terminal had a minute to
+/// open it, and a folder file whose run is gone (a stopped command never deletes its own).
+func sweep(_ folder: String, now: time_t = time(nil)) {
+  guard let directory = opendir(folder) else { return }
+  defer { closedir(directory) }
+  while let entry = readdir(directory) {
+    let name = withUnsafeBytes(of: entry.pointee.d_name) {
+      String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+    }
+    let path = folder + "/" + name
+    if name.hasPrefix("wicket-shell-folder-") {
+      guard let pid = pid_t(name.dropFirst(20)), kill(pid, 0) == -1, errno == ESRCH else { continue }
+    } else if name.hasPrefix("wicket-shell-"), name.hasSuffix(".command") {
+      var info = stat()
+      guard lstat(path, &info) == 0, now - info.st_mtimespec.tv_sec > 60 else { continue }
+    } else {
+      continue
+    }
+    unlink(path)
+  }
+}
+
 /// Run in Terminal: what is typed, else the newest command, in the session's folder, through a
 /// `.command` file the default terminal opens. False when it could not be handed over.
 func handOver(_ command: String, folder: String) -> Bool {
@@ -533,6 +555,7 @@ var session =
   arguments?["session"]?.string == "new"
   ? Session(folder: home) : contents(sessionFile()).flatMap(Session.init) ?? Session(folder: home)
 if !isFolder(session.folder) { session.folder = home }
+sweep(temporaryFolder())
 if arguments?["terminal"] != nil {
   // An empty input (the run emptied it) or the command just sent means the newest, in its folder.
   let newest = session.entries.last.flatMap { command.isEmpty || $0.command == command ? $0 : nil }
