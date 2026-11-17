@@ -275,7 +275,8 @@ import Testing
 }
 
 /// Layout follows the space, not how many children there are: cards keep their minimum, a tile takes its
-/// narrow look when its cell is narrow, and a bar is as wide as its text needs, a lone one at most half.
+/// narrow look when its cell is narrow, a lone bar takes the full width and two share a line, and a row
+/// stays one line, cutting a long subtitle with an ellipsis, while a property's value wraps.
 @MainActor @Test func layoutFollowsTheSpace() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -288,6 +289,9 @@ import Testing
   let body = [
     "<columns>" + String(repeating: "<card>\n## Card\nText\n</card>", count: 4) + "</columns>", tiles(3),
     tiles(4), #"<progress label="Disk" value="420 of 600 GB" percent="70"/>"#,
+    "Load", #"<progress label="CPU" percent="30"/>"# + "\n" + #"<progress label="Memory" percent="60"/>"#,
+    #"<row icon="doc" title="Report.pdf" subtitle="\#(String(repeating: "Documents · ", count: 30))"/>"#,
+    #"<row label="Path" value="\#(String(repeating: "folder/", count: 40))"/>"#,
   ].joined(separator: "\n\n")
   await renderer.render(Page(body: body, runs: false), turn: "t")
   let web = try #require(renderer.page)
@@ -298,16 +302,25 @@ import Testing
       document.querySelector('main').style.width = '\(width + 40)px';
       const columns = document.querySelectorAll('w-columns');
       const look = c => [...c.querySelectorAll('w-fields')].map(f => getComputedStyle(f).flexDirection).join();
-      const bar = document.querySelector('w-progress');
+      const groups = document.querySelectorAll('w-progresses');
+      const bar = groups[0].firstElementChild, pair = [...groups[1].children].map(b => b.getBoundingClientRect());
+      const rows = document.querySelectorAll('w-row'), subtitle = rows[0].querySelector('[data-field=subtitle]');
+      const property = rows[1].querySelector('[data-field=value]');
       return [
         Math.min(...[...columns[0].children].map(c => c.getBoundingClientRect().width)) >= 200 ? 'cards wide' : 'cards squeezed',
         look(columns[1]), look(columns[2]),
-        getComputedStyle(bar).minWidth, bar.getBoundingClientRect().width <= \(width) / 2 ? 'half' : 'wider'];
+        getComputedStyle(bar).minWidth, bar.getBoundingClientRect().width >= \(width) - 1 ? 'full' : 'narrower',
+        pair[0].top === pair[1].top && pair[1].right <= \(width) + 21 ? 'one line' : 'apart',
+        subtitle.scrollWidth > subtitle.clientWidth && getComputedStyle(subtitle).textOverflow === 'ellipsis'
+          && subtitle.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(subtitle).lineHeight) ? 'cut' : 'whole',
+        property.getBoundingClientRect().height > 2 * parseFloat(getComputedStyle(property).lineHeight) ? 'wraps' : 'one line'];
       """, contentWorld: .defaultClient) as? [String] ?? []
   }
+  let wide = try await measure(600)
   #expect(
-    try await measure(600) == [
-      "cards wide", "row,row,row", "column,column,column,column", "fit-content", "half",
+    wide == [
+      "cards wide", "row,row,row", "column,column,column,column", "fit-content", "full", "one line", "cut",
+      "wraps",
     ])
   #expect(
     try await measure(360)[0...2] == ["cards wide", "column,column,column", "column,column,column,column"])

@@ -104,8 +104,8 @@ div[data-target][data-selected] > pre { background: linear-gradient(var(--select
 /* Rows: the launcher's own list, with or without a target, whatever the text size (--zoom undoes the
    page's zoom): its row height, a symbol or the grey label first, 10 points apart, the title, a grey
    subtitle on the same line, a grey value at the end, a hairline between rows and the 12-point
-   selection. Text is never cut: a long title or subtitle wraps and the row grows (the subtitle gives way
-   first, a title takes at most half). The host paints [data-selected]. */
+   selection. A row is one line, as in the native list: a long label, title or subtitle ends in an
+   ellipsis (the subtitle gives way first, a title takes at most half). The host paints [data-selected]. */
 w-rows { display: flex; flex-direction: column; margin: 0 calc(-10px / var(--zoom, 1)); }
 w-row { position: relative; display: flex; align-items: center; gap: calc(10px / var(--zoom, 1)); min-height: var(--row, 40px); padding: calc(8px / var(--zoom, 1)) calc(10px / var(--zoom, 1)); border-radius: calc(12px / var(--zoom, 1)); color: var(--label); cursor: default; user-select: none; -webkit-user-select: none; scroll-margin: 10px; }
 w-row + w-row::after { content: ""; position: absolute; top: 0; left: calc(10px / var(--zoom, 1)); right: calc(10px / var(--zoom, 1)); border-top: 0.5px solid var(--line); }
@@ -115,18 +115,18 @@ w-row[data-selected] { background: var(--selection); }
 w-row::before { content: ""; flex: none; width: calc(26px / var(--zoom, 1)); height: calc(26px / var(--zoom, 1)); background: var(--image, var(--secondary)) center / contain no-repeat; mask: var(--icon, none) center / calc(21px / var(--zoom, 1)) no-repeat; }
 w-row:not([data-icon])::before { visibility: hidden; }
 :is(w-rows:not(:has(> [data-icon])) > w-row, w-row[data-label])::before { display: none; }
-w-row [data-field] { display: block; min-width: 0; overflow-wrap: anywhere; }
-w-row [data-field=label] { flex: none; min-width: 3.4em; color: var(--secondary); }
+w-row [data-field] { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+w-row [data-field=label] { flex: 0 1 auto; min-width: 3.4em; color: var(--secondary); }
 w-row [data-field=title] { flex: 0 1 auto; }
 w-row:has(> [data-field=subtitle]) [data-field=title] { flex-shrink: 0; max-width: 50%; }
 w-row [data-field=subtitle] { flex: 0 1000 auto; color: var(--secondary); }
 w-row [data-field=value] { flex: none; margin-left: auto; padding-left: 8px; color: var(--secondary); }
-/* Properties, a label and a value: the labels share one column, the value reads in ink, and the rows
-   are compact, as in a form. */
+/* Properties, a label and a value: the labels share one column, the value reads in ink and wraps, and
+   the rows are compact, as in a form. */
 w-rows:not(:has(> [data-title])) { display: grid; grid-template-columns: max-content minmax(0, 1fr); }
 w-rows:not(:has(> [data-title])) > w-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: calc(16px / var(--zoom, 1)); min-height: 0; padding-block: calc(6px / var(--zoom, 1)); }
 w-rows:not(:has(> [data-title])) > w-row::before { display: none; }
-w-rows:not(:has(> [data-title])) > w-row [data-field=value] { grid-column: 2; margin: 0; padding: 0; color: var(--label); }
+w-rows:not(:has(> [data-title])) > w-row [data-field=value] { grid-column: 2; margin: 0; padding: 0; color: var(--label); white-space: normal; overflow-wrap: anywhere; }
 
 /* A tile: a boxed item, laid out by its own width. Wide, as one to three across a page: the grey label on
    top, the title large with the value at the end of its line, the grey subtitle under it and the symbol
@@ -155,10 +155,11 @@ w-tile[data-selected] { background: linear-gradient(var(--selection), var(--sele
   w-tile :is([data-field=subtitle], [data-field=value]) { font-size: var(--small); }
 }
 
-/* Progress: a thin bar under its label and value, quieter than its text. Bars side by side share a
-   line, two or three across, wrapping when their text needs room; one is never wider than half. */
+/* Progress: a thin bar under its label and value, quieter than its text. A lone bar takes the full
+   width; consecutive bars share a line, two or three across, wrapping when their text needs room. */
 w-progresses { display: flex; flex-wrap: wrap; gap: 12px 24px; }
 w-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; column-gap: 12px; row-gap: 5px; flex: 1 1 calc(33% - 16px); min-width: fit-content; max-width: calc(50% - 12px); }
+w-progress:only-child { max-width: none; }
 w-progress [data-field=label], w-progress [data-field=value] { display: block; }
 w-progress [data-field=value] { color: var(--muted); }
 w-progress::after { content: ""; grid-column: 1/-1; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) clamp(0%, calc(var(--percent, 0) * 1%), 100%), var(--track) 0); }
