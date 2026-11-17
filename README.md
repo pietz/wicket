@@ -179,4 +179,4 @@ Tests never put a window on screen, launch another app, post keys, move the poin
 
 ## More
 
-[SPEC.md](SPEC.md) is the design and rationale. [docs/settings.md](docs/settings.md) and [docs/providers.md](docs/providers.md) describe settings and the provider contract; [docs/release.md](docs/release.md) how releases are made. [COMPARISON.md](COMPARISON.md) and [docs/size-comparison.md](docs/size-comparison.md) compare 0.1 with 0.0.x, and [docs/research](docs/research) holds market research on other launchers.
+[SPEC.md](SPEC.md) is the design and rationale. [docs/settings.md](docs/settings.md) and [docs/providers.md](docs/providers.md) describe settings and the provider contract; [docs/release.md](docs/release.md) how releases are made. [COMPARISON.md](COMPARISON.md) and [docs/size-comparison.md](docs/size-comparison.md) compare 0.1 with 0.0.x, and [docs/research](docs/research) holds research on other launchers and on the view languages of launchers and model interfaces.

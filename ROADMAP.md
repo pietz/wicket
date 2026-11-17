@@ -49,7 +49,7 @@ To settle in a design session: the comment's exact form; whether an owner's file
 
 ### Why answers look worse than 0.0.x
 
-The review traced it to the prompt and missing pictures, not the renderer (finding 4). The instructions now open with the agent's role and the canvas as a screen of a given size (14 Nov 2026, SPEC, Instructions); over eight Sonnet questions forecasts became tiles with details and nothing narrated, without a composite example. Icons on rows and cards came with the six tags (after 0.3.0). Still open: the same eight questions with Codex, a row of values that wraps, then pictures as above.
+The review traced it to the prompt and missing pictures, not the renderer (finding 4). The instructions now open with the agent's role and the canvas as a screen of a given size (14 Nov 2026, SPEC, Instructions); over eight Sonnet questions forecasts became tiles with details and nothing narrated, without a composite example. Icons on rows and cards came with the six tags (after 0.3.0). Still open, three levers (17 Nov 2026): restraint rules in the agent instructions, checked against section 9 of [the Intelligent UI research](docs/research/openai-intelligent-ui.md); a fixed set of questions (the same eight, also with Codex) rendered with `replyCapture` and judged; and the missing components and controls: a chart (pictures as above), steps, tabs or a dropdown filter, a form (Interactive answers), a richer inline root row (Richer root rows) and a row of values that wraps.
 
 ### Smaller contract steps
 
