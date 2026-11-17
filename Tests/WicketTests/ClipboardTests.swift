@@ -20,8 +20,10 @@ import Testing
     reads += 1
     return data[type]
   }
+  var owner: Any?
   func declareTypes(_ newTypes: [NSPasteboard.PasteboardType], owner newOwner: Any?) -> Int {
     changeCount += 1
+    owner = newOwner
     types = newTypes
     text = nil
     data = [:]
@@ -293,6 +295,7 @@ private func pngs(_ folder: URL) -> Set<String> {
   let png = testImage(4, 3)
   pasteboard.copy(image: png)
   history.poll()
+  await history.captured()
   let clip = try #require(history.clips.first)
   #expect(
     clip.text == "" && clip.image?.width == 4 && clip.image?.height == 3 && clip.image?.bytes == png.count)
@@ -302,12 +305,14 @@ private func pngs(_ folder: URL) -> Set<String> {
   // A TIFF is kept as PNG.
   pasteboard.copy(image: testImage(2, 2, seed: 1, as: .tiff), type: .tiff)
   history.poll()
+  await history.captured()
   let tiff = try #require(history.clips.first)
   let stored = try Data(contentsOf: folder.appending(path: tiff.id + ".png"))
   #expect(stored.starts(with: [0x89, 0x50, 0x4E, 0x47]) && tiff.image?.width == 2)
   // The same bytes again move the clip to the top with its ID, without a second file.
   pasteboard.copy(image: png)
   history.poll()
+  await history.captured()
   #expect(history.clips.map(\.id) == [clip.id, tiff.id] && pngs(folder).count == 2)
   // A string wins over an image; a concealed image is not read.
   pasteboard.copy(image: png, marked: ["org.nspasteboard.ConcealedType"])
@@ -324,31 +329,53 @@ private func pngs(_ folder: URL) -> Set<String> {
   #expect(reloaded.clips.map(\.image) == history.clips.map(\.image))
 }
 
-@MainActor @Test func imageLimitsEvictTheOldestImagesAndTheirFiles() throws {
+@MainActor @Test func quickCopiesKeepTheirOrderWhileImagesAreCapturedOffTheMainActor() async throws {
+  let folder = try scratch()
+  let (history, pasteboard) = makeHistory(folder)
+  let (first, second) = (testImage(300, 200, seed: 1, as: .tiff), testImage(2, 2, seed: 2))
+  // Two images and a text, each copied before the image before it is in the list.
+  pasteboard.copy(image: first, type: .tiff)
+  history.poll(now: Date(timeIntervalSinceNow: -2))
+  pasteboard.copy(image: second)
+  history.poll(now: Date(timeIntervalSinceNow: -1))
+  pasteboard.copy("a text")
+  history.poll()
+  // The poll only read the bytes: the text is in, the images follow.
+  #expect(history.clips.map(\.text) == ["a text"])
+  await history.captured()
+  #expect(history.clips.map { $0.image?.width ?? 0 } == [0, 2, 300])
+  // The first image copied again while the second one is captured: one entry each, the newest first.
+  pasteboard.copy(image: second)
+  history.poll()
+  pasteboard.copy(image: first, type: .tiff)
+  history.poll()
+  await history.captured()
+  #expect(history.clips.map { $0.image?.width ?? 0 } == [300, 2, 0] && pngs(folder).count == 2)
+}
+
+@MainActor @Test func imageLimitsEvictTheOldestImagesAndTheirFiles() async throws {
   let folder = try scratch()
   let images = (0..<3).map { testImage(16, 16, seed: $0) }
   let (history, _) = makeHistory(folder, imageLimits: (each: 1500, total: images[1].count + images[2].count))
   // Over the limit for one image: not kept.
-  history.capture(png: testImage(64, 64, seed: 9), width: 64, height: 64)
+  await history.capture(image: testImage(64, 64, seed: 9))
   #expect(history.clips.isEmpty && pngs(folder).isEmpty)
   history.capture("a text")
-  for image in images { history.capture(png: image, width: 16, height: 16) }
+  for image in images { await history.capture(image: image) }
   // The oldest image went with its file; texts stay.
   #expect(history.clips.map(\.image?.bytes) == [images[2].count, images[1].count, nil])
   #expect(pngs(folder) == Set(history.clips.filter { $0.image != nil }.map { $0.id + ".png" }))
   #expect(history.imageBytes == images[1].count + images[2].count)
 }
 
-@MainActor @Test func deleteClearAndExpiryDeleteImageFiles() throws {
+@MainActor @Test func deleteClearAndExpiryDeleteImageFiles() async throws {
   let folder = try scratch()
   let (history, _) = makeHistory(folder)
   // Recent enough for the view's own expiry at the real date.
   let start = Date().addingTimeInterval(-40 * 86400)
-  history.capture(png: testImage(2, 2), width: 2, height: 2, now: start)
-  history.capture(
-    png: testImage(2, 2, seed: 1), width: 2, height: 2, now: start.addingTimeInterval(20 * 86400))
-  history.capture(
-    png: testImage(2, 2, seed: 2), width: 2, height: 2, now: start.addingTimeInterval(20 * 86400))
+  await history.capture(image: testImage(2, 2), now: start)
+  await history.capture(image: testImage(2, 2, seed: 1), now: start.addingTimeInterval(20 * 86400))
+  await history.capture(image: testImage(2, 2, seed: 2), now: start.addingTimeInterval(20 * 86400))
   #expect(pngs(folder).count == 3)
   history.expire(now: start.addingTimeInterval(31 * 86400))
   #expect(history.clips.count == 2 && pngs(folder).count == 2)
@@ -381,12 +408,12 @@ private func pngs(_ folder: URL) -> Set<String> {
 @MainActor @Test func imageRowsCopyAndPasteByIDResolvedWhenTheyRun() async throws {
   let folder = try scratch()
   let (history, pasteboard) = makeHistory(folder)
-  let png = testImage(1024 / 64, 768 / 64)
-  history.capture(png: png, width: 1024, height: 768)
+  let png = testImage(64, 48)
+  await history.capture(image: png)
   history.capture("a text")
   let row = try #require(history.rows(matching: "image").first)
   #expect(history.rows(matching: "image").count == 1)
-  #expect(row.title == "Image 1024×768" && row.icon == "photo")
+  #expect(row.title == "Image 64×48" && row.icon == "photo")
   #expect(
     row.actions.map(\.kind) == [.clip(row.id, paste: true), .clip(row.id, paste: false), row.actions[2].kind])
   #expect(row.actions.map(\.label) == ["Paste into previous app", "Copy", "Delete"])
@@ -397,10 +424,13 @@ private func pngs(_ folder: URL) -> Set<String> {
   let model = LauncherModel(
     clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
   #expect(model.writePasteboard(row.actions[0].kind))
-  #expect(pasteboard.data[.png] == png && pasteboard.types == [.png, .tiff])
-  #expect(NSBitmapImageRep(data: try #require(pasteboard.data[.tiff]))?.pixelsWide == 1024 / 64)
+  // The PNG at once; the TIFF only promised, made if a target asks.
+  #expect(pasteboard.data[.png] == png && pasteboard.types == [.png, .tiff] && pasteboard.data[.tiff] == nil)
+  let promise = try #require(pasteboard.owner as? ClipboardHistory.TIFFPromise)
+  #expect(NSBitmapImageRep(data: try #require(promise.tiff))?.pixelsWide == 64)
   // Seeing its own write, the history moves the image to the top instead of keeping it twice.
   history.poll()
+  await history.captured()
   #expect(history.clips.map(\.id).first == row.id && history.clips.count == 2)
   // Deleted meanwhile: nothing is written, and the panel says why.
   history.delete(row.id)

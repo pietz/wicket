@@ -281,7 +281,7 @@ private let nextAnswer =
       let clips = try #require(clipboard)
       model.store.update { $0.providers = [.init("clipboard")] }
       let minute: TimeInterval = 60
-      clips.capture(png: captureImage(), width: 1200, height: 800, now: Date() - 50 * minute)
+      await clips.capture(image: captureImage(), now: Date() - 50 * minute)
       clips.capture("https://wicket.app/docs/extensions", now: Date() - 20 * minute)
       clips.capture("Launch review moved to 15:00, room 2", now: Date() - 9 * minute)
       clips.capture(

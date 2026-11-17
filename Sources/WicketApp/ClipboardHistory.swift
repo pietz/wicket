@@ -110,27 +110,33 @@ final class ClipboardHistory: Provider {
   /// Whether macOS lets Wicket read the pasteboard without asking each time.
   var readable: Bool { [.default, .alwaysAllow].contains(pasteboard.accessBehavior) }
 
-  /// Reads the pasteboard once if it changed since the last look.
+  /// Reads the pasteboard once if it changed since the last look. Only the bytes are read here: an image's
+  /// decoding, conversion, digest and file write run off the main actor (`capture(image:)`).
   func poll(now: Date = Date()) {
     guard enabled else { return }
     expire(now: now)
     let count = pasteboard.changeCount
     guard count != lastChange else { return }
     lastChange = count
+    // Another write replaced Wicket's image, so its TIFF is no longer promised.
+    if tiffPromise?.change != count { tiffPromise = nil }
     let started = ContinuousClock.now
     guard readable, let types = pasteboard.types, !types.contains(where: Self.skipped.contains) else {
       return
     }
     if let text = pasteboard.string(forType: .string) {
       capture(text, now: now)
-    } else if let image = image(types) {
-      capture(png: image.png, width: image.width, height: image.height, now: now)
+    } else if types.contains(.png), let png = pasteboard.data(forType: .png), png.count <= imageLimits.each {
+      capturing(png, now: now)
+    } else if types.contains(.tiff), let tiff = pasteboard.data(forType: .tiff),
+      // Uncompressed TIFF is several times its PNG; far larger would not fit anyway.
+      tiff.count <= imageLimits.each * 8
+    {
+      capturing(tiff, now: now)
     } else {
       return
     }
-    Self.log.debug(
-      "clipboard: \(self.clips.count, privacy: .public) clips, read in \(ContinuousClock.now - started, privacy: .public)"
-    )
+    Self.log.debug("clipboard: read in \(ContinuousClock.now - started, privacy: .public)")
   }
 
   /// Adds a copied text on top; copying it again moves the existing clip there.
@@ -144,42 +150,71 @@ final class ClipboardHistory: Provider {
     expire(now: now)
   }
 
-  /// The pasteboard's image as PNG with its pixel size: its PNG, or its TIFF converted. Nil for none or one
-  /// over the limit, checked before decoding where the bytes allow.
-  private func image(_ types: [NSPasteboard.PasteboardType]) -> (png: Data, width: Int, height: Int)? {
-    if types.contains(.png), let png = pasteboard.data(forType: .png), png.count <= imageLimits.each,
-      let bitmap = NSBitmapImageRep(data: png)
-    {
-      return (png, bitmap.pixelsWide, bitmap.pixelsHigh)
+  /// Images being captured, one after another, so the second of two quick copies sees the first.
+  private var capturingImages: Task<Void, Never>?
+
+  private func capturing(_ data: Data, now: Date) {
+    let previous = capturingImages
+    capturingImages = Task { [weak self] in
+      await previous?.value
+      await self?.capture(image: data, now: now)
     }
-    // Uncompressed TIFF is several times its PNG; far larger would not fit anyway and costs a slow conversion.
-    guard types.contains(.tiff), let tiff = pasteboard.data(forType: .tiff),
-      tiff.count <= imageLimits.each * 8,
-      let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:])
-    else { return nil }
-    return (png, bitmap.pixelsWide, bitmap.pixelsHigh)
   }
 
-  /// Adds a copied image on top, written as `<id>.png` (atomically, in the 0700 folder); the same bytes again
-  /// move the existing clip there. Past the total limit the oldest images go.
-  func capture(png: Data, width: Int, height: Int, now: Date = Date()) {
-    guard !png.isEmpty, png.count <= imageLimits.each else { return }
+  /// Waits for the images copied so far to be in the list.
+  func captured() async { await capturingImages?.value }
+
+  /// An image as PNG with its pixel size and digest: a PNG as it is, a TIFF converted. Nil when it does not
+  /// decode or its PNG is over `limit`.
+  nonisolated private static func prepare(_ data: Data, limit: Int) -> (
+    png: Data, width: Int, height: Int, sha256: String
+  )? {
+    guard let bitmap = NSBitmapImageRep(data: data) else { return nil }
+    let isPNG = data.starts(with: [0x89, 0x50, 0x4E, 0x47])
+    guard let png = isPNG ? data : bitmap.representation(using: .png, properties: [:]), png.count <= limit
+    else { return nil }
     let digest = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
-    var next = clips
-    let previous = next.firstIndex { $0.image?.sha256 == digest }.map { next.remove(at: $0) }
-    let id = previous?.id ?? UUID().uuidString
-    if previous == nil {
-      do {
-        try FileManager.default.createDirectory(
-          at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try png.write(to: imageURL(id), options: .atomic)
-      } catch {
-        Self.log.error("image save failed, code \((error as NSError).code, privacy: .public)")
+    return (png, bitmap.pixelsWide, bitmap.pixelsHigh, digest)
+  }
+
+  /// Adds a copied image (PNG or TIFF) where its copy time puts it, normally the top, written as `<id>.png`
+  /// (atomically, in the 0700 folder) before its entry; the same PNG bytes again move the existing clip.
+  /// Past the total limit the oldest images go. Decoding, converting, hashing and writing run off the main
+  /// actor, so a large copy never stalls the panel.
+  func capture(image data: Data, now: Date = Date()) async {
+    let limit = imageLimits.each
+    guard let image = await Task.detached(operation: { Self.prepare(data, limit: limit) }).value else {
+      return
+    }
+    var id = clips.first { $0.image?.sha256 == image.sha256 }?.id ?? ""
+    if id.isEmpty {
+      id = UUID().uuidString
+      let (folder, url, png) = (folder, imageURL(id), image.png)
+      let saved = await Task.detached {
+        do {
+          try FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+          try png.write(to: url, options: .atomic)
+          return true
+        } catch {
+          Self.log.error("image save failed, code \((error as NSError).code, privacy: .public)")
+          return false
+        }
+      }.value
+      guard saved else { return }
+      // Switched off while it was written: the file goes, as its entry never comes.
+      guard enabled else {
+        try? FileManager.default.removeItem(at: url)
         return
       }
     }
-    let image = Clip.Image(width: width, height: height, bytes: png.count, sha256: digest)
-    next.insert(Clip(id: id, text: "", copied: now, image: image), at: 0)
+    var next = clips.filter { $0.id != id }
+    let entry = Clip.Image(
+      width: image.width, height: image.height, bytes: image.png.count, sha256: image.sha256)
+    // A text copied while this image was prepared stays above it.
+    next.insert(
+      Clip(id: id, text: "", copied: now, image: entry),
+      at: next.firstIndex { $0.copied <= now } ?? next.count)
     // Newest first, so once the running total passes the limit, every older image goes.
     var total = 0
     replace(
@@ -191,17 +226,29 @@ final class ClipboardHistory: Provider {
     expire(now: now)
   }
 
-  /// Puts a kept image on the pasteboard as PNG and TIFF, resolved from its ID when the action runs, so no
-  /// action carries image bytes. False when it is no longer kept.
+  /// Puts a kept image on the pasteboard, resolved from its ID when the action runs, so no action carries
+  /// image bytes: its PNG at once, and a TIFF promised, converted only if the target asks for it. False
+  /// when it is no longer kept.
   func write(_ id: String) -> Bool {
     guard clips.contains(where: { $0.id == id && $0.image != nil }),
       let png = try? Data(contentsOf: imageURL(id))
     else { return false }
-    let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation
-    pasteboard.declareTypes(tiff == nil ? [.png] : [.png, .tiff], owner: nil)
+    // Kept here until the next copy as well, since a pasteboard's owner is not documented to be retained.
+    let owner = TIFFPromise(png: png)
+    tiffPromise = (owner, pasteboard.declareTypes([.png, .tiff], owner: owner))
     pasteboard.setData(png, forType: .png)
-    if let tiff { pasteboard.setData(tiff, forType: .tiff) }
     return true
+  }
+  private var tiffPromise: (owner: TIFFPromise, change: Int)?
+
+  /// The TIFF of a written image, for apps that read only TIFF, made when one asks.
+  final class TIFFPromise: NSObject, NSPasteboardTypeOwner, Sendable {
+    let png: Data
+    init(png: Data) { self.png = png }
+    var tiff: Data? { NSBitmapImageRep(data: png)?.tiffRepresentation }
+    func pasteboard(_ sender: NSPasteboard, provideDataForType type: NSPasteboard.PasteboardType) {
+      if type == .tiff, let tiff { sender.setData(tiff, forType: .tiff) }
+    }
   }
 
   /// The bytes the kept images take on disk.
@@ -325,6 +372,7 @@ final class ClipboardHistory: Provider {
 
   func finish() async {
     polling?.cancel()
+    await captured()
     await writer.finish()
   }
 }

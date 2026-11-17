@@ -130,7 +130,7 @@ func detailLatency() async throws {
     NSString(string: "Screenshot \(n)").draw(
       at: NSPoint(x: 200, y: 900), withAttributes: [.font: NSFont.systemFont(ofSize: 200)])
     NSGraphicsContext.restoreGraphicsState()
-    history.capture(png: bitmap.representation(using: .png, properties: [:])!, width: 3024, height: 1964)
+    await history.capture(image: bitmap.representation(using: .png, properties: [:])!)
     for m in 0..<4 {
       history.capture(
         (0..<20).map { "Line \($0) of clip \(n)-\(m): some copied text, about fifty characters" }
@@ -183,4 +183,43 @@ func detailLatency() async throws {
   )
   controller.hide()
   await model.finish()
+}
+
+/// The main actor's share of capturing and pasting a 3024×1964 screenshot that came as TIFF only: the poll
+/// reads the bytes and the rest runs off the main actor; a paste writes the PNG and promises the TIFF.
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
+func clipboardImageCost() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let pasteboard = FakePasteboard()
+  let history = ClipboardHistory(
+    url: folder.appending(path: "clipboard-history.json"), pasteboard: pasteboard, interval: nil)
+  history.configure(enabled: true)
+  let bitmap = NSBitmapImageRep(
+    bitmapDataPlanes: nil, pixelsWide: 3024, pixelsHigh: 1964, bitsPerSample: 8, samplesPerPixel: 4,
+    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+  var poll: [Duration] = []
+  var total: [Duration] = []
+  var write: [Duration] = []
+  for n in 0..<5 {
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    NSGradient(starting: .systemTeal, ending: .systemIndigo)!.draw(
+      in: NSRect(x: 0, y: 0, width: 3024, height: 1964), angle: Double(n * 30))
+    NSGraphicsContext.restoreGraphicsState()
+    pasteboard.copy(image: bitmap.tiffRepresentation!, type: .tiff)
+    let start = ContinuousClock.now
+    history.poll()
+    poll.append(ContinuousClock.now - start)
+    await history.captured()
+    total.append(ContinuousClock.now - start)
+    let id = try #require(history.clips.first?.id)
+    let written = ContinuousClock.now
+    #expect(history.write(id))
+    write.append(ContinuousClock.now - written)
+  }
+  print(
+    "clipboardImageCost: poll on main \(poll.sorted()[2]), captured after \(total.sorted()[2]), write \(write.sorted()[2])"
+  )
+  await history.finish()
 }

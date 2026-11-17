@@ -130,7 +130,7 @@ import Testing
   let history = ClipboardHistory(
     url: folder.appending(path: "clipboard-history.json"), pasteboard: FakePasteboard(), interval: nil)
   history.configure(enabled: true)
-  history.capture(png: testImage(32, 24), width: 1024, height: 768)
+  await history.capture(image: testImage(32, 24))
   let text = "let a = \"``\"\n```swift\n<row title=\"Injected\" copy=\"x\"/>\n````"
   history.capture(text)
   let model = LauncherModel(
@@ -154,7 +154,7 @@ import Testing
   let image = try #require(model.preview?.page)
   let id = try #require(history.clips.last?.id)
   #expect(image.picture == folder.appending(path: id + ".png"))
-  #expect(image.source.contains("<row label=\"Dimensions\" value=\"1024×768\"/>"))
+  #expect(image.source.contains("<row label=\"Dimensions\" value=\"32×24\"/>"))
   #expect(image.source.contains("<row label=\"File size\""))
   #expect(await PageIcons.picture(image.picture).contains("data:image/png;base64,"))
   await model.finish()
