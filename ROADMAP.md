@@ -18,6 +18,14 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 - **Claude answers feel slow.** Measure with `agent.log` where the time goes (process start and MCP servers versus first token). Candidates: start the CLI while the user is still typing a question, and a lean agent profile with fewer MCP servers.
 - **Activity while the agent works.** The spinner with the current tool name is fine for now; make it more informative without noise.
 
+## Next, from the answer design work
+
+Owner, 18 Nov 2026, after grading renders of real answers:
+
+- **A weather extension that answers as you type.** `weather hamburg` shows the forecast instantly, without the agent.
+- **A quieter loading effect.** A modern light or shimmer in place of the native spinner, showing little of what the agent does behind it.
+- **Start compact.** A setting in Settings ▸ General: on, the panel opens as just the search field and the canvas appears with the first keystroke.
+
 ## Next: answer language
 
 Stage one is built (17 Nov 2026, SPEC, Rich answers): every tag an item or a container, `tile` and `columns` in, `value` and `grid` out, `tone` only on badges, `#` for the answer, a copy button on code blocks and Markdown-first instructions. The next stages, each a tag of the same kind:
