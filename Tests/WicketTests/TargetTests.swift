@@ -147,7 +147,11 @@ import Testing
   #expect(page.targets.map(\.id) == ["#0", "#1", "#2"])
   #expect(page.targets[0].actions == [.copy("du -ah ~ | sort -h", title: "Copy code")])
   #expect(page.targets[0].icon == "doc.on.doc" && page.symbols == ["doc.on.doc"])
-  #expect(page.code == [.init(id: "#0", text: "du -ah ~ | sort -h"), .init(id: "#2", text: "quoted")])
+  // Each by where its block starts in the page's source, which is where the renderer finds it.
+  let bytes = Array(page.source.utf8)
+  #expect(page.code.map(\.id) == ["#0", "#2"])
+  #expect(
+    page.code.map { String(decoding: bytes[$0.start...].prefix(6), as: UTF8.self) } == ["```sh\n", "```\n> "])
   let html = AnswerMarkdown.html(page.source, code: page.code)
   #expect(
     html.contains(
@@ -161,6 +165,118 @@ import Testing
   // Still streaming, a block is no target; beside a list, none is.
   #expect(Page(body: "```sh\ndu -ah", runs: false).targets.isEmpty)
   #expect(Page(body: "```sh\nls\n```", runs: false, copies: false).targets.isEmpty)
+}
+
+/// What is code is decided by the parse the renderer draws, so a tag in code never becomes a target, a
+/// closing tag in code never ends a detail, and a fence written straight after a card's tag keeps its
+/// button.
+@Test func codeStaysCodeWhereverItIsWritten() {
+  let body = """
+    <card>
+    ```xml
+    <tile title="Literal" copy="no"/>
+    </card>
+    ```
+    `<row title="Inline" copy="no"/>`
+    </card>
+    <tile title="Day" copy="d">
+    Close it with `</tile>`.
+    </tile>
+    """
+  let page = Page(body: body, runs: false)
+  #expect(page.targets.map(\.title) == ["Code", "Day"])
+  #expect(
+    page.targets[0].actions == [.copy("<tile title=\"Literal\" copy=\"no\"/>\n</card>", title: "Copy code")])
+  #expect(
+    page.targets[1].actions.first?.kind
+      == .detail(
+        "## Day\n\nClose it with `</tile>`.",
+        action: Row(id: "action", title: "Day", icon: "doc.on.doc", actions: [.copy("d")])))
+  let html = AnswerMarkdown.html(page.source, code: page.code)
+  #expect(
+    html.contains(
+      ##"<div data-target="#0" data-icon="doc.on.doc"><button aria-label="Copy code"></button><pre><code class="language-xml">&lt;tile"##
+    ))
+  #expect(html.contains(#"<code>&lt;row title=&quot;Inline&quot; copy=&quot;no&quot;/&gt;</code>"#))
+  #expect(
+    !html.contains("Literal\" ") && !html.contains(#"data-title="Inline""#) && html.contains("</w-card>"))
+}
+
+/// The copy button goes on the block the page made a target, found by where it starts, never by its text.
+@Test func aCopyButtonFindsItsBlockByPosition() {
+  let page = Page(body: "Indented:\n\n    ls\n\nFenced:\n\n```\nls\n```", runs: false)
+  #expect(page.targets.map(\.id) == ["#0"] && page.code.count == 1)
+  let html = AnswerMarkdown.html(page.source, code: page.code)
+  #expect(
+    html.contains(
+      ##"<pre><code>ls\##n</code></pre>\##n<p>Fenced:</p>\##n<div data-target="#0" data-icon="doc.on.doc"><button aria-label="Copy code"></button><pre><code>ls"##
+    ))
+}
+
+/// A fence closes by cmark's own rules, in quotes and lists too; while a reply streams, a closing fence
+/// counts only once its line is complete, and a tag being written shows nothing until it is.
+@Test func aFenceClosesAsCmarkReadsIt() {
+  func copies(_ body: String, streaming: Bool = false) -> Int {
+    Page(body: body, runs: false, streaming: streaming).code.count
+  }
+  // A quote marker inside an open fence is code, not the end of a quote.
+  #expect(copies("```sh\nls\n> ```", streaming: true) == 0 && copies("```sh\nls\n> ```") == 0)
+  #expect(copies("> ```\n> ls\n>\t```") == 1 && copies("- ```\n  ls\n  ```") == 1)
+  // A quote or list that ends is no closing fence.
+  #expect(copies("> ```\n> ls\n\nAfter") == 0 && copies("1. ```\n   ls\n2. ```") == 0)
+  #expect(copies("```\nls\n```", streaming: true) == 0 && copies("```\nls\n```\n", streaming: true) == 1)
+  #expect(copies("```\nls\n```") == 1 && copies("````\n```\n```") == 0)
+  let partial = AnswerMarkdown.html("Text\n<tile title=\"A > B", streaming: true)
+  #expect(partial == "<p>Text</p>\n")
+  #expect(AnswerMarkdown.html("3 < 4", streaming: true).contains("3 &lt; 4"))
+}
+
+@MainActor @Test func aClosingFenceAtTheEndCountsWhenTheTurnEnds() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake) = try await answered("Run:\n\n```sh\nls\n```", root: root)
+  #expect(await eventually { model.agent.answer.hasSuffix("```") })
+  #expect(model.results.isEmpty)
+  fake.end()
+  #expect(await eventually { model.results.map(\.row.title) == ["Code"] })
+  await model.finish()
+}
+
+/// Opened from its detail, an item's action is the one it was parsed as, never rebuilt from markup.
+@Test func anItemsActionIsTheSameOnItsDetail() throws {
+  let long = String(repeating: "a", count: 350) + #" "x""#
+  let page = Page(body: #"<tile label="Wed" title="14° 8°" copy='\#(long)'>Dry.</tile>"#, runs: false)
+  guard case .detail(let detail, let action) = page.targets.first?.actions.first?.kind else {
+    Issue.record("No detail")
+    return
+  }
+  #expect(detail == "## Wed · 14° 8°\n\nDry.")
+  let opened = Page(body: detail, items: action.map { [$0] } ?? [], runs: false)
+  #expect(opened.targets.map(\.actions) == [[.copy(long)]] && opened.targets[0].title == "14° 8°")
+}
+
+/// Bars and badges only show, and have no detail; every tag keeps only what its kind shows, and only a
+/// badge has a tone.
+@Test func eachTagKeepsOnlyItsOwnAttributes() {
+  let body = """
+    <progress label="Disk" value="70%" percent="70" tone="negative" icon="internaldrive" copy="x">Hidden</progress>
+    <badge label="Ready" tone="positive" icon="checkmark" title="T">Hidden too</badge> after
+    <columns gap="0" icon="cloud"><tile title="A" tone="negative"/></columns>
+    """
+  let page = Page(body: body, runs: false)
+  #expect(page.targets.isEmpty && page.symbols.isEmpty)
+  #expect(
+    page.source == """
+      <progress label="Disk" value="70%" percent="70"/>
+      <badge label="Ready" tone="positive"/> after
+      <columns><tile title="A"/></columns>
+      """)
+  let html = AnswerMarkdown.html(page.source)
+  #expect(!html.contains("Hidden") && html.components(separatedBy: "data-tone").count == 2)
+  // Still streaming, a bar shows and what it holds does not.
+  #expect(
+    Page(body: "<progress label=\"A\" percent=\"5\">Body", runs: false).source
+      == #"<progress label="A" percent="5"/>"#)
 }
 
 @Test func onlyAnExtensionsOwnOutputMayRunIt() {
@@ -193,12 +309,12 @@ import Testing
     page.source == "<row target=\"#0\" title=\"Standup\" subtitle=\"09:30 · 15 min\" icon=\"link\"/>\nAfter.")
   let actions = page.targets[0].actions
   #expect(actions.first?.label == "Show details" && actions.last?.label == "Join in Meet")
-  guard case .detail(let detail) = actions[0].kind else {
+  guard case .detail(let detail, let action) = actions[0].kind else {
     Issue.record("No detail")
     return
   }
   // Its own page: the title as heading, the content, then its action as a row of its own.
-  let opened = Page(body: detail, runs: false)
+  let opened = Page(body: detail, items: action.map { [$0] } ?? [], runs: false)
   #expect(detail.hasPrefix("## Standup\n\n**Agenda**: the release."))
   #expect(opened.targets.map(\.title) == ["Notes", "Join in Meet"])
   #expect(

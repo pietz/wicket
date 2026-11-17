@@ -14,90 +14,205 @@ enum AnswerMarkdown {
     value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
       .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
   }
-  /// A fenced code block: where it starts (a UTF-8 offset), its text without the final line break, and
-  /// whether its closing fence has arrived.
+  /// A fenced code block: where it starts (a UTF-8 offset in the source), its text without the final line
+  /// break, and whether a closing fence has ended it.
   struct Block {
     let start: Int
     let text: String
     let closed: Bool
   }
-  /// Where code is (UTF-8 offsets, for LF, CRLF and bare CR), so tags in it stay text, and the fenced
-  /// blocks among it as the renderer will read them: with each tag on a line of its own, since a tag line
-  /// written straight above a fence would otherwise hold the fence in an HTML block.
-  static func code(_ source: String) -> (ranges: [Range<Int>], blocks: [Block]) {
-    let ranges = parse(source).ranges
-    guard source.contains("```") || source.contains("~~~") else { return (ranges, []) }
-    let normalized = normalize(source, protected: ranges, nonce: "WICKET")
-    let blocks = parse(normalized.text).blocks.map { block in
-      let span = normalized.spans.last { $0.normalized <= block.start } ?? (0, 0)
-      return Block(
-        start: span.original + block.start - span.normalized, text: block.text, closed: block.closed)
-    }
-    return (ranges, blocks)
+  /// A tag outside code: where it stands in the source (UTF-8 offsets), its name and its attributes.
+  struct Tag {
+    let range: Range<Int>
+    let name: String
+    let values: [(String, String)]
+    let closing: Bool
+    let selfClosing: Bool
   }
-  private static func parse(_ source: String) -> (ranges: [Range<Int>], blocks: [Block]) {
-    var offsets = [0]
-    let bytes = Array(source.utf8)
-    for (i, byte) in bytes.enumerated()
-    where byte == 10 || (byte == 13 && (i + 1 == bytes.count || bytes[i + 1] != 10)) { offsets.append(i + 1) }
-    let doc = source.withCString { cmark_parse_document($0, source.utf8.count, CMARK_OPT_DEFAULT) }!
-    defer { cmark_node_free(doc) }
-    let iter = cmark_iter_new(doc)!
+  /// The source as cmark reads it: each tag outside code is a placeholder token, a paragraph of its own
+  /// unless it is an inline badge, so a tag line written straight above a fence never holds the fence in
+  /// an HTML block. Code, blocks and tags are where that one parse finds them, mapped back to the source,
+  /// so `Page` and the renderer agree on what is code.
+  struct Reading {
+    var text = ""
+    var tokens: [String: String] = [:]
+    /// The tokens that open (+1) or close (−1) a card or columns, whose lines keep their breaks.
+    var boxes: [String: Int] = [:]
+    /// Where each kept stretch of the source landed in `text`.
+    var spans: [(normalized: Int, original: Int)] = []
+    /// Where code is in the source, so tags in it stay text.
+    var code: [Range<Int>] = []
+    var blocks: [Block] = []
+    var tags: [Tag] = []
+    fileprivate var tree: Tree?
+    /// The source offset of an offset in `text`.
+    func original(_ offset: Int) -> Int {
+      let span = spans.last { $0.normalized <= offset } ?? (0, 0)
+      return span.original + offset - span.normalized
+    }
+  }
+  /// Code, fenced blocks and tags of `source` as the renderer reads them. While a reply streams, a tag
+  /// still being written ends the page, and a closing fence counts only once its line is complete.
+  static func read(_ source: String, streaming: Bool = false) -> Reading {
+    lock.withLock { _ in reading(source, streaming: streaming, nonce: "WICKET", render: false) }
+  }
+  /// `render` also builds the markup of each tag and keeps the tree, for the renderer.
+  private static func reading(_ source: String, streaming: Bool, nonce: String, render: Bool) -> Reading {
+    // Code needs a backtick, a tilde fence or an indent of four columns: without one, nothing is code.
+    if !source.utf8.contains(where: { $0 == 96 || $0 == 126 || $0 == 9 }), !source.contains("    ") {
+      var result = normalize(source, protected: [], nonce: nonce, streaming: streaming, markup: render)
+      if render { result.tree = Tree(result.text) }
+      return result
+    }
+    // Which tags are code depends on the parse, which depends on the tags. Tags written inline, which
+    // breaks no code span, find the code; tags as paragraphs of their own then read again until the parse
+    // finds the code it was given (once, nearly always).
+    var result = normalize(source, protected: [], nonce: nonce, streaming: streaming, inline: true)
+    var parsedText = result.text
+    var parsed = scan(parsedText, streaming: streaming)
+    var protected = parsed.code.map { result.original($0.lowerBound)..<result.original($0.upperBound) }
+    for _ in 0..<4 {
+      result = normalize(source, protected: protected, nonce: nonce, streaming: streaming, markup: render)
+      if result.text != parsedText {
+        parsedText = result.text
+        parsed = scan(parsedText, streaming: streaming)
+      }
+      result.tree = parsed.tree
+      result.code = parsed.code.map { result.original($0.lowerBound)..<result.original($0.upperBound) }
+      result.blocks = parsed.blocks.map {
+        Block(start: result.original($0.start), text: $0.text, closed: $0.closed)
+      }
+      if result.code == protected { break }
+      protected = result.code
+    }
+    return result
+  }
+
+  /// A cmark document with GitHub tables, freed with it.
+  fileprivate final class Tree {
+    let parser: UnsafeMutablePointer<cmark_parser>
+    let root: UnsafeMutablePointer<cmark_node>
+    /// Where each line starts (UTF-8 offsets; LF, CRLF and bare CR end a line).
+    let lines: [Int]
+    init(_ text: String) {
+      var lines = [0]
+      let bytes = Array(text.utf8)
+      for (i, byte) in bytes.enumerated()
+      where byte == 10 || (byte == 13 && (i + 1 == bytes.count || bytes[i + 1] != 10)) { lines.append(i + 1) }
+      self.lines = lines
+      cmark_gfm_core_extensions_ensure_registered()
+      let parser = cmark_parser_new(CMARK_OPT_DEFAULT)!
+      cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("table"))
+      text.withCString { cmark_parser_feed(parser, $0, text.utf8.count) }
+      self.parser = parser
+      root = cmark_parser_finish(parser)!
+    }
+    deinit {
+      cmark_node_free(root)
+      cmark_parser_free(parser)
+    }
+    /// A node's first byte.
+    func start(_ node: UnsafeMutablePointer<cmark_node>) -> Int {
+      lines[min(lines.count - 1, max(0, Int(cmark_node_get_start_line(node)) - 1))]
+        + max(0, Int(cmark_node_get_start_column(node)) - 1)
+    }
+  }
+  /// Where code is in `text` and its fenced blocks, in `text`'s offsets.
+  private static func scan(_ text: String, streaming: Bool) -> (
+    tree: Tree, code: [Range<Int>], blocks: [Block]
+  ) {
+    let tree = Tree(text)
+    let bytes = Array(text.utf8)
+    let lines = tree.lines
+    /// Where a line ends, before its line break.
+    func end(_ line: Int) -> Int {
+      guard line + 1 < lines.count else { return bytes.count }
+      let next = lines[line + 1]
+      return next - (next >= 2 && bytes[next - 2] == 13 && bytes[next - 1] == 10 ? 2 : 1)
+    }
+    let iter = cmark_iter_new(tree.root)!
     defer { cmark_iter_free(iter) }
-    var ranges: [Range<Int>] = []
+    var code: [Range<Int>] = []
     var blocks: [Block] = []
     while cmark_iter_next(iter) != CMARK_EVENT_DONE {
       let node = cmark_iter_get_node(iter)!
       let type = cmark_node_get_type(node)
       guard type == CMARK_NODE_CODE || type == CMARK_NODE_CODE_BLOCK else { continue }
+      let start = tree.start(node)
       let first = max(0, Int(cmark_node_get_start_line(node)) - 1)
-      let last = max(0, Int(cmark_node_get_end_line(node)) - 1)
-      let start = offsets[first] + max(0, Int(cmark_node_get_start_column(node)) - 1)
-      let end = offsets[last] + Int(cmark_node_get_end_column(node))
-      if end > start, ranges.last != start..<end { ranges.append(start..<end) }
+      var last = min(lines.count - 1, max(0, Int(cmark_node_get_end_line(node)) - 1))
       var length: Int32 = 0
       var indent: Int32 = 0
       var character: CChar = 0
       guard type == CMARK_NODE_CODE_BLOCK, cmark_node_get_fenced(node, &length, &indent, &character) == 1
-      else { continue }
-      // Closed when its last line is a fence of at least the opening's length, after any container
-      // markers; while a reply streams, an open block ends on a line of its content.
-      let line = String(
-        decoding: bytes[offsets[last]..<(last + 1 < offsets.count ? offsets[last + 1] : bytes.count)],
-        as: UTF8.self
-      ).trimmingCharacters(in: .whitespacesAndNewlines)
-      let fence = Character(Unicode.Scalar(UInt8(bitPattern: character)))
-      let run = line.reversed().prefix { $0 == fence }.count
+      else {
+        let end = lines[last] + Int(cmark_node_get_end_column(node))
+        if end > start, code.last != start..<end { code.append(start..<end) }
+        continue
+      }
+      let literal = String(cString: cmark_node_get_literal(node))
+      let count = lineCount(literal)
+      // cmark ends a block either on its closing fence or on the line that closed its container (a quote
+      // or a list item), and says the same of both: whether the last line is a fence is cmark's to say.
       let closed =
-        last > first && run >= length && line.dropLast(run).allSatisfy { $0 == " " || $0 == ">" }
-      blocks.append(Block(start: start, text: literal(node), closed: closed))
+        count == last - first - 1
+        && !(streaming && last == lines.count - 1 && end(last) == bytes.count)
+        && fence(
+          bytes, line: lines[last]..<end(last), of: node, length: Int(length),
+          character: UInt8(bitPattern: character), count: count)
+      if !closed { last = min(lines.count - 1, first + count) }
+      code.append(start..<max(start, end(last)))
+      // Without its final line break, which would run a pasted command at once.
+      let text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
+      blocks.append(Block(start: start, text: text, closed: closed))
     }
-    return (ranges, blocks)
+    return (tree, code, blocks)
   }
-  /// A code block's text without its final line break, which would run a pasted command at once.
-  private static func literal(_ node: UnsafeMutablePointer<cmark_node>) -> String {
-    let text = String(cString: cmark_node_get_literal(node))
-    return text.hasSuffix("\n") ? String(text.dropLast()) : text
+  /// How many lines a code block's text has.
+  private static func lineCount(_ text: String) -> Int {
+    let bytes = Array(text.utf8)
+    return bytes.indices.count {
+      bytes[$0] == 10 || (bytes[$0] == 13 && ($0 + 1 == bytes.count || bytes[$0 + 1] != 10))
+    }
   }
-  /// The page as HTML. `code` names the fenced blocks that get a copy button, in order (`Page.code`).
+  /// Whether `line`, which ends a fenced block, closes it: with its fence run replaced by text, the line
+  /// would be the block's next line of content if, and only if, it closed it.
+  private static func fence(
+    _ bytes: [UInt8], line: Range<Int>, of node: UnsafeMutablePointer<cmark_node>, length: Int,
+    character: UInt8, count: Int
+  ) -> Bool {
+    var end = line.upperBound
+    while end > line.lowerBound, bytes[end - 1] == 32 || bytes[end - 1] == 9 { end -= 1 }
+    var run = end
+    while run > line.lowerBound, bytes[run - 1] == character { run -= 1 }
+    guard end - run >= length else { return false }
+    let probe = Tree(String(decoding: bytes[..<run] + Array("x".utf8), as: UTF8.self))
+    let iter = cmark_iter_new(probe.root)!
+    defer { cmark_iter_free(iter) }
+    while cmark_iter_next(iter) != CMARK_EVENT_DONE {
+      let other = cmark_iter_get_node(iter)!
+      guard cmark_node_get_type(other) == CMARK_NODE_CODE_BLOCK,
+        cmark_node_get_start_line(other) == cmark_node_get_start_line(node),
+        cmark_node_get_start_column(other) == cmark_node_get_start_column(node)
+      else { continue }
+      return lineCount(String(cString: cmark_node_get_literal(other))) == count + 1
+    }
+    return false
+  }
+  /// The page as HTML. `code` names the fenced blocks that get a copy button (`Page.code`).
   static func html(_ input: String, code: [Page.Code] = [], streaming: Bool = false) -> String {
     lock.withLock { _ in render(input, code: code, streaming: streaming) }
   }
 
-  /// The source as cmark reads it: each tag outside code is a placeholder token, a paragraph of its own
-  /// unless it is an inline badge, and `spans` says where each kept stretch of the source landed.
-  private struct Normalized {
-    var text = ""
-    var tokens: [String: String] = [:]
-    /// The tokens that open (+1) or close (−1) a card or columns, whose lines keep their breaks.
-    var boxes: [String: Int] = [:]
-    var spans: [(normalized: Int, original: Int)] = []
-  }
-  private static func normalize(_ source: String, protected: [Range<Int>], nonce: String) -> Normalized {
+  private static func normalize(
+    _ source: String, protected: [Range<Int>], nonce: String, streaming: Bool, inline: Bool = false,
+    markup: Bool = false
+  ) -> Reading {
     let bytes = Array(source.utf8)
-    var result = Normalized()
+    var result = Reading()
     var length = 0
     func keep(_ range: Range<Int>) {
+      guard !range.isEmpty else { return }
       result.spans.append((length, range.lowerBound))
       result.text += String(decoding: bytes[range], as: UTF8.self)
       length += range.count
@@ -133,6 +248,11 @@ enum AnswerMarkdown {
         }
         end += 1
       }
+      // A tag still being written, quotes and all, waits: nothing from its `<` on is page yet.
+      if streaming, end == bytes.count, partial(bytes[(i + 1)...]) {
+        keep(cursor..<i)
+        return result
+      }
       guard end < bytes.count, bytes[end] == 62, quote == nil else {
         i += 1
         continue
@@ -151,12 +271,28 @@ enum AnswerMarkdown {
       keep(cursor..<i)
       cursor = end + 1
       i = cursor
+      // To find the code, a word in the tag's place, which breaks no code span, is enough.
+      if inline {
+        add(nonce)
+        continue
+      }
+      let closing = original.hasPrefix("</")
+      let selfClosing = original.hasSuffix("/>")
+      let values = closing ? [] : values(original)
+      result.tags.append(
+        Tag(
+          range: (cursor - original.utf8.count)..<cursor, name: name, values: values, closing: closing,
+          selfClosing: selfClosing))
       // Wicket groups repeated tags itself; an explicit group tag adds nothing.
       if wrappers.contains(name) { continue }
+      let key = nonce + "T\(result.tags.count)END"
+      add(name == "badge" ? key : "\n\n\(key)\n\n")
+      if !selfClosing, ["card", "columns"].contains(name) { result.boxes[key] = closing ? -1 : 1 }
+      guard markup else { continue }
       var attrs = ""
       var fields = ""
       var numbers = ""
-      for (key, value) in values(original) {
+      for (key, value) in values {
         attrs += " data-\(key)=\"\(escape(value))\""
         // A target's id is for the bridge, not text.
         if key != "target" { fields += "<span data-field=\"\(key)\">\(escape(value))</span>" }
@@ -164,53 +300,41 @@ enum AnswerMarkdown {
           numbers += "--\(key):\(number);"
         }
       }
-      let closing = original.hasPrefix("</")
-      let selfClosing = original.hasSuffix("/>")
-      let key = nonce + "T\(result.tokens.count)END"
+      // A tile lays out its fields by its own width, which only an element inside it can follow.
+      if name == "tile" { fields = "<w-fields>\(fields)</w-fields>" }
       result.tokens[key] =
         closing
         ? "</w-\(name)>"
         : "<w-\(name)\(attrs) style=\"\(numbers)\">" + (selfClosing ? fields + "</w-\(name)>" : "")
-      if !selfClosing, ["card", "columns"].contains(name) { result.boxes[key] = closing ? -1 : 1 }
-      add(name == "badge" ? key : "\n\n\(key)\n\n")
     }
     keep(cursor..<bytes.count)
     return result
   }
+  /// What follows a `<` that may still become a tag: a name being written, or nothing yet.
+  private static func partial(_ rest: ArraySlice<UInt8>) -> Bool {
+    let name = rest.first == 47 ? rest.dropFirst() : rest
+    return name.first.map { (97...122).contains($0) } ?? true
+  }
 
   private static func render(_ input: String, code: [Page.Code], streaming: Bool) -> String {
-    let protected = parse(input).ranges
-    var source = input
-    if streaming, let less = source.lastIndex(of: "<"), !source[less...].contains(">"),
-      !protected.contains(where: { $0.contains(source[..<less].utf8.count) })
-    {
-      source = String(source[..<less])
-    }
     let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    let normalized = normalize(source, protected: protected, nonce: nonce)
-    var tokens = normalized.tokens
-    let boxes = normalized.boxes
+    let reading = reading(input, streaming: streaming, nonce: nonce, render: true)
+    var tokens = reading.tokens
+    let boxes = reading.boxes
+    let tree = reading.tree!
     /// A placeholder for markup, which cmark keeps as text and which is restored after it rendered.
+    /// Numbered after every tag's, so no key is used twice.
     func token(_ markup: String) -> String {
-      let key = nonce + "T\(tokens.count)END"
+      let key = nonce + "T\(reading.tags.count + tokens.count)END"
       tokens[key] = markup
       return key
     }
-    cmark_gfm_core_extensions_ensure_registered()
-    let parser = cmark_parser_new(CMARK_OPT_DEFAULT)!
-    cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("table"))
-    normalized.text.withCString { cmark_parser_feed(parser, $0, normalized.text.utf8.count) }
-    let root = cmark_parser_finish(parser)!
-    defer {
-      cmark_node_free(root)
-      cmark_parser_free(parser)
-    }
-    let iterator = cmark_iter_new(root)!
+    let iterator = cmark_iter_new(tree.root)!
     // Inside a card or columns each line is its own (a day's high, low and sky), so a soft break there
     // is a hard one. Tokens of containers stand alone as paragraphs, in reading order.
     var depth = 0
     var breaks: [UnsafeMutablePointer<cmark_node>] = []
-    var copies = code[...]
+    let copies = Dictionary(code.map { ($0.start, $0.id) }) { first, _ in first }
     var copied: [(node: UnsafeMutablePointer<cmark_node>, id: String)] = []
     while cmark_iter_next(iterator) != CMARK_EVENT_DONE {
       guard cmark_iter_get_event_type(iterator) == CMARK_EVENT_ENTER, let node = cmark_iter_get_node(iterator)
@@ -227,10 +351,9 @@ enum AnswerMarkdown {
         depth += box
       }
       if type == CMARK_NODE_SOFTBREAK, depth > 0 { breaks.append(node) }
-      // The page's code targets, matched in order by their text.
-      if type == CMARK_NODE_CODE_BLOCK, let next = copies.first, literal(node) == next.text {
-        copied.append((node, next.id))
-        copies.removeFirst()
+      // The page's code targets, by where their block starts in the source.
+      if type == CMARK_NODE_CODE_BLOCK, !copies.isEmpty, let id = copies[reading.original(tree.start(node))] {
+        copied.append((node, id))
       }
     }
     cmark_iter_free(iterator)
@@ -256,7 +379,8 @@ enum AnswerMarkdown {
         ))
       cmark_node_insert_after(node, paragraph("</div>"))
     }
-    let rendered = cmark_render_html(root, CMARK_OPT_DEFAULT, cmark_parser_get_syntax_extensions(parser))!
+    let rendered = cmark_render_html(
+      tree.root, CMARK_OPT_DEFAULT, cmark_parser_get_syntax_extensions(tree.parser))!
     defer { free(rendered) }
     var result = String(cString: rendered).replacingOccurrences(
       of: #"<img\b[^>]*>"#, with: "", options: .regularExpression)

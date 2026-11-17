@@ -20,7 +20,7 @@
 Use light-dark(light, dark) for a color that differs between appearances.
 Items are w-row (in a run, w-rows), w-tile, w-progress (in a run, w-progresses) and w-badge;
 containers are w-card and w-columns. Attributes arrive as data-* attributes and as
-[data-field="name"] spans; a badge's tone as [data-tone=positive|warning|negative]. What the user can
+[data-field="name"] spans (a tile's inside its w-fields, laid out by the tile's width); a badge's tone as [data-tone=positive|warning|negative]. What the user can
 act on has [data-target] (a code block's is the div around its pre, with the copy button), and the
 selected one [data-selected]. Rows copy the native list's metrics: change them only together with the
 launcher's own look.

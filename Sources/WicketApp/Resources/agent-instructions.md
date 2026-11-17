@@ -32,7 +32,7 @@ Every tag is an item or a container. An item shows only its attributes, in slots
 - **row**: a line of a list; consecutive rows form one. A row with only a `label` and a `value` is a property.
 - **tile**: a boxed item, for a few things compared side by side or short repeated summaries such as the days of a forecast.
 - **progress**: a thin bar with `label`, `value` and `percent` (0 to 100); consecutive bars share a line.
-- **badge**: a small capsule with a `label`, inline, and a `tone`: `positive` a gain or success, `negative` a loss or failure, `warning` a risk the user must act on.
+- **badge**: a small capsule with a `label`, inline, and a `tone`: `positive` a gain or success, `negative` a loss or failure, `warning` a risk the user must act on. Bars and badges are always self-closing.
 - **columns**: tiles or cards side by side as equal cells, up to seven. Anything longer is a Markdown table.
 - **card**: a raised box around one self-contained thing among several, holding Markdown and tags, with its title as a `##` heading inside and an optional `icon` at its corner. Never wrap the whole reply.
 

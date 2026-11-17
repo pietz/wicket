@@ -198,7 +198,8 @@ import Testing
     """
   let page = Page(body: body, runs: false)
   #expect(page.targets.map(\.title) == ["12° 7°"] && page.targets[0].icon == "cloud.rain")
-  #expect(page.targets[0].actions == [RowAction(.detail("## 12° 7°\n\nRain all day"))])
+  // A tile's detail is headed by its label and title, since its title is often a figure.
+  #expect(page.targets[0].actions == [RowAction(.detail("## Mon · 12° 7°\n\nRain all day"))])
   #expect(page.source.contains(##"<tile target="#0" label="Mon" title="12° 7°" icon="cloud.rain"/>"##))
   let html = AnswerMarkdown.html(page.source)
   #expect(html.contains(##"<w-columns style="">"##) && html.contains(##"<w-tile data-target="#0""##))
@@ -271,4 +272,43 @@ import Testing
   #expect(html.contains("</w-card>"))
   #expect(!html.contains("&lt;/card&gt;"))
   await model.finish()
+}
+
+/// Layout follows the space, not how many children there are: cards keep their minimum, a tile takes its
+/// narrow look when its cell is narrow, and a bar is as wide as its text needs, a lone one at most half.
+@MainActor @Test func layoutFollowsTheSpace() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let renderer = AnswerRenderer(folder: folder) { _ in }
+  defer { renderer.release() }
+  let tiles = { (n: Int) in
+    "<columns>" + (0..<n).map { #"<tile label="L\#($0)" title="€\#($0)" icon="tag"/>"# }.joined()
+      + "</columns>"
+  }
+  let body = [
+    "<columns>" + String(repeating: "<card>\n## Card\nText\n</card>", count: 4) + "</columns>", tiles(3),
+    tiles(4), #"<progress label="Disk" value="420 of 600 GB" percent="70"/>"#,
+  ].joined(separator: "\n\n")
+  await renderer.render(Page(body: body, runs: false), turn: "t")
+  let web = try #require(renderer.page)
+  // The page's content is 600 points wide, as in the panel, then 360.
+  func measure(_ width: Int) async throws -> [String] {
+    try await web.callJavaScript(
+      """
+      document.querySelector('main').style.width = '\(width + 40)px';
+      const columns = document.querySelectorAll('w-columns');
+      const look = c => [...c.querySelectorAll('w-fields')].map(f => getComputedStyle(f).flexDirection).join();
+      const bar = document.querySelector('w-progress');
+      return [
+        Math.min(...[...columns[0].children].map(c => c.getBoundingClientRect().width)) >= 200 ? 'cards wide' : 'cards squeezed',
+        look(columns[1]), look(columns[2]),
+        getComputedStyle(bar).minWidth, bar.getBoundingClientRect().width <= \(width) / 2 ? 'half' : 'wider'];
+      """, contentWorld: .defaultClient) as? [String] ?? []
+  }
+  #expect(
+    try await measure(600) == [
+      "cards wide", "row,row,row", "column,column,column,column", "fit-content", "half",
+    ])
+  #expect(
+    try await measure(360)[0...2] == ["cards wide", "column,column,column", "column,column,column,column"])
 }

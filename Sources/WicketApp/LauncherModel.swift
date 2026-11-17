@@ -134,13 +134,13 @@ final class LauncherModel {
   var selectedTarget: String? {
     page == nil || actionPanel != nil ? nil : results.first { $0.id == selection }?.row.id
   }
-  /// Opens an item's content as its own page, with no model call and no extension run. Its items may
-  /// run the open command as the page it came from could.
-  private func openDetail(_ markdown: String, from result: Result?) {
+  /// Opens an item's content as its own page, with no model call and no extension run, and the item's
+  /// own action as a row at its end. Its items may run the open command as the page it came from could.
+  private func openDetail(_ markdown: String, action: Row?, from result: Result?) {
     details = openDetails
     details.append(
       Detail(
-        page: Page(body: markdown, runs: !agent.active), base: baseTurn,
+        page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !agent.active), base: baseTurn,
         turn: pageTurn + ">" + (result?.row.id ?? ""), selection: selection, touched: selectionTouched))
     clearSelection()
     onResultsChange?()
@@ -921,7 +921,7 @@ final class LauncherModel {
       // Activating a run action is the user's choice; following a link never is.
       go(address, from: result?.provider, submitted: !address.link)
     case .send(let text): send(text)
-    case .detail(let markdown): openDetail(markdown, from: result)
+    case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
     case .hotkey(let target, record: true):
       recorder.record(target, in: window, store: store) { [weak self] in self?.pauseHotkeys($0) }
     case .hotkey(let target, record: false): store.bind(nil, to: target)

@@ -216,8 +216,9 @@ struct RowAction: Codable, Sendable, Equatable {
     case reveal(URL)
     /// Host only, never decoded: send the text to the agent as a question.
     case send(String)
-    /// Host only, never decoded: show this Markdown as its own page, an item's detail. Escape returns.
-    case detail(String)
+    /// Host only, never decoded: show this Markdown as its own page, an item's detail, with the item's
+    /// own action as a row at its end, exactly as parsed. Escape returns.
+    case detail(String, action: Row? = nil)
     /// Host only, never decoded: copy or paste the clipboard history's image with this ID, read when it runs.
     case clip(String, paste: Bool)
     /// Host only, never decoded: record a row's hotkey (Set Hotkey…), or with `record` false remove it.
@@ -281,7 +282,7 @@ struct RowAction: Codable, Sendable, Equatable {
     case .send(let text):
       try c.encode("send", forKey: .type)
       try c.encode(text, forKey: .text)
-    case .detail(let text):
+    case .detail(let text, _):
       try c.encode("detail", forKey: .type)
       try c.encode(text, forKey: .text)
     case .clip(let id, let paste):

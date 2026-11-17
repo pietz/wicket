@@ -99,7 +99,7 @@ div[data-target][data-selected] > pre { background: linear-gradient(var(--select
 /* Tags: attributes arrive as data-* and as [data-field] spans. An unknown tag shows its fields as text. */
 [data-field] { display: inline; }
 [data-field]:is([data-field=tone], [data-field=percent], [data-field=icon]) { display: none; }
-:not(w-row, w-tile, w-progress, w-badge) > [data-field] + [data-field]::before { content: " · "; }
+:not(w-row, w-fields, w-progress, w-badge) > [data-field] + [data-field]::before { content: " · "; }
 
 /* Rows: the launcher's own list, with or without a target, whatever the text size (--zoom undoes the
    page's zoom): its row height, a symbol or the grey label first, 10 points apart, the title, a grey
@@ -128,31 +128,37 @@ w-rows:not(:has(> [data-title])) > w-row { display: grid; grid-column: 1 / -1; g
 w-rows:not(:has(> [data-title])) > w-row::before { display: none; }
 w-rows:not(:has(> [data-title])) > w-row [data-field=value] { grid-column: 2; margin: 0; padding: 0; color: var(--label); }
 
-/* A tile: a boxed item. Wide, one to three across: the grey label on top, the title large with the value
-   at the end of its line, the grey subtitle under it and the symbol in the top right corner. */
-w-tile { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; align-content: start; gap: 4px 8px; min-width: 0; padding: 12px 14px; border-radius: var(--radius); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); scroll-margin: 10px; }
+/* A tile: a boxed item, laid out by its own width. Wide, as one to three across a page: the grey label on
+   top, the title large with the value at the end of its line, the grey subtitle under it and the symbol
+   in the top right corner. */
+w-tile { position: relative; display: block; min-width: 0; container-type: inline-size; border-radius: var(--radius); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); scroll-margin: 10px; }
+w-fields { display: flex; flex-wrap: wrap; align-items: baseline; align-content: start; gap: 4px 8px; padding: 12px 14px; }
 w-tile [data-field] { display: block; min-width: 0; }
 w-tile [data-field=label] { order: -1; flex: 1 0 100%; font-size: var(--small); font-weight: 500; color: var(--muted); }
 w-tile [data-field=title] { flex: 0 1 auto; font-size: var(--figure); line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
 w-tile [data-field=value] { order: 1; margin-left: auto; color: var(--muted); }
 w-tile [data-field=subtitle] { order: 2; flex: 1 0 100%; color: var(--muted); }
-w-tile[data-icon]::before { content: ""; position: absolute; top: 12px; right: 14px; width: 20px; height: 20px; background: var(--secondary); mask: var(--icon, none) center / contain no-repeat; }
-w-tile[data-icon] [data-field=label], w-tile[data-icon]:not([data-label]) [data-field=title] { padding-right: 28px; }
+w-tile[data-icon] w-fields::before { content: ""; position: absolute; top: 12px; right: 14px; width: 20px; height: 20px; background: var(--secondary); mask: var(--icon, none) center / contain no-repeat; }
+@container (width >= 150px) {
+  w-tile[data-icon] [data-field=label], w-tile[data-icon]:not([data-label]) [data-field=title] { padding-right: 28px; }
+}
 w-tile[data-target] { cursor: default; user-select: none; -webkit-user-select: none; }
 w-tile[data-selected] { background: linear-gradient(var(--selection), var(--selection)), var(--surface); box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--ink) 35%, transparent); }
-/* Narrow, four or more across, such as the days of a forecast: centered, the grey label, the symbol,
-   then the title in semibold. */
-w-columns:has(> :nth-child(4)) > w-tile { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 10px 4px; text-align: center; }
-w-columns:has(> :nth-child(4)) > w-tile [data-field] { order: 0; flex: none; max-width: 100%; margin: 0; padding: 0; }
-w-columns:has(> :nth-child(4)) > w-tile [data-field=label] { order: -2; }
-w-columns:has(> :nth-child(4)) > w-tile::before { order: -1; position: static; width: 26px; height: 26px; }
-w-columns:has(> :nth-child(4)) > w-tile [data-field=title] { font-size: inherit; line-height: inherit; letter-spacing: 0; }
-w-columns:has(> :nth-child(4)) > w-tile :is([data-field=subtitle], [data-field=value]) { font-size: var(--small); }
+/* Narrow, as four or more across the panel, such as the days of a forecast: centered, the grey label,
+   the symbol, then the title in semibold. */
+@container (width < 150px) {
+  w-tile w-fields { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 10px 4px; text-align: center; }
+  w-tile [data-field] { order: 0; flex: none; max-width: 100%; margin: 0; padding: 0; }
+  w-tile [data-field=label] { order: -2; }
+  w-tile[data-icon] w-fields::before { order: -1; position: static; width: 26px; height: 26px; }
+  w-tile [data-field=title] { font-size: inherit; line-height: inherit; letter-spacing: 0; }
+  w-tile :is([data-field=subtitle], [data-field=value]) { font-size: var(--small); }
+}
 
 /* Progress: a thin bar under its label and value, quieter than its text. Bars side by side share a
    line, two or three across, wrapping when their text needs room; one is never wider than half. */
 w-progresses { display: flex; flex-wrap: wrap; gap: 12px 24px; }
-w-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; column-gap: 12px; row-gap: 5px; flex: 1 1 calc(33% - 16px); min-width: min(100%, max-content); max-width: calc(50% - 12px); }
+w-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; column-gap: 12px; row-gap: 5px; flex: 1 1 calc(33% - 16px); min-width: fit-content; max-width: calc(50% - 12px); }
 w-progress [data-field=label], w-progress [data-field=value] { display: block; }
 w-progress [data-field=value] { color: var(--muted); }
 w-progress::after { content: ""; grid-column: 1/-1; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) clamp(0%, calc(var(--percent, 0) * 1%), 100%), var(--track) 0); }
@@ -176,9 +182,9 @@ w-card + w-card { margin-top: -8px; }
 /* Rows in a card give back their own padding, so the card's text and rows keep its rhythm. */
 w-card > w-rows { margin-block: calc(-6px / var(--zoom, 1)); }
 
-/* Columns: tiles or cards side by side as equal cells, wrapping when the panel is too narrow. */
-w-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 8px; }
+/* Columns: tiles or cards side by side as equal cells, wrapping when the page is too narrow for them; a
+   tile takes its narrow look by itself when its cell is. */
+w-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 8px; }
 w-columns:has(> w-card) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
-w-columns:has(> :nth-child(4)) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); }
 w-columns > * { margin: 0; }
 w-columns > w-card + w-card { margin-top: 0; }

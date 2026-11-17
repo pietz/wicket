@@ -14,12 +14,14 @@ final class AgentSession {
   private(set) var continuing = false
   var agentName: String { chosen.agent.title }
   private(set) var active = false
-  private(set) var busy = false
+  private(set) var busy = false {
+    didSet { if busy != oldValue { page = Page(body: answer, runs: false, streaming: busy) } }
+  }
   private(set) var turnID = UUID().uuidString
   private(set) var question = ""
   /// The command the question was asked from, whose context went with it; nil for a follow-up.
   private(set) var source: String?
-  private(set) var answer = "" { didSet { page = Page(body: answer, runs: false) } }
+  private(set) var answer = "" { didSet { page = Page(body: answer, runs: false, streaming: busy) } }
   /// The answer as a page, with what it lets the user act on where it stands. Never a run action.
   private(set) var page = Page(body: "", runs: false)
   private(set) var status = ""
