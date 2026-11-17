@@ -610,10 +610,14 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   defer { try? FileManager.default.removeItem(at: folder) }
   let lines = try JSONLines(
     command: ["/bin/sh", "-c", "sleep 30 & echo diagnostic >&2; exit 3"], folder: folder)
-  var reason: String?
-  lines.onClose = { reason = $0 }
-  let deadline = ContinuousClock.now + .seconds(5)
-  while reason == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+  // The exit is known at once, but other tests can hold the main actor for seconds: await the report.
+  let (reasons, report) = AsyncStream.makeStream(of: String.self)
+  lines.onClose = { report.yield($0) }
+  let first = Task { () -> String? in
+    for await reason in reasons { return reason }
+    return nil
+  }
+  let reason = await first.value(within: .seconds(30)) ?? nil
   #expect(
     reason?.contains("exited with status 3") == true && reason?.contains("diagnostic") == true,
     "\(reason ?? "nil")")
