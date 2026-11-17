@@ -17,7 +17,7 @@ import Testing
   // A folder and an item id with spaces and query characters survive the round trip.
   let odd = HotkeyTarget(target: "extension:my tools", input: "a+b", item: "x&y=z")
   #expect(HotkeyTarget(odd.description) == odd)
-  // Followed as a link it is the command, never chosen.
+  // Followed as a link it is the command, never submitted.
   #expect(item.address == Address(extensionName: "window", link: true))
   #expect(HotkeyTarget(target: "settings").address.targetID == "settings")
 }
@@ -169,7 +169,7 @@ import Testing
   #expect(shown == 0 && model.command == nil)
   let request = try JSONDecoder().decode(
     ProviderRequest.self, from: Data(contentsOf: root.appending(path: "requests")))
-  #expect(request.chosen && request.arguments == ["move": "left"] && request.input == "")
+  #expect(request.submitted && request.arguments == ["move": "left"] && request.input == "")
 }
 
 @MainActor @Test func aFailedBackgroundRunShowsThePanelWithItsReport() async throws {
@@ -207,7 +207,7 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await windowLike(root)
   var shown = 0
-  // The command itself: entered as a link would, so its request is not chosen.
+  // The command itself: entered as a link would, so its request is not submitted.
   await model.press(HotkeyTarget(target: "extension:mover")) { shown += 1 }
   #expect(shown == 1)
   #expect(await eventually { model.command?.id == "extension:mover" && model.command?.busy == false })
@@ -219,7 +219,7 @@ import Testing
   #expect(await eventually { model.command?.id == "extension:mover" && model.input == "x" })
   await model.settled()
   let requests = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
-  #expect(!requests.contains(#""chosen":true"#))
+  #expect(!requests.contains(#""submitted":true"#))
   // A host command.
   var settings = 0
   model.onSettings = { settings += 1 }

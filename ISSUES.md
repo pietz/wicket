@@ -71,8 +71,8 @@ Two independent reviews (GPT-6 Astra, Claude Fable 5.2) that then read each othe
 
 ### Items, arguments and submit (review of 12 Nov 2026)
 
-- **Entering a command by its name is now chosen.** An extension written against the old rule that acts on any chosen request (`if chosen: deploy()`) now acts when it is entered. The bundled programs do not; extensions the agent wrote earlier need a look. Array `arguments` are refused with a decoding error, after the program ran.
-- **A command's own manifest change reruns it and cancels its running request**, also a chosen one, so an extension that rewrites its `wicket.json` to refresh items must do so last. Other extensions' changes, app changes and settings no longer touch an open command (0.2.3).
+- **Entering a command by its name is now submitted.** An extension written against the old rule that acts on any submitted request (`if submitted: deploy()`) now acts when it is entered. The bundled programs do not; extensions the agent wrote earlier need a look. Array `arguments` are refused with a decoding error, after the program ran.
+- **A command's own manifest change reruns it and cancels its running request**, also a submitted one, so an extension that rewrites its `wicket.json` to refresh items must do so last. Other extensions' changes, app changes and settings no longer touch an open command (0.2.3).
 - **The 20 best items per extension are picked by fuzzy score alone**, in manifest order among equals, before tier and usage apply. In a large list a much used item can stay out for a short input; looking usage up per item costs a JSON encoding each.
 - **A copy cannot be marked concealed.** An extension that copies a secret uses the generic `copy` action, so with Clipboard History switched on (it is off by default) the secret is kept like any copy. A `concealed` flag on copy would fix it for every extension.
 - **Return twice in a submit command sends twice**: the input and slot values stay after a submit, so a second Return repeats it. Decide whether a submit clears them.

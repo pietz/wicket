@@ -214,7 +214,7 @@ func testImage(_ width: Int, _ height: Int, seed: Int = 0, as type: NSBitmapImag
   // Delete is the row's own run action, answered with the updated list.
   let alpha = try #require(history.clips.last)
   let view = history.view(
-    for: ProviderRequest(input: "", arguments: ["delete": alpha.id], chosen: true))
+    for: ProviderRequest(input: "", arguments: ["delete": alpha.id], submitted: true))
   #expect(view.items.map(\.title) == ["beta two"] && history.clips.map(\.text) == ["beta two"])
 }
 
@@ -380,7 +380,7 @@ private func pngs(_ folder: URL) -> Set<String> {
   history.expire(now: start.addingTimeInterval(31 * 86400))
   #expect(history.clips.count == 2 && pngs(folder).count == 2)
   let id = try #require(history.clips.first?.id)
-  _ = history.view(for: ProviderRequest(input: "", arguments: ["delete": id], chosen: true))
+  _ = history.view(for: ProviderRequest(input: "", arguments: ["delete": id], submitted: true))
   #expect(history.clips.count == 1 && !pngs(folder).contains(id + ".png") && pngs(folder).count == 1)
   history.clear()
   #expect(history.clips.isEmpty && pngs(folder).isEmpty)

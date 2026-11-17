@@ -6,7 +6,7 @@ import Testing
 @testable import window
 
 // The bundled window extension. Its geometry and restore records are pure functions tested here; the
-// program itself runs only for requests that list, since a chosen move would move a real window.
+// program itself runs only for requests that list, since a submitted move would move a real window.
 
 /// A 1512 × 982 main display whose menu bar takes 33 points and Dock 90, as NSScreen reports it (bottom
 /// up), and a 1920 × 1080 display to its right, 298 points higher, with a 25-point menu bar.
@@ -130,11 +130,11 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
 
 // MARK: - The program and its documentation
 
-private func windowView(_ arguments: [String: String] = [:], chosen: Bool = false) async throws
+private func windowView(_ arguments: [String: String] = [:], submitted: Bool = false) async throws
   -> ProviderView
 {
   try await ExtensionRunner().run(
-    bundled("window"), request: ProviderRequest(input: "", arguments: arguments, chosen: chosen))
+    bundled("window"), request: ProviderRequest(input: "", arguments: arguments, submitted: submitted))
 }
 
 @Test func theItemsAreTheMovesAndTheProgramListsThemWithoutMoving() async throws {
@@ -148,11 +148,11 @@ private func windowView(_ arguments: [String: String] = [:], chosen: Bool = fals
     }
     #expect(address.extensionName == nil && address.arguments == ["move": row.id] && row.actions.count == 1)
   }
-  // Requests that are not chosen, and the chosen one that enters the command, list the same items.
+  // Requests that are not submitted, and the submitted one that enters the command, list the same items.
   #expect(try await windowView().items == rows)
   #expect(try await windowView(["move": "left"]).items == rows)
-  #expect(try await windowView(chosen: true).items == rows)
-  #expect(try await windowView(["move": "sideways"], chosen: true).items == rows)
+  #expect(try await windowView(submitted: true).items == rows)
+  #expect(try await windowView(["move": "sideways"], submitted: true).items == rows)
 }
 
 @Test func theDocsNameEveryWindowCommand() throws {

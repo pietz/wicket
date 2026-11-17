@@ -305,7 +305,7 @@ import Testing
   #expect(model.body == "## tue")
   let log = try String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)
     .split(separator: "\n").map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
-  #expect(log.last == ProviderRequest(input: "", arguments: ["view": "day", "day": "tue"], chosen: true))
+  #expect(log.last == ProviderRequest(input: "", arguments: ["view": "day", "day": "tue"], submitted: true))
   await model.finish()
 }
 

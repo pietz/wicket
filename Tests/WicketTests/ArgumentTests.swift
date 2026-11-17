@@ -80,7 +80,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   model.input = "caff"
   await model.settled()
   #expect(model.selected?.id == row.id && model.argumentValues.isEmpty)
-  // Return enters the command with the filled values as its arguments, in a chosen request.
+  // Return enters the command with the filled values as its arguments, in a submitted request.
   model.setArgument("hours", to: "4")
   model.setArgument("minutes", to: "30")
   #expect(
@@ -89,7 +89,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(model.activateReturn())
   await model.settled()
   #expect(model.command?.arguments == ["hours": "4", "minutes": "30"])
-  #expect(try requests().map(\.chosen) == [true])
+  #expect(try requests().map(\.submitted) == [true])
   #expect(try requests().last?.arguments == ["hours": "4", "minutes": "30"])
   // Inside, the same arguments are on offer with the command's values; an edit reruns like typing.
   #expect(model.declaredArguments.map(\.name) == ["hours", "minutes"])
@@ -97,7 +97,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   model.setArgument("minutes", to: "")
   await model.settled()
   #expect(model.argumentValues == ["hours": "4"])
-  #expect(try requests().last.map { !$0.chosen && $0.arguments == ["hours": "4"] } == true)
+  #expect(try requests().last.map { !$0.submitted && $0.arguments == ["hours": "4"] } == true)
   // A run action replaces them, as declared arguments are ordinary arguments.
   model.select(try #require(model.results.first { $0.row.id == "again" }).id)
   #expect(model.activateReturn())
@@ -120,9 +120,9 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.settled()
   #expect(model.activateReturn())
   await model.settled()
-  // Entering runs once, chosen, and nothing is selected: Return belongs to the input.
+  // Entering runs once, submitted, and nothing is selected: Return belongs to the input.
   #expect(model.submits && model.command?.id == "extension:note")
-  #expect(try requests().map(\.chosen) == [true])
+  #expect(try requests().map(\.submitted) == [true])
   #expect(model.results.count == 2 && model.selection == nil)
   // Typing, filling an argument and a refresh run nothing.
   model.input = "draft"
@@ -131,7 +131,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   model.sourcesChanged(["extension:note"])
   await model.settled()
   #expect(try requests().count == 1 && model.selection == nil)
-  // Return sends one chosen request with the input and the arguments.
+  // Return sends one submitted request with the input and the arguments.
   #expect(
     model.returnAction == .run(Address(input: "draft", arguments: ["text": "hello"]))
       && model.selected?.provider == "extension:note")
@@ -139,7 +139,8 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.settled()
   var last = try #require(try requests().last)
   #expect(
-    try requests().count == 2 && last.chosen && last.input == "draft" && last.arguments == ["text": "hello"])
+    try requests().count == 2 && last.submitted && last.input == "draft"
+      && last.arguments == ["text": "hello"])
   #expect(model.input == "draft" && model.argumentValues == ["text": "hello"])
   // An arrow key enters the items and Return runs the selected one; typing and up leave them.
   model.move(1)
@@ -154,7 +155,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(model.activateReturn())
   await model.settled()
   last = try #require(try requests().last)
-  #expect(try requests().count == 3 && last.chosen && last.arguments == ["text": "again"])
+  #expect(try requests().count == 3 && last.submitted && last.arguments == ["text": "again"])
   // Voice fills the input and runs nothing.
   model.store.update { $0.voice.enabled = true }
   model.toggleVoice()
@@ -202,7 +203,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(model.activateReturn())
   await model.settled()
   let last = try #require(try requests().last)
-  #expect(last.chosen && last.arguments == ["text": "buy milk"])
+  #expect(last.submitted && last.arguments == ["text": "buy milk"])
   // A conversation opened over the command offers no slots.
   #expect(model.declaredArguments.map(\.name) == ["text"])
   model.agent.open(settings: model.configuration.agent)
@@ -210,7 +211,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.finish()
 }
 
-/// Headless `--extension` sends the input, the arguments object and `chosen` exactly as given, and
+/// Headless `--extension` sends the input, the arguments object and `submitted` exactly as given, and
 /// refuses arguments that are not an object of strings.
 @MainActor @Test func headlessExtensionRunsSendTheirArgumentsAndChosen() async throws {
   let root = try scratch()
@@ -219,13 +220,13 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   let plain = try await cli(root, ["--extension", "caffeinate"])
   #expect(plain.0 == 0 && plain.1["items"].array.count == 2)
   let full = try await cli(
-    root, ["--extension", "caffeinate", "--input", "now", "--arguments", #"{"hours":"2"}"#, "--chosen"])
+    root, ["--extension", "caffeinate", "--input", "now", "--arguments", #"{"hours":"2"}"#, "--submitted"])
   #expect(full.0 == 0)
   #expect(
-    try requests().map { [$0.input, $0.arguments["hours"] ?? "-", String($0.chosen)] } == [
+    try requests().map { [$0.input, $0.arguments["hours"] ?? "-", String($0.submitted)] } == [
       ["", "-", "false"], ["now", "2", "true"],
     ])
-  let refused = try await cli(root, ["--extension", "caffeinate", "--arguments", #"["2"]"#, "--chosen"])
+  let refused = try await cli(root, ["--extension", "caffeinate", "--arguments", #"["2"]"#, "--submitted"])
   #expect(try refused.0 == 1 && refused.1["error"].string != nil && requests().count == 2)
   let help = try await cli(root, ["--help"])
   #expect(help.1["usage"].string?.contains("--arguments JSON_OBJECT") == true)

@@ -20,7 +20,7 @@ struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
     let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
     self.init(target: address.targetID, input: address.input, item: query?.first { $0.name == "item" }?.value)
   }
-  /// The address that opens it: a link, so its request is never chosen.
+  /// The address that opens it: a link, so its request is never submitted.
   var address: Address {
     guard let target else { return Address(extensionName: "", input: input, link: true) }
     return Address(id: target, input: input, link: true)

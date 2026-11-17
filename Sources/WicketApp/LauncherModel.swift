@@ -6,9 +6,9 @@ struct CommandState {
   let id: String
   var arguments: [String: String] = [:]
   /// What the next request answers. Going to an address runs it even in a submit command, and the
-  /// user's activation makes it chosen; every later request is a rerun.
+  /// user's activation makes it submitted; every later request is a rerun.
   var next = Cause.address
-  enum Cause { case rerun, address, choice }
+  enum Cause { case rerun, address, submission }
   /// A view with the input and arguments of the request it answered.
   struct Shown {
     var view = ProviderView()
@@ -365,7 +365,7 @@ final class LauncherModel {
   }
   var onVoicePermissionFinished: (() -> Void)?
   var onSettings: () -> Void = {}
-  /// Hides the panel: an extension's answer to a chosen request said it is done (`ProviderView.close`).
+  /// Hides the panel: an extension's answer to a submitted request said it is done (`ProviderView.close`).
   var onClose: () -> Void = {}
   var onResultsChange: (() -> Void)?
   /// The installed apps, the one source answered in process besides file search.
@@ -555,7 +555,8 @@ final class LauncherModel {
         return
       }
       target?.problem = nil
-      let request = ProviderRequest(input: input, arguments: state.arguments, chosen: state.next == .choice)
+      let request = ProviderRequest(
+        input: input, arguments: state.arguments, submitted: state.next == .submission)
       if let view = immediateView(state.id, request) {
         showArrival()
         show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
@@ -567,21 +568,21 @@ final class LauncherModel {
       let version = generation
       // A submit command's own follow-up updates its page in place, as a conversation's does, so a page
       // followed to its end stays there; any other request is a new page, which starts at its top.
-      let followUp = arriving == nil && state.next == .choice && extensionCommand?.manifest.submit == true
+      let followUp = arriving == nil && state.next == .submission && extensionCommand?.manifest.submit == true
       if followUp { details = [] }
       let turn = followUp ? state.turn : UUID().uuidString
       tasks.append(
         Task { [weak self] in
-          // A chosen request's first view that carries `input` sets it, once.
-          var inputSet = !request.chosen
+          // A submitted request's first view that carries `input` sets it, once.
+          var inputSet = !request.submitted
           do {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
             // Each view replaces the last on the same page while the process runs (views over time).
             for try await (view, running) in source(request) {
               guard let self, !Task.isCancelled, generation == version else { return }
-              // A chosen request that is done closes the panel, as the user hiding it would, without
+              // A submitted request that is done closes the panel, as the user hiding it would, without
               // showing its view; the effect (a moved window) is the feedback.
-              if view.close, request.chosen { return onClose() }
+              if view.close, request.submitted { return onClose() }
               let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
               if arriving != nil, let page, let preparePage {
                 await preparePage(page, turn)
@@ -806,7 +807,7 @@ final class LauncherModel {
   /// The open command runs on Return only (`submit` in its manifest).
   var submits: Bool { extensionCommand?.manifest.submit == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
-  /// filled in as a chosen request, a page runs the view's own actions, and a conversation sends the
+  /// filled in as a submitted request, a page runs the view's own actions, and a conversation sends the
   /// follow-up.
   var selected: Result? {
     if let row = selectedRow { return row }
@@ -917,7 +918,7 @@ final class LauncherModel {
     case .run(let address):
       if let result { record(result) }
       // Activating a run action is the user's choice; following a link never is.
-      go(address, from: result?.provider, chosen: !address.link)
+      go(address, from: result?.provider, submitted: !address.link)
     case .send(let text): send(text)
     case .detail(let markdown): openDetail(markdown, from: result)
     case .hotkey(let target, record: true):
@@ -932,12 +933,12 @@ final class LauncherModel {
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
   /// that omits its target names; any provider that is not a command means the root. An empty target
-  /// is always the root. `chosen` marks the user activating a run action, which the first request says.
-  func go(_ address: Address, from origin: String? = nil, chosen: Bool = false) {
+  /// is always the root. `submitted` marks the user activating a run action, which the first request says.
+  func go(_ address: Address, from origin: String? = nil, submitted: Bool = false) {
     let own = origin.flatMap { commandSource($0) == nil ? nil : $0 }
     let target = address.extensionName == nil ? own : address.targetID
     // A run chosen in Agent History opens as a conversation over the list, which Escape returns to.
-    if chosen, target == agentHistory?.id,
+    if submitted, target == agentHistory?.id,
       let run = address.arguments?["open"].flatMap({ agentHistory?.run($0) })
     {
       return restore(run)
@@ -954,7 +955,7 @@ final class LauncherModel {
       let reopened = command?.id == id
       var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandState(id: id)
       state.arguments = address.arguments ?? [:]
-      state.next = chosen ? .choice : .address
+      state.next = submitted ? .submission : .address
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       let input = address.input ?? (reopened ? input : "")
       guard reopened, !agent.active else { return arrive(state, input: input) }
@@ -1194,7 +1195,7 @@ final class LauncherModel {
     recorder.target != nil && recorder.target == hotkeyTarget(of: result)
   }
   /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
-  /// runs it now with a chosen request, as Return on the item would, with the panel hidden; a view that
+  /// runs it now with a submitted request, as Return on the item would, with the panel hidden; a view that
   /// says it is done keeps it hidden, and any other view or a failure calls `show` and shows the command
   /// with it, such as why no window moved. Anything else shows the panel on the
   /// address: a command, a host command, or an item whose action opens a view. Nothing is recorded as usage.
@@ -1213,10 +1214,10 @@ final class LauncherModel {
       configuration.isEnabled(id, extensions: extensions.ids)
     else {
       show()
-      return go(address, from: owner.id, chosen: !address.link)
+      return go(address, from: owner.id, submitted: !address.link)
     }
     let request = ProviderRequest(
-      input: address.input ?? "", arguments: address.arguments ?? [:], chosen: true)
+      input: address.input ?? "", arguments: address.arguments ?? [:], submitted: true)
     let view: ProviderView
     do {
       view = try await extensions.view(program, request: request)

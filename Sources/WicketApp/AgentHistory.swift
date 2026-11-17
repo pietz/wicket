@@ -76,10 +76,10 @@ final class AgentHistory: Provider {
   }
 
   /// The command behind the reserved address `history`, answered like an extension's: the input
-  /// filters, and a chosen `{"delete": id}` deletes that run first. Reopening is the host's
+  /// filters, and a submitted `{"delete": id}` deletes that run first. Reopening is the host's
   /// (`LauncherModel.go`), since it opens a conversation rather than a view.
   func view(for request: ProviderRequest) -> ProviderView {
-    if request.chosen, let id = request.arguments["delete"] { delete(id) }
+    if request.submitted, let id = request.arguments["delete"] { delete(id) }
     return ProviderView(items: rows(matching: request.input))
   }
 

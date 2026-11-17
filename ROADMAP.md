@@ -21,13 +21,13 @@ Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follo
 
 ## Next: one-to-one contracts
 
-Done (12 Nov 2026, concept review finding 2): arguments are named, an object of strings; a manifest declares up to three `arguments` and may set `submit`; `chosen` means the user activated it; every action takes a `title`. Step 2, the same day: the declared arguments are slots in the input bar; type "caff", Tab into `hours` and `minutes`, Return runs.
+Done (12 Nov 2026, concept review finding 2): arguments are named, an object of strings; a manifest declares up to three `arguments` and may set `submit`; `submitted` means the user activated it; every action takes a `title`. Step 2, the same day: the declared arguments are slots in the input bar; type "caff", Tab into `hours` and `minutes`, Return runs.
 
 From the contract audit (11 Nov 2026): JSON is the one canonical format; Markdown tags and `wicket://` URLs lower into it. Make the tag lowering mechanical, `<row title=… VERB="x"/>` = an item with the single action `{"type":VERB, …: x}`, pinned by one table-driven test. Changes: action type `agent` becomes `ask` (keep `agent` as an alias); manifest `keyword` becomes `keywords` (read `keyword` as an alias); JSON `url` accepts absolute and `~` paths like tags; icons resolved once where rows are drawn; tags gain `reveal`; headless `--query` says `item`, not `row`; one vocabulary in the docs (item for what authors return, row for what the host draws). Together with it: one dispatcher for every action (copy, open, reveal, paste through `LauncherModel.activate`), drop unused address spellings (`wicket:weather`, `extension:` in addresses, JSON open of a wicket URL), agent items checked at action time like extensions, and one home for result order in the docs.
 
 ## Next, from the concept review
 
-From [the concept review](docs/research/concept-review.md) of 12 Nov 2026. Built from it: manifest items in root search, named arguments with slots in the input bar, `submit`, and `chosen` as the user's activation. Decided for later, in this order:
+From [the concept review](docs/research/concept-review.md) of 12 Nov 2026. Built from it: manifest items in root search, named arguments with slots in the input bar, `submit`, and `submitted` as the user's activation. Decided for later, in this order:
 
 ### A component is one file (design before building)
 
@@ -53,7 +53,7 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 
 ### Smaller contract steps
 
-- **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. Closing came first on its own (16 Nov 2026): `{"close":true}` on a chosen answer closes the panel with no notice, which the window commands use, since the moving window is the feedback. What is left is the brief notice, for an effect nothing on screen shows.
+- **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. Closing came first on its own (16 Nov 2026): `{"close":true}` on the answer to a submitted request closes the panel with no notice, which the window commands use, since the moving window is the feedback. What is left is the brief notice, for an effect nothing on screen shows.
 - **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). `label` and `value` on a row came with the six tags (after 0.3.0), which made facts and events rows. Still open: a table row as a target.
 - **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10). The one exception is the old tag names: an old tag never fails, so no repair row would ever bring the agent to it, and the parser maps them (SPEC, Rich answers).
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or hide Ask agent (finding 1).

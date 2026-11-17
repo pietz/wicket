@@ -61,7 +61,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   let (model, root) = try await launcher("cat >/dev/null\nsleep 0.6\necho '{\"items\":[]}'")
   defer { try? FileManager.default.removeItem(at: root) }
   let frames = Frames(model)
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   // The root stays exactly as it was: no rows vanish, the height stays.
   #expect(model.command == nil && model.input == "a" && model.sizedRows == 8)
   #expect(frames.all.allSatisfy { $0 == .init(command: nil, rows: 13, height: full) })
@@ -79,7 +79,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   defer { try? FileManager.default.removeItem(at: root) }
   let frames = Frames(model)
   model.arrivalDeadline = .seconds(5)  // In time, however busy the test machine is.
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   #expect(model.command == nil && model.sizedRows == 8)
   await model.settled()
   #expect(model.command?.busy == false && model.results.map(\.row.title) == ["Ready"])
@@ -98,7 +98,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     nil, items: [["id": "one", "title": "One", "actions": [["type": "copy", "text": "1"]]]])
   defer { try? FileManager.default.removeItem(at: root) }
   let frames = Frames(model)
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   #expect(model.command?.id == "extension:test" && model.results.map(\.row.title) == ["One"])
   #expect(model.sizedRows == 1 && frames.all == [.init(command: "extension:test", rows: 1, height: one)])
   await model.finish()
@@ -107,7 +107,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 @MainActor @Test func goingBackShowsTheRootWithItsOwnHeightAtOnce() async throws {
   let (model, root) = try await launcher(nil, items: [["id": "one", "title": "One", "actions": []]])
   defer { try? FileManager.default.removeItem(at: root) }
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   #expect(model.sizedRows == 1)
   let frames = Frames(model)
   #expect(model.escape())
@@ -122,13 +122,13 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   let (model, root) = try await launcher("cat >/dev/null\nsleep 0.6\necho '{\"items\":[]}'")
   defer { try? FileManager.default.removeItem(at: root) }
   model.arrivalDeadline = .seconds(5)
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   // Escape calls the switch off and stays at the root.
   #expect(model.escape() && model.command == nil && model.input == "a")
   try await Task.sleep(for: .milliseconds(50))
   #expect(model.command == nil)
   // Typing goes to the command being entered, which shows at once.
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   model.editInput("ab")
   #expect(model.command?.id == "extension:test" && model.input == "b" && model.sizedRows == 1)
   await model.finish()
@@ -146,7 +146,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     prepared.append(page.source)
     await withCheckedContinuation { release = $0 }
   }
-  model.go(Address(id: "test"), chosen: true)
+  model.go(Address(id: "test"), submitted: true)
   #expect(await eventually { release != nil })
   // Measuring: the root is still what shows.
   #expect(prepared == ["# Hello"] && model.command == nil && model.body == nil)

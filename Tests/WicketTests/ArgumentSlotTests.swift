@@ -177,7 +177,7 @@ import Testing
   #expect(frame(input).width < 120 && frame(slot("minutes")).minX > frame(slot("hours")).maxX)
   // Long text in the open command: the slots stop at the end of the pill, fully visible, and the
   // input scrolls inside the width they leave.
-  model.go(Address(id: "extension:caffeinate"), chosen: true)
+  model.go(Address(id: "extension:caffeinate"), submitted: true)
   await model.settled()
   model.editInput(String(repeating: "keep the build server awake ", count: 4))
   await model.settled()

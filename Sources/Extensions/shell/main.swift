@@ -3,7 +3,7 @@
 // one left. Run in Terminal hands a command to the default terminal instead.
 //
 // Nothing runs on a request the user did not choose: the root row and links only describe the command.
-// A chosen request runs `$SHELL -l -c` with stdin from /dev/null and prints a view per line as the output
+// A submitted request runs `$SHELL -l -c` with stdin from /dev/null and prints a view per line as the output
 // grows, at most every 100 ms (views over time, in the extension contract). The session (its folder and
 // last commands with their output) is a small file in the user's temporary folder, like the window
 // commands' moves: a bundled extension's own folder is inside the signed app.
@@ -321,7 +321,7 @@ func page(_ session: Session, running: Bool, home: String = homeFolder()) -> Str
   }.joined(separator: "\n\n")
 }
 /// The page with its actions: Run in Terminal, for what is typed or else the newest command, and Copy
-/// Output for the newest command's output. Only chosen requests get it, so it empties the input for the
+/// Output for the newest command's output. Only submitted requests get it, so it empties the input for the
 /// next command, as a conversation's does.
 func view(_ session: Session, running: Bool) -> String {
   var actions = [#"{"type":"run","title":"Run in Terminal","arguments":{"terminal":"1"}}"#]
@@ -545,7 +545,7 @@ command = command.drop { $0 == " " || $0 == ">" }
 while command.last == " " { command.removeLast() }
 let arguments = request?["arguments"]
 // Only the user's choice runs anything.
-guard case .bool(true)? = request?["chosen"] else {
+guard case .bool(true)? = request?["submitted"] else {
   show(row(String(command)))
   exit(0)
 }

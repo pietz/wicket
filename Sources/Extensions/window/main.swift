@@ -1,6 +1,6 @@
 // Wicket's window commands: halves, maximize, almost maximize, center, next display and restore, for the
 // focused window of the frontmost app. The commands are the items in wicket.json, so typing `left`
-// finds Left Half without running anything; choosing one runs this program with its `move` in a chosen
+// finds Left Half without running anything; choosing one runs this program with its `move` in a submitted
 // request, and only that touches a window. Any other request lists the same items.
 //
 // Moving another app's window takes the Accessibility API, and macOS grants it to the responsible
@@ -406,7 +406,7 @@ if case .other(let range)? = JSON.read(manifest, &position)?["items"] {
 }
 // Only the user's choice moves a window; every other request is the list. A move that worked closes
 // the panel, since the window moving is the feedback; one that did not shows why above the commands.
-if case .other(let range)? = request?["chosen"], String(decoding: bytes[range], as: UTF8.self) == "true",
+if case .other(let range)? = request?["submitted"], String(decoding: bytes[range], as: UTF8.self) == "true",
   let move = request?["arguments"]?["move"]?.string.flatMap(Move.init(rawValue:))
 {
   let settings = request?["settings"]

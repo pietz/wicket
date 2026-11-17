@@ -89,7 +89,7 @@ private var two: [String: Any] {
   model.toggleActions()
   model.toggleActions()
   #expect(model.actionsTitle == nil && model.selected?.row.id == "two")
-  // Return runs the chosen action for the row: here a run of its own extension, chosen.
+  // Return runs the chosen action for the row: here a run of its own extension, submitted.
   model.toggleActions()
   model.move(1)
   model.move(1)
@@ -99,7 +99,7 @@ private var two: [String: Any] {
   await model.settled()
   let requests = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
     .split(separator: "\n").map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
-  #expect(requests.last == ProviderRequest(input: "", arguments: ["delete": "two"], chosen: true))
+  #expect(requests.last == ProviderRequest(input: "", arguments: ["delete": "two"], submitted: true))
   await model.finish()
 }
 

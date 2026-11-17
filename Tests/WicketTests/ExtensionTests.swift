@@ -462,7 +462,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.finish()
 }
 
-/// `close` ends a chosen request: the panel hides at once, as the user hiding it would, and the root is
+/// `close` ends a submitted request: the panel hides at once, as the user hiding it would, and the root is
 /// what reopens. On a request the user did not choose it is ignored and the view shows; a failure keeps
 /// the panel open with its error.
 @MainActor @Test func aChosenAnswerThatClosesHidesThePanel() async throws {
@@ -486,12 +486,12 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.settled()
 
   // Chosen and done: the panel closes without showing the view, and the root is left as hiding leaves it.
-  model.go(Address(id: "extension:shut", input: "left"), chosen: true)
+  model.go(Address(id: "extension:shut", input: "left"), submitted: true)
   await model.settled()
   #expect(closed == 1)
   #expect(model.command == nil && model.input.isEmpty)
 
-  // Typing reruns are not chosen: the same answer shows as a view and nothing closes.
+  // Typing reruns are not submitted: the same answer shows as a view and nothing closes.
   model.go(Address(id: "extension:shut", input: "a"))
   await model.settled()
   model.input = "ab"
@@ -499,8 +499,8 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   #expect(closed == 1)
   #expect(model.command?.id == "extension:shut" && model.results.map(\.row.id) == ["moved"])
 
-  // A chosen request that fails keeps the panel open with its error.
-  model.go(Address(id: "extension:shut", input: "fail"), chosen: true)
+  // A submitted request that fails keeps the panel open with its error.
+  model.go(Address(id: "extension:shut", input: "fail"), submitted: true)
   await model.settled()
   #expect(closed == 1)
   #expect(model.command?.problem != nil)

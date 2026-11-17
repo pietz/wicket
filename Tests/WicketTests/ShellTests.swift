@@ -174,7 +174,7 @@ private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionComm
   let seen = Mutex<[(String, Bool)]>([])
   try await ExtensionRunner().run(
     shell,
-    request: .init(input: "echo one; sleep 1; echo two", arguments: ["session": "new"], chosen: true),
+    request: .init(input: "echo one; sleep 1; echo two", arguments: ["session": "new"], submitted: true),
     streams: true
   ) { view, running in seen.withLock { $0.append((view.body ?? "", running)) } }
   let views = seen.withLock { $0 }
@@ -195,19 +195,19 @@ private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionComm
     root,
     [
       "--extension", "shell", "--input", "cd '\(work.path)' && echo hi", "--arguments", #"{"session":"new"}"#,
-      "--chosen",
+      "--submitted",
     ], environment: environment)
   #expect(first.0 == 0)
   #expect(first.1["body"].string?.contains("```\nhi\n```") == true)
   #expect(first.1["body"].string?.contains("Exit 0") == true)
   // A follow-up runs where the last command ended, below it; a failure says its status.
   let second = try await cli(
-    root, ["--extension", "shell", "--input", "pwd; false", "--chosen"], environment: environment)
+    root, ["--extension", "shell", "--input", "pwd; false", "--submitted"], environment: environment)
   let body = try #require(second.1["body"].string)
   #expect(body.contains("echo hi") && body.contains("```\n\(work.path)\n```") && body.contains("Exit 1"))
   #expect(second.1["actions"].array.last?["text"].string == work.path)
   // Entering with nothing typed shows the session as it is; nothing runs.
-  let shown = try await cli(root, ["--extension", "shell", "--chosen"], environment: environment)
+  let shown = try await cli(root, ["--extension", "shell", "--submitted"], environment: environment)
   #expect(shown.1["body"].string == body)
 }
 

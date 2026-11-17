@@ -124,7 +124,7 @@ private func run(
       .run(Address(arguments: ["delete": "a"]), title: "Delete"),
     ])
   // Delete is the row's own run action, answered with the updated list; clear empties it.
-  let view = runs.view(for: ProviderRequest(input: "", arguments: ["delete": "a"], chosen: true))
+  let view = runs.view(for: ProviderRequest(input: "", arguments: ["delete": "a"], submitted: true))
   #expect(view.items.map(\.id) == ["b"] && runs.runs.map(\.id) == ["b"])
   runs.clear()
   #expect(runs.runs.isEmpty && runs.view(for: ProviderRequest(input: "")).items.isEmpty)

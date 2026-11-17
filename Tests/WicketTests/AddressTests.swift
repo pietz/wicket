@@ -289,7 +289,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(problems["extension:clipboard"]?.contains("reserved") == true)
 }
 
-/// `chosen` is the user activating something: the command and fallback rows, a run action (JSON or the
+/// `submitted` is the user activating something: the command and fallback rows, a run action (JSON or the
 /// host's, a manifest item included). Never typing, refreshes, links, details or error rows.
 @MainActor @Test func chosenMeansTheUserActivatedIt() async throws {
   let root = try scratch()
@@ -332,44 +332,44 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   }
   func item(_ id: String) throws -> Result { try #require(model.results.first { $0.row.id == id }) }
 
-  // The command row, the fallback row and a manifest item are chosen.
+  // The command row, the fallback row and a manifest item are submitted.
   var row = try await atRoot("ship") { $0.row.id == "command" }
-  #expect(try await activate(row.row.actions[0], from: row).chosen)
+  #expect(try await activate(row.row.actions[0], from: row).submitted)
   row = try await atRoot("an unrelated sentence") { $0.row.id == "fallback" }
-  #expect(try await activate(row.row.actions[0], from: row).chosen)
+  #expect(try await activate(row.row.actions[0], from: row).submitted)
   row = try await atRoot("deploy prod") { $0.row.id == "item:prod" }
   let fromItem = try await activate(row.row.actions[0], from: row)
-  #expect(fromItem.chosen && fromItem.arguments == ["env": "prod"])
-  // A run action with arguments, with `{}` and without any: chosen, with exactly those arguments.
+  #expect(fromItem.submitted && fromItem.arguments == ["env": "prod"])
+  // A run action with arguments, with `{}` and without any: submitted, with exactly those arguments.
   let shapes: [(String, [String: String])] = [("with", ["a": "1"]), ("empty", [:]), ("none", [:])]
   for (id, arguments) in shapes {
     let request = try await activate(try item(id).row.actions[0], from: try item(id))
-    #expect(request.chosen && request.arguments == arguments, Comment(rawValue: id))
+    #expect(request.submitted && request.arguments == arguments, Comment(rawValue: id))
   }
   // Typing reruns and a catalog refresh are not.
-  model.go(Address(id: "extension:ship", arguments: ["a": "1"]), chosen: true)
+  model.go(Address(id: "extension:ship", arguments: ["a": "1"]), submitted: true)
   await model.settled()
   model.input = "p"
   await model.settled()
-  #expect(try requests().last.map { !$0.chosen && $0.arguments == ["a": "1"] && $0.input == "p" } == true)
+  #expect(try requests().last.map { !$0.submitted && $0.arguments == ["a": "1"] && $0.input == "p" } == true)
   model.sourcesChanged(["extension:ship"])
   await model.settled()
-  #expect(try requests().last?.chosen == false)
-  // Links: a JSON open of a wicket URL, an outside URL, an agent item. Never chosen, never arguments.
+  #expect(try requests().last?.submitted == false)
+  // Links: a JSON open of a wicket URL, an outside URL, an agent item. Never submitted, never arguments.
   var request = try await activate(try item("link").row.actions[0], from: try item("link"))
-  #expect(!request.chosen && request.arguments.isEmpty && request.input == "o")
+  #expect(!request.submitted && request.arguments.isEmpty && request.input == "o")
   request = try await activate(.run(try #require(url("wicket://ship?input=prod"))))
-  #expect(!request.chosen && request.input == "prod")
+  #expect(!request.submitted && request.input == "prod")
   let agentItem = try #require(
     Page(body: #"<row title="Ship" open="wicket://ship?input=a"/>"#, runs: false).targets.first)
   request = try await activate(agentItem.actions[0], from: Result(provider: "answer", row: agentItem))
-  #expect(!request.chosen && request.input == "a")
+  #expect(!request.submitted && request.input == "a")
   // The host's Show details and error rows only show what a pattern produced.
   row = try await atRoot("page one") { $0.row.id == "detail" }
   request = try await activate(row.row.actions[0], from: row)
-  #expect(!request.chosen && request.input == "page one")
+  #expect(!request.submitted && request.input == "page one")
   row = try await atRoot("fail now") { $0.row.id == "error" }
   request = try await activate(row.row.actions[0], from: row)
-  #expect(!request.chosen && request.input == "fail now")
+  #expect(!request.submitted && request.input == "fail now")
   await model.finish()
 }

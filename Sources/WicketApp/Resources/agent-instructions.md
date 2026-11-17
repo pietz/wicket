@@ -61,7 +61,7 @@ You run in Wicket's working folder, `{{folder}}`:
 
 - `{{contract}}`: the extension contract. Read it before writing or changing an extension.
 - `{{extensions}}`: one folder per extension, live as soon as it appears.
-- `{{config}}`: Wicket's settings, reloaded live. Global hotkeys are `"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]`: keys spelled like `hotkey`, one entry per address, `item` naming a manifest item. An item whose `run` action runs its program runs chosen with the panel closed; any other address opens the panel there.
+- `{{config}}`: Wicket's settings, reloaded live. Global hotkeys are `"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]`: keys spelled like `hotkey`, one entry per address, `item` naming a manifest item. An item whose `run` action runs its program runs submitted with the panel closed; any other address opens the panel there.
 - `{{executable}}`: the Wicket executable, for the contract's headless tests.
 
 A `<context>` block before a question names the extension that was open, its folder and what it showed: what "this" and "here" mean.

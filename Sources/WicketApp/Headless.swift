@@ -28,7 +28,7 @@ public enum Headless {
       var i = 0
       while i < args.count {
         let key = args[i]
-        if key == "--help" || key == "--chosen" {
+        if key == "--help" || key == "--submitted" {
           options[key] = ""
           i += 1
           continue
@@ -42,7 +42,7 @@ public enum Headless {
       if value("--help") != nil {
         try printJSON([
           "usage":
-            "Wicket --query TEXT | --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--chosen]; WICKET_CONFIG_DIR selects the folder."
+            "Wicket --query TEXT | --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--submitted]; WICKET_CONFIG_DIR selects the folder."
         ])
         await model.finish()
         return 0
@@ -68,7 +68,7 @@ public enum Headless {
         let view = try await host.view(
           command,
           request: ProviderRequest(
-            input: value("--input") ?? "", arguments: arguments, chosen: value("--chosen") != nil))
+            input: value("--input") ?? "", arguments: arguments, submitted: value("--submitted") != nil))
         try printJSON(view)
       } else if let input = value("--query") {
         await apps.start(watch: false)
@@ -95,7 +95,7 @@ public enum Headless {
               reason: model.strongReason ?? "no strong match")))
       } else {
         throw ExtensionFailure(
-          "Use --query TEXT, or --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--chosen]")
+          "Use --query TEXT, or --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--submitted]")
       }
       await model.finish()
       return 0

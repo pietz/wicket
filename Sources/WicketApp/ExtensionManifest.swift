@@ -14,7 +14,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let items: [Row]?
   /// Values the user fills in beside the input, sent under their names in `request.arguments`.
   let arguments: [Argument]
-  /// The command runs on Return with a chosen request, never while typing.
+  /// The command runs on Return with a submitted request, never while typing.
   let submit: Bool
   /// Values the user sets in Settings, kept in config.json and sent in every `request.settings`.
   let settings: [Argument]

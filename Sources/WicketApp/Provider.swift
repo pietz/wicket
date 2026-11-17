@@ -7,7 +7,7 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   /// Named values: those the user filled into declared arguments and those a run action set.
   let arguments: [String: String]
   /// True only on the one request the user's activation caused; reruns, refreshes and links never are.
-  let chosen: Bool
+  let submitted: Bool
   /// The user's number format, so an extension reads and writes numbers as the user does without a
   /// locale library of its own (the calculator links no Foundation, which costs 10 ms per process).
   let locale: NumberMarks
@@ -23,19 +23,19 @@ struct ProviderRequest: Codable, Sendable, Equatable {
     }
   }
   init(
-    input: String, arguments: [String: String] = [:], chosen: Bool = false, locale: NumberMarks = .current
+    input: String, arguments: [String: String] = [:], submitted: Bool = false, locale: NumberMarks = .current
   ) {
     self.input = input
     self.arguments = arguments
-    self.chosen = chosen
+    self.submitted = submitted
     self.locale = locale
   }
-  private enum CodingKeys: String, CodingKey { case input, arguments, chosen, locale, settings }
+  private enum CodingKeys: String, CodingKey { case input, arguments, submitted, locale, settings }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     input = try c.decode(String.self, forKey: .input)
     arguments = try c.decodeIfPresent([String: String].self, forKey: .arguments) ?? [:]
-    chosen = try c.decodeIfPresent(Bool.self, forKey: .chosen) ?? false
+    submitted = try c.decodeIfPresent(Bool.self, forKey: .submitted) ?? false
     locale = try c.decodeIfPresent(NumberMarks.self, forKey: .locale) ?? .current
     settings = try c.decodeIfPresent([String: String].self, forKey: .settings) ?? [:]
   }
@@ -54,10 +54,10 @@ struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
   var actions: [RowAction]
-  /// The request did what it was chosen for and the panel closes, as when the user hides it. Only an
-  /// answer to a chosen request closes; on any other the view shows as it is.
+  /// The request did what it was submitted for and the panel closes, as when the user hides it. Only an
+  /// answer to a submitted request closes; on any other the view shows as it is.
   var close: Bool
-  /// Replaces what is typed, on a chosen request's first view that carries it, unless the user edited
+  /// Replaces what is typed, on a submitted request's first view that carries it, unless the user edited
   /// the input since the request was sent (`LauncherModel.refresh`).
   var input: String?
 
@@ -158,7 +158,7 @@ struct Address: Codable, Sendable, Equatable {
   var input: String?
   var arguments: [String: String]?
   /// Spelled as a URL, or a host row that only shows what a pattern produced as such a URL would.
-  /// Following a link is never a choice, so its request is not chosen. Never on the wire.
+  /// Following a link is never a choice, so its request is not submitted. Never on the wire.
   var link = false
 
   private enum CodingKeys: String, CodingKey {
