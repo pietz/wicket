@@ -48,8 +48,8 @@ protocol Provider {
 }
 
 /// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows
-/// after the body on a page), `actions` for the header and `close`. At least one of body, items and
-/// close is present on the wire.
+/// after the body on a page), `actions` for the header, `close` and `input`. At least one of body, items
+/// and close is present on the wire.
 struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
@@ -57,15 +57,22 @@ struct ProviderView: Codable, Sendable, Equatable {
   /// The request did what it was chosen for and the panel closes, as when the user hides it. Only an
   /// answer to a chosen request closes; on any other the view shows as it is.
   var close: Bool
+  /// Replaces what is typed, on a chosen request's first view that carries it, unless the user edited
+  /// the input since the request was sent (`LauncherModel.refresh`).
+  var input: String?
 
-  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = [], close: Bool = false) {
+  init(
+    body: String? = nil, items: [Row] = [], actions: [RowAction] = [], close: Bool = false,
+    input: String? = nil
+  ) {
     self.body = body
     self.items = items
     self.actions = actions
     self.close = close
+    self.input = input
   }
 
-  private enum CodingKeys: String, CodingKey { case body, items, actions, close }
+  private enum CodingKeys: String, CodingKey { case body, items, actions, close, input }
   /// `rows` is the 0.1.0–0.1.2 spelling of `items`; installed extensions are never refreshed, so it is read too.
   private enum Legacy: String, CodingKey { case rows }
   init(from decoder: any Decoder) throws {
@@ -84,15 +91,17 @@ struct ProviderView: Codable, Sendable, Equatable {
     }
     self.init(
       body: body, items: items ?? [],
-      actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [], close: close)
+      actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [], close: close,
+      input: try c.decodeIfPresent(String.self, forKey: .input))
   }
-  /// `close` is written only when set, so a view that does not close reads as it always did.
+  /// `close` and `input` are written only when set, so a view without them reads as it always did.
   func encode(to encoder: any Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeIfPresent(body, forKey: .body)
     try c.encode(items, forKey: .items)
     try c.encode(actions, forKey: .actions)
     if close { try c.encode(true, forKey: .close) }
+    try c.encodeIfPresent(input, forKey: .input)
   }
 }
 

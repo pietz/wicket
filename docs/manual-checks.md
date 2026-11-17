@@ -131,9 +131,9 @@ Wicket has Accessibility for this section (section 10). No hotkeys are set at th
 ## 13. Shell
 
 1. Type `> ls`. One row: `ls`, Run in Shell. Nothing has run (type `> touch ~/Desktop/shell-test` and check the Desktop: no file until Return).
-2. Return on `> ls -la ~`: Shell opens with the command, `~`, its output in a code block and Exit 0.
-3. Type `cd Documents` and Return, then `pwd` and Return: the second prints `~/Documents`' full path, both commands stay above, and the page stays at its end.
-4. `for i in 1 2 3 4 5; do echo $i; sleep 1; done`: lines appear about once a second, the header spinner turns, the footer says esc Stop. Press Escape: it stops, the output so far stays with Stopped. Escape again goes back to the root.
+2. Return on `> ls -la ~`: Shell opens with the command, `~`, its output in a code block and Exit 0, and the input is empty with the caret in it.
+3. Type `cd Documents` and Return, then `pwd` and Return (no deleting first: the input empties after each): the second prints `~/Documents`' full path, both commands stay above, and the page stays at its end.
+4. `for i in 1 2 3 4 5; do echo $i; sleep 1; done`: lines appear about once a second, the header spinner turns, the footer says esc Stop. Type `echo` while it runs: the text stays. Press Escape: it stops, the output so far stays with Stopped. Escape again goes back to the root.
 5. `yes | head -n 1000`: the page shows the last 200 lines and "800 earlier lines not shown". `false` shows Exit 1 in red.
 6. Run in Terminal from Actions (and on the `> top` row's context menu): Terminal opens a window in the folder, runs the command, and leaves a shell there; Wicket closes.
 7. Copy Output copies the last command's output. Close Wicket while a command runs (`sleep 30`): it stops (no `sleep` left in Activity Monitor).

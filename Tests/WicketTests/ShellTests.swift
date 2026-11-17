@@ -187,7 +187,8 @@ private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionComm
   #expect(shown.1["body"].string == body)
 }
 
-/// Return on `> echo one` enters Shell and runs it; the next command runs below it on the same page.
+/// Return on `> echo one` enters Shell and runs it, emptying the input; the next command runs below it on
+/// the same page.
 @MainActor @Test func aFollowUpUpdatesTheShellsPageInPlace() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -202,11 +203,13 @@ private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionComm
   #expect(model.activateReturn())
   await model.settled()
   #expect(model.command?.id == "extension:shell" && model.submits && model.body?.contains("one") == true)
+  // The input is empty for the next command, as a conversation's is after sending.
+  #expect(model.input == "")
   let turn = model.pageTurn
   model.input = "echo two"
   #expect(model.activateReturn())
   await model.settled()
   #expect(model.body?.contains("```\none\n```") == true && model.body?.contains("```\ntwo\n```") == true)
-  #expect(model.pageTurn == turn)
+  #expect(model.pageTurn == turn && model.input == "")
   await model.finish()
 }

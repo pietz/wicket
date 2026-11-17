@@ -149,3 +149,39 @@ extension JSONEncoder {
     return encoder
   }
 }
+
+/// A view's `input` replaces what is typed: on a chosen request only, from its first view that carries
+/// it, never over what the user typed since sending, and without running anything in a submit command.
+@MainActor @Test func aChosenRequestsViewSetsTheInputOnce() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  func view(_ body: String, input: String) -> String {
+    String(decoding: try! JSONEncoder().encode(ProviderView(body: body, input: input)), as: UTF8.self)
+  }
+  let ext = try extensionFolder(
+    root,
+    script: "sleep 0.5\necho run >> runs\n"
+      + streaming([view("one", input: "first"), view("two", input: "second")], pause: "0.5"),
+    fields: ["submit": true])
+  let runs = {
+    (try? String(contentsOf: ext.appending(path: "runs"), encoding: .utf8))?.split(separator: "\n").count
+  }
+  let model = LauncherModel.testing(in: root)
+  await model.extensions.reload()
+  // Chosen: the first view sets it and the second does not; nothing runs again.
+  model.go(Address(id: "test"), chosen: true)
+  await model.settled()
+  #expect(model.body == "two" && model.input == "first" && runs() == 1)
+  // Not chosen: ignored.
+  model.go(Address(extensionName: ""))
+  model.go(Address(id: "test", input: "kept"))
+  await model.settled()
+  #expect(model.body == "two" && model.input == "kept")
+  // Typed while it runs: kept, and the later view does not set it either.
+  model.go(Address(id: "test"), chosen: true)
+  #expect(await eventually(within: .seconds(5)) { model.command?.busy == true })
+  model.editInput("typed")
+  await model.settled()
+  #expect(model.body == "two" && model.input == "typed")
+  await model.finish()
+}

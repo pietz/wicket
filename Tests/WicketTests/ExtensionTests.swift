@@ -32,7 +32,7 @@ func answering(_ title: String) -> String {
     actions: [
       .open(URL(string: "https://example.com")!), .copy("42"), .paste("42"),
       .run(Address(arguments: ["id": "42"]), title: "Refresh"), .agent("Explain 42"),
-    ])
+    ], input: "")
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   for json in [
     #"{"items":[{"id":"x","title":"X","actions":[]},{"id":"x","title":"X","actions":[]}]}"#,

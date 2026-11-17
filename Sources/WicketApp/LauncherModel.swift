@@ -549,6 +549,8 @@ final class LauncherModel {
       let turn = followUp ? state.turn : UUID().uuidString
       tasks.append(
         Task { [weak self] in
+          // A chosen request's first view that carries `input` sets it, once.
+          var inputSet = !request.chosen
           do {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
             // Each view replaces the last on the same page while the process runs (views over time).
@@ -564,6 +566,14 @@ final class LauncherModel {
               }
               showArrival()
               show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
+              // Never over what the user typed since sending. In a submit command it runs nothing (the
+              // next request waits for Return); in any other it reruns as typing would, so the view
+              // always answers what is typed.
+              if !inputSet, let text = view.input {
+                inputSet = true
+                if self.input == request.input, self.input != text { self.input = text }
+                guard generation == version else { return }
+              }
               // While it runs, Escape stops it and stays on this view; the last one is settled below.
               guard running else { continue }
               command?.busy = true

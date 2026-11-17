@@ -321,14 +321,15 @@ func page(_ session: Session, running: Bool, home: String = homeFolder()) -> Str
   }.joined(separator: "\n\n")
 }
 /// The page with its actions: Run in Terminal, for what is typed or else the newest command, and Copy
-/// Output for the newest command's output.
+/// Output for the newest command's output. Only chosen requests get it, so it empties the input for the
+/// next command, as a conversation's does.
 func view(_ session: Session, running: Bool) -> String {
   var actions = [#"{"type":"run","title":"Run in Terminal","arguments":{"terminal":"1"}}"#]
   if let output = session.entries.last?.output, !output.isEmpty {
     actions.append(#"{"type":"copy","title":"Copy Output","text":"# + quoted(output) + "}")
   }
-  return "{\"body\":\(quoted(page(session, running: running))),\"actions\":[" + actions.joined(separator: ",")
-    + "]}"
+  return "{\"body\":\(quoted(page(session, running: running))),\"input\":\"\",\"actions\":["
+    + actions.joined(separator: ",") + "]}"
 }
 /// What the root and links show: one row that says what Return does, and runs nothing.
 func row(_ command: String) -> String {
@@ -533,7 +534,7 @@ var session =
   ? Session(folder: home) : contents(sessionFile()).flatMap(Session.init) ?? Session(folder: home)
 if !isFolder(session.folder) { session.folder = home }
 if arguments?["terminal"] != nil {
-  // The input keeps the command it sent, which then means the newest command, in the folder it ran in.
+  // An empty input (the run emptied it) or the command just sent means the newest, in its folder.
   let newest = session.entries.last.flatMap { command.isEmpty || $0.command == command ? $0 : nil }
   if handOver(newest?.command ?? String(command), folder: newest?.folder ?? session.folder) {
     show(#"{"close":true}"#)
