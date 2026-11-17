@@ -61,7 +61,7 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 
 ### Done: a view that changes over time
 
-Parked by the owner on 12 Nov 2026, built on 17 Nov 2026 for the Shell (SPEC, Views over time): stdout may be one whole view per line, each replacing the last, the deadline applies to the first, and the process ends when its view is left, on Escape or when the panel hides. No patch events. Still open: file search on the provider path (finding 8), and background work that outlives the panel (a timer, a notification), a separate question.
+Parked by the owner on 12 Nov 2026, built on 17 Nov 2026 for the Shell (SPEC, Views over time): stdout may be one whole view per line, each replacing the last, the deadline applies to the first in an open command (to the whole run elsewhere), and the process ends when its view is left, on Escape or when the panel hides. No patch events. Still open: file search on the provider path (finding 8), and background work that outlives the panel (a timer, a notification), a separate question.
 
 ### Later: the agent as a command
 

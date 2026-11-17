@@ -55,7 +55,7 @@ Stdout that starts with `{` is read as a JSON view and fails with the decoding p
 
 ### Views over time
 
-A program may print several views, each a complete JSON view on one line, and flush after each: every line replaces the view before it as it arrives, for progress, live output or cached-then-fresh results. The 10 seconds are for the first view; then the program runs until it exits, or until the user leaves its view, presses Escape (which stops it and keeps the last view) or hides the panel, which stop the process tree. Only an open command shows views as they come; a `match` row, a hotkey and `--extension` show the last one, so make each view whole and print the final one last.
+A program may print several views, each a complete JSON view on one line, and flush after each: every line replaces the view before it as it arrives (at most every 50 ms), for progress, live output or cached-then-fresh results. In an open command the 10 seconds are for the first view; then the program runs until it exits, or until the user leaves its view, presses Escape (which stops it and keeps the last view) or hides the panel, which stop the process tree. Only an open command shows views as they come; a `match` row, a hotkey and `--extension` show the last one and still stop the program if it has not exited within the 10 seconds, so make each view whole and print the final one last.
 
 ```python
 print(json.dumps({"body": "Counting…"}), flush=True)

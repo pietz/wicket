@@ -27,7 +27,7 @@ private final class ViewLines: Sendable {
     /// Where the next line to try starts in `pending`.
     var scanned = 0
     var views = 0
-    var newest: (view: ProviderView, at: ContinuousClock.Instant)?
+    var newest: ProviderView?
     var exceeded = false
   }
   private let state = Mutex(State())
@@ -51,7 +51,7 @@ private final class ViewLines: Sendable {
         guard line.first == UInt8(ascii: "{"), line.last(where: { $0 > 32 }) == UInt8(ascii: "}"),
           let view = try? JSONDecoder().decode(ProviderView.self, from: Data(line))
         else { continue }
-        state.newest = (view, .now)
+        state.newest = view
         state.views += 1
         state.pending.removeFirst(state.scanned)
         state.scanned = 0
@@ -60,12 +60,12 @@ private final class ViewLines: Sendable {
     }
   }
   var exceeded: Bool { state.withLock { $0.exceeded } }
-  /// The newest view not handed over yet, once it is `age` old.
-  func take(_ age: Duration) -> ProviderView? {
+  var started: Bool { state.withLock { $0.views > 0 } }
+  /// The newest view not handed over yet.
+  func take() -> ProviderView? {
     state.withLock { state in
-      guard let newest = state.newest, newest.at + age <= .now else { return nil }
-      state.newest = nil
-      return newest.view
+      defer { state.newest = nil }
+      return state.newest
     }
   }
   /// The last view: what the rest of the output makes, else the newest line view, or nil when the last
@@ -73,7 +73,7 @@ private final class ViewLines: Sendable {
   func finish() throws -> ProviderView? {
     let (bytes, views, newest) = state.withLock { ($0.pending, $0.views, $0.newest) }
     let text = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-    if text.isEmpty, views > 0 { return newest?.view }
+    if text.isEmpty, views > 0 { return newest }
     guard !text.isEmpty else { throw ExtensionFailure("Extension printed nothing") }
     // A view is JSON, which starts with `{`, and a broken one stays an error. Anything else is Markdown.
     guard views > 0 || text.hasPrefix("{") else { return ProviderView(body: text) }
@@ -82,19 +82,28 @@ private final class ViewLines: Sendable {
 }
 
 struct ExtensionRunner: Sendable {
-  /// For the first view; after it the process runs until it exits or is stopped.
+  /// For the whole run, or for the first view of a request that streams.
   var deadline: Duration = .seconds(10)
   /// Per view: the bytes since the last one.
   var outputLimit = 1_048_576
   var stderrLimit = 262_144
+  /// Called on each wake of the loop that waits for the process; tests count them.
+  var woke: (@Sendable () -> Void)?
 
-  /// Runs the program for one request and hands over the views it prints as it prints them, saying
-  /// whether it still runs. A view comes over while the process runs only once it is 50 ms old (the
-  /// newest one, when several came meanwhile), so a lone view still arrives with the exit, as the last.
-  /// Returns after the last view once the process exited successfully, and throws its failure
-  /// otherwise; cancelling stops the process.
+  private enum Event {
+    case view, handover, deadline
+    case exit(Exit)
+  }
+
+  /// Runs the program for one request and hands over its last view once it exited successfully,
+  /// throwing its failure otherwise; cancelling stops the process. The whole run must end within
+  /// `deadline`, unless the request `streams` (an open command's, views over time): then the deadline
+  /// is for the first view, the process runs until it exits or is stopped, and the newest view comes
+  /// over while it runs 50 ms after the first one not handed over arrived (later ones don't delay it),
+  /// so views come at most every 50 ms however fast they are printed, and a view printed just before
+  /// the exit arrives with it, as the last (`running` false).
   func run(
-    _ command: ExtensionCommand, request: ProviderRequest,
+    _ command: ExtensionCommand, request: ProviderRequest, streams: Bool = false,
     view: @escaping @Sendable (_ view: ProviderView, _ running: Bool) -> Void
   ) async throws {
     try Task.checkCancellation()
@@ -124,11 +133,11 @@ struct ExtensionRunner: Sendable {
     let out = ViewLines(limit: outputLimit)
     let err = StderrTail(limit: stderrLimit)
     let stop: @Sendable () -> Void = { _ = tree.stop(after: .zero, grace: .milliseconds(100)) }
-    // The first view or the exit, whichever comes first, ends the deadline.
-    let (arrived, arrival) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    // One stream of events wakes the loop below: views, the exit, the deadline and a due handover.
+    let (events, event) = AsyncStream<Event>.makeStream()
     let stdout = Task {
       for await chunk in started.stdout.chunks() {
-        if out.append(chunk) { arrival.yield() }
+        if out.append(chunk) { event.yield(.view) }
         if out.exceeded {
           stop()
           break
@@ -139,18 +148,36 @@ struct ExtensionRunner: Sendable {
     tree.write(try JSONEncoder().encode(request) + Data([10]))
     tree.closeInput()
     return try await withTaskCancellationHandler {
-      let exited = Task {
-        _ = await tree.exit.value
-        arrival.yield()
+      let watchers: [Task<Void, Never>] = [
+        Task { event.yield(.exit(await tree.exit.value)) },
+        Task {
+          try? await Task.sleep(for: deadline)
+          event.yield(.deadline)
+        },
+      ]
+      var exit: Exit?
+      var handover: Task<Void, Never>?
+      wait: for await next in events {
+        woke?()
+        switch next {
+        case .exit(let ended):
+          exit = ended
+          break wait
+        case .deadline:
+          if !streams || !out.started { break wait }
+        case .view:
+          guard streams, handover == nil else { continue }
+          handover = Task {
+            try? await Task.sleep(for: .milliseconds(50))
+            event.yield(.handover)
+          }
+        case .handover:
+          handover = nil
+          guard let shown = out.take() else { continue }
+          view(shown, true)
+        }
       }
-      let first = Task { for await _ in arrived { return } }
-      let inTime = await first.value(within: deadline) != nil
-      exited.cancel()
-      // Then the process runs until it exits or is stopped, and its newest view comes over as it ages.
-      while inTime, await tree.exit.value(within: .milliseconds(25)) == nil, !Task.isCancelled {
-        if let shown = out.take(.milliseconds(50)) { view(shown, true) }
-      }
-      let exit = inTime ? await tree.exit.value : nil
+      for task in watchers + [handover].compactMap(\.self) { task.cancel() }
       _ = await tree.stop(after: .zero, grace: .milliseconds(100)).value
       await stdout.value
       await stderr.value

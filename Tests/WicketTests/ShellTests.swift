@@ -151,7 +151,8 @@ private func shellExtension(_ root: URL, temporary: URL) throws -> ExtensionComm
   let seen = Mutex<[(String, Bool)]>([])
   try await ExtensionRunner().run(
     shell,
-    request: .init(input: "echo one; sleep 1; echo two", arguments: ["session": "new"], chosen: true)
+    request: .init(input: "echo one; sleep 1; echo two", arguments: ["session": "new"], chosen: true),
+    streams: true
   ) { view, running in seen.withLock { $0.append((view.body ?? "", running)) } }
   let views = seen.withLock { $0 }
   #expect(views.contains { $0.1 && $0.0.contains("```\none\n```") && $0.0.contains("Running") })

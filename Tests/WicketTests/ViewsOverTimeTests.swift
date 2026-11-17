@@ -37,7 +37,7 @@ private func alive(_ folder: URL) -> Bool {
   var runner = ExtensionRunner()
   runner.deadline = .seconds(1)
   let seen = Mutex<[(String, Bool)]>([])
-  try await runner.run(command(ext), request: .init(input: "")) { view, running in
+  try await runner.run(command(ext), request: .init(input: ""), streams: true) { view, running in
     seen.withLock { $0.append((view.body ?? "", running)) }
   }
   // Each came while the program ran, in order, the newest when the reader fell behind, and after the
@@ -51,6 +51,48 @@ private func alive(_ folder: URL) -> Bool {
   await #expect(throws: ExtensionFailure.self) {
     try await runner.run(command(ext), request: .init(input: ""))
   }
+}
+
+/// Patterns, hotkeys and headless don't stream: a program that prints its view and hangs is stopped
+/// at the deadline, as before views over time.
+@MainActor @Test func onlyAnOpenCommandsRequestOutlivesTheDeadline() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let ext = try extensionFolder(root, script: streaming([list("one")], rest: "6"))
+  let host = ExtensionHost(folder: root, bundled: nil)
+  host.runner.deadline = .seconds(1)
+  let error = await #expect(throws: ExtensionFailure.self) {
+    try await host.view(command(ext), request: .init(input: ""))
+  }
+  // Streaming, it would have returned the view when the program exited after 6 seconds.
+  #expect(error?.message.contains("timed out") == true && !alive(ext))
+}
+
+/// Views printed faster than every 50 ms still show while the program runs, at most one per 50 ms.
+@Test func aFastStreamShowsItsNewestViewEvery50Milliseconds() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let ext = try extensionFolder(root, script: streaming((1...50).map { body("\($0)") }, pause: "0.02"))
+  let seen = Mutex<[ContinuousClock.Instant]>([])
+  try await ExtensionRunner().run(command(ext), request: .init(input: ""), streams: true) { _, running in
+    if running { seen.withLock { $0.append(.now) } }
+  }
+  let times = seen.withLock { $0 }
+  #expect(times.count >= 5)
+  #expect(zip(times, times.dropFirst()).allSatisfy { $1 - $0 >= .milliseconds(45) })
+}
+
+/// Waiting for a running program wakes only for its events: no poll piles up waiters over a long run.
+@Test func aRunningStreamWakesOnlyForItsEvents() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let ext = try extensionFolder(root, script: streaming([body("one"), body("two")], pause: "1", rest: "1"))
+  let wakes = Mutex(0)
+  var runner = ExtensionRunner()
+  runner.woke = { wakes.withLock { $0 += 1 } }
+  try await runner.run(command(ext), request: .init(input: ""), streams: true) { _, _ in }
+  // Two views, their handovers, the exit, and the deadline at most: a 25 ms poll woke 80 times.
+  #expect(wakes.withLock { $0 } <= 6)
 }
 
 /// A lone view, pretty-printed JSON and Markdown are one view each, with the exit, as before views over

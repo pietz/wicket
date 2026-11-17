@@ -141,11 +141,12 @@ final class ExtensionHost {
   }
 
   /// Every view the command prints as it prints them, and whether it still runs, the newest when they
-  /// come faster than they are read (`ExtensionRunner.run`). A command without a program answers once
-  /// from its items, and nothing runs. Ending the iteration stops the process.
-  func views(_ command: ExtensionCommand, request: ProviderRequest) -> AsyncThrowingStream<
-    (view: ProviderView, running: Bool), any Error
-  > {
+  /// come faster than they are read: an open command's request `streams` (`ExtensionRunner.run`). A
+  /// command without a program answers once from its items, and nothing runs. Ending the iteration
+  /// stops the process.
+  func views(_ command: ExtensionCommand, request: ProviderRequest, streams: Bool = true)
+    -> AsyncThrowingStream<(view: ProviderView, running: Bool), any Error>
+  {
     let (views, continuation) = AsyncThrowingStream.makeStream(
       of: (view: ProviderView, running: Bool).self, bufferingPolicy: .bufferingNewest(1))
     let id = UUID()
@@ -157,7 +158,9 @@ final class ExtensionHost {
         if command.manifest.command == nil {
           continuation.yield((ProviderView(items: command.ownItems(request.input)), false))
         } else {
-          try await runner.run(command, request: request) { continuation.yield(($0, $1)) }
+          try await runner.run(command, request: request, streams: streams) {
+            continuation.yield(($0, $1))
+          }
         }
         try Task.checkCancellation()
         continuation.finish()
@@ -168,10 +171,11 @@ final class ExtensionHost {
     continuation.onTermination = { _ in task.cancel() }
     return views
   }
-  /// The last view, for those who show only the final one: patterns, hotkeys and headless.
+  /// The last view, for those who show only the final one: patterns, hotkeys and headless. The whole
+  /// run has the deadline.
   func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
     var last: ProviderView?
-    for try await shown in views(command, request: request) { last = shown.view }
+    for try await shown in views(command, request: request, streams: false) { last = shown.view }
     try Task.checkCancellation()
     guard let last else { throw CancellationError() }
     return last
