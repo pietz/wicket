@@ -52,7 +52,7 @@ ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 # The bundled extensions, found by ExtensionHost.bundledFolder: what a user copies into their
 # extensions folder to change one.
-extensions=(calculator units window)
+extensions=(calculator units window shell)
 for name in $extensions; do
   mkdir -p "$app/Contents/Resources/Extensions/$name"
   cp "Sources/Extensions/$name/wicket.json" "Sources/Extensions/$name/main.swift" \

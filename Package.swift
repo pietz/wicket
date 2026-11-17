@@ -24,9 +24,11 @@ let package = Package(
     .executableTarget(name: "calculator", path: "Sources/Extensions/calculator", exclude: ["wicket.json"]),
     .executableTarget(name: "units", path: "Sources/Extensions/units", exclude: ["wicket.json"]),
     .executableTarget(name: "window", path: "Sources/Extensions/window", exclude: ["wicket.json"]),
-    // The window extension's geometry is tested as functions (`@testable import window`).
+    .executableTarget(name: "shell", path: "Sources/Extensions/shell", exclude: ["wicket.json"]),
+    // The window extension's geometry and the shell's output and session are tested as functions
+    // (`@testable import window`, `shell`).
     .testTarget(
-      name: "WicketTests", dependencies: ["WicketApp", "window"], resources: [.copy("Fixtures")]
+      name: "WicketTests", dependencies: ["WicketApp", "window", "shell"], resources: [.copy("Fixtures")]
     ),
   ]
 )

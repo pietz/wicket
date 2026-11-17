@@ -3,7 +3,10 @@ import Testing
 
 @testable import WicketApp
 
-func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue) {
+/// `environment` adds to the test's own, such as a `TMPDIR` of the test's for the Shell's session.
+func cli(_ folder: URL, _ arguments: [String], environment extra: [String: String] = [:]) async throws -> (
+  Int32, JSONValue
+) {
   _ = bundledExtensions  // Beside the executable, where an unbundled Wicket looks for them.
   let executable = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent().appending(path: ".build/debug/Wicket")
@@ -14,6 +17,7 @@ func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue
   p.arguments = arguments
   var environment = ProcessInfo.processInfo.environment
   environment["WICKET_CONFIG_DIR"] = folder.path
+  environment.merge(extra) { $1 }
   p.environment = environment
   p.standardInput = FileHandle.nullDevice
   p.standardOutput = output
@@ -42,7 +46,10 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   var config = Configuration()
   config.providers =
     ids
-    + (Configuration.builtins + ["extension:calculator", "extension:units", "extension:window"]).filter {
+    + (Configuration.builtins + [
+      "extension:calculator", "extension:units", "extension:window", "extension:shell",
+    ])
+    .filter {
       id in
       !ids.contains { $0.id == id }
     }.map { .init($0, enabled: false) }
