@@ -207,7 +207,9 @@ final class AnswerRenderer {
               contentWorld: .defaultClient)
             appliedCSS = cssVersion
           }
-          let html = await Task.detached { AnswerMarkdown.html(text, streaming: isStreaming) }.value
+          let code = shown.code
+          let html = await Task.detached { AnswerMarkdown.html(text, code: code, streaming: isStreaming) }
+            .value
           try Task.checkCancellation()
           let result = try await page.callJavaScript(
             script,

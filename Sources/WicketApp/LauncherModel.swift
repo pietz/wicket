@@ -104,7 +104,8 @@ final class LauncherModel {
     guard splits, let command else { return nil }
     let row = selectedRow?.row
     return (
-      Page(body: row?.detail ?? "", runs: true, picture: row?.picture), Self.previewTurn(command.id, row?.id)
+      Page(body: row?.detail ?? "", runs: true, picture: row?.picture, copies: false),
+      Self.previewTurn(command.id, row?.id)
     )
   }
   /// The pictures of the items beside the selected one, which the canvas prepares ahead of an arrow key.

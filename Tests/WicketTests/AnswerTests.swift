@@ -8,13 +8,13 @@ import Testing
     # Heading
     A **bold** answer with [a link](https://example.com).
 
-    <value label="Revenue" value="€12k" delta="+8%"/>
+    <tile label="Revenue" title="€12k" subtitle="+8%"/>
     <row label="Owner" value="Ada"/>
-    <card tone="warning">**Careful** here</card>
-    <badges><badge label="Ready"/></badges>
+    <card>**Careful** here</card>
+    <badge label="Ready"/>
     <card>## Next step
     Choose one.</card>
-    <grid><card>Left</card><card>Right</card></grid>
+    <columns><card>Left</card><card>Right</card></columns>
     <progress label="Done" value="7 of 10" percent="70"/>
     <future>Still readable</future>
 
@@ -23,13 +23,13 @@ import Testing
     | 1 | 2 |
     """
   let html = AnswerMarkdown.html(source)
-  for name in ["values", "rows", "card", "badge", "grid", "progresses", "future"] {
+  for name in ["tile", "rows", "card", "badge", "columns", "progresses", "future"] {
     #expect(html.contains("<w-" + name))
   }
   #expect(html.contains("<strong>Careful</strong>"))
   #expect(html.contains("<table>"))
   #expect(html.contains("--percent:70.0;"))
-  #expect(html.contains("data-field=\"value\">€12k</span>"))
+  #expect(html.contains("data-field=\"title\">€12k</span>"))
   #expect(html.contains("Still readable"))
 }
 
@@ -54,9 +54,9 @@ import Testing
     <img src="https://example.com/x" onerror="evil()">
     ![hidden](file:///etc/passwd)
     [script](javascript:alert%281%29) [local](file:///Applications/Calculator.app)
-    <value label='" onmouseover="evil()' value="<img src=x>" style="color:red" percent="Infinity"/>
+    <tile label='" onmouseover="evil()' title="<img src=x>" style="color:red" percent="Infinity"/>
     <progress label="safe" percent="50; background:url(https://example.com)"/>
-    [malformed](<value label="x"/>)
+    [malformed](<tile label="x"/>)
     """)
   for active in [
     "<script", "<iframe", "<style", "<img", " onmouseover=\"", " style=\"color:",
@@ -72,19 +72,19 @@ import Testing
 
 @Test func codeIsLiteralAndIncompleteTagsWaitWithoutSwallowingFollowingText() {
   let source = """
-    `<value label="literal"/>`
+    `<tile label="literal"/>`
 
     ```xml
     <card>literal too</card>
     ```
 
-    <value label="Visible" value="42"/>After
+    <tile label="Visible" title="42"/>After
     <card tone="warn
     """
   let html = AnswerMarkdown.html(source)
-  #expect(html.contains("&lt;value"))
+  #expect(html.contains("&lt;tile"))
   #expect(html.contains("&lt;card&gt;literal too"))
-  #expect(html.contains("</w-value>"))
+  #expect(html.contains("</w-tile>"))
   #expect(html.contains("After"))
   #expect(!html.contains("<w-card"))
 }
@@ -109,14 +109,14 @@ import Testing
   try AnswerRenderer.installFiles(in: folder)
   let theme = folder.appending(path: "theme.css")
   #expect(try String(contentsOf: theme, encoding: .utf8).contains("--accent"))
-  try "w-value { color: red; }".write(to: theme, atomically: true, encoding: .utf8)
+  try "w-tile { color: red; }".write(to: theme, atomically: true, encoding: .utf8)
   try AnswerRenderer.installFiles(in: folder)
   let css = try AnswerRenderer.stylesheet(in: folder)
   #expect(css.hasPrefix("@layer wicket {") && css.contains("w-progress"))
-  #expect(css.hasSuffix("}\nw-value { color: red; }"))
+  #expect(css.hasSuffix("}\nw-tile { color: red; }"))
   // One text for the agent: display rules, then where Wicket's files are, filled in for this folder.
   let instructions = AgentCLI.instructions(in: folder, environment: ["WICKET_EXECUTABLE": "/x/Wicket"])
-  #expect(instructions.contains("<value label=") && !instructions.contains("{{"))
+  #expect(instructions.contains("<tile label=") && !instructions.contains("{{"))
   #expect(!instructions.contains("additions"))
   // The canvas as the user sees it: the card's width, the answer's cap and the body at the text size.
   #expect(instructions.contains("640 points wide with 500 visible before it scrolls"))
@@ -143,26 +143,17 @@ import Testing
 @Test func repeatedTagsGroupThemselvesAndExplicitGroupsAreIgnored() {
   let html = AnswerMarkdown.html(
     """
-    <value size="large" value="42"/>
-    <value label="A" value="1"/>
-    <value label="B" value="2"/>
-
-    Between.
-
     <rows>
     <row label="Owner" value="Ada"/>
     </rows>
     <row label="9:00" title="Standup"/>
     <row title="Docs" subtitle="Example"/>
+
+    Between.
+
     <progress label="Done" percent="70"/>
+    <progress label="Left" percent="30"/>
     """)
-  // A large value stands alone; the values after it share one row.
-  #expect(html.contains(#"<w-value data-size="large""#) && !html.contains(#"<w-values><w-value data-size"#))
-  #expect(html.components(separatedBy: "<w-values>").count == 2)
-  #expect(
-    html.range(
-      of: #"<w-values><w-value[^<]*(<span[^<]*</span>)*</w-value>\s*<w-value"#, options: .regularExpression)
-      != nil)
   // Properties (a label and a value) and titled rows are separate lists.
   #expect(html.components(separatedBy: "<w-rows>").count == 3)
   #expect(html.contains(#"</w-row></w-rows>\#n<w-rows><w-row data-label="9:00""#))
@@ -170,69 +161,56 @@ import Testing
     html.contains(
       #"data-title="Standup" style=""><span data-field="label">9:00</span><span data-field="title">Standup</span></w-row><w-row"#
     ))
-  #expect(html.contains("<w-progresses><w-progress"))
+  // Bars side by side are one group.
+  #expect(html.components(separatedBy: "<w-progresses>").count == 2)
+  #expect(html.contains("</w-progress><w-progress"))
   #expect(!html.contains("rows&gt;"))
 }
 
-/// Extensions the agent wrote before the tags were named by their look still print the old names.
-@Test func oldTagNamesBecomeTheirNewTags() {
-  let old = """
-    <answer value="42" detail="The answer"/>
-    <stat label="A" value="1" delta="+1" tone="positive"/>
-    <facts><fact label="Owner" value="Ada"/></facts>
-    <event time="9:00" title="Standup" detail="Room 2"/>
-    <bars><bar label="Disk" value="70%" percent="70"/></bars>
-    <callout>Note</callout>
-    <callout tone="warning">Careful</callout>
-    <columns><column><card title="Mon">Rain</card></column><column>Sun</column></columns>
-    <item title="Docs" open="https://example.com"/>
-    """
-  let new = """
-    <value value="42" detail="The answer" size="large"/>
-    <value label="A" value="1" delta="+1" tone="positive"/>
-    <row label="Owner" value="Ada"/>
-    <row label="9:00" title="Standup" subtitle="Room 2"/>
-    <progress label="Disk" value="70%" percent="70"/>
-    <card tone="info">Note</card>
-    <card tone="warning">Careful</card>
-    <grid><cell><card title="Mon">Rain</card></cell><cell>Sun</cell></grid>
-    <row title="Docs" open="https://example.com"/>
-    """
-  func html(_ body: String) -> String {
-    // Ids are random per render; the markup around them is what is compared.
-    AnswerMarkdown.html(Page(body: body, runs: false).source)
-  }
-  #expect(html(old) == html(new))
-  #expect(html(old).contains(#"<w-row data-label="9:00" data-title="Standup" data-subtitle="Room 2""#))
-  // The page reads an old item as a row: a target where it stands.
-  #expect(Page(body: old, runs: false).targets.map(\.title) == ["Docs"])
-  #expect(Page(body: old, runs: false).source.hasSuffix(##"<row target="#0" title="Docs" icon="link"/>"##))
-}
-
-/// A row written straight into a grid is a tile in a cell of its own, which may hold a detail, as an
-/// old item in a column did; rows elsewhere still form one list.
-@Test func aRowInAGridIsATileOfItsOwn() {
+/// The tags this language replaced are unknown tags now, with no compatibility: their text shows and
+/// nothing they named to do exists. A card keeps only its icon.
+@Test func replacedTagsAreUnknownTags() {
   let body = """
-    <grid><row title="Mon" icon="cloud.rain" subtitle="12° 7°">Rain all day</row><row title="Tue" subtitle="15°"/></grid>
-    <row title="Wed"/>
-    <row title="Thu"/>
+    <value label="Revenue" value="€12k" size="large"/>
+    <grid><item title="Docs" open="https://example.com"/></grid>
+    <card title="Berlin" tone="warning" icon="cloud" open="https://example.com">Rain</card>
+    <row title="Late" value="10 min" tone="negative"/>
     """
   let page = Page(body: body, runs: false)
-  #expect(page.targets.map(\.title) == ["Mon"])
+  #expect(page.targets.isEmpty)
+  #expect(page.source.contains(#"<card icon="cloud">Rain</card>"#))
+  #expect(page.source.contains(#"<row title="Late" value="10 min"/>"#))
   let html = AnswerMarkdown.html(page.source)
-  #expect(html.components(separatedBy: "<w-cell><w-rows><w-row").count == 3)
-  #expect(html.components(separatedBy: "<w-rows>").count == 4)
-  #expect(html.contains(#"<w-row data-title="Wed""#) && html.contains(#"</w-row><w-row data-title="Thu""#))
-  // Written straight to the renderer, with its content, a row in a grid is a cell too.
   #expect(
-    AnswerMarkdown.html("<grid><row title=\"Mon\">Rain</row></grid>").contains("<w-cell><w-rows><w-row"))
+    html.contains(#"<span data-field="label">Revenue</span><span data-field="value">€12k</span>"#)
+      && !html.contains("<w-values"))
+  #expect(
+    html.contains("<w-grid") && html.contains(#"<w-item data-title="Docs""#) && !html.contains("w-cell"))
 }
 
-/// Lines inside a card, grid or cell keep their breaks (a day's high, low and sky); prose elsewhere and
+/// A tile is an item: its content is its detail, so it is a target where it stands, and a row is never a
+/// tile, in columns or not.
+@Test func aTileIsAnItemAndARowIsNeverATile() {
+  let body = """
+    <columns><tile label="Mon" title="12° 7°" icon="cloud.rain">Rain all day</tile><tile label="Tue" title="15°"/><row title="Wed"/></columns>
+    <row title="Thu"/>
+    <row title="Fri"/>
+    """
+  let page = Page(body: body, runs: false)
+  #expect(page.targets.map(\.title) == ["12° 7°"] && page.targets[0].icon == "cloud.rain")
+  #expect(page.targets[0].actions == [RowAction(.detail("## 12° 7°\n\nRain all day"))])
+  #expect(page.source.contains(##"<tile target="#0" label="Mon" title="12° 7°" icon="cloud.rain"/>"##))
+  let html = AnswerMarkdown.html(page.source)
+  #expect(html.contains(##"<w-columns style="">"##) && html.contains(##"<w-tile data-target="#0""##))
+  #expect(html.components(separatedBy: "<w-rows>").count == 3 && !html.contains("w-cell"))
+  #expect(html.contains(#"<w-row data-title="Thu""#) && html.contains(#"</w-row><w-row data-title="Fri""#))
+}
+
+/// Lines inside a card or columns keep their breaks (a day's high, low and sky); prose elsewhere and
 /// code inside a card do not change.
 @Test func linesInsideABoxKeepTheirBreaks() {
   let html = AnswerMarkdown.html(
-    "One\ntwo\n\n<card title=\"Mon\">\n12°\n7°\n\n```\na\nb\n```\n</card>\n\n<grid>\nTue\nSun\n</grid>\nThree\nfour"
+    "One\ntwo\n\n<card>\n12°\n7°\n\n```\na\nb\n```\n</card>\n\n<columns>\nTue\nSun\n</columns>\nThree\nfour"
   )
   #expect(html.contains("<p>One\ntwo</p>") && html.contains("<p>Three\nfour</p>"))
   #expect(html.contains("<p>12°<br />\n7°</p>") && html.contains("<p>Tue<br />\nSun</p>"))
@@ -276,7 +254,7 @@ import Testing
     folder, name: "demo", script: "cat >/dev/null\ncat view.json", fields: ["keyword": "demo"])
   let view = ProviderView(
     body:
-      "## A useful extension\n<value label=\"Total\" value=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>"
+      "## A useful extension\n<row label=\"Total\" value=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>"
   )
   try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
   let model = LauncherModel.testing(in: folder)

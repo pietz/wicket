@@ -241,8 +241,8 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     let folder = try extensionFolder(root, name: "plain", script: script)
     return try await ExtensionRunner().run(command(folder), request: .init(input: ""))
   }
-  let markdown = try await run("printf '## Done\\n<value label=\"Total\" value=\"42\"/>\\n'")
-  #expect(markdown.body == "## Done\n<value label=\"Total\" value=\"42\"/>" && markdown.items.isEmpty)
+  let markdown = try await run("printf '## Done\\n<row label=\"Total\" value=\"42\"/>\\n'")
+  #expect(markdown.body == "## Done\n<row label=\"Total\" value=\"42\"/>" && markdown.items.isEmpty)
   // Its row tags stay where they stand; the page reads them as an extension's own.
   let tagged = try await run(
     "printf 'See <row title=\"Docs\" open=\"https://example.com\"/>'")

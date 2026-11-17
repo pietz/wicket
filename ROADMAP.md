@@ -13,11 +13,19 @@ Done on the way: stable signing. Wicket Dev signs with the Apple Development ide
 Owner feedback from the first real use of 0.1.1 (11 Nov 2026). Works well: follow-ups, permissions, voice (the first word is caught), result ranking. Needs work:
 
 - **The UI looks bland, not modern.** The whole panel should feel like current macOS: native Liquid Glass, not flat surfaces. A design pass over the panel, the answer card, Previous questions and the permission card. The panel surfaces are done (The macOS 27 glass look, below).
-- **Answers look worse than 0.0.x.** Decided: keep the one WebKit renderer and fix the language, prompt and theme. Done: the page warms when the panel opens, the bundled theme uses native type and tone colors, the instructions describe each component's use and look, and the owner's `theme.css` and `instructions.md` layer over bundled defaults that update with the app. Step 1 of the new look is in: the owner-approved mock's rhythm, type, split tones, stats without boxes, one card surface and hugging tables for today's tags, a secondary question header, and restraint rules in the instructions. Next: the vocabulary (which tags exist) and selectable things on the page, then compare prompt variants with the live agent test on about 15 real questions, rendered offscreen, and judge on the real glass panel.
+- **Answers look worse than 0.0.x.** Decided: keep the one WebKit renderer and fix the language, prompt and theme. Done: the page warms when the panel opens, the bundled theme uses native type and tone colors, the instructions describe each component's use and look, and the owner's `theme.css` and `instructions.md` layer over bundled defaults that update with the app. Step 1 of the new look is in: the owner-approved mock's rhythm, type, one card surface and hugging tables, a secondary question header, and selectable things on the page. The vocabulary is in too (Next: answer language, below). Next: compare prompt variants with the live agent test on about 15 real questions, rendered offscreen, and judge on the real glass panel.
 - **Previous questions UI is questionable.** Rethink how earlier questions and answers are shown in a conversation.
 - **Permission card looks plain and offers only Allow once and Don't allow.** Add a third choice, allow for the rest of this conversation (Claude's session-scoped permission updates, Codex's accept for session), and restyle the card.
 - **Claude answers feel slow.** Measure with `agent.log` where the time goes (process start and MCP servers versus first token). Candidates: start the CLI while the user is still typing a question, and a lean agent profile with fewer MCP servers.
 - **Activity while the agent works.** The spinner with the current tool name is fine for now; make it more informative without noise.
+
+## Next: answer language
+
+Stage one is built (17 Nov 2026, SPEC, Rich answers): every tag an item or a container, `tile` and `columns` in, `value` and `grid` out, `tone` only on badges, `#` for the answer, a copy button on code blocks and Markdown-first instructions. The next stages, each a tag of the same kind:
+
+- **`field`**, an item for input: types `text`, `long`, `number`, `date` and `toggle`, and `options` makes a dropdown; a `run` or `ask` action on the page carries the fields' values (`run` as arguments, `ask` in its text). To settle first: how a field keeps its identity and value across updates and streaming, and what Return means while one has focus.
+- **`chart`**, an item drawn by Wicket from validated numbers, never by the model: `type` line or bar, `x` and `y` values and a `unit`, in theme colors as SVG. It replaces the older Charts idea under Next features.
+- **Markdown images**, local files only, drawn by the host as the page's icons and pictures are; remote images need a policy first (what may load, when, and how it is shown as remote).
 
 ## Next: one-to-one contracts
 
@@ -34,9 +42,9 @@ From [the concept review](docs/research/concept-review.md) of 12 Nov 2026. Built
 Today a component is described in four files (the stylesheet, the agent instructions, the extension contract, the theme template), Swift knows which tags group and that `badge` is inline, and a component the owner adds in `theme.css` is unknown to the agent. The direction: one file per component, as an extension is one folder.
 
 ```css
-/* value: a value under a small grey label. Consecutive values share a row.
-   <value label="Monthly cost" value="€24" delta="−€6" tone="positive"/> */
-w-value { … }
+/* tile: a boxed item, for a few things compared side by side.
+   <tile label="Monthly" icon="calendar" title="€24" subtitle="€288 a year"/> */
+w-tile { … }
 ```
 
 - **One source.** `components/<name>.css` in the bundle, and the same folder in the Wicket folder, whose files add components or replace bundled ones by name. The leading comment is the registration: the name, when to use it and one line of syntax. Wicket builds the Components part of the agent instructions and the Body tags part of the extension contract from these comments, so a new component is known to the agent and to extension authors the moment its file is saved.
@@ -49,13 +57,13 @@ To settle in a design session: the comment's exact form; whether an owner's file
 
 ### Why answers look worse than 0.0.x
 
-The review traced it to the prompt and missing pictures, not the renderer (finding 4). The instructions now open with the agent's role and the canvas as a screen of a given size (14 Nov 2026, SPEC, Instructions); over eight Sonnet questions forecasts became tiles with details and nothing narrated, without a composite example. Icons on rows and cards came with the six tags (after 0.3.0). Still open, three levers (17 Nov 2026): restraint rules in the agent instructions, checked against section 9 of [the Intelligent UI research](docs/research/openai-intelligent-ui.md); a fixed set of questions (the same eight, also with Codex) rendered with `replyCapture` and judged; and the missing components and controls: a chart (pictures as above), steps, tabs or a dropdown filter, a form (Interactive answers), a richer inline root row (Richer root rows) and a row of values that wraps.
+The review traced it to the prompt and missing pictures, not the renderer (finding 4). The instructions now open with the agent's role and the canvas as a screen of a given size (14 Nov 2026, SPEC, Instructions); over eight Sonnet questions forecasts became tiles with details and nothing narrated, without a composite example. Icons on rows and cards came with the six tags (after 0.3.0); Markdown-first restraint and items and containers with stage one of the answer language (17 Nov 2026). Still open: a fixed set of questions (the same eight, also with Codex) rendered with `replyCapture` and judged; and the missing components and controls: fields and a chart (Next: answer language), steps, tabs, a richer inline root row (Richer root rows).
 
 ### Smaller contract steps
 
 - **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. Closing came first on its own (16 Nov 2026): `{"close":true}` on the answer to a submitted request closes the panel with no notice, which the window commands use, since the moving window is the feedback. What is left is the brief notice, for an effect nothing on screen shows.
 - **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). `label` and `value` on a row came with the six tags (after 0.3.0), which made facts and events rows. Still open: a table row as a target.
-- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10). The one exception is the old tag names: an old tag never fails, so no repair row would ever bring the agent to it, and the parser maps them (SPEC, Rich answers).
+- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10). Old tag names are not mapped either (17 Nov 2026): an old tag shows its text, which is how the owner or the agent notices it.
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or hide Ask agent (finding 1).
 - View `actions` without a body; lossless paste for extensions; a URL that fills declared arguments, with bindings.
 
@@ -77,7 +85,7 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 4. **Finder selection as agent context** ("summarize these"). Needs an Apple events permission and entitlement, which 0.1 deliberately does not request until the feature exists.
 5. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
 6. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history and Fix with Agent came with it.
-7. **Charts in answers.** The agent describes the data (kind, labels, values) in a tag and Wicket draws it, so the model never designs the chart: bar, line and maybe donut, in theme colors, as SVG built by Wicket from validated numbers, never by the model. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines.
+7. Then, only where real answers show a gap: steps, keyboard shortcuts, collapsible sections, sparklines (charts: Next: answer language).
 8. **Bindings:** config entries that attach an address to a short alias or a favourite in the empty panel, writable by the agent. Global hotkeys for any address are built (`hotkeys`, SPEC Config and Hotkeys for commands); what is left of them: apps and quicklinks (an item whose action is `open`) as targets. Settings ▸ Extensions lists and records them per extension, and a background run whose view does not close the panel shows it (16 Nov 2026).
 9. **Sample extensions** of 0.0.x (weather-style gallery, GitHub PRs, quit apps, slugify, system toggles) rebuilt for the new contract, or left to the agent.
 

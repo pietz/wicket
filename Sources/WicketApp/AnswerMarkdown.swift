@@ -3,7 +3,7 @@ import Synchronization
 import cmark_gfm
 import cmark_gfm_extensions
 
-/// cmark owns Markdown; all component names become inert w- elements, never HTML elements.
+/// cmark owns Markdown; every tag becomes an inert w- element, never an HTML element.
 enum AnswerMarkdown {
   private static let lock = Mutex(())
   static let tags = try! NSRegularExpression(
@@ -14,7 +14,28 @@ enum AnswerMarkdown {
     value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
       .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
   }
-  static func codeRanges(_ source: String) -> [Range<Int>] {
+  /// A fenced code block: where it starts (a UTF-8 offset), its text without the final line break, and
+  /// whether its closing fence has arrived.
+  struct Block {
+    let start: Int
+    let text: String
+    let closed: Bool
+  }
+  /// Where code is (UTF-8 offsets, for LF, CRLF and bare CR), so tags in it stay text, and the fenced
+  /// blocks among it as the renderer will read them: with each tag on a line of its own, since a tag line
+  /// written straight above a fence would otherwise hold the fence in an HTML block.
+  static func code(_ source: String) -> (ranges: [Range<Int>], blocks: [Block]) {
+    let ranges = parse(source).ranges
+    guard source.contains("```") || source.contains("~~~") else { return (ranges, []) }
+    let normalized = normalize(source, protected: ranges, nonce: "WICKET")
+    let blocks = parse(normalized.text).blocks.map { block in
+      let span = normalized.spans.last { $0.normalized <= block.start } ?? (0, 0)
+      return Block(
+        start: span.original + block.start - span.normalized, text: block.text, closed: block.closed)
+    }
+    return (ranges, blocks)
+  }
+  private static func parse(_ source: String) -> (ranges: [Range<Int>], blocks: [Block]) {
     var offsets = [0]
     let bytes = Array(source.utf8)
     for (i, byte) in bytes.enumerated()
@@ -24,39 +45,67 @@ enum AnswerMarkdown {
     let iter = cmark_iter_new(doc)!
     defer { cmark_iter_free(iter) }
     var ranges: [Range<Int>] = []
+    var blocks: [Block] = []
     while cmark_iter_next(iter) != CMARK_EVENT_DONE {
       let node = cmark_iter_get_node(iter)!
-      let type = cmark_node_get_type(cmark_iter_get_node(iter)!)
-      if type == CMARK_NODE_CODE || type == CMARK_NODE_CODE_BLOCK {
-        let start =
-          offsets[max(0, Int(cmark_node_get_start_line(node)) - 1)]
-          + max(0, Int(cmark_node_get_start_column(node)) - 1)
-        let end =
-          offsets[max(0, Int(cmark_node_get_end_line(node)) - 1)] + Int(cmark_node_get_end_column(node))
-        if end > start, ranges.last != start..<end { ranges.append(start..<end) }
-      }
+      let type = cmark_node_get_type(node)
+      guard type == CMARK_NODE_CODE || type == CMARK_NODE_CODE_BLOCK else { continue }
+      let first = max(0, Int(cmark_node_get_start_line(node)) - 1)
+      let last = max(0, Int(cmark_node_get_end_line(node)) - 1)
+      let start = offsets[first] + max(0, Int(cmark_node_get_start_column(node)) - 1)
+      let end = offsets[last] + Int(cmark_node_get_end_column(node))
+      if end > start, ranges.last != start..<end { ranges.append(start..<end) }
+      var length: Int32 = 0
+      var indent: Int32 = 0
+      var character: CChar = 0
+      guard type == CMARK_NODE_CODE_BLOCK, cmark_node_get_fenced(node, &length, &indent, &character) == 1
+      else { continue }
+      // Closed when its last line is a fence of at least the opening's length, after any container
+      // markers; while a reply streams, an open block ends on a line of its content.
+      let line = String(
+        decoding: bytes[offsets[last]..<(last + 1 < offsets.count ? offsets[last + 1] : bytes.count)],
+        as: UTF8.self
+      ).trimmingCharacters(in: .whitespacesAndNewlines)
+      let fence = Character(Unicode.Scalar(UInt8(bitPattern: character)))
+      let run = line.reversed().prefix { $0 == fence }.count
+      let closed =
+        last > first && run >= length && line.dropLast(run).allSatisfy { $0 == " " || $0 == ">" }
+      blocks.append(Block(start: start, text: literal(node), closed: closed))
     }
-    return ranges
+    return (ranges, blocks)
   }
-  static func html(_ input: String, streaming: Bool = false) -> String {
-    lock.withLock { _ in render(input, streaming: streaming) }
+  /// A code block's text without its final line break, which would run a pasted command at once.
+  private static func literal(_ node: UnsafeMutablePointer<cmark_node>) -> String {
+    let text = String(cString: cmark_node_get_literal(node))
+    return text.hasSuffix("\n") ? String(text.dropLast()) : text
   }
-  private static func render(_ input: String, streaming: Bool) -> String {
-    let protected = codeRanges(input)
-    var source = input
-    if streaming, let less = source.lastIndex(of: "<"), !source[less...].contains(">"),
-      !protected.contains(where: { $0.contains(source[..<less].utf8.count) })
-    {
-      source = String(source[..<less])
-    }
-    let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    let bytes = Array(source.utf8)
+  /// The page as HTML. `code` names the fenced blocks that get a copy button, in order (`Page.code`).
+  static func html(_ input: String, code: [Page.Code] = [], streaming: Bool = false) -> String {
+    lock.withLock { _ in render(input, code: code, streaming: streaming) }
+  }
+
+  /// The source as cmark reads it: each tag outside code is a placeholder token, a paragraph of its own
+  /// unless it is an inline badge, and `spans` says where each kept stretch of the source landed.
+  private struct Normalized {
+    var text = ""
     var tokens: [String: String] = [:]
-    /// The tokens that open (+1) or close (−1) a card, grid or cell, whose lines keep their breaks.
+    /// The tokens that open (+1) or close (−1) a card or columns, whose lines keep their breaks.
     var boxes: [String: Int] = [:]
-    /// The open containers, so a row written straight into a grid gets a cell of its own: a tile.
-    var open: [String] = []
-    var pieces: [String] = []
+    var spans: [(normalized: Int, original: Int)] = []
+  }
+  private static func normalize(_ source: String, protected: [Range<Int>], nonce: String) -> Normalized {
+    let bytes = Array(source.utf8)
+    var result = Normalized()
+    var length = 0
+    func keep(_ range: Range<Int>) {
+      result.spans.append((length, range.lowerBound))
+      result.text += String(decoding: bytes[range], as: UTF8.self)
+      length += range.count
+    }
+    func add(_ text: String) {
+      result.text += text
+      length += text.utf8.count
+    }
     var cursor = 0
     var i = 0
     var code = 0
@@ -94,23 +143,20 @@ enum AnswerMarkdown {
         i += 1
         continue
       }
-      let written = ns.substring(with: match.range(at: 1))
-      guard !written.hasPrefix("w-") else {
+      let name = ns.substring(with: match.range(at: 1))
+      guard !name.hasPrefix("w-") else {
         i = end + 1
         continue
       }
+      keep(cursor..<i)
+      cursor = end + 1
+      i = cursor
       // Wicket groups repeated tags itself; an explicit group tag adds nothing.
-      if wrappers.contains(written) {
-        pieces.append(String(decoding: bytes[cursor..<i], as: UTF8.self))
-        cursor = end + 1
-        i = cursor
-        continue
-      }
-      let (name, values) = canonical(written, Self.values(original))
+      if wrappers.contains(name) { continue }
       var attrs = ""
       var fields = ""
       var numbers = ""
-      for (key, value) in values {
+      for (key, value) in values(original) {
         attrs += " data-\(key)=\"\(escape(value))\""
         // A target's id is for the bridge, not text.
         if key != "target" { fields += "<span data-field=\"\(key)\">\(escape(value))</span>" }
@@ -120,45 +166,52 @@ enum AnswerMarkdown {
       }
       let closing = original.hasPrefix("</")
       let selfClosing = original.hasSuffix("/>")
-      var tile = false
-      if closing, let last = open.lastIndex(of: name) {
-        open.removeSubrange(last...)
-        tile = name == "row" && open.last == "grid"
-      } else if !closing {
-        tile = name == "row" && open.last == "grid"
-        if !selfClosing, ["grid", "card", "cell", "row"].contains(name) { open.append(name) }
-      }
-      var markup =
+      let key = nonce + "T\(result.tokens.count)END"
+      result.tokens[key] =
         closing
         ? "</w-\(name)>"
         : "<w-\(name)\(attrs) style=\"\(numbers)\">" + (selfClosing ? fields + "</w-\(name)>" : "")
-      if tile {
-        markup = closing ? markup + "</w-cell>" : "<w-cell>" + markup + (selfClosing ? "</w-cell>" : "")
-      }
+      if !selfClosing, ["card", "columns"].contains(name) { result.boxes[key] = closing ? -1 : 1 }
+      add(name == "badge" ? key : "\n\n\(key)\n\n")
+    }
+    keep(cursor..<bytes.count)
+    return result
+  }
+
+  private static func render(_ input: String, code: [Page.Code], streaming: Bool) -> String {
+    let protected = parse(input).ranges
+    var source = input
+    if streaming, let less = source.lastIndex(of: "<"), !source[less...].contains(">"),
+      !protected.contains(where: { $0.contains(source[..<less].utf8.count) })
+    {
+      source = String(source[..<less])
+    }
+    let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    let normalized = normalize(source, protected: protected, nonce: nonce)
+    var tokens = normalized.tokens
+    let boxes = normalized.boxes
+    /// A placeholder for markup, which cmark keeps as text and which is restored after it rendered.
+    func token(_ markup: String) -> String {
       let key = nonce + "T\(tokens.count)END"
       tokens[key] = markup
-      if !selfClosing, ["grid", "card", "cell"].contains(name) { boxes[key] = closing ? -1 : 1 }
-      pieces.append(String(decoding: bytes[cursor..<i], as: UTF8.self))
-      pieces.append(name == "badge" ? key : "\n\n\(key)\n\n")
-      cursor = end + 1
-      i = cursor
+      return key
     }
-    pieces.append(String(decoding: bytes[cursor...], as: UTF8.self))
-    let normalized = pieces.joined()
     cmark_gfm_core_extensions_ensure_registered()
     let parser = cmark_parser_new(CMARK_OPT_DEFAULT)!
     cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("table"))
-    normalized.withCString { cmark_parser_feed(parser, $0, normalized.utf8.count) }
+    normalized.text.withCString { cmark_parser_feed(parser, $0, normalized.text.utf8.count) }
     let root = cmark_parser_finish(parser)!
     defer {
       cmark_node_free(root)
       cmark_parser_free(parser)
     }
     let iterator = cmark_iter_new(root)!
-    // Inside a card, grid or cell each line is its own (a day's high, low and sky), so a soft break
-    // there is a hard one. Tokens of containers stand alone as paragraphs, in reading order.
+    // Inside a card or columns each line is its own (a day's high, low and sky), so a soft break there
+    // is a hard one. Tokens of containers stand alone as paragraphs, in reading order.
     var depth = 0
     var breaks: [UnsafeMutablePointer<cmark_node>] = []
+    var copies = code[...]
+    var copied: [(node: UnsafeMutablePointer<cmark_node>, id: String)] = []
     while cmark_iter_next(iterator) != CMARK_EVENT_DONE {
       guard cmark_iter_get_event_type(iterator) == CMARK_EVENT_ENTER, let node = cmark_iter_get_node(iterator)
       else { continue }
@@ -174,11 +227,34 @@ enum AnswerMarkdown {
         depth += box
       }
       if type == CMARK_NODE_SOFTBREAK, depth > 0 { breaks.append(node) }
+      // The page's code targets, matched in order by their text.
+      if type == CMARK_NODE_CODE_BLOCK, let next = copies.first, literal(node) == next.text {
+        copied.append((node, next.id))
+        copies.removeFirst()
+      }
     }
     cmark_iter_free(iterator)
     for soft in breaks {
       cmark_node_insert_before(soft, cmark_node_new(CMARK_NODE_LINEBREAK))
       cmark_node_free(soft)
+    }
+    /// A paragraph holding only a token, which the paragraph rule below unwraps.
+    func paragraph(_ markup: String) -> UnsafeMutablePointer<cmark_node> {
+      let paragraph = cmark_node_new(CMARK_NODE_PARAGRAPH)!
+      let text = cmark_node_new(CMARK_NODE_TEXT)!
+      cmark_node_set_literal(text, token(markup))
+      cmark_node_append_child(paragraph, text)
+      return paragraph
+    }
+    // A code target is the block in a box with the copy button, which only the host writes: an author's
+    // tags all become w- elements, so no tag can make a div or a button.
+    for (node, id) in copied {
+      cmark_node_insert_before(
+        node,
+        paragraph(
+          "<div data-target=\"\(escape(id))\" data-icon=\"doc.on.doc\"><button aria-label=\"Copy code\"></button>"
+        ))
+      cmark_node_insert_after(node, paragraph("</div>"))
     }
     let rendered = cmark_render_html(root, CMARK_OPT_DEFAULT, cmark_parser_get_syntax_extensions(parser))!
     defer { free(rendered) }
@@ -190,8 +266,8 @@ enum AnswerMarkdown {
       in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
     let ns = result as NSString
     let positions = try! NSRegularExpression(pattern: "<[^>]*>|" + token)
-    pieces = []
-    cursor = 0
+    var pieces: [String] = []
+    var cursor = 0
     // Restore text positions only, never tokens inside an HTML attribute produced by cmark.
     for match in positions.matches(in: result, range: NSRange(location: 0, length: ns.length)) {
       guard let html = tokens[ns.substring(with: match.range)] else { continue }
@@ -211,30 +287,16 @@ enum AnswerMarkdown {
     }
   }
 
-  /// The tag names from before they were named by their look (0.3.0 and before). Extensions an agent wrote then
-  /// still print them, so they keep their look; the instructions never teach them. Each becomes its new
-  /// tag, with attributes renamed and others added where missing; a `column` is a bare cell of a grid.
-  static let aliases: [String: (name: String, renamed: [String: String], added: [(String, String)])] = [
-    "answer": ("value", [:], [("size", "large")]), "stat": ("value", [:], []),
-    "fact": ("row", [:], []), "event": ("row", ["time": "label", "detail": "subtitle"], []),
-    "item": ("row", [:], []), "bar": ("progress", [:], []), "callout": ("card", [:], [("tone", "info")]),
-    "columns": ("grid", [:], []), "column": ("cell", [:], []),
-  ]
   /// The tags a run of which Wicket groups, and the element that holds the run.
-  static let groups = ["value": "values", "row": "rows", "progress": "progresses"]
-  /// Group elements, today's and the old ones: Wicket writes them, so a written one is dropped.
-  static let wrappers = Set(groups.values).union(["stats", "facts", "bars", "timeline", "items"])
-  static func canonical(_ name: String, _ values: [(String, String)]) -> (String, [(String, String)]) {
-    guard let alias = aliases[name] else { return (name, values) }
-    let renamed = values.map { (alias.renamed[$0.0] ?? $0.0, $0.1) }
-    return (alias.name, renamed + alias.added.filter { key, _ in !renamed.contains { $0.0 == key } })
-  }
+  static let groups = ["row": "rows", "progress": "progresses"]
+  /// Group elements: Wicket writes them, so a written one is dropped.
+  static let wrappers = Set(groups.values)
 
-  /// One value, row or progress tag; a run of the same kind is one group. A large value stands alone,
-  /// and rows without a title (properties, a label and a value) never join a list of titled rows, so
-  /// an extension's properties stay quiet above the JSON items that follow them.
+  /// One row or progress tag; a run of the same kind is one group. Rows without a title (properties, a
+  /// label and a value) never join a list of titled rows, so an extension's properties stay apart from
+  /// the JSON items that follow them.
   private static let groupable = try! NSRegularExpression(
-    pattern: #"<w-(value|row|progress)\b([^>]*)>(?:(?!</w-\1>).)*</w-\1>\s*"#,
+    pattern: #"<w-(row|progress)\b([^>]*)>(?:(?!</w-\1>).)*</w-\1>\s*"#,
     options: .dotMatchesLineSeparators)
   /// Wraps each run of adjacent tags of one kind in its group element.
   private static func group(_ html: String) -> String {
@@ -253,14 +315,13 @@ enum AnswerMarkdown {
     for match in groupable.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
       let kind = ns.substring(with: match.range(at: 1))
       let attributes = ns.substring(with: match.range(at: 2))
-      let alone = kind == "value" && attributes.contains(#"data-size="large""#)
       let key = kind == "row" && !attributes.contains("data-title=") ? "property" : kind
-      if let current = run, current.key == key, NSMaxRange(current.range) == match.range.location, !alone {
+      if let current = run, current.key == key, NSMaxRange(current.range) == match.range.location {
         run = (kind, key, NSUnionRange(current.range, match.range))
         continue
       }
       close()
-      if !alone { run = (kind, key, match.range) }
+      run = (kind, key, match.range)
     }
     close()
     pieces.append(ns.substring(from: cursor))

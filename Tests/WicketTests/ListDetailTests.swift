@@ -76,7 +76,7 @@ import Testing
       Row(id: "wed", title: "Wednesday", actions: [.copy("wed")]),
     ])
   let page = Page(body: try #require(view.body), items: view.items, runs: true)
-  #expect(page.targets[0].actions == [RowAction(.detail("# Tuesday\n\nRain all day")), .copy("tue")])
+  #expect(page.targets[0].actions == [RowAction(.detail("## Tuesday\n\nRain all day")), .copy("tue")])
   #expect(page.targets[1].actions == [.copy("wed")])
   // The decoded item carries it; the encoded one too, so the agent's context sees it.
   let json = #"{"id":"a","title":"A","actions":[],"detail":"**Bold**"}"#

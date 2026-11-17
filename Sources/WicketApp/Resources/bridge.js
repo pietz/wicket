@@ -2,6 +2,8 @@
 // Arguments: html (null only paints the selection), reset, turn, selected, icons (null: unchanged),
 // restore (where a page that comes back was scrolled).
 const scrolling = document.scrollingElement;
+// Targets: items the page canonicalized, and the host's boxes around code, which copy by their button.
+const targets = 'w-row[data-target], w-tile[data-target], div[data-target]';
 // The selected target is marked where it stands; the host owns which one it is. Only an arrow key
 // scrolls, and just enough to show it.
 function paint(scroll) {
@@ -10,7 +12,7 @@ function paint(scroll) {
     old.removeAttribute('aria-current');
   }
   const target = selected === null ? null
-    : [...document.querySelectorAll('w-row[data-target], w-card[data-target]')].find(t => t.dataset.target === selected);
+    : [...document.querySelectorAll(targets)].find(t => t.dataset.target === selected);
   if (!target) return;
   target.setAttribute('data-selected', '');
   target.setAttribute('aria-current', 'true');
@@ -19,13 +21,14 @@ function paint(scroll) {
 globalThis.selected = selected;
 if (html === null) { paint(true); return {}; }
 // A click on a target goes to the host with the page's turn, so a click on a page that has since been
-// replaced is ignored there. A link keeps its own click, and a drag that selected text is no click.
+// replaced is ignored there. A link keeps its own click, a drag that selected text is no click, and code
+// copies only from its button, so a click in it can still place the caret for selecting.
 if (!globalThis.listening) {
   globalThis.listening = true;
   document.addEventListener('click', event => {
     if (event.button !== 0 || event.target.closest('a') || !getSelection().isCollapsed) return;
-    const target = event.target.closest('w-row[data-target], w-card[data-target]');
-    if (target) webkit.messageHandlers.target.postMessage({id: target.dataset.target, turn: globalThis.turn});
+    const target = event.target.closest(targets);
+    if (target && (target.localName !== 'div' || event.target.closest('button'))) webkit.messageHandlers.target.postMessage({id: target.dataset.target, turn: globalThis.turn});
   });
 }
 // Patch unchanged nodes in place, preserving focus and selections in stable paragraphs.
@@ -53,7 +56,7 @@ const following = scrolling.scrollHeight - scrolling.scrollTop - innerHeight < 2
 if (icons !== null) document.querySelector('#icons').textContent = icons;
 const template = document.createElement('template'); template.innerHTML = html;
 const next = document.createElement('main'); next.append(template.content);
-for (const target of next.querySelectorAll('w-row[data-target], w-card[data-target]')) target.setAttribute('role', 'button');
+for (const target of next.querySelectorAll('w-row[data-target], w-tile[data-target]')) target.setAttribute('role', 'button');
 patch(root, next);
 globalThis.turn = turn;
 paint(false);

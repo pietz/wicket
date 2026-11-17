@@ -128,7 +128,7 @@ private func expectedText(_ name: String) -> [String] {
 }
 
 private let launchAnswer =
-  "<value size=\"large\" value=\"A good start\" detail=\"Twelve extensions, all local\"/>\n<value label=\"Extensions\" value=\"12\" delta=\"+3 this week\" tone=\"positive\"/>\n<value label=\"Response\" value=\"42 ms\"/>\n<card tone=\"warning\">Restart once after updating.</card>\n<row label=\"Owner\" value=\"You\"/>\n<row label=\"Next\" value=\"Build something useful\"/>\n<progress label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<row label=\"14:30\" title=\"Train departs\" subtitle=\"Platform 6\"/>\n<row label=\"16:05\" title=\"Arrives in Berlin\"/>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>"
+  "# A good start\nTwelve extensions, all local\n<columns><tile label=\"Extensions\" icon=\"puzzlepiece.extension\" title=\"12\" subtitle=\"3 new this week\"/><tile label=\"Response\" icon=\"bolt\" title=\"42 ms\"/></columns>\n<card icon=\"exclamationmark.triangle\">\n## Restart once\nAfter updating, quit and reopen Wicket.\n</card>\n<row label=\"Owner\" value=\"You\"/>\n<row label=\"Next\" value=\"Build something useful\"/>\n<progress label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<row label=\"14:30\" title=\"Train departs\" subtitle=\"Platform 6\"/>\n<row label=\"16:05\" title=\"Arrives in Berlin\"/>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>"
 private let nextAnswer =
   "## Build something useful\nStart with a small weather extension. Put the current temperature in its result row, with the full forecast one step away.\n\nKeep it **local**, quick and easy to change."
 
@@ -354,10 +354,10 @@ private let nextAnswer =
         ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         ["cloud", "cloud.rain", "cloud.heavyrain", "cloud.sun.rain", "cloud.sun", "sun.max", "sun.max"]
       ).enumerated().map { index, day in
-        "<card title=\"\(day.0)\" icon=\"\(day.1)\" run=\"view=day&day=\(day.0.lowercased())\">\(12 - index % 4)° \(5 + index % 3)°</card>"
+        "<tile label=\"\(day.0)\" icon=\"\(day.1)\" title=\"\(12 - index % 4)° \(5 + index % 3)°\" run=\"view=day&day=\(day.0.lowercased())\"/>"
       }
       let view = ProviderView(
-        body: "## Berlin this week\nMild and wet, dry at the weekend.\n<grid>\(days.joined())</grid>",
+        body: "## Berlin this week\nMild and wet, dry at the weekend.\n<columns>\(days.joined())</columns>",
         items: [
           Row(
             id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
@@ -386,7 +386,7 @@ private let nextAnswer =
       let both = state == "extension-both"
       let view = ProviderView(
         body:
-          "## A useful extension\n<value label=\"Total\" value=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>\n<row label=\"Source\" value=\"Local extension\"/>\n<row label=\"Format\" value=\"One JSON view\"/>",
+          "## A useful extension\n<tile label=\"Total\" title=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>\n<row label=\"Source\" value=\"Local extension\"/>\n<row label=\"Format\" value=\"One JSON view\"/>",
         items: both
           ? [
             Row(
@@ -634,7 +634,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.selected?.row.id == "detail")
   case "actions": #expect(model.actionsTitle == "Settings" && model.results.count == 2)
   case "extension-targets":
-    #expect(model.results.count == 9 && model.selected?.row.title == "Wed" && model.selectedTarget == "#2")
+    #expect(model.results.count == 9 && model.selected?.row.title == "10° 7°" && model.selectedTarget == "#2")
   case "arguments-empty": #expect(model.declaredArguments.count == 2 && model.argumentValues.isEmpty)
   case "arguments-filled":
     #expect(model.command == nil && model.argumentValues == ["hours": "12", "minutes": "30"])

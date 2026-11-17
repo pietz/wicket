@@ -89,31 +89,35 @@ import Testing
   #expect(quiet.symbols == ["clock"])
 }
 
-@Test func targetsFollowReadingOrderAcrossRowsCardsAndJSONItems() {
+@Test func targetsFollowReadingOrderAcrossItemsCodeAndJSONItems() {
   let body = """
     <row title="First" copy="1"/>
-    <grid><card title="Father Carpenter" icon="cup.and.saucer" open="https://maps.apple.com/?q=a" action="Open in Maps">
+    <columns><tile title="Father Carpenter" icon="cup.and.saucer" open="https://maps.apple.com/?q=a" action="Open in Maps">
     Courtyard, filter coffee.
-    </card><card title="Oslo" open="https://maps.apple.com/?q=b">Tables.</card></grid>
-    <card title="Plain">Only words.</card>
-    <card title="Holder" copy="never">
+    </tile><tile label="Oslo" title="€3" open="https://maps.apple.com/?q=b"/></columns>
+    <card title="Plain" tone="warning" copy="never" icon="no.such.symbol">Only words.</card>
+    <card icon="cloud">
     <row title="Inside" copy="2"/>
+
+    ```sh
+    ls -la
+    ```
     </card>
-    <card title="Refused" open="javascript:x">Words.</card>
     """
   let json = [
     Row(id: "#0", title: "Hash", actions: [.copy("h")]), Row(id: "last", title: "Last", actions: []),
   ]
   let page = Page(body: body, items: json, runs: true)
-  #expect(page.targets.map(\.title) == ["First", "Father Carpenter", "Oslo", "Inside", "Hash", "Last"])
-  // A JSON item keeps its id; one that looks like a body id gets another, so they never meet.
-  #expect(page.targets.map(\.id) == ["#0", "#1", "#2", "#3", "##0", "last"])
   #expect(
-    page.targets[1].actions == [.open(URL(string: "https://maps.apple.com/?q=a")!, title: "Open in Maps")])
-  #expect(page.source.contains(##"<card target="#1" title="Father Carpenter" icon="cup.and.saucer">"##))
-  // A card that holds targets, has none or names a refused action is no target, and keeps no action.
-  #expect(page.source.contains(#"<card title="Holder">"#) && page.source.contains(#"<card title="Refused">"#))
-  #expect(page.source.contains(#"<card title="Plain">"#) && !page.source.contains("never"))
+    page.targets.map(\.title) == ["First", "Father Carpenter", "€3", "Inside", "Code", "Hash", "Last"])
+  // A JSON item keeps its id; one that looks like a body id gets another, so they never meet.
+  #expect(page.targets.map(\.id) == ["#0", "#1", "#2", "#3", "#4", "##0", "last"])
+  #expect(page.targets[1].actions.map(\.label) == ["Show details", "Open in Maps"])
+  #expect(page.source.contains(##"<tile target="#1" title="Father Carpenter" icon="cup.and.saucer"/>"##))
+  #expect(page.source.contains(##"<tile target="#2" label="Oslo" title="€3" icon="link"/>"##))
+  // A card is only a box: its icon, if it exists, and nothing it names to do.
+  #expect(page.source.contains("<card>Only words.</card>") && page.source.contains(#"<card icon="cloud">"#))
+  #expect(!page.source.contains("never") && !page.source.contains("Plain"))
   // JSON items follow the body as rows.
   #expect(
     page.source.hasSuffix(
@@ -121,9 +125,47 @@ import Testing
     ))
 }
 
+/// A fenced code block copies its text, without the final line break, from a button the host draws; a
+/// block still streaming, one in an item's detail and code elsewhere are only shown.
+@Test func aCodeBlockIsATargetThatCopiesIt() {
+  let body = """
+    Run `ls` or:
+
+    ```sh
+    du -ah ~ | sort -h
+    ```
+    <row title="Later" copy="x">
+    ```
+    in the detail
+    ```
+    </row>
+    > ```
+    > quoted
+    > ```
+    """
+  let page = Page(body: body, runs: false)
+  #expect(page.targets.map(\.id) == ["#0", "#1", "#2"])
+  #expect(page.targets[0].actions == [.copy("du -ah ~ | sort -h", title: "Copy code")])
+  #expect(page.targets[0].icon == "doc.on.doc" && page.symbols == ["doc.on.doc"])
+  #expect(page.code == [.init(id: "#0", text: "du -ah ~ | sort -h"), .init(id: "#2", text: "quoted")])
+  let html = AnswerMarkdown.html(page.source, code: page.code)
+  #expect(
+    html.contains(
+      ##"<div data-target="#0" data-icon="doc.on.doc"><button aria-label="Copy code"></button><pre><code class="language-sh">du"##
+    ))
+  #expect(
+    html.contains(##"<div data-target="#2""##) && html.components(separatedBy: "</pre>\n</div>").count == 3)
+  // Without the page's ids the same Markdown has no button; an author's own tags never make one.
+  #expect(!AnswerMarkdown.html(page.source).contains("<div"))
+  #expect(AnswerMarkdown.html(##"<div target="#0"><button>x</button></div>"##).contains("<w-div"))
+  // Still streaming, a block is no target; beside a list, none is.
+  #expect(Page(body: "```sh\ndu -ah", runs: false).targets.isEmpty)
+  #expect(Page(body: "```sh\nls\n```", runs: false, copies: false).targets.isEmpty)
+}
+
 @Test func onlyAnExtensionsOwnOutputMayRunIt() {
   let body =
-    #"<row title="Tuesday" run="view=day&day=tue" action="Show Tuesday"/><card title="Week" run="view=week">7 days</card>"#
+    #"<row title="Tuesday" run="view=day&day=tue" action="Show Tuesday"/><tile title="Week" run="view=week"/>"#
   let own = Page(body: body, runs: true)
   #expect(
     own.targets.map(\.actions) == [
@@ -131,9 +173,9 @@ import Testing
       [.run(Address(arguments: ["view": "week"]))],
     ])
   #expect(own.targets[0].icon == "arrow.right")
-  // In an agent's reply the attribute means nothing: the row and the card only show.
+  // In an agent's reply the attribute means nothing: the row and the tile only show.
   let agent = Page(body: body, runs: false)
-  #expect(agent.targets.isEmpty && agent.source == #"<row title="Tuesday"/><card title="Week">7 days</card>"#)
+  #expect(agent.targets.isEmpty && agent.source == #"<row title="Tuesday"/><tile title="Week"/>"#)
 }
 
 @Test func aRowsContentIsItsDetail() {
@@ -157,7 +199,7 @@ import Testing
   }
   // Its own page: the title as heading, the content, then its action as a row of its own.
   let opened = Page(body: detail, runs: false)
-  #expect(detail.hasPrefix("# Standup\n\n**Agenda**: the release."))
+  #expect(detail.hasPrefix("## Standup\n\n**Agenda**: the release."))
   #expect(opened.targets.map(\.title) == ["Notes", "Join in Meet"])
   #expect(
     opened.targets[1].actions == [.open(URL(string: "https://meet.example.com/a")!, title: "Join in Meet")])
@@ -188,7 +230,7 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, fake) = try await answered(
-    "Here.\n<card title=\"Docs\" open=\"https://example.com\" action=\"Read the docs\">Long text.</card>\n<row title=\"Next\" ask=\"What about tests?\"/>",
+    "Here.\n<tile title=\"Docs\" open=\"https://example.com\" action=\"Read the docs\"/>\n<row title=\"Next\" ask=\"What about tests?\"/>",
     root: root)
   fake.end()
   #expect(await eventually { !model.agent.busy })
@@ -226,11 +268,11 @@ import Testing
   #expect(await eventually { model.results.count == 1 })
   model.move(1)
   #expect(model.selectedTarget == "#0")
-  fake.text("<card title=\"Two\" copy=\"2\">Still writ")
+  fake.text("<tile title=\"Two\" copy=\"2\">Still writ")
   #expect(await eventually { model.agent.answer.contains("Still") })
-  // An unfinished card is no target yet; the selection stays where it was.
+  // An unfinished tile is no target yet; the selection stays where it was.
   #expect(model.results.count == 1 && model.selectedTarget == "#0")
-  fake.text("ing.</card>\n<row title=\"Three\" copy=\"3\"/>")
+  fake.text("ing.</tile>\n<row title=\"Three\" copy=\"3\"/>")
   #expect(await eventually { model.results.count == 3 })
   #expect(model.selectedTarget == "#0")
   // A click from another page, or on a target this page does not have, does nothing.
@@ -257,7 +299,7 @@ import Testing
   #expect(model.selected?.row.title == "Tue" && model.returnAction?.label == "Show details")
   #expect(model.activateReturn())
   // Its own page, with nothing selected: the follow-up still has Return. No new question was asked.
-  #expect(model.inDetail && model.page?.source.hasPrefix("# Tue\n\nRain until 15:00.") == true)
+  #expect(model.inDetail && model.page?.source.hasPrefix("## Tue\n\nRain until 15:00.") == true)
   #expect(model.pageTurn != base && model.selection == nil && model.returnAction == .send(model.input))
   #expect(fake.prompts.count == 1 && model.agent.previous.isEmpty)
   #expect(model.results.map(\.row.title) == ["Radar"])
@@ -283,7 +325,7 @@ import Testing
     if request['arguments'].get('view') == 'day':
         print(json.dumps({'body': '## ' + request['arguments']['day']}))
     else:
-        print(json.dumps({'body': '## Week\\n<grid><card title="Tue" icon="cloud.rain" run="view=day&day=tue">Rain</card></grid>',
+        print(json.dumps({'body': '## Week\\n<columns><tile label="Tue" title="Rain" icon="cloud.rain" run="view=day&day=tue"/></columns>',
           'items': [{'id': 'radar', 'title': 'Radar', 'actions': [{'type': 'copy', 'text': 'radar'}]}],
           'actions': [{'type': 'copy', 'text': 'week'}]}))
     """
@@ -295,7 +337,7 @@ import Testing
   model.go(Address(id: "test"))
   await model.settled()
   #expect(
-    model.results.map(\.row.id) == ["#0", "radar"] && model.results.map(\.row.title) == ["Tue", "Radar"])
+    model.results.map(\.row.id) == ["#0", "radar"] && model.results.map(\.row.title) == ["Rain", "Radar"])
   // Nothing selected: Return runs the view's action, as before.
   #expect(model.returnAction == .copy("week"))
   model.move(1)
@@ -318,7 +360,7 @@ import Testing
   renderer.onTarget = { clicks.append([$0, $1]) }
   let page = Page(
     body:
-      "Text with a [link](https://example.com).\n<row title=\"One\" copy=\"1\"/>\n<card title=\"Two\" copy=\"2\">Card [link](https://example.com)</card>",
+      "Text with a [link](https://example.com).\n<row title=\"One\" copy=\"1\"/>\n<tile title=\"Two\" copy=\"2\"/>\n\n```\nls\n```",
     runs: false)
   await renderer.render(page, turn: "turn-1")
   let web = try #require(renderer.page)
@@ -331,15 +373,17 @@ import Testing
     painted = try await run("return document.querySelector('[data-selected]')?.dataset.target") as? String
   }
   #expect(painted == "#1")
-  // A click on a target says which one and on which page; a link inside it and text keep theirs.
-  _ = try await run("document.querySelector('w-row').click()")
-  _ = try await run("document.querySelector('w-card a').click(); document.querySelector('p').click()")
+  // A click on a target says which one and on which page; a link and text keep theirs, and code copies
+  // only from its button.
+  _ = try await run("document.querySelector('w-row').click(); document.querySelector('w-tile').click()")
+  _ = try await run("document.querySelector('p a').click(); document.querySelector('p').click()")
+  _ = try await run("document.querySelector('pre').click(); document.querySelector('div button').click()")
   // A drag that selected text is no click.
   _ = try await run(
-    "const r = document.createRange(); r.selectNodeContents(document.querySelector('w-card')); getSelection().addRange(r); document.querySelector('w-card').click()"
+    "const r = document.createRange(); r.selectNodeContents(document.querySelector('w-row')); getSelection().addRange(r); document.querySelector('w-row').click()"
   )
   try await Task.sleep(for: .milliseconds(200))
-  #expect(clicks == [["#0", "turn-1"]])
+  #expect(clicks == [["#0", "turn-1"], ["#1", "turn-1"], ["#2", "turn-1"]])
   // The page holds no action, and its icons are drawn from data.
   let html = try await run("return document.documentElement.outerHTML") as? String ?? ""
   #expect(!html.contains("copy=") && html.contains("data:image/png;base64"))
