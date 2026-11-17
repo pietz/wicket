@@ -273,7 +273,6 @@ final class LauncherModel {
       ?? providerProblem
   }
   var questionExpanded = false
-  var historyExpanded = false
   var conversationHeaderHeight: CGFloat = 32 {
     didSet { if conversationHeaderHeight != oldValue { onResultsChange?() } }
   }
@@ -1004,7 +1003,6 @@ final class LauncherModel {
     cancelWork()
     agent.restore(run, settings: questionSettings(keeping: run.agent))
     questionExpanded = false
-    historyExpanded = false
     clearSelection()
     input = ""
   }

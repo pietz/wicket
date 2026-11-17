@@ -452,42 +452,19 @@ struct LauncherView: View {
   private var conversation: some View {
     ScrollView {
       VStack(spacing: 0) {
-        VStack(alignment: .leading, spacing: 12) {
-          if !model.agent.previous.isEmpty {
-            DisclosureGroup(
-              "Previous questions · \(model.agent.previous.count)", isExpanded: $model.historyExpanded
-            ) {
-              ForEach(model.agent.previous) { turn in
-                VStack(alignment: .leading, spacing: 8) {
-                  Text(turn.question).fontWeight(.medium)
-                  Text(turn.answer).textSelection(.enabled)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
-              }
-            }.font(.system(size: textSize.points)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+          if let source = model.agent.source {
+            Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
           }
-          HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-              if let source = model.agent.source {
-                Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
-              }
-              Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
-                .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-              if longQuestion {
-                Button(model.questionExpanded ? "Show less" : "Show more") { model.questionExpanded.toggle() }
-                  .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
-              }
-              if let notice = model.agent.notice {
-                Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
-              }
-            }
-            Button {
-              model.writePasteboard(model.agent.answer)
-            } label: {
-              Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.plain).foregroundStyle(.secondary).help("Copy answer as Markdown")
-            .disabled(model.agent.answer.isEmpty)
+          Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+            .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          if longQuestion {
+            Button(model.questionExpanded ? "Show less" : "Show more") { model.questionExpanded.toggle() }
+              .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
+          }
+          if let notice = model.agent.notice {
+            Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
           }
         }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
           .onGeometryChange(for: CGFloat.self) {
@@ -523,7 +500,7 @@ struct LauncherView: View {
   }
   private var longQuestion: Bool {
     (model.agent.question as NSString).boundingRect(
-      with: NSSize(width: 560, height: CGFloat.greatestFiniteMagnitude),
+      with: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude),
       options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)]
     ).height > 34
   }

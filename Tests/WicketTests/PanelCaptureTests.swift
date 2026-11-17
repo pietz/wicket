@@ -22,8 +22,7 @@ private let captureDirectory = ProcessInfo.processInfo.environment["WICKET_CAPTU
 
 private let states = [
   "empty", "apps", "actions", "math", "ask", "answer", "listening",
-  "conversation-multi", "conversation-expanded", "conversation-reopen", "conversation-long",
-  "conversation-long-expanded",
+  "conversation-multi", "conversation-reopen", "conversation-long", "conversation-long-expanded",
   "working", "working-text", "permission-routine", "permission-high",
   "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
   "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
@@ -61,9 +60,7 @@ private func expectedText(_ name: String) -> [String] {
     ]
   }
   if name.contains("history-reopened") {
-    return [
-      "Previous questions", "And for the whole week", "Build something useful", "Continuing conversation",
-    ]
+    return ["And for the whole week", "Build something useful", "Continuing conversation"]
   }
   if name.contains("history") {
     return ["Agent History", "How is the launch going", "Claude", "What should I build next", "ChatGPT"]
@@ -71,17 +68,11 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("conversation-reopen") {
     return ["Could this work offline", "Continuing conversation", "End conversation"]
   }
-  if name.contains("conversation-expanded") {
-    return [
-      "Ask a follow-up", "Previous questions", "How is the launch going", "A good start",
-      "What should I build next", "End conversation",
-    ]
-  }
   if name.contains("conversation-long") {
     return ["Ask a follow-up", "How can I improve", "Show", "Build something useful"]
   }
   if name.contains("conversation") {
-    return ["Ask a follow-up", "Previous questions", "What should I build next", "Build something useful"]
+    return ["Ask a follow-up", "What should I build next", "Build something useful"]
   }
   if name.contains("working-text") {
     return ["What should I build next", "Build something useful", "Cancel"]
@@ -275,7 +266,6 @@ private let nextAnswer =
         agent.end()
         #expect(await eventually { !model.agent.busy })
       }
-      if name == "conversation-expanded" { model.historyExpanded = true }
       if name == "conversation-long-expanded" { model.questionExpanded = true }
     case "clipboard", "clipboard-image":
       let clips = try #require(clipboard)

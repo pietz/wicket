@@ -5,11 +5,8 @@ import Observation
 /// that the next question resumes. No window dependency.
 @MainActor @Observable
 final class AgentSession {
-  struct Turn: Identifiable {
-    let id: String
-    let question: String
-    let answer: String
-  }
+  typealias Turn = AgentHistory.Run.Turn
+  /// The last ten earlier turns, which Agent History saves with the last one.
   private(set) var previous: [Turn] = []
   private(set) var continuing = false
   var agentName: String { chosen.agent.title }
@@ -120,7 +117,7 @@ final class AgentSession {
     guard !busy, !input.isEmpty else { return }
     if chosen.agent != settings.agent { reset() }
     if active, !question.isEmpty {
-      previous.append(Turn(id: turnID, question: question, answer: answer))
+      previous.append(Turn(question: question, answer: answer))
       previous = Array(previous.suffix(10))
     }
     continuing = false
@@ -321,9 +318,7 @@ final class AgentSession {
     history?.save(
       AgentHistory.Run(
         id: runID, agent: chosen.agent, session: sessionID, used: Date(), source: runSource,
-        turns: (previous + [Turn(id: turnID, question: question, answer: answer)]).map {
-          .init(question: $0.question, answer: $0.answer)
-        }))
+        turns: previous + [Turn(question: question, answer: answer)]))
     onChange?()
   }
   /// Every pending permission is refused, so the CLI is never left waiting on one.
@@ -373,7 +368,7 @@ final class AgentSession {
     onChange?()
   }
   /// Reopens a run from Agent History as it was left: its last answer under its question, the earlier
-  /// turns behind Previous questions, and Continuing conversation. A follow-up resumes its session.
+  /// turns kept for the next save, and Continuing conversation. A follow-up resumes its session.
   func restore(_ run: AgentHistory.Run, settings: AgentConfiguration) {
     reset()
     guard let last = run.turns.last else { return }
@@ -382,9 +377,7 @@ final class AgentSession {
     runSource = run.source
     reopened = run.agent
     sessionID = run.session
-    previous = run.turns.dropLast().map {
-      Turn(id: UUID().uuidString, question: $0.question, answer: $0.answer)
-    }
+    previous = Array(run.turns.dropLast())
     question = last.question
     source = run.turns.count == 1 ? run.source : nil
     answer = last.answer
