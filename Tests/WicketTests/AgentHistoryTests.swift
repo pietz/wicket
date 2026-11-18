@@ -242,8 +242,6 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   let saved = try #require(bench.runs.runs.first)
   #expect(
     saved.session == "s-1" && saved.turns == [.init(question: "Weather in Berlin?", answer: "Sunny so f")])
-  // The list it opened shows it.
-  #expect(model.results.first?.row.title == "Weather in Berlin?")
   await bench.finish()
 }
 

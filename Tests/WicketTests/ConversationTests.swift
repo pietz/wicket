@@ -174,9 +174,7 @@ import Testing
   session.decide(false)
   fake.end()
   #expect(await eventually { !session.busy })
-  // A later turn must show its actual completion or error after a hidden conversation. It is asked from
-  // the panel, so the panel opened first.
-  session.reopen()
+  // A later turn must show its actual completion or error after a hidden conversation.
   session.ask("Next", settings: .init())
   #expect(!session.continuing)
   #expect(await eventually { fake.running })

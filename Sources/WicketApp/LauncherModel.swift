@@ -398,12 +398,11 @@ final class LauncherModel {
   }
   /// What a command answers without waiting for anything: an extension's manifest items, or a host
   /// command. Nil when it runs a process.
-  private func immediateView(_ id: String) -> (@MainActor (ProviderRequest) -> ProviderView)? {
+  private func immediateView(_ id: String, _ request: ProviderRequest) -> ProviderView? {
     if let command = extensions.commands[id] {
-      guard command.manifest.command == nil else { return nil }
-      return { request in ProviderView(items: command.ownItems(request.input)) }
+      return command.manifest.command == nil ? ProviderView(items: command.ownItems(request.input)) : nil
     }
-    return hostCommand(id)
+    return hostCommand(id)?(request)
   }
   /// The open command's name, for the input placeholder and the footer.
   var commandName: String? { command.flatMap { name(of: $0.id) } }
@@ -552,10 +551,8 @@ final class LauncherModel {
       target?.problem = nil
       let request = ProviderRequest(
         input: input, arguments: state.arguments, submitted: state.next == .submission)
-      if let answer = immediateView(state.id) {
-        // First: a conversation this switch ends saves its turn, which Agent History then lists.
+      if let view = immediateView(state.id, request) {
         showArrival()
-        let view = answer(request)
         show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
         retainSelection()
         onResultsChange?()

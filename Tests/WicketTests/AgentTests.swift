@@ -924,30 +924,6 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   await session.shutdown()
 }
 
-@MainActor @Test func aPermissionAskedAfterTheHideIsDeclinedAtTheHidesDeadline() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let fake = FakeAgent()
-  let session = AgentSession(folder: folder)
-  session.retention = 4
-  session.connect = { _, _, _ in fake }
-  session.ask("Write a file", settings: .init())
-  #expect(await eventually { fake.running })
-  fake.tool("Working")
-  // Hidden while it works, and it asks 3.5 s later: no silence limit runs, so the hide's deadline, 0.5 s
-  // after the request, declines it, not a fresh one 4 s after it. Far apart, so a loaded machine's late
-  // timers cannot blur them.
-  session.hidden()
-  try await Task.sleep(for: .milliseconds(3500))
-  fake.ask(3)
-  let asked = ContinuousClock.now
-  #expect(session.permissions.count == 1)
-  #expect(await eventually(within: .seconds(10)) { session.permissions.isEmpty })
-  #expect(ContinuousClock.now - asked < .milliseconds(2500))
-  #expect(fake.decisions.count == 1 && fake.decisions[0].id == .number(3) && !fake.decisions[0].allow)
-  await session.shutdown()
-}
-
 @MainActor @Test func aSilentCLIAndALongTurnAreBounded() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }

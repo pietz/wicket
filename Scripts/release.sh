@@ -17,13 +17,10 @@ key_file=${SPARKLE_KEY_FILE:-}
 [[ -z $key_file || -r $key_file ]] || { echo "SPARKLE_KEY_FILE is not a readable file: $key_file" >&2; exit 2; }
 url="$repo/releases/download/v$version/Wicket-$version.dmg"
 
-# The build is of the working tree and the tag of the commit, so they must be the same: any change,
-# tracked or untracked, would be signed and shipped without being in the tag.
-# Every untracked file counts, whatever status.showUntrackedFiles says, and a failing git stops it.
-changes=$(git status --porcelain --untracked-files=all) || { echo "git status failed" >&2; exit 1; }
-if [[ -n $changes ]]; then
-  echo "the working tree has uncommitted or untracked changes; commit or remove them first:" >&2
-  print -r -- "$changes" >&2; exit 1
+# The build is of the working tree and the tag of the commit: any change, tracked or untracked, would be
+# shipped without being in the tag.
+if [[ -n $(git status --porcelain --untracked-files=all) ]]; then
+  echo "the working tree has uncommitted or untracked changes; commit or remove them first" >&2; exit 1
 fi
 if grep -q "<sparkle:shortVersionString>$version<" appcast.xml; then
   echo "$version is already in appcast.xml" >&2; exit 1

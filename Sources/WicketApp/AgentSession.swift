@@ -83,7 +83,6 @@ final class AgentSession {
   /// After the retention window, pending permissions are declined, even while busy. Unless a turn
   /// is still running, the conversation ends too. Returns true then: the caller drops its draft.
   @discardableResult func reopen(now: Date = Date()) -> Bool {
-    isHidden = false
     permissionExpiry?.cancel()
     guard let retainedUntil, now > retainedUntil else { return false }
     declineAll()
@@ -93,16 +92,8 @@ final class AgentSession {
     return true
   }
   func hidden(now: Date = Date()) {
-    isHidden = true
     lastActivity = max(lastActivity ?? now, now)
     if active { continuing = true }
-    expirePermissions(now: now)
-  }
-  /// The panel is hidden: a permission asked now is declined at the same deadline as one pending at the
-  /// hide, since no limit runs while it waits.
-  private var isHidden = false
-  /// Declines the pending permissions once `retention` after the last hide or completion has passed.
-  private func expirePermissions(now: Date = Date()) {
     permissionExpiry?.cancel()
     guard !permissions.isEmpty, let retainedUntil else { return }
     let delay = max(0, retainedUntil.timeIntervalSince(now))
@@ -224,8 +215,7 @@ final class AgentSession {
   }
 
   private func receive(_ event: AgentEvent) {
-    // A CLI waiting on a permission is silent until the user answers, which may take until `retention`.
-    if permissions.isEmpty { arm(turnLimit) }
+    arm(turnLimit)
     switch event {
     case .session(let id):
       sessionID = id
@@ -268,8 +258,8 @@ final class AgentSession {
         return
       }
       permissions.append(permission)
+      // The CLI is silent until the user answers, which may take until `retention`.
       deadline?.cancel()
-      if isHidden { expirePermissions() }
     case .finished(let cancelled):
       guard busy else { return }
       status = cancelled ? "Cancelled" : "Ready for a follow-up"
@@ -318,7 +308,7 @@ final class AgentSession {
   }
   /// The turn is over, however it ended: its process ends with it.
   private func finishTurn(_ outcome: String = "turn ended") {
-    settleAnswer()
+    saveTurn()
     declineAll()
     busy = false
     acceptingUpdates = false
@@ -328,16 +318,13 @@ final class AgentSession {
     deadline?.cancel()
     release(connection, outcome)
     connection = nil
-    saveRun()
     onChange?()
   }
-  /// The answer as the turn leaves it: what was held back, or the narration when nothing followed it.
-  private func settleAnswer() {
+  /// Settles the answer as the turn leaves it (what was held back, or the narration when nothing followed
+  /// it) and saves the run with every turn it holds to Agent History.
+  private func saveTurn() {
     publishAnswer()
     if answer.isEmpty { answer = narration }
-  }
-  /// Saves the run with every turn it holds to Agent History.
-  private func saveRun() {
     history?.save(
       AgentHistory.Run(
         id: runID, agent: chosen.agent, session: sessionID, used: Date(), source: runSource,
@@ -361,10 +348,7 @@ final class AgentSession {
   /// Ends the conversation. A turn still running ends with it and is saved as a cancelled one would be,
   /// with its answer so far.
   func reset() {
-    if busy {
-      settleAnswer()
-      saveRun()
-    }
+    if busy { saveTurn() }
     generation += 1
     task?.cancel()
     cancelDeadline?.cancel()
