@@ -34,8 +34,6 @@ final class LauncherModel {
   var input = "" {
     didSet {
       if input != oldValue {
-        // An edit, dictation or an address leaves the actions of a row made for the old input.
-        closeActions()
         resetSelection = true
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
         if agent.active { clearSelection() }
@@ -148,8 +146,6 @@ final class LauncherModel {
   /// the user was, which Escape, ⌘K again and typing return to.
   private struct ActionPanel {
     let source: Result
-    /// The root generation its source row was composed in; nil inside a command.
-    let generation: Int?
     let rows: [Result]
     let selection: String?
     let touched: Bool
@@ -181,8 +177,7 @@ final class LauncherModel {
   /// arrows, Return and clicks work as in any list. Again, it returns to where the user was.
   func toggleActions(_ source: Result? = nil) {
     if actionPanel != nil { return closeActions() }
-    guard arriving == nil, !rowsOutdated, agent.permissions.isEmpty, let source = source ?? actionSource
-    else { return }
+    guard arriving == nil, agent.permissions.isEmpty, let source = source ?? actionSource else { return }
     let rows = actions(of: source).enumerated().map { index, action in
       Result(
         provider: "actions",
@@ -190,8 +185,7 @@ final class LauncherModel {
     }
     guard let first = rows.first else { return }
     actionPanel = ActionPanel(
-      source: source, generation: command == nil && !agent.active ? rootGeneration : nil, rows: rows,
-      selection: selection, touched: selectionTouched, drafted: drafted)
+      source: source, rows: rows, selection: selection, touched: selectionTouched, drafted: drafted)
     focusTarget = nil
     select(first.id)
     sizeList(now: true)
@@ -209,10 +203,8 @@ final class LauncherModel {
   /// closes it and belongs to the row the panel was opened for.
   func pick(_ chosen: RowAction? = nil) -> (action: RowAction, from: Result?)? {
     guard let action = chosen ?? returnAction else { return nil }
-    guard let panel = actionPanel else { return rowsOutdated ? nil : (action, selected) }
+    guard let panel = actionPanel else { return (action, selected) }
     closeActions()
-    // A root row's actions act only while its composition is the current one.
-    guard panel.generation.map({ $0 == rootGeneration }) ?? true else { return nil }
     return (action, panel.source)
   }
   private(set) var isRefreshing = false
@@ -259,6 +251,7 @@ final class LauncherModel {
   var onSelectionChange: (() -> Void)?
   func select(_ id: String?) {
     selectionTouched = true
+    returnQueued = false
     selection = id
   }
   private func clearSelection() {
@@ -469,8 +462,7 @@ final class LauncherModel {
   /// The configuration last reacted to.
   private var applied = Configuration()
   private func cancelWork() {
-    returnWaiter?.resume(returning: false)
-    returnWaiter = nil
+    returnQueued = false
     generation += 1
     for task in tasks { task.cancel() }
     tasks.removeAll()
@@ -520,28 +512,10 @@ final class LauncherModel {
   /// What sources answer changed without the user: the installed apps, the extension catalog or which
   /// sources are on. The root composes again. An open command reruns only when `ids` names it (its
   /// manifest changed, it went away, or it was switched on or off), which also cancels its running
-  /// request; anything else would replace what the user is looking at for no reason of its own. A command
-  /// switched off or removed stops at once, also under a conversation, which shows its state when it ends.
+  /// request; anything else would replace what the user is looking at for no reason of its own.
   func sourcesChanged(_ ids: Set<String>) {
     if let id = target?.id, !ids.contains(id) { return }
-    if agent.active, let id = target?.id, !available(id) { cancelWork() }
     refresh()
-  }
-  /// The screen shown again after an overlay or a called-off entry, as `refresh` would show it now: a root
-  /// list whose generation was cut short is composed again, and a command switched off or removed
-  /// meanwhile says why.
-  private func refreshIfInterrupted() {
-    guard !agent.active, arriving == nil else { return }
-    if let command {
-      if !available(command.id) { refresh() }
-    } else if listedGeneration != rootGeneration {
-      refresh()
-    }
-  }
-  /// The command can answer: it exists and its source is on (Agent History always is).
-  private func available(_ id: String) -> Bool {
-    commandSource(id) != nil
-      && (id == agentHistory?.id || configuration.isEnabled(id, extensions: extensions.ids))
   }
   /// `typed`: the input was edited, which a command's context ignores unless an address set it.
   func refresh(typed: Bool = false) {
@@ -551,7 +525,9 @@ final class LauncherModel {
     if let state = target {
       let source = commandSource(state.id)
       let extensionCommand = extensions.commands[state.id]
-      let available = available(state.id)
+      let available =
+        source != nil
+        && (state.id == agentHistory?.id || configuration.isEnabled(state.id, extensions: extensions.ids))
       // A submit command runs only when an address is followed, Return included: typing, voice and
       // refreshes leave its view and a running request alone, and nothing stays selected. One switched
       // off or removed stops like any other.
@@ -628,7 +604,6 @@ final class LauncherModel {
     }
     cancelWork()
     isRefreshing = true
-    rootGeneration += 1
     let current = generation
     let request = ProviderRequest(input: input)
     let host = extensions
@@ -771,47 +746,31 @@ final class LauncherModel {
       sources: enabled, usage: history.store, now: Date())
     listed = ranked.results
     strongReason = ranked.strongReason
-    listedGeneration = rootGeneration
+    composedInput = input
     retainSelection()
     onResultsChange?()
-    if !returnWaits {
-      returnWaiter?.resume(returning: true)
-      returnWaiter = nil
+    if returnQueued, !returnWaits {
+      returnQueued = false
+      onReturnReady?()
     }
   }
-  /// Each root refresh is a generation: an edit, dictation, an address or a refresh of the same input.
-  private var rootGeneration = 0
-  /// The generation the root's rows were composed in.
-  private var listedGeneration = 0
-  /// The pattern extensions whose regex matched the input of this generation; their answers are `patterns`.
+  /// The input the root's rows were composed for. Until the rows of an edit are there (normally after
+  /// `patternHold`), the previous ones still show.
+  private var composedInput = ""
+  /// The pattern extensions whose regex matched the root's input; their answers are `patterns`.
   private var matchedPatterns: Set<String> = []
-  /// The root shows rows of an earlier generation, still on screen while this one composes (normally the
-  /// 30 ms hold). A click, the context menu and ⌘K do nothing on them, and Return waits.
-  var rowsOutdated: Bool {
-    command == nil && !agent.active && arriving == nil && listedGeneration != rootGeneration
+  /// Return at the root waits for the rows composed for what is typed, so it never runs a row made for an
+  /// earlier input, and never asks the agent only because a pattern that matched what is typed (a `>`
+  /// command for Shell) has not answered with rows: the input was meant for it. A picked row acts at once.
+  var returnWaits: Bool {
+    guard command == nil, !agent.active, arriving == nil, actionPanel == nil else { return false }
+    return composedInput != input
+      || !selectionTouched && selected?.provider == "agent"
+        && matchedPatterns.contains { if case .items = patterns[$0] { false } else { true } }
   }
-  /// Return would take the Ask agent row only because a pattern that matched what is typed has not
-  /// answered yet: it waits for that pattern instead (at most its deadline), since the input may be meant
-  /// for it (a `>` command for Shell). An explicit pick, and every other row, acts at once.
-  private var awaitsPattern: Bool {
-    command == nil && !agent.active && arriving == nil && actionPanel == nil && !selectionTouched
-      && selected?.provider == "agent" && matchedPatterns.contains { patterns[$0] == nil }
-  }
-  /// Return waits, for the rows of this generation or for a pattern (`awaitsPattern`).
-  var returnWaits: Bool { actionPanel == nil && (rowsOutdated || awaitsPattern) }
-  /// A Return waits, and the search bar shows it is working.
-  private(set) var returnWaiting = false
-  /// Waits until Return can act. False when anything else came first (an edit, a switch, hiding) or a
-  /// Return already waits.
-  func readyForReturn() async -> Bool {
-    guard returnWaits, returnWaiter == nil else { return !returnWaits }
-    returnWaiting = true
-    defer { returnWaiting = false }
-    let ready = await withCheckedContinuation { returnWaiter = $0 }
-    onResultsChange?()
-    return ready
-  }
-  private var returnWaiter: CheckedContinuation<Bool, Never>?
+  /// A Return that waits runs once `returnWaits` is over; an edit, a pick, a switch or hiding calls it off.
+  var returnQueued = false
+  var onReturnReady: (() -> Void)?
   private func retainSelection() {
     guard actionPanel == nil else { return }
     let rows = results
@@ -870,15 +829,7 @@ final class LauncherModel {
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up. On a command row it enters the command with what was filled into its
   /// declared arguments.
-  /// Never the Ask agent row that stands first only because a pattern that matched what is typed failed
-  /// or timed out: the input was meant for that extension (a `>` command for Shell), so the user picks
-  /// Ask agent explicitly.
   var returnAction: RowAction? {
-    if command == nil, !selectionTouched, selected?.provider == "agent",
-      matchedPatterns.contains(where: { if case .failed = patterns[$0] { true } else { false } })
-    {
-      return nil
-    }
     guard var action = selected?.row.actions.first else { return agent.active ? .send(input) : nil }
     if command == nil, !drafted.isEmpty, case .run(var address) = action.kind {
       address.arguments = drafted
@@ -930,7 +881,6 @@ final class LauncherModel {
   /// A click on a row: selects it, or on the selected command row with a filled draft, enters it like
   /// Return. True when the caller should run Return.
   func click(_ id: String) -> Bool {
-    guard !rowsOutdated else { return false }
     if command == nil, id == selection, !drafted.isEmpty { return true }
     select(id)
     return false
@@ -1081,12 +1031,8 @@ final class LauncherModel {
     closeActions()
     guard input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return send() }
     guard !agent.active else { return }
-    // A switch still on its way would end the conversation when it arrives: it is called off with its
-    // request, as Escape calls it off, and leaving the conversation composes the screen under it again.
-    if arriving != nil {
-      stopArriving()
-      cancelWork()
-    }
+    // A switch still on its way would end the conversation when it arrives.
+    stopArriving()
     origin = Origin(
       context: commandContext(typed: false), input: input, selection: selection, touched: selectionTouched,
       drafted: drafted)
@@ -1187,7 +1133,6 @@ final class LauncherModel {
       if !arrival.back {
         stopArriving()
         cancelWork()
-        refreshIfInterrupted()
       }
       return true
     }
@@ -1205,7 +1150,6 @@ final class LauncherModel {
       input = origin.input
       agent.reset()
       returnTo(origin.selection, touched: origin.touched, drafted: origin.drafted)
-      refreshIfInterrupted()
       onResultsChange?()
       return true
     }

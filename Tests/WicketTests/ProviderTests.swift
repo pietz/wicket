@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Testing
 
@@ -217,24 +216,19 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.finish()
 }
 
-/// A pattern for `> text` whose row enters it with that text: slow for a `B`, very slow for a `Z`, failing
-/// for `fail`. The agent
-/// is a fake, so a question would start nothing real.
-@MainActor private func echoLauncher(transcriber: (() -> any Transcriber)? = nil) async throws -> (
-  LauncherModel, PaletteController, URL
-) {
+@MainActor @Test func returnRightAfterAnEditWaitsForTheRowsOfWhatIsTyped() async throws {
   let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  // A pattern for `> text` whose row enters it with that text, slower than the hold for a `B`.
   _ = try extensionFolder(
     root, name: "echo",
     script: """
       import json,sys,time
       text = json.load(sys.stdin)['input']
-      if 'B' in text or text == 'slow': time.sleep(0.4)
-      if 'Z' in text: time.sleep(3)
-      if text == '> fail': sys.exit(1)
+      if 'B' in text: time.sleep(0.4)
       print(json.dumps({'items':[{'id':'run','title':text,'actions':[{'type':'run','input':text}]}]}))
       """, fields: ["match": "^> ", "command": ["/usr/bin/python3", "main.sh"]])
-  let model = LauncherModel.testing(in: root, transcriber: transcriber)
+  let model = LauncherModel.testing(in: root)
   model.agent.connect = { _, _, _ in FakeAgent() }
   model.store.update { $0.providers = [.init("extension:echo")] }
   model.extensions.onCatalogChange = nil
@@ -243,136 +237,15 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   controller.show(orderFront: false, listen: false)
   model.input = "> A"
   await model.settled()
-  #expect(model.selected?.row.title == "> A")
-  return (model, controller, root)
-}
-@MainActor private func press(
-  _ controller: PaletteController, _ code: UInt16, _ text: String, _ flags: NSEvent.ModifierFlags = []
-) {
-  #expect(controller.panel.route(voiceKey(code, text, flags)))
-}
-
-@MainActor @Test func returnAndCommandKNeverActOnTheRowsOfAnEarlierInput() async throws {
-  let (model, controller, root) = try await echoLauncher()
-  defer { try? FileManager.default.removeItem(at: root) }
-  // Edited, the rows of "> A" still show until this generation composes.
-  model.input = "> Z"
-  #expect(model.rowsOutdated)
-  // ⌘K opens nothing on them; Return waits, through the hold and for the pattern Ask agent would stand
-  // in for, showing that it works, then runs the row of "> Z", never Ask agent.
-  press(controller, 40, "k", .command)
-  #expect(model.actionsTitle == nil)
-  press(controller, 36, "\r")
-  #expect(await eventually { model.returnWaiting })
-  #expect(await eventually(within: .seconds(8)) { model.command != nil })
-  await model.settled()
-  #expect(model.command?.id == "extension:echo" && model.input == "> Z" && !model.agent.active)
-  #expect(!model.returnWaiting)
-  controller.hide()
-  await model.finish()
-}
-
-@MainActor @Test func aPendingPatternBlocksOnlyTheImplicitAskAgent() async throws {
-  let (model, controller, root) = try await echoLauncher()
-  defer { try? FileManager.default.removeItem(at: root) }
-  model.input = "> Z"
-  // Published after the hold, with the pattern still running: ⌘K works at once.
-  #expect(await eventually { !model.rowsOutdated })
-  #expect(model.selected?.provider == "agent")
-  press(controller, 40, "k", .command)
-  #expect(model.actionsTitle == "Ask agent")
-  press(controller, 53, "\u{1B}")
-  // Ask agent chosen explicitly asks at once, without waiting for the pattern.
-  model.select(model.selection)
-  press(controller, 36, "\r")
-  #expect(model.agent.active && model.agent.question == "> Z")
-  controller.hide()
-  await model.finish()
-}
-
-@MainActor @Test func returnAfterAFailedPatternDoesNotAskTheAgent() async throws {
-  let (model, controller, root) = try await echoLauncher()
-  defer { try? FileManager.default.removeItem(at: root) }
-  model.input = "> fail"
-  await model.settled()
-  // Ask agent stands first only because the pattern failed: Return leaves it to the user to choose.
-  #expect(model.results.first?.provider == "agent" && !model.returnWaits)
-  press(controller, 36, "\r")
-  await model.settled()
-  #expect(!model.agent.active && model.command == nil)
-  // Nor right after a refresh of the same input, while its pattern runs again.
-  model.refresh()
-  press(controller, 36, "\r")
-  await model.settled()
-  #expect(!model.agent.active && model.command == nil && model.input == "> fail")
-  controller.hide()
-  await model.finish()
-}
-
-@MainActor @Test func dictationClosesTheActionsOfTheRowItReplaced() async throws {
-  let fake = FakeTranscriber()
-  let (model, controller, root) = try await echoLauncher(transcriber: { fake })
-  defer { try? FileManager.default.removeItem(at: root) }
-  press(controller, 40, "k", .command)
-  #expect(model.actionsTitle == "> A")
-  // A dictated query replaces the input: the actions of "> A" close, and Return runs the new row.
-  model.store.update { $0.voice.enabled = true }
-  model.toggleVoice()
-  fake.feeds[0].yield(.ready)
-  fake.feeds[0].yield(.transcript("> C"))
-  #expect(await eventually { model.input == "> C" })
-  #expect(model.actionsTitle == nil)
-  model.stopVoice(.hidden)
-  await model.settled()
-  press(controller, 36, "\r")
-  await model.settled()
-  #expect(model.command?.id == "extension:echo" && model.input == "> C")
-  controller.hide()
-  await model.finish()
-}
-
-@MainActor @Test func escapeFromAnEntryComposesTheRootListItInterrupted() async throws {
-  let (model, controller, root) = try await echoLauncher()
-  defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
+  // Return while the rows of "> A" still show, then while Ask agent stands in for the slow pattern: it
+  // runs "> B" once that answers, never A and never the agent.
   model.input = "> B"
-  // Entering a slow command stops the root's refresh for "> B"; Escape calls the entry off.
-  model.go(Address(id: "echo", input: "slow"), submitted: true)
-  press(controller, 53, "\u{1B}")
-  #expect(model.command == nil && model.input == "> B")
-  #expect(await eventually(within: .seconds(5)) { model.selected?.row.title == "> B" })
+  controller.run()
+  #expect(await eventually { model.results.first?.provider == "agent" })
+  #expect(model.command == nil && !model.agent.active)
+  #expect(await eventually(within: .seconds(3)) { model.command != nil })
+  #expect(model.command?.id == "extension:echo" && model.input == "> B" && !model.agent.active)
   controller.hide()
-  await model.finish()
-}
-
-@MainActor @Test func leavingTheEmptyConversationComposesTheRootItInterrupted() async throws {
-  let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
-  _ = try extensionFolder(
-    root, name: "slow",
-    script:
-      "import json,sys,time\ntext = json.load(sys.stdin)['input']\ntime.sleep(0.4)\nprint(json.dumps({'items':[{'id':'row','title':'Root','actions':[]}]} if text == '' else {'close':True}))",
-    fields: ["match": "^$", "command": ["/usr/bin/python3", "main.sh"]])
-  let model = LauncherModel.testing(in: root)
-  model.arrivalDeadline = .seconds(5)
-  model.store.update { $0.providers = [.init("extension:slow")] }
-  model.extensions.onCatalogChange = nil
-  await model.extensions.reload()
-  model.input = "x"
-  await model.settled()
-  // The query cleared, a slow command followed before the root composed, then ⌘Return over it.
-  var closed = false
-  model.onClose = { closed = true }
-  model.input = ""
-  model.go(Address(id: "slow", input: "go"), submitted: true)
-  model.askAgent()
-  #expect(model.agent.active && model.command == nil)
-  // The command it called off never answers into the conversation: its close would hide the panel.
-  try await Task.sleep(for: .milliseconds(600))
-  #expect(!closed)
-  // Escape back: the root's interrupted generation composes again.
-  #expect(model.escape() && !model.agent.active)
-  #expect(await eventually(within: .seconds(5)) { model.results.first?.row.title == "Root" })
   await model.finish()
 }
 

@@ -137,26 +137,19 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 @MainActor @Test func escapeWhileACommandIsComingStopsItsRequest() async throws {
   let (model, root) = try await launcher(
     """
-    request=$(cat)
+    cat >/dev/null
     sleep 0.3
-    case "$request" in
-      *'"input":"close"'*) echo '{"close":true}' ;;
-      *) echo '{"items":[{"id":"late","title":"Late","actions":[]}]}' ;;
-    esac
+    echo '{"close":true}'
     """)
   defer { try? FileManager.default.removeItem(at: root) }
   model.arrivalDeadline = .seconds(5)
   var closed = false
   model.onClose = { closed = true }
-  let rows = model.results.map(\.id)
-  // Neither a late view nor a late close reaches the root the user stayed on.
-  for input in ["list", "close"] {
-    model.go(Address(id: "test", input: input), submitted: true)
-    #expect(model.escape() && model.command == nil)
-    try await Task.sleep(for: .milliseconds(600))
-    #expect(model.command == nil && model.input == "a" && model.results.map(\.id) == rows)
-    #expect(!closed)
-  }
+  // A late close never hides the root the user stayed on.
+  model.go(Address(id: "test", input: "close"), submitted: true)
+  #expect(model.escape() && model.command == nil)
+  try await Task.sleep(for: .milliseconds(600))
+  #expect(!closed)
   await model.finish()
 }
 

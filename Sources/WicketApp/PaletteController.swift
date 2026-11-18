@@ -123,6 +123,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       resize()
     }
     model.onClose = { [weak self] in self?.hide() }
+    model.onReturnReady = { [weak self] in self?.run() }
     model.onVoicePermissionFinished = { [weak self] in
       guard let self, self.panel.isVisible else { return }
       self.panel.makeKey()
@@ -240,10 +241,8 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
     model.stopVoice(.run)
-    // Return right after an edit runs the selection of the list for that edit, not the one still shown, and
-    // never asks the agent only because a matching pattern is slow (`LauncherModel.returnWaits`).
     if chosen == nil, model.returnWaits {
-      Task { if await model.readyForReturn() { run() } }
+      model.returnQueued = true
       return
     }
     guard !opening, let (action, result) = model.pick(chosen) else { return }
