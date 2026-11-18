@@ -66,6 +66,16 @@ final class ExtensionHost {
   var settings: [String: [String: String]] = [:]
   private var watcher: FileWatcher?
   private var scan: Task<Void, Never>?
+  /// The catalog was read at least once. Until then an unknown name may still be on its way.
+  private(set) var scanned = false
+  private var scanWaiters: [CheckedContinuation<Void, Never>] = []
+  /// `shutdown` began: no scan comes any more.
+  private var stopped = false
+  /// Returns once the catalog was read at least once, or at once after `shutdown` began.
+  func firstScan() async {
+    guard !scanned, !stopped else { return }
+    await withCheckedContinuation { scanWaiters.append($0) }
+  }
   private var revision = 0
   private var running: [UUID: Task<Void, Never>] = [:]
 
@@ -92,6 +102,11 @@ final class ExtensionHost {
     scan = Task { [weak self] in
       let (commands, problems) = await Task.detached { Self.discover(root, bundled: bundled) }.value
       guard let self, !Task.isCancelled, revision == version else { return }
+      defer {
+        scanned = true
+        for waiter in scanWaiters { waiter.resume() }
+        scanWaiters = []
+      }
       // FSEvents also report an extension's own cache and log writes. An unchanged catalog must not
       // restart the launcher's work, or an extension that writes in its folder cancels itself.
       let changed = Set(commands.keys).union(self.commands.keys).filter { commands[$0] != self.commands[$0] }
@@ -183,6 +198,10 @@ final class ExtensionHost {
   func shutdown() async {
     watcher = nil
     scan?.cancel()
+    // Nothing waits for a scan that will never come.
+    stopped = true
+    for waiter in scanWaiters { waiter.resume() }
+    scanWaiters = []
     let tasks = Array(running.values)
     for task in tasks { task.cancel() }
     for task in tasks { await task.value }

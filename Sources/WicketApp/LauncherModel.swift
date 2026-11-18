@@ -490,8 +490,13 @@ final class LauncherModel {
     command?.live = false
     pending.removeAll()
   }
-  /// Stays on the current screen: a switch still waiting for its content is called off.
+  /// Stays on the current screen: a switch still waiting for its content is called off, and so is an
+  /// external URL still waiting for the first extension scan, which hiding or going elsewhere overrides.
   private func stopArriving() {
+    waitingURL = nil
+    endArrival()
+  }
+  private func endArrival() {
     arriving = nil
     deadline?.cancel()
     deadline = nil
@@ -521,7 +526,7 @@ final class LauncherModel {
     let entering = arrival.command?.id != command?.id
     command = arrival.command
     input = arrival.input  // No refresh while arriving: its request is already answered or running.
-    stopArriving()
+    endArrival()
     if entering { listed = [] }
   }
   /// What sources answer changed without the user: the installed apps, the extension catalog or which
@@ -1048,6 +1053,23 @@ final class LauncherModel {
       self.input = input
     }
   }
+  /// An external `wicket://` URL: the panel opens on its address. One that names an extension before the
+  /// extensions were first read (a URL that launched Wicket) waits for that scan in its own slot, the
+  /// latest winning; any navigation or hiding clears it.
+  func follow(_ address: Address) {
+    let unread = address.targetID.map { !Address.reserved.contains($0) && commandSource($0) == nil } ?? false
+    guard unread, !extensions.scanned else { return go(address) }
+    let waiting = waitingURL != nil
+    waitingURL = address
+    guard !waiting else { return }
+    Task { [weak self] in
+      await self?.extensions.firstScan()
+      guard let self, let address = waitingURL else { return }
+      waitingURL = nil
+      go(address)
+    }
+  }
+  private var waitingURL: Address?
   /// Who Return asks: a draft goes to the agent configured now, since settings apply when it is sent.
   var askingName: String { agent.question.isEmpty ? configuration.agent.agent.title : agent.agentName }
   func send(_ text: String? = nil) {
@@ -1355,6 +1377,7 @@ final class LauncherModel {
     history.record(result.id, input: input ?? self.input)
   }
   func finish() async {
+    waitingURL = nil
     stopVoice(.quit)
     await voice?.shutdown?.value
     cancelWork()

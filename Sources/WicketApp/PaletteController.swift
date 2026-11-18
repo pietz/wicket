@@ -229,7 +229,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
   func open(_ url: URL) {
     guard let address = Address(url: url) else { return }
     show()
-    model.go(address)
+    model.follow(address)
   }
   /// A hotkey from `hotkeys` in config.json (`LauncherModel.press`). The panel shows only for a view or a
   /// failure, and never listens: the hotkey named where to go.

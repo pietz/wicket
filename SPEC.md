@@ -200,7 +200,7 @@ A row requires `id`, string `title` and an `actions` array, which may be empty. 
 | `{"type":"run","extension":"weather","input":"berlin","arguments":{"view":"hourly"}}` | Go to an address (below), with a submitted request. Every field is optional; `{"type":"run","title":"Delete","arguments":{"delete":"42"}}` runs the originating extension again and replaces the arguments for later edits in this command |
 | `{"type":"agent","text":"Explain this"}` | Fill the input with this text and send nothing; the user presses Return. In a conversation that is the follow-up; elsewhere an open command is left and an empty conversation opens with the text as its unsent first question (no process starts until Return; Esc drops it). It is the address `agent` with an input |
 
-Open accepts a `wicket://` URL too, which is the address it names, with the outsider rules below.
+Open accepts a `wicket://` URL too, which is the address it names, with the outsider rules below. An external URL that names an extension before the extensions were first read (one that launched Wicket) waits for that first scan in a slot of its own, the latest winning (`LauncherModel.follow`, `ExtensionHost.firstScan`); any navigation or hiding the panel clears it, and every other address goes at once. Once the first scan is done, or shutdown has begun, the wait returns at once.
 
 ### Addresses
 

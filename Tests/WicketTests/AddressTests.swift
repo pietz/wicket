@@ -386,3 +386,55 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(!request.submitted && request.input == "fail now")
   await model.finish()
 }
+
+@MainActor @Test func aLinkThatLaunchesWicketWaitsForTheFirstExtensionScan() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "first", script: answering("First"))
+  _ = try extensionFolder(root, name: "second", script: answering("Second"))
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  // Before the catalog was read, an external link waits without saying it is missing; the latest wins.
+  model.follow(try #require(Address(url: URL(string: "wicket://first")!)))
+  model.follow(try #require(Address(url: URL(string: "wicket://second?input=hi")!)))
+  #expect(model.actionProblem == nil && model.command == nil)
+  model.extensions.start()
+  #expect(await eventually { model.command != nil })
+  await model.settled()
+  #expect(model.command?.id == "extension:second" && model.input == "hi" && model.actionProblem == nil)
+  // Once read, an unknown name says so at once.
+  model.follow(Address(id: "extension:missing"))
+  #expect(model.actionProblem == "No extension named missing")
+  await model.finish()
+}
+
+@MainActor @Test func aWaitingLinkGivesWayToNavigationHidingAndShutdown() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "first", script: answering("First"))
+  let link = try #require(Address(url: URL(string: "wicket://first")!))
+  // The user goes elsewhere first: that goes at once, and the link is not followed after it.
+  let navigated = LauncherModel.testing(in: root, bundled: nil)
+  navigated.follow(link)
+  navigated.go(Address(extensionName: "", input: "typed"))
+  await navigated.extensions.reload()
+  await navigated.settled()
+  #expect(navigated.command == nil && navigated.input == "typed")
+  await navigated.finish()
+  // Hidden before the scan: the link is not followed behind the panel.
+  let hidden = LauncherModel.testing(in: root, bundled: nil)
+  hidden.follow(link)
+  hidden.dismiss()
+  await hidden.extensions.reload()
+  await hidden.settled()
+  #expect(hidden.command == nil)
+  await hidden.finish()
+  // After shutdown began, waiting for the first scan returns at once, also for a late waiter.
+  let unscanned = LauncherModel.testing(in: root, bundled: nil)
+  await unscanned.finish()
+  var released = false
+  Task { @MainActor in
+    await unscanned.extensions.firstScan()
+    released = true
+  }
+  #expect(await eventually { released })
+}
