@@ -35,7 +35,7 @@ final class AgentHistory: Provider {
   nonisolated private static let log = Logger(subsystem: "app.wicket", category: "history")
 
   init(url: URL, now: Date = Date()) {
-    runs = PrivateList.read(url)
+    runs = PrivateList.read(url) ?? []
     writer = PrivateList.writer(url, log: Self.log)
     expire(now: now)
   }

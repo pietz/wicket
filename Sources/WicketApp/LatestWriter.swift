@@ -53,11 +53,12 @@ final class UsageHistory {
 /// clipboard and agent histories. Read once; written atomically off the main path by a latest-value
 /// writer into a folder created 0700, so the file is unreachable for others whatever its mode.
 enum PrivateList {
-  /// A missing or unreadable file is an empty list.
-  static func read<Item: Decodable>(_ url: URL) -> [Item] {
+  /// A missing file is an empty list; nil when the file exists but cannot be read or decoded.
+  static func read<Item: Decodable>(_ url: URL) -> [Item]? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return [] }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    return (try? Data(contentsOf: url)).flatMap { try? decoder.decode([Item].self, from: $0) } ?? []
+    return (try? Data(contentsOf: url)).flatMap { try? decoder.decode([Item].self, from: $0) }
   }
   /// A failed save logs only its error code.
   static func writer<Item: Encodable & Sendable>(_ url: URL, log: Logger) -> LatestWriter<[Item]> {

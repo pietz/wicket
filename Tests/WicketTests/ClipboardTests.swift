@@ -419,6 +419,45 @@ private func pngs(_ folder: URL) -> Set<String> {
   #expect(pngs(folder) == ["keep.png"])
 }
 
+@MainActor @Test func anUnreadableListKeepsTheImages() async throws {
+  let folder = try scratch()
+  let url = folder.appending(path: "clipboard-history.json")
+  func copies() throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: folder.path).filter {
+      $0.hasPrefix("clipboard-history.unreadable-") && $0.hasSuffix(".json")
+    }.sorted()
+  }
+  let image = UUID().uuidString + ".png"
+  try Data([1]).write(to: folder.appending(path: image))
+  try Data("[{\"id\":".utf8).write(to: url)
+  // It cannot even be set aside (the file is immutable, so it cannot be moved): it loads empty and still
+  // deletes no image.
+  try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: url.path)
+  var (history, pasteboard) = makeHistory(folder)
+  try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: url.path)
+  #expect(try history.clips.isEmpty && pngs(folder) == [image] && copies().isEmpty)
+  await history.finish()
+  // Set aside as it was, and the image stays through a copy that writes a new list and a restart.
+  (history, pasteboard) = makeHistory(folder)
+  let first = try #require(copies().first)
+  #expect(try Data(contentsOf: folder.appending(path: first)) == Data("[{\"id\":".utf8))
+  pasteboard.copy("new")
+  history.poll()
+  await history.finish()
+  (history, pasteboard) = makeHistory(folder)
+  #expect(history.clips.map(\.text) == ["new"] && pngs(folder) == [image])
+  // A second unreadable list is a second copy: the first is never deleted.
+  await history.finish()
+  try Data("{bad".utf8).write(to: url)
+  (history, pasteboard) = makeHistory(folder)
+  #expect(try history.clips.isEmpty && pngs(folder) == [image] && copies().count == 2)
+  #expect(try Data(contentsOf: folder.appending(path: first)) == Data("[{\"id\":".utf8))
+  // Clear History removes the copies with the images they may name.
+  history.clear()
+  #expect(try copies().isEmpty && pngs(folder).isEmpty)
+  await history.finish()
+}
+
 @MainActor @Test func imageRowsCopyAndPasteByIDResolvedWhenTheyRun() async throws {
   let folder = try scratch()
   let (history, pasteboard) = makeHistory(folder)
