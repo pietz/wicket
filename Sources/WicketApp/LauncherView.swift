@@ -168,6 +168,7 @@ struct LauncherView: View {
           // The free space after the slots belongs to the input.
           .contentShape(Rectangle())
           .onTapGesture { model.focusedArgument = nil }
+          if model.returnWaiting { ProgressView().controlSize(.small) }
           if model.configuration.voice.enabled, model.takesSpeech {
             Button {
               model.toggleVoice()
@@ -384,6 +385,7 @@ struct LauncherView: View {
     }
     .contentShape(Rectangle()).id(result.id)
     .onTapGesture(count: 2) {
+      guard !model.rowsOutdated else { return }
       model.select(result.id)
       run(nil)
     }
@@ -391,6 +393,7 @@ struct LauncherView: View {
     .contextMenu {
       ForEach(Array(model.actions(of: result).enumerated()), id: \.offset) { _, action in
         Button(action.label) {
+          guard !model.rowsOutdated else { return }
           model.select(result.id)
           run(action)
         }

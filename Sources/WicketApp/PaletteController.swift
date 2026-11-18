@@ -240,6 +240,12 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
     model.stopVoice(.run)
+    // Return right after an edit runs the selection of the list for that edit, not the one still shown, and
+    // never asks the agent only because a matching pattern is slow (`LauncherModel.returnWaits`).
+    if chosen == nil, model.returnWaits {
+      Task { if await model.readyForReturn() { run() } }
+      return
+    }
     guard !opening, let (action, result) = model.pick(chosen) else { return }
     if model.activate(action, from: result) { return }
     let input = model.input
