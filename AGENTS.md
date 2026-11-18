@@ -16,6 +16,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - Keep the core small; anything that can be an extension should be one.
 - Concise code, clean architecture, no remains: when a change supersedes a design, delete the old code, settings, tests, docs and comments in the same change. Prefer deleting to adding; an abstraction needs two real users.
 - Prefer the newest Apple APIs (SwiftUI, Observation, Liquid Glass, Swift Testing) over hand-written code; use older APIs only where nothing modern works, with a comment saying why.
+- Handle failures that realistically happen in real use. No handling for contrived timing combinations (several fast actions inside a few milliseconds) or for failures of the error handling itself. Reviews report only bugs with a plausible real-world path; list the rest as notes, never as blockers.
 - Measure performance (hotkey to visible, query latency, idle memory) when touching hot paths.
 - Question the product before building it: for new user-facing work, get an unanchored product challenge first. Design first, then compare with other launchers on the merits; never copy their code.
 - Record decisions and mechanism in SPEC.md, planned work in ROADMAP.md, open problems in ISSUES.md. Keep them current in the same change that alters behavior.
