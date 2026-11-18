@@ -26,9 +26,6 @@ struct CommandState {
   var page: Page?
   var problem: String?
   var busy = false
-  /// The running request has shown a view and goes on printing more (views over time): Escape stops it
-  /// and stays on the last one.
-  var live = false
   var turn = UUID().uuidString
 }
 
@@ -399,20 +396,12 @@ final class LauncherModel {
   }
   /// What answers a command's requests: an extension's command through the host, or a host command.
   /// Nil when there is no such command.
-  private func commandSource(_ id: String) -> (
-    @MainActor (ProviderRequest) -> AsyncThrowingStream<(view: ProviderView, running: Bool), any Error>
-  )? {
+  private func commandSource(_ id: String) -> (@MainActor (ProviderRequest) async throws -> ProviderView)? {
     if let command = extensions.commands[id] {
       let host = extensions
-      return { host.views(command, request: $0) }
+      return { try await host.view(command, request: $0) }
     }
-    guard let view = hostCommand(id) else { return nil }
-    return { request in
-      AsyncThrowingStream {
-        $0.yield((view(request), false))
-        $0.finish()
-      }
-    }
+    return hostCommand(id)
   }
   /// What a command answers without waiting for anything: an extension's manifest items, or a host
   /// command. Nil when it runs a process.
@@ -487,7 +476,6 @@ final class LauncherModel {
     tasks.removeAll()
     isRefreshing = false
     command?.busy = false
-    command?.live = false
     pending.removeAll()
   }
   /// Stays on the current screen: a switch still waiting for its content is called off, and so is an
@@ -604,45 +592,23 @@ final class LauncherModel {
       }
       target?.busy = true
       let version = generation
-      // A submit command's own follow-up updates its page in place, as a conversation's does, so a page
-      // followed to its end stays there; any other request is a new page, which starts at its top.
-      let followUp = arriving == nil && state.next == .submission && extensionCommand?.manifest.submit == true
-      if followUp { details = [] }
-      let turn = followUp ? state.turn : UUID().uuidString
+      let turn = UUID().uuidString
       tasks.append(
         Task { [weak self] in
-          // A submitted request's first view that carries `input` sets it, once.
-          var inputSet = !request.submitted
           do {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
-            // Each view replaces the last on the same page while the process runs (views over time).
-            for try await (view, running) in source(request) {
-              guard let self, !Task.isCancelled, generation == version else { return }
-              // A submitted request that is done closes the panel, as the user hiding it would, without
-              // showing its view; the effect (a moved window) is the feedback.
-              if view.close, request.submitted { return onClose() }
-              let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-              if arriving != nil, let page, let preparePage {
-                await preparePage(page, turn)
-                guard !Task.isCancelled, generation == version else { return }
-              }
-              showArrival()
-              show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
-              // Never over what the user typed since sending. In a submit command it runs nothing (the
-              // next request waits for Return); in any other it reruns as typing would, so the view
-              // always answers what is typed.
-              if !inputSet, let text = view.input {
-                inputSet = true
-                if self.input == request.input, self.input != text { self.input = text }
-                guard generation == version else { return }
-              }
-              // While it runs, Escape stops it and stays on this view; the last one is settled below.
-              guard running else { continue }
-              command?.busy = true
-              command?.live = true
-              retainSelection()
-              onResultsChange?()
+            let view = try await source(request)
+            guard let self, !Task.isCancelled, generation == version else { return }
+            // A submitted request that is done closes the panel, as the user hiding it would, without
+            // showing its view; the effect (a moved window) is the feedback.
+            if view.close, request.submitted { return onClose() }
+            let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
+            if arriving != nil, let page, let preparePage {
+              await preparePage(page, turn)
+              guard !Task.isCancelled, generation == version else { return }
             }
+            showArrival()
+            show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
           } catch {
             guard let self, !Task.isCancelled, generation == version else { return }
             showArrival()
@@ -654,7 +620,6 @@ final class LauncherModel {
           }
           guard let self, generation == version else { return }
           command?.busy = false
-          command?.live = false
           retainSelection()
           onResultsChange?()
         })
@@ -1247,12 +1212,6 @@ final class LauncherModel {
     if agent.active {
       // Ending the conversation goes back to what was open under it once that has its content.
       if agent.busy { agent.cancel() } else { arrive(command, input: "", back: true) }
-      return true
-    }
-    if command?.live == true {
-      // A view over time stops where it is, as a running answer does; the next Escape goes back.
-      cancelWork()
-      onResultsChange?()
       return true
     }
     if command != nil {
