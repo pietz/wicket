@@ -65,10 +65,8 @@ final class ClipboardHistory: Provider {
   nonisolated private static let log = Logger(subsystem: "app.wicket", category: "clipboard")
 
   /// `interval` nil never polls on its own; tests call `poll()`. An image entry whose file is gone is dropped,
-  /// and a stray `<uuid>.png` that no entry names is deleted, which a quit between the two writes leaves. A list
-  /// that exists but does not read is set aside as `<list>.unreadable-<milliseconds>.json`, a new copy each
-  /// time, never deleting an earlier one, so it can be recovered by hand, and the history starts empty. No
-  /// image counts as stray then, nor while any copy set aside is there.
+  /// and a stray `<uuid>.png` that no entry names is deleted, which a quit between the two writes leaves,
+  /// unless the list exists but cannot be read: it may name any image.
   init(
     url: URL, pasteboard: any PasteboardAccess = NSPasteboard.general,
     interval: Duration? = .milliseconds(500), imageLimits: (each: Int, total: Int) = imageLimits
@@ -78,43 +76,15 @@ final class ClipboardHistory: Provider {
     self.imageLimits = imageLimits
     folder = url.deletingLastPathComponent()
     writer = PrivateList.writer(url, log: Self.log)
-    asidePrefix = url.deletingPathExtension().lastPathComponent + ".unreadable-"
     let stored: [Clip]? = PrivateList.read(url)
-    if stored == nil {
-      var stamp = Int(Date().timeIntervalSince1970 * 1000)
-      while FileManager.default.fileExists(atPath: folder.appending(path: "\(asidePrefix)\(stamp).json").path)
-      {
-        stamp += 1
-      }
-      do {
-        try FileManager.default.moveItem(at: url, to: folder.appending(path: "\(asidePrefix)\(stamp).json"))
-      } catch {
-        Self.log.error(
-          "could not set the unreadable list aside, code \((error as NSError).code, privacy: .public)")
-      }
-    }
     let files = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
     clips = (stored ?? []).filter { $0.image == nil || files.contains($0.id + ".png") }
-    // Whether or not the list could be set aside, it may name any image.
-    if stored != nil { deleteStrays() }
-    if clips.count != stored?.count ?? 0 { save() }
-  }
-  /// How the copies of an unreadable list set aside begin.
-  private let asidePrefix: String
-  private var asideCopies: [String] {
-    ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter {
-      $0.hasPrefix(asidePrefix)
-    }
-  }
-  /// Deletes each `<uuid>.png` no entry names, unless an unreadable list set aside may name it.
-  private func deleteStrays() {
-    guard asideCopies.isEmpty else { return }
-    let named = Set(clips.lazy.filter { $0.image != nil }.map { $0.id + ".png" })
-    let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-    for name in files where name.hasSuffix(".png") && !named.contains(name) {
+    let named = Set(clips.map { $0.id + ".png" })
+    for name in files where stored != nil && name.hasSuffix(".png") && !named.contains(name) {
       guard UUID(uuidString: String(name.dropLast(4))) != nil else { continue }
       try? FileManager.default.removeItem(at: folder.appending(path: name))
     }
+    if clips.count != stored?.count ?? 0 { save() }
   }
 
   /// Applies the `clipboard` source's switch: starts or stops watching and expires old clips.
@@ -292,13 +262,9 @@ final class ClipboardHistory: Provider {
 
   /// Counts Clear History, so an image still being prepared from before it is dropped.
   private var clears = 0
-  /// Clear History: every entry and image goes, and so does every copy of an unreadable list set aside,
-  /// with the images they may name.
   func clear() {
     clears += 1
     replace(with: [])
-    for name in asideCopies { try? FileManager.default.removeItem(at: folder.appending(path: name)) }
-    deleteStrays()
   }
 
   private func imageURL(_ id: String) -> URL { folder.appending(path: id + ".png") }
