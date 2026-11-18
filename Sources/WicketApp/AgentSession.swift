@@ -68,7 +68,7 @@ final class AgentSession {
   var cancelGrace: Duration = .seconds(3)
   var retention: TimeInterval = 1200
   /// No event at all from a CLI that started, then no event for this long during the turn: a working
-  /// agent is never cut off, a hung one is.
+  /// agent is never cut off, a hung one is. While a permission waits for the user, no limit runs.
   var startupLimit: Duration = .seconds(30)
   var turnLimit: Duration = .seconds(600)
   /// Everything stays for `retention` after the last hide or completion, whichever is later.
@@ -83,6 +83,7 @@ final class AgentSession {
   /// After the retention window, pending permissions are declined, even while busy. Unless a turn
   /// is still running, the conversation ends too. Returns true then: the caller drops its draft.
   @discardableResult func reopen(now: Date = Date()) -> Bool {
+    isHidden = false
     permissionExpiry?.cancel()
     guard let retainedUntil, now > retainedUntil else { return false }
     declineAll()
@@ -92,8 +93,16 @@ final class AgentSession {
     return true
   }
   func hidden(now: Date = Date()) {
+    isHidden = true
     lastActivity = max(lastActivity ?? now, now)
     if active { continuing = true }
+    expirePermissions(now: now)
+  }
+  /// The panel is hidden: a permission asked now is declined at the same deadline as one pending at the
+  /// hide, since no limit runs while it waits.
+  private var isHidden = false
+  /// Declines the pending permissions once `retention` after the last hide or completion has passed.
+  private func expirePermissions(now: Date = Date()) {
     permissionExpiry?.cancel()
     guard !permissions.isEmpty, let retainedUntil else { return }
     let delay = max(0, retainedUntil.timeIntervalSince(now))
@@ -215,7 +224,8 @@ final class AgentSession {
   }
 
   private func receive(_ event: AgentEvent) {
-    arm(turnLimit)
+    // A CLI waiting on a permission is silent until the user answers, which may take until `retention`.
+    if permissions.isEmpty { arm(turnLimit) }
     switch event {
     case .session(let id):
       sessionID = id
@@ -258,6 +268,8 @@ final class AgentSession {
         return
       }
       permissions.append(permission)
+      deadline?.cancel()
+      if isHidden { expirePermissions() }
     case .finished(let cancelled):
       guard busy else { return }
       status = cancelled ? "Cancelled" : "Ready for a follow-up"
@@ -276,6 +288,8 @@ final class AgentSession {
     guard let permission = permissions.first else { return }
     connection?.decide(permission.id, allow: allow)
     permissions.removeFirst()
+    // The last one answered: silence counts again.
+    if permissions.isEmpty, busy, !cancelling { arm(turnLimit) }
     onChange?()
   }
   func cancel() {
@@ -341,8 +355,8 @@ final class AgentSession {
     task?.cancel()
     cancelDeadline?.cancel()
     permissionExpiry?.cancel()
-    deadline?.cancel()
     declineAll()
+    deadline?.cancel()
     release(connection, "conversation reset or app quit")
     connection = nil
     active = false

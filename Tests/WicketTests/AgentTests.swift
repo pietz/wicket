@@ -924,6 +924,30 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   await session.shutdown()
 }
 
+@MainActor @Test func aPermissionAskedAfterTheHideIsDeclinedAtTheHidesDeadline() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let fake = FakeAgent()
+  let session = AgentSession(folder: folder)
+  session.retention = 4
+  session.connect = { _, _, _ in fake }
+  session.ask("Write a file", settings: .init())
+  #expect(await eventually { fake.running })
+  fake.tool("Working")
+  // Hidden while it works, and it asks 3.5 s later: no silence limit runs, so the hide's deadline, 0.5 s
+  // after the request, declines it, not a fresh one 4 s after it. Far apart, so a loaded machine's late
+  // timers cannot blur them.
+  session.hidden()
+  try await Task.sleep(for: .milliseconds(3500))
+  fake.ask(3)
+  let asked = ContinuousClock.now
+  #expect(session.permissions.count == 1)
+  #expect(await eventually(within: .seconds(10)) { session.permissions.isEmpty })
+  #expect(ContinuousClock.now - asked < .milliseconds(2500))
+  #expect(fake.decisions.count == 1 && fake.decisions[0].id == .number(3) && !fake.decisions[0].allow)
+  await session.shutdown()
+}
+
 @MainActor @Test func aSilentCLIAndALongTurnAreBounded() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -958,18 +982,21 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   slow.onEvent(.failed("Claude Code exited with status 1."))
   #expect(session.problem == nil && session.status == "Ready for a follow-up")
   #expect(await eventually { slow.stopped })
-  // A turn that goes silent expires, is declined whatever it still asks, and loses its process.
+  // A CLI waiting on a permission is silent for the user, not hung: no limit runs until it is answered.
   let endless = FakeAgent()
   session.connect = { _, _, _ in endless }
   session.ask("Hello", settings: .init())
   #expect(await eventually { endless.running })
   endless.tool("Working")
   endless.ask(9)
-  #expect(session.permissions.count == 1)
+  try await Task.sleep(for: .seconds(1))
+  #expect(session.busy && session.problem == nil && session.permissions.count == 1)
+  // Answered, the limit runs again: a turn that goes silent expires and loses its process.
+  session.decide(true)
   #expect(await eventually { !session.busy })
   #expect(session.problem?.contains("took too long") == true && session.permissions.isEmpty)
   #expect(
-    endless.decisions.count == 1 && endless.decisions[0].id == .number(9) && !endless.decisions[0].allow)
+    endless.decisions.count == 1 && endless.decisions[0].id == .number(9) && endless.decisions[0].allow)
   #expect(await eventually { endless.stopped })
   await session.shutdown()
 }
