@@ -3,10 +3,7 @@ import Testing
 
 @testable import WicketApp
 
-/// `environment` adds to the test's own, such as a `TMPDIR` of the test's for the Shell's session.
-func cli(_ folder: URL, _ arguments: [String], environment extra: [String: String] = [:]) async throws -> (
-  Int32, JSONValue
-) {
+func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue) {
   _ = bundledExtensions  // Beside the executable, where an unbundled Wicket looks for them.
   let executable = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent().appending(path: ".build/debug/Wicket")
@@ -17,7 +14,6 @@ func cli(_ folder: URL, _ arguments: [String], environment extra: [String: Strin
   p.arguments = arguments
   var environment = ProcessInfo.processInfo.environment
   environment["WICKET_CONFIG_DIR"] = folder.path
-  environment.merge(extra) { $1 }
   p.environment = environment
   p.standardInput = FileHandle.nullDevice
   p.standardOutput = output

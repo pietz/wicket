@@ -25,7 +25,7 @@ let package = Package(
     .executableTarget(name: "units", path: "Sources/Extensions/units", exclude: ["wicket.json"]),
     .executableTarget(name: "window", path: "Sources/Extensions/window", exclude: ["wicket.json"]),
     .executableTarget(name: "shell", path: "Sources/Extensions/shell", exclude: ["wicket.json"]),
-    // The window extension's geometry and the shell's output and session are tested as functions
+    // The window extension's geometry and the shell's terminal hand-over are tested as functions
     // (`@testable import window`, `shell`).
     .testTarget(
       name: "WicketTests", dependencies: ["WicketApp", "window", "shell"], resources: [.copy("Fixtures")]

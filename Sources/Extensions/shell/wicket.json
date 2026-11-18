@@ -1,1 +1,1 @@
-{"name":"Shell","description":"Runs a command typed after > and shows its output; the next one runs in the folder it left.","icon":"terminal","command":["./main"],"match":"^>","submit":true}
+{"name":"Shell","description":"Opens a command typed after > in your default terminal, in your home folder.","icon":"terminal","command":["./main"],"match":"^>"}

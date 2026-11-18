@@ -78,11 +78,11 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 
 ### Done: a view that changes over time
 
-Parked by the owner on 12 Nov 2026, built on 17 Nov 2026 for the Shell (SPEC, Views over time): stdout may be one whole view per line, each replacing the last, the deadline applies to the first in an open command (to the whole run elsewhere), and the process ends when its view is left, on Escape or when the panel hides. No patch events. Still open: file search on the provider path (finding 8), and background work that outlives the panel (a timer, a notification), a separate question.
+Parked by the owner on 12 Nov 2026, built on 17 Nov 2026 for the Shell, which since hands commands to the terminal (SPEC, Views over time): stdout may be one whole view per line, each replacing the last, the deadline applies to the first in an open command (to the whole run elsewhere), and the process ends when its view is left, on Escape or when the panel hides. No patch events. Still open: file search on the provider path (finding 8), and background work that outlives the panel (a timer, a notification), a separate question.
 
 ### Later: the agent as a command
 
-`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type. Views over time are built and the Shell runs on them; the step touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own.
+`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type. Views over time are built; the step touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own.
 
 ## Next features
 
@@ -90,7 +90,7 @@ Features 0.1 does not have yet, mostly from 0.0.x, roughly in the order they mat
 
 1. **Clipboard history, after real use:** images are kept and the selected entry shows beside the list (17 Nov 2026); copied files, pinned entries, and whether entries belong in root search after all are open.
 2. **Actions and shortcuts.** Done: the action panel (⌘K) lists a row's actions and the host's hotkey actions, the same list as the context menu, so a file's Reveal in Finder, a clipboard entry's Copy and Delete and a page target's second action have a keyboard path (SPEC, Launcher). Open: extension rows' own host actions (Turn off, Reveal in Finder; Move to Trash is in Settings), added to `actions(of:)`; filtering inside the panel if lists grow long; ⌘1 to ⌘9 direct picks; a listen shortcut; a Show in menu bar setting.
-3. **Shell commands.** Built (17 Nov 2026) as the bundled Shell extension on views over time (SPEC, Launcher, Shell): `> command` at the root, Return runs it in Wicket with streamed, bounded output and its exit status, follow-ups keep the folder, and Run in Terminal hands a command to the default terminal. Decided: follow-ups share the folder only (a fresh login shell per command, stdin closed, as 0.0.x), output is not kept beyond the temporary folder, and no prefix setting (Make It Mine edits `match`). The input empties after each run through the view's `input` field (17 Nov 2026). Open: real use of Run in Terminal.
+3. **Shell commands.** Built (17 Nov 2026) as the bundled Shell extension; since 18 Nov 2026 `> command` at the root opens the command in the default terminal, in the home folder, and Wicket closes (SPEC, Launcher, Shell). Open: real use.
 4. **Finder selection as agent context** ("summarize these"). Needs an Apple events permission and entitlement, which 0.1 deliberately does not request until the feature exists.
 5. **Migration from 0.0.x:** carry over a custom hotkey and, if wanted, usage from `settings.json` and Application Support, without ever modifying the old files.
 6. **The `wicket` CLI** for authoring: `check` (lint a manifest and output), `run`, run logs and secrets. 0.1 only has `--query` and `--extension` in the app binary. Extension secrets in the Keychain, run history and Fix with Agent came with it.
