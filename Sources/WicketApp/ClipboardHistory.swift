@@ -153,11 +153,12 @@ final class ClipboardHistory: Provider {
   /// Images being captured, one after another, so the second of two quick copies sees the first.
   private var capturingImages: Task<Void, Never>?
 
+  /// Clear History is counted when the bytes are read, so one waiting here when it runs never comes.
   private func capturing(_ data: Data, now: Date) {
-    let previous = capturingImages
+    let (previous, cleared) = (capturingImages, clears)
     capturingImages = Task { [weak self] in
       await previous?.value
-      await self?.capture(image: data, now: now)
+      await self?.capture(image: data, now: now, cleared: cleared)
     }
   }
 
@@ -180,9 +181,10 @@ final class ClipboardHistory: Provider {
   /// Adds a copied image (PNG or TIFF) where its copy time puts it, normally the top, written as `<id>.png`
   /// (atomically, in the 0700 folder) before its entry; the same PNG bytes again move the existing clip.
   /// Past the total limit the oldest images go. Decoding, converting, hashing and writing run off the main
-  /// actor, so a large copy never stalls the panel.
-  func capture(image data: Data, now: Date = Date()) async {
-    let (limit, cleared) = (imageLimits.each, clears)
+  /// actor, so a large copy never stalls the panel. `cleared` is the Clear History count when it was copied,
+  /// by default now.
+  func capture(image data: Data, now: Date = Date(), cleared: Int? = nil) async {
+    let (limit, cleared) = (imageLimits.each, cleared ?? clears)
     // A Clear History while it was prepared or written means it never comes.
     guard let image = await Task.detached(operation: { Self.prepare(data, limit: limit) }).value,
       clears == cleared

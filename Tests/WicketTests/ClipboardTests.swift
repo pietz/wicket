@@ -370,7 +370,7 @@ private func pngs(_ folder: URL) -> Set<String> {
 
 @MainActor @Test func deleteClearAndExpiryDeleteImageFiles() async throws {
   let folder = try scratch()
-  let (history, _) = makeHistory(folder)
+  let (history, pasteboard) = makeHistory(folder)
   // Recent enough for the view's own expiry at the real date.
   let start = Date().addingTimeInterval(-40 * 86400)
   await history.capture(image: testImage(2, 2), now: start)
@@ -389,6 +389,14 @@ private func pngs(_ folder: URL) -> Set<String> {
   await Task.yield()
   history.clear()
   await pending.value
+  #expect(history.clips.isEmpty && pngs(folder).isEmpty)
+  // Nor do images copied before it that are still waiting behind another one.
+  pasteboard.copy(image: testImage(300, 200, seed: 4, as: .tiff), type: .tiff)
+  history.poll()
+  pasteboard.copy(image: testImage(2, 2, seed: 5))
+  history.poll()
+  history.clear()
+  await history.captured()
   #expect(history.clips.isEmpty && pngs(folder).isEmpty)
 }
 
