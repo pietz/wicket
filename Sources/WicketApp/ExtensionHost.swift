@@ -69,11 +69,9 @@ final class ExtensionHost {
   /// The catalog was read at least once. Until then an unknown name may still be on its way.
   private(set) var scanned = false
   private var scanWaiters: [CheckedContinuation<Void, Never>] = []
-  /// `shutdown` began: no scan comes any more.
-  private var stopped = false
-  /// Returns once the catalog was read at least once, or at once after `shutdown` began.
+  /// Returns once the catalog was read at least once.
   func firstScan() async {
-    guard !scanned, !stopped else { return }
+    guard !scanned else { return }
     await withCheckedContinuation { scanWaiters.append($0) }
   }
   private var revision = 0
@@ -174,10 +172,6 @@ final class ExtensionHost {
   func shutdown() async {
     watcher = nil
     scan?.cancel()
-    // Nothing waits for a scan that will never come.
-    stopped = true
-    for waiter in scanWaiters { waiter.resume() }
-    scanWaiters = []
     let tasks = Array(running.values)
     for task in tasks { task.cancel() }
     for task in tasks { _ = await task.result }
