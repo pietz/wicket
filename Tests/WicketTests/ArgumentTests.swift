@@ -270,6 +270,63 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.finish()
 }
 
+@MainActor @Test func switchingOffARunningSubmitCommandStopsIt() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root,
+    script:
+      "cat >/dev/null\nsleep 3\necho '{\"items\":[{\"id\":\"late\",\"title\":\"Late\",\"actions\":[]}]}'",
+    fields: ["submit": true])
+  let model = LauncherModel.testing(in: root)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  model.go(Address(id: "test"), submitted: true)
+  #expect(await eventually { model.command?.busy == true })
+  // Switched off, it stops at once and says so, as any other command does.
+  model.store.update { $0.providers = [.init("extension:test", enabled: false)] }
+  #expect(model.command?.busy == false && model.command?.problem?.contains("switched off") == true)
+  await model.settled()
+  #expect(model.results.isEmpty)
+  // Switched on again, it runs as when it is entered.
+  model.store.update { $0.providers = [] }
+  #expect(model.command?.busy == true && model.command?.problem == nil)
+  await model.finish()
+}
+
+@MainActor @Test func switchingOffASubmitCommandUnderAConversationStopsItsProcess() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let child = root.appending(path: "extensions/test/child")
+  _ = try extensionFolder(
+    root, script: "cat >/dev/null\nsleep 30 &\necho $! > child\nwait\necho '{\"close\":true}'",
+    fields: ["submit": true])
+  let model = LauncherModel.testing(in: root)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  var closed = false
+  model.onClose = { closed = true }
+  model.go(Address(id: "test"), submitted: true)
+  #expect(
+    await eventually(within: .seconds(5)) {
+      model.command?.busy == true && FileManager.default.fileExists(atPath: child.path)
+    })
+  let pid = try #require(
+    pid_t(String(contentsOf: child, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+  #expect(kill(pid, 0) == 0)
+  // Cmd+Return opens an empty conversation over it; switched off, the command and its child stop anyway.
+  model.askAgent()
+  #expect(model.agent.active)
+  model.store.update { $0.providers = [.init("extension:test", enabled: false)] }
+  #expect(model.command?.busy == false)
+  #expect(await eventually(within: .seconds(3)) { kill(pid, 0) == -1 })
+  #expect(!closed)
+  // Back from the conversation, it says why, as refresh would show it.
+  #expect(model.escape() && !model.agent.active)
+  #expect(model.command?.problem?.contains("switched off") == true && model.results.isEmpty)
+  await model.finish()
+}
+
 @MainActor @Test func anAppRescanThatFindsTheSameAppsChangesNothing() async {
   let apps = AppsProvider()
   var changes = 0

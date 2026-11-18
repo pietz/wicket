@@ -527,16 +527,28 @@ final class LauncherModel {
   /// What sources answer changed without the user: the installed apps, the extension catalog or which
   /// sources are on. The root composes again. An open command reruns only when `ids` names it (its
   /// manifest changed, it went away, or it was switched on or off), which also cancels its running
-  /// request; anything else would replace what the user is looking at for no reason of its own.
+  /// request; anything else would replace what the user is looking at for no reason of its own. A command
+  /// switched off or removed stops at once, also under a conversation, which shows its state when it ends.
   func sourcesChanged(_ ids: Set<String>) {
     if let id = target?.id, !ids.contains(id) { return }
+    if agent.active, let id = target?.id, !available(id) { cancelWork() }
     refresh()
   }
   /// The screen shown again after an overlay or a called-off entry, as `refresh` would show it now: a root
-  /// list whose generation was cut short is composed again.
+  /// list whose generation was cut short is composed again, and a command switched off or removed
+  /// meanwhile says why.
   private func refreshIfInterrupted() {
-    guard !agent.active, arriving == nil, command == nil, listedGeneration != rootGeneration else { return }
-    refresh()
+    guard !agent.active, arriving == nil else { return }
+    if let command {
+      if !available(command.id) { refresh() }
+    } else if listedGeneration != rootGeneration {
+      refresh()
+    }
+  }
+  /// The command can answer: it exists and its source is on (Agent History always is).
+  private func available(_ id: String) -> Bool {
+    commandSource(id) != nil
+      && (id == agentHistory?.id || configuration.isEnabled(id, extensions: extensions.ids))
   }
   /// `typed`: the input was edited, which a command's context ignores unless an address set it.
   func refresh(typed: Bool = false) {
@@ -546,9 +558,11 @@ final class LauncherModel {
     if let state = target {
       let source = commandSource(state.id)
       let extensionCommand = extensions.commands[state.id]
+      let available = available(state.id)
       // A submit command runs only when an address is followed, Return included: typing, voice and
-      // refreshes leave its view and a running request alone, and nothing stays selected.
-      if state.next == .rerun, extensionCommand?.manifest.submit == true, source != nil {
+      // refreshes leave its view and a running request alone, and nothing stays selected. One switched
+      // off or removed stops like any other.
+      if state.next == .rerun, extensionCommand?.manifest.submit == true, available {
         showArrival()
         retainSelection()
         onResultsChange?()
@@ -557,9 +571,9 @@ final class LauncherModel {
       cancelWork()
       target?.next = .rerun
       let remembered = !typed || state.next != .rerun
-      guard let source,
-        state.id == agentHistory?.id || configuration.isEnabled(state.id, extensions: extensions.ids)
-      else {
+      guard let source, available else {
+        // Back on or back again, it runs as when it is entered.
+        target?.next = .address
         target?.context = nil
         target?.problem =
           source == nil
