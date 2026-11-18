@@ -215,7 +215,8 @@ final class AgentSession {
   }
 
   private func receive(_ event: AgentEvent) {
-    arm(turnLimit)
+    // Another tool's update does not restart the limit while a permission waits on the user.
+    if permissions.isEmpty { arm(turnLimit) }
     switch event {
     case .session(let id):
       sessionID = id

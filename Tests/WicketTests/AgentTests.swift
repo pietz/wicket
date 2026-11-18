@@ -965,6 +965,8 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(await eventually { endless.running })
   endless.tool("Working")
   endless.ask(9)
+  // A parallel tool's update while the permission waits does not start the limit again.
+  endless.tool("Still working")
   try await Task.sleep(for: .seconds(1))
   #expect(session.busy && session.problem == nil && session.permissions.count == 1)
   // Answered, the limit runs again: a turn that goes silent expires and loses its process.
