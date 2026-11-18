@@ -532,6 +532,12 @@ final class LauncherModel {
     if let id = target?.id, !ids.contains(id) { return }
     refresh()
   }
+  /// The screen shown again after an overlay or a called-off entry, as `refresh` would show it now: a root
+  /// list whose generation was cut short is composed again.
+  private func refreshIfInterrupted() {
+    guard !agent.active, arriving == nil, command == nil, listedGeneration != rootGeneration else { return }
+    refresh()
+  }
   /// `typed`: the input was edited, which a command's context ignores unless an address set it.
   func refresh(typed: Bool = false) {
     guard !agent.active || arriving != nil else { return }
@@ -1074,8 +1080,12 @@ final class LauncherModel {
     closeActions()
     guard input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return send() }
     guard !agent.active else { return }
-    // A switch still on its way would end the conversation when it arrives.
-    stopArriving()
+    // A switch still on its way would end the conversation when it arrives: it is called off with its
+    // request, as Escape calls it off, and leaving the conversation composes the screen under it again.
+    if arriving != nil {
+      stopArriving()
+      cancelWork()
+    }
     origin = Origin(
       context: commandContext(typed: false), input: input, selection: selection, touched: selectionTouched,
       drafted: drafted)
@@ -1170,9 +1180,14 @@ final class LauncherModel {
       closeActions()
       return true
     }
-    // Escape while a command is being entered stays where it was; a way back is already on its way.
+    // Escape while a command is being entered stays where it was, and its request stops; a way back is
+    // already on its way.
     if let arrival = arriving {
-      if !arrival.back { stopArriving() }
+      if !arrival.back {
+        stopArriving()
+        cancelWork()
+        refreshIfInterrupted()
+      }
       return true
     }
     // A detail goes back to where the user was on the page under it.
@@ -1189,6 +1204,7 @@ final class LauncherModel {
       input = origin.input
       agent.reset()
       returnTo(origin.selection, touched: origin.touched, drafted: origin.drafted)
+      refreshIfInterrupted()
       onResultsChange?()
       return true
     }

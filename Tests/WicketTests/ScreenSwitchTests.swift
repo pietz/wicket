@@ -134,6 +134,32 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   await model.finish()
 }
 
+@MainActor @Test func escapeWhileACommandIsComingStopsItsRequest() async throws {
+  let (model, root) = try await launcher(
+    """
+    request=$(cat)
+    sleep 0.3
+    case "$request" in
+      *'"input":"close"'*) echo '{"close":true}' ;;
+      *) echo '{"items":[{"id":"late","title":"Late","actions":[]}]}' ;;
+    esac
+    """)
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.arrivalDeadline = .seconds(5)
+  var closed = false
+  model.onClose = { closed = true }
+  let rows = model.results.map(\.id)
+  // Neither a late view nor a late close reaches the root the user stayed on.
+  for input in ["list", "close"] {
+    model.go(Address(id: "test", input: input), submitted: true)
+    #expect(model.escape() && model.command == nil)
+    try await Task.sleep(for: .milliseconds(600))
+    #expect(model.command == nil && model.input == "a" && model.results.map(\.id) == rows)
+    #expect(!closed)
+  }
+  await model.finish()
+}
+
 @MainActor @Test func aPageShowsOnlyOnceItsBodyIsMeasured() async throws {
   let page = String(
     decoding: try JSONEncoder().encode(ProviderView(body: "# Hello")), as: UTF8.self)

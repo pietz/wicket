@@ -331,6 +331,51 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.finish()
 }
 
+@MainActor @Test func escapeFromAnEntryComposesTheRootListItInterrupted() async throws {
+  let (model, controller, root) = try await echoLauncher()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.arrivalDeadline = .seconds(5)
+  model.input = "> B"
+  // Entering a slow command stops the root's refresh for "> B"; Escape calls the entry off.
+  model.go(Address(id: "echo", input: "slow"), submitted: true)
+  press(controller, 53, "\u{1B}")
+  #expect(model.command == nil && model.input == "> B")
+  #expect(await eventually(within: .seconds(5)) { model.selected?.row.title == "> B" })
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func leavingTheEmptyConversationComposesTheRootItInterrupted() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "slow",
+    script:
+      "import json,sys,time\ntext = json.load(sys.stdin)['input']\ntime.sleep(0.4)\nprint(json.dumps({'items':[{'id':'row','title':'Root','actions':[]}]} if text == '' else {'close':True}))",
+    fields: ["match": "^$", "command": ["/usr/bin/python3", "main.sh"]])
+  let model = LauncherModel.testing(in: root)
+  model.arrivalDeadline = .seconds(5)
+  model.store.update { $0.providers = [.init("extension:slow")] }
+  model.extensions.onCatalogChange = nil
+  await model.extensions.reload()
+  model.input = "x"
+  await model.settled()
+  // The query cleared, a slow command followed before the root composed, then ⌘Return over it.
+  var closed = false
+  model.onClose = { closed = true }
+  model.input = ""
+  model.go(Address(id: "slow", input: "go"), submitted: true)
+  model.askAgent()
+  #expect(model.agent.active && model.command == nil)
+  // The command it called off never answers into the conversation: its close would hide the panel.
+  try await Task.sleep(for: .milliseconds(600))
+  #expect(!closed)
+  // Escape back: the root's interrupted generation composes again.
+  #expect(model.escape() && !model.agent.active)
+  #expect(await eventually(within: .seconds(5)) { model.results.first?.row.title == "Root" })
+  await model.finish()
+}
+
 @MainActor @Test func untouchedSelectionFollowsTheBestLateResultAndChosenExtensionSurvivesRefresh()
   async throws
 {
