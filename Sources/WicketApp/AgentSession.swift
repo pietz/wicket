@@ -318,8 +318,7 @@ final class AgentSession {
   }
   /// The turn is over, however it ended: its process ends with it.
   private func finishTurn(_ outcome: String = "turn ended") {
-    publishAnswer()
-    if answer.isEmpty { answer = narration }
+    settleAnswer()
     declineAll()
     busy = false
     acceptingUpdates = false
@@ -329,11 +328,20 @@ final class AgentSession {
     deadline?.cancel()
     release(connection, outcome)
     connection = nil
+    saveRun()
+    onChange?()
+  }
+  /// The answer as the turn leaves it: what was held back, or the narration when nothing followed it.
+  private func settleAnswer() {
+    publishAnswer()
+    if answer.isEmpty { answer = narration }
+  }
+  /// Saves the run with every turn it holds to Agent History.
+  private func saveRun() {
     history?.save(
       AgentHistory.Run(
         id: runID, agent: chosen.agent, session: sessionID, used: Date(), source: runSource,
         turns: previous + [Turn(question: question, answer: answer)]))
-    onChange?()
   }
   /// Every pending permission is refused, so the CLI is never left waiting on one.
   private func declineAll() {
@@ -350,7 +358,13 @@ final class AgentSession {
     teardown = stopping
     return stopping
   }
+  /// Ends the conversation. A turn still running ends with it and is saved as a cancelled one would be,
+  /// with its answer so far.
   func reset() {
+    if busy {
+      settleAnswer()
+      saveRun()
+    }
     generation += 1
     task?.cancel()
     cancelDeadline?.cancel()

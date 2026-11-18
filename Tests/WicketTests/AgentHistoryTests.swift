@@ -226,6 +226,27 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   await bench.finish()
 }
 
+@MainActor @Test func openingACommandDuringATurnEndsItAndKeepsItInAgentHistory() async throws {
+  let bench = try Bench()
+  let model = bench.model
+  model.input = "Weather in Berlin?"
+  model.askAgent()
+  #expect(await eventually { bench.fakes.first?.running == true })
+  bench.fakes[0].onEvent(.session("s-1"))
+  bench.fakes[0].text("Sunny so f")
+  // A link in the answer opens a command: the turn ends, saved as a cancelled one would be.
+  model.go(try #require(Address(url: URL(string: "wicket://history")!)))
+  await model.settled()
+  #expect(!model.agent.active && model.command?.id == "history")
+  #expect(await eventually { bench.fakes[0].stopped })
+  let saved = try #require(bench.runs.runs.first)
+  #expect(
+    saved.session == "s-1" && saved.turns == [.init(question: "Weather in Berlin?", answer: "Sunny so f")])
+  // The list it opened shows it.
+  #expect(model.results.first?.row.title == "Weather in Berlin?")
+  await bench.finish()
+}
+
 /// What each CLI answered to an unknown session in a live check (16 Nov 2026, Claude Code 2.1.325 and
 /// codex-cli 0.167.1): a failure before any session, which is what starts the question afresh.
 @Test func bothCLIsReportAnUnknownSessionAsAFailureBeforeAnySession() throws {
