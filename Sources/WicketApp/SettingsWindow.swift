@@ -127,14 +127,12 @@ struct SettingsPane: View {
     Form {
       if let problem = store.problem {
         Section {
-          Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+          warning(problem)
           Text("Keeping the last good configuration. Fix config.json to continue editing.")
           Button("Open Config Folder") { reveal(store.url.deletingLastPathComponent()) }
         }
       }
-      if let problem = store.writeProblem {
-        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-      }
+      if let problem = store.writeProblem { warning(problem) }
       Group { content() }.disabled(store.problem != nil)
     }
     .formStyle(.grouped)
@@ -149,20 +147,12 @@ struct SettingsPane: View {
   @ViewBuilder private var general: some View {
     Section {
       LabeledContent("Open Wicket") {
-        Button(recorder.isRecording ? "Press a shortcut…" : config.hotkey.symbols) {
-          if recorder.isRecording {
-            recorder.stop()
-          } else {
-            recorder.start(pausing: pauseHotkey) { shortcut in
-              store.setHotkey(shortcut)
-            }
-          }
-        }.frame(minWidth: 120)
+        shortcutButton(config.hotkey.symbols, recording: recorder.isRecording, minWidth: 120) {
+          recorder.start(pausing: pauseHotkey) { store.setHotkey($0) }
+        }
       }
       if recorder.isRecording { recorderHint }
-      if let problem = store.hotkeyProblem {
-        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-      }
+      if let problem = store.hotkeyProblem { warning(problem) }
       Slider(
         value: Binding(
           get: { transparency.value ?? config.backgroundTransparency }, set: { transparency.value = $0 }),
@@ -299,11 +289,9 @@ struct SettingsPane: View {
       if AgentOptions.offersFast(config.agent, models: store.models) {
         option("Speed", key: "speed", help: "Fast answers quicker and uses more of your allowance.")
       }
-      VStack(alignment: .leading, spacing: 4) {
+      described("Show answers as they arrive. Turn off for completed steps.") {
         Toggle(
           "Stream answers", isOn: binding(config.agent.streamAnswers, key: "streamAnswers", group: "agent"))
-        Text("Show answers as they arrive. Turn off for completed steps.").font(.callout).foregroundStyle(
-          .secondary)
       }
     } footer: {
       Text(
@@ -315,20 +303,18 @@ struct SettingsPane: View {
     Section(config.agent.agent.product) {
       let agent = config.agent.agent
       if AgentCLI.installed(agent) {
-        switch store.signIn[agent] {
-        case .signedIn:
-          Label("\(agent.product) is installed and signed in", systemImage: "checkmark.circle")
-        case .signedOut:
-          Label("\(agent.product) isn't signed in", systemImage: "exclamationmark.triangle")
-          Text("Run \(agent.signIn) in Terminal.").textSelection(.enabled).foregroundStyle(.secondary)
-        case .unknown:
-          Label("\(agent.product) is installed", systemImage: "checkmark.circle")
-          Text("Couldn't check sign-in. Run \(agent.rawValue) in Terminal to see why.")
-            .foregroundStyle(.secondary)
-        case nil:
-          Label("\(agent.product) is installed", systemImage: "checkmark.circle")
-          Text("Checking sign-in…").foregroundStyle(.secondary)
-        }
+        let (status, hint): (String, String?) =
+          switch store.signIn[agent] {
+          case .signedIn: ("is installed and signed in", nil)
+          case .signedOut: ("isn't signed in", "Run \(agent.signIn) in Terminal.")
+          case .unknown:
+            ("is installed", "Couldn't check sign-in. Run \(agent.rawValue) in Terminal to see why.")
+          case nil: ("is installed", "Checking sign-in…")
+          }
+        Label(
+          "\(agent.product) \(status)",
+          systemImage: store.signIn[agent] == .signedOut ? "exclamationmark.triangle" : "checkmark.circle")
+        if let hint { Text(hint).textSelection(.enabled).foregroundStyle(.secondary) }
       } else {
         Text(
           "\(config.agent.agent.product) isn't installed. Install it, then run \(config.agent.agent.signIn) in Terminal."
@@ -358,7 +344,7 @@ struct SettingsPane: View {
         "model": config.agent.model, "effort": config.agent.effort, "mode": config.agent.mode,
         "speed": config.agent.speed,
       ][key] ?? nil
-    return VStack(alignment: .leading, spacing: 4) {
+    return described(help) {
       Picker(
         title,
         selection: Binding(
@@ -376,8 +362,17 @@ struct SettingsPane: View {
           Text("Saved: " + value).tag(value)
         }
       }
+    }
+  }
+  /// A control with its explanation under it.
+  private func described(_ help: String, @ViewBuilder _ control: () -> some View) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      control()
       Text(help).font(.callout).foregroundStyle(.secondary)
     }
+  }
+  private func warning(_ problem: String) -> some View {
+    Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
   }
 
   // MARK: Extensions
@@ -442,7 +437,7 @@ struct SettingsPane: View {
         }
       }
       if let problem = extensions.problems[id] {
-        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled)
+        warning(problem).textSelection(.enabled)
       }
       if command != nil || own {
         HStack {
@@ -487,9 +482,7 @@ struct SettingsPane: View {
       Section("Hotkeys") {
         ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
         if recorder.target != nil { recorderHint }
-        if let problem = store.bindingProblem {
-          Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-        }
+        if let problem = store.bindingProblem { warning(problem) }
       }
     }
   }
@@ -527,16 +520,19 @@ struct SettingsPane: View {
         Button("Remove Hotkey", systemImage: "xmark.circle.fill") { store.bind(nil, to: target) }
           .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
       }
-      Button {
-        if recorder.target == target {
-          recorder.stop()
-        } else {
-          recorder.record(target, store: store, pausing: pauseHotkey)
-        }
-      } label: {
-        Text(recorder.target == target ? "Press a shortcut…" : keys?.symbols ?? "Record Hotkey").frame(
-          minWidth: 110)
+      shortcutButton(keys?.symbols ?? "Record Hotkey", recording: recorder.target == target, minWidth: 110) {
+        recorder.record(target, store: store, pausing: pauseHotkey)
       }
+    }
+  }
+  /// A shortcut's button: it shows the keys, and a press starts recording or, while recording, stops it.
+  private func shortcutButton(
+    _ keys: String, recording: Bool, minWidth: CGFloat, start: @escaping () -> Void
+  ) -> some View {
+    Button {
+      if recording { recorder.stop() } else { start() }
+    } label: {
+      Text(recording ? "Press a shortcut…" : keys).frame(minWidth: minWidth)
     }
   }
   @ViewBuilder private func clipboardRows(enabled: Bool) -> some View {
