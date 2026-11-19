@@ -55,7 +55,7 @@ cp Resources/Info.plist "$app/Contents/Info.plist"
 extensions=(calculator units window shell)
 for name in $extensions; do
   mkdir -p "$app/Contents/Resources/Extensions/$name"
-  cp "Sources/Extensions/$name/wicket.json" "Sources/Extensions/$name/main.swift" \
+  cp "Sources/Extensions/$name/wicket.json" "Sources/Extensions/$name/main.swift" Sources/Extensions/Shared/JSON.swift \
     "$app/Contents/Resources/Extensions/$name/"
   cp "$bin/$name" "$app/Contents/Resources/Extensions/$name/main"
 done

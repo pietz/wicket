@@ -79,7 +79,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 5. Break a `wicket.json` on purpose. The list shows it with a warning icon and the detail the problem; the rest keeps working.
 6. Window's detail: set Gap to 8 and press Return, then Almost Maximize to 80 and click elsewhere. `config.json` has `"extensions": {"window": {"almostMaximize": "80", "gap": "8"}}`. Left Half, Right Half and Maximize leave 8 points to the screen's edges and between the halves; Almost Maximize takes 80 percent. Empty both fields: the entry goes and the defaults (0, 90) apply.
 7. In Window's Hotkeys, Record Hotkey on Right Half, press ⌃⌥→: it shows there and on the Right Half row in the panel; the remove button clears it in both. A combination already bound or ⌘C is refused below the list, as in the panel.
-8. Show in Finder selects Window's folder inside the app. Make It Mine: `extensions/window` appears with `wicket.json`, `main` and `main.swift`, the button goes away (the copy now replaces the bundled one), and the window commands still work. Press Make It Mine on Calculator after creating `extensions/calculator` by hand: refused with a message, nothing overwritten.
+8. Show in Finder selects Window's folder inside the app. Make It Mine: `extensions/window` appears with `wicket.json`, `main`, `main.swift` and `JSON.swift`, the button goes away (the copy now replaces the bundled one), and the window commands still work. Press Make It Mine on Calculator after creating `extensions/calculator` by hand: refused with a message, nothing overwritten.
 
 ## 8. Settings (General)
 

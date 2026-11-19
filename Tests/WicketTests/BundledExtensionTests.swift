@@ -24,6 +24,7 @@ let bundledExtensions: URL = {
     for (source, file) in [
       (root.appending(path: "Sources/Extensions/\(name)/wicket.json"), "wicket.json"),
       (root.appending(path: "Sources/Extensions/\(name)/main.swift"), "main.swift"),
+      (root.appending(path: "Sources/Extensions/Shared/JSON.swift"), "JSON.swift"),
       (products.appending(path: name), "main"),
     ] where !fm.contentsEqual(atPath: source.path, andPath: target.appending(path: file).path) {
       try? fm.removeItem(at: target.appending(path: file))
