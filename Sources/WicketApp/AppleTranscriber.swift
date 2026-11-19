@@ -25,7 +25,7 @@ import Speech
     }
   }
   func stop() {
-    if let microphone { shutdown = microphone.requestStop() }
+    if let microphone { shutdown = microphone.stop() }
     microphone = nil
     task?.cancel()
     task = nil
@@ -39,13 +39,10 @@ import Speech
     _ microphone: Microphone, yield: @escaping @Sendable (VoiceUpdate) -> Void,
     fail: @escaping @Sendable (VoiceError) -> Void
   ) async throws {
-    defer { _ = microphone.requestStop() }
+    defer { _ = microphone.stop() }
     try validateUsage(Bundle.main.infoDictionary ?? [:])
     try Task.checkCancellation()
     let permission = AVAudioApplication.shared.recordPermission
-    VoiceLog.logger.log(
-      "voice permissions: record \(String(describing: permission.kind), privacy: .public), capture \(String(describing: AVCaptureDevice.authorizationStatus(for: .audio).kind), privacy: .public), speech \(String(describing: SFSpeechRecognizer.authorizationStatus().kind), privacy: .public)"
-    )
     let micAllowed: Bool
     if permission == .undetermined {
       yield(.permission(true))
@@ -56,18 +53,10 @@ import Speech
     }
     try Task.checkCancellation()
     guard micAllowed else { throw VoiceError.microphoneDenied }
-    guard SpeechTranscriber.isAvailable else {
-      VoiceLog.logger.error("voice: SpeechTranscriber unavailable")
-      throw VoiceError.noLanguage
-    }
-    guard
+    guard SpeechTranscriber.isAvailable,
       let locale = VoiceLanguage.choose(
-        preferred: Locale.preferredLanguages, supported: await SpeechTranscriber.supportedLocales
-      )
-    else {
-      VoiceLog.logger.error("voice: no supported preferred language")
-      throw VoiceError.noLanguage
-    }
+        preferred: Locale.preferredLanguages, supported: await SpeechTranscriber.supportedLocales)
+    else { throw VoiceError.noLanguage }
     let transcriber = SpeechTranscriber(
       locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults],
       attributeOptions: [])
@@ -75,7 +64,6 @@ import Speech
       throw VoiceError.modelMissing
     }
     guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-      VoiceLog.logger.error("voice: no analyzer audio format")
       throw VoiceError.noLanguage
     }
     try Task.checkCancellation()
@@ -84,6 +72,7 @@ import Speech
     let analyzer = SpeechAnalyzer(
       modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
     try await withTaskCancellationHandler {
+      // Audio buffers from here on wait in `inputs` until the analyzer reads them: the first word counts.
       try microphone.start(format: format, feed: feed, firstAudio: { yield(.audio(.now)) }, fail: fail)
       yield(.ready)
       try await analyzer.start(inputSequence: inputs)
@@ -94,58 +83,98 @@ import Speech
         yield(.transcript(transcript.text))
       }
     } onCancel: {
-      _ = microphone.requestStop()
+      _ = microphone.stop()
       feed.finish()
       Task { await analyzer.cancelAndFinishNow() }
     }
   }
 }
 
-/// Opening never holds the state lock. Completion waits off the main actor for opening and teardown.
+/// The capture of one listening session. One serial queue owns the engine: opening, a device change and
+/// teardown run on it in order, so a stop during opening waits for it and nothing opens after a stop.
+/// Opening runs on the caller's thread (never the main actor); stopping never blocks its caller.
 final class Microphone: @unchecked Sendable {
-  private let lock = NSLock()
-  private var close: (@Sendable () -> Void)?
-  private var stopped = false, started = false
-  private var shutdown: Task<Void, Never>?
-  private let opening: AsyncStream<Void>
-  private let finished: AsyncStream<Void>.Continuation
-  init() { (opening, finished) = AsyncStream.makeStream(of: Void.self) }
-  func start(open: () throws -> @Sendable () -> Void) throws {
-    try lock.withLock {
+  private let queue = DispatchQueue(label: "app.wicket.capture")
+  private var engine: AVAudioEngine?
+  private var observer: (any NSObjectProtocol)?
+  private var started = false, stopped = false, tapped = false
+  private let opened = ContinuousClock.now
+
+  /// Runs `body` on the queue, once, unless capture already stopped; a failure closes what it opened.
+  func open(_ body: () throws -> Void) throws {
+    try queue.sync {
       guard !stopped, !started else { throw CancellationError() }
       started = true
+      do { try body() } catch {
+        close()
+        throw error
+      }
     }
-    defer { finished.finish() }
-    let close = try open()
-    lock.withLock { self.close = close }
   }
+  /// Stops capture for good. The task ends once the engine is closed, after any opening in progress.
+  func stop() -> Task<Void, Never> {
+    Task.detached { [self] in
+      await withCheckedContinuation { done in
+        queue.async { [self] in
+          close()
+          done.resume()
+        }
+      }
+    }
+  }
+  /// Opens the default input, taps it at the hardware's format and feeds `format` to the analyzer.
   func start(
     format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
   ) throws {
-    try start {
-      let capture = EngineCapture(format: format, feed: feed, firstAudio: firstAudio, fail: fail)
-      try capture.start()
-      return { capture.stop() }
+    try open { [self] in
+      let engine = AVAudioEngine()
+      self.engine = engine
+      // Configuration changes also arrive during a normal startup, Bluetooth especially: only one that
+      // leaves the engine stopped ends capture, with a hint, and nothing restarts by itself.
+      observer = NotificationCenter.default.addObserver(
+        forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+      ) { [weak self] _ in
+        self?.queue.async { [weak self] in
+          guard let self, !stopped, !engine.isRunning else { return }
+          VoiceLog.logger.log(
+            "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
+          )
+          close()
+          fail(.inputChanged)
+        }
+      }
+      let input = engine.inputNode
+      let tap = try Self.tapFormat(
+        hardware: input.inputFormat(forBus: 0), node: input.outputFormat(forBus: 0))
+      let conversion = try Conversion(input: tap, output: format)
+      // A tap whose rate disagrees with the hardware raises an uncatchable exception: recheck just before.
+      guard input.inputFormat(forBus: 0).sameRateAndChannels(tap) else { throw VoiceError.noMicrophone }
+      nonisolated(unsafe) var received = false
+      input.installTap(onBus: 0, bufferSize: 2048, format: tap) { buffer, _ in
+        if !received {
+          received = true
+          firstAudio()
+        }
+        do {
+          if let converted = try conversion.convert(buffer) { feed.yield(AnalyzerInput(buffer: converted)) }
+        } catch { fail(.conversionFailed) }
+      }
+      tapped = true
+      // Starting with a node format that disagrees with the hardware raises the same exception.
+      guard input.outputFormat(forBus: 0).sameRateAndChannels(tap) else { throw VoiceError.noMicrophone }
+      engine.prepare()
+      try engine.start()
     }
   }
-  func requestStop() -> Task<Void, Never> {
-    lock.withLock {
-      stopped = true
-      if !started { finished.finish() }
-      if let shutdown { return shutdown }
-      let task = Task.detached { [self] in
-        for await _ in opening {}
-        let close = lock.withLock {
-          let value = self.close
-          self.close = nil
-          return value
-        }
-        close?()
-      }
-      shutdown = task
-      return task
-    }
+  private func close() {
+    stopped = true
+    if let observer { NotificationCenter.default.removeObserver(observer) }
+    observer = nil
+    if tapped { engine?.inputNode.removeTap(onBus: 0) }
+    tapped = false
+    engine?.stop()
+    engine = nil
   }
   /// The input node cannot convert, so a tap must use the hardware's rate and channel count
   /// (AVAudioIONode.h); any other rate raises an exception Swift cannot catch. The node's own format
@@ -167,103 +196,6 @@ final class Microphone: @unchecked Sendable {
     guard let format, format.sameRateAndChannels(hardware) else { throw VoiceError.noMicrophone }
     return format
   }
-}
-
-/// Serialize engine changes and teardown, including notifications queued during startup.
-private final class EngineCapture: @unchecked Sendable {
-  private let queue = DispatchQueue(label: "app.wicket.capture")
-  private let engine = AVAudioEngine()
-  private var observer: (any NSObjectProtocol)?
-  private var tapped = false, stopped = false
-  private let format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation
-  private let fail: @Sendable (VoiceError) -> Void
-  private let firstAudio: @Sendable () -> Void
-  private let opened = ContinuousClock.now
-  init(
-    format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
-    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
-  ) {
-    self.format = format
-    self.feed = feed
-    self.firstAudio = firstAudio
-    self.fail = fail
-  }
-  func start() throws {
-    try queue.sync {
-      observer = NotificationCenter.default.addObserver(
-        forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
-      ) { [weak self] _ in
-        guard let self else { return }
-        queue.async { [self] in
-          VoiceLog.logger.log(
-            "voice engine configuration change, \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening; stopped \(self.stopped, privacy: .public), running \(self.engine.isRunning, privacy: .public)"
-          )
-          guard !stopped else { return }
-          guard !engine.isRunning else { return }
-          close()
-          fail(.inputChanged)
-        }
-      }
-      do { try open() } catch {
-        close()
-        throw error
-      }
-    }
-  }
-  private func open() throws {
-    // The engine's input follows the system default: nothing is set on it.
-    let input = engine.inputNode
-    let node = input.outputFormat(forBus: 0)
-    let hardware = input.inputFormat(forBus: 0)
-    VoiceLog.logger.log(
-      "voice formats: hardware \(hardware.sampleRate, privacy: .public) Hz \(hardware.channelCount, privacy: .public) ch, node \(node.sampleRate, privacy: .public) Hz \(node.channelCount, privacy: .public) ch, equal \(hardware == node, privacy: .public)"
-    )
-    let tap = try Microphone.tapFormat(hardware: hardware, node: node)
-    VoiceLog.logger.log(
-      "voice tap format: \(tap.sampleRate, privacy: .public) Hz \(tap.channelCount, privacy: .public) ch, node format kept \(tap === node, privacy: .public)"
-    )
-    let conversion = try Conversion(input: tap, output: format)
-    // A tap whose rate disagrees with the hardware raises an uncatchable exception: recheck just before.
-    guard input.inputFormat(forBus: 0).sameRateAndChannels(tap) else {
-      VoiceLog.logger.error("voice: hardware format changed before the tap")
-      throw VoiceError.noMicrophone
-    }
-    nonisolated(unsafe) var received = false
-    input.installTap(onBus: 0, bufferSize: 2048, format: tap) { [feed, fail, firstAudio] buffer, _ in
-      if !received {
-        received = true
-        firstAudio()
-      }
-      do {
-        if let converted = try conversion.convert(buffer) { feed.yield(AnalyzerInput(buffer: converted)) }
-      } catch {
-        VoiceLog.logger.error("voice: conversion failed")
-        fail(.conversionFailed)
-      }
-    }
-    tapped = true
-    // Starting with a node format that disagrees with the hardware raises the same exception.
-    guard input.outputFormat(forBus: 0).sameRateAndChannels(tap) else {
-      VoiceLog.logger.error("voice: node did not take the tap format")
-      throw VoiceError.noMicrophone
-    }
-    engine.prepare()
-    do { try engine.start() } catch {
-      VoiceLog.logger.error("voice: engine start failed: \(VoiceLog.describe(error), privacy: .public)")
-      throw error
-    }
-  }
-  private func close() {
-    stopped = true
-    if let observer { NotificationCenter.default.removeObserver(observer) }
-    observer = nil
-    if tapped {
-      engine.inputNode.removeTap(onBus: 0)
-      tapped = false
-    }
-    engine.stop()
-  }
-  func stop() { queue.sync { close() } }
 }
 
 /// AVAudioEngine supplies Float32 PCM; explicit averaging also supports discrete multichannel layouts.
@@ -332,39 +264,6 @@ final class Conversion: @unchecked Sendable {
 extension AVAudioFormat {
   fileprivate func sameRateAndChannels(_ other: AVAudioFormat) -> Bool {
     sampleRate == other.sampleRate && channelCount == other.channelCount
-  }
-}
-
-extension AVAudioApplication.recordPermission {
-  fileprivate var kind: String {
-    switch self {
-    case .granted: "granted"
-    case .denied: "denied"
-    case .undetermined: "undetermined"
-    @unknown default: "unknown"
-    }
-  }
-}
-extension AVAuthorizationStatus {
-  fileprivate var kind: String {
-    switch self {
-    case .authorized: "authorized"
-    case .denied: "denied"
-    case .restricted: "restricted"
-    case .notDetermined: "notDetermined"
-    @unknown default: "unknown"
-    }
-  }
-}
-extension SFSpeechRecognizerAuthorizationStatus {
-  fileprivate var kind: String {
-    switch self {
-    case .authorized: "authorized"
-    case .denied: "denied"
-    case .restricted: "restricted"
-    case .notDetermined: "notDetermined"
-    @unknown default: "unknown"
-    }
   }
 }
 

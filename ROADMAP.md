@@ -158,7 +158,6 @@ Addresses name views, never effects; there is no exec action and no templating l
 
 - No web search feature: in a launcher with an agent, asking replaces most searching. The optional `examples/web-search` stays only as a reference extension.
 - Automatic window updates through Observation instead of hand-wired callbacks, once panel stability can be checked by eye (see ISSUES, launcher state).
-- Merge the Microphone and EngineCapture classes only with a hands-on voice test.
 - File search beyond names (content, kinds, dates) and loose files directly in home: only after real use shows the need.
 - No consent step for extensions that run unchosen (patterns, fallbacks), decided 11 Nov 2026: an agent tricked into writing a bad extension already has a shell and could do the same harm directly, so the agent's own permission prompts are the gate. Revisit only if extensions from other people get shared.
 - No agent context feature (selected text, clipboard or frontmost app chips), decided 11 Nov 2026: no real use case for selected text, and the agent reads the clipboard with its own shell when asked.

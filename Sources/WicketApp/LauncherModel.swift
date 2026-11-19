@@ -316,12 +316,7 @@ final class LauncherModel {
   func armVoice() { prepareVoice()?.arm() }
   func toggleVoice() { prepareVoice()?.toggle() }
   private func prepareVoice() -> VoiceInput? {
-    guard configuration.voice.enabled, takesSpeech else {
-      VoiceLog.logger.log(
-        "voice not armed: \(self.configuration.voice.enabled ? "agent busy or asking" : "disabled", privacy: .public)"
-      )
-      return nil
-    }
+    guard configuration.voice.enabled, takesSpeech else { return nil }
     if voice == nil {
       voice = VoiceInput(
         transcriber: makeTranscriber,

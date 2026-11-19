@@ -3,8 +3,7 @@ import Observation
 import os
 
 /// Voice diagnostics for `log show --predicate 'subsystem == "app.wicket" AND category == "voice"'`:
-/// reason kinds, permission states, device kinds, formats, error domains and codes, and timings. Never
-/// transcripts, locales, device names or UIDs.
+/// why capture stopped, error domains and codes, and timings. Never transcripts or locales.
 enum VoiceLog {
   static let logger = Logger(subsystem: "app.wicket", category: "voice")
   static func milliseconds(since start: ContinuousClock.Instant) -> Int {
@@ -79,12 +78,8 @@ final class VoiceInput {
   }
   var active: Bool { state != .idle }
   func toggle() { if active { stop(.toggle) } else { start() } }
-  func arm() {
-    if permissionDenied { VoiceLog.logger.log("voice not armed: microphone denied earlier this run") }
-    if !permissionDenied, !active { start() }
-  }
+  func arm() { if !permissionDenied, !active { start() } }
   private func start() {
-    VoiceLog.logger.log("voice start, after a previous teardown: \(self.shutdown != nil, privacy: .public)")
     problem = nil
     state = .starting
     generation += 1
@@ -133,15 +128,8 @@ final class VoiceInput {
               stopAfterSilence()
               onPermissionFinished()
             }
-          case .audio(let time):
-            firstAudio = time - opened
-            VoiceLog.logger.log(
-              "voice first audio buffer, \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
-            )
+          case .audio(let time): firstAudio = time - opened
           case .ready:
-            VoiceLog.logger.log(
-              "voice engine running, \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
-            )
             permissionDenied = false
             state = .listening
             guard generation == current else { return }

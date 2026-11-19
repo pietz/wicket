@@ -41,60 +41,48 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
 
 @Test func microphoneStopBeforeStartAndDoubleStart() async throws {
   let stopped = Microphone()
-  await stopped.requestStop().value
+  await stopped.stop().value
   var opened = 0
-  #expect(throws: CancellationError.self) {
-    try stopped.start {
-      opened += 1
-      return {}
-    }
-  }
+  #expect(throws: CancellationError.self) { try stopped.open { opened += 1 } }
   #expect(opened == 0)
   let microphone = Microphone()
-  let closed = Mutex(0)
-  try microphone.start {
-    opened += 1
-    return { closed.withLock { $0 += 1 } }
-  }
-  #expect(throws: CancellationError.self) {
-    try microphone.start {
-      opened += 1
-      return {}
-    }
-  }
+  try microphone.open { opened += 1 }
+  #expect(throws: CancellationError.self) { try microphone.open { opened += 1 } }
   #expect(opened == 1)
-  await microphone.requestStop().value
-  await microphone.requestStop().value
-  #expect(closed.withLock { $0 } == 1)
+  await microphone.stop().value
+  await microphone.stop().value
 }
 
 @MainActor @Test func microphoneStopWaitsForOpeningWithoutBlockingTheMainActor() async {
   let microphone = Microphone()
   let entered = DispatchSemaphore(value: 0)
   let release = DispatchSemaphore(value: 0)
-  let closed = Mutex(0)
   let opening = Task.detached {
-    try? microphone.start {
+    try? microphone.open {
       entered.signal()
       _ = release.wait(timeout: .now() + 3)
-      return { closed.withLock { $0 += 1 } }
     }
   }
   #expect(await signalArrives(entered, within: 1))
-  // This returns on the main actor even while open is blocked on the background thread.
-  let shutdown = microphone.requestStop()
-  #expect(closed.withLock { $0 } == 0)
-  #expect(throws: CancellationError.self) {
-    try microphone.start {
-      Issue.record("Opened after stop")
-      return {}
-    }
+  // This returns on the main actor even while opening is blocked on the background thread, and the
+  // shutdown waits for the opening.
+  let shutdown = microphone.stop()
+  let closed = Mutex(false)
+  let watcher = Task.detached {
+    await shutdown.value
+    closed.withLock { $0 = true }
   }
+  try? await Task.sleep(for: .milliseconds(50))
+  #expect(!closed.withLock { $0 })
   release.signal()
-  await shutdown.value
+  await watcher.value
   await opening.value
-  await microphone.requestStop().value
-  #expect(closed.withLock { $0 } == 1)
+  // Nothing opens after a stop.
+  await Task.detached {
+    _ = #expect(throws: CancellationError.self) {
+      try microphone.open { Issue.record("Opened after stop") }
+    }
+  }.value
 }
 
 private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) async -> Bool {
