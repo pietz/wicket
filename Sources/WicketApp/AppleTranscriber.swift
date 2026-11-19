@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import Speech
 
 /// Apple's macOS 26 on-device pipeline on the system's default input. No fallback recognizer, model
@@ -140,7 +141,8 @@ final class Microphone: @unchecked Sendable {
       fail(.inputChanged)
     }
   }
-  /// Opens the default input, taps it at the hardware's format and feeds `format` to the analyzer.
+  /// Opens the default input (the Mac's own microphone in place of a Bluetooth one), taps it at the
+  /// hardware's format and feeds `format` to the analyzer.
   func start(
     format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
@@ -150,6 +152,13 @@ final class Microphone: @unchecked Sendable {
         forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
       ) { [weak self] _ in self?.configurationChanged(fail: fail) }
       let input = engine.inputNode
+      // Set before the formats are read; a failure keeps the system default.
+      if let device = InputDevice.avoidingBluetooth(default: InputDevice.systemDefault, InputDevice.all) {
+        do { try input.auAudioUnit.setDeviceID(device) } catch {
+          VoiceLog.logger.error(
+            "voice: setting the input device failed: \(VoiceLog.describe(error), privacy: .public)")
+        }
+      }
       let tap = try Self.tapFormat(
         hardware: input.inputFormat(forBus: 0), node: input.outputFormat(forBus: 0))
       let conversion = try Conversion(input: tap, output: format)
@@ -200,6 +209,47 @@ final class Microphone: @unchecked Sendable {
       } ?? AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channels: hardware.channelCount)
     guard let format, format.sameRateAndChannels(hardware) else { throw VoiceError.noMicrophone }
     return format
+  }
+}
+
+/// A Bluetooth microphone switches a headset into call mode, which degrades its playback while listening,
+/// so a built-in or USB microphone replaces a Bluetooth default when there is one. No picker or setting.
+struct InputDevice: Equatable {
+  let id: AudioDeviceID, transport: UInt32
+  /// The input to set instead of the system default, or nil to keep it.
+  static func avoidingBluetooth(default id: AudioDeviceID?, _ inputs: [Self]) -> AudioDeviceID? {
+    guard let current = inputs.first(where: { $0.id == id }),
+      [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(current.transport)
+    else { return nil }
+    return
+      (inputs.first { $0.transport == kAudioDeviceTransportTypeBuiltIn }
+      ?? inputs.first { $0.transport == kAudioDeviceTransportTypeUSB })?.id
+  }
+  /// Property reads only: this never opens a device or changes the system default.
+  static var systemDefault: AudioDeviceID? {
+    values(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice).first
+  }
+  static var all: [Self] {
+    values(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDevices).compactMap { id in
+      guard !values(id, kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeInput).isEmpty,
+        let transport = values(id, kAudioDevicePropertyTransportType).first
+      else { return nil }
+      return Self(id: id, transport: transport)
+    }
+  }
+  private static func values(
+    _ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+    scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal
+  ) -> [UInt32] {
+    var address = AudioObjectPropertyAddress(
+      mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(object, &address, 0, nil, &size) == noErr, size > 0 else {
+      return []
+    }
+    var values = [UInt32](repeating: 0, count: Int(size) / MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &values) == noErr else { return [] }
+    return Array(values.prefix(Int(size) / MemoryLayout<UInt32>.size))
   }
 }
 

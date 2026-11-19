@@ -185,3 +185,21 @@ func tapUsesTheHardwareRateAndChannels(_ formats: [Double]) throws {
   #expect(result.format == output && result.frameLength > 2000 && result.frameLength <= 2400)
   #expect(abs(result.floatChannelData![0][500] - 0.75) < 0.001)
 }
+
+@Test func aBluetoothDefaultGivesWayToTheMacsOwnMicrophone() {
+  let bluetooth = InputDevice(id: 1, transport: kAudioDeviceTransportTypeBluetooth)
+  let bluetoothLE = InputDevice(id: 2, transport: kAudioDeviceTransportTypeBluetoothLE)
+  let builtin = InputDevice(id: 3, transport: kAudioDeviceTransportTypeBuiltIn)
+  let usb = InputDevice(id: 4, transport: kAudioDeviceTransportTypeUSB)
+  let virtual = InputDevice(id: 5, transport: kAudioDeviceTransportTypeVirtual)
+  let choose = InputDevice.avoidingBluetooth
+  // Built-in first, then USB; never a virtual or another Bluetooth input.
+  #expect(choose(1, [bluetooth, virtual, usb, builtin]) == 3)
+  #expect(choose(2, [bluetoothLE, bluetooth, virtual, usb]) == 4)
+  // No suitable alternative, a default that isn't Bluetooth, or no default: keep the system's choice.
+  #expect(choose(1, [bluetooth, bluetoothLE, virtual]) == nil)
+  #expect(choose(4, [bluetooth, builtin, usb]) == nil)
+  #expect(choose(5, [virtual, builtin]) == nil)
+  #expect(choose(nil, [bluetooth, builtin]) == nil)
+  #expect(choose(9, [bluetooth, builtin]) == nil)
+}
