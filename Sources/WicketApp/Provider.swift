@@ -30,21 +30,12 @@ struct ProviderRequest: Codable, Sendable, Equatable {
     self.submitted = submitted
     self.locale = locale
   }
-  private enum CodingKeys: String, CodingKey { case input, arguments, submitted, locale, settings }
-  init(from decoder: any Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    input = try c.decode(String.self, forKey: .input)
-    arguments = try c.decodeIfPresent([String: String].self, forKey: .arguments) ?? [:]
-    submitted = try c.decodeIfPresent(Bool.self, forKey: .submitted) ?? false
-    locale = try c.decodeIfPresent(NumberMarks.self, forKey: .locale) ?? .current
-    settings = try c.decodeIfPresent([String: String].self, forKey: .settings) ?? [:]
-  }
 }
 
 @MainActor
 protocol Provider {
   var id: String { get }
-  func view(for request: ProviderRequest) async throws -> ProviderView
+  func view(for request: ProviderRequest) async -> ProviderView
 }
 
 /// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows

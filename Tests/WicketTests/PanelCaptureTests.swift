@@ -153,7 +153,7 @@ private let nextAnswer =
         id: name.lowercased(), title: name, subtitle: "Application",
         actions: [.open(URL(fileURLWithPath: "/System/Applications/" + name + ".app"))])
     })
-  func view(for request: ProviderRequest) async throws -> ProviderView {
+  func view(for request: ProviderRequest) async -> ProviderView {
     .init(items: index.matches(request.input))
   }
 }

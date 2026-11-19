@@ -16,7 +16,7 @@ final class AppsProvider: Provider {
   private var watcher: FileWatcher?
   private var rescanTask: Task<Void, Never>?
 
-  func view(for request: ProviderRequest) async throws -> ProviderView {
+  func view(for request: ProviderRequest) async -> ProviderView {
     .init(items: index.matches(request.input))
   }
 

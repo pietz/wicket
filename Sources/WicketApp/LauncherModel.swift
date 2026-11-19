@@ -263,16 +263,11 @@ final class LauncherModel {
     selection = nil
   }
   /// Each source owns its message. Configuration and hotkey problems live in the store.
-  private(set) var providerProblem: String?
   var actionProblem: String?
   var installProblem: String?
-  func clearTransientProblems() {
-    providerProblem = nil
-    actionProblem = nil
-  }
+  func clearTransientProblems() { actionProblem = nil }
   var problem: String? {
     store.problem ?? store.hotkeyProblem ?? store.bindingProblem ?? installProblem ?? actionProblem
-      ?? providerProblem
   }
   var questionExpanded = false
   var conversationHeaderHeight: CGFloat = 32 {
@@ -642,15 +637,9 @@ final class LauncherModel {
     if let apps {
       tasks.append(
         Task { [weak self] in
-          do {
-            let view = try await apps.view(for: request)
-            guard let self, !Task.isCancelled, generation == current else { return }
-            appRows = view.items
-          } catch {
-            guard let self, !Task.isCancelled, generation == current else { return }
-            providerProblem = "\(apps.id): \(error.localizedDescription)"
-          }
+          let view = await apps.view(for: request)
           guard let self, !Task.isCancelled, generation == current else { return }
+          appRows = view.items
           appsReady = true
           if !holding { compose() }
         })

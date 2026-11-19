@@ -6,7 +6,7 @@ import Testing
 /// Twelve apps for any input, so the root list is at its full eight rows (with Ask agent and Agent History, 14).
 @MainActor private final class ManyApps: Provider {
   let id = "apps"
-  func view(for request: ProviderRequest) async throws -> ProviderView {
+  func view(for request: ProviderRequest) async -> ProviderView {
     .init(items: (0..<12).map { row("App \($0)") })
   }
 }

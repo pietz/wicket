@@ -8,9 +8,6 @@ import Testing
     #"{"items":[{"id":"calc","title":"4","actions":[{"type":"copy","text":"4"}]},{"id":"app","title":"Finder","actions":[{"type":"open","url":"file:///System/Library/CoreServices/Finder.app"}]}]}"#
   let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
-  #expect(
-    try JSONDecoder().decode(ProviderRequest.self, from: Data(#"{"input":"2+2"}"#.utf8))
-      == ProviderRequest(input: "2+2"))
 }
 
 @Test(arguments: [
@@ -34,7 +31,7 @@ private final class TestProvider: Provider {
     self.id = id
     self.delayed = delayed
   }
-  func view(for request: ProviderRequest) async throws -> ProviderView {
+  func view(for request: ProviderRequest) async -> ProviderView {
     if delayed { return await withCheckedContinuation { waiting[request.input] = $0 } }
     return .init(items: [row(id + request.input)])
   }
