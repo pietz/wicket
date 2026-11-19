@@ -72,6 +72,7 @@ import Speech
     let analyzer = SpeechAnalyzer(
       modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
     try await withTaskCancellationHandler {
+      try Task.checkCancellation()
       // Audio buffers from here on wait in `inputs` until the analyzer reads them: the first word counts.
       try microphone.start(format: format, feed: feed, firstAudio: { yield(.audio(.now)) }, fail: fail)
       yield(.ready)
@@ -95,31 +96,48 @@ import Speech
 /// Opening runs on the caller's thread (never the main actor); stopping never blocks its caller.
 final class Microphone: @unchecked Sendable {
   private let queue = DispatchQueue(label: "app.wicket.capture")
-  private var engine: AVAudioEngine?
+  private var engine: (any CaptureEngine)?
   private var observer: (any NSObjectProtocol)?
-  private var started = false, stopped = false, tapped = false
+  private var started = false, stopped = false
+  /// Set by the opening once its tap is installed, so closing removes it.
+  var tapped = false
   private let opened = ContinuousClock.now
 
-  /// Runs `body` on the queue, once, unless capture already stopped; a failure closes what it opened.
-  func open(_ body: () throws -> Void) throws {
+  /// Makes the engine and runs `body` with it on the queue, once, unless capture already stopped; a
+  /// failure closes what it opened.
+  func open<Engine: CaptureEngine>(_ make: @autoclosure () -> Engine, _ body: (Engine) throws -> Void) throws
+  {
     try queue.sync {
       guard !stopped, !started else { throw CancellationError() }
       started = true
-      do { try body() } catch {
+      let engine = make()
+      self.engine = engine
+      do { try body(engine) } catch {
         close()
         throw error
       }
     }
   }
-  /// Stops capture for good. The task ends once the engine is closed, after any opening in progress.
+  /// Stops capture for good. The close is queued before this returns, so no later opening gets in; the
+  /// task ends once the engine is closed, after any opening in progress.
   func stop() -> Task<Void, Never> {
-    Task.detached { [self] in
-      await withCheckedContinuation { done in
-        queue.async { [self] in
-          close()
-          done.resume()
-        }
-      }
+    let (closed, finish) = AsyncStream.makeStream(of: Never.self)
+    queue.async { [self] in
+      close()
+      finish.finish()
+    }
+    return Task { for await _ in closed {} }
+  }
+  /// Configuration changes also arrive during a normal startup, Bluetooth especially: only one that leaves
+  /// the engine stopped ends capture, with a hint, and nothing restarts by itself.
+  func configurationChanged(fail: @escaping @Sendable (VoiceError) -> Void) {
+    queue.async { [self] in
+      guard !stopped, let engine, !engine.isRunning else { return }
+      VoiceLog.logger.log(
+        "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
+      )
+      close()
+      fail(.inputChanged)
     }
   }
   /// Opens the default input, taps it at the hardware's format and feeds `format` to the analyzer.
@@ -127,23 +145,10 @@ final class Microphone: @unchecked Sendable {
     format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
   ) throws {
-    try open { [self] in
-      let engine = AVAudioEngine()
-      self.engine = engine
-      // Configuration changes also arrive during a normal startup, Bluetooth especially: only one that
-      // leaves the engine stopped ends capture, with a hint, and nothing restarts by itself.
+    try open(AVAudioEngine()) { [self] engine in
       observer = NotificationCenter.default.addObserver(
         forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
-      ) { [weak self] _ in
-        self?.queue.async { [weak self] in
-          guard let self, !stopped, !engine.isRunning else { return }
-          VoiceLog.logger.log(
-            "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
-          )
-          close()
-          fail(.inputChanged)
-        }
-      }
+      ) { [weak self] _ in self?.configurationChanged(fail: fail) }
       let input = engine.inputNode
       let tap = try Self.tapFormat(
         hardware: input.inputFormat(forBus: 0), node: input.outputFormat(forBus: 0))
@@ -171,7 +176,7 @@ final class Microphone: @unchecked Sendable {
     stopped = true
     if let observer { NotificationCenter.default.removeObserver(observer) }
     observer = nil
-    if tapped { engine?.inputNode.removeTap(onBus: 0) }
+    if tapped { engine?.removeTap() }
     tapped = false
     engine?.stop()
     engine = nil
@@ -196,6 +201,17 @@ final class Microphone: @unchecked Sendable {
     guard let format, format.sameRateAndChannels(hardware) else { throw VoiceError.noMicrophone }
     return format
   }
+}
+
+/// What closing needs from the engine; tests count it with a fake.
+protocol CaptureEngine: AnyObject {
+  var isRunning: Bool { get }
+  func removeTap()
+  func stop()
+}
+
+extension AVAudioEngine: CaptureEngine {
+  func removeTap() { inputNode.removeTap(onBus: 0) }
 }
 
 /// AVAudioEngine supplies Float32 PCM; explicit averaging also supports discrete multichannel layouts.

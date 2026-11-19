@@ -39,18 +39,48 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
   #expect(abs(result.floatChannelData![0][500] - expected) < 0.001)
 }
 
-@Test func microphoneStopBeforeStartAndDoubleStart() async throws {
-  let stopped = Microphone()
-  await stopped.stop().value
-  var opened = 0
-  #expect(throws: CancellationError.self) { try stopped.open { opened += 1 } }
-  #expect(opened == 0)
+/// Counts what closing does, in place of the hardware.
+private final class FakeEngine: CaptureEngine, @unchecked Sendable {
+  let counts = Mutex((removedTaps: 0, stops: 0))
+  let running = Mutex(true)
+  var isRunning: Bool { running.withLock { $0 } }
+  func removeTap() { counts.withLock { $0.removedTaps += 1 } }
+  func stop() { counts.withLock { $0.stops += 1 } }
+}
+
+@Test func microphoneStoppedBeforeOpeningNeverOpens() async {
+  // The stop is not awaited: it must already keep out an opening that comes right after it.
   let microphone = Microphone()
-  try microphone.open { opened += 1 }
-  #expect(throws: CancellationError.self) { try microphone.open { opened += 1 } }
-  #expect(opened == 1)
+  let shutdown = microphone.stop()
+  let engine = FakeEngine()
+  #expect(throws: CancellationError.self) { try microphone.open(engine) { _ in Issue.record("Opened") } }
+  await shutdown.value
+  #expect(engine.counts.withLock { $0 } == (0, 0))
+}
+
+@Test(arguments: [true, false])
+func microphoneClosesExactlyOnce(_ keepsRunning: Bool) async throws {
+  let microphone = Microphone()
+  let engine = FakeEngine()
+  try microphone.open(engine) { _ in microphone.tapped = true }
+  #expect(throws: CancellationError.self) {
+    try microphone.open(FakeEngine()) { _ in Issue.record("Reopened") }
+  }
+  // A change that leaves the engine running is part of startup and is ignored; one that stops it ends
+  // capture with one retry hint, however many changes and stops follow.
+  engine.running.withLock { $0 = keepsRunning }
+  let retries = Mutex(0)
+  for _ in 0..<2 {
+    microphone.configurationChanged {
+      #expect($0 == .inputChanged)
+      retries.withLock { $0 += 1 }
+    }
+  }
+  let first = microphone.stop()
   await microphone.stop().value
-  await microphone.stop().value
+  await first.value
+  #expect(engine.counts.withLock { $0 } == (1, 1))
+  #expect(retries.withLock { $0 } == (keepsRunning ? 0 : 1))
 }
 
 @MainActor @Test func microphoneStopWaitsForOpeningWithoutBlockingTheMainActor() async {
@@ -58,7 +88,7 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
   let entered = DispatchSemaphore(value: 0)
   let release = DispatchSemaphore(value: 0)
   let opening = Task.detached {
-    try? microphone.open {
+    try? microphone.open(FakeEngine()) { _ in
       entered.signal()
       _ = release.wait(timeout: .now() + 3)
     }
@@ -80,7 +110,7 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
   // Nothing opens after a stop.
   await Task.detached {
     _ = #expect(throws: CancellationError.self) {
-      try microphone.open { Issue.record("Opened after stop") }
+      try microphone.open(FakeEngine()) { _ in Issue.record("Opened after stop") }
     }
   }.value
 }
