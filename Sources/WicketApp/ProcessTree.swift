@@ -179,7 +179,9 @@ final class ProcessTree: Sendable {
   func members() -> Set<Member> {
     var seeds = state.withLock { $0.known }
     if let root { seeds.insert(root) }
-    if let group { seeds.formUnion(Self.processes(inGroup: group).compactMap(Self.member)) }
+    if let group {
+      seeds.formUnion(Self.processes([CTL_KERN, KERN_PROC, KERN_PROC_PGRP, group]).compactMap(Self.member))
+    }
     if outputs.contains(where: { Self.pipeInfo(getpid(), $0)?.pipe_peerhandle ?? 0 != 0 }) {
       seeds.formUnion(holders().compactMap(Self.member))
     }
@@ -196,7 +198,7 @@ final class ProcessTree: Sendable {
 
   /// The processes holding a write end of stdout or stderr.
   private func holders() -> [pid_t] {
-    Self.processes(ofUser: getuid()).filter { pid in
+    Self.processes([CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(bitPattern: getuid())]).filter { pid in
       pid != getpid() && Self.pipes(of: pid).contains { writeEnds.contains($0) }
     }
   }
@@ -217,14 +219,6 @@ final class ProcessTree: Sendable {
       proc_listchildpids(pid, $0.baseAddress, Int32($0.count))
     }
     return count > 0 ? Array(buffer.prefix(Int(count))) : []
-  }
-
-  private static func processes(inGroup group: pid_t) -> [pid_t] {
-    processes([CTL_KERN, KERN_PROC, KERN_PROC_PGRP, group])
-  }
-
-  private static func processes(ofUser uid: uid_t) -> [pid_t] {
-    processes([CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(bitPattern: uid)])
   }
 
   private static func processes(_ query: [Int32]) -> [pid_t] {

@@ -90,11 +90,9 @@ final class JSONLines {
   func stop() async {
     let running = !closed
     closed = true
-    tree.closeInput()
+    // Stopping the tree closes its input first.
     reader?.cancel()
-    reader = nil
     exitWatcher?.cancel()
-    exitWatcher = nil
     let shutdown = await tree.stop(after: .milliseconds(100), grace: .milliseconds(500)).value
     if running {
       switch shutdown {
