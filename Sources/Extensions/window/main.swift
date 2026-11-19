@@ -78,24 +78,22 @@ func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = 
   let visible = displays[index].visible
   let gap = min(layout.gap, (min(visible.width, visible.height) / 4).rounded(.down))
   let screen = visible.insetBy(dx: gap, dy: gap)
-  let halfWidth = ((screen.width - gap) / 2).rounded(.down)
-  let halfHeight = ((screen.height - gap) / 2).rounded(.down)
+  /// The screen in two along an axis, the gap between them; the second half takes the odd point.
+  func halves(_ edge: CGRectEdge) -> (CGRect, CGRect) {
+    let size = edge == .minXEdge ? screen.width : screen.height
+    let (first, rest) = screen.divided(atDistance: ((size - gap) / 2).rounded(.down), from: edge)
+    return (first, rest.divided(atDistance: gap, from: edge).remainder)
+  }
   func centered(_ width: CGFloat, _ height: CGFloat) -> CGRect {
     CGRect(
       x: screen.minX + ((screen.width - width) / 2).rounded(.down),
       y: screen.minY + ((screen.height - height) / 2).rounded(.down), width: width, height: height)
   }
   switch move {
-  case .left: return CGRect(x: screen.minX, y: screen.minY, width: halfWidth, height: screen.height)
-  case .right:
-    return CGRect(
-      x: screen.minX + halfWidth + gap, y: screen.minY, width: screen.width - halfWidth - gap,
-      height: screen.height)
-  case .top: return CGRect(x: screen.minX, y: screen.minY, width: screen.width, height: halfHeight)
-  case .bottom:
-    return CGRect(
-      x: screen.minX, y: screen.minY + halfHeight + gap, width: screen.width,
-      height: screen.height - halfHeight - gap)
+  case .left: return halves(.minXEdge).0
+  case .right: return halves(.minXEdge).1
+  case .top: return halves(.minYEdge).0
+  case .bottom: return halves(.minYEdge).1
   case .maximize: return screen
   case .almostMaximize:
     return centered(
