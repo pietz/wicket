@@ -158,8 +158,7 @@ final class AgentSession {
         guard generation == version, !cancelling else {
           await connection.stop("cancelled before the question was sent")
           guard generation == version, busy else { return }
-          status = "Cancelled"
-          finishTurn()
+          finishTurn(status: "Cancelled")
           return
         }
         self.connection = connection
@@ -174,8 +173,7 @@ final class AgentSession {
       } catch {
         guard generation == version else { return }
         if cancelling {
-          status = "Cancelled"
-          finishTurn()
+          finishTurn(status: "Cancelled")
         } else {
           fail(error.localizedDescription)
         }
@@ -186,9 +184,7 @@ final class AgentSession {
   /// answers already shown stay. Both CLIs say so at once (checked 16 Nov 2026: Claude Code 2.1.325
   /// in 0.8 s, codex-cli 0.167.1 in 0.1 s).
   private func startAfresh() {
-    release(connection, "resume failed; starting afresh")
-    connection = nil
-    acceptingUpdates = false
+    release("resume failed; starting afresh")
     sessionID = nil
     notice = "Earlier context was not available"
     launch()
@@ -263,8 +259,7 @@ final class AgentSession {
       deadline?.cancel()
     case .finished(let cancelled):
       guard busy else { return }
-      status = cancelled ? "Cancelled" : "Ready for a follow-up"
-      finishTurn()
+      finishTurn(status: cancelled ? "Cancelled" : "Ready for a follow-up")
       return
     case .failed(let message):
       // A process that ended after its turn is not an error.
@@ -297,28 +292,23 @@ final class AgentSession {
       guard let self, generation == version, busy else { return }
       generation += 1
       let cancelledVersion = generation
-      let old = connection
-      connection = nil
-      acceptingUpdates = false
-      await release(old, "cancelled; the CLI did not stop in time").value
+      await release("cancelled; the CLI did not stop in time").value
       guard generation == cancelledVersion else { return }
-      status = "Cancelled"
-      finishTurn()
+      finishTurn(status: "Cancelled")
     }
     onChange?()
   }
-  /// The turn is over, however it ended: its process ends with it.
-  private func finishTurn(_ outcome: String = "turn ended") {
+  /// The turn is over, however it ended: its process ends with it. `status` is what the footer says then.
+  private func finishTurn(_ outcome: String = "turn ended", status: String? = nil) {
+    if let status { self.status = status }
     saveTurn()
     declineAll()
     busy = false
-    acceptingUpdates = false
     cancelling = false
     lastActivity = Date()
     cancelDeadline?.cancel()
     deadline?.cancel()
-    release(connection, outcome)
-    connection = nil
+    release(outcome)
     onChange?()
   }
   /// Settles the answer as the turn leaves it (what was held back, or the narration when nothing followed
@@ -335,9 +325,13 @@ final class AgentSession {
   private func declineAll() {
     while !permissions.isEmpty { decide(false) }
   }
-  /// Stops a connection that is let go, in the order they were let go. `shutdown` waits for it.
+  /// Lets the connection go: its updates are ignored from now on, and it stops after any connection let
+  /// go before it. `shutdown` waits for it.
   @discardableResult
-  private func release(_ old: (any AgentConnection)?, _ reason: String) -> Task<Void, Never> {
+  private func release(_ reason: String) -> Task<Void, Never> {
+    let old = connection
+    connection = nil
+    acceptingUpdates = false
     let before = teardown
     let stopping = Task {
       await before?.value
@@ -356,8 +350,7 @@ final class AgentSession {
     permissionExpiry?.cancel()
     declineAll()
     deadline?.cancel()
-    release(connection, "conversation reset or app quit")
-    connection = nil
+    release("conversation reset or app quit")
     active = false
     previous = []
     continuing = false
@@ -376,7 +369,6 @@ final class AgentSession {
     question = ""
     status = ""
     problem = nil
-    acceptingUpdates = false
     cancelling = false
     onChange?()
   }
