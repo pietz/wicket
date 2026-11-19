@@ -121,9 +121,16 @@ final class LauncherModel {
     let page: Page
     let base: String
     let turn: String
+    let spot: Spot
+  }
+  /// Where the user was on a screen that something opened over: its selection, whether the user chose
+  /// it, and the root's draft for that row. Escape brings it back (`returnTo`).
+  private struct Spot {
     let selection: String?
     let touched: Bool
+    let drafted: [String: String]
   }
+  private var spot: Spot { Spot(selection: selection, touched: selectionTouched, drafted: drafted) }
   private var details: [Detail] = []
   private var openDetails: [Detail] { details.first?.base == baseTurn ? details : [] }
   var inDetail: Bool { !openDetails.isEmpty }
@@ -138,7 +145,7 @@ final class LauncherModel {
     details.append(
       Detail(
         page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !agent.active), base: baseTurn,
-        turn: pageTurn + ">" + (result?.row.id ?? ""), selection: selection, touched: selectionTouched))
+        turn: pageTurn + ">" + (result?.row.id ?? ""), spot: spot))
     clearSelection()
     onResultsChange?()
   }
@@ -147,9 +154,7 @@ final class LauncherModel {
   private struct ActionPanel {
     let source: Result
     let rows: [Result]
-    let selection: String?
-    let touched: Bool
-    let drafted: [String: String]
+    let spot: Spot
   }
   private var actionPanel: ActionPanel?
   /// The title of the row whose actions the panel lists; nil while it is closed.
@@ -184,8 +189,7 @@ final class LauncherModel {
         row: Row(id: String(index), title: action.label, icon: action.symbol, actions: [action]))
     }
     guard let first = rows.first else { return }
-    actionPanel = ActionPanel(
-      source: source, rows: rows, selection: selection, touched: selectionTouched, drafted: drafted)
+    actionPanel = ActionPanel(source: source, rows: rows, spot: spot)
     focusTarget = nil
     select(first.id)
     sizeList(now: true)
@@ -195,7 +199,7 @@ final class LauncherModel {
   private func closeActions() {
     guard let panel = actionPanel else { return }
     actionPanel = nil
-    returnTo(panel.selection, touched: panel.touched, drafted: panel.drafted)
+    returnTo(panel.spot)
     sizeList(now: true)
     onResultsChange?()
   }
@@ -460,6 +464,18 @@ final class LauncherModel {
   }
   /// The configuration last reacted to.
   private var applied = Configuration()
+  /// Goes to a conversation that `start` begins: what was over the screen, a switch on its way and the
+  /// screen's work end, and the input is the conversation's.
+  private func converse(_ start: () -> Void) {
+    origin = nil
+    actionPanel = nil
+    stopArriving()
+    cancelWork()
+    start()
+    questionExpanded = false
+    clearSelection()
+    input = ""
+  }
   private func cancelWork() {
     returnQueued = false
     generation += 1
@@ -488,8 +504,7 @@ final class LauncherModel {
     deadline = Task { [weak self] in
       guard let self, (try? await Task.sleep(for: arrivalDeadline)) != nil, arriving != nil else { return }
       showArrival()
-      retainSelection()
-      onResultsChange?()
+      publish()
     }
   }
   /// Makes the arriving screen the visible one. The caller publishes its content in the same turn.
@@ -527,8 +542,7 @@ final class LauncherModel {
       // off or removed stops like any other.
       if state.next == .rerun, extensionCommand?.manifest.submit == true, available {
         showArrival()
-        retainSelection()
-        onResultsChange?()
+        publish()
         return
       }
       cancelWork()
@@ -544,8 +558,7 @@ final class LauncherModel {
           : "\(name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
         showArrival()
         listed = []
-        retainSelection()
-        onResultsChange?()
+        publish()
         return
       }
       target?.problem = nil
@@ -554,8 +567,7 @@ final class LauncherModel {
       if let view = immediateView(state.id, request) {
         showArrival()
         show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
-        retainSelection()
-        onResultsChange?()
+        publish()
         return
       }
       target?.busy = true
@@ -588,8 +600,7 @@ final class LauncherModel {
           }
           guard let self, generation == version else { return }
           command?.busy = false
-          retainSelection()
-          onResultsChange?()
+          publish()
         })
       onResultsChange?()
       return
@@ -739,8 +750,7 @@ final class LauncherModel {
     listed = ranked.results
     strongReason = ranked.strongReason
     composedInput = input
-    retainSelection()
-    onResultsChange?()
+    publish()
     if returnQueued, !returnWaits {
       returnQueued = false
       onReturnReady?()
@@ -763,6 +773,11 @@ final class LauncherModel {
   /// A Return that waits runs once `returnWaits` is over; an edit, a pick, a switch or hiding calls it off.
   var returnQueued = false
   var onReturnReady: (() -> Void)?
+  /// The one step after a screen's content changed: the selection follows it, then the panel draws it.
+  private func publish() {
+    retainSelection()
+    onResultsChange?()
+  }
   private func retainSelection() {
     guard actionPanel == nil else { return }
     let rows = results
@@ -977,15 +992,11 @@ final class LauncherModel {
     // Only a new conversation asked from an extension's command learns what it showed.
     let context =
       agent.active ? (agent.question.isEmpty ? origin?.context : nil) : commandContext(typed: true)
-    origin = nil
-    actionPanel = nil
-    stopArriving()
-    cancelWork()
-    agent.ask(
-      text, context: context?.text, from: context?.name, settings: questionSettings(keeping: agent.reopened))
-    questionExpanded = false
-    clearSelection()
-    input = ""
+    converse {
+      agent.ask(
+        text, context: context?.text, from: context?.name, settings: questionSettings(keeping: agent.reopened)
+      )
+    }
   }
   /// What a question goes with: the agent settings at the Text size. A run reopened from Agent History
   /// keeps its agent, with that agent's defaults when another one is configured now.
@@ -1000,14 +1011,7 @@ final class LauncherModel {
     return settings
   }
   private func restore(_ run: AgentHistory.Run) {
-    origin = nil
-    actionPanel = nil
-    stopArriving()
-    cancelWork()
-    agent.restore(run, settings: questionSettings(keeping: run.agent))
-    questionExpanded = false
-    clearSelection()
-    input = ""
+    converse { agent.restore(run, settings: questionSettings(keeping: run.agent)) }
   }
   /// Cmd+Return: asks what is typed. With nothing typed it opens an empty conversation about what is on
   /// screen, which Escape leaves for exactly that screen again.
@@ -1017,9 +1021,7 @@ final class LauncherModel {
     guard !agent.active else { return }
     // A switch still on its way would end the conversation when it arrives.
     stopArriving()
-    origin = Origin(
-      context: commandContext(typed: false), input: input, selection: selection, touched: selectionTouched,
-      drafted: drafted)
+    origin = Origin(context: commandContext(typed: false), input: input, spot: spot)
     agent.open(settings: configuration.agent)
     clearSelection()
     input = ""
@@ -1029,9 +1031,7 @@ final class LauncherModel {
   private struct Origin {
     let context: (text: String, name: String)?
     let input: String
-    let selection: String?
-    let touched: Bool
-    let drafted: [String: String]
+    let spot: Spot
   }
   private var origin: Origin?
   /// Escape leaves the empty conversation for the screen under it, as Cmd+Return found it.
@@ -1079,13 +1079,10 @@ final class LauncherModel {
   /// with the text as its unsent first question.
   func fill(_ text: String) {
     if !agent.active {
-      origin = nil
-      actionPanel = nil
-      stopArriving()
-      cancelWork()
-      command = nil
-      agent.open(settings: configuration.agent)
-      clearSelection()
+      converse {
+        command = nil
+        agent.open(settings: configuration.agent)
+      }
     }
     editInput(text)
   }
@@ -1123,8 +1120,8 @@ final class LauncherModel {
     // A detail goes back to where the user was on the page under it.
     if let detail = openDetails.last {
       details = Array(openDetails.dropLast())
-      selection = detail.selection
-      selectionTouched = detail.touched
+      selection = detail.spot.selection
+      selectionTouched = detail.spot.touched
       onResultsChange?()
       return true
     }
@@ -1133,7 +1130,7 @@ final class LauncherModel {
       self.origin = nil
       input = origin.input
       agent.reset()
-      returnTo(origin.selection, touched: origin.touched, drafted: origin.drafted)
+      returnTo(origin.spot)
       onResultsChange?()
       return true
     }
@@ -1153,12 +1150,12 @@ final class LauncherModel {
     return false
   }
   /// Back on a screen as the user left it: its selection, and the root's draft for a row still there.
-  private func returnTo(_ selection: String?, touched: Bool, drafted: [String: String]) {
-    self.selection = selection
-    selectionTouched = touched
+  private func returnTo(_ spot: Spot) {
+    selection = spot.selection
+    selectionTouched = spot.touched
     resetSelection = false
     retainSelection()
-    if self.selection == selection { self.drafted = drafted }
+    if selection == spot.selection { drafted = spot.drafted }
   }
   /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
   /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
