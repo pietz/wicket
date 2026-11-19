@@ -1,12 +1,47 @@
 # Roadmap
 
-Short and current. [SPEC.md](SPEC.md) says what Wicket is, [ISSUES.md](ISSUES.md) what is wrong or unverified today. History lives in git and in release notes.
+Short and current. [SPEC.md](SPEC.md) describes what is built and why, [ISSUES.md](ISSUES.md) what is wrong or unverified today. History lives in git and in release notes.
 
 ## Now: 0.1
 
 The rewrite replaces 0.0.x with a smaller core (agent through the installed `claude` and `codex`, apps, math, extensions, voice, native Settings) and keeps the release machinery: same bundle id, team, Sparkle key and cask, so installed 0.0.15 copies update through Sparkle. Open before or soon after publishing: the checks at the top of [ISSUES.md](ISSUES.md).
 
 Done on the way: stable signing. Wicket Dev signs with the Apple Development identity and the release with Developer ID, from `Scripts/build-app.sh`. Since 0.1.2: addresses with one action dispatcher, file search through Spotlight with open and reveal and a panel that shrinks only after 300 ms ([SPEC.md](SPEC.md), File search), and opt-in clipboard history for text, then images ([SPEC.md](SPEC.md), Clipboard history).
+
+## Next: concept v0.4
+
+Agreed by the owner on 19 Nov 2026, after a brainstorm that rechecked the concept from scratch with outside research (launchers, agent UI formats, ACP, native rendering) and two reviews. It mostly confirmed what is built, so this is a refactor in place, not a rewrite; about 11,600 production lines afterwards is fine (line count is a proxy, not a target). A clean-room design from the requirements alone is pending: compare it with the code and amend this section before step 2 starts. Where [SPEC.md](SPEC.md) or older sections below differ, this section wins.
+
+**Headline.** Your own agent, one keystroke away, answering in UI instead of text. That the agent writes extensions is a side effect, not the pitch.
+
+Agreed:
+
+1. **Agents.** Claude Code and Codex stay connected directly over their own protocols, with the user's existing logins. No ACP now; the internal agent events keep ACP's shape so an ACP client can join behind the same seam later. Checked in November 2026: OpenCode, Goose and Vercel's fx speak ACP natively, `claude-agent-acp` ships an 88 MB adapter plus a 337 MB bundled `claude`, `codex-acp` has no release binaries, and the Swift ACP libraries are young.
+2. **Context stays as built.** The first question from an extension screen carries the screen and the extension's name and folder; no clipboard, no history; follow-ups continue the conversation.
+3. **The bar belongs to the current screen.** It filters a list or fills a command. At the root, Run agent is the top row whenever nothing matches strongly. ⌘↩ sends the bar to the agent on every screen, with no hint drawn. ⌘K gets one agent entry, Run agent, shown also when nothing is selected. No other ways in: no "change this extension" entry, no double hotkey; context does the rest.
+4. **One UI language.** Markdown plus the six tags (`card`, `row`, `tile`, `columns`, `badge`, `progress`) plus `field`. The tag allowlist is enforced: an unknown tag shows as text. A test of UI quality (components and prompts) follows later.
+5. **A view is a list or a page, never both.** A result list is JSON `items`; a page is markup.
+6. **Styling in two files.** `core.css` holds layout and components, ships and updates with the app, and an advanced user may override it. `theme.css` holds tokens only, with shadcn-style names, taking ideas from Daft CSS without depending on it. Existing owners' `theme.css` is migrated. Row and selection colours stay system-derived.
+7. **One contract break, all at once.**
+   - Typed manifest `inputs` (`text`, `number`, `bool`, `choice`; `date` later) replace the up-to-three string `arguments`. Values stay strings on the wire, and one declaration serves inline slots, page fields and the agent's view of the extension.
+   - The request's `action` carries the action's name (`submit`, `delete`), replacing verbs passed through arguments (Agent History does this today).
+   - Legacy `rows` decoding goes.
+   - The four bundled extensions share one JSON helper.
+8. **Kept.** `submit`, and side effects only on an action (a convention, not enforced). Streaming views were removed on 18 Nov 2026 with the in-panel Shell and wait for their own design (Next: streaming views); the agreement assumed they stay.
+9. **Core stays small.** Core is what must always run or needs a deep permission (apps, files, clipboard); everything else is an extension. Extensions are not shipped separately. The agent runs extensions headlessly, a draft too, by its folder.
+10. **`field` sits in the page,** bound to an input by name. A one-day prototype gates it, in a worktree with nothing merged, failing fast in this order: click and type fast; Tab from the bar into the page; Japanese IME with Return, Escape and arrows; a structural re-render above the field; 1,000 updates. If it needs private API or more than about 60 lines of keyed patching, inputs become a native strip outside the web view instead. If fields in the page win, the slots in the bar go.
+11. **Drafts.** A one-off extension the agent writes for an answer lives in `drafts/<runID>/<name>/` in the agent's working folder and opens through `wicket://draft/<name>`. It goes with its Agent History run (delete, clear, expiry), orphans are swept at launch, and drafts get no hotkeys. To keep one, ask the agent: it moves the folder into the extensions. No ⌘K entry for it.
+
+Dropped: MCP Apps, `wicket list` and `show`, a tool flag on extensions, starter themes, shipping extensions separately, ACP for now, and a native SwiftUI renderer. That renderer has been tried twice (3,850 and 484 lines), Markdown in SwiftUI is immature, and Raycast 2 moved to WebKit.
+
+Order:
+
+1. The `field` prototype (one day, the gate for 10).
+2. The contract break (7).
+3. `field` in the page, or the native strip.
+4. Drafts (11).
+5. The allowlist, the ⌘K entry and the `core.css` and `theme.css` split (3, 4, 6).
+6. Last, and only with a deletion target, or skipped: one screen type (Later: the agent as a command).
 
 ## Next, from first use of 0.1
 
@@ -32,7 +67,7 @@ Owner, 18 Nov 2026, after grading renders of real answers:
 
 Stage one is built (17 Nov 2026, SPEC, Rich answers): every tag an item or a container, `tile` and `columns` in, `value` and `grid` out, `tone` only on badges, `#` for the answer, a copy button on code blocks and Markdown-first instructions. The next stages, each a tag of the same kind:
 
-- **`field`**, an item for input: types `text`, `long`, `number`, `date` and `toggle`, and `options` makes a dropdown; a `run` or `ask` action on the page carries the fields' values (`run` as arguments, `ask` in its text). To settle first: how a field keeps its identity and value across updates and streaming, and what Return means while one has focus.
+- **`field`**: decided in concept v0.4 (items 7 and 10), typed `inputs` in the manifest bound by name, behind a one-day prototype.
 - **`chart`**, an item drawn by Wicket from validated numbers, never by the model: `type` line or bar, `x` and `y` values and a `unit`, in theme colors as SVG. It replaces the older Charts idea under Next features.
 - **Markdown images**, local files only, drawn by the host as the page's icons and pictures are; remote images need a policy first (what may load, when, and how it is shown as remote).
 
@@ -62,6 +97,8 @@ w-tile { … }
 - **Attribute order stops being layout.** The built-in styles place fields by name.
 - `theme.css` keeps the tokens.
 
+Overtaken in part by concept v0.4: the enforced allowlist and the `core.css` and `theme.css` split are items 4 and 6 there. One file per component waits for the UI quality test.
+
 To settle in a design session: the comment's exact form; whether an owner's file replaces the bundled one or layers over it; how a component says it can be a target (Swift must know which tags carry actions); how a component takes a list of values (a chart: an attribute such as `values="3,5,8"` or a fenced block); and the parts CSS cannot draw, which stay the host's (SF Symbols, local images, charts from numbers: content names, the host resolves, and agent text still loads nothing remote).
 
 ### Why answers look worse than 0.0.x
@@ -72,7 +109,7 @@ The review traced it to the prompt and missing pictures, not the renderer (findi
 
 - **A notice.** One optional view part, `"notice": "Dark mode on"`: alone it closes the panel and shows briefly, with a body or items it shows in the footer. Closing came first on its own (16 Nov 2026): `{"close":true}` on the answer to a submitted request closes the panel with no notice, which the window commands use, since the moving window is the feedback. What is left is the brief notice, for an effect nothing on screen shows.
 - **Richer rows.** Finding 5 (a reply listing what to act on twice) is solved by targets in the page (12 Nov 2026). `label` and `value` on a row came with the six tags (after 0.3.0), which made facts and events rows. Still open: a table row as a target.
-- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` and do not add the planned `agent` and `keyword` aliases (finding 10). Old tag names are not mapped either (17 Nov 2026): an old tag shows its text, which is how the owner or the agent notices it.
+- **No compatibility aliases.** A broken extension shows its repair row and the agent fixes it; drop `rows` (concept v0.4, item 7) and do not add the planned `agent` and `keyword` aliases (finding 10). Old tag names are not mapped either (17 Nov 2026): an old tag shows its text, which is how the owner or the agent notices it.
 - **Pattern results earn their place.** Rank them by tier like name matches, so a loose `match` cannot outrank an app or hide Ask agent (finding 1).
 - View `actions` without a body; lossless paste for extensions; a URL that fills declared arguments, with bindings.
 
@@ -86,7 +123,7 @@ Extensions can update their view while a process runs: long commands, builds, do
 
 ### Later: the agent as a command
 
-`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type. The step touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own.
+`submit` gave commands the conversation's rule (the input belongs to the command, Return sends, items wait for an arrow key). The remaining step is to make the conversation one such command at the address `agent`, so search, command and conversation are one screen type. The step touches the most fragile state (panel, voice, permissions, the retained conversation) and changes nothing the owner sees, so it waits; permission prompts and earlier questions stay the agent's own. Concept v0.4 puts it last, only with a deletion target, or skips it.
 
 ## Next features
 
@@ -111,7 +148,7 @@ Done for the panel surfaces (owner, 16 Nov 2026, chosen from real-screen capture
 Step 2 of the address work. Built: a manifest's `items`, read once and ranked at the root like apps (best 20 per extension), and a command without a program that Wicket answers from them (see [SPEC.md](SPEC.md) Triggers and ordering). What remains:
 
 - A manifest holding a `body` too, so a cheat sheet or a fixed page needs no program.
-- "Make reusable": an agent reply saved as a static view when it is constant, as a program when it is not.
+- Keeping an answer: the agent moves its draft into the extensions (concept v0.4, item 11); no separate command.
 - Favourites in the empty panel and a back stack, which are lists of addresses (with the bindings above).
 - A per-extension choice to stay out of root search, only if real use asks for it.
 
@@ -135,7 +172,7 @@ Addresses name views, never effects; there is no exec action and no templating l
 - Empty palette with favourites and suggestions; a compact results mode.
 - Voice: hold to talk, a language choice for mixed German and English.
 - First-run hints, parked (owner, 16 Nov 2026): the panel already opens on a manual launch and the app reads as self-explanatory. Considered and not built: up to three rows in the empty panel (the hotkey with Try it now and Change Shortcut, Install Claude Code or Codex when neither is there, Launch at Login while it is off). Only the agent default was kept (SPEC, Config). Permissions stay asked when a feature first needs them.
-- Forms and secrets build on declared arguments: a longer list of the same `{name, placeholder}` fields (secrets in the Keychain). Required fields and choice lists only when a real extension needs them. Preferences are done (16 Nov 2026, the settings step of SPEC's Core or extension decision): manifest `settings` in the shape of `arguments` plus a `default`, set in Settings ▸ Extensions and sent in every request as `settings`. The values live in `config.json` under `extensions` instead of the planned `settings.json` in each extension's folder, because a bundled extension's folder is inside the signed app and cannot be written, and config is already the one validated, live-reloaded file Settings and the agent edit.
+- Forms come with typed `inputs` (concept v0.4, item 7); secrets in the Keychain are still open. Preferences are done (16 Nov 2026, the settings step of SPEC's Core or extension decision): manifest `settings` in the shape of `arguments` plus a `default`, set in Settings ▸ Extensions and sent in every request as `settings`. The values live in `config.json` under `extensions` instead of the planned `settings.json` in each extension's folder, because a bundled extension's folder is inside the signed app and cannot be written, and config is already the one validated, live-reloaded file Settings and the agent edit.
 - The launcher is always available (parked 11 Nov 2026, ranked first by three architecture reviewers, not yet felt in use): the hotkey always lands on root search, even while a turn runs or an approval waits; the one retained conversation keeps running and shows as a live row on top (running, waiting for approval, answered) that Return reopens, never above a strong app match; a new question replaces it. No list of conversations, no notifications. Pick it up if real use shows Esc mid-answer to reach the launcher.
 - Theme customization the agent knows about: once theming is settled (what `theme.css` may change, shared tokens for panel and answers), add it to the Wicket documentation section of the agent instructions.
 - Grid views.

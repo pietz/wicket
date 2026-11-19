@@ -1,6 +1,6 @@
 # Wicket spec
 
-Updated 12 Nov 2026, for Wicket 0.1. This is the design of the app in this repository, in enough detail to rebuild it. It replaced the 0.0.x line, which this document calls the first Wicket (about 20,000 lines; see [COMPARISON.md](COMPARISON.md)). Open problems are in [ISSUES.md](ISSUES.md) and planned work in [ROADMAP.md](ROADMAP.md).
+Updated 12 Nov 2026, for Wicket 0.1. This describes the app in this repository as built and why, in enough detail to rebuild it. It records; it does not decide: anything here may be reopened, and where [ROADMAP.md](ROADMAP.md) holds an agreed change (Next: concept v0.4), the roadmap wins until the change ships and this document is updated with it. It replaced the 0.0.x line, which this document calls the first Wicket (about 20,000 lines; see [COMPARISON.md](COMPARISON.md)). Open problems are in [ISSUES.md](ISSUES.md) and planned work in [ROADMAP.md](ROADMAP.md).
 
 ## Idea
 
@@ -457,7 +457,7 @@ What is not built is in [ROADMAP.md](ROADMAP.md) (the authoring CLI and more) an
 | Open-action files | Existing apps, folders and nonexecutable documents only; reject scripts, workflows and installers, resolve symlinks and recheck on use |
 | Distribution | One repository for the released app and Wicket Dev; same bundle ids, signing team and Sparkle key as 0.0.x, so installed copies update to 0.1 |
 | Agent History | Wicket keeps its own copy of each run's questions and answers in the private folder and resumes the CLI session by ID; a session the CLI lost starts afresh with one quiet line. Reading the CLIs' session stores was rejected (undocumented, version-dependent formats, tool noise) |
-| This document | Kept current with what is built, in enough detail to rebuild Wicket from it |
+| This document | A record of what is built and why, kept current with each change; not a decision the owner has to defend. Changes of direction are agreed in ROADMAP.md first |
 
 ## Open decisions
 

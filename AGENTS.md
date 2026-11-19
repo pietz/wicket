@@ -1,6 +1,6 @@
 # Wicket
 
-A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes. [SPEC.md](SPEC.md) is the design and its rationale: read it before touching `Sources/`. [README.md](README.md) is the user-facing reference, [ISSUES.md](ISSUES.md) lists open problems and unverified checks, [ROADMAP.md](ROADMAP.md) what is next, and [docs/](docs) holds the settings, provider contract and release notes plus comparisons and research.
+A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes. [SPEC.md](SPEC.md) describes what is built and why: read it before touching `Sources/`, but treat it as a record, not a mandate; agreed changes of direction live in [ROADMAP.md](ROADMAP.md) and win over it. [README.md](README.md) is the user-facing reference, [ISSUES.md](ISSUES.md) lists open problems and unverified checks, [ROADMAP.md](ROADMAP.md) what is next, and [docs/](docs) holds the settings, provider contract and release notes plus comparisons and research.
 
 ## Layout
 
@@ -19,7 +19,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - Handle failures that realistically happen in real use. No handling for contrived timing combinations (several fast actions inside a few milliseconds) or for failures of the error handling itself. Reviews report only bugs with a plausible real-world path; list the rest as notes, never as blockers.
 - Measure performance (hotkey to visible, query latency, idle memory) when touching hot paths.
 - Question the product before building it: for new user-facing work, get an unanchored product challenge first. Design first, then compare with other launchers on the merits; never copy their code.
-- Record decisions and mechanism in SPEC.md, planned work in ROADMAP.md, open problems in ISSUES.md. Keep them current in the same change that alters behavior.
+- Record mechanism and its reasons in SPEC.md when a change ships, agreed direction and planned work in ROADMAP.md, open problems in ISSUES.md. Keep them current in the same change that alters behavior.
 - Stage files by name (`git add <paths>`), never `git commit -a` or `git add -A`: the owner may have uncommitted work in the tree.
 - Never log query text, file paths or AI content publicly (`privacy: .public`); counts and timings only.
 - Edition-dependent behavior (folder, hotkey, updates, name) goes through `Edition`; the working folder is resolved only by `Edition.configDirectory()`. Existing files from 0.0.x in the config folder and Application Support are never read as new data and never deleted.
