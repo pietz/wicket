@@ -74,7 +74,6 @@ final class ExtensionHost {
     guard !scanned else { return }
     await withCheckedContinuation { scanWaiters.append($0) }
   }
-  private var revision = 0
   private var running: [UUID: Task<ProviderView, any Error>] = [:]
 
   init(folder: URL, bundled: URL? = bundledFolder) {
@@ -92,14 +91,12 @@ final class ExtensionHost {
     await scan?.value
   }
   func rescan() {
-    revision += 1
-    let version = revision
     let root = folder.appending(path: "extensions")
     let bundled = bundled
     scan?.cancel()
     scan = Task { [weak self] in
       let (commands, problems) = await Task.detached { Self.discover(root, bundled: bundled) }.value
-      guard let self, !Task.isCancelled, revision == version else { return }
+      guard let self, !Task.isCancelled else { return }
       defer {
         scanned = true
         for waiter in scanWaiters { waiter.resume() }
