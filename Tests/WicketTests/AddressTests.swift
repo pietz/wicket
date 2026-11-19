@@ -39,8 +39,18 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   } catch let DecodingError.typeMismatch(_, context) {
     #expect(context.codingPath.map(\.stringValue) == ["items", "Index 0", "actions", "Index 0", "arguments"])
   }
-  #expect(throws: (any Error).self) {
-    try JSONDecoder().decode(ProviderRequest.self, from: Data(#"{"input":"","arguments":["a"]}"#.utf8))
+  // A full request with positional arguments fails at `arguments`, not at some missing field.
+  func request(_ arguments: String) throws -> ProviderRequest {
+    let json =
+      #"{"input":"","submitted":false,"locale":{"decimal":".","grouping":","},"settings":{},"arguments":"#
+    return try JSONDecoder().decode(ProviderRequest.self, from: Data((json + arguments + "}").utf8))
+  }
+  #expect(try request(#"{"n":"1"}"#).arguments == ["n": "1"])
+  do {
+    _ = try request(#"["a"]"#)
+    Issue.record("An array of request arguments decoded")
+  } catch let DecodingError.typeMismatch(_, context) {
+    #expect(context.codingPath.map(\.stringValue) == ["arguments"])
   }
 
   #expect(url("wicket://weather?input=berlin") == link("weather", "berlin"))
