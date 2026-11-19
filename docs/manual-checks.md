@@ -66,7 +66,7 @@ Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.
 1. Turn Voice input on. Open the launcher and speak right away. The words appear in the field; note whether the first word is cut off.
 2. Start typing while it listens. Typing takes over and listening stops.
 3. Speak a question, then press Cmd+Return to ask it. Speech alone never submits.
-4. Try the built-in microphone, a Bluetooth headset and Automatic. Music playing at the time should keep its quality.
+4. Set the built-in microphone, a USB microphone and a Bluetooth headset as the input in Sound settings in turn, reopening the launcher each time; each one is heard. Music playing at the time should keep its quality. Unplug or switch off the device while listening: one retry hint, and nothing restarts by itself.
 5. Open and close quickly several times. The microphone indicator in the menu bar goes away each time.
 6. Open the launcher and say nothing. About 3 seconds after listening starts, it stops quietly with no message and the microphone indicator goes away; the voice log says `noSpeech`. Click the mic and speak: it listens again. Speak once, then pause for more than 3 seconds: it keeps listening.
 

@@ -17,15 +17,15 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #"{"future":{"list":[1,true,"x"]},"voice":{"future":42},"agent":{"future":"keep"},"providers":[{"id":"apps","enabled":true,"future":7},{"id":"extension:test","enabled":false},{"id":"math","enabled":true}]}"#
   ) { file in
     try file.set("enabled", to: false, in: "voice")
+    // An earlier version's microphone choice is kept in the file and ignored.
     try file.set("microphone", to: "stable-uid", in: "voice")
-    #expect(try Configuration.load(at: file.url).voice.microphone == "stable-uid")
-    try file.set("microphone", to: nil, in: "voice")
-    #expect(try Configuration.load(at: file.url).voice.microphone == nil)
+    #expect(try Configuration.load(at: file.url).voice == Configuration.Voice(enabled: false))
     try file.set("model", to: "sonnet", in: "agent")
     try file.setProvider("apps", enabled: false)
     let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
     #expect(json["future"] == .object("list", .array([.number(1), .bool(true), .string("x")])))
     #expect(json["voice"]["future"] == .number(42))
+    #expect(json["voice"]["microphone"] == .string("stable-uid"))
     #expect(json["agent"]["future"] == .string("keep"))
     #expect(json["providers"].array[0]["future"] == .number(7))
     #expect(try Configuration.load(at: file.url).providers.map(\.id) == ["apps", "extension:test", "math"])

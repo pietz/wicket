@@ -77,7 +77,6 @@ struct SettingsPane: View {
   @State private var transparency = TransparencyEdit()
   @State private var loginStatus = SMAppService.mainApp.status
   @State private var loginProblem: String?
-  @State private var inputDevices: [MicrophoneDevice] = []
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
   @State private var confirmingClear = false
   @State private var confirmingClearRuns = false
@@ -111,7 +110,6 @@ struct SettingsPane: View {
     }
     .frame(width: 560, height: 480)
     .onAppear {
-      if section == 1 { inputDevices = MicrophoneDevices.available() }
       if section == 2 { store.discoverOptions() }
     }
     .onChange(of: config.agent.agent) { if section == 2 { store.discoverOptions() } }
@@ -119,7 +117,6 @@ struct SettingsPane: View {
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
       loginStatus = SMAppService.mainApp.status
       microphone = AVCaptureDevice.authorizationStatus(for: .audio)
-      if section == 1 { inputDevices = MicrophoneDevices.available() }
     }
   }
 
@@ -232,17 +229,6 @@ struct SettingsPane: View {
       Text("Wicket listens when the launcher opens. Start typing to take over.")
     }
     Section {
-      Picker(
-        "Microphone", selection: binding(config.voice.microphone ?? "", key: "microphone", group: "voice")
-      ) {
-        Text("Automatic").tag("")
-        ForEach(inputDevices, id: \.uid) { device in Text(device.name).tag(device.uid) }
-        if let uid = config.voice.microphone, !uid.isEmpty, !inputDevices.contains(where: { $0.uid == uid }) {
-          Text("Unavailable (using Automatic)").tag(uid)
-        }
-      }
-      Text("Automatic avoids Bluetooth headset microphones, which switch the headset into call mode.")
-        .font(.callout).foregroundStyle(.secondary)
       LabeledContent("Permission", value: microphoneText)
       Button("Open Microphone Settings") {
         NSWorkspace.shared.open(
@@ -252,7 +238,8 @@ struct SettingsPane: View {
       Text("Microphone")
     } footer: {
       Text(
-        "Speech is transcribed on your Mac. Opening Settings never starts listening or requests permission.")
+        "Wicket listens to the input chosen in Sound settings and transcribes speech on your Mac. Opening Settings never starts listening or requests permission."
+      )
     }
   }
   private static var version: String {

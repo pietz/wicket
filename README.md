@@ -56,7 +56,7 @@ Installing 0.1 over 0.0.x through Sparkle or Homebrew keeps your data, and 0.1 n
   "hotkey": "option+space",
   "backgroundTransparency": 0.75,
   "textSize": "medium",
-  "voice": { "enabled": true, "microphone": "" },
+  "voice": { "enabled": true },
   "providers": [
     { "id": "apps", "enabled": true },
     { "id": "files", "enabled": true }
@@ -105,7 +105,7 @@ First enabled opening requests microphone permission when needed. Waiting for th
 
 Words update the input and built-in results live. Extension processes wait for 350 ms of settled speech. Every key, including arrows, cancels capture before normal routing. Hide orders the panel out immediately while teardown continues in the background. A new capture waits for cleanup. The mic button stops or restarts it. Escape stops capture and retains text first, including during startup. Return runs the selection, and Cmd+Return asks the agent. Hide, quit, live disable, busy agent state or pending approvals stop capture. Speech never submits a question.
 
-Voice Settings offers Automatic or a named microphone, stored by stable UID in `voice.microphone`. Automatic prefers a wired default, then built-in, USB and other wired inputs, then the system default. Virtual, aggregate and Continuity inputs require an explicit choice. Missing named devices use Automatic. Wicket sets only its own engine input and never changes system defaults.
+Voice listens to the system's default input, the one chosen in Sound settings, Bluetooth included; there is no microphone picker, and Wicket never changes the system's choice. A `voice.microphone` value an earlier version saved is ignored.
 
 A configuration notification from a running audio engine is ignored. If the engine stopped, Wicket ends capture and shows a retry hint. `voice-timing.txt` in the Wicket config folder is written once per session in the background, at first transcript or stop, with open-to-first-buffer and open-to-first-transcript latency. No audio or transcripts are logged. When voice stops on its own, `/usr/bin/log show --predicate 'subsystem == "app.wicket" AND category == "voice"' --last 5m` says why: the stop reason, permission states, the kind of device, formats and error codes, never words or device names. If you say nothing in the first 3 seconds after listening starts, the microphone switches itself off quietly (click the mic to listen again). After the first words, startup and transcript inactivity are limited to 60 seconds, with a five-minute cap; permission waiting is excluded. Real dictation, consent focus and physical device switching can only be checked by hand; see [ISSUES.md](ISSUES.md).
 

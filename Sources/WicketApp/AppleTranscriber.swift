@@ -1,26 +1,21 @@
 import AVFoundation
 import Speech
 
-/// Apple's macOS 26 on-device pipeline. No fallback recognizer, model download or audio file.
+/// Apple's macOS 26 on-device pipeline on the system's default input. No fallback recognizer, model
+/// download or audio file.
 @MainActor final class AppleTranscriber: Transcriber {
-  var microphoneUID: String?
-  init(microphoneUID: String? = nil) { self.microphoneUID = microphoneUID }
   private var task: Task<Void, Never>?
   private var microphone: Microphone?
   private(set) var shutdown: Task<Void, Never>?
   func start() -> AsyncThrowingStream<VoiceUpdate, any Error> {
     stop()
     let capture = Microphone()
-    let uid = microphoneUID
     microphone = capture
     return AsyncThrowingStream { continuation in
       let worker = Task.detached(priority: .userInitiated) {
         do {
-          VoiceLog.logger.log(
-            "voice transcriber starting, microphone chosen in Settings: \(uid?.isEmpty == false, privacy: .public)"
-          )
           try await Self.listen(
-            capture, uid: uid, yield: { continuation.yield($0) }, fail: { continuation.finish(throwing: $0) })
+            capture, yield: { continuation.yield($0) }, fail: { continuation.finish(throwing: $0) })
           continuation.finish()
         } catch { continuation.finish(throwing: error) }
       }
@@ -41,7 +36,7 @@ import Speech
     }
   }
   nonisolated private static func listen(
-    _ microphone: Microphone, uid: String?, yield: @escaping @Sendable (VoiceUpdate) -> Void,
+    _ microphone: Microphone, yield: @escaping @Sendable (VoiceUpdate) -> Void,
     fail: @escaping @Sendable (VoiceError) -> Void
   ) async throws {
     defer { _ = microphone.requestStop() }
@@ -89,8 +84,7 @@ import Speech
     let analyzer = SpeechAnalyzer(
       modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .lingering))
     try await withTaskCancellationHandler {
-      try microphone.start(
-        format: format, uid: uid, feed: feed, firstAudio: { yield(.audio(.now)) }, fail: fail)
+      try microphone.start(format: format, feed: feed, firstAudio: { yield(.audio(.now)) }, fail: fail)
       yield(.ready)
       try await analyzer.start(inputSequence: inputs)
       var transcript = Transcript(locale: locale)
@@ -126,11 +120,11 @@ final class Microphone: @unchecked Sendable {
     lock.withLock { self.close = close }
   }
   func start(
-    format: AVAudioFormat, uid: String?, feed: AsyncStream<AnalyzerInput>.Continuation,
+    format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
   ) throws {
     try start {
-      let capture = EngineCapture(format: format, uid: uid, feed: feed, firstAudio: firstAudio, fail: fail)
+      let capture = EngineCapture(format: format, feed: feed, firstAudio: firstAudio, fail: fail)
       try capture.start()
       return { capture.stop() }
     }
@@ -183,14 +177,13 @@ private final class EngineCapture: @unchecked Sendable {
   private var tapped = false, stopped = false
   private let format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation
   private let fail: @Sendable (VoiceError) -> Void
-  private let uid: String?, firstAudio: @Sendable () -> Void
+  private let firstAudio: @Sendable () -> Void
   private let opened = ContinuousClock.now
   init(
-    format: AVAudioFormat, uid: String?, feed: AsyncStream<AnalyzerInput>.Continuation,
+    format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
   ) {
     self.format = format
-    self.uid = uid
     self.feed = feed
     self.firstAudio = firstAudio
     self.fail = fail
@@ -218,28 +211,8 @@ private final class EngineCapture: @unchecked Sendable {
     }
   }
   private func open() throws {
+    // The engine's input follows the system default: nothing is set on it.
     let input = engine.inputNode
-    let devices = MicrophoneDevices.available()
-    let defaultInput = devices.first(where: \.isDefault)
-    VoiceLog.logger.log(
-      "voice inputs: \(devices.count, privacy: .public), system default \(defaultInput?.kind ?? "none", privacy: .public), chosen in Settings and present: \(devices.contains { $0.uid == self.uid }, privacy: .public)"
-    )
-    guard let device = MicrophoneDevice.select(devices, uid: uid) else {
-      VoiceLog.logger.error("voice: no usable input device")
-      throw VoiceError.noMicrophone
-    }
-    // The engine's input already follows the system default; set a device only when it differs.
-    let explicit = input.auAudioUnit.deviceID != device.id
-    VoiceLog.logger.log(
-      "voice device: \(device.kind, privacy: .public), system default \(device.isDefault, privacy: .public), chosen in Settings \(device.uid == self.uid, privacy: .public), set explicitly \(explicit, privacy: .public)"
-    )
-    if explicit {
-      do { try input.auAudioUnit.setDeviceID(device.id) } catch {
-        VoiceLog.logger.error("voice: setDeviceID failed: \(VoiceLog.describe(error), privacy: .public)")
-        throw VoiceError.noMicrophone
-      }
-    }
-    // Read after setting the device, before any tap.
     let node = input.outputFormat(forBus: 0)
     let hardware = input.inputFormat(forBus: 0)
     VoiceLog.logger.log(

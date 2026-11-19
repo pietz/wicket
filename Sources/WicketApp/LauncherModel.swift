@@ -309,7 +309,7 @@ final class LauncherModel {
   /// Called after every successful or failed configuration load, once the model has reacted.
   var onConfigurationChange: (Configuration?, String?) -> Void = { _, _ in }
   private(set) var voice: VoiceInput?
-  private let makeTranscriber: (() -> any Transcriber)?
+  private let makeTranscriber: () -> any Transcriber
   private let timingURL: URL
   var takesSpeech: Bool { !agent.busy && agent.permissions.isEmpty }
   func stopVoice(_ reason: VoiceStop) { voice?.stop(reason) }
@@ -324,9 +324,7 @@ final class LauncherModel {
     }
     if voice == nil {
       voice = VoiceInput(
-        transcriber: { [weak self] in
-          self?.makeTranscriber?() ?? AppleTranscriber(microphoneUID: self?.configuration.voice.microphone)
-        },
+        transcriber: makeTranscriber,
         timingURL: timingURL,
         write: { [weak self] text in
           guard let self, takesSpeech else {
@@ -418,7 +416,7 @@ final class LauncherModel {
   ) {
     self.clipboard = clipboard
     self.agentHistory = agentHistory
-    makeTranscriber = transcriber
+    makeTranscriber = transcriber ?? { AppleTranscriber() }
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
     timingURL = folder.appending(path: "voice-timing.txt")
     agent = AgentSession(folder: folder)

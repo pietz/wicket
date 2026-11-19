@@ -131,28 +131,6 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
   #expect(throws: VoiceError.conversionFailed) { try Conversion(input: unsupported, output: output) }
 }
 
-@Test func automaticMicrophoneAvoidsBluetoothAndHonorsSavedUID() {
-  let bluetooth = MicrophoneDevice(
-    uid: "bt", name: "Headset", transport: kAudioDeviceTransportTypeBluetooth, isDefault: true)
-  let builtin = MicrophoneDevice(uid: "built", name: "MacBook", transport: kAudioDeviceTransportTypeBuiltIn)
-  let usb = MicrophoneDevice(
-    uid: "usb", name: "USB", transport: kAudioDeviceTransportTypeUSB, isDefault: true)
-  #expect(MicrophoneDevice.select([bluetooth, builtin], uid: nil) == builtin)
-  #expect(MicrophoneDevice.select([bluetooth], uid: nil) == bluetooth)
-  #expect(MicrophoneDevice.select([builtin, usb], uid: nil) == usb)
-  #expect(MicrophoneDevice.select([bluetooth, builtin], uid: "missing") == builtin)
-  #expect(MicrophoneDevice.select([bluetooth, builtin], uid: "bt") == bluetooth)
-  #expect(MicrophoneDevice.select([bluetooth, usb], uid: nil) == usb)
-  #expect(MicrophoneDevice.select([], uid: nil) == nil)
-  var output = builtin
-  output.hasInput = false
-  #expect(MicrophoneDevice.select([output], uid: "built") == nil)
-  var le = bluetooth
-  le = MicrophoneDevice(
-    uid: le.uid, name: le.name, transport: kAudioDeviceTransportTypeBluetoothLE, isDefault: true)
-  #expect(MicrophoneDevice.select([le, builtin], uid: nil) == builtin)
-}
-
 // Hardware rate and channels, then the node's: a 32 kHz USB microphone whose node reported 48 kHz first.
 @Test(
   arguments: [
@@ -188,19 +166,4 @@ func tapUsesTheHardwareRateAndChannels(_ formats: [Double]) throws {
   let result = try #require(try conversion.convert(input))
   #expect(result.format == output && result.frameLength > 2000 && result.frameLength <= 2400)
   #expect(abs(result.floatChannelData![0][500] - 0.75) < 0.001)
-}
-
-@Test(arguments: [
-  kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate,
-  kAudioDeviceTransportTypeAutoAggregate, kAudioDeviceTransportTypeContinuityCaptureWired,
-  kAudioDeviceTransportTypeContinuityCaptureWireless,
-])
-func automaticNeverChoosesVirtualAggregateOrContinuityInputs(_ transport: UInt32) {
-  let excluded = MicrophoneDevice(uid: "excluded", name: "Other input", transport: transport, isDefault: true)
-  let builtin = MicrophoneDevice(uid: "built", name: "MacBook", transport: kAudioDeviceTransportTypeBuiltIn)
-  let usb = MicrophoneDevice(uid: "usb", name: "USB", transport: kAudioDeviceTransportTypeUSB)
-  #expect(MicrophoneDevice.select([excluded, usb, builtin], uid: nil) == builtin)
-  #expect(MicrophoneDevice.select([excluded, usb], uid: nil) == usb)
-  #expect(MicrophoneDevice.select([excluded], uid: nil) == nil)
-  #expect(MicrophoneDevice.select([excluded, builtin], uid: excluded.uid) == excluded)
 }
