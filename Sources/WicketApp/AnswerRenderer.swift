@@ -211,6 +211,9 @@ final class AnswerRenderer {
           let currentTurn = turn
           let isStreaming = streaming
           let reset = currentTurn != renderedTurn
+          // Whether this pass measures a page not shown yet, taken before it suspends: an `update` meanwhile
+          // clears `staging`, and the height found then belongs to neither page.
+          let measuring = currentTurn == staging
           if cssRevision != appliedCSS {
             let cssVersion = cssRevision
             // A page row is as tall as a native one, which does not grow in proportion to the text.
@@ -245,15 +248,19 @@ final class AnswerRenderer {
               let measured = PaletteLayout.answerHeight(
                 measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
                 cap: cap)
-              if currentTurn == staging {
-                staged = .measured(PageHeight(turn: currentTurn, height: measured))
-              } else {
+              // A height is kept only for the page it was rendered for, if that is still the one wanted:
+              // the staged page, or the page shown, whose height the panel takes at once.
+              if measuring {
+                if staging == currentTurn {
+                  staged = .measured(PageHeight(turn: currentTurn, height: measured))
+                }
+              } else if currentTurn == turn {
                 height = measured
                 onHeight?()
               }
             }
           }
-          if currentTurn == staging, staged == nil { staged = .unmeasured }
+          if measuring, staging == currentTurn, staged == nil { staged = .unmeasured }
           renderedTurn = currentTurn
           problem = nil
           if version == revision { break }

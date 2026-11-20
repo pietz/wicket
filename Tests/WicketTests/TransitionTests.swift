@@ -1691,3 +1691,39 @@ private func printing(_ answer: String) -> String {
   #expect(!model.agent.active && !model.navigator.inDetail && model.navigator.page == nil)
   #expect(!drawn.isEmpty && drawn.allSatisfy { !$0 })
 }
+
+@MainActor @Test func aMeasurementSupersededInFlightNeverResizesThePageShown() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let renderer = AnswerRenderer(folder: folder) { _ in }
+  defer { renderer.release() }
+  let short = Page(body: "One line.", runs: false)
+  let tall = Page(
+    body: (1...12).map { "Paragraph \($0) of a page taller than one line." }.joined(separator: "\n\n"),
+    runs: false)
+  renderer.opened()
+  renderer.update(short, turn: "shown", streaming: false)
+  await renderer.settled()
+  let height = renderer.height
+  var published: [Double] = []
+  renderer.onHeight = { published.append(renderer.height) }
+  // A redraw of the page shown (an appearance or text-size change) lands while the incoming tall page is
+  // rendered to be measured, at several points of that render; a warm render takes about a millisecond.
+  var superseded = 0
+  for steps in 1...6 {
+    let turn = "incoming \(steps)"
+    let measuring = Task { await renderer.measure(tall, turn: turn) }
+    for _ in 0..<steps { await Task.yield() }
+    renderer.update(short, turn: "shown", streaming: false)
+    let result = await measuring.value
+    if result == .superseded {
+      superseded += 1
+    } else if case .measured(let page) = result {
+      #expect(page.turn == turn && page.height > height)
+    }
+    await renderer.settled()
+    #expect(renderer.height == height && renderer.renderedTurn == "shown")
+  }
+  #expect(superseded > 0)
+  #expect(published.allSatisfy { $0 == height }, "\(published)")
+}
