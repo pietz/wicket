@@ -255,7 +255,7 @@ func testImage(_ width: Int, _ height: Int, seed: Int = 0, as type: NSBitmapImag
   // Delete from the context menu: the row's own run action, through the one dispatcher.
   let alpha = try #require(model.navigator.results.first)
   #expect(alpha.row.actions.last?.label == "Delete")
-  #expect(model.activate(try #require(alpha.row.actions.last), from: alpha))
+  #expect(model.navigator.activate(try #require(alpha.row.actions.last), from: alpha))
   await model.navigator.settled()
   #expect(model.navigator.command?.id == "clipboard" && model.navigator.input == "alp")
   #expect(model.navigator.results.isEmpty && history.clips.map(\.text) == ["beta two"])
@@ -454,7 +454,8 @@ private func pngs(_ folder: URL) -> Set<String> {
   #expect(throws: DecodingError.self) { try JSONDecoder().decode(RowAction.self, from: encoded) }
   let model = LauncherModel(
     clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
-  #expect(model.writePasteboard(row.actions[0].kind))
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  #expect(controller.writePasteboard(row.actions[0].kind))
   // The PNG at once; the TIFF only promised, made if a target asks.
   #expect(pasteboard.data[.png] == png && pasteboard.types == [.png, .tiff] && pasteboard.data[.tiff] == nil)
   let promise = try #require(pasteboard.owner as? ClipboardHistory.TIFFPromise)
@@ -466,7 +467,7 @@ private func pngs(_ folder: URL) -> Set<String> {
   // Deleted meanwhile: nothing is written, and the panel says why.
   history.delete(row.id)
   let count = pasteboard.changeCount
-  #expect(!model.writePasteboard(row.actions[1].kind))
+  #expect(!controller.writePasteboard(row.actions[1].kind))
   #expect(pasteboard.changeCount == count && model.navigator.actionProblem?.contains("no longer") == true)
   await model.finish()
 }

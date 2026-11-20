@@ -1,10 +1,10 @@
-import AppKit
+import Foundation
 import Observation
 
-/// The launcher's services and what the panel does outside its screens: it composes the sources, the
-/// agent's session and the stores, reacts to configuration, owns hotkey recording, and dispatches the
-/// actions the user runs. The screens and moving between them are `navigator`'s; dictation is the
-/// panel's (`PanelInput`).
+/// The launcher's services: it composes the sources, the agent's session and the stores, applies a
+/// configuration to them, and runs what a hotkey names. The screens and moving between them are
+/// `navigator`'s; dictation, recording a hotkey and the effects on the system are the panel's
+/// (`PaletteController`).
 @MainActor @Observable
 final class LauncherModel {
   let navigator: Navigator
@@ -17,8 +17,6 @@ final class LauncherModel {
   /// The one owner of configuration. The model only reads it.
   let store: ConfigurationStore
   var configuration: Configuration { store.configuration }
-  /// Called after every successful or failed configuration load, once the model has reacted.
-  @ObservationIgnored var onConfigurationChange: (Configuration?, String?) -> Void = { _, _ in }
   /// The configuration last reacted to.
   @ObservationIgnored private var applied = Configuration()
   private let history: UsageHistory
@@ -39,24 +37,26 @@ final class LauncherModel {
     root = RootCommand(apps: apps, files: files, directory: directory, store: store, history: history)
     navigator = Navigator(agent: agent, directory: directory, root: root, store: store, history: history)
     self.history = history
-    store.onChange = { [weak self] configuration, problem in
-      guard let self else { return }
-      if let configuration {
-        extensions.settings = configuration.extensions
-        clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
-        var switched: Set<String>?
-        if configuration != applied {
-          // Of a configuration, only a source switched on or off changes what a command answers.
-          let ids = extensions.ids
-          switched = Set(configuration.sources(extensions: ids).map(\.id)).filter {
-            applied.isEnabled($0, extensions: ids) != configuration.isEnabled($0, extensions: ids)
-          }
-          applied = configuration
-        }
-        navigator.applied(switching: switched)
+    // Tests and headless runs react with the services alone; the app reacts in its own order, these
+    // first (`AppDelegate`).
+    store.onChange = { [weak self] configuration, _ in self?.apply(configuration) }
+  }
+  /// A configuration was loaded: the extensions' settings, the clipboard and the sources it switched on
+  /// or off follow it. Nil when the file could not be read, which changes nothing.
+  func apply(_ configuration: Configuration?) {
+    guard let configuration else { return }
+    extensions.settings = configuration.extensions
+    clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
+    var switched: Set<String>?
+    if configuration != applied {
+      // Of a configuration, only a source switched on or off changes what a command answers.
+      let ids = extensions.ids
+      switched = Set(configuration.sources(extensions: ids).map(\.id)).filter {
+        applied.isEnabled($0, extensions: ids) != configuration.isEnabled($0, extensions: ids)
       }
-      onConfigurationChange(configuration, problem)
+      applied = configuration
     }
+    navigator.applied(switching: switched)
   }
 
   /// Each source owns its message. Configuration and hotkey problems live in the store, the last
@@ -72,60 +72,50 @@ final class LauncherModel {
     navigator.reopen(now: now)
   }
 
-  // MARK: Actions
+  // MARK: Hotkeys
 
-  /// The one dispatcher for what the user runs, whoever asked: Return, a button, a menu item or a link.
-  /// Moving between screens and sending questions go to the navigator. Effects on the panel and the
-  /// system (copy, paste, open) are not handled here and return false, except an open or reveal that
-  /// `OpenPolicy` refuses: that does nothing but say why. `result` is the row the action came from, if any.
-  @discardableResult
-  func activate(_ action: RowAction, from result: Result? = nil) -> Bool {
-    switch action.kind {
-    case .run(let address):
-      if let result { navigator.record(result) }
-      // Activating a run action is the user's choice; following a link never is.
-      navigator.go(address, from: result?.provider, submitted: !address.link)
-    case .send(let text): navigator.send(text)
-    case .detail(let markdown, let action): navigator.openDetail(markdown, action: action, from: result)
-    case .hotkey(let target, record: true):
-      recorder.record(target, in: window, store: store) { [weak self] in self?.pauseHotkeys($0) }
-    case .hotkey(let target, record: false): store.bind(nil, to: target)
-    case .open, .reveal:
-      guard let refusal = OpenPolicy.refusal(action) else { return false }
-      navigator.actionProblem = refusal
-    case .copy, .paste, .clip: return false
+  /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
+  /// runs it now with a submitted request, as Return on the item would, with the panel hidden; a view that
+  /// says it is done keeps it hidden, and any other view or a failure calls `show` and shows the command
+  /// with it, such as why no window moved. Anything else shows the panel on the address: a command, a
+  /// host command, or an item whose action opens a view. Nothing is recorded as usage. `prepare` renders
+  /// a view's page before the panel shows it.
+  func press(
+    _ target: HotkeyTarget, prepare: ((Page, String) async -> Void)? = nil, show: () -> Void
+  ) async {
+    let owner = target.target.flatMap { extensions.commands[$0] }
+    let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
+    // A switched-off extension's items run nothing: its address shows that it is off.
+    guard let owner, let item, case .run(let address)? = item.actions.first?.kind,
+      configuration.isEnabled(owner.id, extensions: extensions.ids)
+    else {
+      show()
+      return navigator.go(target.address)
     }
-    return true
-  }
-  /// Every pasteboard write of Wicket's: its copy and paste actions.
-  func writePasteboard(_ text: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
-  }
-  /// Writes a copy or paste action's content: its text, or a kept image resolved from its ID now. False, with
-  /// the reason shown, when the image is gone.
-  func writePasteboard(_ kind: RowAction.Kind) -> Bool {
-    switch kind {
-    case .copy(let text), .paste(let text): writePasteboard(text)
-    case .clip(let id, _):
-      guard clipboard?.write(id) == true else {
-        navigator.actionProblem = "This image is no longer in the clipboard history"
-        return false
-      }
-    default: return false
+    let id = address.extensionName == nil ? owner.id : address.targetID
+    guard !address.link, let id, let program = extensions.commands[id], program.manifest.command != nil,
+      configuration.isEnabled(id, extensions: extensions.ids)
+    else {
+      show()
+      return navigator.go(address, from: owner.id, submitted: !address.link)
     }
-    return true
-  }
-  /// Records a row's hotkey: Set Hotkey… (`activate`) makes the next shortcut pressed its hotkey, under
-  /// the launcher's rules.
-  let recorder = ShortcutRecorder()
-  /// The panel the recorder listens in, named because Wicket is not the active app while it is key.
-  @ObservationIgnored weak var window: NSWindow?
-  /// Pauses every global hotkey of Wicket's while a recorder listens (AppDelegate).
-  @ObservationIgnored var pauseHotkeys: (Bool) -> Void = { _ in }
-  /// Whether Set Hotkey… is recording this row's hotkey.
-  func recordsHotkey(of result: Result) -> Bool {
-    recorder.target != nil && recorder.target == navigator.hotkeyTarget(of: result)
+    let request = ProviderRequest(
+      input: address.input ?? "", arguments: address.arguments ?? [:], submitted: true)
+    let view: ProviderView
+    do {
+      view = try await extensions.view(program, request: request)
+    } catch is CancellationError {
+      return
+    } catch {
+      show()
+      return navigator.adopt(program, request: request, problem: program.report(request, error: error))
+    }
+    guard !view.close else { return }
+    let turn = UUID().uuidString
+    let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
+    if let page, let prepare { await prepare(page, turn) }
+    show()
+    navigator.adopt(program, request: request, view: view, page: page, turn: turn)
   }
   func finish() async {
     navigator.cancelWork()

@@ -17,7 +17,7 @@ extension LauncherModel {
   /// Return as the model sees it, without the panel's effects on the system: the selected row's
   /// action, or the follow-up of a conversation. False for an effect the panel would run.
   @discardableResult func activateReturn() -> Bool {
-    navigator.pick().map { activate($0.action, from: $0.from) } ?? false
+    navigator.pick().map { navigator.activate($0.action, from: $0.from) } ?? false
   }
   /// A model with no built-in providers that keeps its settings and usage in `folder`.
   static func testing(in folder: URL, bundled: URL? = ExtensionHost.bundledFolder) -> LauncherModel {
@@ -69,4 +69,15 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
 ) -> (LauncherModel, PaletteController) {
   let model = LauncherModel.testing(in: folder, bundled: bundled)
   return (model, PaletteController(model: model, panel: panel, transcriber: transcriber))
+}
+
+/// Stands in for the panel the screens show in, recording what leaves them.
+@MainActor final class RecordingSurface: PaletteSurface {
+  var effects: [PaletteEffect] = []
+  var onEffect: (PaletteEffect) -> Void = { _ in }
+  func perform(_ effect: PaletteEffect) {
+    effects.append(effect)
+    onEffect(effect)
+  }
+  func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
 }

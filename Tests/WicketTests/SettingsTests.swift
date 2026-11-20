@@ -267,12 +267,12 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root)
-  var opened = 0
-  model.navigator.onSettings = { opened += 1 }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
   model.navigator.input = "Settings"
   #expect(model.navigator.results.map(\.provider) == ["settings"])
   #expect(model.navigator.selected?.row.title == "Settings" && model.activateReturn())
-  #expect(opened == 1 && !model.agent.active)
+  #expect(surface.count(.settings) == 1 && !model.agent.active)
   model.navigator.input = "unmatched sentence"
   #expect(model.navigator.results.first?.provider == "agent")
   await model.finish()

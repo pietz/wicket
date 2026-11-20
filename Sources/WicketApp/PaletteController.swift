@@ -78,13 +78,19 @@ class PalettePanel: NSPanel {
 }
 
 @MainActor
-final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
+final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, PaletteSurface {
   let panel: PalettePanel
   let model: LauncherModel
   let navigator: Navigator
   let renderer: AnswerRenderer
   /// What the panel types and says into the screens, and its voice.
   let input: PanelInput
+  /// Records a row's hotkey: Set Hotkey… makes the next shortcut pressed its hotkey, under the
+  /// launcher's rules, with every global hotkey paused (`pauseHotkeys`) so it hears the keys.
+  let recorder = ShortcutRecorder()
+  private let pauseHotkeys: (Bool) -> Void
+  /// Where the Settings destination goes.
+  private let settings: SettingsWindowController?
   private var anchor = NSPoint.zero
   private var opening = false
   private var previousApp: NSRunningApplication?
@@ -95,10 +101,13 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
   /// `flatSurfaces` draws solid surfaces instead of glass, which an offscreen render cannot show.
   init(
     model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel(),
-    transcriber: @escaping () -> any Transcriber = { AppleTranscriber() }
+    transcriber: @escaping () -> any Transcriber = { AppleTranscriber() },
+    settings: SettingsWindowController? = nil, pauseHotkeys: @escaping (Bool) -> Void = { _ in }
   ) {
     self.panel = panel
     self.model = model
+    self.settings = settings
+    self.pauseHotkeys = pauseHotkeys
     let navigator = model.navigator
     self.navigator = navigator
     // A `wicket://` link in a page is an address; any other goes to the system.
@@ -115,11 +124,11 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
     super.init()
     panel.delegate = self
     panel.target = self
-    model.window = panel
+    navigator.surface = self
     panel.setAccessibilityLabel("Wicket Launcher")
     let root = NSHostingView(
       rootView: LauncherView(
-        model: model, input: input, renderer: renderer,
+        model: model, input: input, recorder: recorder, renderer: renderer,
         registerInput: { [weak self] field in self?.panel.field = field },
         run: { [weak self] action in self?.run(action) }, flatSurfaces: flatSurfaces))
     root.sizingOptions = []
@@ -130,7 +139,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
       if isOpen { renderContent() }
       resize()
     }
-    navigator.onClose = { [weak self] in self?.hide() }
     navigator.onReturnReady = { [weak self] in self?.run() }
     renderer.onHeight = { [weak self] in self?.resize() }
     // A click on a page's target is Return on it, if it was made on the page shown now.
@@ -147,12 +155,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
         PageIcons.prepare(navigator.nearbyPictures)
       }
     }
-    navigator.preparePage = { [weak self] page, turn in
-      guard let self, isOpen else { return }
-      renderer.textSize = model.configuration.textSize
-      renderer.selected = nil
-      await renderer.render(page, turn: turn)
-    }
+    navigator.preparePage = { [weak self] page, turn in await self?.prepare(page, turn: turn) }
   }
   var permissionPending: Bool { !model.agent.permissions.isEmpty }
   var hasArguments: Bool { !navigator.declaredArguments.isEmpty }
@@ -169,6 +172,17 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
     case .edit, .consume, .passThrough: return false
     }
     return true
+  }
+  func perform(_ effect: PaletteEffect) {
+    switch effect {
+    case .close: hide()
+    case .settings: showSettings()
+    }
+  }
+  /// The native Settings window, which the launcher leaves for.
+  func showSettings() {
+    hide()
+    settings?.show()
   }
   func toggle(eventTime: TimeInterval) {
     if panel.isVisible { hide() } else { show(eventTime: eventTime) }
@@ -220,7 +234,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
     isOpen = false
     input.stop(.hidden)
     panel.orderOut(nil)
-    model.recorder.stop()
+    recorder.stop()
     navigator.dismiss()
     renderer.closed()
   }
@@ -254,13 +268,24 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
     show()
     navigator.follow(address)
   }
-  /// A hotkey from `hotkeys` in config.json (`Navigator.press`). The panel shows only for a view or a
+  /// A hotkey from `hotkeys` in config.json (`LauncherModel.press`). The panel shows only for a view or a
   /// failure, and never listens: the hotkey named where to go.
   func press(_ target: HotkeyTarget) {
-    Task { await navigator.press(target) { show(listen: false) } }
+    Task { await model.press(target, prepare: prepare(_:turn:)) { show(listen: false) } }
   }
-  /// Return, a button or a menu item. Moving between views goes through the model's dispatcher; what is
-  /// left here are the effects on the system.
+  /// Renders a page before it shows, so the card's height is known when it appears.
+  private func prepare(_ page: Page, turn: String) async {
+    guard isOpen else { return }
+    renderer.textSize = model.configuration.textSize
+    renderer.selected = nil
+    await renderer.render(page, turn: turn)
+  }
+  /// Whether Set Hotkey… is recording this row's hotkey.
+  func recordsHotkey(of result: Result) -> Bool {
+    recorder.target != nil && recorder.target == navigator.hotkeyTarget(of: result)
+  }
+  /// Return, a button or a menu item. Moving between views goes through the navigator's dispatcher; what is
+  /// left here are the effects on the panel and the system.
   func run(_ chosen: RowAction? = nil) {
     input.stop(.run)
     if chosen == nil, navigator.returnWaits {
@@ -268,14 +293,16 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
       return
     }
     guard !opening, let (action, result) = navigator.pick(chosen) else { return }
-    if model.activate(action, from: result) { return }
+    if navigator.activate(action, from: result) { return }
     let input = navigator.input
     func record() { if let result { navigator.record(result) } }
     switch action.kind {
     case .copy, .clip(_, paste: false):
-      guard model.writePasteboard(action.kind) else { return }
+      guard writePasteboard(action.kind) else { return }
       record()
       hide()
+    case .hotkey(let target, record: true):
+      recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
     case .run, .send, .detail, .hotkey: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -291,7 +318,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
       }
       // An extension's paste lost its newlines when it was decoded; the host's own, such as a clipboard
       // history entry, pastes exactly what was copied.
-      guard model.writePasteboard(action.kind) else { return }
+      guard writePasteboard(action.kind) else { return }
       record()
       hide()
       previousApp.activate()
@@ -331,6 +358,20 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
       }
     }
   }
+  /// Writes a copy or paste action's content: its text, or a kept image resolved from its ID now. False, with
+  /// the reason shown, when the image is gone.
+  func writePasteboard(_ kind: RowAction.Kind) -> Bool {
+    switch kind {
+    case .copy(let text), .paste(let text): Pasteboard.write(text)
+    case .clip(let id, _):
+      guard model.clipboard?.write(id) == true else {
+        navigator.actionProblem = "This image is no longer in the clipboard history"
+        return false
+      }
+    default: return false
+    }
+    return true
+  }
   /// Quitting: the microphone closes, then the services stop.
   func finish() async {
     await input.finish()
@@ -345,5 +386,13 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
     visibleStarted = nil
     NSLog(
       "Wicket hotkey to visible: %.2f ms", (ProcessInfo.processInfo.systemUptime - started) * 1000)
+  }
+}
+
+/// Every pasteboard write of Wicket's text: its copy and paste actions, and a report's Copy.
+@MainActor enum Pasteboard {
+  static func write(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
   }
 }

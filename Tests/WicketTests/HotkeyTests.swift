@@ -165,7 +165,7 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await windowLike(root)
   var shown = 0
-  await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
+  await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
   #expect(shown == 0 && model.navigator.command == nil)
   let request = try JSONDecoder().decode(
     ProviderRequest.self, from: Data(contentsOf: root.appending(path: "requests")))
@@ -177,7 +177,7 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await windowLike(root)
   var shown = 0
-  await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "fail")) { shown += 1 }
+  await model.press(HotkeyTarget(target: "extension:mover", item: "fail")) { shown += 1 }
   #expect(shown == 1 && model.navigator.command?.id == "extension:mover")
   let problem = try #require(model.navigator.command?.problem)
   #expect(problem.contains("broke") && problem.contains(#""move":"fail""#))
@@ -193,7 +193,7 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await windowLike(root)
   var shown = 0
-  await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "stuck")) { shown += 1 }
+  await model.press(HotkeyTarget(target: "extension:mover", item: "stuck")) { shown += 1 }
   #expect(
     shown == 1 && model.navigator.command?.id == "extension:mover" && model.navigator.command?.problem == nil)
   #expect(
@@ -210,7 +210,7 @@ import Testing
   let model = try await windowLike(root)
   var shown = 0
   // The command itself: entered as a link would, so its request is not submitted.
-  await model.navigator.press(HotkeyTarget(target: "extension:mover")) { shown += 1 }
+  await model.press(HotkeyTarget(target: "extension:mover")) { shown += 1 }
   #expect(shown == 1)
   #expect(
     await eventually {
@@ -219,7 +219,7 @@ import Testing
   // An item whose action opens a view goes there.
   _ = model.navigator.escape()
   await model.navigator.settled()
-  await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "page")) { shown += 1 }
+  await model.press(HotkeyTarget(target: "extension:mover", item: "page")) { shown += 1 }
   #expect(shown == 2)
   #expect(
     await eventually { model.navigator.command?.id == "extension:mover" && model.navigator.input == "x" })
@@ -227,10 +227,10 @@ import Testing
   let requests = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
   #expect(!requests.contains(#""submitted":true"#))
   // A host command.
-  var settings = 0
-  model.navigator.onSettings = { settings += 1 }
-  await model.navigator.press(HotkeyTarget(target: "settings")) { shown += 1 }
-  #expect(shown == 3 && settings == 1)
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  await model.press(HotkeyTarget(target: "settings")) { shown += 1 }
+  #expect(shown == 3 && surface.count(.settings) == 1)
 }
 
 @MainActor @Test func rowsWithAnAddressOfferAHotkeyAndShowIt() async throws {
@@ -270,18 +270,20 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await windowLike(root)
-  let controller = PaletteController(model: model, panel: RoutingPanel())
-  controller.show(orderFront: false, listen: false)
   var pauses: [Bool] = []
-  model.pauseHotkeys = { pauses.append($0) }
+  let controller = PaletteController(model: model, panel: RoutingPanel(), pauseHotkeys: { pauses.append($0) })
+  controller.show(orderFront: false, listen: false)
   model.navigator.input = "left"
   await model.navigator.settled()
   let row = try #require(model.navigator.results.first { $0.row.id == "item:left" })
   let set = try #require(model.navigator.actions(of: row).last)
-  #expect(set.label == "Set Hotkey…" && model.activate(set, from: row))
-  #expect(model.recorder.isRecording && model.recordsHotkey(of: row) && pauses == [true])
+  // Recording is the panel's: the navigator leaves it to the panel.
+  #expect(set.label == "Set Hotkey…" && !model.navigator.activate(set, from: row))
+  model.navigator.select(row.id)
+  controller.run(set)
+  #expect(controller.recorder.isRecording && controller.recordsHotkey(of: row) && pauses == [true])
   controller.hide()
-  #expect(!model.recorder.isRecording && model.recorder.target == nil && pauses == [true, false])
+  #expect(!controller.recorder.isRecording && controller.recorder.target == nil && pauses == [true, false])
   // A row without an address offers no hotkey.
   let app = Result(provider: "apps", row: Row(id: "x", title: "X", actions: [.copy("x")]))
   #expect(model.navigator.actions(of: app) == [.copy("x")])

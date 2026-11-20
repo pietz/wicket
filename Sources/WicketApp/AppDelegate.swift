@@ -13,7 +13,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   private lazy var bindings = CommandHotKeys { shortcut, press in
     HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers.rawValue, handler: { _ in press() })
   }
-  private var settings: SettingsWindowController!
+  private var settings: SettingsWindowController?
   private var status: NSStatusItem!
   private var shortcutItem: NSMenuItem!
   private var updater: Updater?
@@ -35,11 +35,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     } catch {
       model.installProblem = error.localizedDescription
     }
-    palette = PaletteController(model: model)
+    configuration = model.store
+    configuration.applyHotkey = { [weak self] in self?.hotkey.apply($0) }
+    configuration.applyBinding = { [weak self] keys, target in
+      guard let self else { return nil }
+      return bindings.set(keys, for: target, launcher: hotkey.inEffect)
+    }
+    bindings.onPress = { [weak self] in self?.palette.press($0) }
+    let register: (Configuration) -> Void = { [weak self] config in
+      guard let self else { return }
+      configuration.hotkeyProblem = hotkey.apply(config.hotkey)
+      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
+    }
+    // Either recorder, Settings' or the panel's Set Hotkey…, pauses every hotkey, so it hears the keys.
+    let pause: (Bool) -> Void = { [weak self] paused in
+      guard let self else { return }
+      hotkey.pause(paused)
+      bindings.pause(paused)
+      if !paused { register(configuration.configuration) }
+    }
+    updater = Updater()
+    settings = SettingsWindowController(
+      store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
+      pauseHotkey: pause)
+    palette = PaletteController(model: model, settings: settings, pauseHotkeys: pause)
     apps.onChange = { [weak model] in model?.navigator.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name
-    updater = Updater()
     status.button?.image = NSImage(
       systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: name)
     let menu = NSMenu()
@@ -60,30 +82,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let quit = menu.addItem(withTitle: "Quit \(name)", action: #selector(quit), keyEquivalent: "q")
     quit.target = self
     status.menu = menu
-    configuration = model.store
-    configuration.applyHotkey = { [weak self] in self?.hotkey.apply($0) }
-    configuration.applyBinding = { [weak self] keys, target in
-      guard let self else { return nil }
-      return bindings.set(keys, for: target, launcher: hotkey.inEffect)
-    }
-    bindings.onPress = { [weak self] in self?.palette.press($0) }
-    let register: (Configuration) -> Void = { [weak self] config in
-      guard let self else { return }
-      configuration.hotkeyProblem = hotkey.apply(config.hotkey)
-      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
-    }
-    // Either recorder, Settings' or the panel's Set Hotkey…, pauses every hotkey, so it hears the keys.
-    let pause: (Bool) -> Void = { [weak self] paused in
-      guard let self else { return }
-      hotkey.pause(paused)
-      bindings.pause(paused)
-      if !paused { register(configuration.configuration) }
-    }
-    model.pauseHotkeys = pause
-    settings = SettingsWindowController(
-      store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
-      pauseHotkey: pause)
-    model.navigator.onSettings = { [weak self] in self?.showSettings() }
     let appMenu = NSMenu()
     let root = NSMenuItem()
     root.submenu = menu.copy() as? NSMenu
@@ -95,9 +93,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     windowItem.submenu = windows
     appMenu.addItem(windowItem)
     NSApp.mainMenu = appMenu
+    // The app's one reaction to a configuration load, in order: the services (and through the screens'
+    // redraw, voice), then the hotkey registrations, then the status item.
     var applied = Configuration()
-    model.onConfigurationChange = { [weak self] config, _ in
+    configuration.onChange = { [weak self] config, _ in
       guard let self else { return }
+      model.apply(config)
       if let config, config != applied || hotkey.inEffect == nil {
         applied = config
         register(config)
@@ -124,10 +125,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func show() { palette.show() }
-  @objc private func showSettings() {
-    palette.hide()
-    settings.show()
-  }
+  @objc private func showSettings() { palette.showSettings() }
   @objc private func openConfigFolder() {
     NSWorkspace.shared.open(configuration.url.deletingLastPathComponent())
   }

@@ -21,6 +21,10 @@ struct ExtensionCommand: Sendable, Equatable {
   static func == (a: Self, b: Self) -> Bool {
     a.id == b.id && a.folder == b.folder && a.manifest == b.manifest
   }
+  /// What a failed run shows: where the extension is, what it was asked, and why it failed.
+  func report(_ request: ProviderRequest, error: any Error) -> String {
+    "Extension: \(folder.path)\nCommand: \(manifest.command ?? [])\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
+  }
   /// The items that are name matches at the root for this input. They take the extension's name
   /// where they have no subtitle, and their ids never meet the command row's.
   func rootItems(_ input: String) -> [Row] {

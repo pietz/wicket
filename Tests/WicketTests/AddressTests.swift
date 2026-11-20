@@ -147,8 +147,8 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   let model = LauncherModel.testing(in: root)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  var settings = 0
-  model.navigator.onSettings = { settings += 1 }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
   await model.extensions.reload()
 
   /// Selects the row and presses Return, which is the only way in.
@@ -186,7 +186,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(model.agent.active && !model.agent.busy && model.agent.question.isEmpty)
   // Settings.
   try await press("settings") { $0.provider == "settings" }
-  #expect(settings == 1)
+  #expect(surface.count(.settings) == 1)
   // Ask agent sends the question.
   try await press("Where is the moon?") { $0.provider == "agent" }
   #expect(await eventually { fake.running })
@@ -350,7 +350,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   /// Activates a row and returns the one request that followed.
   func activate(_ action: RowAction, from result: Result? = nil) async throws -> ProviderRequest {
     let before = try requests().count
-    model.activate(action, from: result)
+    model.navigator.activate(action, from: result)
     await model.navigator.settled()
     let after = try requests()
     #expect(after.count == before + 1)

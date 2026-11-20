@@ -1,6 +1,19 @@
 import AppKit
 import Observation
 
+/// What the navigator asks of the panel it shows in (`PaletteController`).
+@MainActor protocol PaletteSurface: AnyObject {
+  func perform(_ effect: PaletteEffect)
+}
+/// What leaves the screens.
+enum PaletteEffect: Equatable {
+  /// An extension's answer to a submitted request said it is done (`ProviderView.close`): the panel hides
+  /// without showing it, as the user hiding it would; the effect (a moved window) is the feedback.
+  case close
+  /// The Settings destination: the launcher leaves for the native window.
+  case settings
+}
+
 /// The launcher's screens and how the user moves between them. The root's search is always at the bottom,
 /// an open command over it, and the agent's screen over either (`AgentScreen`); details and the action
 /// panel are layers over the screen shown. It switches screens once the next one has its content
@@ -185,9 +198,8 @@ final class Navigator {
   @ObservationIgnored var onSelectionChange: (() -> Void)?
   /// A Return that waited (`returnWaits`) runs now.
   @ObservationIgnored var onReturnReady: (() -> Void)?
-  /// Hides the panel: an extension's answer to a submitted request said it is done (`ProviderView.close`).
-  @ObservationIgnored var onClose: () -> Void = {}
-  @ObservationIgnored var onSettings: () -> Void = {}
+  /// The panel the screens show in, which does what leaves them: hiding, and the Settings window.
+  @ObservationIgnored weak var surface: (any PaletteSurface)?
   /// Prepares an arriving page before it is shown: the controller renders and measures it, so the
   /// card's height is known when the page appears. Arguments are the page and its turn.
   @ObservationIgnored var preparePage: ((Page, String) async -> Void)?
@@ -651,9 +663,7 @@ final class Navigator {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
             let view = try await source(request)
             guard let self, !Task.isCancelled, generation == version else { return }
-            // A submitted request that is done closes the panel, as the user hiding it would, without
-            // showing its view; the effect (a moved window) is the feedback.
-            if view.close, request.submitted { return onClose() }
+            if view.close, request.submitted { return surface?.perform(.close) ?? () }
             let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
             if arriving != nil, let page, let preparePage {
               await preparePage(page, turn)
@@ -666,7 +676,7 @@ final class Navigator {
             showArrival()
             if remembered { command?.context = nil }
             command?.problem =
-              extensionCommand.map { report($0, request: request, error: error) }
+              extensionCommand.map { $0.report(request, error: error) }
               ?? error.localizedDescription
             listed = []
           }
@@ -713,9 +723,6 @@ final class Navigator {
       onReturnReady?()
     }
   }
-  private func report(_ command: ExtensionCommand, request: ProviderRequest, error: any Error) -> String {
-    "Extension: \(command.folder.path)\nCommand: \(command.manifest.command ?? [])\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
-  }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
   /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root. `submitted` marks the user activating a run action, which the first request says.
@@ -731,7 +738,7 @@ final class Navigator {
       return
     }
     switch destination {
-    case .settings: onSettings()
+    case .settings: surface?.perform(.settings)
     case .agent: fill(address.input ?? input)
     case .root: arrive(nil, input: address.input ?? "")
     case .command(let id):
@@ -757,6 +764,27 @@ final class Navigator {
       await self?.extensions.firstScan()
       self?.go(address)
     }
+  }
+  /// What the user runs, whoever asked: Return, a button, a menu item or a link. Moving between screens,
+  /// sending questions and removing a hotkey happen here; effects on the panel and the system (copy,
+  /// paste, open, recording a hotkey) are the panel's, and this returns false for them, except an open or
+  /// reveal that `OpenPolicy` refuses: that does nothing but say why. `result` is the row it came from.
+  @discardableResult
+  func activate(_ action: RowAction, from result: Result? = nil) -> Bool {
+    switch action.kind {
+    case .run(let address):
+      if let result { record(result) }
+      // Activating a run action is the user's choice; following a link never is.
+      go(address, from: result?.provider, submitted: !address.link)
+    case .send(let text): send(text)
+    case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
+    case .hotkey(let target, record: false): store.bind(nil, to: target)
+    case .open, .reveal:
+      guard let refusal = OpenPolicy.refusal(action) else { return false }
+      actionProblem = refusal
+    case .copy, .paste, .clip, .hotkey: return false
+    }
+    return true
   }
   /// Only picks that root search can learn from: not inside a chosen command, and not fallbacks.
   func record(_ result: Result, input: String? = nil) {
@@ -984,49 +1012,9 @@ final class Navigator {
     guard !configuration.hotkeys.isEmpty, let target = hotkeyTarget(of: result) else { return nil }
     return configuration.hotkeys.first { $0.target == target }?.keys
   }
-  /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
-  /// runs it now with a submitted request, as Return on the item would, with the panel hidden; a view that
-  /// says it is done keeps it hidden, and any other view or a failure calls `show` and shows the command
-  /// with it, such as why no window moved. Anything else shows the panel on the
-  /// address: a command, a host command, or an item whose action opens a view. Nothing is recorded as usage.
-  func press(_ target: HotkeyTarget, show: () -> Void) async {
-    let owner = target.target.flatMap { extensions.commands[$0] }
-    let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
-    // A switched-off extension's items run nothing: its address shows that it is off.
-    guard let owner, let item, case .run(let address)? = item.actions.first?.kind,
-      configuration.isEnabled(owner.id, extensions: extensions.ids)
-    else {
-      show()
-      return go(target.address)
-    }
-    let id = address.extensionName == nil ? owner.id : address.targetID
-    guard !address.link, let id, let program = extensions.commands[id], program.manifest.command != nil,
-      configuration.isEnabled(id, extensions: extensions.ids)
-    else {
-      show()
-      return go(address, from: owner.id, submitted: !address.link)
-    }
-    let request = ProviderRequest(
-      input: address.input ?? "", arguments: address.arguments ?? [:], submitted: true)
-    let view: ProviderView
-    do {
-      view = try await extensions.view(program, request: request)
-    } catch is CancellationError {
-      return
-    } catch {
-      show()
-      return showRun(program, request: request, problem: report(program, request: request, error: error))
-    }
-    guard !view.close else { return }
-    let turn = UUID().uuidString
-    let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-    if let page, let preparePage { await preparePage(page, turn) }
-    show()
-    showRun(program, request: request, view: view, page: page, turn: turn)
-  }
-  /// A run the user did not watch: its command shows its view or report, as if Return had run it, and
-  /// nothing runs again.
-  private func showRun(
+  /// A run the user did not watch (a hotkey's, `LauncherModel.press`): its command shows its view or
+  /// report, as if Return had run it, and nothing runs again.
+  func adopt(
     _ program: ExtensionCommand, request: ProviderRequest, view: ProviderView? = nil, page: Page? = nil,
     turn: String = "", problem: String? = nil
   ) {

@@ -162,15 +162,15 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.arrivalDeadline = .seconds(5)
-  var closed = 0
-  model.navigator.onClose = { closed += 1 }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
   // Hidden while entering: the late close never hides anything.
   model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 1 })
   model.navigator.dismiss()
   try release(root)
   try await Task.sleep(for: .milliseconds(100))
-  #expect(closed == 0 && model.navigator.command == nil && model.navigator.input.isEmpty)
+  #expect(surface.count(.close) == 0 && model.navigator.command == nil && model.navigator.input.isEmpty)
   // Replaced by another command: the late answer of the first is dropped.
   try FileManager.default.removeItem(at: root.appending(path: "extensions/slow/release"))
   model.navigator.go(Address(id: "slow"), submitted: true)
@@ -180,7 +180,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   try release(root)
   try await Task.sleep(for: .milliseconds(100))
   #expect(
-    closed == 0 && model.navigator.command?.id == "extension:notes" && model.navigator.command?.problem == nil
+    surface.count(.close) == 0 && model.navigator.command?.id == "extension:notes"
+      && model.navigator.command?.problem == nil
   )
   await model.finish()
 }
@@ -377,15 +378,15 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aValidCloseUnderAnEmptyQuestionHidesThePanel() async throws {
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
-  var closed = 0
-  model.navigator.onClose = { closed += 1 }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
   model.navigator.arrivalDeadline = .milliseconds(1)
   model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { model.navigator.command?.busy == true })
   model.navigator.askAgent()
   try release(root)
   // Recorded as it is: the submitted request's close is accepted even under the empty conversation.
-  #expect(await eventually { closed == 1 })
+  #expect(await eventually { surface.count(.close) == 1 })
   #expect(model.agent.active && model.navigator.returnsOnEscape)
   await model.finish()
 }
@@ -507,7 +508,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.extensions.reload()
   var shown = 0
   let press = Task {
-    await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
+    await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
   }
   #expect(await eventually { (try? logged(root, "mover").count) == 1 })
   #expect(shown == 0 && model.navigator.command == nil)
@@ -675,8 +676,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   for answer in ["{broken", #"{"close":true}"#] {
     let (model, _, root) = try await transitions(answer: answer)
     defer { try? FileManager.default.removeItem(at: root) }
-    var closed = 0
-    model.navigator.onClose = { closed += 1 }
+    let surface = RecordingSurface()
+    model.navigator.surface = surface
     model.navigator.arrivalDeadline = .seconds(60)
     model.navigator.go(Address(id: "slow"), submitted: true)
     #expect(await eventually { (try? logged(root).count) == 1 })
@@ -684,7 +685,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     try release(root)
     try await Task.sleep(for: .milliseconds(200))
     #expect(
-      model.navigator.command == nil && closed == 0 && model.navigator.input == "a"
+      model.navigator.command == nil && surface.count(.close) == 0 && model.navigator.input == "a"
         && model.navigator.results.count > 8)
     await model.finish()
   }
@@ -1026,8 +1027,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func anEmptyQuestionDuringAnEntryCallsItOffWithItsRequest() async throws {
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
-  var closed = 0
-  model.navigator.onClose = { closed += 1 }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
   model.navigator.go(Address(id: "page"), submitted: true)
   await model.navigator.settled()
   #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
@@ -1053,7 +1054,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.navigator.askAgent()
   try release(root)
   try await Task.sleep(for: .milliseconds(200))
-  #expect(closed == 0 && model.agent.active && model.navigator.returnsOnEscape)
+  #expect(surface.count(.close) == 0 && model.agent.active && model.navigator.returnsOnEscape)
   #expect(model.navigator.escape())
   #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
   #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
@@ -1428,8 +1429,8 @@ private func printing(_ answer: String) -> String {
       defer { try? FileManager.default.removeItem(at: root) }
       _ = try extensionFolder(root, name: "late", script: printing(answer))
       await model.extensions.reload()
-      var closed = 0
-      model.navigator.onClose = { closed += 1 }
+      let surface = RecordingSurface()
+      model.navigator.surface = surface
       model.navigator.arrivalDeadline = .seconds(60)
       model.navigator.go(Address(id: "late"), submitted: true)
       #expect(await eventually { (try? logged(root, "late").count) == 1 })
@@ -1443,7 +1444,9 @@ private func printing(_ answer: String) -> String {
       let turn = model.navigator.command?.turn
       await model.navigator.settled()
       try await Task.sleep(for: .milliseconds(100))
-      #expect(closed == 0 && model.navigator.command?.id == (replaced ? "extension:notes" : nil), "\(answer)")
+      #expect(
+        surface.count(.close) == 0 && model.navigator.command?.id == (replaced ? "extension:notes" : nil),
+        "\(answer)")
       #expect(model.navigator.command?.problem == nil && model.navigator.command?.turn == turn)
       #expect(try logged(root, "late").count == 1)
       await model.finish()
@@ -1493,7 +1496,7 @@ private func printing(_ answer: String) -> String {
   await model.extensions.reload()
   var shown = 0
   let press = Task {
-    await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
+    await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
   }
   #expect(await eventually { (try? logged(root, "mover").count) == 1 })
   // An entry on its way when the hotkey's run answers.

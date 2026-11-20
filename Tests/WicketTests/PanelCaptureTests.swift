@@ -503,7 +503,7 @@ private let installedAgent: Void = {
       await model.navigator.settled()
     case "hotkey-command-error":
       controller.hide()
-      await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) {
+      await model.press(HotkeyTarget(target: "extension:mover", item: "left")) {
         controller.show(orderFront: false, listen: false)
       }
     case "hotkey-binding":

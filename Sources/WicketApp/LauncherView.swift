@@ -161,6 +161,7 @@ struct LauncherView: View {
   @Bindable var model: LauncherModel
   private var navigator: Navigator { model.navigator }
   let input: PanelInput
+  let recorder: ShortcutRecorder
   let renderer: AnswerRenderer
   let registerInput: (NSTextField) -> Void
   let run: (RowAction?) -> Void
@@ -386,8 +387,8 @@ struct LauncherView: View {
         Text(subtitle).font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary)
           .lineLimit(1)
       }
-      if model.recordsHotkey(of: result) {
-        Text(model.recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
+      if recorder.target != nil, recorder.target == navigator.hotkeyTarget(of: result) {
+        Text(recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
           .font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary).lineLimit(1)
       } else if let hotkey = navigator.hotkey(of: result) {
         Text(hotkey.symbols).font(.system(size: 13 * textSize.scale)).foregroundStyle(.tertiary)
@@ -436,9 +437,7 @@ struct LauncherView: View {
         Spacer()
         if navigator.command?.busy == true { ProgressView().controlSize(.small) }
         if let error = navigator.command?.problem {
-          Button("Copy") {
-            model.writePasteboard(error)
-          }
+          Button("Copy") { Pasteboard.write(error) }
           Button("Ask agent") { navigator.send(error) }
         } else if !navigator.viewActions.isEmpty {
           Button("Actions") { navigator.toggleActions(navigator.viewRow) }

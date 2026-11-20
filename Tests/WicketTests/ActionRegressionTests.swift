@@ -47,18 +47,18 @@ import Testing
 
   let model = LauncherModel.testing(in: root)
   // An allowed target is left to the panel to open.
-  #expect(!model.activate(.open(document)) && model.navigator.actionProblem == nil)
-  #expect(!model.activate(.reveal(unsafe[0])) && model.navigator.actionProblem == nil)
+  #expect(!model.navigator.activate(.open(document)) && model.navigator.actionProblem == nil)
+  #expect(!model.navigator.activate(.reveal(unsafe[0])) && model.navigator.actionProblem == nil)
   // A System Settings pane, as the window extension's Accessibility row opens it.
   let settings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-  #expect(!model.activate(.open(settings)) && model.navigator.actionProblem == nil)
+  #expect(!model.navigator.activate(.open(settings)) && model.navigator.actionProblem == nil)
   for (action, problem) in [
     (RowAction.open(missing), "no longer exists"), (.reveal(missing), "no longer exists"),
     (.reveal(URL(string: "https://example.com")!), "needs a file"),
     (.open(URL(string: "javascript:alert(1)")!), "opens only"),
   ] + unsafe.map({ (RowAction.open($0), "does not open") }) {
     model.navigator.actionProblem = nil
-    #expect(model.activate(action), "\(action)")
+    #expect(model.navigator.activate(action), "\(action)")
     #expect(model.navigator.actionProblem?.contains(problem) == true, "\(action)")
   }
 }

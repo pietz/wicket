@@ -92,7 +92,7 @@ func answering(_ title: String) -> String {
   #expect(model.navigator.results.map(\.row.title) == ["Alpha", "Beta Docs"])
   // An item's run action without `extension` means its own extension.
   let beta = try #require(model.navigator.results.first { $0.row.title == "Beta Docs" })
-  model.activate(beta.row.actions[0], from: beta)
+  model.navigator.activate(beta.row.actions[0], from: beta)
   await model.navigator.settled()
   #expect(model.navigator.command?.id == "extension:links" && model.navigator.input == "beta")
   #expect(model.navigator.results.map(\.row.title) == ["Beta Docs"])
@@ -480,18 +480,16 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   try Data(script.utf8).write(to: folder.appending(path: "shut.py"))
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
-  var closed = 0
-  model.navigator.onClose = {
-    closed += 1
-    model.navigator.dismiss()
-  }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onEffect = { _ in model.navigator.dismiss() }
   model.navigator.input = "keep"
   await model.navigator.settled()
 
   // Chosen and done: the panel closes without showing the view, and the root is left as hiding leaves it.
   model.navigator.go(Address(id: "extension:shut", input: "left"), submitted: true)
   await model.navigator.settled()
-  #expect(closed == 1)
+  #expect(surface.count(.close) == 1)
   #expect(model.navigator.command == nil && model.navigator.input.isEmpty)
 
   // Typing reruns are not submitted: the same answer shows as a view and nothing closes.
@@ -499,14 +497,14 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.navigator.settled()
   model.navigator.input = "ab"
   await model.navigator.settled()
-  #expect(closed == 1)
+  #expect(surface.count(.close) == 1)
   #expect(
     model.navigator.command?.id == "extension:shut" && model.navigator.results.map(\.row.id) == ["moved"])
 
   // A submitted request that fails keeps the panel open with its error.
   model.navigator.go(Address(id: "extension:shut", input: "fail"), submitted: true)
   await model.navigator.settled()
-  #expect(closed == 1)
+  #expect(surface.count(.close) == 1)
   #expect(model.navigator.command?.problem != nil)
 
   // Close alone is a whole view; a view needs one of body, items or close.

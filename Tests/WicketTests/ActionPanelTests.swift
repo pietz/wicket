@@ -52,7 +52,7 @@ private var two: [String: Any] {
   let remove = RowAction(.hotkey(target, record: false))
   #expect(model.navigator.actions(of: command).map(\.label) == ["Open", "Set Hotkey…", "Remove Hotkey"])
   #expect(model.navigator.actions(of: command).last == remove)
-  #expect(model.activate(remove, from: command) && model.configuration.hotkeys.isEmpty)
+  #expect(model.navigator.activate(remove, from: command) && model.configuration.hotkeys.isEmpty)
   model.navigator.input = "settings"
   await model.navigator.settled()
   let settings = try #require(model.navigator.results.first { $0.provider == "settings" })
@@ -100,7 +100,7 @@ private var two: [String: Any] {
   let picked = try #require(model.navigator.pick())
   #expect(
     picked.action.label == "Delete" && picked.from?.id == item.id && model.navigator.actionsTitle == nil)
-  #expect(model.activate(picked.action, from: picked.from))
+  #expect(model.navigator.activate(picked.action, from: picked.from))
   await model.navigator.settled()
   let requests = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
     .split(separator: "\n").map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }

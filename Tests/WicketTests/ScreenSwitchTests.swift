@@ -147,13 +147,13 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     """)
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.arrivalDeadline = .seconds(5)
-  var closed = false
-  model.navigator.onClose = { closed = true }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
   // A late close never hides the root the user stayed on.
   model.navigator.go(Address(id: "test", input: "close"), submitted: true)
   #expect(model.navigator.escape() && model.navigator.command == nil)
   try await Task.sleep(for: .milliseconds(600))
-  #expect(!closed)
+  #expect(surface.effects.isEmpty)
   await model.finish()
 }
 
