@@ -431,6 +431,10 @@ func aPickedCommandRowReplacedByItsOwnPatternLeavesNoPick(succeeds: Bool) async 
     #expect(model.navigator.presentation.refusesReturn)
     try await Task.sleep(for: .milliseconds(50))
     #expect(!model.navigator.returnQueued && !model.agent.active && surface.effects.isEmpty)
+    // Picking the highlighted Ask agent lets Return ask, and the footer is drawn again with its hint.
+    let drawn = surface.changes.count
+    model.navigator.select(model.navigator.selection)
+    #expect(!model.navigator.presentation.refusesReturn && surface.changes.count == drawn + 1)
   }
   await model.finish()
 }

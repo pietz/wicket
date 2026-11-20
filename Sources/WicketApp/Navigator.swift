@@ -278,7 +278,10 @@ final class Navigator {
   var selection: String? { current.id }
   func select(_ id: String?) {
     returnQueued = false
+    let repicked = id == current.id && !current.picked
     current.pick(id)
+    // Same row, so the setter draws nothing, but Return may now act on it: the footer shows its hint.
+    if repicked { surface?.present(.selection, presentation) }
   }
   private func clearSelection() {
     current.touched = false
