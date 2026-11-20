@@ -1010,6 +1010,46 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+@MainActor @Test func aCommandRowsDraftStaysUnderAnEmptyQuestionKeptWhileHidden() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "caffeinate", fields: ["arguments": [["name": "hours"]]])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.refresh()
+  await model.settled()
+  let row = try #require(model.results.first { $0.provider == "extension:caffeinate" }?.id)
+  model.select(row)
+  model.setArgument("hours", to: "2")
+  model.askAgent()
+  model.editInput("how long")
+  // Hidden and shown again, the question is kept, and Escape still finds the root as it was.
+  model.dismiss()
+  model.reopen()
+  #expect(model.returnsOnEscape && model.input == "how long")
+  #expect(model.escape())
+  #expect(model.selection == row && model.argumentValues == ["hours": "2"])
+  // Leaving the question for the root another way, by a link, starts the root over.
+  model.askAgent()
+  model.go(Address(input: ""))
+  await model.settled()
+  #expect(!model.agent.active && model.command == nil && model.argumentValues.isEmpty)
+  model.select(row)
+  model.setArgument("hours", to: "2")
+  // Hiding the root itself drops them.
+  model.dismiss()
+  model.reopen()
+  #expect(model.argumentValues.isEmpty)
+  // So does the question expiring while hidden: the root starts over.
+  model.select(row)
+  model.setArgument("hours", to: "3")
+  model.askAgent()
+  model.dismiss()
+  model.reopen(now: Date().addingTimeInterval(60 * 60))
+  #expect(!model.agent.active && model.argumentValues.isEmpty)
+  await model.finish()
+}
+
 @MainActor @Test func aPermissionDeliveredWhileHiddenTakesTheKeysWhenShown() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

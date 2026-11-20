@@ -264,6 +264,7 @@ final class LauncherModel {
     let conversed = agent.active
     guard agent.reopen(now: now) else { return }
     cancelWork()
+    search.arguments = [:]
     if conversed { inheritConversation(into: &search) }
     if command != nil { search.selection.reset = true }
     command = nil
@@ -932,7 +933,9 @@ final class LauncherModel {
     overlay = nil
     screen.selection.reset = true
     search.selection.reset = true
-    search.arguments = [:]
+    // The root's draft stays under an empty question that is kept, for Escape to find; it goes with the
+    // question's expiry (`reopen`).
+    if !returnsOnEscape { search.arguments = [:] }
     focusTarget = nil
     stopVoice(.hidden)
     agent.hidden()
