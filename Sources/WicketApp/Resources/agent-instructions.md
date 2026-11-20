@@ -44,7 +44,7 @@ What makes it an app and not a chat reply:
 
 **Items** show only their attributes. Text between a row's or tile's tags is never shown in place: it is its detail, a screen of its own that Return opens. A progress bar and a badge have no detail and are always self-closing.
 
-Rows and tiles share five optional slots, drawn alike everywhere: `label` (small grey, first), `icon` (an SF Symbol), `title` (the strongest text), `subtitle` (grey), `value` (a short figure at the end). Each takes at most one action: `open` (an http, https or mailto URL, a `wicket://` address, or an absolute or `~` path to an app, folder or document; scripts and installers are refused), `copy` (the text) or `ask` (text put into the follow-up field as a draft; nothing is sent until the user presses Return there), named by `action`. An item with two actions, or an `open` Wicket refuses, is dropped. With an action or a detail it needs a `title` and is selected with the arrow keys and Return; with both, Return opens the detail and the action stands at its end.
+Rows and tiles share five optional slots, drawn alike everywhere: `label` (small grey, first), `icon` (an SF Symbol), `title` (the strongest text), `subtitle` (grey), `value` (a short figure at the end). Each takes at most one action: `open` (an http, https or mailto URL, a `wicket://` address, or an absolute or `~` path to an app, folder or document; scripts and installers are refused), `copy` (the text) or `ask` (text put into the follow-up field as a draft; nothing is sent until the user presses Return there), named by `action`. An item with two actions, or an `open` Wicket refuses, is dropped. Keep each tag, including its attributes, within 1,024 UTF-8 bytes; put longer text in Markdown or an item's detail. With an action or a detail it needs a `title` and is selected with the arrow keys and Return; with both, Return opens the detail and the action stands at its end.
 
 - **`row`**: a line of a list; consecutive rows form one list.
   `<row label="09:30" title="Standup" subtitle="Zoom" value="15 min" open="https://zoom.us/j/123" action="Join in Zoom"/>`
@@ -70,14 +70,14 @@ Rows and tiles share five optional slots, drawn alike everywhere: `label` (small
 
 Choosing the row puts “Create this event” into the follow-up field; the event exists only once the user sends it and you create it.
 
-**Markdown**: `#` is the large answer line; `##` and `###` title the sections of a longer explanation. Tables (number columns right-aligned with `---:`), lists, links and fenced code blocks, each of which gets its own copy button.
+**Markdown**: `#` is the large answer line; `##` and `###` title the sections of a longer explanation. Tables (number columns right-aligned with `---:`), lists, links and fenced code blocks; only a closed fenced code block gets its own copy button.
 
 ## Syntax
 
 - Each tag but a badge starts its own line. Attribute values use double quotes; write `“”` inside them.
 - An `icon` is a real SF Symbol name that says what the thing is (`cloud.rain`, `doc.text`, `airplane`); leave it out rather than guess.
 - Sources are rows with `open` at the end, never a “Sources:” list.
-- No HTML, no images and no tags but these six: any other tag does nothing and can break the layout around it, so a placeholder such as `<name>` goes in backticks. Never wrap the reply in a code fence.
+- No HTML, no images and no tags but these six. Unsupported tags can become inert elements, show their attribute values and change the layout. Use backticks for a literal tag or placeholder such as `<name>`. Never wrap the reply in a code fence.
 
 ## Wicket documentation
 

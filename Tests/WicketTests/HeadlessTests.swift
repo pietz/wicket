@@ -239,14 +239,20 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   // Fetched today, so no request is made; the rates themselves are two days old.
   let cache = #"{"fetched":"\#(day(0))","date":"\#(day(-2))","rates":{"EUR":1,"USD":1.25,"JPY":160}}"#
   try Data(cache.utf8).write(to: folder.appending(path: "rates.json"))
+  // The example writes numbers in the request's format, which headless takes from this Mac.
+  let marks = ProviderRequest.NumberMarks.current
+  func local(_ number: String) -> String {
+    number.replacingOccurrences(of: ",", with: "\u{0}").replacingOccurrences(of: ".", with: marks.decimal)
+      .replacingOccurrences(of: "\u{0}", with: marks.grouping)
+  }
   let output = try await cli(root, ["--query", "€50 to $"])
   let first = output.1["items"].array.first
   #expect(first?["provider"].string == "extension:currency")
-  #expect(first?["row"]["title"].string == "62.50 USD")
+  #expect(first?["row"]["title"].string == local("62.50") + " USD")
   #expect(first?["row"]["subtitle"].string?.hasPrefix("ECB reference rate of ") == true)
   #expect(first?["row"]["subtitle"].string?.hasSuffix("(2 days ago)") == true)
   let named = try await cli(root, ["--extension", "currency", "--input", "1.000,50 usd in jpy"])
-  #expect(named.1["items"].array.first?["title"].string == "128,064.00 JPY")
+  #expect(named.1["items"].array.first?["title"].string == local("128,064.00") + " JPY")
   for input in ["10 km in mi", "100 in eur", "usd"] {
     let other = try await cli(root, ["--query", input])
     #expect(!other.1["items"].array.contains { $0["provider"].string == "extension:currency" })

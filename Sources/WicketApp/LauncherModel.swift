@@ -810,8 +810,9 @@ final class LauncherModel {
         id: "submit", title: commandName ?? "Run",
         actions: [.run(Address(input: input, arguments: filledArguments(of: command)))]))
   }
-  /// What a submit sends besides the input: the declared arguments. What a run action set stays out,
-  /// or a Delete chosen once would be sent again with every later Return.
+  /// What a submit sends besides the input: the declared arguments, including a value a run action set
+  /// under a declared name. What it set under any other name stays out, or a Delete chosen once would be
+  /// sent again with every later Return; the contract keeps confirmations to such names.
   private func filledArguments(of command: CommandState) -> [String: String] {
     let declared = Set(declaredArguments.map(\.name))
     return command.arguments.filter { declared.contains($0.key) }

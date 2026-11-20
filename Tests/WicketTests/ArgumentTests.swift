@@ -168,8 +168,8 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.finish()
 }
 
-/// A submit sends the input and the declared arguments. What a run action set is sent once, with the
-/// choice that set it, and never again with a later Return.
+/// A submit sends the input and the declared arguments. What a run action set under an undeclared name
+/// is sent once, with the choice that set it, and never again with a later Return.
 @MainActor @Test func aSubmitDoesNotSendARunActionsArgumentsAgain() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
