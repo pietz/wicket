@@ -26,7 +26,7 @@ final class LauncherModel {
       let changed = newValue != screen.input
       screen.input = newValue
       if changed {
-        screen.selection.reset = true
+        resetSelection()
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
         if agent.active { clearSelection() }
       }
@@ -709,8 +709,14 @@ final class LauncherModel {
       return
     }
     command?.screen.arguments[name] = value
-    command?.screen.selection.reset = true
+    resetSelection()
     refresh()
+  }
+  /// An edit starts the selection over: on the screen, which a rerun's new page shows, and in the detail
+  /// open over it, which a submit command's edit leaves open, so Return sends the edited request.
+  private func resetSelection() {
+    screen.selection.reset = true
+    if inDetail { screen.details[screen.details.count - 1].selection.reset = true }
   }
   /// The argument slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
   /// the input takes the keys back when the slots go away. A click into a field sets it too.

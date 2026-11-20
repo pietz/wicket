@@ -740,6 +740,36 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+@MainActor @Test func editingASubmitCommandInsideADetailLeavesTheDetailsTarget() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let view = ProviderView(body: "<row title=\"Notes\" copy=\"note\">Additional details</row>")
+  let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
+  _ = try extensionFolder(
+    root, name: "report", script: "cat >/dev/null\nprintf '%s' '\(json)'",
+    fields: ["submit": true, "arguments": [["name": "format"]]])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.go(Address(id: "report"), submitted: true)
+  await model.settled()
+  model.move(1)
+  #expect(model.activateReturn() && model.inDetail)
+  // Typing, then filling a slot, in the detail: Return sends the edited request, not the detail's Copy.
+  model.move(1)
+  #expect(model.returnAction?.kind == .copy("note"))
+  model.editInput("updated")
+  #expect(model.inDetail && model.selection == nil && model.selected?.row.id == "submit")
+  model.move(1)
+  #expect(model.returnAction?.kind == .copy("note"))
+  model.setArgument("format", to: "json")
+  #expect(model.inDetail && model.selection == nil && model.selected?.row.id == "submit")
+  // Sending it replaces the page: the fresh one starts with nothing selected.
+  #expect(model.activateReturn())
+  await model.settled()
+  #expect(!model.inDetail && model.selection == nil && model.selected?.row.id == "submit")
+  await model.finish()
+}
+
 /// A page with a long body, targets and a detail inside a detail, shown in an offscreen panel.
 @MainActor private func scrolledPage() async throws -> (LauncherModel, PaletteController, URL) {
   let root = try scratch()
