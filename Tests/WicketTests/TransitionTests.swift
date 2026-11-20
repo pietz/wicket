@@ -1005,3 +1005,56 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(!model.agent.active && model.input.isEmpty && model.argumentValues.isEmpty)
   await model.finish()
 }
+
+@MainActor @Test func aPermissionDeliveredWhileHiddenTakesTheKeysWhenShown() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  model.send("Update the weather extension")
+  #expect(await eventually { fake.running })
+  fake.text("Working on it.\n<row title=\"Tue\" copy=\"tue\"/>")
+  #expect(await eventually { model.results.count == 1 })
+  model.move(1)
+  controller.hide()
+  fake.ask()
+  #expect(model.agent.permissions.count == 1 && fake.decisions.isEmpty)
+  controller.show(orderFront: false, listen: false)
+  // The card is what shows: ⌘K waits, Return decides nothing, ⌘↩ allows.
+  #expect(model.agent.active && model.agent.permissions.count == 1 && model.actionsTitle == nil)
+  #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.actionsTitle == nil)
+  #expect(controller.panel.route(voiceKey(36, "\r")) && fake.decisions.isEmpty)
+  #expect(controller.panel.route(voiceKey(36, "\r", .command)))
+  #expect(fake.decisions.map(\.allow) == [true] && model.agent.permissions.isEmpty && model.agent.busy)
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aCoveredCommandFinishingAfterTheQuestionWasLeftShowsItsResult() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.arrivalDeadline = .milliseconds(1)
+  model.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { model.command?.busy == true })
+  model.askAgent()
+  model.editInput("is it slow")
+  // Escape before sending: the command, still running, with its own empty input.
+  #expect(model.escape())
+  #expect(!model.agent.active && model.command?.busy == true && model.input.isEmpty)
+  let trace = Trace(model)
+  try release(root)
+  await model.settled()
+  #expect(trace.screens == ["extension:slow"])
+  #expect(
+    trace.frames.last
+      == .init(
+        screen: "extension:slow", input: "", rows: ["Finished"], selection: "Finished", busy: false,
+        height: one))
+  #expect(try logged(root).count == 1)
+  await model.finish()
+}
