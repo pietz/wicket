@@ -10,32 +10,47 @@ import WebKit
 //
 //   WICKET_CAPTURE_DIR=$PWD/docs/screens swift test --filter panelCapture
 //
+// Two runs draw identical pixels when `SWIFT_DETERMINISTIC_HASHING=1` is set too (an extension's report
+// prints its request with unordered keys), so a refactor can be checked by comparing them.
+//
 // Every state is drawn offscreen in light and dark: no window is ordered front or made key, no
 // event is posted, no real agent, microphone or global shortcut is used, and nothing outside
 // scratch folders and the capture folder is touched. Surfaces are solid, because glass does not
 // render offscreen. The captures prove layout and foreground, not glass, focus or shadows. Each
 // capture is read back with text recognition and must show the content its state promises.
 // Without the variable the capture test is skipped and `scenariosSetUpTheirState` still checks
-// the setup of every state without drawing anything.
+// the setup of every state without drawing anything. Text recognition has hung once inside
+// `VNImageRequestHandler.perform`; if a run stops making progress, kill it and rerun.
 
 private let captureDirectory = ProcessInfo.processInfo.environment["WICKET_CAPTURE_DIR"]
 
-private let states = [
-  "empty", "apps", "actions", "math", "ask", "answer", "listening",
-  "conversation-multi", "conversation-reopen", "conversation-long", "conversation-long-expanded",
-  "working", "working-text", "permission-routine", "permission-high",
-  "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
-  "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
-  "extension-targets", "extension-detail-larger", "asking", "asking-extension",
-  "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
-  "arguments-long", "arguments-three", "history", "history-reopened", "clipboard", "clipboard-image",
-  "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
-  "settings-error",
-  "settings-conflict",
+private let states =
+  [
+    "empty", "apps", "actions", "math", "ask", "answer", "listening",
+    "conversation-multi", "conversation-reopen", "conversation-long", "conversation-long-expanded",
+    "working", "working-text", "permission-routine", "permission-high",
+    "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
+    "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
+    "extension-targets", "extension-detail-larger", "asking", "asking-extension",
+    "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
+    "arguments-long", "arguments-three", "history", "history-reopened", "clipboard", "clipboard-image",
+    "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
+    "settings-error",
+    "settings-conflict",
+  ] + transitions
+
+/// Moments in the middle of a switch, recorded before the screens move to their own owners: each is
+/// drawn at its checkpoint, not once everything settled, so a broken transition cannot pass.
+private let transitions = [
+  "arrival-root-held", "arrival-running", "arrival-page-ready", "arrival-back-held", "arrival-typed",
+  "arrival-dictated", "extension-actions", "answer-actions", "extension-nested-detail",
+  "extension-actions-back", "answer-actions-back", "asking-running-command", "asking-running-back",
+  "history-back", "conversation-back-command", "hotkey-command-error", "hotkey-binding",
 ]
 
 /// What text recognition must find, so a blank or broken panel fails.
 private func expectedText(_ name: String) -> [String] {
+  if let text = transitionText[name] { return text }
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
   if name.contains("settings-extensions") { return ["Built in", "Clipboard History", "Weather", "Window"] }
   if name.contains("settings-window") {
@@ -118,6 +133,26 @@ private func expectedText(_ name: String) -> [String] {
   return ["cal", "Calculator", "Calendar", "Ask agent", "Open", "Close"]
 }
 
+private let transitionText = [
+  "arrival-root-held": ["Calculator", "Calendar", "Mover", "Notes", "esc Close"],
+  "arrival-running": ["Slow list", "Running"],
+  "arrival-page-ready": ["Weekly report", "Three releases shipped", "Release notes", "Owner"],
+  "arrival-back-held": ["Notes", "Groceries", "Ideas"],
+  "arrival-typed": ["fin", "Running", "Slow list"],
+  "arrival-dictated": ["Finished yet", "Running", "Listening"],
+  "extension-actions": ["Actions for Weekly report", "Copy", "Refresh", "esc Back"],
+  "answer-actions": ["Actions for Swift Testing", "Open", "esc Back"],
+  "extension-nested-detail": ["Known issues", "Two open problems remain", "Esc Back"],
+  "extension-actions-back": ["Weekly report", "Release notes", "Owner"],
+  "answer-actions-back": ["A good start", "Ask a follow-up", "Open", "End conversation"],
+  "asking-running-command": ["Ask about Slow list", "Esc Back"],
+  "asking-running-back": ["Slow list", "Running"],
+  "history-back": ["Agent History", "How is the launch going", "What should I build next"],
+  "conversation-back-command": ["Notes", "Groceries", "Ideas"],
+  "hotkey-command-error": ["Mover", "exited with status 1", "REPAIR: no window to move"],
+  "hotkey-binding": ["Slow list", "Left half", "Mover"],
+]
+
 private let launchAnswer =
   "# A good start\nTwelve extensions, all local\n<columns><tile label=\"Extensions\" icon=\"puzzlepiece.extension\" title=\"12\" subtitle=\"3 new this week\"/><tile label=\"Response\" icon=\"bolt\" title=\"42 ms\"/></columns>\n<card icon=\"exclamationmark.triangle\">\n## Restart once\nAfter updating, quit and reopen Wicket.\n</card>\n<row label=\"Owner\" value=\"You\"/>\n<row label=\"Next\" value=\"Build something useful\"/>\n<progress label=\"Disk used\" value=\"420 of 600 GB\" percent=\"70\"/>\n<row label=\"14:30\" title=\"Train departs\" subtitle=\"Platform 6\"/>\n<row label=\"16:05\" title=\"Arrives in Berlin\"/>\n<badge label=\"Healthy\" tone=\"positive\"/> <badge label=\"v2.4\"/>\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>"
 private let nextAnswer =
@@ -147,6 +182,8 @@ private let nextAnswer =
 
 @MainActor private final class FixedApps: Provider {
   let id = "apps"
+  /// Answers only when cancelled, so a switch back to the root waits for its list.
+  var held = false
   private let index = SearchIndex(
     ["Calendar", "Calculator", "Chess"].map { name in
       Row(
@@ -154,8 +191,17 @@ private let nextAnswer =
         actions: [.open(URL(fileURLWithPath: "/System/Applications/" + name + ".app"))])
     })
   func view(for request: ProviderRequest) async -> ProviderView {
-    .init(items: index.matches(request.input))
+    if held { try? await Task.sleep(for: .seconds(60)) }
+    return .init(items: index.matches(request.input))
   }
+}
+
+/// A scratch folder with a fixed name, emptied first.
+private func captureFolder(_ name: String) throws -> URL {
+  let folder = FileManager.default.temporaryDirectory.appending(path: "wicket-capture-" + name)
+  try? FileManager.default.removeItem(at: folder)
+  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+  return folder
 }
 
 /// One state, fully set up and ready to draw. The view lives in a window that is never shown.
@@ -188,13 +234,15 @@ private let nextAnswer =
     return (state, .medium)
   }
 
+  /// `folder` names the scratch folder, so paths a capture draws (an extension's report) repeat; nil is a
+  /// unique one.
   static func make(
-    _ state: String, dark: Bool,
+    _ state: String, dark: Bool, folder name: String? = nil,
     turn: (question: String, reply: String) = ("How is the launch going?", launchAnswer)
   ) async throws -> Scenario {
     _ = NSApplication.shared
     let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-    let folder = try scratch()
+    let folder = try name.map(captureFolder) ?? scratch()
     try AnswerRenderer.installFiles(in: folder)
     if state.hasPrefix("settings-") {
       return try await settings(state, folder: folder, appearance: appearance)
@@ -208,12 +256,13 @@ private let nextAnswer =
       ? ClipboardHistory(
         url: folder.appending(path: "private/clipboard-history.json"), pasteboard: FakePasteboard(),
         interval: nil) : nil
+    let apps = FixedApps()
     let model = LauncherModel(
-      apps: FixedApps(), clipboard: clipboard, agentHistory: runs,
+      apps: apps, clipboard: clipboard, agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       bundled: bundledExtensions, transcriber: { transcriber })
     model.store.update {
-      $0.voice.enabled = name == "listening"
+      $0.voice.enabled = name == "listening" || name == "arrival-dictated"
       $0.textSize = size
       $0.agent.streamAnswers = name == "working-text"
     }
@@ -223,9 +272,14 @@ private let nextAnswer =
     let scenario = Scenario(
       model: model, controller: controller, view: panel.contentView!, window: nil, folder: folder)
     scenario.keep.append(transcriber)
+    scenario.keep.append(apps)
 
-    if name.hasPrefix("answer") || name.hasPrefix("conversation") {
+    if name.hasPrefix("answer") || (name.hasPrefix("conversation") && !transitions.contains(name)) {
       try await finishTurn(model.agent, turn.question, turn.reply)
+    }
+    if transitions.contains(name) {
+      try await transition(name, scenario, apps: apps, transcriber: transcriber, runs: runs)
+      return scenario
     }
     switch name {
     case "apps": model.input = "cal"
@@ -311,6 +365,161 @@ private let nextAnswer =
     controller.show(orderFront: false, listen: false)
     await model.settled()
     return scenario
+  }
+
+  /// Sets a transition up from the panel as it is shown, and stops at its checkpoint. Its work may still
+  /// be running, held by an extension that never answers or apps that answer only when cancelled.
+  private static func transition(
+    _ name: String, _ scenario: Scenario, apps: FixedApps, transcriber: FakeTranscriber, runs: AgentHistory
+  ) async throws {
+    let model = scenario.model
+    let controller = try #require(scenario.controller)
+    try installTransitionExtensions(model.agent.folder)
+    model.extensions.onCatalogChange = nil
+    await model.extensions.reload()
+    controller.show(orderFront: false, listen: false)
+    await model.settled()
+    // Held: the switch waits for content that does not come while the capture is drawn.
+    model.arrivalDeadline = .seconds(60)
+    switch name {
+    case "arrival-root-held": model.go(Address(id: "slow"), submitted: true)
+    case "arrival-running", "asking-running-command", "asking-running-back":
+      model.arrivalDeadline = .milliseconds(1)
+      model.go(Address(id: "slow"), submitted: true)
+      #expect(await eventually { model.command?.busy == true })
+      if name != "arrival-running" { model.askAgent() }
+      if name == "asking-running-back" { #expect(model.escape()) }
+    case "arrival-page-ready", "extension-actions", "extension-nested-detail", "extension-actions-back":
+      model.go(Address(id: "report"), submitted: true)
+      await model.settled()
+      await controller.renderer.settled()
+      switch name {
+      case "extension-actions": model.toggleActions()
+      case "extension-nested-detail":
+        // Release notes, then Known issues inside its detail.
+        model.move(1)
+        model.activateReturn()
+        model.move(1)
+        model.activateReturn()
+      case "extension-actions-back":
+        model.move(1)
+        model.toggleActions()
+        #expect(model.escape())
+      default: break
+      }
+    case "arrival-back-held":
+      model.go(Address(id: "notes"), submitted: true)
+      apps.held = true
+      #expect(model.escape())
+    case "arrival-typed":
+      model.go(Address(id: "slow"), submitted: true)
+      model.editInput("fin")
+    case "arrival-dictated":
+      model.armVoice()
+      transcriber.feeds[0].yield(.ready)
+      #expect(await eventually { model.voice?.state == .listening })
+      model.go(Address(id: "slow"), submitted: true)
+      transcriber.feeds[0].yield(.transcript("Finished yet?"))
+      #expect(await eventually { model.command != nil })
+    case "answer-actions", "answer-actions-back":
+      model.move(1)
+      model.toggleActions()
+      if name == "answer-actions-back" { #expect(model.escape()) }
+    case "history-back":
+      runs.save(
+        .init(
+          id: "older", agent: .codex, session: "t", used: Date().addingTimeInterval(-26 * 3600), source: nil,
+          turns: [.init(question: "What should I build next?", answer: nextAnswer)]))
+      runs.save(
+        .init(
+          id: "newer", agent: .claude, session: "s", used: Date().addingTimeInterval(-2 * 3600), source: nil,
+          turns: [.init(question: "How is the launch going?", answer: launchAnswer)]))
+      model.go(Address(extensionName: "history"))
+      model.activateReturn()
+      #expect(model.agent.continuing && model.escape())
+      await model.settled()
+    case "conversation-back-command":
+      let agent = FakeAgent()
+      scenario.keep.append(agent)
+      model.agent.connect = { _, _, _ in agent }
+      model.go(Address(id: "notes"), submitted: true)
+      model.editInput("Which note is oldest?")
+      model.askAgent()
+      #expect(await eventually { agent.running })
+      agent.text(nextAnswer)
+      agent.end()
+      #expect(await eventually { !model.agent.busy })
+      #expect(model.escape())
+      await model.settled()
+    case "hotkey-command-error":
+      controller.hide()
+      await model.press(HotkeyTarget(target: "extension:mover", item: "left")) {
+        controller.show(orderFront: false, listen: false)
+      }
+    case "hotkey-binding":
+      model.store.bind(try Shortcut("ctrl+option+s"), to: HotkeyTarget(target: "extension:slow"))
+      model.store.bind(
+        try Shortcut("ctrl+option+left"), to: HotkeyTarget(target: "extension:mover", item: "left"))
+      model.input = "l"
+      await model.settled()
+    default: Issue.record("No transition named \(name)")
+    }
+  }
+
+  /// The commands the transitions switch between: a list that answers only once released (never, in a
+  /// capture), a page with a nested detail and actions, items from the manifest, and a hotkey's program
+  /// that fails.
+  private static func installTransitionExtensions(_ folder: URL) throws {
+    func install(_ id: String, _ manifest: [String: Any], script: String? = nil, view: ProviderView? = nil)
+      throws
+    {
+      let extensionFolder = folder.appending(path: "extensions/" + id)
+      try FileManager.default.createDirectory(at: extensionFolder, withIntermediateDirectories: true)
+      var manifest = manifest
+      if script != nil || view != nil { manifest["command"] = ["/bin/sh", "main.sh"] }
+      try JSONSerialization.data(withJSONObject: manifest, options: .sortedKeys).write(
+        to: extensionFolder.appending(path: "wicket.json"))
+      if let view { try JSONEncoder().encode(view).write(to: extensionFolder.appending(path: "view.json")) }
+      let program = script ?? "cat >/dev/null\ncat view.json"
+      try Data(program.utf8).write(to: extensionFolder.appending(path: "main.sh"))
+    }
+    try install(
+      "slow", ["name": "Slow list", "keyword": "slow", "icon": "hourglass"],
+      script: """
+        cat >/dev/null
+        while [ ! -e release ]; do sleep 0.02; done
+        printf '%s' '{"items":[{"id":"done","title":"Finished","actions":[]}]}'
+        """)
+    try install(
+      "report", ["name": "Weekly report", "keyword": "report", "icon": "doc.text"],
+      view: ProviderView(
+        body: """
+          ## Weekly report
+          Three releases shipped, one is waiting for review.
+          <row title="Release notes" subtitle="0.4 beta" copy="0.4 beta">
+          Two features landed and one fix.
+          <row title="Known issues" copy="Two open problems">Two open problems remain before the release.</row>
+          </row>
+          <row label="Owner" value="You"/>
+          """,
+        actions: [.copy("3 releases"), .run(Address(arguments: ["refresh": "true"]), title: "Refresh")]))
+    try install(
+      "notes",
+      [
+        "name": "Notes", "keyword": "notes", "icon": "note.text",
+        "items": ["Groceries", "Ideas"].map {
+          ["id": $0.lowercased(), "title": $0, "actions": [["type": "copy", "text": $0]]]
+        },
+      ])
+    try install(
+      "mover",
+      [
+        "name": "Mover", "keyword": "mover", "icon": "macwindow",
+        "items": [
+          ["id": "left", "title": "Left half", "actions": [["type": "run", "arguments": ["to": "left"]]]]
+        ],
+      ],
+      script: "cat >/dev/null\necho 'REPAIR: no window to move' >&2\nexit 1")
   }
 
   private static func permissionRequest(high: Bool, folder: URL) -> AgentPermission {
@@ -577,7 +786,7 @@ func panelCapture(_ state: String) async throws {
   let directory = URL(fileURLWithPath: try #require(captureDirectory))
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   for dark in [false, true] {
-    let scenario = try await Scenario.make(state, dark: dark)
+    let scenario = try await Scenario.make(state, dark: dark, folder: "\(state)-\(dark)")
     // Under the load of this run, with every state drawn at once, WebKit took up to five seconds to load
     // its empty page, more than the fixed wait there was: wait for the render.
     await scenario.controller?.renderer.settled()
@@ -599,6 +808,31 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   let scenario = try await Scenario.make(state, dark: false)
   let model = scenario.model
   switch state {
+  case "arrival-root-held": #expect(model.command == nil && model.sizedRows == 8 && !model.returnWaits)
+  case "arrival-running", "asking-running-back", "arrival-typed", "arrival-dictated":
+    #expect(model.command?.id == "extension:slow" && model.command?.busy == true && !model.agent.active)
+    #expect(model.input == ["arrival-typed": "fin", "arrival-dictated": "Finished yet?"][state, default: ""])
+  case "arrival-page-ready":
+    #expect(model.body?.contains("Weekly report") == true && model.results.count == 1)
+  case "arrival-back-held", "conversation-back-command":
+    #expect(
+      model.command?.id == "extension:notes" && model.results.map(\.row.title) == ["Groceries", "Ideas"])
+    #expect(!model.agent.active)
+  case "extension-actions":
+    #expect(model.actionsTitle == "Weekly report" && model.results.map(\.row.title) == ["Copy", "Refresh"])
+  case "answer-actions": #expect(model.actionsTitle == "Swift Testing" && model.agent.active)
+  case "extension-nested-detail":
+    #expect(model.inDetail && model.page?.source.hasPrefix("## Known issues") == true)
+  case "extension-actions-back", "answer-actions-back":
+    #expect(model.actionsTitle == nil && model.selectedTarget == "#0")
+  case "asking-running-command":
+    #expect(model.agent.active && model.returnsOnEscape && model.askingAbout == "Slow list")
+  case "history-back":
+    #expect(model.command?.id == "history" && !model.agent.active && model.results.count == 2)
+  case "hotkey-command-error":
+    #expect(model.command?.id == "extension:mover" && model.command?.problem?.contains("REPAIR") == true)
+  case "hotkey-binding":
+    #expect(model.results.compactMap { model.hotkey(of: $0) }.count == 2)
   case _ where state.hasPrefix("settings-"):
     #expect(scenario.controller == nil && scenario.view.frame.size == CGSize(width: 560, height: 480))
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)
@@ -655,10 +889,14 @@ func scenariosSetUpTheirState(_ state: String) async throws {
 
 // Opt-in answer gallery for design work: draws each question and reply of a JSON file, an array of
 // `[question, reply]` followed by an optional text size (`small`, `large`, `larger`) and keys pressed
-// once it has arrived (`down`, `up`, `return`, so a target can be selected or its detail opened), as an
+// once it has arrived (`down`, `up`, `return`, so a target can be selected or its detail opened, `escape`
+// and `actions` for ⌘K), as an
 // answer in light and dark, named `01-light.png`, `01-dark.png` and so on:
 //
 //   WICKET_REPLIES=replies.json WICKET_CAPTURE_DIR=/tmp/look swift test --filter replyCapture
+//
+// `Fixtures/capture-replies.json` is the set compared across refactors: a long reply at each text size,
+// targets, a nested detail and the action panel, each with Escape back.
 
 private let replies: [[String]] =
   ProcessInfo.processInfo.environment["WICKET_REPLIES"].flatMap {
@@ -676,13 +914,16 @@ func replyCapture(_ index: Int) async throws {
   let size = entry.dropFirst(2).first { ["small", "large", "larger"].contains($0) }
   for dark in [false, true] {
     let scenario = try await Scenario.make(
-      "answer" + (size.map { "-" + $0 } ?? ""), dark: dark, turn: (entry[0], entry[1]))
+      "answer" + (size.map { "-" + $0 } ?? ""), dark: dark, folder: "reply-\(index)-\(dark)",
+      turn: (entry[0], entry[1]))
     // Only keys the model handles itself: Return dispatches a detail or a follow-up, never an effect.
     for key in entry.dropFirst(2) {
       switch key {
       case "down": scenario.model.move(1)
       case "up": scenario.model.move(-1)
       case "return": scenario.model.activateReturn()
+      case "escape": _ = scenario.model.escape()
+      case "actions": scenario.model.toggleActions()
       default: break
       }
     }

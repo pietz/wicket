@@ -1,0 +1,64 @@
+[
+ [
+  "What is on the checklist?",
+  "## Release checklist\nStep 1: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 2: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 3: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 4: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 5: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 6: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 7: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 8: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 9: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 10: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 11: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 12: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 13: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 14: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 15: check the build, the notes and the feed before the next step, and write down what changed."
+ ],
+ [
+  "What is on the checklist?",
+  "## Release checklist\nStep 1: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 2: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 3: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 4: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 5: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 6: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 7: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 8: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 9: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 10: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 11: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 12: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 13: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 14: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 15: check the build, the notes and the feed before the next step, and write down what changed.",
+  "small"
+ ],
+ [
+  "What is on the checklist?",
+  "## Release checklist\nStep 1: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 2: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 3: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 4: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 5: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 6: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 7: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 8: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 9: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 10: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 11: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 12: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 13: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 14: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 15: check the build, the notes and the feed before the next step, and write down what changed.",
+  "large"
+ ],
+ [
+  "What is on the checklist?",
+  "## Release checklist\nStep 1: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 2: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 3: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 4: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 5: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 6: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 7: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 8: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 9: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 10: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 11: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 12: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 13: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 14: check the build, the notes and the feed before the next step, and write down what changed.\n\nStep 15: check the build, the notes and the feed before the next step, and write down what changed.",
+  "larger"
+ ],
+ [
+  "Where do I read more?",
+  "## Links\nThree places to look.\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>",
+  "down",
+  "down"
+ ],
+ [
+  "What shipped?",
+  "## Release\nOne item has notes.\n<row title=\"Release notes\" subtitle=\"0.4 beta\" copy=\"0.4 beta\">\nTwo features landed and one fix.\n<row title=\"Known issues\" copy=\"Two open problems\">Two open problems remain before the release.</row>\n</row>\n<row label=\"Owner\" value=\"You\"/>",
+  "down",
+  "return"
+ ],
+ [
+  "What shipped?",
+  "## Release\nOne item has notes.\n<row title=\"Release notes\" subtitle=\"0.4 beta\" copy=\"0.4 beta\">\nTwo features landed and one fix.\n<row title=\"Known issues\" copy=\"Two open problems\">Two open problems remain before the release.</row>\n</row>\n<row label=\"Owner\" value=\"You\"/>",
+  "down",
+  "return",
+  "down",
+  "return"
+ ],
+ [
+  "What shipped?",
+  "## Release\nOne item has notes.\n<row title=\"Release notes\" subtitle=\"0.4 beta\" copy=\"0.4 beta\">\nTwo features landed and one fix.\n<row title=\"Known issues\" copy=\"Two open problems\">Two open problems remain before the release.</row>\n</row>\n<row label=\"Owner\" value=\"You\"/>",
+  "down",
+  "return",
+  "down",
+  "return",
+  "escape"
+ ],
+ [
+  "Where do I read more?",
+  "## Links\nThree places to look.\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>",
+  "down",
+  "actions"
+ ],
+ [
+  "Where do I read more?",
+  "## Links\nThree places to look.\n<row title=\"Swift Testing\" subtitle=\"Apple guide\" open=\"https://developer.apple.com/documentation/testing\"/>\n<row title=\"Copy the summary\" copy=\"A good start\"/>\n<row title=\"How do I add an extension?\" ask=\"How do I add an extension?\"/>",
+  "down",
+  "down",
+  "actions",
+  "escape"
+ ]
+]
