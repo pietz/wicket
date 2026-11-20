@@ -15,8 +15,8 @@ import WebKit
 //
 // Every state is drawn offscreen in light and dark: no window is ordered front or made key, no
 // event is posted, no real agent, microphone or global shortcut is used, and nothing outside
-// scratch folders and the capture folder is touched. Surfaces are solid, because glass does not
-// render offscreen. The captures prove layout and foreground, not glass, focus or shadows. Each
+// scratch folders and the capture folder is touched. Surfaces show only their backing, because glass
+// does not render offscreen. The captures prove layout and foreground, not glass, focus or shadows. Each
 // capture is read back with text recognition and must show the content its state promises.
 // Without the variable the capture test is skipped and `scenariosSetUpTheirState` still checks
 // the setup of every state without drawing anything. Text recognition has hung once inside
