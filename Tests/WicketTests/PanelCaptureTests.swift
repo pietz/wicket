@@ -834,10 +834,23 @@ private let installedAgent: Void = {
   try bitmap.representation(using: .png, properties: [:])?.write(to: url)
 }
 
+/// The capture is read over a mid grey, a neutral desktop behind the glass: its backing is translucent, and
+/// text recognition missed short words over pure black or white.
 private func recognizedText(in url: URL) throws -> String {
   let request = VNRecognizeTextRequest()
   request.recognitionLevel = .accurate
-  try VNImageRequestHandler(url: url).perform([request])
+  guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+    let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+    let context = CGContext(
+      data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+  else { throw ExtensionFailure("Unreadable capture") }
+  let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+  context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+  context.fill(rect)
+  context.draw(image, in: rect)
+  guard let flat = context.makeImage() else { throw ExtensionFailure("Unreadable capture") }
+  try VNImageRequestHandler(cgImage: flat).perform([request])
   return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
 }
 
