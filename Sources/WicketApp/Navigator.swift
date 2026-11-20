@@ -4,10 +4,11 @@ import Observation
 /// The launcher's screens and how the user moves between them. The root's search is always at the bottom,
 /// an open command over it, and the agent's screen over either (`AgentScreen`); details and the action
 /// panel are layers over the screen shown. It switches screens once the next one has its content
-/// (`arrive`), runs the open command's requests, owns every selection and decides what Return, Escape
-/// and the arrows do. Configuration, hotkey recording and effects on the system belong to
-/// `LauncherModel`, dictation to the panel (`PanelInput`), and the agent's process, turns and permissions
-/// to `AgentSession`.
+/// (`arrive`), stages and delivers the open command's requests (what each takes is the directory's,
+/// `CommandWork`), owns every selection and decides what Return, Escape and the arrows do. It reaches
+/// the panel only through `PaletteSurface`: drawing, measuring a page, and effects on the system, which
+/// are the panel's, as are dictation (`PanelInput`) and recording a hotkey. Applying a configuration is
+/// the services' (`LauncherModel`), and the agent's process, turns and permissions are `AgentSession`'s.
 @MainActor @Observable
 final class Navigator {
   let agent: AgentSession
