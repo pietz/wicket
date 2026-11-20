@@ -435,22 +435,24 @@ final class Navigator {
     return true
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
-  func editInput(_ text: String) {
+  func editInput(_ edit: InputEdit) {
     // Typing in the action panel's empty field closes it, and what the field shows is the input: never
     // joined to the earlier input, which would rewrite the field under an input method's marked text.
     closeActions()
-    // Typing while a command is being entered goes to it: the switch happens now, and what was added to
-    // the input being left is what is typed into the new one.
+    // Typing while a command is being entered goes to it: the switch happens now, and what the edit
+    // inserted into the input being left, wherever the caret was, is what is typed into the new one.
     if let arrival = arriving {
       let old = input
       let left = conversing
       showArrival()
-      input = text.hasPrefix(old) ? arrival.input + text.dropFirst(old.count) : text
+      input = edit.base == old ? arrival.input + edit.inserted : edit.text
       if left { draw() }
       return
     }
-    input = text
+    input = edit.text
   }
+  /// An edit that leaves `text` in the field, as typed at its end.
+  func editInput(_ text: String) { editInput(InputEdit(text, from: input)) }
   /// A transcript: like typing, speech during a screen switch switches at once, and it is the whole input.
   func dictate(_ text: String) {
     let left = arriving != nil && conversing

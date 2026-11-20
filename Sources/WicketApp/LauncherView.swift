@@ -6,7 +6,9 @@ import WebKit
 /// argument slot. `focused` says whether the model wants it to have the keys; it takes them when that
 /// turns true, and reports a click into it through `onFocus`.
 struct SearchField: NSViewRepresentable {
-  @Binding var text: String
+  let text: String
+  /// An edit of the field by typing, paste or an input method's commit.
+  let edit: (InputEdit) -> Void
   let placeholder: String
   var size: CGFloat = 21
   /// Room the field may draw into before, above and below its frame, never after it: AppKit puts the
@@ -16,7 +18,7 @@ struct SearchField: NSViewRepresentable {
   var focused = false
   var onFocus: () -> Void = {}
   var register: (NSTextField) -> Void = { _ in }
-  func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+  func makeCoordinator() -> Coordinator { Coordinator(text: text, edit: edit) }
   func makeNSView(context: Context) -> NSTextField {
     let field = FocusReportingField(string: "")
     field.isBordered = false
@@ -38,7 +40,8 @@ struct SearchField: NSViewRepresentable {
     return CGSize(width: width, height: nsView.intrinsicContentSize.height)
   }
   func updateNSView(_ field: NSTextField, context: Context) {
-    context.coordinator.text = $text
+    context.coordinator.text = text
+    context.coordinator.edit = edit
     (field as? FocusReportingField)?.onFocus = onFocus
     field.placeholderString = placeholder
     field.setAccessibilityLabel(placeholder)
@@ -61,19 +64,25 @@ struct SearchField: NSViewRepresentable {
       NSRange(location: field.stringValue.utf16.count, length: 0))
   }
   @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
-    var text: Binding<String>
+    /// What the model shows, which an edit is made on.
+    var text: String
+    var edit: (InputEdit) -> Void
     var focused = false
     /// A write that waits for an input method's composition: the field's text without the marked part
-    /// when it was held, and what the field was to show.
-    private var held: (from: String, to: String)?
-    init(text: Binding<String>) { self.text = text }
+    /// and where that part is in it, and what the field was to show.
+    private var held: (from: String, marked: Int, to: String)?
+    init(text: String, edit: @escaping (InputEdit) -> Void) {
+      self.text = text
+      self.edit = edit
+    }
     /// Writing the field while an input method composes would commit the composition after the old text,
     /// so the write waits for the commit (`controlTextDidChange`), and the composition goes after the
     /// new text instead, as typing during a screen switch does.
     func write(_ text: String, to field: NSTextField) {
       if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
-        let from = (editor.string as NSString).replacingCharacters(in: editor.markedRange(), with: "")
-        held = from == text ? nil : (from, text)
+        let marked = editor.markedRange()
+        let from = (editor.string as NSString).replacingCharacters(in: marked, with: "")
+        held = from == text ? nil : (from, marked.location, text)
         return
       }
       held = nil
@@ -82,10 +91,17 @@ struct SearchField: NSViewRepresentable {
     func controlTextDidChange(_ notification: Notification) {
       guard let field = notification.object as? NSTextField else { return }
       // AppKit owns marked text and all composition keystrokes.
-      var value = field.stringValue
-      if let held, value.hasPrefix(held.from) { value = held.to + value.dropFirst(held.from.count) }
-      held = nil
-      text.wrappedValue = value
+      let value = field.stringValue
+      defer { held = nil }
+      if let held {
+        // Only what the composition committed, found where it was composed: before the held text's
+        // remainder, which is the field's old text, not the model's.
+        let end = value.utf16.count - (held.from.utf16.count - held.marked)
+        let committed = InputEdit(value, from: held.from, endingAt: end).inserted
+        return edit(InputEdit(text: held.to + committed, base: held.to, inserted: committed))
+      }
+      let caret = (field.currentEditor() as? NSTextView)?.selectedRange().location
+      edit(InputEdit(value, from: text, endingAt: caret))
     }
   }
 }
@@ -300,8 +316,7 @@ struct LauncherView: View {
       .frame(minWidth: 0, maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
       .overlay {
         SearchField(
-          text: Binding(get: { text }, set: { input.edit($0) }),
-          placeholder: placeholder, bleed: 6,
+          text: text, edit: { input.edit($0) }, placeholder: placeholder, bleed: 6,
           focused: navigator.focusedArgument == nil,
           onFocus: { if navigator.focusedArgument != nil { navigator.focusedArgument = nil } },
           // The native panel, weakly: the controller owns this view, so capturing it would keep both alive.
@@ -318,8 +333,8 @@ struct LauncherView: View {
       .frame(minWidth: 24, maxWidth: 150).fixedSize()
       .overlay {
         SearchField(
-          text: Binding(get: { value }, set: { input.edit(argument: argument.name, to: $0) }),
-          placeholder: label, size: 15, focused: navigator.focusedArgument == argument.name,
+          text: value, edit: { input.edit(argument: argument.name, to: $0.text) }, placeholder: label,
+          size: 15, focused: navigator.focusedArgument == argument.name,
           onFocus: {
             if navigator.focusedArgument != argument.name { navigator.focusedArgument = argument.name }
           })

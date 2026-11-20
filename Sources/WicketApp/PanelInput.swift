@@ -65,10 +65,11 @@ final class PanelInput: Speech {
     voice?.keyPressed(isEscape: action == .dismiss) ?? false
   }
   /// The input's native field changed, by typing, paste or an input method's commit.
-  func edit(_ text: String) {
+  func edit(_ edit: InputEdit) {
     stop(.edit)
-    navigator.editInput(text)
+    navigator.editInput(edit)
   }
+  func edit(_ text: String) { edit(InputEdit(text, from: navigator.input)) }
   /// An argument slot's native field changed.
   func edit(argument name: String, to value: String) {
     navigator.setArgument(name, to: value)
@@ -86,5 +87,37 @@ final class PanelInput: Speech {
   func finish() async {
     stop(.quit)
     await voice?.shutdown?.value
+  }
+}
+
+/// An edit of a native field: the text it holds now (`text`), the text it was made on (`base`), and what
+/// it inserted there, found by the UTF-16 range around the insertion. Typing during a screen switch
+/// carries only what it inserted into the screen arriving (`Navigator.editInput`), wherever the caret was.
+struct InputEdit: Equatable {
+  let text: String
+  let base: String
+  let inserted: String
+  init(text: String, base: String, inserted: String) {
+    self.text = text
+    self.base = base
+    self.inserted = inserted
+  }
+  /// The edit that turned `base` into `text`, its insertion ending at UTF-16 offset `end` of `text` (the
+  /// caret after it, or the end), which places it among repeated characters. What `text` keeps of
+  /// `base`'s start and end is not inserted; text that cannot be such an edit was inserted as a whole.
+  init(_ text: String, from base: String, endingAt end: Int? = nil) {
+    let new = Array(text.utf16)
+    let old = Array(base.utf16)
+    let end = min(max(end ?? new.count, 0), new.count)
+    let kept = new.count - end
+    guard kept <= old.count, old.suffix(kept) == new.suffix(kept) else {
+      self.init(text: text, base: base, inserted: text)
+      return
+    }
+    var start = 0
+    while start < min(end, old.count - kept), old[start] == new[start] { start += 1 }
+    // Never inside a surrogate pair.
+    if start > 0, start < end, UTF16.isTrailSurrogate(new[start]) { start -= 1 }
+    self.init(text: text, base: base, inserted: String(decoding: new[start..<end], as: UTF16.self))
   }
 }

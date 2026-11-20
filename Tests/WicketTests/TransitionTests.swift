@@ -1037,6 +1037,55 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+@MainActor @Test func aCompositionInsideTheFieldCarriesOnlyWhatItCommittedIntoTheEntry() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  let field = try #require(controller.panel.field)
+  // Between the letters while the deadline shows the command, over a selected letter likewise, and
+  // between the letters before the deadline, where the commit is the edit that enters the command.
+  for (typed, at, deadline, shown) in [
+    ("ab", NSRange(location: 1, length: 0), true, "aかb"),
+    ("abc", NSRange(location: 1, length: 1), true, "aかc"),
+    ("ab", NSRange(location: 1, length: 0), false, "aかb"),
+  ] {
+    model.navigator.dismiss()
+    controller.show(orderFront: false, listen: false)
+    model.navigator.input = typed
+    await model.navigator.settled()
+    try await update(controller)
+    model.navigator.arrivalDeadline = .seconds(60)
+    model.navigator.go(Address(id: "slow"), submitted: true)
+    try await update(controller)
+    let editor = try compose("か", in: field, selecting: at)
+    if deadline { model.navigator.passDeadline() }
+    try await update(controller)
+    #expect(field.stringValue == shown && editor.hasMarkedText())
+    #expect((model.navigator.command != nil) == deadline)
+    commit("か", in: editor)
+    try await update(controller)
+    #expect(model.navigator.command?.id == "extension:slow" && model.navigator.input == "か")
+    #expect(field.stringValue == "か" && !editor.hasMarkedText())
+    #expect(await eventually { (try? logged(root).contains { $0.input == "か" && !$0.submitted }) == true })
+    #expect(try !logged(root).contains { $0.input.contains("a") && $0.input.contains("か") })
+    _ = model.navigator.escape()
+  }
+  controller.hide()
+  await model.finish()
+}
+
+@Test func anEditKnowsWhatItInserted() {
+  #expect(InputEdit("ab", from: "a").inserted == "b")
+  #expect(InputEdit("aかb", from: "ab", endingAt: 2).inserted == "か")
+  #expect(InputEdit("axc", from: "abc", endingAt: 2).inserted == "x")
+  // Among repeated letters, the caret says which one is new.
+  #expect(InputEdit("aaa", from: "aa", endingAt: 1).inserted == "a")
+  #expect(InputEdit("a", from: "ab").inserted.isEmpty)
+  #expect(InputEdit("😁", from: "😀").inserted == "😁")
+  #expect(InputEdit("z", from: "a").inserted == "z")
+}
+
 @MainActor @Test func aCompositionInASlotIsItsValueWhenCommitted() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
