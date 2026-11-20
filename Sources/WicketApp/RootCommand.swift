@@ -51,8 +51,15 @@ import Foundation
 
   /// The pattern extensions that matched the input and have not answered yet. What is typed was meant
   /// for them: Ask agent and fallbacks wait for them (`Ranking.compose`), and so does a Return the user
-  /// did not aim at a row (`Navigator.returnWaits`). The list itself waits only `patternHold`.
+  /// did not aim at a row, unless a pattern's row is selected (`Navigator.returnWaits`). The list itself
+  /// waits only `patternHold`.
   var runningPatterns: Set<String> { matchedPatterns.filter { patterns[$0] == nil } }
+  /// Whether `provider` is a pattern extension that matched the input and answered with rows: a row of
+  /// its is what the input was meant for, so Return runs it without waiting for slower patterns.
+  func answeredPattern(_ provider: String?) -> Bool {
+    guard let provider, matchedPatterns.contains(provider) else { return false }
+    if case .items = patterns[provider] { return true } else { return false }
+  }
   /// Whether a pattern extension that matched the input failed: Return never asks the agent in its place,
   /// though Ask agent shows again, with the failure, for ⌘↩ and a click.
   var failedPattern: Bool {

@@ -176,3 +176,25 @@ private func application(in root: URL) throws -> RowAction {
   controller.hide()
   await model.finish()
 }
+
+@MainActor @Test func aSelectedPatternResultRunsWhileAnotherPatternIsStillRunning() async throws {
+  let (model, controller, root) = try await staleReturn()
+  defer { try? FileManager.default.removeItem(at: root) }
+  // A second pattern for the same input that answers only once released, after the first one's row.
+  _ = try extensionFolder(
+    root, name: "held",
+    script: "cat >/dev/null\nwhile [ ! -e release ]; do sleep 0.01; done\necho '{\"items\":[]}'",
+    fields: ["match": "^> "])
+  model.store.update { $0.providers = [.init("extension:echo"), .init("extension:held")] }
+  await model.extensions.reload()
+  model.navigator.input = "> C"
+  #expect(await eventually { model.navigator.selected?.row.title == "> C" })
+  #expect(model.navigator.awaitsPattern)
+  controller.run()
+  #expect(!model.navigator.returnQueued)
+  #expect(await eventually { model.navigator.command?.id == "extension:echo" })
+  try release(root, "held")
+  await model.navigator.settled()
+  controller.hide()
+  await model.finish()
+}

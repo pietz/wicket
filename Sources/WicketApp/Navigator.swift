@@ -441,11 +441,12 @@ final class Navigator {
   /// earlier input. Unless the user picked a row, it also waits while a pattern that matched what is typed
   /// (a calculation, a `>` command for Shell) is still running: the input was meant for it, and its rows
   /// come first. Once that pattern answers with nothing, Return runs the first row, Ask agent included;
-  /// if it failed, Return never asks the agent in its place. A picked row acts at once.
+  /// if it failed, Return never asks the agent in its place. A picked row, or a row a pattern already
+  /// answered with, acts at once: a slower second pattern does not hold a result that is on screen.
   var returnWaits: Bool {
     guard command == nil, !conversing, arriving == nil, overlay == nil else { return false }
     if composedInput != input { return true }
-    guard !current.touched else { return false }
+    guard !current.touched, !search.answeredPattern(selected?.provider) else { return false }
     return !search.runningPatterns.isEmpty || selected?.provider == "agent" && search.failedPattern
   }
   /// A pattern that matched what is typed is still running at the root, so the list has no Ask agent yet
