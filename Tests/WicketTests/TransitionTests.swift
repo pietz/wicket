@@ -60,9 +60,9 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 /// - `slow`: logs each request, then answers "Finished" (or what `answer` says) once `release` exists.
 /// - `notes`: two manifest items, answered without a process.
 /// - `page`, `other`: a page each, logged.
-@MainActor private func transitions(
-  answer: String = #"{"items":[{"id":"done","title":"Finished","actions":[]}]}"#
-)
+private let finished = #"{"items":[{"id":"done","title":"Finished","actions":[]}]}"#
+
+@MainActor private func transitions(answer: String = finished)
   async throws -> (LauncherModel, GatedApps, URL)
 {
   let root = try scratch()
@@ -136,15 +136,14 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   let trace = Trace(model)
-  // Long enough for the process to answer first, under load too.
-  model.arrivalDeadline = .seconds(1)
+  model.arrivalDeadline = .seconds(60)
   var measuring: CheckedContinuation<Void, Never>?
   model.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
   model.go(Address(id: "page"), submitted: true)
   #expect(await eventually { measuring != nil })
   #expect(model.command == nil)
   // The deadline shows the command, still busy and with no page, while the same render goes on.
-  #expect(await eventually(within: .seconds(3)) { model.command != nil })
+  model.passDeadline()
   #expect(model.command?.busy == true && model.body == nil && model.results.isEmpty)
   measuring?.resume()
   #expect(await eventually { model.body == "# First page" })
@@ -542,11 +541,12 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let panel = FramePanel()
   let root: URL
   /// What the panel showed at each publish, with its frame then.
-  private(set) var shown: [(screen: String, body: String?, busy: Bool, frame: NSRect)] = []
+  private(set) var shown:
+    [(screen: String, input: String, selection: String?, body: String?, busy: Bool, frame: NSRect)] = []
   private var held: [CheckedContinuation<Void, Never>] = []
   var measuring: Int { held.count }
-  init() async throws {
-    let (model, _, root) = try await transitions()
+  init(answer: String = finished) async throws {
+    let (model, _, root) = try await transitions(answer: answer)
     self.model = model
     self.root = root
     controller = PaletteController(model: model, panel: panel)
@@ -557,8 +557,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
       draw?()
       shown.append(
         (
-          model.agent.active ? "agent" : model.command?.id ?? "root", model.body, model.command?.busy == true,
-          panel.frame
+          model.agent.active ? "agent" : model.command?.id ?? "root", model.input, model.selected?.row.title,
+          model.body, model.command?.busy == true, panel.frame
         ))
     }
     let measure = model.preparePage
@@ -606,13 +606,12 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func theDeadlineShowsRunningThenTheMeasuredPage() async throws {
   let panel = try await Measured()
   let model = panel.model
-  // Long enough for the process to answer first, under load too.
-  model.arrivalDeadline = .seconds(1)
+  model.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
   model.go(Address(id: "page"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
   #expect(model.command == nil)
-  #expect(await eventually(within: .seconds(3)) { model.command != nil })
+  model.passDeadline()
   // The deadline: the command, busy, with its one row, at the list's height.
   let running = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer)
   #expect(panel.shown.last?.screen == "extension:page" && panel.shown.last?.busy == true)
@@ -936,11 +935,12 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   controller.show(orderFront: false, listen: false)
   model.input = "a"
   await model.settled()
-  model.arrivalDeadline = .milliseconds(100)
+  model.arrivalDeadline = .seconds(60)
   model.go(Address(id: "slow"), submitted: true)
   try await update(controller)
   editor = try compose("か", in: field)
-  #expect(await eventually { model.command != nil })
+  model.passDeadline()
+  #expect(model.command != nil)
   try await update(controller)
   // Recorded as it is: the field is written to the new, empty input, which commits the composition
   // with the old input before it, and that is typed into the command.
@@ -1130,5 +1130,316 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
         screen: "extension:slow", input: "", rows: ["Finished"], selection: "Finished", busy: false,
         height: one))
   #expect(try logged(root).count == 1)
+  await model.finish()
+}
+
+// The gate before the agent moves onto the stack with the other screens: Back after a conversation traced
+// from the Escape itself, the context an empty question captured, the deadline, the renderer and the
+// provider released in each order, late deliveries after a replacement or hiding, a rerun in place and a
+// hotkey's view adopted over an entry.
+
+private let twoRows =
+  #"{"items":[{"id":"one","title":"First","actions":[]},{"id":"two","title":"Second","actions":[]}]}"#
+private let listHeight = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(2) + PaletteLayout.footer)
+
+@MainActor @Test func aRefreshedBackShowsTheConversationUntilTheCommandAnswersThenItsFirstRow() async throws {
+  let panel = try await Measured(answer: twoRows)
+  let model = panel.model
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  model.arrivalDeadline = .seconds(60)
+  try release(panel.root)
+  model.go(Address(id: "slow"), submitted: true)
+  await model.settled()
+  model.move(1)
+  #expect(model.selected?.row.title == "Second")
+  model.askAgent()
+  model.editInput("why")
+  #expect(model.activateReturn())
+  #expect(await eventually { fake.running })
+  fake.text("Because.")
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  model.editInput("and then")
+  try FileManager.default.removeItem(at: panel.root.appending(path: "extensions/slow/release"))
+  let drawn = panel.shown.count
+  let frames = panel.panel.frames.count
+  let top = panel.panel.frame.maxY
+  // Escape stages the way back and a second one waits for it: the conversation stays as it is.
+  #expect(model.escape())
+  #expect(model.escape())
+  #expect(await eventually { (try? logged(panel.root).count) == 2 })
+  #expect(model.agent.active && model.input == "and then" && model.selection == nil)
+  #expect(model.command?.busy == false && panel.panel.frames.count == frames)
+  #expect(panel.shown.dropFirst(drawn).allSatisfy { $0.screen == "agent" && $0.input == "and then" })
+  try release(panel.root)
+  #expect(await eventually { !model.agent.active })
+  await model.settled()
+  // The command with a blank input, its first row, at the list's height, the top edge where it was.
+  let last = try #require(panel.shown.last)
+  #expect(last.screen == "extension:slow" && last.input.isEmpty && last.selection == "First" && !last.busy)
+  #expect(panel.panel.frame.height == listHeight && panel.panel.frame.maxY == top)
+  #expect(panel.panel.frames.dropFirst(frames).map(\.height) == [listHeight])
+  let sent = try logged(panel.root)
+  #expect(sent.count == 2 && sent[0].submitted && !sent[1].submitted && sent[1].input.isEmpty)
+  await panel.finish()
+}
+
+@MainActor @Test func anEmptyQuestionSendsWhatWasShownWhenItOpened() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  // Each answer is numbered; a request waits while `hold` exists.
+  _ = try extensionFolder(
+    root, name: "counter",
+    script: """
+      import json,os,sys,time
+      request = json.load(sys.stdin)
+      open('log.jsonl', 'a').write(json.dumps(request) + '\\n')
+      count = len(open('log.jsonl').readlines())
+      while os.path.exists('hold'): time.sleep(0.01)
+      print(json.dumps({'items':[{'id':'shown','title':'View %d' % count,'actions':[]}]}))
+      """, fields: ["command": ["/usr/bin/python3", "main.sh"]])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  await model.extensions.reload()
+  model.go(Address(id: "counter"), submitted: true)
+  await model.settled()
+  #expect(model.results.map(\.row.title) == ["View 1"])
+  // A rerun on its way, held, when ⌘↩ with nothing typed opens the question over it.
+  let hold = root.appending(path: "extensions/counter/hold")
+  try Data().write(to: hold)
+  model.refresh()
+  #expect(await eventually(within: .seconds(3)) { (try? logged(root, "counter").count) == 2 })
+  model.askAgent()
+  #expect(model.agent.active && model.returnsOnEscape && model.command?.busy == true)
+  // The covered rerun finishes under the question, before it is sent.
+  try FileManager.default.removeItem(at: hold)
+  #expect(await eventually(within: .seconds(3)) { model.command?.busy == false })
+  #expect(model.command?.shown.view.items.map(\.title) == ["View 2"])
+  model.editInput("what is this")
+  #expect(model.activateReturn())
+  #expect(await eventually { fake.running })
+  // The question tells the agent what showed when it was opened.
+  let prompt = try #require(fake.prompts.first?.text)
+  #expect(prompt.contains("View 1") && !prompt.contains("View 2") && model.agent.source == "counter")
+  #expect(try logged(root, "counter").count == 2)
+  fake.end()
+  await model.finish()
+}
+
+@MainActor @Test func aQuestionPrefilledByAnAddressGoesBackToTheRoot() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.go(Address(id: "notes"), submitted: true)
+  #expect(model.command?.id == "extension:notes")
+  let trace = Trace(model)
+  model.go(Address(extensionName: "agent", input: "Why?"), from: "extension:notes")
+  #expect(model.agent.active && model.command == nil && model.input == "Why?" && !model.returnsOnEscape)
+  #expect(model.escape())
+  await model.settled()
+  #expect(!model.agent.active && model.command == nil && model.input.isEmpty)
+  #expect(
+    trace.screens == ["agent", "root"] && trace.frames.last?.selection == model.results.first?.row.title)
+  await model.finish()
+}
+
+private let page = String(
+  decoding: try! JSONEncoder().encode(ProviderView(body: "# Late page")), as: UTF8.self)
+
+@MainActor @Test func theDeadlineThenTheAnswerShowsRunningThenThePageRenderedWhereItShows() async throws {
+  let panel = try await Measured(answer: page)
+  let model = panel.model
+  model.arrivalDeadline = .seconds(60)
+  let rootFrame = panel.panel.frame
+  model.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { (try? logged(panel.root).count) == 1 })
+  model.passDeadline()
+  let running = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer)
+  #expect(model.command?.busy == true && panel.panel.frame.height == running)
+  try release(panel.root)
+  #expect(await eventually { model.body == "# Late page" })
+  await panel.controller.renderer.settled()
+  // Shown already, the page is rendered where it shows rather than measured first.
+  #expect(panel.measuring == 0)
+  let measured = PaletteLayout.panelHeight(
+    card: model.cardHeight(answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+  #expect(panel.shown.map(\.screen) == ["root", "extension:slow", "extension:slow"])
+  #expect(panel.shown.map(\.busy) == [false, true, false])
+  #expect(panel.panel.frame.height == measured)
+  let frames = panel.panel.frames
+  #expect(Set(frames.map(\.width)) == [rootFrame.width] && Set(frames.map(\.maxY)) == [rootFrame.maxY])
+  #expect(try logged(panel.root).count == 1)
+  await panel.finish()
+}
+
+@MainActor @Test func theAnswerAndItsMeasurementBeforeTheDeadlineLeaveTheDeadlineNothingToDo() async throws {
+  let panel = try await Measured(answer: page)
+  let model = panel.model
+  model.arrivalDeadline = .seconds(60)
+  try release(panel.root)
+  model.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  panel.release()
+  #expect(await eventually { model.body == "# Late page" })
+  let drawn = panel.shown.count
+  let frames = panel.panel.frames
+  model.passDeadline()
+  #expect(panel.shown.count == drawn && panel.panel.frames == frames)
+  #expect(panel.shown.map(\.screen) == ["root", "extension:slow"] && panel.shown.allSatisfy { !$0.busy })
+  await panel.finish()
+}
+
+@MainActor @Test func pageToPageKeepsTheOutgoingPageAndFrameUntilTheIncomingOneIsMeasured() async throws {
+  let panel = try await Measured()
+  let model = panel.model
+  model.arrivalDeadline = .seconds(60)
+  model.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  panel.release()
+  #expect(await eventually { model.body == "# First page" })
+  await panel.controller.renderer.settled()
+  let first = panel.panel.frame
+  let drawn = panel.shown.count
+  let frames = panel.panel.frames.count
+  model.go(Address(id: "other"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  #expect(model.command?.id == "extension:page" && model.body == "# First page")
+  #expect(panel.panel.frame == first && panel.panel.frames.count == frames)
+  panel.release()
+  #expect(await eventually { model.body == "# Second page" })
+  await panel.controller.renderer.settled()
+  #expect(panel.shown.dropFirst(drawn).map(\.screen).last == "extension:other")
+  #expect(panel.shown.allSatisfy { !$0.busy })
+  // Both one-line pages measure the same, so the frame never moves.
+  #expect(panel.panel.frame == first && panel.panel.frames.count == frames)
+  #expect(try logged(panel.root, "page").count == 1 && logged(panel.root, "other").count == 1)
+  await panel.finish()
+}
+
+@MainActor @Test func aMeasurementEndingAfterAReplacementOrHidingChangesNothing() async throws {
+  for replaced in [true, false] {
+    let panel = try await Measured()
+    let model = panel.model
+    model.arrivalDeadline = .seconds(60)
+    model.go(Address(id: "page"), submitted: true)
+    #expect(await eventually { panel.measuring == 1 })
+    if replaced {
+      model.go(Address(id: "notes"), submitted: true)
+      #expect(model.command?.id == "extension:notes")
+    } else {
+      panel.controller.hide()
+    }
+    // Hiding composes the empty root; the measurement is still held.
+    await model.root.settled()
+    let turn = model.pageTurn
+    let drawn = panel.shown.count
+    let frame = panel.panel.frame
+    panel.release()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(model.command?.id == (replaced ? "extension:notes" : nil) && model.body == nil)
+    #expect(model.pageTurn == turn && panel.shown.count == drawn && panel.panel.frame == frame)
+    #expect(try logged(panel.root, "page").count == 1)
+    await panel.finish()
+  }
+}
+
+/// Answers once `release` exists, then marks that it printed, so a test can hold the main actor until
+/// the answer is read and call the request off only then: the answer arrives after the call-off.
+private func printing(_ answer: String) -> String {
+  "cat >> log.jsonl\necho >> log.jsonl\nwhile [ ! -e release ]; do sleep 0.01; done\nprintf '%s' '\(answer)'\ntouch printed"
+}
+
+@MainActor private func blockUntilPrinted(_ root: URL, _ name: String) {
+  let printed = root.appending(path: "extensions/\(name)/printed")
+  let start = Date()
+  while !FileManager.default.fileExists(atPath: printed.path), Date().timeIntervalSince(start) < 5 {
+    Thread.sleep(forTimeInterval: 0.01)
+  }
+  // The process has printed and exits; its output is read off the main actor meanwhile.
+  Thread.sleep(forTimeInterval: 0.3)
+}
+
+@MainActor @Test func anAnswerArrivingAfterItsEntryWasReplacedOrHiddenChangesNothing() async throws {
+  for answer in ["{broken", #"{"close":true}"#] {
+    for replaced in [true, false] {
+      let (model, _, root) = try await transitions()
+      defer { try? FileManager.default.removeItem(at: root) }
+      _ = try extensionFolder(root, name: "late", script: printing(answer))
+      await model.extensions.reload()
+      var closed = 0
+      model.onClose = { closed += 1 }
+      model.arrivalDeadline = .seconds(60)
+      model.go(Address(id: "late"), submitted: true)
+      #expect(await eventually { (try? logged(root, "late").count) == 1 })
+      try release(root, "late")
+      blockUntilPrinted(root, "late")
+      if replaced { model.go(Address(id: "notes"), submitted: true) } else { model.dismiss() }
+      let turn = model.command?.turn
+      await model.settled()
+      try await Task.sleep(for: .milliseconds(100))
+      #expect(closed == 0 && model.command?.id == (replaced ? "extension:notes" : nil), "\(answer)")
+      #expect(model.command?.problem == nil && model.command?.turn == turn)
+      #expect(try logged(root, "late").count == 1)
+      await model.finish()
+    }
+  }
+}
+
+@MainActor @Test func aRelativeAddressRerunsTheSameCommandInPlace() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let view = ProviderView(items: [
+    Row(id: "next", title: "Next", actions: [.run(Address(input: "page 2"))])
+  ])
+  let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
+  _ = try extensionFolder(
+    root, name: "pager", script: "cat >> log.jsonl\necho >> log.jsonl\nprintf '%s' '\(json)'")
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.go(Address(id: "pager"), submitted: true)
+  await model.settled()
+  let trace = Trace(model)
+  #expect(model.activateReturn())
+  // No switch: the same command, its rows kept while its request runs, then its answer.
+  #expect(model.command?.id == "extension:pager" && model.input == "page 2" && model.command?.busy == true)
+  #expect(model.results.map(\.row.title) == ["Next"])
+  await model.settled()
+  #expect(trace.screens == ["extension:pager"] && trace.frames.first?.busy == true)
+  #expect(trace.frames.last?.busy == false && trace.frames.last?.selection == "Next")
+  let sent = try logged(root, "pager")
+  #expect(sent.count == 2 && sent[1].submitted && sent[1].input == "page 2")
+  await model.finish()
+}
+
+@MainActor @Test func aHotkeysViewIsAdoptedOverAnEntryOnItsWay() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "mover",
+    script: printing(#"{"items":[{"id":"moved","title":"Moved","actions":[]}]}"#),
+    fields: [
+      "items": [
+        ["id": "left", "title": "Left half", "actions": [["type": "run", "arguments": ["to": "left"]]]]
+      ]
+    ])
+  await model.extensions.reload()
+  var shown = 0
+  let press = Task { await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 } }
+  #expect(await eventually { (try? logged(root, "mover").count) == 1 })
+  // An entry on its way when the hotkey's run answers.
+  model.arrivalDeadline = .seconds(60)
+  model.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { (try? logged(root).count) == 1 })
+  try release(root, "mover")
+  await press.value
+  #expect(shown == 1 && model.command?.id == "extension:mover" && model.command?.busy == false)
+  #expect(model.results.map(\.row.title) == ["Moved"] && model.input.isEmpty)
+  // The entry's late answer changes nothing, and nothing ran twice.
+  try release(root)
+  try await Task.sleep(for: .milliseconds(100))
+  await model.settled()
+  #expect(model.command?.id == "extension:mover" && model.results.map(\.row.title) == ["Moved"])
+  #expect(try logged(root, "mover").count == 1 && logged(root).count == 1)
   await model.finish()
 }

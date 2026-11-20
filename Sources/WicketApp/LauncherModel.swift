@@ -446,10 +446,16 @@ final class LauncherModel {
     refresh()
     guard arriving != nil else { return }
     deadline = Task { [weak self] in
-      guard let self, (try? await Task.sleep(for: arrivalDeadline)) != nil, arriving != nil else { return }
-      showArrival()
-      publish()
+      guard let self, (try? await Task.sleep(for: arrivalDeadline)) != nil else { return }
+      passDeadline()
     }
+  }
+  /// The arrival's deadline: the screen being switched to shows now, quietly loading if its content is
+  /// not there yet. Tests pass it themselves to order it against the content and the page's measurement.
+  func passDeadline() {
+    guard arriving != nil else { return }
+    showArrival()
+    publish()
   }
   /// Makes the arriving screen the visible one. The caller publishes its content in the same turn.
   private func showArrival() {
