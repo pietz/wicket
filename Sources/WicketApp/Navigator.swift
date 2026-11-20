@@ -38,9 +38,9 @@ final class Navigator {
   // MARK: The screens
 
   /// The root's screen. The command's is in `command`, the agent's in `conversation`.
-  private var base = Screen()
+  private var base = Screen(draftFollowsSelection: true)
   private(set) var command: CommandState? {
-    didSet { if command?.id != oldValue?.id { command?.screen.selection.reset = true } }
+    didSet { if command?.id != oldValue?.id { command?.screen.startSelectionOver() } }
   }
   /// The agent's screen, open while its session is: the navigator opens both together and ends both
   /// together (`closeConversation`), quitting included (`finish`).
@@ -185,7 +185,7 @@ final class Navigator {
 
   private var baseTurn: String { conversing ? agent.turnID : command?.turn ?? "" }
   /// The details open over the page shown; those of an earlier page are not.
-  private var openDetails: [Detail] { screen.details.first?.base == baseTurn ? screen.details : [] }
+  private var openDetails: [Detail] { screen.details(over: baseTurn) }
   var inDetail: Bool { !openDetails.isEmpty }
   /// The selected target's id as the page knows it.
   var selectedTarget: String? {
@@ -194,12 +194,10 @@ final class Navigator {
   /// Opens an item's content as its own page, with no model call and no extension run, and the item's
   /// own action as a row at its end. Its items may run the open command as the page it came from could.
   func openDetail(_ markdown: String, action: Row?, from result: Result?) {
-    screen.details =
-      openDetails + [
-        Detail(
-          page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !conversing), base: baseTurn,
-          turn: pageTurn + ">" + (result?.row.id ?? ""))
-      ]
+    screen.open(
+      Detail(
+        page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !conversing), base: baseTurn,
+        turn: pageTurn + ">" + (result?.row.id ?? "")))
     draw()
   }
   private var overlay: ActionPresentation?
@@ -262,17 +260,13 @@ final class Navigator {
 
   /// The selection the arrow keys move: the action panel's, the open detail's, else the screen's.
   private var current: Selection {
-    get { overlay?.selection ?? openDetails.last?.selection ?? screen.selection }
+    get { overlay?.selection ?? screen.selection(over: baseTurn) }
     set {
       let old = current.id
       if overlay != nil {
         overlay?.selection = newValue
-      } else if inDetail {
-        screen.details[screen.details.count - 1].selection = newValue
       } else {
-        // The root's draft belongs to the selected command row.
-        if newValue.id != old, !conversing, command == nil { base.arguments = [:] }
-        screen.selection = newValue
+        screen.select(newValue, over: baseTurn)
       }
       guard newValue.id != old else { return }
       // The draft is gone, so the input takes the keys again.
@@ -290,12 +284,7 @@ final class Navigator {
     current.touched = false
     current.id = nil
   }
-  /// An edit starts the selection over: on the screen, which a rerun's new page shows, and in the detail
-  /// open over it, which a submit command's edit leaves open, so Return sends the edited request.
-  private func resetSelection() {
-    screen.selection.reset = true
-    if inDetail { screen.details[screen.details.count - 1].selection.reset = true }
-  }
+  private func resetSelection() { screen.startSelectionOver(over: baseTurn) }
   /// The one step after a screen's content changed: the selection follows it, then the panel draws it.
   private func publish(_ measured: PageHeight? = nil) {
     retainSelection()
@@ -413,12 +402,8 @@ final class Navigator {
   /// or in a submit command waits for Return.
   func setArgument(_ name: String, to value: String) {
     guard declaredArguments.contains(where: { $0.name == name }) else { return }
-    let value = value.isEmpty ? nil : value
-    guard command != nil else {
-      base.arguments[name] = value
-      return
-    }
-    command?.screen.arguments[name] = value
+    guard command != nil else { return base.fill(name, with: value) }
+    command?.screen.fill(name, with: value)
     resetSelection()
     refresh()
   }
@@ -569,12 +554,12 @@ final class Navigator {
     let conversed = conversing
     if conversed {
       closeConversation()
-      base.arguments = [:]
+      base.fill([:])
     }
     let entering = arrival.command?.id != command?.id
-    if entering, command == nil { base.arguments = [:] }
+    if entering, command == nil { base.fill([:]) }
     command = arrival.command
-    if entering || conversed { screen.selection.reset = true }
+    if entering || conversed { screen.startSelectionOver() }
     input = arrival.input  // No refresh while arriving: its request is already answered or running.
     stopArriving()
     if entering { listed = [] }
@@ -731,7 +716,7 @@ final class Navigator {
     case .command(let id):
       let reopened = command?.id == id
       var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandState(id: id)
-      state.screen.arguments = address.arguments ?? [:]
+      state.screen.fill(address.arguments ?? [:])
       state.next = submitted ? .submission : .address
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       let input = address.input ?? (reopened ? input : "")
@@ -783,11 +768,11 @@ final class Navigator {
   /// with an empty input.
   func dismiss() {
     overlay = nil
-    screen.selection.reset = true
-    base.selection.reset = true
+    screen.startSelectionOver()
+    base.startSelectionOver()
     // The root's draft stays under an empty question that is kept, for Escape to find; it goes with the
     // question's expiry (`reopen`).
-    if !returnsOnEscape { base.arguments = [:] }
+    if !returnsOnEscape { base.fill([:]) }
     focusTarget = nil
     agent.hidden()
     stopArriving()
@@ -804,8 +789,8 @@ final class Navigator {
     guard agent.reopen(now: now) else { return }
     cancelWork()
     conversation = nil
-    base.arguments = [:]
-    base.selection.reset = true
+    base.fill([:])
+    base.startSelectionOver()
     command = nil
     input = ""
   }
@@ -833,7 +818,7 @@ final class Navigator {
     }
     // A detail goes back to where the user was on the page under it.
     if inDetail {
-      screen.details = Array(openDetails.dropLast())
+      screen.closeDetail(over: baseTurn)
       draw()
       return true
     }
@@ -881,7 +866,7 @@ final class Navigator {
     overlay = nil
     stopArriving()
     cancelWork()
-    base.arguments = [:]
+    base.fill([:])
     conversation = AgentScreen(back: .refresh)
     start()
     // A run with no turn to reopen leaves nothing to show.

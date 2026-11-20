@@ -42,13 +42,48 @@ struct Selection {
 struct Screen {
   var input = ""
   /// A command's argument values. At the root, the values filled in for the selected command row, which
-  /// go when that selection moves.
-  var arguments: [String: String] = [:]
-  var selection = Selection()
+  /// go when that selection moves (`draftFollowsSelection`).
+  private(set) var arguments: [String: String] = [:]
+  private(set) var selection = Selection()
   /// The root's results or a command's items.
   var rows: [Result] = []
   /// Items' contents opened as pages over this screen's page, the last one shown.
-  var details: [Detail] = []
+  private(set) var details: [Detail] = []
+  /// The arguments are a draft for the selected row (the root's), not the screen's own.
+  var draftFollowsSelection = false
+
+  init(arguments: [String: String] = [:], draftFollowsSelection: Bool = false) {
+    self.arguments = arguments
+    self.draftFollowsSelection = draftFollowsSelection
+  }
+  /// Fills in an argument; empty is unfilled.
+  mutating func fill(_ name: String, with value: String) { arguments[name] = value.isEmpty ? nil : value }
+  mutating func fill(_ arguments: [String: String]) { self.arguments = arguments }
+
+  /// The details open over the page whose turn is `base`; those of an earlier page are not.
+  func details(over base: String) -> [Detail] { details.first?.base == base ? details : [] }
+  /// Opens a detail over the page whose turn is `base`, after those already open over it.
+  mutating func open(_ detail: Detail) { details = details(over: detail.base) + [detail] }
+  /// Escape in a detail: the page or detail under it is as the user left it.
+  mutating func closeDetail(over base: String) { details = Array(details(over: base).dropLast()) }
+  /// What the arrow keys move here: the last detail's selection over the page `base`, else the screen's.
+  func selection(over base: String) -> Selection { details(over: base).last?.selection ?? selection }
+  mutating func select(_ new: Selection, over base: String) {
+    if !details(over: base).isEmpty {
+      details[details.count - 1].selection = new
+      return
+    }
+    if draftFollowsSelection, new.id != selection.id { arguments = [:] }
+    selection = new
+  }
+  /// An edit starts the selection over: on the screen, which a rerun's new page shows, and in the detail
+  /// open over it, which a submit command's edit leaves open, so Return sends the edited request.
+  mutating func startSelectionOver(over base: String) {
+    selection.reset = true
+    if !details(over: base).isEmpty { details[details.count - 1].selection.reset = true }
+  }
+  /// A new screen, or one shown again started over: its selection follows the first row again.
+  mutating func startSelectionOver() { selection.reset = true }
 }
 
 /// An item's content opened as its own page over the page it came from, with a selection of its own:
