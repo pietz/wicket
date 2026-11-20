@@ -7,6 +7,7 @@ import SwiftUI
 /// Transparency gets a solid surface; `drawsGlass` false (offscreen renders, which cannot show glass) the
 /// backing alone.
 struct GlassSurface: View {
+  let role: GlassBlur.Role
   let radius: CGFloat
   let configuration: Configuration
   var drawsGlass = true
@@ -24,7 +25,7 @@ struct GlassSurface: View {
           (colorScheme == .dark ? Color.black : .white).opacity(
             GlassBlur.backing(
               transparency: configuration.backgroundTransparency, increasedContrast: contrast == .increased)))
-        if drawsGlass { GlassSlab(radius: radius, blur: configuration.blur) }
+        if drawsGlass { GlassSlab(radius: radius, blur: GlassBlur.radius(configuration.blur, role: role)) }
         if contrast == .increased {
           shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         }
@@ -45,16 +46,15 @@ struct GlassSurface: View {
 enum GlassBlur {
   static let filterType = "glassBackground"
   static let radiusKey = "inputBlurRadius"
-  /// The system's radius for a large shape (the card) on macOS 26 and 27, until a shape reports a larger one.
-  static let fullSizeDefault = 10.0
-  /// The largest system radius any shape has had: what the Blur setting means at full size.
-  @MainActor static var reference = fullSizeDefault
+  /// Which surface the glass is: the card blurs at the Blur setting, the pill at `pillRatio` of it.
+  enum Role { case pill, card }
+  /// macOS's own blur for the 56-point pill against the card's (5.56 to 10, measured in Glass Lab on macOS
+  /// 27.2), so the thin pill reads like the card. A constant, because the defaults AppKit writes into
+  /// Wicket's panel are not the lab's (about 0.58 for both shapes) and say nothing about the setting.
+  static let pillRatio = 0.56
 
-  /// macOS gives a thin shape less blur (the 56-point pill 5.56 against the card's 10), so the setting
-  /// scales by the shape's own system radius over the full-size one, and the pill reads like the card.
-  static func radius(_ blur: Double, shapeDefault: Double, reference: Double) -> Double {
-    guard shapeDefault > 0, reference > 0 else { return max(0, blur) }
-    return max(0, blur) * min(1, shapeDefault / reference)
+  static func radius(_ blur: Double, role: Role) -> Double {
+    max(0, blur) * (role == .pill ? pillRatio : 1)
   }
 
   /// The backing's opacity: none at full transparency, solid at none. Increase Contrast keeps it nearly
@@ -84,11 +84,6 @@ enum GlassBlur {
     return number.doubleValue
   }
 
-  /// The blur radius of the first glass background among `filters`.
-  static func radius(in filters: [Any]) -> Double? {
-    filters.lazy.compactMap(glassBackground).first.flatMap(storedRadius)
-  }
-
   /// `filters` with each glass background's blur set to `radius` on a copy, or nil when none needs it. A
   /// filter whose radius cannot be read, copied, or written and read back as a number fails the whole
   /// patch, so the layer keeps the filters it has.
@@ -114,15 +109,6 @@ enum GlassBlur {
     stored.map { abs($0 - value) < 0.001 } ?? false
   }
 
-  /// The radius of the first glass background in `layer`'s tree.
-  @MainActor static func radius(in layer: CALayer) -> Double? {
-    if let filters = layer.filters, let radius = radius(in: filters) { return radius }
-    for child in layer.sublayers ?? [] {
-      if let radius = radius(in: child) { return radius }
-    }
-    return nil
-  }
-
   /// Sets every glass background's blur in `layer`'s tree; reassigns only the arrays that change.
   @MainActor static func apply(_ radius: Double, in layer: CALayer) {
     if let filters = layer.filters, let patched = patched(filters, radius: radius) { layer.filters = patched }
@@ -132,6 +118,7 @@ enum GlassBlur {
 
 private struct GlassSlab: NSViewRepresentable {
   let radius: CGFloat
+  /// The radius to keep, already scaled for the surface's role.
   let blur: Double
   func makeNSView(context: Context) -> GlassSlabView { GlassSlabView() }
   func updateNSView(_ view: GlassSlabView, context: Context) {
@@ -144,9 +131,6 @@ private struct GlassSlab: NSViewRepresentable {
 final class GlassSlabView: NSView {
   let glass = NSGlassEffectView()
   var blur = 0.0 { didSet { if blur != oldValue { scheduleApply() } } }
-  /// The radius AppKit last chose for this shape, and the one written over it.
-  private var systemDefault: Double?
-  private var written: Double?
   private var scheduled = false
 
   init() {
@@ -200,14 +184,10 @@ final class GlassSlabView: NSView {
       self?.apply()
     }
   }
+  /// Writes only when the filter's radius differs from the target (`GlassBlur.patched`), so a rebuild that
+  /// left it alone costs nothing.
   private func apply() {
-    guard let layer = glass.layer, let current = GlassBlur.radius(in: layer) else { return }
-    // A value other than the one written is AppKit's own for the shape's current size.
-    if written.map({ GlassBlur.matches(current, $0) }) != true { systemDefault = current }
-    guard let systemDefault else { return }
-    GlassBlur.reference = max(GlassBlur.reference, systemDefault)
-    let radius = GlassBlur.radius(blur, shapeDefault: systemDefault, reference: GlassBlur.reference)
-    GlassBlur.apply(radius, in: layer)
-    written = radius
+    guard let layer = glass.layer else { return }
+    GlassBlur.apply(blur, in: layer)
   }
 }

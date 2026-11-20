@@ -215,9 +215,9 @@ struct LauncherView: View {
   var body: some View {
     ZStack(alignment: .top) {
       VStack(spacing: PaletteLayout.gap) {
-        GlassSurface(radius: 28, configuration: model.configuration, drawsGlass: drawsGlass)
+        GlassSurface(role: .pill, radius: 28, configuration: model.configuration, drawsGlass: drawsGlass)
           .frame(height: PaletteLayout.search)
-        GlassSurface(radius: 22, configuration: model.configuration, drawsGlass: drawsGlass)
+        GlassSurface(role: .card, radius: 22, configuration: model.configuration, drawsGlass: drawsGlass)
           .frame(height: cardHeight)
       }
       VStack(spacing: PaletteLayout.gap) {

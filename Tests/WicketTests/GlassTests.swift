@@ -15,13 +15,12 @@ import Testing
   #expect(Configuration.Appearance.system.nsAppearance == nil)
 }
 
-@Test func blurScalesWithTheShapesSystemRadius() {
-  // On macOS 27.2 the 56-point pill defaults to 5.56 and the card to 10.
-  #expect(GlassBlur.radius(4, shapeDefault: 10, reference: 10) == 4)
-  #expect(abs(GlassBlur.radius(4, shapeDefault: 5.555555, reference: 10) - 2.2222) < 0.001)
-  #expect(GlassBlur.radius(4, shapeDefault: 12, reference: 10) == 4)
-  #expect(GlassBlur.radius(-2, shapeDefault: 5, reference: 10) == 0)
-  #expect(GlassBlur.radius(4, shapeDefault: 0, reference: 10) == 4)
+@Test func theCardBlursAtTheSettingAndThePillAtTheFixedRatio() {
+  #expect(GlassBlur.radius(4, role: .card) == 4)
+  #expect(GlassBlur.radius(10, role: .card) == 10)
+  #expect(abs(GlassBlur.radius(4, role: .pill) - 2.24) < 0.000_001)
+  #expect(GlassBlur.radius(0, role: .pill) == 0)
+  #expect(GlassBlur.radius(-2, role: .card) == 0)
 }
 
 @Test func backingFollowsTransparencyAndContrast() {
@@ -29,6 +28,17 @@ import Testing
   #expect(GlassBlur.backing(transparency: 1, increasedContrast: false) == 0)
   #expect(GlassBlur.backing(transparency: 0, increasedContrast: false) == 1)
   #expect(GlassBlur.backing(transparency: 0.5, increasedContrast: true) == 0.9)
+}
+
+/// What the patch left: the radius of the first glass background.
+extension GlassBlur {
+  fileprivate static func radius(in filters: [Any]) -> Double? {
+    filters.lazy.compactMap(glassBackground).first.flatMap(storedRadius)
+  }
+  @MainActor fileprivate static func radius(in layer: CALayer) -> Double? {
+    if let filters = layer.filters, let radius = radius(in: filters) { return radius }
+    return (layer.sublayers ?? []).lazy.compactMap { radius(in: $0) }.first
+  }
 }
 
 /// Stands in for the private Core Animation filter: a type, its input keys and a copy, which `copied` can
