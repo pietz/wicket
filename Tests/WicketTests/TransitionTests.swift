@@ -241,6 +241,9 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.go(Address(id: "slow", input: "x"), submitted: true)
   model.editInput("ab")
   #expect(model.command?.id == "extension:slow" && model.input == "xb")
+  // The entry's request is called off before it started, and the appended input runs once as typing.
+  #expect(await eventually { (try? logged(root).count) == 1 })
+  #expect(try logged(root).map { [$0.input, "\($0.submitted)"] } == [["xb", "false"]])
   model.dismiss()
   model.input = "a"
   await model.settled()
@@ -253,6 +256,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.settled()
   let typed = try logged(root).filter { $0.input == "z" }
   #expect(typed.count == 1 && !typed[0].submitted && model.results.map(\.row.title) == ["Finished"])
+  #expect(try logged(root).count == 2)
   await model.finish()
 }
 
@@ -405,7 +409,9 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     root, name: "echo",
     script: """
       import json,sys,time,os
-      text = json.load(sys.stdin)['input']
+      request = json.load(sys.stdin)
+      open('log.jsonl', 'a').write(json.dumps(request) + '\\n')
+      text = request['input']
       if 'F' in text: sys.exit(1)
       while 'B' in text and not os.path.exists('release'): time.sleep(0.01)
       print(json.dumps({'items':[{'id':'run','title':text,'actions':[{'type':'run','input':text}]}]}))
@@ -507,4 +513,430 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   SearchField.updateText("abc", in: field)
   SearchField.updateText("abc", in: field)
   #expect(field.writes == 1 && field.stringValue == "abc")
+}
+
+// The gate before the screens move to their own owners: the panel's own frame at each switch, late
+// deliveries after a switch was called off, repeated and queued Returns, layers over a page and native
+// edits through the field editor.
+
+@MainActor @Test func aSwitchWaitsAHundredAndFiftyMilliseconds() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  #expect(LauncherModel.testing(in: root, bundled: nil).arrivalDeadline == .milliseconds(150))
+}
+
+/// A panel that routes keys as if it had them, and records every frame it is given.
+@MainActor private final class FramePanel: PalettePanel {
+  var frames: [NSRect] = []
+  override var isKeyWindow: Bool { true }
+  override func setFrame(_ frame: NSRect, display: Bool) {
+    frames.append(frame)
+    super.setFrame(frame, display: display)
+  }
+}
+
+/// The transitions' model in an offscreen panel whose renderer measures each page only once released.
+@MainActor private final class Measured {
+  let model: LauncherModel
+  let controller: PaletteController
+  let panel = FramePanel()
+  let root: URL
+  /// What the panel showed at each publish, with its frame then.
+  private(set) var shown: [(screen: String, body: String?, busy: Bool, frame: NSRect)] = []
+  private var held: [CheckedContinuation<Void, Never>] = []
+  var measuring: Int { held.count }
+  init() async throws {
+    let (model, _, root) = try await transitions()
+    self.model = model
+    self.root = root
+    controller = PaletteController(model: model, panel: panel)
+    controller.show(orderFront: false, listen: false)
+    await model.settled()
+    let draw = model.onResultsChange
+    model.onResultsChange = { [unowned self] in
+      draw?()
+      shown.append(
+        (
+          model.agent.active ? "agent" : model.command?.id ?? "root", model.body, model.command?.busy == true,
+          panel.frame
+        ))
+    }
+    let measure = model.preparePage
+    model.preparePage = { [unowned self] page, turn in
+      await withCheckedContinuation { held.append($0) }
+      await measure?(page, turn)
+    }
+  }
+  func release() {
+    for gate in held { gate.resume() }
+    held.removeAll()
+  }
+  func finish() async {
+    controller.hide()
+    await model.finish()
+    try? FileManager.default.removeItem(at: root)
+  }
+}
+
+@MainActor @Test func aMeasuredPageArrivesWithItsHeightInOneFrame() async throws {
+  let panel = try await Measured()
+  let model = panel.model
+  model.arrivalDeadline = .seconds(60)
+  let rootFrame = panel.panel.frame
+  model.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  #expect(model.command == nil && panel.panel.frame == rootFrame)
+  panel.release()
+  #expect(await eventually { model.body == "# First page" })
+  await panel.controller.renderer.settled()
+  let measured = PaletteLayout.panelHeight(
+    card: model.cardHeight(answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+  // The root once more, unchanged, then the page at its measured height: no frame in between.
+  #expect(panel.shown.map(\.screen) == ["root", "extension:page"])
+  #expect(panel.shown.map(\.frame.height) == [rootFrame.height, measured])
+  #expect(panel.shown.allSatisfy { !$0.busy })
+  // The width and the top edge never move.
+  let frames = panel.panel.frames
+  #expect(Set(frames.map(\.width)) == [rootFrame.width] && Set(frames.map(\.maxY)) == [rootFrame.maxY])
+  #expect(frames.last?.height == measured)
+  #expect(try logged(panel.root, "page").count == 1)
+  await panel.finish()
+}
+
+@MainActor @Test func theDeadlineShowsRunningThenTheMeasuredPage() async throws {
+  let panel = try await Measured()
+  let model = panel.model
+  // Long enough for the process to answer first, under load too.
+  model.arrivalDeadline = .seconds(1)
+  let rootFrame = panel.panel.frame
+  model.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  #expect(model.command == nil)
+  #expect(await eventually(within: .seconds(3)) { model.command != nil })
+  // The deadline: the command, busy, with its one row, at the list's height.
+  let running = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer)
+  #expect(panel.shown.last?.screen == "extension:page" && panel.shown.last?.busy == true)
+  #expect(panel.shown.last?.body == nil && panel.panel.frame.height == running)
+  panel.release()
+  #expect(await eventually { model.body == "# First page" })
+  await panel.controller.renderer.settled()
+  let measured = PaletteLayout.panelHeight(
+    card: model.cardHeight(answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+  #expect(panel.shown.map(\.screen) == ["root", "extension:page", "extension:page"])
+  #expect(panel.shown.map(\.frame.height) == [rootFrame.height, running, measured])
+  let frames = panel.panel.frames
+  #expect(Set(frames.map(\.width)) == [rootFrame.width] && Set(frames.map(\.maxY)) == [rootFrame.maxY])
+  #expect(try logged(panel.root, "page").count == 1)
+  await panel.finish()
+}
+
+@MainActor @Test func aMeasurementThatEndsAfterEscapeChangesNothing() async throws {
+  let panel = try await Measured()
+  let model = panel.model
+  model.arrivalDeadline = .seconds(60)
+  let rootFrame = panel.panel.frame
+  model.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  #expect(model.escape())
+  let drawn = panel.shown.count
+  panel.release()
+  try await Task.sleep(for: .milliseconds(200))
+  #expect(model.command == nil && model.body == nil && panel.shown.count == drawn)
+  #expect(panel.panel.frame == rootFrame)
+  await panel.finish()
+}
+
+@MainActor @Test func aLateErrorOrCloseOfAnEntryCalledOffByEscapeChangesNothing() async throws {
+  for answer in ["{broken", #"{"close":true}"#] {
+    let (model, _, root) = try await transitions(answer: answer)
+    defer { try? FileManager.default.removeItem(at: root) }
+    var closed = 0
+    model.onClose = { closed += 1 }
+    model.arrivalDeadline = .seconds(60)
+    model.go(Address(id: "slow"), submitted: true)
+    #expect(await eventually { (try? logged(root).count) == 1 })
+    #expect(model.escape())
+    try release(root)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(model.command == nil && closed == 0 && model.input == "a" && model.results.count > 8)
+    await model.finish()
+  }
+}
+
+@MainActor @Test func aRepeatedReturnDuringAnEntryEntersAgainFromTheScreenShown() async throws {
+  let (model, apps, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = apps
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  model.input = "slow"
+  await model.settled()
+  #expect(model.selected?.row.title == "slow")
+  model.arrivalDeadline = .seconds(60)
+  controller.run()
+  #expect(await eventually { (try? logged(root).count) == 1 })
+  // Recorded as it is: the root is still what shows, so Return runs its selected row again, and the
+  // second entry replaces the first.
+  #expect(model.command == nil && model.selected?.row.title == "slow")
+  controller.run()
+  #expect(await eventually { (try? logged(root).count) == 2 })
+  #expect(try logged(root).allSatisfy { $0.submitted && $0.input.isEmpty })
+  try release(root)
+  await model.settled()
+  #expect(model.command?.id == "extension:slow" && model.results.map(\.row.title) == ["Finished"])
+  #expect(try logged(root).count == 2)
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aQueuedReturnSendsOneRequestAcrossTheBatchesItWaitsFor() async throws {
+  let (model, controller, root) = try await staleReturn()
+  defer { try? FileManager.default.removeItem(at: root) }
+  var batches = 0
+  let draw = model.onResultsChange
+  model.onResultsChange = {
+    draw?()
+    if model.command == nil { batches += 1 }
+  }
+  model.input = "> B"
+  controller.run()
+  #expect(model.returnQueued)
+  // The held pattern lets the list compose without it first: Return keeps waiting.
+  #expect(await eventually { batches >= 1 })
+  #expect(model.returnQueued && model.command == nil)
+  try release(root, "echo")
+  #expect(await eventually(within: .seconds(3)) { model.command != nil })
+  await model.settled()
+  let submitted = try logged(root, "echo").filter(\.submitted)
+  #expect(submitted.count == 1 && submitted[0].input == "> B" && !model.returnQueued)
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aCommandRowsDraftStaysThroughTheActionPanel() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "caffeinate", fields: ["arguments": [["name": "hours"], ["name": "minutes"]]])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.input = "caffeinate"
+  await model.settled()
+  #expect(model.selected?.row.id == "command" && model.declaredArguments.count == 2)
+  model.setArgument("hours", to: "2")
+  model.focusedArgument = "hours"
+  model.toggleActions()
+  #expect(model.actionsTitle == "caffeinate" && model.declaredArguments.isEmpty)
+  #expect(model.escape())
+  #expect(model.argumentValues == ["hours": "2"] && model.selected?.row.id == "command")
+  // Where ⌘K took its actions from: Return on the panel's first row enters with the draft.
+  model.toggleActions()
+  let picked = try #require(model.pick())
+  #expect(picked.from?.row.id == "command" && model.actionsTitle == nil)
+  await model.finish()
+}
+
+/// A page with a long body, targets and a detail inside a detail, shown in an offscreen panel.
+@MainActor private func scrolledPage() async throws -> (LauncherModel, PaletteController, URL) {
+  let root = try scratch()
+  let lines = (0..<60).map { "Line \($0)" }.joined(separator: "\n\n")
+  let view = ProviderView(
+    body:
+      "# Report\n\(lines)\n<row title=\"Notes\" copy=\"n\">\(lines)\n<row title=\"Deeper\" copy=\"d\">\(lines)</row></row>\n<row title=\"Owner\" copy=\"o\"/>"
+  )
+  let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
+  _ = try extensionFolder(root, name: "report", script: "cat >/dev/null\nprintf '%s' '\(json)'")
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  model.go(Address(id: "report"), submitted: true)
+  await model.settled()
+  await controller.renderer.settled()
+  return (model, controller, root)
+}
+
+/// The page's scroll position once the selection's paint, which scrolls a target into view, is done.
+@MainActor private func scrollY(_ controller: PaletteController) async throws -> Double {
+  await controller.renderer.settled()
+  var last = -1.0
+  while true {
+    try await Task.sleep(for: .milliseconds(100))
+    let y = try #require(
+      try await controller.renderer.page?.callJavaScript("return scrollY", contentWorld: .defaultClient)
+        as? Double)
+    if y == last { return y }
+    last = y
+  }
+}
+@MainActor private func scroll(_ controller: PaletteController, to y: Double) async throws {
+  _ = try await controller.renderer.page?.callJavaScript("scrollTo(0, \(y))", contentWorld: .defaultClient)
+}
+
+@MainActor @Test func theActionPanelAndNestedDetailsKeepThePagesScrollAndSelection() async throws {
+  let (model, controller, root) = try await scrolledPage()
+  defer { try? FileManager.default.removeItem(at: root) }
+  #expect(model.results.map(\.row.title) == ["Notes", "Owner"])
+  // The selected target is scrolled into view, then the page a little further.
+  model.move(1)
+  #expect(model.selectedTarget == "#0")
+  let page = try await scrollY(controller) + 40
+  try await scroll(controller, to: page)
+  #expect(try await scrollY(controller) == page)
+  // ⌘K and back: the page stays mounted where it was. Recorded as it is: unpainting the selected
+  // target under the panel moves the page by a few points, and Escape keeps that position.
+  model.toggleActions()
+  let under = try await scrollY(controller)
+  #expect(model.selectedTarget == nil && abs(under - page) <= 8)
+  #expect(model.escape())
+  #expect(try await scrollY(controller) == under && model.selectedTarget == "#0")
+  // A detail, a detail inside it, and back twice: each page where it was, with its target selected.
+  #expect(model.activateReturn())
+  #expect(try await scrollY(controller) == 0 && model.inDetail)
+  model.move(1)
+  #expect(model.selected?.row.title == "Deeper")
+  let detail = try await scrollY(controller) + 40
+  try await scroll(controller, to: detail)
+  #expect(model.activateReturn())
+  #expect(try await scrollY(controller) == 0)
+  #expect(model.escape())
+  #expect(try await scrollY(controller) == detail && model.selected?.row.title == "Deeper")
+  #expect(model.escape())
+  #expect(try await scrollY(controller) == under && !model.inDetail && model.selectedTarget == "#0")
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aPermissionArrivingUnderTheActionPanelTakesTheNextKey() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  model.send("What is on today?")
+  #expect(await eventually { fake.running })
+  fake.text("Today.\n<row title=\"Tue\" copy=\"tue\"/>")
+  #expect(await eventually { model.results.count == 1 })
+  model.move(1)
+  #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.actionsTitle == "Tue")
+  fake.ask()
+  #expect(model.actionsTitle == nil)
+  // Return is no decision; ⌘↩ allows, Escape would deny.
+  #expect(controller.panel.route(voiceKey(36, "\r")))
+  #expect(fake.decisions.isEmpty && model.agent.permissions.count == 1)
+  #expect(controller.panel.route(voiceKey(36, "\r", .command)))
+  #expect(fake.decisions.map(\.allow) == [true] && model.agent.permissions.isEmpty)
+  fake.end()
+  controller.hide()
+  await model.finish()
+}
+
+/// Composes `marked` at the end of the field's text, as an input method does: AppKit keeps it in the field
+/// editor, and the field's delegate hears of it only once it is committed (`commit`).
+@MainActor private func compose(_ marked: String, in field: NSTextField) throws -> NSTextView {
+  let editor = try #require(field.currentEditor() as? NSTextView)
+  editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+  editor.setMarkedText(
+    marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0),
+    replacementRange: NSRange(location: NSNotFound, length: 0))
+  return editor
+}
+@MainActor private func commit(_ text: String, in editor: NSTextView) {
+  editor.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+}
+/// Lets SwiftUI apply the model to the fields.
+@MainActor private func update(_ controller: PaletteController) async throws {
+  try await Task.sleep(for: .milliseconds(50))
+  controller.panel.contentView?.layoutSubtreeIfNeeded()
+}
+@MainActor private func fields(in view: NSView) -> [FocusReportingField] {
+  (view as? FocusReportingField).map { [$0] } ?? view.subviews.flatMap(fields)
+}
+
+@MainActor @Test func aCompositionInTheActionPanelsFieldBecomesTheInputWhenCommitted() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  model.input = "settings"
+  await model.settled()
+  model.toggleActions()
+  try await update(controller)
+  let field = try #require(controller.panel.input)
+  #expect(model.actionsTitle == "Settings" && field.stringValue.isEmpty)
+  let editor = try compose("か", in: field)
+  try await update(controller)
+  #expect(model.actionsTitle == "Settings" && model.input == "settings")
+  #expect(editor.hasMarkedText() && field.stringValue == "か")
+  // Committed, it closes the panel and is the whole input; the field is not written again.
+  commit("か", in: editor)
+  try await update(controller)
+  #expect(model.actionsTitle == nil && model.input == "か" && field.stringValue == "か")
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aCompositionDuringAnEntryIsAddedWhenCommittedAndEndsAtTheDeadline() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  await model.settled()
+  model.arrivalDeadline = .seconds(60)
+  model.go(Address(id: "slow"), submitted: true)
+  try await update(controller)
+  let field = try #require(controller.panel.input)
+  var editor = try compose("か", in: field)
+  try await update(controller)
+  #expect(model.command == nil && model.input == "a" && editor.hasMarkedText() && field.stringValue == "aか")
+  // Committed, what was added to the old input is the new one's, and the field is rewritten to it.
+  commit("か", in: editor)
+  try await update(controller)
+  #expect(model.command?.id == "extension:slow" && model.input == "か" && field.stringValue == "か")
+  // A composition still open when the deadline shows the command.
+  _ = model.escape()
+  model.dismiss()
+  controller.show(orderFront: false, listen: false)
+  model.input = "a"
+  await model.settled()
+  model.arrivalDeadline = .milliseconds(100)
+  model.go(Address(id: "slow"), submitted: true)
+  try await update(controller)
+  editor = try compose("か", in: field)
+  #expect(await eventually { model.command != nil })
+  try await update(controller)
+  // Recorded as it is: the field is written to the new, empty input, which commits the composition
+  // with the old input before it, and that is typed into the command.
+  #expect(model.input == "aか" && field.stringValue == "aか" && !editor.hasMarkedText())
+  #expect(await eventually { (try? logged(root).contains { $0.input == "aか" && !$0.submitted }) == true })
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aCompositionInASlotIsItsValueWhenCommitted() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "note", fields: ["arguments": [["name": "title"]]])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  model.input = "note"
+  await model.settled()
+  model.focusedArgument = "title"
+  try await update(controller)
+  let content = try #require(controller.panel.contentView)
+  let slot = try #require(fields(in: content).first { $0 !== controller.panel.input })
+  #expect(controller.panel.firstResponder === slot.currentEditor())
+  let editor = try compose("か", in: slot)
+  try await update(controller)
+  #expect(model.argumentValues.isEmpty && editor.hasMarkedText() && slot.stringValue == "か")
+  commit("か", in: editor)
+  try await update(controller)
+  #expect(model.argumentValues == ["title": "か"] && model.input == "note" && slot.stringValue == "か")
+  controller.hide()
+  await model.finish()
 }
