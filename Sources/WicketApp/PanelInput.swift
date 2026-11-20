@@ -2,9 +2,12 @@ import Foundation
 import Observation
 
 /// Whether speech is writing the input now. A request made meanwhile waits a moment (`Navigator.refresh`),
-/// so a process does not run for every revision of a transcript.
+/// so a process does not run for every revision of a transcript. The navigator stops it, synchronously,
+/// before what it runs or writes into the input itself (a Return replayed, a prefill), which a later
+/// transcript would otherwise overwrite.
 @MainActor protocol Speech: AnyObject {
   var speaking: Bool { get }
+  func stop(_ reason: VoiceStop)
 }
 
 /// What the panel types and says into the screens: edits of the input and its slots, and dictation. It

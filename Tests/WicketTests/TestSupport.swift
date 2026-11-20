@@ -91,6 +91,7 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
     if let onPrepare { return await onPrepare(page, turn) }
     return await next?.prepare(page, turn: turn) ?? true
   }
+  var holdsReturn: Bool { next?.holdsReturn ?? false }
   func perform(_ effect: PaletteEffect) {
     effects.append(effect)
     onEffect(effect)

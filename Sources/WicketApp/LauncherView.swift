@@ -304,7 +304,8 @@ struct LauncherView: View {
           placeholder: placeholder, bleed: 6,
           focused: navigator.focusedArgument == nil,
           onFocus: { if navigator.focusedArgument != nil { navigator.focusedArgument = nil } },
-          register: { [panel] in panel.panel.field = $0 })
+          // The native panel, weakly: the controller owns this view, so capturing it would keep both alive.
+          register: { [weak native = panel.panel] in native?.field = $0 })
       }
   }
   /// A declared argument's slot after the input's text: as wide as its own text within fixed bounds.

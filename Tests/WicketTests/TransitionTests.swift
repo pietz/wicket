@@ -102,7 +102,7 @@ private let finished = #"{"items":[{"id":"done","title":"Finished","actions":[]}
   return (model, apps, root)
 }
 
-private func release(_ root: URL, _ name: String = "slow") throws {
+func release(_ root: URL, _ name: String = "slow") throws {
   try Data().write(to: root.appending(path: "extensions/\(name)/release"))
 }
 private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderRequest] {
@@ -456,7 +456,10 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 }
 
 /// A root pattern for `> text`, held on `release` for inputs with B, failing for inputs with F.
-@MainActor private func staleReturn() async throws -> (LauncherModel, PaletteController, URL) {
+@MainActor func staleReturn(
+  transcriber: @escaping () -> any Transcriber = { FakeTranscriber() },
+  openApplication: @escaping (URL, @escaping @MainActor (Error?) -> Void) -> Void = { _, _ in }
+) async throws -> (LauncherModel, PaletteController, URL) {
   let root = try scratch()
   _ = try extensionFolder(
     root, name: "echo",
@@ -474,7 +477,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.store.update { $0.providers = [.init("extension:echo")] }
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
-  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let controller = PaletteController(
+    model: model, panel: RoutingPanel(), transcriber: transcriber, openApplication: openApplication)
   controller.show(orderFront: false, listen: false)
   model.navigator.input = "> A"
   await model.navigator.settled()
@@ -940,9 +944,12 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 
 /// Composes `marked` at the end of the field's text, as an input method does: AppKit keeps it in the field
 /// editor, and the field's delegate hears of it only once it is committed (`commit`).
-@MainActor private func compose(_ marked: String, in field: NSTextField) throws -> NSTextView {
+/// `selecting` is where it is composed, replacing what is selected there; the end by default.
+@MainActor private func compose(_ marked: String, in field: NSTextField, selecting: NSRange? = nil) throws
+  -> NSTextView
+{
   let editor = try #require(field.currentEditor() as? NSTextView)
-  editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+  editor.setSelectedRange(selecting ?? NSRange(location: (editor.string as NSString).length, length: 0))
   editor.setMarkedText(
     marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0),
     replacementRange: NSRange(location: NSNotFound, length: 0))

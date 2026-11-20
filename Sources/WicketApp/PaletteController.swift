@@ -91,7 +91,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   private let pauseHotkeys: (Bool) -> Void
   /// Where the Settings destination goes.
   private let settings: SettingsWindowController?
+  /// Opens an application and calls back once Launch Services answered; tests hold the answer.
+  private let openApplication: (URL, @escaping @MainActor (Error?) -> Void) -> Void
   private var anchor = NSPoint.zero
+  /// An application is opening, which hides the panel once it answers (`holdsReturn`).
   private var opening = false
   private var previousApp: NSRunningApplication?
   private var visibleStarted: TimeInterval?
@@ -102,9 +105,15 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   init(
     model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel(),
     transcriber: @escaping () -> any Transcriber = { AppleTranscriber() },
-    settings: SettingsWindowController? = nil, pauseHotkeys: @escaping (Bool) -> Void = { _ in }
+    settings: SettingsWindowController? = nil, pauseHotkeys: @escaping (Bool) -> Void = { _ in },
+    openApplication: @escaping (URL, @escaping @MainActor (Error?) -> Void) -> Void = { url, done in
+      NSWorkspace.shared.openApplication(at: url, configuration: .init()) { _, error in
+        Task { @MainActor in done(error) }
+      }
+    }
   ) {
     self.panel = panel
+    self.openApplication = openApplication
     self.model = model
     self.settings = settings
     self.pauseHotkeys = pauseHotkeys
@@ -176,6 +185,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     await renderer.render(page, turn: turn)
     return renderer.renderedTurn == turn
   }
+  var holdsReturn: Bool { opening }
   func perform(_ effect: PaletteEffect) {
     switch effect {
     case .close: hide()
@@ -283,15 +293,11 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   func recordsHotkey(of result: Result) -> Bool {
     recorder.target != nil && recorder.target == navigator.hotkeyTarget(of: result)
   }
-  /// Return, a button or a menu item (`Navigator.run`): dictation stops first.
-  func run(_ chosen: RowAction? = nil) {
-    input.stop(.run)
-    navigator.run(chosen)
-  }
+  /// Return, a button or a menu item (`Navigator.run`).
+  func run(_ chosen: RowAction? = nil) { navigator.run(chosen) }
   /// What Return, a button or a menu item chose that leaves the screens: the effects on the panel and the
-  /// system. Nothing while an application is opening.
+  /// system.
   private func perform(_ action: RowAction, from result: Result?) {
-    guard !opening else { return }
     let input = navigator.input
     func record() { if let result { navigator.record(result) } }
     switch action.kind {
@@ -342,16 +348,14 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       }
       opening = true
       // Keep the error visible if Launch Services refuses the application.
-      NSWorkspace.shared.openApplication(at: url, configuration: .init()) { [weak self] _, error in
-        Task { @MainActor in
-          guard let self else { return }
-          self.opening = false
-          if let error {
-            self.navigator.actionProblem = error.localizedDescription
-          } else {
-            if let result { self.navigator.record(result, input: input) }
-            self.hide()
-          }
+      openApplication(url) { [weak self] error in
+        guard let self else { return }
+        opening = false
+        if let error {
+          navigator.actionProblem = error.localizedDescription
+        } else {
+          if let result { navigator.record(result, input: input) }
+          hide()
         }
       }
     }

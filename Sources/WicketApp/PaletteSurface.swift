@@ -8,6 +8,10 @@ import Foundation
   /// Renders and measures a page before it shows, so the card's height is known when it appears. False
   /// when the renderer measured another page meanwhile: one renderer serves every page.
   func prepare(_ page: Page, turn: String) async -> Bool
+  /// An effect that hides the panel when it ends is under way (an application opening): until it ends,
+  /// Return, buttons and menu items do nothing, a Return that waits for its rows included, so nothing
+  /// else runs and then disappears with the panel.
+  var holdsReturn: Bool { get }
   func perform(_ effect: PaletteEffect)
 }
 enum PaletteChange: Equatable {

@@ -16,7 +16,8 @@ final class Navigator {
   private let search: RootCommand
   private let store: ConfigurationStore
   private let history: UsageHistory
-  /// Whether dictation is writing the input: a request made meanwhile waits for the transcript to settle.
+  /// Whether dictation is writing the input: a request made meanwhile waits for the transcript to settle,
+  /// and what runs or prefills the input stops it first (`PanelInput`).
   @ObservationIgnored weak var speech: (any Speech)?
   var configuration: Configuration { store.configuration }
   var extensions: ExtensionHost { directory.extensions }
@@ -468,12 +469,16 @@ final class Navigator {
     return composedInput != input
       || !current.touched && selected?.provider == "agent" && search.awaitsPattern
   }
-  /// A Return that waits runs once `returnWaits` is over; an edit, a pick, a switch or hiding calls it off.
+  /// A Return that waits runs once `returnWaits` is over, as Return would then (`run`); an edit, a pick, a
+  /// switch or hiding calls it off.
   private(set) var returnQueued = false
   /// Return, a button or a menu item: the action chosen, else what Return does, from the row it belongs
   /// to. A Return that waits for the root's rows runs once they are composed. What is not the screens'
   /// goes to the panel.
   func run(_ chosen: RowAction? = nil) {
+    guard surface?.holdsReturn != true else { return }
+    // What runs takes the input from dictation first, so a later transcript cannot rewrite it.
+    speech?.stop(.run)
     if chosen == nil, returnWaits {
       returnQueued = true
       return
@@ -941,6 +946,8 @@ final class Navigator {
   /// Return is the follow-up. Anywhere else an open command is left and an empty conversation opens
   /// with the text as its unsent first question; ending it goes back to the root.
   func fill(_ text: String) {
+    // The text is the input now: dictation, which would write over it, stops first.
+    speech?.stop(.edit)
     if !conversing {
       converse {
         command = nil
