@@ -48,7 +48,8 @@ import Testing
           rows: model.navigator.results.map(\.row.title), selection: model.navigator.selected?.row.title,
           body: model.navigator.body,
           busy: model.navigator.command?.busy == true,
-          height: model.navigator.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
+          height: PaletteLayout.cardHeight(
+            model.navigator, answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
   /// The screens in the order they were drawn, each once per visit.
@@ -649,8 +650,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(await eventually { model.navigator.body == "# First page" })
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
-    card: model.navigator.cardHeight(
-      answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+    card: PaletteLayout.cardHeight(
+      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
   // The root once more, unchanged, then the page at its measured height: no frame in between.
   #expect(panel.shown.map(\.screen) == ["root", "extension:page"])
   #expect(panel.shown.map(\.frame.height) == [rootFrame.height, measured])
@@ -680,8 +681,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(await eventually { model.navigator.body == "# First page" })
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
-    card: model.navigator.cardHeight(
-      answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+    card: PaletteLayout.cardHeight(
+      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
   #expect(panel.shown.map(\.screen) == ["root", "extension:page", "extension:page"])
   #expect(panel.shown.map(\.frame.height) == [rootFrame.height, running, measured])
   let frames = panel.panel.frames
@@ -1358,8 +1359,8 @@ private let page = String(
   // Shown already, the page is rendered where it shows rather than measured first.
   #expect(panel.measuring == 0)
   let measured = PaletteLayout.panelHeight(
-    card: model.navigator.cardHeight(
-      answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+    card: PaletteLayout.cardHeight(
+      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
   #expect(panel.shown.map(\.screen) == ["root", "extension:slow", "extension:slow"])
   #expect(panel.shown.map(\.busy) == [false, true, false])
   #expect(panel.panel.frame.height == measured)
@@ -1553,7 +1554,7 @@ private func printing(_ answer: String) -> String {
   await model.finish()
 }
 
-@MainActor @Test func aSessionEndingElsewhereTakesTheAgentsScreenAndItsDetailWithIt() async throws {
+@MainActor @Test func quittingEndsTheAgentsScreenAndItsDetailBeforeTheSession() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -1564,7 +1565,7 @@ private func printing(_ answer: String) -> String {
   let surface = RecordingSurface()
   model.navigator.surface = surface
   surface.onDraw = { drawn.append(model.navigator.inDetail) }
-  // Quitting resets the session itself: nothing of the agent's screen is drawn after it.
+  // Quitting resets the session too: the agent's screen ends first, and nothing of it is drawn after.
   await model.finish()
   #expect(!model.agent.active && !model.navigator.inDetail && model.navigator.page == nil)
   #expect(!drawn.isEmpty && drawn.allSatisfy { !$0 })

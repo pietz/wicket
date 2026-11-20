@@ -78,6 +78,8 @@ struct CommandState {
 struct AgentScreen {
   var screen = Screen()
   let back: Back
+  /// Whether the question header shows all of a long question.
+  var expanded = false
   enum Back {
     /// The empty question ⌘↩ opened: Escape before sending shows the screen under it exactly as it was,
     /// with nothing run again, and its first question tells the agent what that screen showed then.
@@ -94,4 +96,41 @@ struct AgentScreen {
 struct AgentContext {
   let text: String
   let name: String
+}
+
+/// The agent's screen as the panel draws it and routes keys by (`Navigator.agentScreen`): the session's
+/// turn and its first permission, which the session keeps alive and expires, with this visit's own state.
+@MainActor struct AgentPresentation {
+  let question: String
+  /// The command the question was asked from, whose context went with it.
+  let source: String?
+  let notice: String?
+  let status: String
+  let problem: String?
+  /// The permission the card asks about; the others wait behind it.
+  let permission: AgentPermission?
+  let agentName: String
+  let folder: URL
+  /// A turn runs, `working` until its answer begins: the answer area shows its own spinner meanwhile.
+  let busy: Bool
+  let working: Bool
+  /// A kept or reopened conversation, ready for a follow-up.
+  let continuing: Bool
+  let streaming: Bool
+  let expanded: Bool
+  init(_ session: AgentSession, _ screen: AgentScreen) {
+    question = session.question
+    source = session.source
+    notice = session.notice
+    status = session.status
+    problem = session.problem
+    permission = session.permissions.first
+    agentName = session.agentName
+    folder = session.folder
+    busy = session.busy
+    working = session.busy && session.answer.isEmpty
+    continuing = session.continuing && !session.busy && !session.question.isEmpty
+    streaming = session.streaming
+    expanded = screen.expanded
+  }
 }

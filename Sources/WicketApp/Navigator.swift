@@ -69,14 +69,10 @@ final class Navigator {
   private(set) var command: CommandState? {
     didSet { if command?.id != oldValue?.id { command?.screen.selection.reset = true } }
   }
-  /// The agent's screen. It is open exactly while the session is active, so a session that ends anywhere
-  /// (quitting resets it) takes the screen with it, and nothing of it is drawn over the screen under it.
-  private var conversation: AgentScreen? {
-    get { agent.active ? agentScreen ?? AgentScreen(back: .refresh) : nil }
-    set { agentScreen = newValue }
-  }
-  private var agentScreen: AgentScreen?
-  private var conversing: Bool { agent.active }
+  /// The agent's screen, open while its session is: the navigator opens both together and ends both
+  /// together (`closeConversation`), quitting included (`finish`).
+  private var conversation: AgentScreen?
+  private var conversing: Bool { conversation != nil }
   /// The screen shown: the agent's, the open command's, or the root's.
   private var screen: Screen {
     get { conversation?.screen ?? command?.screen ?? base }
@@ -104,20 +100,18 @@ final class Navigator {
       if !conversing, arriving == nil { refresh(typed: changed) }
     }
   }
-  /// The session changed: a turn's text or status, or a permission, which needs to be seen. A switch
-  /// ending the conversation draws once it is done instead (`closeConversation`).
+  /// The session changed: a turn's text or status, or a permission, which needs to be seen while its
+  /// screen shows. A session the navigator is ending or replacing (a reset on the way to another agent)
+  /// is not: what shows next is drawn once it is there.
   private func agentChanged() {
-    guard !committing else { return }
+    guard conversing, agent.active else { return }
     if !agent.permissions.isEmpty { closeActions() }
     draw()
   }
-  @ObservationIgnored private var committing = false
-  /// Ends the agent's screen. The session resets without drawing: the caller draws the screen under it.
+  /// Ends the agent's screen, then its session. The caller draws the screen under it.
   private func closeConversation() {
-    committing = true
-    agent.reset()
-    committing = false
     conversation = nil
+    agent.reset()
   }
 
   /// The list at search and inside a command.
@@ -198,7 +192,6 @@ final class Navigator {
     "detail:\(command):" + (item ?? "")
   }
   var prominentFirst: Bool { results.first.map { $0.row.prominent == true } ?? false }
-  var questionExpanded = false
   var conversationHeaderHeight: CGFloat = 32 {
     didSet { if conversationHeaderHeight != oldValue { draw() } }
   }
@@ -835,16 +828,20 @@ final class Navigator {
   /// The panel shows again. A conversation or empty question kept past its time is gone, and the root
   /// starts over.
   func reopen(now: Date) {
-    committing = true
-    let expired = agent.reopen(now: now)
-    committing = false
-    guard expired else { return }
+    guard agent.reopen(now: now) else { return }
     cancelWork()
     conversation = nil
     base.arguments = [:]
     base.selection.reset = true
     command = nil
     input = ""
+  }
+  /// Quitting: the work of the screens stops, and the agent's screen ends before its session does.
+  func finish() {
+    cancelWork()
+    guard conversing else { return }
+    closeConversation()
+    draw()
   }
   func escape() -> Bool {
     focusTarget = nil
@@ -892,6 +889,16 @@ final class Navigator {
 
   // MARK: The agent's screen
 
+  /// The agent's screen as drawn, nil while it is not open.
+  var agentScreen: AgentPresentation? { conversation.map { AgentPresentation(agent, $0) } }
+  /// A long question's header shows all of it, or two lines again.
+  func toggleQuestion() { conversation?.expanded.toggle() }
+  /// The permission card has the keys: ⌘↩ allows, Escape denies, and Return does nothing.
+  var permissionPending: Bool { conversing && !agent.permissions.isEmpty }
+  /// Answers the permission the card asks about.
+  func decide(_ allow: Bool) { agent.decide(allow) }
+  /// Calls off the running turn.
+  func cancelTurn() { agent.cancel() }
   /// Who Return asks: a draft goes to the agent configured now, since settings apply when it is sent.
   var askingName: String { agent.question.isEmpty ? configuration.agent.agent.title : agent.agentName }
   /// Goes to a conversation that `start` begins: what was over the screen, a switch on its way and the
@@ -903,8 +910,9 @@ final class Navigator {
     cancelWork()
     base.arguments = [:]
     conversation = AgentScreen(back: .refresh)
-    questionExpanded = false
     start()
+    // A run with no turn to reopen leaves nothing to show.
+    if !agent.active { conversation = nil }
     clearSelection()
     input = ""
   }

@@ -27,7 +27,8 @@ import Testing
       self.all.append(
         Frame(
           command: model.navigator.command?.id, rows: model.navigator.results.count,
-          height: model.navigator.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
+          height: PaletteLayout.cardHeight(
+            model.navigator, answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
 }

@@ -118,7 +118,7 @@ final class LauncherModel {
     navigator.adopt(program, request: request, view: view, page: page, turn: turn)
   }
   func finish() async {
-    navigator.cancelWork()
+    navigator.finish()
     await extensions.shutdown()
     await agent.shutdown()
     await history.finish()

@@ -28,3 +28,30 @@ enum PaletteLayout {
     return streaming ? max(min(previous, cap), bounded) : bounded
   }
 }
+
+/// The card's size for the screens' committed state: one policy for the native frame
+/// (`PaletteController.resize`) and the hosted card (`LauncherView`), so both change in the same turn.
+@MainActor extension PaletteLayout {
+  /// The list's height: as tall as its rows, or beside a detail always eight rows, so that arrowing
+  /// through details of different lengths never changes it; a longer detail scrolls.
+  static func listHeight(_ screens: Navigator) -> CGFloat {
+    rowsHeight(
+      screens.splits ? 8 : screens.sizedRows, prominentFirst: !screens.splits && screens.prominentFirst,
+      rowHeight: screens.configuration.textSize.rowHeight)
+  }
+  /// `answer` is the renderer's measured page height, `cap` the most a command's page may take.
+  static func cardHeight(_ screens: Navigator, answer: CGFloat, cap: Double) -> CGFloat {
+    let list = listHeight(screens) + footer
+    // The action panel is a list, over whatever it was opened on.
+    if screens.actionsTitle != nil { return list }
+    if let agent = screens.agentScreen {
+      if agent.question.isEmpty { return answerMin + footer }
+      let content =
+        agent.permission == nil ? (agent.working ? answerMin : answer) : screens.confirmationHeight
+      return min(560, screens.conversationHeaderHeight + content) + footer
+    }
+    if screens.command?.problem != nil { return header + error + footer }
+    if screens.page != nil { return header + min(answer, CGFloat(cap)) + footer }
+    return list
+  }
+}

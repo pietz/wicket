@@ -368,7 +368,7 @@ private let installedAgent: Void = {
         agent.end()
         #expect(await eventually { !model.agent.busy })
       }
-      if name == "conversation-long-expanded" { model.navigator.questionExpanded = true }
+      if name == "conversation-long-expanded" { model.navigator.toggleQuestion() }
     case "clipboard", "clipboard-image":
       let clips = try #require(clipboard)
       model.store.update { $0.providers = [.init("clipboard")] }

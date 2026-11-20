@@ -126,11 +126,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     panel.target = self
     navigator.surface = self
     panel.setAccessibilityLabel("Wicket Launcher")
-    let root = NSHostingView(
-      rootView: LauncherView(
-        model: model, input: input, recorder: recorder, renderer: renderer,
-        registerInput: { [weak self] field in self?.panel.field = field },
-        run: { [weak self] action in self?.run(action) }, flatSurfaces: flatSurfaces))
+    let root = NSHostingView(rootView: LauncherView(panel: self, flatSurfaces: flatSurfaces))
     root.sizingOptions = []
     panel.contentView = root
     renderer.onHeight = { [weak self] in self?.resize() }
@@ -140,7 +136,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       run()
     }
   }
-  var permissionPending: Bool { !model.agent.permissions.isEmpty }
+  var permissionPending: Bool { navigator.permissionPending }
   var hasArguments: Bool { !navigator.declaredArguments.isEmpty }
   func handle(_ action: PaletteKeyAction) -> Bool {
     if input.keyPressed(action) { return true }
@@ -149,7 +145,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     case .run: run()
     case .send: navigator.askAgent()
     case .actions: navigator.toggleActions()
-    case .permission(let allow): model.agent.decide(allow)
+    case .permission(let allow): navigator.decide(allow)
     case .move(let delta): navigator.move(delta)
     case .focus(let delta): navigator.moveFocus(delta)
     case .edit, .consume, .passThrough: return false
@@ -249,7 +245,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   private func resize() {
     guard panel.isVisible || anchor != .zero else { return }
     let height = PaletteLayout.panelHeight(
-      card: navigator.cardHeight(answer: renderer.height, cap: renderer.cap))
+      card: PaletteLayout.cardHeight(navigator, answer: renderer.height, cap: renderer.cap))
     let frame = PaletteLayout.frame(anchor: anchor, height: height)
     if panel.frame != frame { panel.setFrame(frame, display: false) }
     panel.contentView?.layoutSubtreeIfNeeded()
@@ -268,7 +264,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     renderer.selected = navigator.selectedTarget
     renderer.update(
       page, turn: navigator.pageTurn,
-      streaming: model.agent.active && !navigator.inDetail && model.agent.busy && model.agent.streaming)
+      streaming: !navigator.inDetail && navigator.agentScreen.map { $0.busy && $0.streaming } == true)
   }
   /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
   func open(_ url: URL) {
