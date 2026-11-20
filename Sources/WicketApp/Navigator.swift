@@ -453,7 +453,7 @@ final class Navigator {
   /// and an empty list is not "No results".
   var awaitsPattern: Bool { command == nil && !conversing && !search.runningPatterns.isEmpty }
   /// A Return that waits runs once `returnWaits` is over, as Return would then (`run`); an edit, a pick, a
-  /// switch or hiding calls it off.
+  /// switch, hiding or the pattern it waited for failing calls it off.
   private(set) var returnQueued = false
   /// Return, a button or a menu item: the action chosen, else what Return does, from the row it belongs
   /// to. A Return that waits for the root's rows runs once they are composed. What is not the screens'
@@ -678,9 +678,13 @@ final class Navigator {
     listed = output.results
     composedInput = output.input
     publish()
-    if returnQueued, !returnWaits {
+    guard returnQueued else { return }
+    if !returnWaits {
       returnQueued = false
       run()
+    } else if composedInput == input, search.runningPatterns.isEmpty {
+      // Only a failed pattern still holds it, and nothing will end that: the Return is over.
+      returnQueued = false
     }
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address

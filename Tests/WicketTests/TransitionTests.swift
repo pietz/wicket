@@ -535,11 +535,12 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aWaitingReturnRunsOnceAndNeverForAFailedPattern() async throws {
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
-  // A failed pattern leaves the Return waiting: it never becomes Ask agent.
+  // A failed pattern calls the waiting Return off: it never becomes Ask agent.
   model.navigator.input = "> F"
   controller.run()
+  #expect(model.navigator.returnQueued)
   await model.navigator.settled()
-  #expect(model.navigator.returnQueued && model.navigator.command == nil && !model.agent.active)
+  #expect(!model.navigator.returnQueued && model.navigator.command == nil && !model.agent.active)
   #expect(model.navigator.results.contains { $0.row.id == "error" })
   // Replayed once, when the rows for what is typed arrive.
   model.navigator.input = "> B"
