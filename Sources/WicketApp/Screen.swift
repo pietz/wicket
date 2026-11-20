@@ -9,6 +9,31 @@ struct Selection {
   var touched = false
   var reset = true
   var previous: [String] = []
+  /// Follows the rows shown now. Untouched, it is on the first row, or on none while the input has the
+  /// first say (`waits`). A chosen row that went away leaves it at that row's place, except on a page,
+  /// where it goes with its target, so Return never moves to a neighbor, and while sources are still
+  /// `pending`, when the row may come back.
+  mutating func follow(_ rows: [String], waits: Bool, onPage: Bool, pending: Bool) {
+    if reset { touched = false }
+    if !touched {
+      id = waits ? nil : rows.first
+    } else if let chosen = id, !rows.contains(chosen) {
+      if onPage {
+        touched = false
+        id = nil
+        reset = false
+        return
+      }
+      if pending {
+        reset = false
+        return
+      }
+      let index = previous.firstIndex(of: chosen) ?? 0
+      id = rows.isEmpty ? nil : rows[min(index, rows.count - 1)]
+    }
+    reset = false
+    previous = rows
+  }
 }
 
 /// One visit to a screen: the root's search, a command, or the conversation. What is typed there, the
@@ -61,7 +86,7 @@ struct CommandState {
   }
   /// What the command shows now.
   var shown = Shown()
-  /// What a typed question tells the agent the command showed (`Navigator.commandContext`): the
+  /// What a typed question tells the agent the command showed (`AgentContext`): the
   /// last view whose request the user did not cause by typing. Typing reruns never replace it, so a
   /// question typed into a command that is not `submit` sends the view it was asked about, not the
   /// rerun for its own text. Nil until such a request is answered, and after one fails.
@@ -96,6 +121,30 @@ struct AgentScreen {
 struct AgentContext {
   let text: String
   let name: String
+  /// About 4 KB of the open view goes to the agent.
+  static let limit = 4000
+  /// The command and what it showed, as a `<context>` block, with the command's name for the header.
+  init(_ owner: ExtensionCommand, shown: CommandState.Shown) {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    func json(_ value: some Encodable) -> String {
+      String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
+    }
+    struct Content: Encodable {
+      let body: String?
+      let items: [Row]
+    }
+    var view = json(Content(body: shown.view.body, items: shown.view.items))
+    if view.count > Self.limit {
+      view = String(view.prefix(Self.limit)) + "\n[cut: the view was longer than this]"
+    }
+    name = owner.manifest.name
+    var asked =
+      "The user asked from the \(name) command (\(owner.folder.path), folder `\(owner.folder.lastPathComponent)`)"
+    asked += ", input \(json(shown.input))"
+    if !shown.arguments.isEmpty { asked += ", arguments \(json(shown.arguments))" }
+    text = "<context>\n\(asked).\nIt showed:\n\(view)\n</context>"
+  }
 }
 
 /// The agent's screen as the panel draws it and routes keys by (`Navigator.agentScreen`): the session's

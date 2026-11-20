@@ -79,6 +79,44 @@ extension HostCommand {
     }
     return host(id)?.view(for: request)
   }
+  /// What answering a request to `id` takes. `rerun`: the request follows typing, voice or a refresh,
+  /// not an address.
+  func work(_ id: String, _ request: ProviderRequest, rerun: Bool, in configuration: Configuration)
+    -> CommandWork
+  {
+    let command = extensions.commands[id]
+    let available = isAvailable(id, in: configuration)
+    // A submit command runs only when an address is followed, Return included: typing, voice and
+    // refreshes leave its view and a running request alone, and nothing stays selected. One switched
+    // off or removed stops like any other.
+    if rerun, command?.manifest.submit == true, available { return .keepView }
+    let process = source(id)
+    guard let process, available else {
+      return .unavailable(
+        process == nil
+          ? "This extension was removed. Press Esc to go back."
+          : "\(name(of: id) ?? id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
+      )
+    }
+    if let view = immediateView(id, request) { return .immediate(view) }
+    return .deferred(process) { command?.report($0, error: $1) ?? $1.localizedDescription }
+  }
+  /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
+  /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
+  /// no address of its own, such as an app, a file or a fallback.
+  func hotkeyTarget(of result: Result, atRoot: Bool) -> HotkeyTarget? {
+    if Self.isRootRow(result) { return HotkeyTarget(target: result.provider) }
+    guard let owner = extensions.commands[result.provider] else { return nil }
+    if atRoot, result.row.id == "command" { return HotkeyTarget(target: owner.id) }
+    var item = result.row.id
+    if atRoot {
+      // At the root an item's id is prefixed (`ExtensionCommand.rootItems`).
+      guard item.hasPrefix("item:") else { return nil }
+      item.removeFirst(5)
+    }
+    guard owner.manifest.items?.contains(where: { $0.id == item }) == true else { return nil }
+    return HotkeyTarget(target: owner.id, item: item)
+  }
   /// The host's rows at the root, before ranking: Settings and the host commands available now.
   func rootRows(_ configuration: Configuration) -> [Result] {
     let available = Self.registered.filter { $0.isAvailable(in: configuration, extensions: extensions.ids) }
@@ -89,4 +127,18 @@ extension HostCommand {
     result.row.id == "open"
       && ([settings] + registered.map { $0.row }).contains { $0.provider == result.provider }
   }
+}
+
+/// What answering a request to a command takes (`CommandDirectory.work`).
+enum CommandWork {
+  /// The view shown stays and nothing runs.
+  case keepView
+  /// The command was removed or switched off: why, shown instead of a view.
+  case unavailable(String)
+  /// Answered at once, without a process: an extension's manifest items or a host command's list.
+  case immediate(ProviderView)
+  /// A process answers, and a failure shows its report.
+  case deferred(
+    @MainActor (ProviderRequest) async throws -> ProviderView,
+    report: @MainActor (ProviderRequest, any Error) -> String)
 }

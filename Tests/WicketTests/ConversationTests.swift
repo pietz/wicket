@@ -311,7 +311,7 @@ import Testing
       "<context>\nThe user asked from the Weather command (\(path), folder `weather`), input \"Hamburg\", arguments {\"view\":\"day\"}.\nIt showed:\n{\"body\":\"## Hamburg"
     ))
   #expect(prompt.hasSuffix("[cut: the view was longer than this]\n</context>\n\nadd the wind here"))
-  #expect(prompt.count < Navigator.contextLimit + 400)
+  #expect(prompt.count < AgentContext.limit + 400)
   // The conversation shows only the user's words, and where they asked from.
   #expect(model.agent.question == "add the wind here" && model.agent.source == "Weather")
   fake.text("Done")

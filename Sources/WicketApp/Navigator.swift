@@ -1,35 +1,6 @@
 import AppKit
 import Observation
 
-/// What the navigator asks of the panel it shows in (`PaletteController`): drawing what changed, in the
-/// same turn, so the native frame and the content change together; measuring a page before it shows; and
-/// what leaves the screens.
-@MainActor protocol PaletteSurface: AnyObject {
-  func present(_ change: PaletteChange)
-  /// Renders and measures a page before it shows, so the card's height is known when it appears. False
-  /// when the renderer measured another page meanwhile: one renderer serves every page.
-  func prepare(_ page: Page, turn: String) async -> Bool
-  func perform(_ effect: PaletteEffect)
-}
-enum PaletteChange: Equatable {
-  /// What the screens show: the panel renders the page and sizes itself at once.
-  case content
-  /// Only what is selected: the page paints it at once, and beside a list the selected item's detail
-  /// shows, without waiting for the next render.
-  case selection
-}
-/// What leaves the screens.
-enum PaletteEffect: Equatable {
-  /// What Return, a button or a menu item chose that is not the screens': a copy, paste, open or reveal,
-  /// or recording a hotkey (`Navigator.activate`), and the row it came from.
-  case run(RowAction, from: Result?)
-  /// An extension's answer to a submitted request said it is done (`ProviderView.close`): the panel hides
-  /// without showing it, as the user hiding it would; the effect (a moved window) is the feedback.
-  case close
-  /// The Settings destination: the launcher leaves for the native window.
-  case settings
-}
-
 /// The launcher's screens and how the user moves between them. The root's search is always at the bottom,
 /// an open command over it, and the agent's screen over either (`AgentScreen`); details and the action
 /// panel are layers over the screen shown. It switches screens once the next one has its content
@@ -327,26 +298,10 @@ final class Navigator {
   }
   private func retainSelection() {
     guard overlay == nil else { return }
-    let rows = results
-    if current.reset { current.touched = false }
-    if !current.touched {
-      current.id = itemsWait ? nil : rows.first?.id
-    } else if let chosen = current.id, !rows.contains(where: { $0.id == chosen }) {
-      // On a page a target that went away takes the selection with it: Return never moves to a neighbor.
-      if page != nil {
-        clearSelection()
-        current.reset = false
-        return
-      }
-      if !search.pending.isEmpty {
-        current.reset = false
-        return
-      }
-      let index = current.previous.firstIndex { $0 == chosen } ?? 0
-      current.id = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
-    }
-    current.reset = false
-    current.previous = rows.map(\.id)
+    var selection = current
+    selection.follow(
+      results.map(\.id), waits: itemsWait, onPage: page != nil, pending: !search.pending.isEmpty)
+    current = selection
   }
   /// Back on a screen or page as the user left it: its own selection, kept unless its rows changed meanwhile.
   private func reconcileSelection() {
@@ -627,82 +582,79 @@ final class Navigator {
   /// `typed`: the input was edited, which a command's context ignores unless an address set it.
   func refresh(typed: Bool = false) {
     guard !conversing || arriving != nil else { return }
-    let speaking = speech?.speaking == true
     let input = arriving?.input ?? self.input
     if let state = target {
-      let source = directory.source(state.id)
-      let extensionCommand = extensions.commands[state.id]
-      let available = directory.isAvailable(state.id, in: configuration)
-      // A submit command runs only when an address is followed, Return included: typing, voice and
-      // refreshes leave its view and a running request alone, and nothing stays selected. One switched
-      // off or removed stops like any other.
-      if state.next == .rerun, extensionCommand?.manifest.submit == true, available {
-        showArrival()
-        publish()
-        return
-      }
-      cancelWork()
-      target?.next = .rerun
-      let remembered = !typed || state.next != .rerun
-      guard let source, available else {
-        // Back on or back again, it runs as when it is entered.
-        target?.next = .address
-        target?.context = nil
-        target?.problem =
-          source == nil
-          ? "This extension was removed. Press Esc to go back."
-          : "\(directory.name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
-        showArrival()
-        listed = []
-        publish()
-        return
-      }
-      target?.problem = nil
       let request = ProviderRequest(
         input: input, arguments: state.screen.arguments, submitted: state.next == .submission)
-      if let view = directory.immediateView(state.id, request) {
-        showArrival()
-        show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
-        publish()
-        return
-      }
-      target?.busy = true
-      let version = generation
-      let turn = UUID().uuidString
-      tasks.append(
-        Task { [weak self] in
-          do {
-            if speaking { try await Task.sleep(for: .milliseconds(350)) }
-            let view = try await source(request)
-            guard let self, !Task.isCancelled, generation == version else { return }
-            if view.close, request.submitted { return surface?.perform(.close) ?? () }
-            let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-            // Measured for this page: one the renderer measured meanwhile, such as a list's detail on an
-            // arrow key, says nothing about this one's height.
-            while arriving != nil, let page, let surface, await surface.prepare(page, turn: turn) == false {
-              guard !Task.isCancelled, generation == version else { return }
-            }
-            guard !Task.isCancelled, generation == version else { return }
-            showArrival()
-            show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
-          } catch {
-            guard let self, !Task.isCancelled, generation == version else { return }
-            showArrival()
-            if remembered { command?.context = nil }
-            command?.problem =
-              extensionCommand.map { $0.report(request, error: error) }
-              ?? error.localizedDescription
-            listed = []
-          }
-          guard let self, generation == version else { return }
-          command?.busy = false
-          publish()
-        })
-      draw()
+      let work = directory.work(state.id, request, rerun: state.next == .rerun, in: configuration)
+      guard case .keepView = work else { return answer(work, of: state, request: request, typed: typed) }
+      showArrival()
+      publish()
       return
     }
     cancelWork()
-    search.search(input, speaking: speaking) { [weak self] in self?.show($0) }
+    search.search(input, speaking: speech?.speaking == true) { [weak self] in self?.show($0) }
+  }
+  /// Answers a command's request as `work` says: what fails or is answered at once shows now, and a
+  /// process's view once it is there, unless another request or screen replaced it meanwhile.
+  private func answer(_ work: CommandWork, of state: CommandState, request: ProviderRequest, typed: Bool) {
+    let speaking = speech?.speaking == true
+    cancelWork()
+    target?.next = .rerun
+    let remembered = !typed || state.next != .rerun
+    let source: (ProviderRequest) async throws -> ProviderView
+    let report: (ProviderRequest, any Error) -> String
+    switch work {
+    case .keepView: return
+    case .unavailable(let problem):
+      // Back on or back again, it runs as when it is entered.
+      target?.next = .address
+      target?.context = nil
+      target?.problem = problem
+      showArrival()
+      listed = []
+      return publish()
+    case .immediate(let view):
+      target?.problem = nil
+      showArrival()
+      show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
+      return publish()
+    case .deferred(let process, let failure):
+      target?.problem = nil
+      source = process
+      report = failure
+    }
+    target?.busy = true
+    let version = generation
+    let turn = UUID().uuidString
+    tasks.append(
+      Task { [weak self] in
+        do {
+          if speaking { try await Task.sleep(for: .milliseconds(350)) }
+          let view = try await source(request)
+          guard let self, !Task.isCancelled, generation == version else { return }
+          if view.close, request.submitted { return surface?.perform(.close) ?? () }
+          let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
+          // Measured for this page: one the renderer measured meanwhile, such as a list's detail on an
+          // arrow key, says nothing about this one's height.
+          while arriving != nil, let page, let surface, await surface.prepare(page, turn: turn) == false {
+            guard !Task.isCancelled, generation == version else { return }
+          }
+          guard !Task.isCancelled, generation == version else { return }
+          showArrival()
+          show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
+        } catch {
+          guard let self, !Task.isCancelled, generation == version else { return }
+          showArrival()
+          if remembered { command?.context = nil }
+          command?.problem = report(request, error)
+          listed = []
+        }
+        guard let self, generation == version else { return }
+        command?.busy = false
+        publish()
+      })
+    draw()
   }
   /// Waits until no work is left, including work a refresh started while this was waiting.
   func settled() async {
@@ -979,32 +931,11 @@ final class Navigator {
     guard let command, extensionCommand != nil else { return nil }
     return typed ? command.context : command.problem == nil ? command.shown : nil
   }
-  /// The open extension command and what it showed (`contextView`), as a `<context>` block for the
-  /// agent, with the command's name for the question header.
+  /// The open extension command and what it showed (`contextView`), for the agent's first question.
   private func commandContext(typed: Bool) -> AgentContext? {
     guard let shown = contextView(typed: typed), let owner = extensionCommand else { return nil }
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-    func json(_ value: some Encodable) -> String {
-      String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
-    }
-    struct Content: Encodable {
-      let body: String?
-      let items: [Row]
-    }
-    var view = json(Content(body: shown.view.body, items: shown.view.items))
-    if view.count > Self.contextLimit {
-      view = String(view.prefix(Self.contextLimit)) + "\n[cut: the view was longer than this]"
-    }
-    let name = owner.manifest.name
-    var asked =
-      "The user asked from the \(name) command (\(owner.folder.path), folder `\(owner.folder.lastPathComponent)`)"
-    asked += ", input \(json(shown.input))"
-    if !shown.arguments.isEmpty { asked += ", arguments \(json(shown.arguments))" }
-    return AgentContext(text: "<context>\n\(asked).\nIt showed:\n\(view)\n</context>", name: name)
+    return AgentContext(owner, shown: shown)
   }
-  /// About 4 KB of the open view goes to the agent.
-  static let contextLimit = 4000
   /// The `agent` action: the text becomes the input and nothing is sent. In a conversation the next
   /// Return is the follow-up. Anywhere else an open command is left and an empty conversation opens
   /// with the text as its unsent first question; ending it goes back to the root.
@@ -1020,21 +951,9 @@ final class Navigator {
 
   // MARK: Hotkeys
 
-  /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
-  /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
-  /// no address of its own, such as an app, a file or a fallback.
+  /// What a row's hotkey is bound to (`CommandDirectory.hotkeyTarget`).
   func hotkeyTarget(of result: Result) -> HotkeyTarget? {
-    if CommandDirectory.isRootRow(result) { return HotkeyTarget(target: result.provider) }
-    guard let owner = extensions.commands[result.provider] else { return nil }
-    if command == nil, result.row.id == "command" { return HotkeyTarget(target: owner.id) }
-    var item = result.row.id
-    if command == nil {
-      // At the root an item's id is prefixed (`ExtensionCommand.rootItems`).
-      guard item.hasPrefix("item:") else { return nil }
-      item.removeFirst(5)
-    }
-    guard owner.manifest.items?.contains(where: { $0.id == item }) == true else { return nil }
-    return HotkeyTarget(target: owner.id, item: item)
+    directory.hotkeyTarget(of: result, atRoot: command == nil)
   }
   /// The hotkey a row shows at its trailing edge.
   func hotkey(of result: Result) -> Shortcut? {
