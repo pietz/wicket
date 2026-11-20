@@ -941,7 +941,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
-@MainActor @Test func anEmptyQuestionDuringAnEntryLeavesTheEntrysRequestLive() async throws {
+@MainActor @Test func anEmptyQuestionDuringAnEntryCallsItOffWithItsRequest() async throws {
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
   var closed = 0
@@ -959,15 +959,18 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(model.agent.active && model.returnsOnEscape && model.command?.id == "extension:page")
   measuring?.resume()
   await model.settled()
-  // Recorded as it is: the second page's answer lands in the first command under the question.
+  // The first command, exactly as it was under the question.
   #expect(model.escape())
-  #expect(model.command?.id == "extension:page" && model.body == "# Second page")
-  // And a submitted close of an entry on its way hides the panel over the question.
+  #expect(model.command?.id == "extension:page" && model.body == "# First page" && !model.agent.active)
+  // A submitted close of an entry called off this way hides nothing.
   model.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 1 })
   model.askAgent()
   try release(root)
-  #expect(await eventually { closed == 1 })
-  #expect(model.agent.active && model.returnsOnEscape)
+  try await Task.sleep(for: .milliseconds(200))
+  #expect(closed == 0 && model.agent.active && model.returnsOnEscape)
+  #expect(model.escape())
+  #expect(model.command?.id == "extension:page" && model.body == "# First page")
+  #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
   await model.finish()
 }

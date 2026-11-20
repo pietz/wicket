@@ -854,8 +854,12 @@ final class LauncherModel {
     closeActions()
     guard input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return send() }
     guard !agent.active else { return }
-    // A switch still on its way would end the conversation when it arrives.
-    stopArriving()
+    // A switch still on its way is called off with its request, which would otherwise answer into the
+    // screen under the conversation. That screen's own work already stopped when the switch began.
+    if arriving != nil {
+      stopArriving()
+      cancelWork()
+    }
     origin = Origin(context: commandContext(typed: false), input: input, spot: spot)
     agent.open(settings: configuration.agent)
     clearSelection()
