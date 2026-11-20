@@ -88,7 +88,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
       == .run(Address(id: "extension:caffeinate", input: "", arguments: ["hours": "4", "minutes": "30"])))
   #expect(model.activateReturn())
   await model.settled()
-  #expect(model.command?.arguments == ["hours": "4", "minutes": "30"])
+  #expect(model.argumentValues == ["hours": "4", "minutes": "30"])
   #expect(try requests().map(\.submitted) == [true])
   #expect(try requests().last?.arguments == ["hours": "4", "minutes": "30"])
   // Inside, the same arguments are on offer with the command's values; an edit reruns like typing.

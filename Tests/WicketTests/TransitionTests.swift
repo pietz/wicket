@@ -974,3 +974,34 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
   await model.finish()
 }
+
+@MainActor @Test func aCommandRowsDraftStaysUnderAnEmptyQuestion() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "caffeinate", fields: ["arguments": [["name": "hours"], ["name": "minutes"]]])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.agent.connect = { _, _, _ in FakeAgent() }
+  await model.extensions.reload()
+  model.refresh()
+  await model.settled()
+  let row = try #require(model.results.first { $0.provider == "extension:caffeinate" }?.id)
+  model.select(row)
+  model.setArgument("hours", to: "2")
+  // The question has its own input, values and selection; Escape finds the root as it was.
+  model.askAgent()
+  #expect(model.agent.active && model.argumentValues.isEmpty && model.selection == nil)
+  model.editInput("how long")
+  #expect(model.escape())
+  #expect(model.input.isEmpty && model.selection == row && model.argumentValues == ["hours": "2"])
+  // Sending instead leaves the draft behind with the root.
+  model.askAgent()
+  model.editInput("how long")
+  #expect(model.activateReturn() && model.agent.question == "how long")
+  model.agent.cancel()
+  #expect(await eventually { !model.agent.busy })
+  #expect(model.escape())
+  await model.settled()
+  #expect(!model.agent.active && model.input.isEmpty && model.argumentValues.isEmpty)
+  await model.finish()
+}

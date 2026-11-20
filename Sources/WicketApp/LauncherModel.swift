@@ -1,50 +1,48 @@
 import AppKit
 import Observation
 
-/// The command screen: an extension's, or a host command's (Clipboard History, Agent History). Nil at search.
-struct CommandState {
-  let id: String
-  var arguments: [String: String] = [:]
-  /// What the next request answers. Going to an address runs it even in a submit command, and the
-  /// user's activation makes it submitted; every later request is a rerun.
-  var next = Cause.address
-  enum Cause { case rerun, address, submission }
-  /// A view with the input and arguments of the request it answered.
-  struct Shown {
-    var view = ProviderView()
-    var input = ""
-    var arguments: [String: String] = [:]
-  }
-  /// What the command shows now.
-  var shown = Shown()
-  /// What a typed question tells the agent the command showed (`LauncherModel.commandContext`): the
-  /// last view whose request the user did not cause by typing. Typing reruns never replace it, so a
-  /// question typed into a command that is not `submit` sends the view it was asked about, not the
-  /// rerun for its own text. Nil until such a request is answered, and after one fails.
-  var context: Shown?
-  /// The view's body as a page, with its items after it; nil for a list.
-  var page: Page?
-  var problem: String?
-  var busy = false
-  var turn = UUID().uuidString
-}
-
 @MainActor @Observable
 final class LauncherModel {
-  var input = "" {
-    didSet {
-      if input != oldValue {
-        resetSelection = true
+  /// The root's screen, the conversation's, and the open command's in `command`.
+  private var search = Screen()
+  private var conversation = Screen()
+  /// The screen shown: the conversation, the open command's, or the root's.
+  private var screen: Screen {
+    get { agent.active ? conversation : command?.screen ?? search }
+    set {
+      if agent.active {
+        conversation = newValue
+      } else if command != nil {
+        command?.screen = newValue
+      } else {
+        search = newValue
+      }
+    }
+  }
+  /// What is typed on the screen shown.
+  var input: String {
+    get { screen.input }
+    set {
+      let changed = newValue != screen.input
+      screen.input = newValue
+      if changed {
+        screen.selection.reset = true
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
         if agent.active { clearSelection() }
       }
-      if !agent.active, arriving == nil { refresh(typed: input != oldValue) }
+      if !agent.active, arriving == nil { refresh(typed: changed) }
     }
   }
   let agent: AgentSession
   let extensions: ExtensionHost
   /// The list at search and inside a command.
-  private var listed: [Result] = [] { didSet { sizeList() } }
+  private var listed: [Result] {
+    get { command?.screen.rows ?? search.rows }
+    set {
+      if command != nil { command?.screen.rows = newValue } else { search.rows = newValue }
+      sizeList()
+    }
+  }
   /// The rows the list card is sized for: more show at once, fewer only after 300 ms, so a late batch
   /// such as file results does not make the panel shrink and grow again while typing. The pause counts
   /// from the first shorter list and is not restarted by later ones; once no source is pending the list
@@ -55,12 +53,12 @@ final class LauncherModel {
   private var sizedFor: String?
   private func sizeList(now: Bool = false) {
     let count = max(1, min(results.count, 8))
-    let screen = command?.id
+    let shown = command?.id
     let settled = root.pending.isEmpty && command?.busy != true
-    guard count < sizedRows, !now, !settled, screen == sizedFor else {
+    guard count < sizedRows, !now, !settled, shown == sizedFor else {
       shrinking?.cancel()
       shrinking = nil
-      sizedFor = screen
+      sizedFor = shown
       sizedRows = count
       return
     }
@@ -75,7 +73,7 @@ final class LauncherModel {
   /// What the arrow keys walk: the action panel's rows, the open page's targets in reading order, else
   /// the list.
   var results: [Result] {
-    if let actionPanel { return actionPanel.rows }
+    if let overlay { return overlay.rows }
     guard let page else { return agent.active ? [] : listed }
     let provider = agent.active ? "answer" : command?.id ?? ""
     return page.targets.map { Result(provider: provider, row: $0) }
@@ -93,7 +91,7 @@ final class LauncherModel {
   /// the root, in a conversation, on a page or under the action panel. Keep split previews out of root
   /// search so ordinary keystrokes never have to render WebKit content.
   var splits: Bool {
-    !agent.active && command != nil && page == nil && actionPanel == nil
+    !agent.active && command != nil && page == nil && overlay == nil
       && listed.contains { $0.row.detail != nil }
   }
   /// The selected item's detail, written with the view, so an arrow key shows it with no request; empty
@@ -115,51 +113,27 @@ final class LauncherModel {
     "detail:\(command):" + (item ?? "")
   }
   private var baseTurn: String { agent.active ? agent.turnID : command?.turn ?? "" }
-  /// An item's content opened as its own page, over the page it came from: the selection and the
-  /// scroll position there come back with Escape. Details belong to one page (`base`); a new answer or
-  /// view leaves them.
-  private struct Detail {
-    let page: Page
-    let base: String
-    let turn: String
-    let spot: Spot
-  }
-  /// Where the user was on a screen that something opened over: its selection, whether the user chose
-  /// it, and the root's draft for that row. Escape brings it back (`returnTo`).
-  private struct Spot {
-    let selection: String?
-    let touched: Bool
-    let drafted: [String: String]
-  }
-  private var spot: Spot { Spot(selection: selection, touched: selectionTouched, drafted: drafted) }
-  private var details: [Detail] = []
-  private var openDetails: [Detail] { details.first?.base == baseTurn ? details : [] }
+  /// The details open over the page shown; those of an earlier page are not.
+  private var openDetails: [Detail] { screen.details.first?.base == baseTurn ? screen.details : [] }
   var inDetail: Bool { !openDetails.isEmpty }
   /// The selected target's id as the page knows it.
   var selectedTarget: String? {
-    page == nil || actionPanel != nil ? nil : results.first { $0.id == selection }?.row.id
+    page == nil || overlay != nil ? nil : results.first { $0.id == selection }?.row.id
   }
   /// Opens an item's content as its own page, with no model call and no extension run, and the item's
   /// own action as a row at its end. Its items may run the open command as the page it came from could.
   private func openDetail(_ markdown: String, action: Row?, from result: Result?) {
-    details = openDetails
-    details.append(
-      Detail(
-        page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !agent.active), base: baseTurn,
-        turn: pageTurn + ">" + (result?.row.id ?? ""), spot: spot))
-    clearSelection()
+    screen.details =
+      openDetails + [
+        Detail(
+          page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !agent.active), base: baseTurn,
+          turn: pageTurn + ">" + (result?.row.id ?? ""))
+      ]
     onResultsChange?()
   }
-  /// The action panel (⌘K): a row's actions as rows of their own in place of the list or page, and where
-  /// the user was, which Escape, ⌘K again and typing return to.
-  private struct ActionPanel {
-    let source: Result
-    let rows: [Result]
-    let spot: Spot
-  }
-  private var actionPanel: ActionPanel?
+  private var overlay: ActionPresentation?
   /// The title of the row whose actions the panel lists; nil while it is closed.
-  var actionsTitle: String? { actionPanel?.source.row.title }
+  var actionsTitle: String? { overlay?.source.row.title }
   /// What can be done with a row: its own actions, then the host's (Set Hotkey…, and Remove Hotkey when
   /// one is set). The context menu and the action panel list exactly these.
   func actions(of result: Result) -> [RowAction] {
@@ -178,11 +152,11 @@ final class LauncherModel {
       provider: command.id, row: Row(id: "detail", title: commandName ?? "Details", actions: viewActions))
   }
   /// Whether ⌘K has more to offer than Return, for the footer.
-  var offersActions: Bool { actionPanel == nil && actionSource.map { actions(of: $0).count > 1 } == true }
+  var offersActions: Bool { overlay == nil && actionSource.map { actions(of: $0).count > 1 } == true }
   /// ⌘K: lists the actions of `source`, else of the selected row or the view, as single-action rows, so
   /// arrows, Return and clicks work as in any list. Again, it returns to where the user was.
   func toggleActions(_ source: Result? = nil) {
-    if actionPanel != nil { return closeActions() }
+    if overlay != nil { return closeActions() }
     guard arriving == nil, agent.permissions.isEmpty, let source = source ?? actionSource else { return }
     let rows = actions(of: source).enumerated().map { index, action in
       Result(
@@ -190,17 +164,17 @@ final class LauncherModel {
         row: Row(id: String(index), title: action.label, icon: action.symbol, actions: [action]))
     }
     guard let first = rows.first else { return }
-    actionPanel = ActionPanel(source: source, rows: rows, spot: spot)
+    overlay = ActionPresentation(source: source, rows: rows)
     focusTarget = nil
     select(first.id)
     sizeList(now: true)
     onResultsChange?()
   }
-  /// Back to where ⌘K was pressed, with the same selection.
+  /// Back to the screen ⌘K was pressed on, with its selection as it was.
   private func closeActions() {
-    guard let panel = actionPanel else { return }
-    actionPanel = nil
-    returnTo(panel.spot)
+    guard overlay != nil else { return }
+    overlay = nil
+    reconcileSelection()
     sizeList(now: true)
     onResultsChange?()
   }
@@ -208,12 +182,12 @@ final class LauncherModel {
   /// closes it and belongs to the row the panel was opened for.
   func pick(_ chosen: RowAction? = nil) -> (action: RowAction, from: Result?)? {
     guard let action = chosen ?? returnAction else { return nil }
-    guard let panel = actionPanel else { return (action, selected) }
+    guard let overlay else { return (action, selected) }
     closeActions()
-    return (action, panel.source)
+    return (action, overlay.source)
   }
   private(set) var command: CommandState? {
-    didSet { if command?.id != oldValue?.id { resetSelection = true } }
+    didSet { if command?.id != oldValue?.id { command?.screen.selection.reset = true } }
   }
   /// The screen being switched to while its first content is on its way: a command (nil for the root)
   /// and its input. Until it arrives, or `arrivalDeadline` passes, the screen being left stays exactly as
@@ -238,28 +212,37 @@ final class LauncherModel {
       if arriving != nil { arriving?.command = newValue } else { command = newValue }
     }
   }
-  private var resetSelection = true
-  private var previousRows: [String] = []
-  private var selectionTouched = false
-  private(set) var selection: String? {
-    didSet {
-      guard selection != oldValue else { return }
-      drafted = [:]
+  /// The selection the arrow keys move: the action panel's, the open detail's, else the screen's.
+  private var current: Selection {
+    get { overlay?.selection ?? openDetails.last?.selection ?? screen.selection }
+    set {
+      let old = current.id
+      if overlay != nil {
+        overlay?.selection = newValue
+      } else if inDetail {
+        screen.details[screen.details.count - 1].selection = newValue
+      } else {
+        // The root's draft belongs to the selected command row.
+        if newValue.id != old, !agent.active, command == nil { search.arguments = [:] }
+        screen.selection = newValue
+      }
+      guard newValue.id != old else { return }
       // The draft is gone, so the input takes the keys again.
       if command == nil { focusTarget = nil }
       onSelectionChange?()
     }
   }
+  var selection: String? { current.id }
   /// The page paints its selection from here, at once rather than with the next render.
   var onSelectionChange: (() -> Void)?
   func select(_ id: String?) {
-    selectionTouched = true
+    current.touched = true
     returnQueued = false
-    selection = id
+    current.id = id
   }
   private func clearSelection() {
-    selectionTouched = false
-    selection = nil
+    current.touched = false
+    current.id = nil
   }
   /// Each source owns its message. Configuration and hotkey problems live in the store.
   var actionProblem: String?
@@ -278,8 +261,11 @@ final class LauncherModel {
   func reopen(now: Date = Date()) {
     clipboard?.expire(now: now)
     agentHistory?.expire(now: now)
+    let conversed = agent.active
     guard agent.reopen(now: now) else { return }
     cancelWork()
+    if conversed { inheritConversation(into: &search) }
+    if command != nil { search.selection.reset = true }
     command = nil
     input = ""
   }
@@ -425,9 +411,10 @@ final class LauncherModel {
   /// screen's work end, and the input is the conversation's.
   private func converse(_ start: () -> Void) {
     origin = nil
-    actionPanel = nil
+    overlay = nil
     stopArriving()
     cancelWork()
+    search.arguments = [:]
     start()
     questionExpanded = false
     clearSelection()
@@ -466,13 +453,23 @@ final class LauncherModel {
   /// Makes the arriving screen the visible one. The caller publishes its content in the same turn.
   private func showArrival() {
     guard let arrival = arriving else { return }
-    actionPanel = nil
-    if agent.active { agent.reset() }
+    overlay = nil
+    let conversed = agent.active
+    if conversed { agent.reset() }
     let entering = arrival.command?.id != command?.id
+    if entering, command == nil { search.arguments = [:] }
     command = arrival.command
+    if conversed { inheritConversation(into: &screen) }
+    if entering { screen.selection.reset = true }
     input = arrival.input  // No refresh while arriving: its request is already answered or running.
     stopArriving()
     if entering { listed = [] }
+  }
+  /// The screen shown when a conversation ends, other than by Escape from an empty question, takes over
+  /// the conversation's input and selection, as when all screens shared one.
+  private func inheritConversation(into screen: inout Screen) {
+    screen.input = conversation.input
+    screen.selection = conversation.selection
   }
   /// What sources answer changed without the user: the installed apps, the extension catalog or which
   /// sources are on. The root composes again. An open command reruns only when `ids` names it (its
@@ -517,7 +514,7 @@ final class LauncherModel {
       }
       target?.problem = nil
       let request = ProviderRequest(
-        input: input, arguments: state.arguments, submitted: state.next == .submission)
+        input: input, arguments: state.screen.arguments, submitted: state.next == .submission)
       if let view = directory.immediateView(state.id, request) {
         showArrival()
         show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
@@ -602,9 +599,9 @@ final class LauncherModel {
   /// earlier input, and never asks the agent only because a pattern that matched what is typed (a `>`
   /// command for Shell) has not answered with rows: the input was meant for it. A picked row acts at once.
   var returnWaits: Bool {
-    guard command == nil, !agent.active, arriving == nil, actionPanel == nil else { return false }
+    guard command == nil, !agent.active, arriving == nil, overlay == nil else { return false }
     return composedInput != input
-      || !selectionTouched && selected?.provider == "agent" && root.awaitsPattern
+      || !current.touched && selected?.provider == "agent" && root.awaitsPattern
   }
   /// A Return that waits runs once `returnWaits` is over; an edit, a pick, a switch or hiding calls it off.
   var returnQueued = false
@@ -615,27 +612,32 @@ final class LauncherModel {
     onResultsChange?()
   }
   private func retainSelection() {
-    guard actionPanel == nil else { return }
+    guard overlay == nil else { return }
     let rows = results
-    if resetSelection { selectionTouched = false }
-    if !selectionTouched {
-      selection = itemsWait ? nil : rows.first?.id
-    } else if let chosen = selection, !rows.contains(where: { $0.id == chosen }) {
+    if current.reset { current.touched = false }
+    if !current.touched {
+      current.id = itemsWait ? nil : rows.first?.id
+    } else if let chosen = current.id, !rows.contains(where: { $0.id == chosen }) {
       // On a page a target that went away takes the selection with it: Return never moves to a neighbor.
       if page != nil {
         clearSelection()
-        resetSelection = false
+        current.reset = false
         return
       }
       if !root.pending.isEmpty {
-        resetSelection = false
+        current.reset = false
         return
       }
-      let index = previousRows.firstIndex { $0 == selection } ?? 0
-      selection = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
+      let index = current.previous.firstIndex { $0 == chosen } ?? 0
+      current.id = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
     }
-    resetSelection = false
-    previousRows = rows.map(\.id)
+    current.reset = false
+    current.previous = rows.map(\.id)
+  }
+  /// Back on a screen or page as the user left it: its own selection, kept unless its rows changed meanwhile.
+  private func reconcileSelection() {
+    current.reset = false
+    retainSelection()
   }
   var prominentFirst: Bool { results.first.map { $0.row.prominent == true } ?? false }
   /// The open command's Markdown body.
@@ -648,7 +650,7 @@ final class LauncherModel {
   /// Whether the input has the first say, so items wait for an arrow key and typing leaves them: in a
   /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
   /// it runs the view's actions.
-  private var itemsWait: Bool { actionPanel == nil && (agent.active || submits || page != nil) }
+  private var itemsWait: Bool { overlay == nil && (agent.active || submits || page != nil) }
   /// The open command runs on Return only (`submit` in its manifest).
   var submits: Bool { extensionCommand?.manifest.submit == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
@@ -668,7 +670,7 @@ final class LauncherModel {
   /// sent again with every later Return; the contract keeps confirmations to such names.
   private func filledArguments(of command: CommandState) -> [String: String] {
     let declared = Set(declaredArguments.map(\.name))
-    return command.arguments.filter { declared.contains($0.key) }
+    return command.screen.arguments.filter { declared.contains($0.key) }
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up. On a command row it enters the command with what was filled into its
@@ -684,27 +686,27 @@ final class LauncherModel {
   /// The arguments the user can fill in: inside a command its own declared ones, at the root those of
   /// the selected extension command row. Empty when there are none.
   var declaredArguments: [ExtensionManifest.Argument] {
-    guard !agent.active, actionPanel == nil else { return [] }
+    guard !agent.active, overlay == nil else { return [] }
     if command != nil { return extensionCommand?.manifest.arguments ?? [] }
     guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
     return extensions.commands[row.provider]?.manifest.arguments ?? []
   }
   /// Values filled in at the root for the selected command row; dropped when the selection moves or
   /// the panel is dismissed.
-  private var drafted: [String: String] = [:]
+  private var drafted: [String: String] { command == nil && !agent.active ? search.arguments : [:] }
   /// The current values by name: the open command's arguments, or the root draft. Unfilled is absent.
-  var argumentValues: [String: String] { command?.arguments ?? drafted }
+  var argumentValues: [String: String] { screen.arguments }
   /// Fills in a declared argument. Inside a command it is an edit like typing: it reruns the command,
   /// or in a submit command waits for Return.
   func setArgument(_ name: String, to value: String) {
     guard declaredArguments.contains(where: { $0.name == name }) else { return }
     let value = value.isEmpty ? nil : value
     guard command != nil else {
-      drafted[name] = value
+      search.arguments[name] = value
       return
     }
-    command?.arguments[name] = value
-    resetSelection = true
+    command?.screen.arguments[name] = value
+    command?.screen.selection.reset = true
     refresh()
   }
   /// The argument slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
@@ -732,7 +734,7 @@ final class LauncherModel {
   /// A click on a page's target selects it and runs it. It counts only on the page it was made on, so a
   /// click that raced a new answer or view is ignored. True when the caller should run Return.
   func clickTarget(_ id: String, turn: String) -> Bool {
-    guard page != nil, actionPanel == nil, turn == pageTurn,
+    guard page != nil, overlay == nil, turn == pageTurn,
       let target = results.first(where: { $0.row.id == id })
     else {
       return false
@@ -798,7 +800,7 @@ final class LauncherModel {
     case .command(let id):
       let reopened = command?.id == id
       var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandState(id: id)
-      state.arguments = address.arguments ?? [:]
+      state.screen.arguments = address.arguments ?? [:]
       state.next = submitted ? .submission : .address
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       let input = address.input ?? (reopened ? input : "")
@@ -860,17 +862,15 @@ final class LauncherModel {
       stopArriving()
       cancelWork()
     }
-    origin = Origin(context: commandContext(typed: false), input: input, spot: spot)
+    origin = Origin(context: commandContext(typed: false))
     agent.open(settings: configuration.agent)
     clearSelection()
     input = ""
   }
   /// Where an empty conversation opened by Cmd+Return came from: what its first question tells the
-  /// agent, and the screen Escape returns to. The command itself stays open under the conversation.
+  /// agent. The screen under it stays as it was, and Escape returns to it.
   private struct Origin {
     let context: (text: String, name: String)?
-    let input: String
-    let spot: Spot
   }
   private var origin: Origin?
   /// Escape leaves the empty conversation for the screen under it, as Cmd+Return found it.
@@ -927,9 +927,10 @@ final class LauncherModel {
   }
   func dismiss() {
     recorder.stop()
-    actionPanel = nil
-    resetSelection = true
-    drafted = [:]
+    overlay = nil
+    screen.selection.reset = true
+    search.selection.reset = true
+    search.arguments = [:]
     focusTarget = nil
     stopVoice(.hidden)
     agent.hidden()
@@ -943,7 +944,7 @@ final class LauncherModel {
   }
   func escape() -> Bool {
     focusTarget = nil
-    if actionPanel != nil {
+    if overlay != nil {
       closeActions()
       return true
     }
@@ -957,19 +958,16 @@ final class LauncherModel {
       return true
     }
     // A detail goes back to where the user was on the page under it.
-    if let detail = openDetails.last {
-      details = Array(openDetails.dropLast())
-      selection = detail.spot.selection
-      selectionTouched = detail.spot.touched
+    if inDetail {
+      screen.details = Array(openDetails.dropLast())
       onResultsChange?()
       return true
     }
-    if returnsOnEscape, let origin {
+    if returnsOnEscape {
       // Cmd+Return's empty conversation goes back to the screen under it as it was: nothing reruns.
-      self.origin = nil
-      input = origin.input
+      origin = nil
       agent.reset()
-      returnTo(origin.spot)
+      reconcileSelection()
       onResultsChange?()
       return true
     }
@@ -987,14 +985,6 @@ final class LauncherModel {
       return true
     }
     return false
-  }
-  /// Back on a screen as the user left it: its selection, and the root's draft for a row still there.
-  private func returnTo(_ spot: Spot) {
-    selection = spot.selection
-    selectionTouched = spot.touched
-    resetSelection = false
-    retainSelection()
-    if selection == spot.selection { drafted = spot.drafted }
   }
   /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
   /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
@@ -1076,7 +1066,7 @@ final class LauncherModel {
   ) {
     origin = nil
     cancelWork()
-    var state = CommandState(id: program.id, arguments: request.arguments, next: .rerun)
+    var state = CommandState(id: program.id, screen: Screen(arguments: request.arguments), next: .rerun)
     state.problem = problem
     // An arrival sets the input without a rerun.
     arriving = Arrival(command: state, input: request.input)

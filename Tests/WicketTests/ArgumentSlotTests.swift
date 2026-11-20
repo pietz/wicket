@@ -129,7 +129,7 @@ import Testing
   #expect(model.click(row) && model.selection == row)
   #expect(model.activateReturn())
   await model.settled()
-  #expect(model.command?.arguments == ["hours": "4"])
+  #expect(model.argumentValues == ["hours": "4"])
   // Dismissing drops the focus with the slots.
   model.moveFocus(1)
   #expect(model.focusedArgument == "hours")
