@@ -1,6 +1,6 @@
 # Manual checks
 
-What only a person at a real Mac can check: glass, focus, IME, real hotkeys, audio, Accessibility and the agent CLIs. The owner runs it on Wicket Dev (`Scripts/build-app.sh`, default shortcut ⌃⌥Space, folder `~/.config/wicket-dev`) after a batch of changes and before a release; "the shortcut" below is whichever one that build listens to. Tests cover the logic; note here what feels wrong, not only what breaks. For the extension checks, ask the agent for a Weather extension first (`build a weather extension for a city, with a forecast per day`).
+What only a person at a real Mac can check: glass, focus, IME, real hotkeys, audio, Accessibility and the agent CLIs. The owner runs it on Wicket Dev (`Scripts/build-app.sh`, default shortcut ⌃⌥Space, folder `~/.config/wicket-dev`) after a batch of changes and before a release; "the shortcut" below is whichever one that build listens to. Tests cover the logic; note here what feels wrong, not only what breaks. For the extension checks, install a Weather fixture that shows Berlin's forecast on entry and returns an error row for unrecognised input. Leave `submit` off so typing a question can replace the visible result while the first agent turn still receives the original forecast.
 
 Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stopped in `/usr/bin/log show --predicate 'subsystem == "app.wicket" AND category == "voice"' --last 5m`.
 
@@ -28,7 +28,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 1. A sentence puts Ask agent first; Return asks. With `saf` typed, ⌘Return asks instead of opening Safari.
 2. ⌘Return with nothing typed at the root, then inside Weather: the bar reads Ask about Weather…, typing does not rerun Weather, Escape returns to the same view and selection. Send a question: the header says "from Weather" and the answer knows the forecast. A question typed into Weather (which then shows an error) still carries the forecast.
 3. While it works: the status shows the step; a follow-up draft stays. Click away and reopen: Continuing conversation. Escape order: cancel the turn, end the conversation, clear, close.
-4. Ask for links, a week's weather with details per day, and today's meetings. Nothing is selected at first; arrows walk rows, tiles and code blocks in reading order; the footer names the action; Return opens a detail and Escape comes back to the same selection and scroll. A click runs a target; a click in code only places the caret and its button copies; dragging selects text and runs nothing. A row that drafts a follow-up fills the field and sends nothing until Return. Hold an arrow while an answer streams: the selection never jumps.
+4. Ask for links, a week's weather with details per day, and today's meetings. Nothing is selected at first; arrows walk rows, tiles and code blocks in reading order; the footer names the action; Return opens a detail and Escape comes back to the same selection and scroll. A click runs a target; a click in code only places the caret and its button copies; dragging selects text and runs nothing. A row that drafts a follow-up fills the field and sends nothing until Return. Hold an arrow while an answer streams: the selection never jumps. With VoiceOver, check whether actionable page targets and the detail pane are reachable and understandable.
 5. Page rows look like native rows on real glass, light and dark, at all four text sizes, over a busy wallpaper; the grey question reads as secondary.
 6. Agent History: end a conversation with Escape, type `history`: the run is the top row; Return reopens it; a follow-up remembers it, also after relaunching. Delete from the context menu; Clear History in Settings ▸ Agent.
 
@@ -45,11 +45,12 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 2. With the built-in, a USB microphone and a Bluetooth headset each chosen in Sound settings: each works; with the headset chosen and the Mac's own microphone present, the Mac's is heard and music keeps its quality; with only the headset, the headset is heard. Unplug mid-capture: one retry hint, nothing restarts.
 3. Say nothing: about 3 seconds after listening starts it stops quietly; a mic click listens again. Open and close quickly: the menu bar mic indicator always goes away.
 4. First-time permission prompt and a denial; focus returns to the panel after the dialog.
+5. On a Mac without the supported speech model, check the missing-model message and that typing still works.
 
 ## 7. Extensions
 
 1. Settings ▸ Extensions lists Built in and Extensions with switches; units off stops `10 km to mi`. Copy `examples/web-search` into `extensions/`: listed within a second, enabled. A broken `wicket.json` shows a warning and its problem.
-2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: the fields follow the typed text; Tab and ⇧Tab move through them; Return or a click on the selected row runs with the values; Japanese IME, paste and ⌘A work in a field; an arrow off the row returns the keys to the input.
+2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: the fields follow the typed text; Tab and ⇧Tab move through them; Return or a click on the selected row runs with the values; Japanese IME, paste and ⌘A work in a field; an arrow off the row returns the keys to the input. With VoiceOver, check the argument labels.
 3. Window's settings: Gap 8 and Almost Maximize 80 save on Return and on focus loss; emptying restores the defaults.
 4. Make It Mine on Window: `extensions/window` appears with `wicket.json`, `main`, `main.swift` and `JSON.swift`, and still works. On Calculator with `extensions/calculator` already there: refused. Move to Trash on your copy: confirmation, the bundled one returns.
 5. `open "wicket-dev://weather?input=berlin"` with Wicket Dev closed and open opens Weather with the input; it never reaches the installed Wicket. A `wicket://` link in an answer works too.
@@ -67,14 +68,14 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 2. Over a Safari window, reopening Wicket for each: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize and Center move Safari clear of the menu bar and Dock, Wicket closes at once, Safari keeps focus.
 3. Restore after Left Half then Maximize goes back one move at a time, then says Nothing to restore. A window moved by hand has nothing to restore.
 4. Next Display with two displays of different sizes keeps the window's place and share; with one display it says so.
-5. Dock left and hidden, a notched display, a full-screen window, Finder with no window, Wicket's own Settings in front: each gives a row saying why, nothing wrong moves.
+5. With a left or hidden Dock and on a notched display, check the move respects the visible frame. With a full-screen window, Finder with no window, or Wicket's Settings in front, check the refusal row and that no other window moves.
 
 ## 10. Hotkeys and the action panel
 
 1. Set Hotkey… on Left Half, press ⌃⌥←: shown on the row and saved in `hotkeys`. With the panel closed over Safari, ⌃⌥← moves the window with no panel or flash; over a full-screen window it opens the panel on the reason.
 2. Reusing ⌃⌥← for Right Half, ⌘C and the launcher shortcut are refused; Escape cancels recording.
 3. ⌘K on a file: Open and Reveal in Finder. On Left Half: Run, Set Hotkey…, Remove Hotkey. Escape or ⌘K again returns with the same selection; typing closes it and becomes the search; IME composition works in its field.
-4. ⌘K over a long answer: the answer underneath is invisible and takes no clicks or scrolling; Escape returns to the same scroll position.
+4. For the action panel, open a long extension page with a view action, scroll, deselect any target and press ⌘K: the page underneath is invisible and takes no clicks or scrolling; Escape returns to the same scroll position.
 
 ## 11. Clipboard history
 

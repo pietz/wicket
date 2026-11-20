@@ -71,7 +71,9 @@ final class AgentSession {
   /// agent is never cut off, a hung one is. While a permission waits for the user, no limit runs.
   var startupLimit: Duration = .seconds(30)
   var turnLimit: Duration = .seconds(600)
-  /// Everything stays for `retention` after the last hide or completion, whichever is later.
+  /// Everything stays for `retention` after the last hide or completion, whichever is later. Keeping a CLI
+  /// warm between questions keeps its full process tree resident at idle. Resume on demand to retain the
+  /// conversation without that cost.
   private var retainedUntil: Date? { lastActivity?.addingTimeInterval(retention) }
   /// Starts the CLI for one question with these settings in the folder, resuming the session ID if there is one.
   var connect: (AgentConfiguration, URL, String?) async throws -> any AgentConnection

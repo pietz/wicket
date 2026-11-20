@@ -1,6 +1,6 @@
 # Wicket
 
-**A small, native macOS launcher with your own AI agent built in, and extensions that agent writes for you.**
+**Your own agent, one keystroke away, answering in UI instead of text.**
 
 Press ⌥Space and a search field opens onto your Mac: apps, files, a calculator, unit conversion, window commands, clipboard history and on-device voice input. Ask the coding agent you already use (Claude Code or Codex) a question and the answer comes back as a page that fits the launcher. Ask it to keep that answer as a command and it writes an extension that from then on answers without it.
 
@@ -56,7 +56,7 @@ Wicket runs the `claude` or `codex` command line tool you already have, with you
 
 Answers are pages: a result line, rows, tiles and cards you can act on with the arrow keys and Return (open a link, copy a value, draft a follow-up), and code blocks with a copy button. A row can open into more detail; Escape goes back. Type your follow-up in the same field. Asking from inside a command (⌘Return) tells the agent which extension it is and what it showed, so "add the wind here" needs no names.
 
-Hiding Wicket keeps the conversation for 20 minutes. **Agent History** (type `history`) keeps your last 100 runs for 30 days; Return reopens one and a follow-up continues the same session. It stores questions and answers only, outside the agent's folder. Every agent run is also logged on your Mac for debugging in `~/Library/Logs/Wicket/agent.log`.
+Hiding Wicket keeps the conversation for 20 minutes after it was hidden or last finished, whichever is later. **Agent History** (type `history`) keeps your last 100 runs for 30 days. Return reopens the saved answer. A follow-up resumes the CLI session when it is available and starts fresh with a notice when its context is gone. Wicket stores the questions and answers outside the working folder. The local agent wire log at `~/Library/Logs/Wicket/agent.log` can include prompts, replies and tool traffic.
 
 Add your own agent instructions in `instructions.md` and restyle answers in `theme.css`, both in the Wicket folder.
 
@@ -77,7 +77,7 @@ WICKET_CONFIG_DIR=/tmp/wicket-test /Applications/Wicket.app/Contents/MacOS/Wicke
 
 ## Configuration
 
-Settings opens from the menu bar icon, ⌘, or by typing `settings`. Everything it changes lives in `~/.config/wicket/config.json`, which you or your agent can also edit; Wicket reloads it at once, keeps the last good values if an edit breaks it and says what is wrong. Global shortcuts need Control or Option (⌘ plus a single letter is refused). Launch at login is in Settings ▸ General.
+Settings opens from the menu bar icon, ⌘, or by typing `settings`. Everything it changes lives in `~/.config/wicket/config.json`, which you or your agent can also edit; Wicket reloads it at once, keeps the last good values if an edit breaks it and says what is wrong. A global shortcut needs Command, Control or Option, or can be an F-key. For a letter with Command alone or Command plus Shift, add Control or Option. Launch at login is in Settings ▸ General.
 
 ## Build from source
 

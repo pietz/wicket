@@ -10,16 +10,16 @@ Every launcher screen gets one owner for what was typed, what is selected and wh
 - No visible change is intended. The mechanism is explained in code comments and AGENTS rules, not a spec.
 - Gate after merging: re-run the speed harness (cold launch, show and hide) and keep today's numbers or better.
 
-## 2. Typed fields, in the page
+## 2. Typed inputs in the search bar and canvas
 
 One coordinated contract change, with the contract, agent instructions, examples, bundled extensions and tests updated together:
 
 - Manifest `inputs` (`text`, `number`, `bool`, `choice`; `date` later) replace the string `arguments`. Values stay strings on the wire; one declaration serves the fields, the page and the agent's view of the extension.
 - The request names the action the user chose, replacing verbs passed through arguments (Agent History's `open` and `delete` do this today).
 - Legacy `rows` decoding goes.
-- A `field` tag sits in the page, bound to an input by name. If fields in the page work, the slots in the bar go.
+- Typed inputs appear as search-bar parameters and as interactive fields inside the canvas.
 
-The field gate (fast click and type, Tab from the bar into the page, Japanese IME with Return, Escape and arrows, a structural re-render above a focused field, 1,000 updates) is answered by checks on the clean-room app, which already draws fields in its page, not by a new prototype.
+The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. The mechanism for fields inside it is decided by two Wicket prototypes in `FIELD-SPIKES-BRIEF.md`: keyed HTML fields in the page (A), which keeps that decision intact, and a native form section inside the canvas (B), an alternative under evaluation that is worth it only if A cannot be made reliable. Both must exercise fast typing, Tab and Shift-Tab, Japanese IME, focus and caret through a structural rerender, 1,000 rapid updates and headless arguments. The owner selects the mechanism from those results. The earlier clean-room failure informs the tests. If negatives about the HTML canvas pile up, raise it openly.
 
 ## 3. Drafts
 
@@ -31,7 +31,16 @@ During a turn the agent can call enabled extensions as tools, and their results 
 
 ## 5. Diagnostics cuts (after the refactor)
 
-From the hardening review: voice tracing down to one failure category with its code and one stop reason; no per-session `voice-timing.txt`; the agent wire log becomes an off-by-default switch with one bounded private file.
+After the refactor, take the ranked cuts in `GROWTH-AND-HARDENING.md`: one voice failure category with its OS code and one stop reason; remove per-session `voice-timing.txt` writes while retaining the first-transcript marker; keep one bounded private agent wire log behind an off-by-default switch; report one actionable malformed-extension-output error with a field path or stderr; give agent transport one close path with a bounded final drain and one missing-outcome diagnostic; remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation with the process regression checks.
+
+## Also agreed
+
+Not yet ordered; each takes its place after the steps above.
+
+- Add one Run agent entry to ⌘K, available even with no selection.
+- Enforce the answer-tag allowlist. Unknown tags display as literal text.
+- Ship and update layout and components in `core.css` and allow an advanced user override. Keep user tokens in `theme.css`, migrate existing themes and retain system-derived row and selection colours.
+- Add Allow for this conversation as the third agent permission choice, alongside Allow once and Don't allow.
 
 ## Throughout
 

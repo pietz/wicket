@@ -90,7 +90,8 @@ final class LauncherModel {
   /// only on the page they were made on.
   var pageTurn: String { openDetails.last?.turn ?? baseTurn }
   /// A command's list whose items carry a `detail` shows the selected one's beside it (`preview`). Not at
-  /// the root, in a conversation, on a page or under the action panel.
+  /// the root, in a conversation, on a page or under the action panel. Keep split previews out of root
+  /// search so ordinary keystrokes never have to render WebKit content.
   var splits: Bool {
     !agent.active && command != nil && page == nil && actionPanel == nil
       && listed.contains { $0.row.detail != nil }

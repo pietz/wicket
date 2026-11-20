@@ -25,7 +25,7 @@ Open problems only, each with what the user sees and the next step. Fixed items 
 
 - **No backpressure on a slow consumer.** Pipe reads stop at their byte limit but yield into an unbounded stream, so a fast writer under the limit can pile up read-ahead.
 - **The Settings sign-in check is bounded in time, not bytes**: `claude auth status` and `codex login status` output is read whole within its 8 s limit.
-- **Agent stderr is read without a byte limit**; only its last 4 KiB is kept, so a flood costs CPU, not memory.
+- **Agent stderr reads are uncapped.** The diagnostic retains only the last 4 KiB, but unread chunks can accumulate if the consumer falls behind. Fold the error path into the transport cleanup.
 
 ## Tests
 
