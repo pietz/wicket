@@ -1,6 +1,6 @@
 import Foundation
 
-/// A thin entry point over the same model, discovery, ranking and runner as the panel.
+/// A thin entry point over the same configuration, discovery, root search and runner as the panel.
 @MainActor
 public enum Headless {
   public static var requested: Bool {
@@ -72,8 +72,10 @@ public enum Headless {
         try printJSON(view)
       } else if let input = value("--query") {
         await apps.start(watch: false)
-        model.input = input
-        await model.settled()
+        // The panel's root search, without the panel.
+        var results: [Result] = []
+        model.root.search(input, speaking: false) { results = $0.results }
+        await model.root.settled()
         struct Output: Encodable {
           struct Entry: Encodable {
             let provider: String
@@ -89,10 +91,10 @@ public enum Headless {
         }
         try printJSON(
           Output(
-            input: input, items: model.results.map { .init(provider: $0.provider, row: $0.row) },
+            input: input, items: results.map { .init(provider: $0.provider, row: $0.row) },
             askAgent: .init(
-              shown: model.results.first?.provider == "agent",
-              reason: model.strongReason ?? "no strong match")))
+              shown: results.first?.provider == "agent", reason: model.root.strongReason ?? "no strong match")
+          ))
       } else {
         throw ExtensionFailure(
           "Use --query TEXT, or --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--submitted]")

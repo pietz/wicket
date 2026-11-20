@@ -226,7 +226,7 @@ import Testing
     bundled: bundledExtensions)
   await model.extensions.reload()
   model.input = "What is the answer?"
-  #expect(await eventually { !model.isRefreshing })
+  #expect(await eventually { !model.root.isSearching })
   #expect(model.results.first?.provider == "agent")
   model.input = "2+2"
   await model.settled()

@@ -1,0 +1,200 @@
+import Foundation
+
+/// Root search: the installed apps, Spotlight files, extension items and pattern extensions, ranked into
+/// one list for an input (`Ranking.compose`). Sources answer progressively; each search delivers a
+/// complete list whenever its sources allow, and nothing from a search that a newer one or `cancel`
+/// replaced. The panel and headless `--query` both search through it.
+@MainActor final class RootCommand {
+  struct Output {
+    /// The input the list was composed for.
+    let input: String
+    let results: [Result]
+  }
+  /// How long the list waits for pattern extensions whose regex matched: a few frames, more than the
+  /// bundled calculator's few milliseconds and short enough that a slow pattern never delays typing.
+  static let patternHold = Duration.milliseconds(30)
+
+  /// The installed apps, the one source answered in process besides file search.
+  private let apps: (any Provider)?
+  private let files: FilesProvider?
+  private let directory: CommandDirectory
+  private let store: ConfigurationStore
+  private let history: UsageHistory
+  private var extensions: ExtensionHost { directory.extensions }
+
+  private var appRows: [Row] = []
+  /// The previous file rows stay until the first batch for a new input replaces them.
+  private var fileRows: [Row] = []
+  private var itemRows: [Ranking.Names] = []
+  private var patterns: [String: Ranking.Pattern] = [:]
+  /// The pattern extensions whose regex matched the input; their answers are `patterns`.
+  private var matchedPatterns: Set<String> = []
+  private var tasks: [Task<Void, Never>] = []
+  private var generation = 0
+  /// Sources whose results for this input may still arrive: running pattern extensions and file search.
+  private(set) var pending: Set<String> = []
+  /// From the start of a search to its first list, or until it is cancelled.
+  private(set) var isSearching = false
+  /// Why the last list has a strong match, or nil when nothing matches strongly.
+  private(set) var strongReason: String?
+
+  init(
+    apps: (any Provider)?, files: FilesProvider?, directory: CommandDirectory, store: ConfigurationStore,
+    history: UsageHistory
+  ) {
+    self.apps = apps
+    self.files = files
+    self.directory = directory
+    self.store = store
+    self.history = history
+  }
+
+  /// Whether a pattern extension that matched the input has not answered with rows yet, or failed: what is
+  /// typed was meant for it, so Return does not ask the agent in its place.
+  var awaitsPattern: Bool {
+    matchedPatterns.contains { if case .items = patterns[$0] { false } else { true } }
+  }
+
+  /// Searches for `input`, replacing any search before it. `speaking`: voice is writing the input, so
+  /// pattern extensions wait a moment before running. `deliver` gets each list.
+  func search(_ input: String, speaking: Bool, deliver: @escaping (Output) -> Void) {
+    cancel()
+    isSearching = true
+    let current = generation
+    let request = ProviderRequest(input: input)
+    let host = extensions
+    let configuration = store.configuration
+    appRows = []
+    patterns.removeAll()
+    let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
+    // Extension items are in memory: matched once per input, not on every batch that recomposes.
+    itemRows = active.compactMap { extensions.commands[$0.id] }.map {
+      Ranking.Names(provider: $0.id, kind: .item, rows: $0.rootItems(input))
+    }
+    // The previous file rows stay until the first batch for this input replaces them, so files do not
+    // vanish and return on every keystroke; ranking drops those the new input no longer matches.
+    let files = files.flatMap { files in
+      active.contains { $0.id == files.id } && FileSearch.predicate(for: input) != nil ? files : nil
+    }
+    if files == nil { fileRows = [] }
+    let apps = apps.flatMap { apps in active.contains { $0.id == apps.id } ? apps : nil }
+    var appsReady = apps == nil
+    let compose = { [weak self] in
+      guard let self else { return }
+      isSearching = false
+      deliver(Output(input: input, results: rank(input)))
+    }
+    // The list is delivered once the apps answered and, for up to `patternHold`, the pattern
+    // extensions whose regex matched, so a calculation lands with the rest of the list rather than
+    // after it, without an Ask agent row first. A slower pattern adds its rows when it finishes.
+    let matched = Set(
+      active.compactMap { extensions.commands[$0.id] }.filter { $0.manifest.matches(input) }.map(\.id))
+    matchedPatterns = matched
+    var holding = !matched.isEmpty
+    let hold = Task { [weak self] in
+      guard holding, (try? await Task.sleep(for: Self.patternHold)) != nil, let self, generation == current
+      else { return }
+      holding = false
+      if appsReady { compose() }
+    }
+    tasks.append(hold)
+    if let apps {
+      tasks.append(
+        Task { [weak self] in
+          let view = await apps.view(for: request)
+          guard let self, !Task.isCancelled, generation == current else { return }
+          appRows = view.items
+          appsReady = true
+          if !holding { compose() }
+        })
+    }
+    for entry in active {
+      guard matched.contains(entry.id), let command = extensions.commands[entry.id] else { continue }
+      pending.insert(entry.id)
+      tasks.append(
+        Task { [weak self] in
+          do {
+            if speaking { try await Task.sleep(for: .milliseconds(350)) }
+            let view = try await host.view(command, request: request)
+            guard let self, !Task.isCancelled, generation == current else { return }
+            // At the root a pattern result only contributes items; a body is entered like a detail.
+            patterns[entry.id] =
+              view.body == nil
+              ? .items(view.items)
+              : .items([
+                Row(
+                  id: "detail", title: command.manifest.name, subtitle: "Show details",
+                  icon: command.manifest.icon,
+                  actions: [.run(Address(id: entry.id, input: request.input, link: true))])
+              ])
+          } catch {
+            guard let self, !Task.isCancelled, generation == current else { return }
+            patterns[entry.id] = .failed(
+              error.localizedDescription.components(separatedBy: "\n").first ?? "")
+          }
+          guard let self, !Task.isCancelled, generation == current else { return }
+          pending.remove(entry.id)
+          if holding, pending.isDisjoint(with: matched) {
+            holding = false
+            hold.cancel()
+          }
+          if appsReady, !holding { compose() }
+        })
+    }
+    // Each batch of file results replaces the previous one; cancelling the task stops the query.
+    if let files {
+      pending.insert(files.id)
+      tasks.append(
+        Task { [weak self] in
+          var received = false
+          for await rows in files.batches(for: request.input) {
+            guard let self, !Task.isCancelled, generation == current else { return }
+            received = true
+            fileRows = rows
+            if appsReady, !holding { compose() }
+          }
+          guard let self, !Task.isCancelled, generation == current else { return }
+          if !received { fileRows = [] }
+          pending.remove(files.id)
+          if appsReady, !holding { compose() }
+        })
+    }
+    if appsReady, !holding { compose() }
+  }
+
+  /// Stops the search: nothing it started is delivered any more.
+  func cancel() {
+    generation += 1
+    for task in tasks { task.cancel() }
+    tasks.removeAll()
+    isSearching = false
+    pending.removeAll()
+  }
+
+  /// Waits until the search is done, including a search started while this was waiting.
+  func settled() async {
+    var seen = generation
+    repeat {
+      seen = generation
+      for task in tasks { await task.value }
+    } while seen != generation
+  }
+
+  private func rank(_ input: String) -> [Result] {
+    let configuration = store.configuration
+    let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
+    let commands = extensions.commands.filter { enabled.contains($0.key) }
+    let names =
+      [
+        Ranking.Names(provider: "apps", kind: .app, rows: appRows),
+        Ranking.Names(provider: "files", kind: .file, rows: fileRows),
+      ] + itemRows
+    let ranked = Ranking.compose(
+      query: input, names: names, patterns: patterns,
+      extensions: commands.mapValues(\.manifest),
+      problems: extensions.problems.filter { enabled.contains($0.key) },
+      hosts: directory.rootRows(configuration), usage: history.store, now: Date())
+    strongReason = ranked.strongReason
+    return ranked.results
+  }
+}

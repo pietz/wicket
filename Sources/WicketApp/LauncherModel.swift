@@ -56,7 +56,7 @@ final class LauncherModel {
   private func sizeList(now: Bool = false) {
     let count = max(1, min(results.count, 8))
     let screen = command?.id
-    let settled = pending.isEmpty && command?.busy != true
+    let settled = root.pending.isEmpty && command?.busy != true
     guard count < sizedRows, !now, !settled, screen == sizedFor else {
       shrinking?.cancel()
       shrinking = nil
@@ -212,7 +212,6 @@ final class LauncherModel {
     closeActions()
     return (action, panel.source)
   }
-  private(set) var isRefreshing = false
   private(set) var command: CommandState? {
     didSet { if command?.id != oldValue?.id { resetSelection = true } }
   }
@@ -242,8 +241,6 @@ final class LauncherModel {
   private var resetSelection = true
   private var previousRows: [String] = []
   private var selectionTouched = false
-  /// Sources whose results for this input may still arrive: running pattern extensions and file search.
-  private var pending: Set<String> = []
   private(set) var selection: String? {
     didSet {
       guard selection != oldValue else { return }
@@ -360,17 +357,11 @@ final class LauncherModel {
   /// Hides the panel: an extension's answer to a submitted request said it is done (`ProviderView.close`).
   var onClose: () -> Void = {}
   var onResultsChange: (() -> Void)?
-  /// The installed apps, the one source answered in process besides file search.
-  private let apps: (any Provider)?
-  private let files: FilesProvider?
-  private var appRows: [Row] = []
-  private var fileRows: [Row] = []
+  /// The search at the root.
+  let root: RootCommand
+  /// The open command's running request.
   private var tasks: [Task<Void, Never>] = []
   private var generation = 0
-  private var itemRows: [Ranking.Names] = []
-  private var patterns: [String: Ranking.Pattern] = [:]
-  /// Why the root list has a strong match, or nil when nothing matches strongly.
-  private(set) var strongReason: String?
   private let history: UsageHistory
   var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
   let clipboard: ClipboardHistory?
@@ -396,8 +387,7 @@ final class LauncherModel {
     extensions = ExtensionHost(folder: folder, bundled: bundled)
     directory = CommandDirectory(
       extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 })
-    self.apps = apps
-    self.files = files
+    root = RootCommand(apps: apps, files: files, directory: directory, store: store, history: history)
     self.history = history
     let inputChanged: () -> Void = { [weak self] in
       guard let self else { return }
@@ -448,9 +438,8 @@ final class LauncherModel {
     generation += 1
     for task in tasks { task.cancel() }
     tasks.removeAll()
-    isRefreshing = false
+    root.cancel()
     command?.busy = false
-    pending.removeAll()
   }
   /// Stays on the current screen: a switch still waiting for its content is called off.
   private func stopArriving() {
@@ -571,111 +560,15 @@ final class LauncherModel {
       return
     }
     cancelWork()
-    isRefreshing = true
-    let current = generation
-    let request = ProviderRequest(input: input)
-    let host = extensions
-    appRows = []
-    patterns.removeAll()
-    let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
-    // Extension items are in memory: matched once per input, not on every batch that recomposes.
-    itemRows = active.compactMap { extensions.commands[$0.id] }.map {
-      Ranking.Names(provider: $0.id, kind: .item, rows: $0.rootItems(input))
-    }
-    // The previous file rows stay until the first batch for this input replaces them, so files do not
-    // vanish and return on every keystroke; ranking drops those the new input no longer matches.
-    let files = files.flatMap { files in
-      active.contains { $0.id == files.id } && FileSearch.predicate(for: input) != nil ? files : nil
-    }
-    if files == nil { fileRows = [] }
-    let apps = apps.flatMap { apps in active.contains { $0.id == apps.id } ? apps : nil }
-    var appsReady = apps == nil
-    // The list is published once the apps answered and, for up to `patternHold`, the pattern
-    // extensions whose regex matched, so a calculation lands with the rest of the list rather than
-    // after it, without an Ask agent row first. A slower pattern adds its rows when it finishes.
-    let matched = Set(
-      active.compactMap { extensions.commands[$0.id] }.filter { $0.manifest.matches(input) }.map(\.id))
-    matchedPatterns = matched
-    var holding = !matched.isEmpty
-    let hold = Task { [weak self] in
-      guard holding, (try? await Task.sleep(for: Self.patternHold)) != nil, let self, generation == current
-      else { return }
-      holding = false
-      if appsReady { compose() }
-    }
-    tasks.append(hold)
-    if let apps {
-      tasks.append(
-        Task { [weak self] in
-          let view = await apps.view(for: request)
-          guard let self, !Task.isCancelled, generation == current else { return }
-          appRows = view.items
-          appsReady = true
-          if !holding { compose() }
-        })
-    }
-    for entry in active {
-      guard matched.contains(entry.id), let command = extensions.commands[entry.id] else { continue }
-      pending.insert(entry.id)
-      tasks.append(
-        Task { [weak self] in
-          do {
-            if speaking { try await Task.sleep(for: .milliseconds(350)) }
-            let view = try await host.view(command, request: request)
-            guard let self, !Task.isCancelled, generation == current else { return }
-            // At the root a pattern result only contributes items; a body is entered like a detail.
-            patterns[entry.id] =
-              view.body == nil
-              ? .items(view.items)
-              : .items([
-                Row(
-                  id: "detail", title: command.manifest.name, subtitle: "Show details",
-                  icon: command.manifest.icon,
-                  actions: [.run(Address(id: entry.id, input: request.input, link: true))])
-              ])
-          } catch {
-            guard let self, !Task.isCancelled, generation == current else { return }
-            patterns[entry.id] = .failed(
-              error.localizedDescription.components(separatedBy: "\n").first ?? "")
-          }
-          guard let self, !Task.isCancelled, generation == current else { return }
-          pending.remove(entry.id)
-          if holding, pending.isDisjoint(with: matched) {
-            holding = false
-            hold.cancel()
-          }
-          if appsReady, !holding { compose() }
-        })
-    }
-    // Each batch of file results replaces the previous one; cancelling the task stops the query.
-    if let files {
-      pending.insert(files.id)
-      tasks.append(
-        Task { [weak self] in
-          var received = false
-          for await rows in files.batches(for: request.input) {
-            guard let self, !Task.isCancelled, generation == current else { return }
-            received = true
-            fileRows = rows
-            if appsReady, !holding { compose() }
-          }
-          guard let self, !Task.isCancelled, generation == current else { return }
-          if !received { fileRows = [] }
-          pending.remove(files.id)
-          if appsReady, !holding { compose() }
-        })
-    }
-    if appsReady, !holding { compose() }
+    root.search(input, speaking: speaking) { [weak self] in self?.show($0) }
   }
-  /// How long the root list waits for pattern extensions whose regex matched: a few frames, more than
-  /// the bundled calculator's few milliseconds and short enough that a slow pattern never delays typing.
-  static let patternHold = Duration.milliseconds(30)
   /// Waits until no work is left, including work a refresh started while this was waiting.
   func settled() async {
     var seen = generation
     repeat {
       seen = generation
       for task in tasks { await task.value }
+      await root.settled()
     } while seen != generation
   }
   /// A command's view: a list ordered by what is typed, or a page.
@@ -691,24 +584,11 @@ final class LauncherModel {
     command?.busy = false
     listed = page == nil ? Ranking.order(view.items, provider: id, query: request.input) : []
   }
-  private func compose() {
+  /// The root's list for what is typed; a Return that waited for it runs now if it may.
+  private func show(_ output: RootCommand.Output) {
     showArrival()
-    isRefreshing = false
-    let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
-    let commands = extensions.commands.filter { enabled.contains($0.key) }
-    let names =
-      [
-        Ranking.Names(provider: "apps", kind: .app, rows: appRows),
-        Ranking.Names(provider: "files", kind: .file, rows: fileRows),
-      ] + itemRows
-    let ranked = Ranking.compose(
-      query: input, names: names, patterns: patterns,
-      extensions: commands.mapValues(\.manifest),
-      problems: extensions.problems.filter { enabled.contains($0.key) },
-      hosts: directory.rootRows(configuration), usage: history.store, now: Date())
-    listed = ranked.results
-    strongReason = ranked.strongReason
-    composedInput = input
+    listed = output.results
+    composedInput = output.input
     publish()
     if returnQueued, !returnWaits {
       returnQueued = false
@@ -716,18 +596,15 @@ final class LauncherModel {
     }
   }
   /// The input the root's rows were composed for. Until the rows of an edit are there (normally after
-  /// `patternHold`), the previous ones still show.
+  /// `RootCommand.patternHold`), the previous ones still show.
   private var composedInput = ""
-  /// The pattern extensions whose regex matched the root's input; their answers are `patterns`.
-  private var matchedPatterns: Set<String> = []
   /// Return at the root waits for the rows composed for what is typed, so it never runs a row made for an
   /// earlier input, and never asks the agent only because a pattern that matched what is typed (a `>`
   /// command for Shell) has not answered with rows: the input was meant for it. A picked row acts at once.
   var returnWaits: Bool {
     guard command == nil, !agent.active, arriving == nil, actionPanel == nil else { return false }
     return composedInput != input
-      || !selectionTouched && selected?.provider == "agent"
-        && matchedPatterns.contains { if case .items = patterns[$0] { false } else { true } }
+      || !selectionTouched && selected?.provider == "agent" && root.awaitsPattern
   }
   /// A Return that waits runs once `returnWaits` is over; an edit, a pick, a switch or hiding calls it off.
   var returnQueued = false
@@ -750,7 +627,7 @@ final class LauncherModel {
         resetSelection = false
         return
       }
-      if !pending.isEmpty {
+      if !root.pending.isEmpty {
         resetSelection = false
         return
       }

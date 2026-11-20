@@ -148,7 +148,7 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
   #expect(await eventually { model.results.map(\.row.title) == ["Invoice.pdf"] })
-  #expect(model.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
+  #expect(model.root.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], finish: true)
   await model.settled()
   #expect(model.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf"])

@@ -95,13 +95,13 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   model.input = "first"
   #expect(await eventually { provider.waiting["first"] != nil })
   provider.waiting.removeValue(forKey: "first")?.resume(returning: .init(items: [row("first")]))
-  #expect(await eventually { !model.isRefreshing })
+  #expect(await eventually { !model.root.isSearching })
   sizes.removeAll()
   model.input = "second"
   #expect(model.results.count == 1 && sizes.isEmpty)
   #expect(await eventually { provider.waiting["second"] != nil })
   provider.waiting.removeValue(forKey: "second")?.resume(returning: .init(items: [row("second")]))
-  #expect(await eventually { !model.isRefreshing })
+  #expect(await eventually { !model.root.isSearching })
   #expect(sizes == [1])
 }
 
@@ -130,7 +130,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
   model.input = "weather"
-  #expect(await eventually { !model.isRefreshing && model.results.count == 2 })
+  #expect(await eventually { !model.root.isSearching && model.results.count == 2 })
   let chosen = try #require(model.results.first { $0.provider == "apps" })
   model.select(chosen.id)
   let top = controller.panel.frame.maxY
@@ -147,7 +147,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   #expect(model.selection == chosen.id)
   try FileManager.default.removeItem(at: gate)
   model.input = "weather tomorrow"
-  #expect(await eventually { !model.isRefreshing })
+  #expect(await eventually { !model.root.isSearching })
   #expect(model.selection == model.results.first?.id && model.selected?.provider == "agent")
   try Data().write(to: gate)
   await model.settled()
@@ -157,7 +157,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   model.move(2)
   model.input = "other"
   model.input = "weather tomorrow"
-  #expect(await eventually { !model.isRefreshing })
+  #expect(await eventually { !model.root.isSearching })
   #expect(model.selection == model.results.first?.id)
   try Data().write(to: gate)
   await model.settled()
@@ -279,5 +279,49 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   try Data().write(to: gate)
   await model.settled()
   #expect(model.selection == chosen)
+  await model.finish()
+}
+
+@MainActor @Test func theRootSearchAloneDeliversThePanelsList() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "pattern", script: answering("Inline"), fields: ["match": "^te"])
+  let model = LauncherModel(
+    apps: TestProvider("apps"), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    bundled: nil)
+  model.extensions.onCatalogChange = nil
+  await model.extensions.reload()
+  model.input = "test"
+  await model.settled()
+  // Headless searches without the panel: the same rows and reason, in the same order.
+  var lists: [RootCommand.Output] = []
+  model.root.search("test", speaking: false) { lists.append($0) }
+  await model.root.settled()
+  #expect(lists.last?.input == "test" && lists.last?.results.map(\.id) == model.results.map(\.id))
+  #expect(model.results.map(\.row.title) == ["Inline", "appstest"])
+  #expect(model.root.strongReason == "pattern result: extension:pattern" && !model.root.isSearching)
+  await model.finish()
+}
+
+@MainActor @Test func aCancelledRootSearchDeliversNothing() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "pattern",
+    script: answering("Late").replacingOccurrences(
+      of: "cat >/dev/null\n", with: "cat >/dev/null\nwhile [ ! -e release ]; do sleep 0.01; done\n"),
+    fields: ["match": "^te"])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.extensions.onCatalogChange = nil
+  await model.extensions.reload()
+  var delivered = 0
+  model.root.search("test", speaking: false) { _ in delivered += 1 }
+  #expect(model.root.pending == ["extension:pattern"] && model.root.isSearching && model.root.awaitsPattern)
+  model.root.cancel()
+  #expect(model.root.pending.isEmpty && !model.root.isSearching)
+  try Data().write(to: root.appending(path: "extensions/pattern/release"))
+  await model.root.settled()
+  try await Task.sleep(for: .milliseconds(100))
+  #expect(delivered == 0)
   await model.finish()
 }
