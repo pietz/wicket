@@ -49,7 +49,7 @@ import Testing
           body: model.navigator.body,
           busy: model.navigator.command?.busy == true,
           height: PaletteLayout.cardHeight(
-            model.navigator, answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
+            model.navigator.presentation, answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
   /// The screens in the order they were drawn, each once per visit.
@@ -683,7 +683,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
-      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+      model.navigator.presentation, answer: panel.controller.renderer.height,
+      cap: panel.controller.renderer.cap))
   // The root once more, unchanged, then the page at its measured height: no frame in between.
   #expect(panel.shown.map(\.screen) == ["root", "extension:page"])
   #expect(panel.shown.map(\.frame.height) == [rootFrame.height, measured])
@@ -714,7 +715,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
-      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+      model.navigator.presentation, answer: panel.controller.renderer.height,
+      cap: panel.controller.renderer.cap))
   #expect(panel.shown.map(\.screen) == ["root", "extension:page", "extension:page"])
   #expect(panel.shown.map(\.frame.height) == [rootFrame.height, running, measured])
   let frames = panel.panel.frames
@@ -1444,7 +1446,8 @@ private let page = String(
   #expect(panel.measuring == 0)
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
-      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+      model.navigator.presentation, answer: panel.controller.renderer.height,
+      cap: panel.controller.renderer.cap))
   #expect(panel.shown.map(\.screen) == ["root", "extension:slow", "extension:slow"])
   #expect(panel.shown.map(\.busy) == [false, true, false])
   #expect(panel.panel.frame.height == measured)
@@ -1521,7 +1524,8 @@ private let page = String(
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
     card: PaletteLayout.cardHeight(
-      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+      model.navigator.presentation, answer: panel.controller.renderer.height,
+      cap: panel.controller.renderer.cap))
   // The first page keeps its frame while the tall one is measured; one frame, at the tall page's height,
   // comes with the tall page.
   #expect(measured > first.height + 100)

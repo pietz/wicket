@@ -85,8 +85,8 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   /// Every change drawn, in order.
   var changes: [PaletteChange] = []
   init(wrapping next: (any PaletteSurface)? = nil) { self.next = next }
-  func present(_ change: PaletteChange) {
-    next?.present(change)
+  func present(_ change: PaletteChange, _ presentation: PalettePresentation) {
+    next?.present(change, presentation)
     changes.append(change)
     if change != .selection { onDraw() }
   }

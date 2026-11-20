@@ -173,9 +173,9 @@ struct InputBar: Layout {
   }
 }
 
-/// The panel's content: the input and its slots, then the card with the screen shown. It reads the
-/// screens' committed state from the navigator and sends what the user does to the panel
-/// (`PaletteController`) or the navigator.
+/// The panel's content: the input and its slots, then the card with the screen shown. It draws the
+/// presentation the panel committed (`PaletteController.presentation`), reads what is typed and filled in
+/// as it is, and sends what the user does to the panel (`PaletteController`) or the navigator.
 struct LauncherView: View {
   unowned let panel: PaletteController
   var flatSurfaces = false
@@ -184,8 +184,10 @@ struct LauncherView: View {
   private var input: PanelInput { panel.input }
   private var recorder: ShortcutRecorder { panel.recorder }
   private var renderer: AnswerRenderer { panel.renderer }
+  /// What the screens show, as committed.
+  private var shown: PalettePresentation { panel.presentation }
   /// The agent's screen, nil while another one shows.
-  private var agent: AgentPresentation? { navigator.agentScreen }
+  private var agent: AgentPresentation? { shown.agent }
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   private var textSize: Configuration.TextSize { model.configuration.textSize }
   var body: some View {
@@ -224,21 +226,19 @@ struct LauncherView: View {
 
         VStack(spacing: 0) {
           // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
-          let actions = navigator.actionsTitle != nil
+          let actions = shown.actionsTitle != nil
           ZStack(alignment: .top) {
             Group {
               if let agent {
                 agentContent(agent)
-              } else if navigator.command?.problem != nil || navigator.page != nil {
+              } else if shown.problem != nil || shown.page != nil {
                 extensionContent
               }
             }
             .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
-            if navigator.splits {
+            if shown.splits {
               split
-            } else if actions
-              || agent == nil && navigator.command?.problem == nil && navigator.page == nil
-            {
+            } else if actions || agent == nil && shown.problem == nil && shown.page == nil {
               list
             }
           }
@@ -252,17 +252,17 @@ struct LauncherView: View {
             Text(
               voiceStatus
                 ?? (agent.map { $0.continuing ? "Continuing conversation" : (renderer.problem ?? $0.status) }
-                  ?? (model.problem ?? navigator.commandName ?? "Wicket"))
+                  ?? (model.problem ?? shown.commandName ?? "Wicket"))
             ).lineLimit(1).help(voiceStatus ?? agent?.status ?? model.problem ?? "")
             Spacer()
-            if navigator.permissionPending {
+            if shown.permissionPending {
               Text("⌘↩ Allow")
               Text("Esc Don't allow")
-            } else if navigator.actionsTitle != nil {
-              Text("↩ " + (navigator.selected?.row.actions.first?.label ?? "Enter"))
+            } else if shown.actionsTitle != nil {
+              Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter"))
               Text("esc Back")
             } else if let agent {
-              if let action = navigator.selected?.row.actions.first {
+              if let action = shown.selected?.row.actions.first {
                 Text("↩ " + action.label)
               } else if agent.busy {
                 Button("Cancel") { navigator.cancelTurn() }.buttonStyle(.plain)
@@ -271,19 +271,19 @@ struct LauncherView: View {
               } else {
                 Text("↩ Follow up")
               }
-              if navigator.offersActions { Text("⌘K Actions") }
+              if shown.offersActions { Text("⌘K Actions") }
               Text(
-                navigator.inDetail || navigator.returnsOnEscape
+                shown.inDetail || shown.returnsOnEscape
                   ? "Esc Back"
                   : agent.busy
                     ? "Esc Cancel" : agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
-              Text("↩ " + (navigator.selected?.row.actions.first?.label ?? "Enter"))
-              if navigator.offersActions { Text("⌘K Actions").lineLimit(1) }
+              Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter"))
+              if shown.offersActions { Text("⌘K Actions").lineLimit(1) }
               // The one hint that may grow with a name: it gives way first.
-              Text("⌘↩ " + (navigator.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
+              Text("⌘↩ " + (shown.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
                 .layoutPriority(-1)
-              Text(navigator.command == nil ? "esc Close" : "esc Back")
+              Text(shown.command == nil ? "esc Close" : "esc Back")
             }
           }
           .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -302,14 +302,14 @@ struct LauncherView: View {
   /// field itself never sizes itself. The first 200 characters are enough to fill any width.
   private var inputField: some View {
     // The action panel's field is empty and says what the panel is for; typing returns to the input.
-    let text = navigator.actionsTitle == nil ? navigator.input : ""
+    let text = shown.actionsTitle == nil ? navigator.input : ""
     let placeholder =
-      navigator.actionsTitle.map { "Actions for \($0)" }
+      shown.actionsTitle.map { "Actions for \($0)" }
       ?? (agent.map {
         $0.question.isEmpty
-          ? navigator.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(navigator.askingName)…"
+          ? shown.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(shown.askingName)…"
           : "Ask a follow-up…"
-      } ?? (navigator.commandName ?? "Search or ask anything…"))
+      } ?? (shown.commandName ?? "Search or ask anything…"))
     return Text(text.isEmpty ? placeholder : String(text.prefix(200)))
       .font(.system(size: 21)).lineLimit(1).hidden()
       .padding(.trailing, 8)  // Room for the caret and the field's own inset.
@@ -347,19 +347,17 @@ struct LauncherView: View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(spacing: 2) {
-          if navigator.results.isEmpty {
-            Text(
-              navigator.command?.busy == true ? "Running…" : navigator.awaitsPattern ? " " : "No results"
-            ).foregroundStyle(.secondary)
-              .frame(height: PaletteLayout.header)
+          if shown.rows.isEmpty {
+            Text(shown.busy ? "Running…" : shown.awaitsPattern ? " " : "No results")
+              .foregroundStyle(.secondary).frame(height: PaletteLayout.header)
           }
-          ForEach(navigator.results) { result in resultRow(result) }
+          ForEach(shown.rows) { result in resultRow(result) }
         }.padding(10)
       }
-      .frame(height: PaletteLayout.listHeight(navigator))
-      .onChange(of: navigator.selection) { _, id in if let id { proxy.scrollTo(id) } }
-      .onChange(of: navigator.results.map(\.id)) { _, _ in
-        if let id = navigator.selection { proxy.scrollTo(id) }
+      .frame(height: PaletteLayout.listHeight(shown))
+      .onChange(of: shown.selection) { _, id in if let id { proxy.scrollTo(id) } }
+      .onChange(of: shown.rows.map(\.id)) { _, _ in
+        if let id = shown.selection { proxy.scrollTo(id) }
       }
     }
   }
@@ -373,18 +371,18 @@ struct LauncherView: View {
       if let page = renderer.page {
         WebView(page).webViewContentBackground(.hidden)
           .opacity(
-            renderer.renderedTurn.hasPrefix(Navigator.previewTurn(navigator.command?.id ?? "", nil)) ? 1 : 0)
+            renderer.renderedTurn.hasPrefix(Navigator.previewTurn(shown.command ?? "", nil)) ? 1 : 0)
       } else {
         Spacer()
       }
     }
-    .frame(height: PaletteLayout.listHeight(navigator))
+    .frame(height: PaletteLayout.listHeight(shown))
   }
   /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
   private func resultRow(_ result: Result) -> some View {
     HStack(spacing: 10) {
       icon(result).frame(width: 26, height: 26)
-      if result.row.prominent == true, result.id == navigator.results.first?.id {
+      if result.row.prominent == true, result.id == shown.rows.first?.id {
         VStack(alignment: .leading, spacing: 0) {
           Text(result.row.title).font(
             .system(size: 24 * textSize.scale, weight: .medium).monospacedDigit())
@@ -396,7 +394,7 @@ struct LauncherView: View {
           .layoutPriority(
             1)
         // Beside a detail the list is narrow, and the detail says more.
-        if let subtitle = result.row.subtitle, result.provider != "apps", !navigator.splits {
+        if let subtitle = result.row.subtitle, result.provider != "apps", !shown.splits {
           Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -416,10 +414,10 @@ struct LauncherView: View {
     }
     .padding(.horizontal, 10).frame(
       height: (result.row.prominent == true)
-        && result.id == navigator.results.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
+        && result.id == shown.rows.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
     )
     .background {
-      if result.id == navigator.selection {
+      if result.id == shown.selection {
         RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
           .primary.opacity(0.1))
       }
@@ -440,7 +438,7 @@ struct LauncherView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(
-      result.id == navigator.selection ? [.isSelected, .isButton] : .isButton)
+      result.id == shown.selection ? [.isSelected, .isButton] : .isButton)
   }
   private var voiceStatus: String? {
     if input.voice?.state == .starting { return "Starting voice…" }
@@ -448,23 +446,23 @@ struct LauncherView: View {
     return input.voice?.problem
   }
   private var cardHeight: CGFloat {
-    PaletteLayout.cardHeight(navigator, answer: renderer.height, cap: renderer.cap)
+    PaletteLayout.cardHeight(shown, answer: renderer.height, cap: renderer.cap)
   }
   private var extensionContent: some View {
     VStack(spacing: 0) {
       HStack {
-        Text(navigator.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
+        Text(shown.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
           .lineLimit(1)
         Spacer()
-        if navigator.command?.busy == true { ProgressView().controlSize(.small) }
-        if let error = navigator.command?.problem {
+        if shown.busy { ProgressView().controlSize(.small) }
+        if let error = shown.problem {
           Button("Copy") { Pasteboard.write(error) }
           Button("Ask agent") { navigator.send(error) }
-        } else if !navigator.viewActions.isEmpty {
-          Button("Actions") { navigator.toggleActions(navigator.viewRow) }
+        } else if !shown.viewActions.isEmpty {
+          Button("Actions") { navigator.toggleActions(shown.viewRow) }
         }
       }.buttonStyle(.plain).padding(.horizontal, 20).frame(height: PaletteLayout.header)
-      if let error = navigator.command?.problem {
+      if let error = shown.problem {
         ScrollView {
           Text(error).font(.system(size: 13)).textSelection(.enabled).frame(
             maxWidth: .infinity, alignment: .leading
@@ -479,10 +477,10 @@ struct LauncherView: View {
     if agent.question.isEmpty {
       // A draft from the `agent` action or Cmd+Return: nothing is asked yet.
       Text(
-        navigator.returnsOnEscape
-          ? navigator.askingAbout.map { "\(navigator.askingName) will see what \($0) shows." }
-            ?? "Type a question for \(navigator.askingName)."
-          : "Press Return to ask \(navigator.askingName), or edit the question first."
+        shown.returnsOnEscape
+          ? shown.askingAbout.map { "\(shown.askingName) will see what \($0) shows." }
+            ?? "Type a question for \(shown.askingName)."
+          : "Press Return to ask \(shown.askingName), or edit the question first."
       )
       .font(.system(size: textSize.points)).foregroundStyle(.secondary)
       .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)

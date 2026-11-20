@@ -125,7 +125,7 @@ struct AgentScreen {
 
 /// The agent's screen as the panel draws it and routes keys by (`Navigator.agentScreen`): the session's
 /// turn and its first permission, which the session keeps alive and expires, with this visit's own state.
-@MainActor struct AgentPresentation {
+struct AgentPresentation: Equatable {
   let question: String
   /// The command the question was asked from, whose context went with it.
   let source: String?
@@ -143,7 +143,7 @@ struct AgentScreen {
   let continuing: Bool
   let streaming: Bool
   let expanded: Bool
-  init(_ session: AgentSession, _ screen: AgentScreen) {
+  @MainActor init(_ session: AgentSession, _ screen: AgentScreen) {
     question = session.question
     source = session.source
     notice = session.notice

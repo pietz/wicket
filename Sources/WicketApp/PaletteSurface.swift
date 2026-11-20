@@ -1,10 +1,11 @@
 import Foundation
 
-/// What the navigator asks of the panel it shows in (`PaletteController`): drawing what changed, in the
-/// same turn, so the native frame and the content change together; measuring a page before it shows; and
-/// what leaves the screens.
+/// What the navigator asks of the panel it shows in (`PaletteController`): drawing what it committed, in
+/// the same turn, so the native frame and the content change together; measuring a page before it shows;
+/// and what leaves the screens.
 @MainActor protocol PaletteSurface: AnyObject {
-  func present(_ change: PaletteChange)
+  /// Draws `presentation`, which `change` says what changed in.
+  func present(_ change: PaletteChange, _ presentation: PalettePresentation)
   /// Renders and measures a page before it shows, so the card's height is known when it appears. The
   /// height is held for the page's turn until the navigator shows it (`PaletteChange.measured`): the page
   /// shown meanwhile keeps its own.
@@ -49,4 +50,70 @@ enum PaletteEffect: Equatable {
   case close
   /// The Settings destination: the launcher leaves for the native window.
   case settings
+}
+
+/// What the panel shows, as the navigator committed it in one step: the card's content and selection,
+/// what its height depends on, and the placeholder and footer hints that go with them. The view draws it
+/// and the native frame is sized from it (`PaletteLayout.cardHeight`), so both take the same values in
+/// the same turn. What is typed into the input and the slots is the fields' own, read as it is.
+struct PalettePresentation: Equatable {
+  /// What the arrow keys walk: the action panel's rows, the page's targets, else the list.
+  var rows: [Result] = []
+  var selection: String?
+  /// What Return runs, from the row it belongs to (`Navigator.selected`).
+  var selected: Result?
+  /// The rows the list card is sized for (`Navigator.sizedRows`), and their height at the text size.
+  var sizedRows = 1
+  var rowHeight = Configuration.TextSize.medium.rowHeight
+  var prominentFirst = false
+  /// A command's list with the selected item's detail beside it (`preview`).
+  var splits = false
+  var preview: Preview?
+  var nearbyPictures: [URL] = []
+  struct Preview: Equatable {
+    let page: Page
+    let turn: String
+  }
+  /// The row whose actions the action panel lists; nil while it is closed.
+  var actionsTitle: String?
+  /// The agent's screen, nil while another one shows.
+  var agent: AgentPresentation?
+  var headerHeight: CGFloat = 32
+  var confirmationHeight: CGFloat = 210
+  var permissionPending = false
+  /// The open command: its id, name, failure, whether it is running, and its view's own actions.
+  var command: String?
+  var commandName: String?
+  var problem: String?
+  var busy = false
+  var viewActions: [RowAction] = []
+  var viewRow: Result?
+  /// The page shown, its turn and its selected target.
+  var page: Page?
+  var pageTurn = ""
+  var inDetail = false
+  var selectedTarget: String?
+  var offersActions = false
+  var returnsOnEscape = false
+  var askingAbout: String?
+  var askingName = ""
+  /// A pattern that matched what is typed is still running at the root (`Navigator.awaitsPattern`).
+  var awaitsPattern = false
+}
+
+extension Navigator {
+  /// The screens as the panel draws them now.
+  var presentation: PalettePresentation {
+    PalettePresentation(
+      rows: results, selection: selection, selected: selected, sizedRows: sizedRows,
+      rowHeight: configuration.textSize.rowHeight, prominentFirst: prominentFirst, splits: splits,
+      preview: preview.map { PalettePresentation.Preview(page: $0.page, turn: $0.turn) },
+      nearbyPictures: nearbyPictures, actionsTitle: actionsTitle, agent: agentScreen,
+      headerHeight: conversationHeaderHeight, confirmationHeight: confirmationHeight,
+      permissionPending: permissionPending, command: command?.id, commandName: commandName,
+      problem: command?.problem, busy: command?.busy == true, viewActions: viewActions, viewRow: viewRow,
+      page: page, pageTurn: pageTurn, inDetail: inDetail, selectedTarget: selectedTarget,
+      offersActions: offersActions, returnsOnEscape: returnsOnEscape, askingAbout: askingAbout,
+      askingName: askingName, awaitsPattern: awaitsPattern)
+  }
 }

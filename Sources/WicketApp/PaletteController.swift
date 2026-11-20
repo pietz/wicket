@@ -77,9 +77,12 @@ class PalettePanel: NSPanel {
 
 }
 
-@MainActor
+@MainActor @Observable
 final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, PaletteSurface {
   let panel: PalettePanel
+  /// What the panel shows, as the navigator last committed it (`present`): the view draws it and the
+  /// frame is sized from it.
+  private(set) var presentation: PalettePresentation
   let model: LauncherModel
   let navigator: Navigator
   let renderer: AnswerRenderer
@@ -88,18 +91,18 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// Records a row's hotkey: Set Hotkey… makes the next shortcut pressed its hotkey, under the
   /// launcher's rules, with every global hotkey paused (`pauseHotkeys`) so it hears the keys.
   let recorder = ShortcutRecorder()
-  private let pauseHotkeys: (Bool) -> Void
+  @ObservationIgnored private let pauseHotkeys: (Bool) -> Void
   /// Where the Settings destination goes.
-  private let settings: SettingsWindowController?
+  @ObservationIgnored private let settings: SettingsWindowController?
   /// Opens an application and calls back once Launch Services answered; tests hold the answer.
-  private let openApplication: (URL, @escaping @MainActor (Error?) -> Void) -> Void
-  private var anchor = NSPoint.zero
+  @ObservationIgnored private let openApplication: (URL, @escaping @MainActor (Error?) -> Void) -> Void
+  @ObservationIgnored private var anchor = NSPoint.zero
   /// An application is opening, which hides the panel once it answers (`holdsReturn`).
-  private var opening = false
-  private var previousApp: NSRunningApplication?
-  private var visibleStarted: TimeInterval?
+  @ObservationIgnored private var opening = false
+  @ObservationIgnored private var previousApp: NSRunningApplication?
+  @ObservationIgnored private var visibleStarted: TimeInterval?
   /// Between `show` and `hide`. A hidden panel renders nothing, so the renderer can release its page.
-  private var isOpen = false
+  @ObservationIgnored private var isOpen = false
 
   /// `flatSurfaces` draws solid surfaces instead of glass, which an offscreen render cannot show.
   init(
@@ -119,6 +122,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     self.pauseHotkeys = pauseHotkeys
     let navigator = model.navigator
     self.navigator = navigator
+    presentation = navigator.presentation
     // A `wicket://` link in a page is an address; any other goes to the system.
     renderer = AnswerRenderer(folder: model.agent.folder) { [weak navigator] url in
       if let address = Address(url: url) { navigator?.go(address) } else { NSWorkspace.shared.open(url) }
@@ -163,7 +167,8 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   }
   /// What the screens show changed: drawn in the same turn, so the native frame and the content change
   /// together. A hidden panel renders nothing.
-  func present(_ change: PaletteChange) {
+  func present(_ change: PaletteChange, _ presentation: PalettePresentation) {
+    if self.presentation != presentation { self.presentation = presentation }
     switch change {
     case .content, .measured:
       if case .measured(let height) = change { renderer.adopt(height) }
@@ -171,11 +176,11 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       if isOpen { renderContent() }
       resize()
     case .selection:
-      renderer.selected = navigator.selectedTarget
+      renderer.selected = presentation.selectedTarget
       // Beside a list, the selected item's detail, with its neighbors' pictures prepared.
-      if isOpen, navigator.splits {
+      if isOpen, presentation.splits {
         renderContent()
-        PageIcons.prepare(navigator.nearbyPictures)
+        PageIcons.prepare(presentation.nearbyPictures)
       }
     }
   }
@@ -228,6 +233,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     renderer.opened()
     renderer.cap = PaletteLayout.answerCap(available: anchor.y - visible.minY)
     isOpen = true
+    presentation = navigator.presentation
     renderContent()
     resize()
     visibleStarted = eventTime
@@ -255,7 +261,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   private func resize() {
     guard panel.isVisible || anchor != .zero else { return }
     let height = PaletteLayout.panelHeight(
-      card: PaletteLayout.cardHeight(navigator, answer: renderer.height, cap: renderer.cap))
+      card: PaletteLayout.cardHeight(presentation, answer: renderer.height, cap: renderer.cap))
     let frame = PaletteLayout.frame(anchor: anchor, height: height)
     if panel.frame != frame { panel.setFrame(frame, display: false) }
     panel.contentView?.layoutSubtreeIfNeeded()
@@ -264,17 +270,17 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// The page that is open: a detail, the conversation's answer or an extension's body, or beside a list
   /// the selected item's detail. Another list has none, and the renderer is not touched.
   private func renderContent() {
-    if let preview = navigator.preview {
+    if let preview = presentation.preview {
       renderer.textSize = model.configuration.textSize
       renderer.selected = nil
       return renderer.update(preview.page, turn: preview.turn, streaming: false)
     }
-    guard let page = navigator.page else { return }
+    guard let page = presentation.page else { return }
     renderer.textSize = model.configuration.textSize
-    renderer.selected = navigator.selectedTarget
+    renderer.selected = presentation.selectedTarget
     renderer.update(
-      page, turn: navigator.pageTurn,
-      streaming: !navigator.inDetail && navigator.agentScreen.map { $0.busy && $0.streaming } == true)
+      page, turn: presentation.pageTurn,
+      streaming: !presentation.inDetail && presentation.agent.map { $0.busy && $0.streaming } == true)
   }
   /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
   func open(_ url: URL) {

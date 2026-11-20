@@ -28,7 +28,7 @@ import Testing
         Frame(
           command: model.navigator.command?.id, rows: model.navigator.results.count,
           height: PaletteLayout.cardHeight(
-            model.navigator, answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
+            model.navigator.presentation, answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
 }

@@ -43,7 +43,8 @@ import Testing
   let alpha = try #require(model.navigator.preview)
   #expect(alpha.page.source.contains("## Alpha") && alpha.turn == "detail:extension:notes:alpha")
   #expect(
-    PaletteLayout.cardHeight(model.navigator, answer: 80, cap: 500) == PaletteLayout.rowsHeight(8)
+    PaletteLayout.cardHeight(model.navigator.presentation, answer: 80, cap: 500) == PaletteLayout.rowsHeight(
+      8)
       + PaletteLayout.footer)
   // Arrows change what it shows, with no request; an item without a detail shows an empty pane, and the
   // card keeps its height.
@@ -54,7 +55,8 @@ import Testing
   model.navigator.move(1)
   #expect(model.navigator.preview?.page.source == "Gamma body")
   #expect(
-    PaletteLayout.cardHeight(model.navigator, answer: 300, cap: 500) == PaletteLayout.rowsHeight(8)
+    PaletteLayout.cardHeight(model.navigator.presentation, answer: 300, cap: 500) == PaletteLayout.rowsHeight(
+      8)
       + PaletteLayout.footer)
   // Return runs the item's own first action, and ⌘K lists its actions in place of the split.
   model.navigator.move(-2)

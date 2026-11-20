@@ -179,7 +179,7 @@ final class Navigator {
   @ObservationIgnored weak var surface: (any PaletteSurface)?
   /// `measured`: the page shown now was measured before it showed, at this height.
   private func draw(_ measured: PageHeight? = nil) {
-    surface?.present(measured.map { .measured($0) } ?? .content)
+    surface?.present(measured.map { .measured($0) } ?? .content, presentation)
   }
 
   // MARK: Layers: details and the action panel
@@ -272,7 +272,7 @@ final class Navigator {
       guard newValue.id != old else { return }
       // The draft is gone, so the input takes the keys again.
       if command == nil { focusTarget = nil }
-      surface?.present(.selection)
+      surface?.present(.selection, presentation)
     }
   }
   var selection: String? { current.id }
@@ -833,7 +833,10 @@ final class Navigator {
   /// The agent's screen as drawn, nil while it is not open.
   var agentScreen: AgentPresentation? { conversation.map { AgentPresentation(agent, $0) } }
   /// A long question's header shows all of it, or two lines again.
-  func toggleQuestion() { conversation?.expanded.toggle() }
+  func toggleQuestion() {
+    conversation?.expanded.toggle()
+    draw()
+  }
   /// The permission card has the keys: ⌘↩ allows, Escape denies, and Return does nothing.
   var permissionPending: Bool { conversing && !agent.permissions.isEmpty }
   /// Answers the permission the card asks about.

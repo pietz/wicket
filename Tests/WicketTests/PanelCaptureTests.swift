@@ -855,6 +855,11 @@ func panelCapture(_ state: String) async throws {
     await scenario.controller?.renderer.settled()
     let target = directory.appending(path: "\(state)-\(dark ? "dark" : "light").png")
     try await Task.sleep(for: .seconds(1))
+    // What the panel draws is what the screens committed last: no change to them went undrawn.
+    if let controller = scenario.controller {
+      #expect(
+        controller.presentation == scenario.model.navigator.presentation, "\(state) drew a stale screen")
+    }
     try await render(scenario.view, to: target)
     let text = try recognizedText(in: target)
     let missing = expectedText(state).filter { !text.localizedCaseInsensitiveContains($0) }
