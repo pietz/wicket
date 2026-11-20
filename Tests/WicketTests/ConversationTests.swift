@@ -146,6 +146,32 @@ import Testing
   await model.finish()
 }
 
+/// The turn's own limit stops while a permission waits, so one that first arrives while the panel is
+/// hidden must still be declined when the conversation's time is up, and showing again calls that off.
+@MainActor @Test func aPermissionFirstReceivedWhileHiddenExpiresAtTheHideDeadline() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let session = AgentSession(folder: root)
+  let fake = FakeAgent()
+  session.connect = { _, _, _ in fake }
+  session.retention = 0.05
+  session.ask("Permission", settings: .init())
+  #expect(await eventually { fake.running })
+  session.hidden()
+  fake.ask()
+  #expect(session.permissions.count == 1)
+  #expect(await eventually { session.permissions.isEmpty })
+  #expect(fake.decisions.map(\.allow) == [false] && session.busy)
+  // Shown again, a permission is the user's to answer: no deadline runs.
+  session.reopen(now: .distantPast)
+  fake.ask()
+  try await Task.sleep(for: .milliseconds(100))
+  #expect(session.permissions.count == 1 && fake.decisions.count == 1)
+  session.decide(false)
+  fake.end()
+  await session.shutdown()
+}
+
 @MainActor @Test func hiddenPermissionsExpireWithoutReopeningAndReopenCancelsTheDeadline() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -175,6 +201,7 @@ import Testing
   fake.end()
   #expect(await eventually { !session.busy })
   // A later turn must show its actual completion or error after a hidden conversation.
+  session.reopen()
   session.ask("Next", settings: .init())
   #expect(!session.continuing)
   #expect(await eventually { fake.running })

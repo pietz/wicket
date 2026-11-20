@@ -87,6 +87,7 @@ final class AgentSession {
   /// After the retention window, pending permissions are declined, even while busy. Unless a turn
   /// is still running, the conversation ends too. Returns true then: the caller drops its draft.
   @discardableResult func reopen(now: Date = Date()) -> Bool {
+    shown = true
     permissionExpiry?.cancel()
     guard let retainedUntil, now > retainedUntil else { return false }
     declineAll()
@@ -96,15 +97,22 @@ final class AgentSession {
     return true
   }
   func hidden(now: Date = Date()) {
+    shown = false
     lastActivity = max(lastActivity ?? now, now)
     if active { continuing = true }
+    expirePermissions(now: now)
+  }
+  /// Whether the panel shows: between `reopen` and `hidden`.
+  private var shown = true
+  /// While the panel is hidden, pending permissions are declined at the end of the retention window,
+  /// including one that first arrives while hidden: the turn's own limit no longer runs then.
+  private func expirePermissions(now: Date = Date()) {
     permissionExpiry?.cancel()
-    guard !permissions.isEmpty, let retainedUntil else { return }
+    guard !shown, !permissions.isEmpty, let retainedUntil else { return }
     let delay = max(0, retainedUntil.timeIntervalSince(now))
     permissionExpiry = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-      guard let self else { return }
-      declineAll()
+      self?.declineAll()
     }
   }
   /// An empty conversation with these settings, waiting for its first question. No process starts.
@@ -261,6 +269,7 @@ final class AgentSession {
       permissions.append(permission)
       // The CLI is silent until the user answers, which may take until `retention`.
       deadline?.cancel()
+      expirePermissions()
     case .finished(let cancelled):
       guard busy else { return }
       finishTurn(status: cancelled ? "Cancelled" : "Ready for a follow-up")
