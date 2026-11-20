@@ -4,10 +4,10 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 
 ## Layout
 
-- `Sources/WicketApp`: the app as one library module, so tests can `@testable import` it. `Sources/Wicket/main.swift` is the thin executable: headless mode for `--` arguments, otherwise the app.
+- `Sources/WicketApp`: the app as one library module, so tests can `@testable import` it. `Navigator` owns the launcher's screens (the root, an open command, the agent's) and moving between them; `LauncherModel` composes the services around it. `Sources/Wicket/main.swift` is the thin executable: headless mode for `--` arguments, otherwise the app.
 - `Sources/WicketApp/Resources`: answer stylesheet, bridge script, `agent-instructions.md` (Claude receives the bundled instructions and the owner's additions on each turn; Codex receives them when its thread starts), the extension contract and the examples, found through `Bundle.wicket`.
 - `Sources/Extensions`: the bundled extensions (calculator, units, window, shell), one executable target each in plain Swift without Foundation, plus the shared `Shared/JSON.swift`; `build-app.sh` puts each binary with its manifest and source in `Contents/Resources/Extensions`.
-- `Tests/WicketTests`: headless tests with fakes at the hardware edges (voice, agent, hotkey); recorded agent streams in `Fixtures/`.
+- `Tests/WicketTests`: headless tests with fakes at the hardware edges (voice, agent, hotkey); recorded agent streams in `Fixtures/`. Tests open and end conversations through `Navigator`, never by driving the session behind it.
 - `Resources`: Info.plist, entitlements and icons. `Scripts`: `check.sh`, `build-app.sh`, `release.sh`, `land.sh`, `hooks/`. `appcast.xml` and `Casks/wicket.rb` are the update feed and the Homebrew cask, written by `release.sh`.
 
 ## Rules
