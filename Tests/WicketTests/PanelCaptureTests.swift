@@ -196,13 +196,59 @@ private let nextAnswer =
   }
 }
 
-/// A scratch folder with a fixed name, emptied first.
+/// This run's own scratch storage: runs in other clones at the same time never share a folder.
+private let captureRun = FileManager.default.temporaryDirectory.appending(
+  path: "wicket-capture-" + UUID().uuidString)
+
+/// A scratch folder of this run, by name.
 private func captureFolder(_ name: String) throws -> URL {
-  let folder = FileManager.default.temporaryDirectory.appending(path: "wicket-capture-" + name)
-  try? FileManager.default.removeItem(at: folder)
+  let folder = captureRun.appending(path: name)
   try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
   return folder
 }
+
+/// Extensions whose failure report a capture draws (`extension-error`, `hotkey-command-error`): the
+/// report shows the extension's folder, so these are the model's bundled ones at a path that is the same
+/// in every run. Every run writes the same files and none removes them, so runs at the same time cannot
+/// break each other.
+private func reportedExtensions() throws -> URL {
+  let root = FileManager.default.temporaryDirectory.appending(path: "wicket-capture-fixtures")
+  func install(_ id: String, _ manifest: [String: Any], program: String, file: String = "main.sh") throws {
+    let folder = root.appending(path: id)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: manifest, options: .sortedKeys).write(
+      to: folder.appending(path: "wicket.json"), options: .atomic)
+    try Data(program.utf8).write(to: folder.appending(path: file), options: .atomic)
+  }
+  try install(
+    "demo",
+    [
+      "name": "Extension report", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"],
+      "icon": "doc.text",
+    ],
+    program:
+      "import json,sys; json.load(sys.stdin); sys.stderr.write('REPAIR: missing closing brace in main.py\\n'); print('{broken')",
+    file: "main.py")
+  try install(
+    "mover",
+    [
+      "name": "Mover", "keyword": "mover", "icon": "macwindow", "command": ["/bin/sh", "main.sh"],
+      "items": [
+        ["id": "left", "title": "Left half", "actions": [["type": "run", "arguments": ["to": "left"]]]]
+      ],
+    ], program: Scenario.moverProgram)
+  return root
+}
+
+/// A `claude` on PATH that is never run: Agent settings show it installed on any Mac.
+private let installedAgent: Void = {
+  let bin = captureRun.appending(path: "bin")
+  try? FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+  let claude = bin.appending(path: "claude")
+  FileManager.default.createFile(
+    atPath: claude.path, contents: Data("#!/bin/sh\nexit 1\n".utf8), attributes: [.posixPermissions: 0o755])
+  setenv("PATH", bin.path + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? ""), 1)
+}()
 
 /// One state, fully set up and ready to draw. The view lives in a window that is never shown.
 @MainActor private final class Scenario {
@@ -260,7 +306,9 @@ private func captureFolder(_ name: String) throws -> URL {
     let model = LauncherModel(
       apps: apps, clipboard: clipboard, agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
-      bundled: bundledExtensions, transcriber: { transcriber })
+      bundled: ["extension-error", "hotkey-command-error"].contains(name)
+        ? try reportedExtensions() : bundledExtensions,
+      transcriber: { transcriber })
     model.store.update {
       $0.voice.enabled = name == "listening" || name == "arrival-dictated"
       $0.textSize = size
@@ -374,7 +422,8 @@ private func captureFolder(_ name: String) throws -> URL {
   ) async throws {
     let model = scenario.model
     let controller = try #require(scenario.controller)
-    try installTransitionExtensions(model.agent.folder)
+    // The hotkey's failing program is in `reportedExtensions`, as the model's bundled one.
+    try installTransitionExtensions(model.agent.folder, mover: name != "hotkey-command-error")
     model.extensions.onCatalogChange = nil
     await model.extensions.reload()
     controller.show(orderFront: false, listen: false)
@@ -469,7 +518,7 @@ private func captureFolder(_ name: String) throws -> URL {
   /// The commands the transitions switch between: a list that answers only once released (never, in a
   /// capture), a page with a nested detail and actions, items from the manifest, and a hotkey's program
   /// that fails.
-  private static func installTransitionExtensions(_ folder: URL) throws {
+  private static func installTransitionExtensions(_ folder: URL, mover: Bool) throws {
     func install(_ id: String, _ manifest: [String: Any], script: String? = nil, view: ProviderView? = nil)
       throws
     {
@@ -511,6 +560,7 @@ private func captureFolder(_ name: String) throws -> URL {
           ["id": $0.lowercased(), "title": $0, "actions": [["type": "copy", "text": $0]]]
         },
       ])
+    guard mover else { return }
     try install(
       "mover",
       [
@@ -519,8 +569,9 @@ private func captureFolder(_ name: String) throws -> URL {
           ["id": "left", "title": "Left half", "actions": [["type": "run", "arguments": ["to": "left"]]]]
         ],
       ],
-      script: "cat >/dev/null\necho 'REPAIR: no window to move' >&2\nexit 1")
+      script: moverProgram)
   }
+  nonisolated static let moverProgram = "cat >/dev/null\necho 'REPAIR: no window to move' >&2\nexit 1"
 
   private static func permissionRequest(high: Bool, folder: URL) -> AgentPermission {
     let paths =
@@ -575,7 +626,14 @@ private func captureFolder(_ name: String) throws -> URL {
       _ = model.activateReturn()
       await model.settled()
       for _ in 0..<3 { model.move(1) }
-    } else if ["extension-detail", "extension-both", "extension-error"].contains(state) {
+    } else if state == "extension-error" {
+      // Its extension is in `reportedExtensions`, as the model's bundled one.
+      await host.reload()
+      model.input = "demo"
+      await model.settled()
+      _ = model.activateReturn()
+      await model.settled()
+    } else if ["extension-detail", "extension-both"].contains(state) {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
       try JSONSerialization.data(withJSONObject: [
@@ -600,11 +658,8 @@ private func captureFolder(_ name: String) throws -> URL {
           .agent("Explain this report"),
         ])
       try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
-      let code =
-        state == "extension-error"
-        ? "import json,sys; json.load(sys.stdin); sys.stderr.write('REPAIR: missing closing brace in main.py\\n'); print('{broken')"
-        : "import json,sys; json.load(sys.stdin); sys.stdout.write(open('view.json').read())"
-      try Data(code.utf8).write(to: demo.appending(path: "main.py"))
+      try Data("import json,sys; json.load(sys.stdin); sys.stdout.write(open('view.json').read())".utf8)
+        .write(to: demo.appending(path: "main.py"))
       await host.reload()
       model.input = "demo"
       await model.settled()
@@ -698,6 +753,7 @@ private func captureFolder(_ name: String) throws -> URL {
       agent: .claude, in: folder)
     store.discover = { _ in throw AgentFailure("Captures never start an agent") }
     store.checkSignIn = { _ in .signedIn }
+    _ = installedAgent
     let host = ExtensionHost(folder: folder, bundled: bundledExtensions)
     await host.reload()
     store.start(watching: false)
@@ -724,6 +780,12 @@ private func captureFolder(_ name: String) throws -> URL {
     window.isReleasedWhenClosed = false
     window.appearance = appearance
     window.contentView = pane
+    if state == "settings-agent" {
+      // The pane checks on appearing; the capture draws only once the check answered.
+      store.discoverOptions()
+      await store.discovery?.value
+      #expect(AgentCLI.installed(.claude) && store.signIn[.claude] == .signedIn)
+    }
     let model = LauncherModel.testing(in: folder)
     let scenario = Scenario(model: model, controller: nil, view: pane, window: window, folder: folder)
     scenario.keep.append(store)
