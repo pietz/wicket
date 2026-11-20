@@ -316,7 +316,7 @@ private let installedAgent: Void = {
     let panel = CapturePanel()
     panel.appearance = appearance
     let controller = PaletteController(
-      model: model, flatSurfaces: true, panel: panel, transcriber: { transcriber })
+      model: model, drawsGlass: false, panel: panel, transcriber: { transcriber })
     let scenario = Scenario(
       model: model, controller: controller, view: panel.contentView!, window: nil, folder: folder)
     scenario.keep.append(transcriber)

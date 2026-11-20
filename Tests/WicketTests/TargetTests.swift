@@ -521,7 +521,7 @@ import Testing
   let model = LauncherModel.testing(
     in: folder,
     bundled: bundledExtensions)
-  let controller = PaletteController(model: model, flatSurfaces: true, panel: PalettePanel())
+  let controller = PaletteController(model: model, drawsGlass: false, panel: PalettePanel())
   controller.show(orderFront: false, listen: false)
   for input in ["2+2", "c", ""] {
     model.navigator.input = input

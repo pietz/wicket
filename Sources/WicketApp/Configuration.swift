@@ -14,6 +14,10 @@ struct Configuration: Codable, Equatable, Sendable {
     var scale: Double { points / 15 }
     var rowHeight: Double { 40 + (points - 15) * 2 }
   }
+  /// Light or dark for Wicket's windows, or the system's.
+  enum Appearance: String, Codable, CaseIterable, Sendable {
+    case system, light, dark
+  }
   struct ProviderEntry: Codable, Equatable, Sendable {
     var id: String
     var enabled: Bool
@@ -68,18 +72,24 @@ struct Configuration: Codable, Equatable, Sendable {
   var hotkeys: [Hotkey] = []
   /// Each extension's settings by folder name, strings as the manifest declares them: `{"window":{"gap":"8"}}`.
   var extensions: [String: [String: String]] = [:]
-  /// 0 is the strongest tint (most readable); 1 is untinted Liquid Glass.
-  var backgroundTransparency: Double = 0.75
-  /// The default before the Liquid Glass look (through 0.3.4), which every new file stored. A stored value equal
-  /// to it reads as unset, so those files get the new default without Wicket rewriting them.
-  static let oldDefaultTransparency = 0.15
+  var appearance = Appearance.system
+  /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
+  var backgroundTransparency: Double = 0.5
+  /// The defaults of earlier looks, which every new file stored: 0.15 before Liquid Glass (through 0.3.4),
+  /// 0.75 for the frosted tint. A stored value equal to one reads as unset, so those files get the current
+  /// default without Wicket rewriting them.
+  static let oldDefaultTransparencies: Set<Double> = [0.15, 0.75]
+  /// How strongly the glass blurs what is behind it, 0 to 10 (`GlassBlur`).
+  var blur = 4.0
+  static let blurRange = 0.0...10.0
   static let builtins = ["apps", "files", "clipboard"]
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.
   static func enabledByDefault(_ id: String) -> Bool { id != "clipboard" }
   var providers = builtins.map { ProviderEntry($0, enabled: enabledByDefault($0)) }
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case hotkey, hotkeys, backgroundTransparency, providers, agent, voice, textSize, extensions
+    case hotkey, hotkeys, appearance, backgroundTransparency, blur, providers, agent, voice, textSize,
+      extensions
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,11 +99,13 @@ struct Configuration: Codable, Equatable, Sendable {
     hotkey = try c.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? hotkey
     hotkeys = try c.decodeIfPresent([Hotkey].self, forKey: .hotkeys) ?? hotkeys
     extensions = try c.decodeIfPresent([String: [String: String]].self, forKey: .extensions) ?? extensions
+    appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? appearance
     if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency),
-      stored != Self.oldDefaultTransparency
+      !Self.oldDefaultTransparencies.contains(stored)
     {
       backgroundTransparency = stored
     }
+    blur = try c.decodeIfPresent(Double.self, forKey: .blur) ?? blur
     providers = try c.decodeIfPresent([ProviderEntry].self, forKey: .providers) ?? providers
     guard hotkey.leavesTypingAlone else {
       throw DecodingError.dataCorruptedError(
@@ -107,6 +119,10 @@ struct Configuration: Codable, Equatable, Sendable {
       throw DecodingError.dataCorruptedError(
         forKey: .backgroundTransparency, in: c,
         debugDescription: "Transparency must be between 0 and 1")
+    }
+    guard Self.blurRange.contains(blur) else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .blur, in: c, debugDescription: "Blur must be between 0 and 10")
     }
     guard Set(providers.map(\.id)).count == providers.count,
       providers.allSatisfy({ !$0.id.isEmpty })

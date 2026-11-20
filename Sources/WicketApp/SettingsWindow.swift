@@ -74,7 +74,8 @@ struct SettingsPane: View {
   let pauseHotkey: (Bool) -> Void
   @State private var automaticChecks: Bool?
   @State private var recorder = ShortcutRecorder()
-  @State private var transparency = TransparencyEdit()
+  @State private var transparency = SliderEdit("backgroundTransparency")
+  @State private var blur = SliderEdit("blur")
   @State private var loginStatus = SMAppService.mainApp.status
   @State private var loginProblem: String?
   @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -150,18 +151,35 @@ struct SettingsPane: View {
       }
       if recorder.isRecording { recorderHint }
       if let problem = store.hotkeyProblem { warning(problem) }
+      Picker("Appearance", selection: binding(config.appearance.rawValue, key: "appearance")) {
+        ForEach(Configuration.Appearance.allCases, id: \.self) { appearance in
+          Text(appearance.rawValue.capitalized).tag(appearance.rawValue)
+        }
+      }
       Slider(
         value: Binding(
           get: { transparency.value ?? config.backgroundTransparency }, set: { transparency.value = $0 }),
         in: 0...1
       ) {
-        Text("Background transparency")
+        Text("Transparency")
       } minimumValueLabel: {
-        Text("More readable")
+        Text("Solid")
       } maximumValueLabel: {
-        Text("More glass")
+        Text("Clear")
       } onEditingChanged: { editing in
         transparency.editingChanged(editing, store: store)
+      }
+      Slider(
+        value: Binding(get: { blur.value ?? config.blur }, set: { blur.value = $0 }),
+        in: Configuration.blurRange
+      ) {
+        Text("Blur")
+      } minimumValueLabel: {
+        Text("Sharp")
+      } maximumValueLabel: {
+        Text("Soft")
+      } onEditingChanged: { editing in
+        blur.editingChanged(editing, store: store)
       }
       Picker("Text size", selection: binding(config.textSize.rawValue, key: "textSize")) {
         ForEach(Configuration.TextSize.allCases, id: \.self) { size in

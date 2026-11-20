@@ -98,6 +98,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var applied = Configuration()
     configuration.onChange = { [weak self] config, _ in
       guard let self else { return }
+      if let config { NSApp.appearance = config.appearance.nsAppearance }
       model.apply(config)
       if let config, config != applied || hotkey.inEffect == nil {
         applied = config
@@ -137,5 +138,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       sender.reply(toApplicationShouldTerminate: true)
     }
     return .terminateLater
+  }
+}
+
+extension Configuration.Appearance {
+  /// What `NSApp.appearance` takes: nil follows the system.
+  var nsAppearance: NSAppearance? {
+    switch self {
+    case .system: nil
+    case .light: NSAppearance(named: .aqua)
+    case .dark: NSAppearance(named: .darkAqua)
+    }
   }
 }

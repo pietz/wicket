@@ -184,7 +184,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   try withSettings { file in
     let store = ConfigurationStore(url: file.url)
     let original = try Data(contentsOf: file.url)
-    var slider = TransparencyEdit()
+    var slider = SliderEdit("backgroundTransparency")
     slider.editingChanged(true, store: store)
     for tick in [0.61, 0.638, 0.654] { slider.value = tick }
     #expect(try Data(contentsOf: file.url) == original && slider.value == 0.654)

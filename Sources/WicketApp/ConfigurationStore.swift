@@ -126,14 +126,20 @@ final class ConfigurationStore {
   }
 }
 
-@MainActor struct TransparencyEdit {
+/// A slider's drag: held while it moves, saved once on release, rounded to hundredths.
+@MainActor struct SliderEdit {
+  let key: String
   var value: Double?
+  init(_ key: String) { self.key = key }
   mutating func editingChanged(_ editing: Bool, store: ConfigurationStore) {
     guard !editing, let value else { return }
-    // The old default reads as unset, so the slider never saves it and skips to its neighbour.
     let rounded = (value * 100).rounded() / 100
-    let saved = rounded == Configuration.oldDefaultTransparency ? 0.16 : rounded
-    store.change { try $0.set("backgroundTransparency", to: saved) }
+    // An old default reads as unset (`Configuration.oldDefaultTransparencies`), so the slider never saves
+    // one and skips to its neighbour.
+    let saved =
+      key == "backgroundTransparency" && Configuration.oldDefaultTransparencies.contains(rounded)
+      ? rounded + 0.01 : rounded
+    store.change { try $0.set(key, to: saved) }
     self.value = nil
   }
 }

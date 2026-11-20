@@ -15,8 +15,9 @@ private func config(_ json: String) throws -> Configuration {
   let changed = try config(#"{"backgroundTransparency":0.4}"#)
   #expect(changed.hotkey == .default)
   #expect(changed.backgroundTransparency == 0.4)
-  // Files written with the pre-glass default get the new look.
-  #expect(try config(#"{"backgroundTransparency":0.15}"#).backgroundTransparency == 0.75)
+  // Files written with an earlier look's default get the current one.
+  #expect(try config(#"{"backgroundTransparency":0.15}"#).backgroundTransparency == 0.5)
+  #expect(try config(#"{"backgroundTransparency":0.75}"#).backgroundTransparency == 0.5)
 }
 
 @Test func explicitOrderAndDisable() throws {
@@ -32,6 +33,7 @@ private func config(_ json: String) throws -> Configuration {
 @Test(arguments: [
   #"{"hotkey":"space"}"#, #"{"hotkey":"shift+a"}"#, #"{"hotkey":"hyper+space"}"#,
   #"{"backgroundTransparency":-0.1}"#, #"{"backgroundTransparency":1.1}"#,
+  #"{"blur":-1}"#, #"{"blur":10.5}"#, #"{"appearance":"sepia"}"#,
   #"{"providers":[{"id":"apps","enabled":true},{"id":"apps","enabled":false}]}"#,
   #"{"providers":[{"id":"","enabled":true}]}"#, #"{"providers":false}"#, "{",
 ])

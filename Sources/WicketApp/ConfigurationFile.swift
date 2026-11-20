@@ -10,8 +10,8 @@ struct ConfigurationFile {
     _ = try JSONDecoder().decode(Configuration.self, from: data)
     var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     try change(&object)
-    if let value = object["backgroundTransparency"] as? Double {
-      object["backgroundTransparency"] = NSDecimalNumber(string: String(value))
+    for key in ["backgroundTransparency", "blur"] {
+      if let value = object[key] as? Double { object[key] = NSDecimalNumber(string: String(value)) }
     }
     let updated = try JSONSerialization.data(
       withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])

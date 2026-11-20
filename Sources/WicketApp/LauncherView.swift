@@ -201,7 +201,7 @@ struct InputBar: Layout {
 /// as it is, and sends what the user does to the panel (`PaletteController`) or the navigator.
 struct LauncherView: View {
   unowned let panel: PaletteController
-  var flatSurfaces = false
+  var drawsGlass = true
   private var model: LauncherModel { panel.model }
   private var navigator: Navigator { panel.navigator }
   private var input: PanelInput { panel.input }
@@ -211,15 +211,14 @@ struct LauncherView: View {
   private var shown: PalettePresentation { panel.presentation }
   /// The agent's screen, nil while another one shows.
   private var agent: AgentPresentation? { shown.agent }
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   private var textSize: Configuration.TextSize { model.configuration.textSize }
   var body: some View {
     ZStack(alignment: .top) {
-      GlassEffectContainer(spacing: PaletteLayout.gap) {
-        VStack(spacing: PaletteLayout.gap) {
-          surface(radius: 28).frame(height: PaletteLayout.search)
-          surface(radius: 22).frame(height: cardHeight)
-        }
+      VStack(spacing: PaletteLayout.gap) {
+        GlassSurface(radius: 28, configuration: model.configuration, drawsGlass: drawsGlass)
+          .frame(height: PaletteLayout.search)
+        GlassSurface(radius: 22, configuration: model.configuration, drawsGlass: drawsGlass)
+          .frame(height: cardHeight)
       }
       VStack(spacing: PaletteLayout.gap) {
         HStack(spacing: 12) {
@@ -441,8 +440,9 @@ struct LauncherView: View {
     )
     .background {
       if result.id == shown.selection {
+        // Clear glass shows more of what is behind it than the old frosted glass, so the highlight is stronger.
         RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
-          .primary.opacity(0.1))
+          .primary.opacity(0.16))
       }
     }
     .contentShape(Rectangle()).id(result.id)
@@ -574,20 +574,6 @@ struct LauncherView: View {
       Color.clear.frame(height: renderer.height)
     }
   }
-  /// Regular (frosted) glass for the search pill and the card alike, tinted with the window background;
-  /// Reduce Transparency gets the flat surface.
-  @ViewBuilder private func surface(radius: CGFloat) -> some View {
-    if flatSurfaces || reduceTransparency {
-      RoundedRectangle(cornerRadius: radius).fill(Color(nsColor: .windowBackgroundColor))
-    } else {
-      Color.clear.glassEffect(
-        .regular.tint(
-          Color(nsColor: .windowBackgroundColor).opacity(
-            0.8 * (1 - model.configuration.backgroundTransparency))),
-        in: .rect(cornerRadius: radius, style: .continuous))
-    }
-  }
-
   @ViewBuilder private func icon(_ result: Result) -> some View {
     if let url = result.row.actions.first?.fileURL {
       Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()

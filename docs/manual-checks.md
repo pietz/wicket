@@ -59,7 +59,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 
 1. Record a shortcut already taken on this Mac (the installed Wicket's): refused, the old one keeps working.
 2. Text size, all four steps, with an answer, a table and a permission card open.
-3. Transparency from More readable to More glass in light and dark; Reduce Transparency makes both surfaces solid.
+3. Appearance System, Light and Dark: the panel, its text and an answer follow at once. Transparency from Solid to Clear and Blur from Sharp to Soft in light and dark, over a busy wallpaper: both apply on release, the pill looks as blurred as the card, and the blur stays after resizing the card (type, open an answer), switching apps and moving to another display. Reduce Transparency makes both surfaces solid; Increase Contrast keeps them nearly solid with a border.
 4. Launch at login, then log out and in: Wicket starts hidden.
 
 ## 9. Window commands
