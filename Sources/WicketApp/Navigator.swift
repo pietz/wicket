@@ -437,34 +437,44 @@ final class Navigator {
   /// The input the root's rows were composed for. Until the rows of an edit are there (normally after
   /// `RootCommand.patternHold`), the previous ones still show.
   private var composedInput = ""
-  /// Return at the root waits for the rows composed for what is typed, so it never runs a row made for an
-  /// earlier input. Unless the user picked a row, it also waits while a pattern that matched what is typed
-  /// (a calculation, a `>` command for Shell) is still running: the input was meant for it, and its rows
-  /// come first. Once that pattern answers with nothing, Return runs the first row, Ask agent included;
-  /// if it failed, Return never asks the agent in its place. A picked row, or a row a pattern already
-  /// answered with, acts at once: a slower second pattern does not hold a result that is on screen.
-  var returnWaits: Bool {
-    guard command == nil, !conversing, arriving == nil, overlay == nil else { return false }
-    if composedInput != input { return true }
-    guard !current.touched, !search.answeredPattern(selected?.provider) else { return false }
-    return !search.runningPatterns.isEmpty || selected?.provider == "agent" && search.failedPattern
+  /// What Return does with the selected row, the one place that decides it. At the root:
+  ///
+  /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
+  /// 2. A row the user picked runs at once.
+  /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
+  /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row
+  ///    (`RootCommand.outranked`): what is typed was meant for it.
+  /// 5. Ask agent standing in for a failed pattern is refused: nothing runs and nothing waits. ⌘↩, or
+  ///    picking Ask agent or the error row, still acts.
+  /// 6. Else the selected row runs.
+  ///
+  /// Anywhere else (a command, a conversation, a switch, the action panel) it runs at once. A Return
+  /// that waits is decided again on each list composed, as a `replay`: rule 3 is for a press, since nobody
+  /// saw the row it would run. It runs or is dropped once it no longer waits; an edit, a pick, a switch or
+  /// hiding call it off. ⌘↩ never waits: it asks the agent with what is typed.
+  enum ReturnPlan { case run, wait, refuse }
+  func returnPlan(replay: Bool = false) -> ReturnPlan {
+    guard command == nil, !conversing, arriving == nil, overlay == nil else { return .run }
+    if composedInput != input { return .wait }
+    if current.touched || !replay && search.isPatternResult(selected) { return .run }
+    if search.outranked(selected) { return .wait }
+    return selected?.provider == "agent" && search.failedPattern ? .refuse : .run
   }
   /// A pattern that matched what is typed is still running at the root, so the list has no Ask agent yet
   /// and an empty list is not "No results".
   var awaitsPattern: Bool { command == nil && !conversing && !search.runningPatterns.isEmpty }
-  /// A Return that waits runs once `returnWaits` is over, as Return would then (`run`); an edit, a pick, a
-  /// switch, hiding or the pattern it waited for failing calls it off.
+  /// A Return that waits (`returnPlan`).
   private(set) var returnQueued = false
-  /// Return, a button or a menu item: the action chosen, else what Return does, from the row it belongs
-  /// to. A Return that waits for the root's rows runs once they are composed. What is not the screens'
-  /// goes to the panel.
+  /// Return, a button or a menu item: the action chosen, else what Return does (`returnPlan`), from the
+  /// row it belongs to. What is not the screens' goes to the panel.
   func run(_ chosen: RowAction? = nil) {
     guard surface?.holdsReturn != true else { return }
     // What runs takes the input from dictation first, so a later transcript cannot rewrite it.
     speech?.stop(.run)
-    if chosen == nil, returnWaits {
-      returnQueued = true
-      return
+    if chosen == nil {
+      let plan = returnPlan()
+      returnQueued = plan == .wait
+      guard plan == .run else { return }
     }
     guard let (action, result) = pick(chosen), !activate(action, from: result) else { return }
     surface?.perform(.run(action, from: result))
@@ -672,19 +682,19 @@ final class Navigator {
       await search.settled()
     } while seen != generation
   }
-  /// The root's list for what is typed; a Return that waited for it runs now if it may.
+  /// The root's list for what is typed; a Return that waits is decided again (`returnPlan`).
   private func show(_ output: RootCommand.Output) {
     showArrival()
     listed = output.results
     composedInput = output.input
     publish()
     guard returnQueued else { return }
-    if !returnWaits {
+    switch returnPlan(replay: true) {
+    case .wait: break
+    case .refuse: returnQueued = false
+    case .run:
       returnQueued = false
       run()
-    } else if composedInput == input, search.runningPatterns.isEmpty {
-      // Only a failed pattern still holds it, and nothing will end that: the Return is over.
-      returnQueued = false
     }
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address

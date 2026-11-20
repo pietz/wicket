@@ -90,6 +90,14 @@ enum Ranking {
     }.map(\.0)
   }
 
+  /// Extension IDs in the order their pattern results and fallbacks are listed: by name, then ID.
+  static func byName(_ ids: some Sequence<String>, _ extensions: [String: ExtensionManifest]) -> [String] {
+    ids.sorted {
+      let order = (extensions[$0]?.name ?? $0).localizedStandardCompare(extensions[$1]?.name ?? $1)
+      return order == .orderedSame ? $0 < $1 : order == .orderedAscending
+    }
+  }
+
   /// The whole list at the root of the launcher, best first:
   ///
   /// 1. Pattern extension results, one extension after another by name, each in its own order.
@@ -124,12 +132,7 @@ enum Ranking {
   ) -> Output {
     let query = Fold.query(input)
     let words = Fold.words(input)
-    func named(_ ids: some Sequence<String>) -> [String] {
-      ids.sorted {
-        let order = (extensions[$0]?.name ?? $0).localizedStandardCompare(extensions[$1]?.name ?? $1)
-        return order == .orderedSame ? $0 < $1 : order == .orderedAscending
-      }
-    }
+    func named(_ ids: some Sequence<String>) -> [String] { byName(ids, extensions) }
 
     // Pattern results and failures.
     var patternRows: [Result] = []

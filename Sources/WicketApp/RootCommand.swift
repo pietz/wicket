@@ -50,15 +50,26 @@ import Foundation
   }
 
   /// The pattern extensions that matched the input and have not answered yet. What is typed was meant
-  /// for them: Ask agent and fallbacks wait for them (`Ranking.compose`), and so does a Return the user
-  /// did not aim at a row, unless a pattern's row is selected (`Navigator.returnWaits`). The list itself
-  /// waits only `patternHold`.
+  /// for them: Ask agent and fallbacks wait for them (`Ranking.compose`), and so may Return
+  /// (`Navigator.returnPlan`). The list itself waits only `patternHold`.
   var runningPatterns: Set<String> { matchedPatterns.filter { patterns[$0] == nil } }
-  /// Whether `provider` is a pattern extension that matched the input and answered with rows: a row of
-  /// its is what the input was meant for, so Return runs it without waiting for slower patterns.
-  func answeredPattern(_ provider: String?) -> Bool {
-    guard let provider, matchedPatterns.contains(provider) else { return false }
-    if case .items = patterns[provider] { return true } else { return false }
+  /// Whether `result` is one of the rows a pattern extension answered this input with, rather than, say,
+  /// the command row of a pattern that answered nothing.
+  func isPatternResult(_ result: Result?) -> Bool {
+    guard let result, case .items(let rows) = patterns[result.provider] else { return false }
+    return rows.contains(result.row)
+  }
+  /// Whether a pattern still running would list its rows above `result`: above every row but a pattern
+  /// result, and above one of those when its extension comes first by name (`Ranking.compose`).
+  func outranked(_ result: Result?) -> Bool {
+    let running = runningPatterns
+    guard !running.isEmpty else { return false }
+    guard let result, isPatternResult(result) else { return true }
+    let ids = running.union([result.provider])
+    let manifests = ids.reduce(into: [String: ExtensionManifest]()) {
+      $0[$1] = extensions.commands[$1]?.manifest
+    }
+    return Ranking.byName(ids, manifests).first != result.provider
   }
   /// Whether a pattern extension that matched the input failed: Return never asks the agent in its place,
   /// though Ask agent shows again, with the failure, for ⌘↩ and a click.

@@ -877,7 +877,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   let model = scenario.model
   switch state {
   case "arrival-root-held":
-    #expect(model.navigator.command == nil && model.navigator.sizedRows == 8 && !model.navigator.returnWaits)
+    #expect(
+      model.navigator.command == nil && model.navigator.sizedRows == 8
+        && model.navigator.returnPlan() != .wait)
   case "arrival-running", "asking-running-back", "arrival-typed", "arrival-dictated":
     #expect(
       model.navigator.command?.id == "extension:slow" && model.navigator.command?.busy == true

@@ -515,7 +515,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   for cancel in ["edit", "pick", "hide"] {
     model.navigator.input = "> B"
     controller.run()
-    #expect(model.navigator.returnQueued && model.navigator.returnWaits)
+    #expect(model.navigator.returnQueued && model.navigator.returnPlan() == .wait)
     switch cancel {
     case "edit": model.navigator.editInput("> Bb")
     case "pick": model.navigator.select(model.navigator.results.first?.id)
