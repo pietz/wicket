@@ -4,8 +4,9 @@ import Observation
 /// The launcher's screens and how the user moves between them. The root's search is always at the bottom,
 /// an open command over it, and the agent's screen over either (`AgentScreen`); details and the action
 /// panel are layers over the screen shown. It switches screens once the next one has its content
-/// (`arrive`), stages and delivers the open command's requests (what each takes is the directory's,
-/// `CommandWork`), owns every selection and decides what Return, Escape and the arrows do. It reaches
+/// (`arrive`), stages the open command's requests and hands each visit what they were answered with
+/// (what a request takes and answers is the command's behavior, `CommandScreenBehavior`), routes the
+/// selection the keys move and decides what Return, Escape and the arrows do. It reaches
 /// the panel only through `PaletteSurface`: drawing, measuring a page, and effects on the system, which
 /// are the panel's, as are dictation (`PanelInput`) and recording a hotkey. Applying a configuration is
 /// the services' (`LauncherModel`), and the agent's process, turns and permissions are `AgentSession`'s.
@@ -39,7 +40,7 @@ final class Navigator {
 
   /// The root's screen. The command's is in `command`, the agent's in `conversation`.
   private var base = Screen(draftFollowsSelection: true)
-  private(set) var command: CommandState? {
+  private(set) var command: CommandScreen? {
     didSet { if command?.id != oldValue?.id { command?.screen.startSelectionOver() } }
   }
   /// The agent's screen, open while its session is: the navigator opens both together and ends both
@@ -342,35 +343,20 @@ final class Navigator {
   // MARK: Return, arguments and the input
 
   /// The open command's Markdown body.
-  var body: String? {
-    guard let command, command.problem == nil else { return nil }
-    return command.shown.view.body
-  }
+  var body: String? { command?.body }
   /// The view's own actions, in the header beside the body.
-  var viewActions: [RowAction] { body == nil ? [] : command?.shown.view.actions ?? [] }
-  var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
+  var viewActions: [RowAction] { command?.viewActions ?? [] }
   /// The open command's name, for the input placeholder and the footer.
-  var commandName: String? { command.flatMap { directory.name(of: $0.id) } }
-  /// The open command runs on Return only (`submit` in its manifest).
-  var submits: Bool { extensionCommand?.manifest.submit == true }
+  var commandName: String? { command?.descriptor?.name }
+  /// The open command runs on Return only (`CommandDescriptor.submits`).
+  var submits: Bool { command?.descriptor?.submits == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
   /// filled in as a submitted request, a page runs the view's own actions, and a conversation sends the
   /// follow-up.
   var selected: Result? {
     if let row = selectedRow { return row }
-    guard !conversing, let command, submits else { return viewRow }
-    return Result(
-      provider: command.id,
-      row: Row(
-        id: "submit", title: commandName ?? "Run",
-        actions: [.run(Address(input: input, arguments: filledArguments(of: command)))]))
-  }
-  /// What a submit sends besides the input: the declared arguments, including a value a run action set
-  /// under a declared name. What it set under any other name stays out, or a Delete chosen once would be
-  /// sent again with every later Return; the contract keeps confirmations to such names.
-  private func filledArguments(of command: CommandState) -> [String: String] {
-    let declared = Set(declaredArguments.map(\.name))
-    return command.screen.arguments.filter { declared.contains($0.key) }
+    guard !conversing, let submission = command?.submission(input: input) else { return viewRow }
+    return submission
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up. On a command row it enters the command with what was filled into its
@@ -387,9 +373,9 @@ final class Navigator {
   /// the selected extension command row. Empty when there are none.
   var declaredArguments: [ExtensionManifest.Argument] {
     guard !conversing, overlay == nil else { return [] }
-    if command != nil { return extensionCommand?.manifest.arguments ?? [] }
+    if let command { return command.descriptor?.arguments ?? [] }
     guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
-    return extensions.commands[row.provider]?.manifest.arguments ?? []
+    return directory.behavior(of: row.provider)?.descriptor?.arguments ?? []
   }
   /// Values filled in at the root for the selected command row; dropped when the selection moves or
   /// the panel is dismissed. Only the row itself takes them: an action chosen in ⌘K runs as captured.
@@ -490,7 +476,7 @@ final class Navigator {
   /// it was, so the panel's content and height change together in one step (`arrive`). Collapsing at once
   /// and growing on arrival was tried and rejected: a command with many items flashed small, then large.
   private struct Arrival {
-    var command: CommandState?
+    var command: CommandScreen?
     let input: String
     /// Going back (Escape): a second Escape waits for it instead of calling it off.
     var back = false
@@ -499,7 +485,7 @@ final class Navigator {
   @ObservationIgnored private var deadline: Task<Void, Never>?
   var arrivalDeadline: Duration = .milliseconds(150)
   /// The command requests go to: the arriving one during a switch, else the open one.
-  private var target: CommandState? {
+  private var target: CommandScreen? {
     get { arriving.map(\.command) ?? command }
     set {
       if arriving != nil { arriving?.command = newValue } else { command = newValue }
@@ -515,7 +501,7 @@ final class Navigator {
     for task in tasks { task.cancel() }
     tasks.removeAll()
     search.cancel()
-    command?.busy = false
+    command?.stop()
   }
   /// Stays on the current screen: a switch still waiting for its content is called off.
   private func stopArriving() {
@@ -527,7 +513,7 @@ final class Navigator {
   /// built-in results. The current screen stays as it is meanwhile; after `arrivalDeadline` the new one
   /// shows anyway, quietly loading, so a slow process does not make Return feel dead. A command
   /// answered without a process switches at once. Ending a conversation waits the same way.
-  private func arrive(_ command: CommandState?, input: String, back: Bool = false) {
+  private func arrive(_ command: CommandScreen?, input: String, back: Bool = false) {
     stopArriving()
     cancelWork()
     arriving = Arrival(command: command, input: input, back: back)
@@ -586,10 +572,9 @@ final class Navigator {
     guard !conversing || arriving != nil else { return }
     let input = arriving?.input ?? self.input
     if let state = target {
-      let request = ProviderRequest(
-        input: input, arguments: state.screen.arguments, submitted: state.next == .submission)
-      let work = directory.work(state.id, request, rerun: state.next == .rerun, in: configuration)
-      guard case .keepView = work else { return answer(work, of: state, request: request, typed: typed) }
+      let request = state.request(input: input)
+      let work = state.behavior.work(for: request)
+      guard case .keepView = work else { return answer(work, for: request, typed: typed) }
       showArrival()
       publish()
       return
@@ -598,69 +583,84 @@ final class Navigator {
     search.search(input, speaking: speech?.speaking == true) { [weak self] in self?.show($0) }
   }
   /// Answers a command's request as `work` says: what fails or is answered at once shows now, and a
-  /// process's view once it is there, unless another request or screen replaced it meanwhile.
-  private func answer(_ work: CommandWork, of state: CommandState, request: ProviderRequest, typed: Bool) {
+  /// process's answer once it is there, unless another request or visit replaced it meanwhile.
+  private func answer(_ work: CommandWork, for request: CommandScreenRequest, typed: Bool) {
     let speaking = speech?.speaking == true
     cancelWork()
-    target?.next = .rerun
-    let remembered = !typed || state.next != .rerun
-    let source: (ProviderRequest) async throws -> ProviderView
-    let report: (ProviderRequest, any Error) -> String
+    target?.begin()
+    // The user did not cause it by typing, so what it shows becomes its context.
+    let remembered = !typed || request.cause != .rerun
     switch work {
     case .keepView: return
     case .unavailable(let problem):
-      // Back on or back again, it runs as when it is entered.
-      target?.next = .address
-      target?.context = nil
-      target?.problem = problem
+      target?.unavailable(problem)
       showArrival()
-      listed = []
+      sizeList()
       return publish()
-    case .immediate(let view):
-      target?.problem = nil
-      showArrival()
-      show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
-      return publish()
-    case .deferred(let process, let failure):
-      target?.problem = nil
-      source = process
-      report = failure
-    }
-    target?.busy = true
-    let version = generation
-    let turn = UUID().uuidString
-    tasks.append(
-      Task { [weak self] in
-        var measured: PageHeight?
-        do {
-          if speaking { try await Task.sleep(for: .milliseconds(350)) }
-          let view = try await source(request)
-          guard let self, !Task.isCancelled, generation == version else { return }
-          if view.close, request.submitted { return surface?.perform(.close) ?? () }
-          let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
+    case .immediate(let outcome):
+      if accept(outcome, for: request, page: nil, turn: UUID().uuidString, remembered: remembered) {
+        publish()
+      }
+      return
+    case .deferred(let answered):
+      target?.run()
+      let version = generation
+      let visit = target?.visit
+      let turn = UUID().uuidString
+      tasks.append(
+        Task { [weak self] in
+          if speaking, (try? await Task.sleep(for: .milliseconds(350))) == nil { return }
+          let outcome = await answered()
+          guard let self else { return }
+          // Only the visit and the run that asked take what it was answered with.
+          @MainActor func current() -> Bool {
+            !Task.isCancelled && generation == version && target?.visit == visit
+          }
+          guard current() else { return }
+          var page: Page?
+          var measured: PageHeight?
+          if case .view(let view) = outcome, let body = view.body {
+            page = Page(body: body, items: view.items, runs: true)
+          }
           // Measured for this page's turn: one the renderer measured meanwhile, such as a list's detail
           // on an arrow key, says nothing about this one's height. What failed shows unmeasured at once.
           while arriving != nil, let page, let surface {
             let measurement = await surface.prepare(page, turn: turn)
-            guard !Task.isCancelled, generation == version else { return }
+            guard current() else { return }
             if measurement == .superseded { continue }
             if case .measured(let height) = measurement, height.turn == turn { measured = height }
             break
           }
-          showArrival()
-          show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
-        } catch {
-          guard let self, !Task.isCancelled, generation == version else { return }
-          showArrival()
-          if remembered { command?.context = nil }
-          command?.problem = report(request, error)
-          listed = []
-        }
-        guard let self, generation == version else { return }
-        command?.busy = false
-        publish(measured)
-      })
-    draw()
+          if accept(outcome, for: request, page: page, turn: turn, remembered: remembered) {
+            publish(measured)
+          }
+        })
+      draw()
+    }
+  }
+  /// Takes what a request was answered with: a view or a problem shows on the command, which arrives if
+  /// it was on its way; closing hides the panel, and a run to restore opens its conversation. False when
+  /// the screens are left as they were.
+  private func accept(
+    _ outcome: CommandOutcome, for request: CommandScreenRequest, page: Page?, turn: String,
+    remembered: Bool
+  ) -> Bool {
+    switch outcome {
+    case .view(let view):
+      showArrival()
+      command?.show(view, page: page, for: request, turn: turn, remembered: remembered)
+    case .problem(let problem):
+      showArrival()
+      command?.fail(problem, remembered: remembered)
+    case .close:
+      surface?.perform(.close)
+      return false
+    case .restore(let run):
+      restore(run)
+      return false
+    }
+    sizeList()
+    return true
   }
   /// Waits until no work is left, including work a refresh started while this was waiting.
   func settled() async {
@@ -670,19 +670,6 @@ final class Navigator {
       for task in tasks { await task.value }
       await search.settled()
     } while seen != generation
-  }
-  /// A command's view: a list ordered by what is typed, or a page.
-  /// `remembered`: the user did not cause the request by typing, so the view becomes its context.
-  private func show(
-    _ view: ProviderView, page: Page?, of id: String, request: ProviderRequest, turn: String,
-    remembered: Bool
-  ) {
-    command?.turn = turn
-    command?.shown = CommandState.Shown(view: view, input: request.input, arguments: request.arguments)
-    if remembered { command?.context = command?.shown }
-    command?.page = page
-    command?.busy = false
-    listed = page == nil ? Ranking.order(view.items, provider: id, query: request.input) : []
   }
   /// The root's list for what is typed; a Return that waited for it runs now if it may.
   private func show(_ output: RootCommand.Output) {
@@ -701,10 +688,6 @@ final class Navigator {
   func go(_ address: Address, from origin: String? = nil, submitted: Bool = false) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
-    // A run chosen in Agent History opens as a conversation over the list, which Escape returns to.
-    if submitted, let run = directory.host(target)?.reopened(address.arguments ?? [:]) {
-      return restore(run)
-    }
     guard let destination = directory.destination(target) else {
       actionProblem = "No extension named \(target.map { Address(id: $0).extensionName ?? $0 } ?? "")"
       return
@@ -713,11 +696,11 @@ final class Navigator {
     case .settings: surface?.perform(.settings)
     case .agent: fill(address.input ?? input)
     case .root: arrive(nil, input: address.input ?? "")
-    case .command(let id):
-      let reopened = command?.id == id
-      var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandState(id: id)
+    case .command(let behavior):
+      let reopened = command?.id == behavior.id
+      var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
       state.screen.fill(address.arguments ?? [:])
-      state.next = submitted ? .submission : .address
+      state.enter(submitted: submitted)
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       let input = address.input ?? (reopened ? input : "")
       guard reopened, !conversing else { return arrive(state, input: input) }
@@ -878,7 +861,8 @@ final class Navigator {
     let text = text ?? input
     guard !agent.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     // Only a new conversation asked from an extension's command learns what it showed.
-    let context = conversing ? (agent.question.isEmpty ? revealContext : nil) : commandContext(typed: true)
+    let context =
+      conversing ? (agent.question.isEmpty ? revealContext : nil) : command?.agentContext(typed: true)
     converse {
       agent.ask(
         text, context: context?.text, from: context?.name, settings: questionSettings(keeping: agent.reopened)
@@ -912,7 +896,7 @@ final class Navigator {
       stopArriving()
       cancelWork()
     }
-    conversation = AgentScreen(back: .reveal(commandContext(typed: false)))
+    conversation = AgentScreen(back: .reveal(command?.agentContext(typed: false)))
     agent.open(settings: configuration.agent)
     clearSelection()
     input = ""
@@ -928,19 +912,7 @@ final class Navigator {
   /// The extension whose view Cmd+Return would send with the question, for the footer and placeholder.
   var askingAbout: String? {
     if conversing { return agent.question.isEmpty ? revealContext?.name : nil }
-    let typed = !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    return contextView(typed: typed) == nil ? nil : extensionCommand?.manifest.name
-  }
-  /// What goes with a question asked from the open command: for a typed question its `context`, else
-  /// what it shows unless that is an error. Nil at the root and for the host's own commands.
-  private func contextView(typed: Bool) -> CommandState.Shown? {
-    guard let command, extensionCommand != nil else { return nil }
-    return typed ? command.context : command.problem == nil ? command.shown : nil
-  }
-  /// The open extension command and what it showed (`contextView`), for the agent's first question.
-  private func commandContext(typed: Bool) -> AgentContext? {
-    guard let shown = contextView(typed: typed), let owner = extensionCommand else { return nil }
-    return AgentContext(owner, shown: shown)
+    return command?.asksAbout(typed: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
   }
   /// The `agent` action: the text becomes the input and nothing is sent. In a conversation the next
   /// Return is the follow-up. Anywhere else an open command is left and an empty conversation opens
@@ -974,16 +946,22 @@ final class Navigator {
     _ program: ExtensionCommand, request: ProviderRequest, view: ProviderView? = nil, page: Page? = nil,
     turn: String = "", measured: PageHeight? = nil, problem: String? = nil
   ) {
+    guard let behavior = directory.behavior(of: program.id) else { return }
     cancelWork()
-    var state = CommandState(id: program.id, screen: Screen(arguments: request.arguments), next: .rerun)
-    state.problem = problem
+    var state = CommandScreen(behavior, arguments: request.arguments)
+    state.begin()
+    if let problem { state.fail(problem, remembered: false) }
     // An arrival sets the input without a rerun.
     arriving = Arrival(command: state, input: request.input)
     showArrival()
     listed = []
     clearSelection()
     if let view {
-      show(view, page: page, of: program.id, request: request, turn: turn, remembered: true)
+      command?.show(
+        view, page: page,
+        for: CommandScreenRequest(input: request.input, arguments: request.arguments, cause: .submission),
+        turn: turn, remembered: true)
+      sizeList()
       retainSelection()
     }
     draw(measured)

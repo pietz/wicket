@@ -300,7 +300,8 @@ import Testing
   model.navigator.go(Address(id: "weather", input: "Hamburg", arguments: ["view": "day"]))
   await model.navigator.settled()
   #expect(model.navigator.body?.hasPrefix("## Hamburg") == true)
-  let path = try #require(model.navigator.extensionCommand).folder.path
+  let open = try #require(model.navigator.command?.id)
+  let path = try #require(model.extensions.commands[open]).folder.path
   #expect(path.hasSuffix(folder.path))
   model.navigator.editInput("add the wind here")
   model.navigator.send()

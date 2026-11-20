@@ -20,18 +20,21 @@ extension HostCommand {
 }
 
 /// Where every command address resolves: the root, the agent, the native Settings window, or a command
-/// answered by an extension's program or manifest, or by a host command.
+/// whose behavior answers its screen's requests: an extension's (`ExtensionScreen`) or a host command's
+/// (`HostScreen`).
 @MainActor struct CommandDirectory {
   enum Destination {
     case root
     /// Fills the input and sends nothing.
     case agent
     case settings
-    case command(String)
+    case command(any CommandScreenBehavior)
   }
   let extensions: ExtensionHost
   /// The host commands this launcher answers; headless has none, but lists their rows all the same.
   let hosts: [any HostCommand]
+  /// Whether a command is switched on is the configuration's.
+  let store: ConfigurationStore
   /// Every host command there is, in the order their rows are offered.
   nonisolated static let registered: [any HostCommand.Type] = [AgentHistory.self, ClipboardHistory.self]
 
@@ -45,13 +48,18 @@ extension HostCommand {
     case nil: .root
     case "agent": .agent
     case "settings": .settings
-    case let id?: isCommand(id) ? .command(id) : nil
+    case let id?: behavior(of: id).map { .command($0) }
     }
+  }
+  /// What answers the requests of the command `id`'s screen. Nil when there is no such command.
+  func behavior(of id: String) -> (any CommandScreenBehavior)? {
+    if extensions.commands[id] != nil { return ExtensionScreen(id: id, directory: self) }
+    return host(id).map { HostScreen(host: $0, directory: self) }
   }
   func host(_ id: String?) -> (any HostCommand)? { hosts.first { $0.id == id } }
   /// Whether requests to `id` have something to answer them: an extension's command or a host command.
   func isCommand(_ id: String) -> Bool { extensions.commands[id] != nil || host(id) != nil }
-  /// The command's name, for the input placeholder and the footer.
+  /// The command's name.
   func name(of id: String) -> String? {
     extensions.commands[id]?.manifest.name ?? host(id).map { type(of: $0).title }
   }
@@ -62,44 +70,12 @@ extension HostCommand {
     }
     return extensions.commands[id] != nil && configuration.isEnabled(id, extensions: extensions.ids)
   }
-  /// What answers the command's requests. Nil when there is no such command.
-  func source(_ id: String) -> (@MainActor (ProviderRequest) async throws -> ProviderView)? {
-    if let command = extensions.commands[id] {
-      let extensions = extensions
-      return { try await extensions.view(command, request: $0) }
-    }
-    guard let host = host(id) else { return nil }
-    return { host.view(for: $0) }
-  }
-  /// What the command answers without waiting for anything: an extension's manifest items, or a host
-  /// command. Nil when it runs a process.
-  func immediateView(_ id: String, _ request: ProviderRequest) -> ProviderView? {
-    if let command = extensions.commands[id] {
-      return command.manifest.command == nil ? ProviderView(items: command.ownItems(request.input)) : nil
-    }
-    return host(id)?.view(for: request)
-  }
-  /// What answering a request to `id` takes. `rerun`: the request follows typing, voice or a refresh,
-  /// not an address.
-  func work(_ id: String, _ request: ProviderRequest, rerun: Bool, in configuration: Configuration)
-    -> CommandWork
-  {
-    let command = extensions.commands[id]
-    let available = isAvailable(id, in: configuration)
-    // A submit command runs only when an address is followed, Return included: typing, voice and
-    // refreshes leave its view and a running request alone, and nothing stays selected. One switched
-    // off or removed stops like any other.
-    if rerun, command?.manifest.submit == true, available { return .keepView }
-    let process = source(id)
-    guard let process, available else {
-      return .unavailable(
-        process == nil
-          ? "This extension was removed. Press Esc to go back."
-          : "\(name(of: id) ?? id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
-      )
-    }
-    if let view = immediateView(id, request) { return .immediate(view) }
-    return .deferred(process) { command?.report($0, error: $1) ?? $1.localizedDescription }
+  /// Why the command cannot run now, shown instead of its view; nil while it may.
+  func unavailability(of id: String) -> String? {
+    guard isCommand(id) else { return "This extension was removed. Press Esc to go back." }
+    guard !isAvailable(id, in: store.configuration) else { return nil }
+    return
+      "\(name(of: id) ?? id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
   }
   /// What a row's hotkey is bound to: an extension's command row, one of its manifest items (at the root,
   /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
@@ -129,16 +105,58 @@ extension HostCommand {
   }
 }
 
-/// What answering a request to a command takes (`CommandDirectory.work`).
-enum CommandWork {
-  /// The view shown stays and nothing runs.
-  case keepView
-  /// The command was removed or switched off: why, shown instead of a view.
-  case unavailable(String)
-  /// Answered at once, without a process: an extension's manifest items or a host command's list.
-  case immediate(ProviderView)
-  /// A process answers, and a failure shows its report.
-  case deferred(
-    @MainActor (ProviderRequest) async throws -> ProviderView,
-    report: @MainActor (ProviderRequest, any Error) -> String)
+/// An extension's command: its manifest's items at once, or its program's view. It reads the extension
+/// by its id at each request, so a changed manifest answers the next one and a removed one says so.
+struct ExtensionScreen: CommandScreenBehavior {
+  let id: String
+  let directory: CommandDirectory
+  private var command: ExtensionCommand? { directory.extensions.commands[id] }
+  var descriptor: CommandDescriptor? {
+    command.map {
+      CommandDescriptor(
+        name: $0.manifest.name, arguments: $0.manifest.arguments, submits: $0.manifest.submit == true,
+        asksAbout: true)
+    }
+  }
+  func work(for request: CommandScreenRequest) -> CommandWork {
+    if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
+    guard let command else { return .keepView }
+    // A submit command runs only when an address is followed, Return included: typing, voice and
+    // refreshes leave its view and a running request alone, and nothing stays selected.
+    if request.cause == .rerun, command.manifest.submit == true { return .keepView }
+    if command.manifest.command == nil {
+      return .immediate(.view(ProviderView(items: command.ownItems(request.input))))
+    }
+    let extensions = directory.extensions
+    return .deferred {
+      do {
+        let view = try await extensions.view(command, request: request.provider)
+        // Only a submitted request may close the panel.
+        return view.close && request.cause == .submission ? .close : .view(view)
+      } catch {
+        return .problem(command.report(request.provider, error: error))
+      }
+    }
+  }
+  func agentContext(from shown: CommandScreen.Shown) -> AgentContext? {
+    command.map { AgentContext($0, shown: shown) }
+  }
+}
+
+/// A host command's screen: its list, answered at once from its store.
+struct HostScreen: CommandScreenBehavior {
+  let host: any HostCommand
+  let directory: CommandDirectory
+  var id: String { host.id }
+  var descriptor: CommandDescriptor? {
+    CommandDescriptor(name: type(of: host).title, arguments: [], submits: false, asksAbout: false)
+  }
+  func work(for request: CommandScreenRequest) -> CommandWork {
+    if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
+    if request.cause == .submission, let run = host.reopened(request.arguments) {
+      return .immediate(.restore(run))
+    }
+    return .immediate(.view(host.view(for: request.provider)))
+  }
+  func agentContext(from shown: CommandScreen.Shown) -> AgentContext? { nil }
 }

@@ -430,7 +430,8 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     clipboard: clipboard, agentHistory: runs, history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root, bundled: nil)
   await model.extensions.reload()
-  let directory = CommandDirectory(extensions: model.extensions, hosts: [clipboard, runs])
+  let directory = CommandDirectory(
+    extensions: model.extensions, hosts: [clipboard, runs], store: model.store)
   for (target, expected) in [
     (nil, "root"), ("agent", "agent"), ("settings", "settings"), ("history", "history"),
     ("clipboard", "clipboard"), ("extension:weather", "extension:weather"), ("extension:gone", "none"),
@@ -440,7 +441,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
       case .root: "root"
       case .agent: "agent"
       case .settings: "settings"
-      case .command(let id): id
+      case .command(let behavior): behavior.id
       case nil: "none"
       }
     #expect(resolved == expected)
@@ -459,9 +460,15 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(!directory.isAvailable("extension:weather", in: configuration))
   #expect(directory.rootRows(configuration).map(\.provider) == ["settings", "history", "clipboard"])
   // Only a submitted Reopen of a run that exists opens a conversation.
-  #expect(directory.host("history")?.reopened(["open": "r"])?.id == "r")
-  #expect(directory.host("history")?.reopened(["open": "gone"]) == nil)
-  #expect(directory.host("clipboard")?.reopened(["open": "r"]) == nil)
+  func restores(_ id: String, _ open: String, _ cause: CommandScreen.Cause = .submission) -> String? {
+    let request = CommandScreenRequest(input: "", arguments: ["open": open], cause: cause)
+    guard case .immediate(.restore(let run)) = directory.behavior(of: id)?.work(for: request) else {
+      return nil
+    }
+    return run.id
+  }
+  #expect(restores("history", "r") == "r" && restores("history", "r", .address) == nil)
+  #expect(restores("history", "gone") == nil && restores("clipboard", "r") == nil)
   #expect(directory.rootRows(configuration).allSatisfy(CommandDirectory.isRootRow))
   #expect(
     !CommandDirectory.isRootRow(

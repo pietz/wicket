@@ -33,7 +33,8 @@ final class LauncherModel {
     agent.history = agentHistory
     extensions = ExtensionHost(folder: folder, bundled: bundled)
     let directory = CommandDirectory(
-      extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 })
+      extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 },
+      store: store)
     root = RootCommand(apps: apps, files: files, directory: directory, store: store, history: history)
     navigator = Navigator(agent: agent, directory: directory, root: root, store: store, history: history)
     self.history = history

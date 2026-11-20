@@ -105,34 +105,6 @@ struct ActionPresentation {
   var selection = Selection()
 }
 
-/// The command screen: an extension's, or a host command's (Clipboard History, Agent History).
-struct CommandState {
-  let id: String
-  var screen = Screen()
-  /// What the next request answers. Going to an address runs it even in a submit command, and the
-  /// user's activation makes it submitted; every later request is a rerun.
-  var next = Cause.address
-  enum Cause { case rerun, address, submission }
-  /// A view with the input and arguments of the request it answered.
-  struct Shown {
-    var view = ProviderView()
-    var input = ""
-    var arguments: [String: String] = [:]
-  }
-  /// What the command shows now.
-  var shown = Shown()
-  /// What a typed question tells the agent the command showed (`AgentContext`): the
-  /// last view whose request the user did not cause by typing. Typing reruns never replace it, so a
-  /// question typed into a command that is not `submit` sends the view it was asked about, not the
-  /// rerun for its own text. Nil until such a request is answered, and after one fails.
-  var context: Shown?
-  /// The view's body as a page, with its items after it; nil for a list.
-  var page: Page?
-  var problem: String?
-  var busy = false
-  var turn = UUID().uuidString
-}
-
 /// The agent's screen, over the root or the open command, which stay under it as they were: its own
 /// input, selection and details, and what leaving it does.
 struct AgentScreen {
@@ -148,37 +120,6 @@ struct AgentScreen {
     /// goes back to the screen under it with a blank input, its request run again and its selection
     /// started over.
     case refresh
-  }
-}
-
-/// What an open extension command showed, as a `<context>` block for the agent's first question, and the
-/// command's name for the question header.
-struct AgentContext {
-  let text: String
-  let name: String
-  /// About 4 KB of the open view goes to the agent.
-  static let limit = 4000
-  /// The command and what it showed, as a `<context>` block, with the command's name for the header.
-  init(_ owner: ExtensionCommand, shown: CommandState.Shown) {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-    func json(_ value: some Encodable) -> String {
-      String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
-    }
-    struct Content: Encodable {
-      let body: String?
-      let items: [Row]
-    }
-    var view = json(Content(body: shown.view.body, items: shown.view.items))
-    if view.count > Self.limit {
-      view = String(view.prefix(Self.limit)) + "\n[cut: the view was longer than this]"
-    }
-    name = owner.manifest.name
-    var asked =
-      "The user asked from the \(name) command (\(owner.folder.path), folder `\(owner.folder.lastPathComponent)`)"
-    asked += ", input \(json(shown.input))"
-    if !shown.arguments.isEmpty { asked += ", arguments \(json(shown.arguments))" }
-    text = "<context>\n\(asked).\nIt showed:\n\(view)\n</context>"
   }
 }
 
