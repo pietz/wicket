@@ -391,3 +391,46 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   controller.hide()
   await model.finish()
 }
+
+/// A pick belongs to the row the user chose. Weather's argument picks its command row while its own
+/// pattern runs; the answer replaces that row, so Return no longer runs whatever took its place unpicked:
+/// after a failure, Ask agent standing in for it is refused; after a success, the result the user now
+/// sees runs.
+@MainActor @Test(arguments: [false, true])
+func aPickedCommandRowReplacedByItsOwnPatternLeavesNoPick(succeeds: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let answer = succeeds ? answering("Sunny") : "cat >/dev/null\nexit 1"
+  _ = try extensionFolder(
+    root, name: "weather",
+    script: "while [ ! -e release ]; do sleep 0.01; done\n" + answer,
+    fields: ["match": "^weather$", "arguments": [["name": "units"]]])
+  let model = LauncherModel(
+    files: nil, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
+  model.agent.connect = { _, _, _ in FakeAgent() }
+  // Listed for the empty input only: once it is gone, the rows are those composed for "weather".
+  _ = try extensionFolder(root, name: "other")
+  model.store.update { $0.providers = [.init("extension:weather"), .init("extension:other")] }
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  model.navigator.input = "weather"
+  #expect(await eventually { model.navigator.results.map(\.row.id) == ["command"] })
+  #expect(model.navigator.selected?.provider == "extension:weather" && model.navigator.awaitsPattern)
+  #expect(model.navigator.moveFocus(1) && model.navigator.focusedArgument == "units")
+  model.navigator.setArgument("units", to: "Celsius")
+  try release(root, "weather")
+  #expect(
+    await eventually { !model.navigator.awaitsPattern && model.navigator.selected?.row.id != "command" })
+  #expect(model.navigator.selected?.provider == (succeeds ? "extension:weather" : "agent"))
+  model.navigator.run()
+  if succeeds {
+    #expect(await eventually { !surface.effects.isEmpty })
+    #expect(!model.agent.active)
+  } else {
+    #expect(model.navigator.presentation.refusesReturn)
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(!model.navigator.returnQueued && !model.agent.active && surface.effects.isEmpty)
+  }
+  await model.finish()
+}

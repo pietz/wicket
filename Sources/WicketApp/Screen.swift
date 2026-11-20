@@ -3,10 +3,12 @@ import Foundation
 /// What is selected in a list or on a page: a row by its stable id. Until the user chooses one
 /// (`touched`), the selection follows the first row; a new input or screen starts it over (`reset`).
 /// `previous` is the rows it was last reconciled with, so a chosen row that went away leaves the
-/// selection at its place.
+/// selection at its place (`moved`).
 struct Selection {
   var id: String?
   var touched = false
+  /// On the row that took the place of a chosen one that went away: the user did not choose it.
+  var moved = false
   var reset = true
   var previous: [String] = []
   /// Follows the rows shown now. Untouched, it is on the first row, or on none while the input has the
@@ -16,6 +18,7 @@ struct Selection {
   mutating func follow(_ rows: [String], waits: Bool, onPage: Bool, pending: Bool) {
     if reset { touched = false }
     if !touched {
+      moved = false
       id = waits ? nil : rows.first
     } else if let chosen = id, !rows.contains(chosen) {
       if onPage {
@@ -30,9 +33,17 @@ struct Selection {
       }
       let index = previous.firstIndex(of: chosen) ?? 0
       id = rows.isEmpty ? nil : rows[min(index, rows.count - 1)]
+      moved = true
     }
     reset = false
     previous = rows
+  }
+  /// The user chose the row it is on.
+  var picked: Bool { touched && !moved }
+  mutating func pick(_ id: String?) {
+    self.id = id
+    touched = true
+    moved = false
   }
 }
 

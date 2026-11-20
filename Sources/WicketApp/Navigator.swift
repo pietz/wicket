@@ -277,9 +277,8 @@ final class Navigator {
   }
   var selection: String? { current.id }
   func select(_ id: String?) {
-    current.touched = true
     returnQueued = false
-    current.id = id
+    current.pick(id)
   }
   private func clearSelection() {
     current.touched = false
@@ -453,7 +452,8 @@ final class Navigator {
   /// What Return does with the selected row, the one place that decides it. At the root:
   ///
   /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
-  /// 2. A row the user picked runs at once; focusing or filling a command row's argument picks it.
+  /// 2. A row the user picked runs at once; focusing or filling a command row's argument picks it. The
+  ///    row that takes the place of a picked one that went away (its own pattern answered) is not picked.
   /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
   /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row
   ///    (`RootCommand.outranked`): what is typed was meant for it.
@@ -471,7 +471,7 @@ final class Navigator {
   func returnPlan(replay: Bool = false) -> ReturnPlan {
     guard command == nil, !conversing, arriving == nil, overlay == nil else { return .run }
     if composedInput != input { return .wait }
-    if current.touched || !replay && search.isPatternResult(selected) { return .run }
+    if current.picked || !replay && search.isPatternResult(selected) { return .run }
     if search.outranked(selected) { return .wait }
     guard search.failedPattern else { return .run }
     let standIn = replay ? !search.isPatternResult(selected) : selected?.provider == "agent"
