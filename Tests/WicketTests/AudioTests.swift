@@ -87,15 +87,20 @@ func microphoneClosesExactlyOnce(_ keepsRunning: Bool) async throws {
   let microphone = Microphone()
   let entered = DispatchSemaphore(value: 0)
   let release = DispatchSemaphore(value: 0)
+  // The opening stays blocked until the test releases it, so a starved machine cannot let it finish
+  // early. The limits are watchdogs for a hung harness, not timings the test depends on.
   let opening = Task.detached {
     try? microphone.open(FakeEngine()) { _ in
       entered.signal()
-      _ = release.wait(timeout: .now() + 3)
+      if release.wait(timeout: .now() + 60) == .timedOut {
+        Issue.record("Harness timeout: the opening was never released")
+      }
     }
   }
-  #expect(await signalArrives(entered, within: 1))
+  #expect(await signalArrives(entered, within: 60), "Harness timeout: the opening never started")
   // This returns on the main actor even while opening is blocked on the background thread, and the
-  // shutdown waits for the opening.
+  // shutdown waits for the opening: it cannot have closed while the opening is held, however long the
+  // watcher had to run.
   let shutdown = microphone.stop()
   let closed = Mutex(false)
   let watcher = Task.detached {
