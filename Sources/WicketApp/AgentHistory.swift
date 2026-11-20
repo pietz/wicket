@@ -9,7 +9,7 @@ import os
 /// copy rather than reading the CLIs' session stores: their formats are undocumented, change with CLI
 /// versions and are full of tool noise.
 @MainActor @Observable
-final class AgentHistory: Provider {
+final class AgentHistory: HostCommand {
   let id = "history"
   struct Run: Codable, Equatable, Sendable {
     struct Turn: Codable, Equatable, Sendable {
@@ -27,6 +27,7 @@ final class AgentHistory: Provider {
     let turns: [Turn]
   }
   nonisolated static let title = "Agent History"
+  nonisolated static let row = Ranking.host("history", title, icon: "clock.arrow.circlepath")
   /// Retention: the newest this many, for this long. Claude Code deletes its own sessions after 30 days
   /// by default, so every run listed can resume.
   nonisolated static let maxEntries = 100
@@ -78,12 +79,15 @@ final class AgentHistory: Provider {
   }
 
   /// The command behind the reserved address `history`, answered like an extension's: the input
-  /// filters, and a submitted `{"delete": id}` deletes that run first. Reopening is the host's
-  /// (`LauncherModel.go`), since it opens a conversation rather than a view.
+  /// filters, and a submitted `{"delete": id}` deletes that run first. A submitted `{"open": id}` reopens
+  /// the run as a conversation instead (`reopened`).
   func view(for request: ProviderRequest) -> ProviderView {
     if request.submitted, let id = request.arguments["delete"] { delete(id) }
     return ProviderView(items: rows(matching: request.input))
   }
+  /// Available whatever sources are on.
+  nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool { true }
+  func reopened(_ arguments: [String: String]) -> Run? { arguments["open"].flatMap(run) }
 
   /// Newest first, each word of the input somewhere in the run's questions or answers, ignoring case
   /// and diacritics. The title is the first question, the subtitle its age and agent.

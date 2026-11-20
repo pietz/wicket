@@ -375,35 +375,10 @@ final class LauncherModel {
   var extensionCommand: ExtensionCommand? { command.flatMap { extensions.commands[$0.id] } }
   let clipboard: ClipboardHistory?
   let agentHistory: AgentHistory?
-  /// The host's own commands, answered without a process.
-  private func hostCommand(_ id: String) -> (@MainActor @Sendable (ProviderRequest) -> ProviderView)? {
-    if let clipboard, clipboard.id == id { return { clipboard.view(for: $0) } }
-    if let agentHistory, agentHistory.id == id { return { agentHistory.view(for: $0) } }
-    return nil
-  }
-  /// What answers a command's requests: an extension's command through the host, or a host command.
-  /// Nil when there is no such command.
-  private func commandSource(_ id: String) -> (@MainActor (ProviderRequest) async throws -> ProviderView)? {
-    if let command = extensions.commands[id] {
-      let host = extensions
-      return { try await host.view(command, request: $0) }
-    }
-    return hostCommand(id)
-  }
-  /// What a command answers without waiting for anything: an extension's manifest items, or a host
-  /// command. Nil when it runs a process.
-  private func immediateView(_ id: String, _ request: ProviderRequest) -> ProviderView? {
-    if let command = extensions.commands[id] {
-      return command.manifest.command == nil ? ProviderView(items: command.ownItems(request.input)) : nil
-    }
-    return hostCommand(id)?(request)
-  }
+  /// Where addresses resolve: the extensions' commands and the host's.
+  let directory: CommandDirectory
   /// The open command's name, for the input placeholder and the footer.
-  var commandName: String? { command.flatMap { name(of: $0.id) } }
-  private func name(of id: String) -> String? {
-    extensions.commands[id]?.manifest.name
-      ?? (id == clipboard?.id ? ClipboardHistory.title : id == agentHistory?.id ? AgentHistory.title : nil)
-  }
+  var commandName: String? { command.flatMap { directory.name(of: $0.id) } }
 
   init(
     apps: (any Provider)? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
@@ -419,6 +394,8 @@ final class LauncherModel {
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
     extensions = ExtensionHost(folder: folder, bundled: bundled)
+    directory = CommandDirectory(
+      extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 })
     self.apps = apps
     self.files = files
     self.history = history
@@ -522,11 +499,9 @@ final class LauncherModel {
     let speaking = voice?.active == true
     let input = arriving?.input ?? self.input
     if let state = target {
-      let source = commandSource(state.id)
+      let source = directory.source(state.id)
       let extensionCommand = extensions.commands[state.id]
-      let available =
-        source != nil
-        && (state.id == agentHistory?.id || configuration.isEnabled(state.id, extensions: extensions.ids))
+      let available = directory.isAvailable(state.id, in: configuration)
       // A submit command runs only when an address is followed, Return included: typing, voice and
       // refreshes leave its view and a running request alone, and nothing stays selected. One switched
       // off or removed stops like any other.
@@ -545,7 +520,7 @@ final class LauncherModel {
         target?.problem =
           source == nil
           ? "This extension was removed. Press Esc to go back."
-          : "\(name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
+          : "\(directory.name(of: state.id) ?? state.id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
         showArrival()
         listed = []
         publish()
@@ -554,7 +529,7 @@ final class LauncherModel {
       target?.problem = nil
       let request = ProviderRequest(
         input: input, arguments: state.arguments, submitted: state.next == .submission)
-      if let view = immediateView(state.id, request) {
+      if let view = directory.immediateView(state.id, request) {
         showArrival()
         show(view, page: nil, of: state.id, request: request, turn: UUID().uuidString, remembered: remembered)
         publish()
@@ -730,7 +705,7 @@ final class LauncherModel {
       query: input, names: names, patterns: patterns,
       extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
-      sources: enabled, usage: history.store, now: Date())
+      hosts: directory.rootRows(configuration), usage: history.store, now: Date())
     listed = ranked.results
     strongReason = ranked.strongReason
     composedInput = input
@@ -929,23 +904,21 @@ final class LauncherModel {
   /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root. `submitted` marks the user activating a run action, which the first request says.
   func go(_ address: Address, from origin: String? = nil, submitted: Bool = false) {
-    let own = origin.flatMap { commandSource($0) == nil ? nil : $0 }
+    let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
     // A run chosen in Agent History opens as a conversation over the list, which Escape returns to.
-    if submitted, target == agentHistory?.id,
-      let run = address.arguments?["open"].flatMap({ agentHistory?.run($0) })
-    {
+    if submitted, let run = directory.host(target)?.reopened(address.arguments ?? [:]) {
       return restore(run)
     }
-    switch target {
-    case "settings": onSettings()
-    case "agent": fill(address.input ?? input)
-    case nil: arrive(nil, input: address.input ?? "")
-    case let id?:
-      guard commandSource(id) != nil else {
-        actionProblem = "No extension named \(Address(id: id).extensionName ?? id)"
-        return
-      }
+    guard let destination = directory.destination(target) else {
+      actionProblem = "No extension named \(target.map { Address(id: $0).extensionName ?? $0 } ?? "")"
+      return
+    }
+    switch destination {
+    case .settings: onSettings()
+    case .agent: fill(address.input ?? input)
+    case .root: arrive(nil, input: address.input ?? "")
+    case .command(let id):
       let reopened = command?.id == id
       var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandState(id: id)
       state.arguments = address.arguments ?? [:]
@@ -1146,9 +1119,7 @@ final class LauncherModel {
   /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
   /// no address of its own, such as an app, a file or a fallback.
   func hotkeyTarget(of result: Result) -> HotkeyTarget? {
-    if ["settings", "history", "clipboard"].contains(result.provider), result.row.id == "open" {
-      return HotkeyTarget(target: result.provider)
-    }
+    if CommandDirectory.isRootRow(result) { return HotkeyTarget(target: result.provider) }
     guard let owner = extensions.commands[result.provider] else { return nil }
     if command == nil, result.row.id == "command" { return HotkeyTarget(target: owner.id) }
     var item = result.row.id

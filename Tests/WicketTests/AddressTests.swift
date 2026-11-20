@@ -408,3 +408,67 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(model.actionProblem == nil)
   await model.finish()
 }
+
+@MainActor @Test func everyAddressResolvesThroughOneDirectory() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "weather")
+  let runs = AgentHistory(url: root.appending(path: "agent-history.json"))
+  runs.save(.init(id: "r", agent: .claude, session: "s", used: Date(), source: nil, turns: []))
+  let clipboard = ClipboardHistory(
+    url: root.appending(path: "clipboard-history.json"), pasteboard: FakePasteboard(), interval: nil)
+  let model = LauncherModel(
+    clipboard: clipboard, agentHistory: runs, history: UsageHistory(url: root.appending(path: "usage.json")),
+    folder: root, bundled: nil)
+  await model.extensions.reload()
+  let directory = model.directory
+  for (target, expected) in [
+    (nil, "root"), ("agent", "agent"), ("settings", "settings"), ("history", "history"),
+    ("clipboard", "clipboard"), ("extension:weather", "extension:weather"), ("extension:gone", "none"),
+  ] as [(String?, String)] {
+    let resolved =
+      switch directory.destination(target) {
+      case .root: "root"
+      case .agent: "agent"
+      case .settings: "settings"
+      case .command(let id): id
+      case nil: "none"
+      }
+    #expect(resolved == expected)
+  }
+  #expect(
+    directory.name(of: "history") == "Agent History" && directory.name(of: "extension:weather") == "weather")
+  // Agent History opens whatever is on; Clipboard History and extensions only while on.
+  var configuration = Configuration()
+  #expect(
+    directory.isAvailable("history", in: configuration)
+      && !directory.isAvailable("clipboard", in: configuration))
+  #expect(directory.isAvailable("extension:weather", in: configuration))
+  #expect(directory.rootRows(configuration).map(\.provider) == ["settings", "history"])
+  configuration.providers = [.init("clipboard"), .init("extension:weather", enabled: false)]
+  #expect(directory.isAvailable("clipboard", in: configuration))
+  #expect(!directory.isAvailable("extension:weather", in: configuration))
+  #expect(directory.rootRows(configuration).map(\.provider) == ["settings", "history", "clipboard"])
+  // Only a submitted Reopen of a run that exists opens a conversation.
+  #expect(directory.host("history")?.reopened(["open": "r"])?.id == "r")
+  #expect(directory.host("history")?.reopened(["open": "gone"]) == nil)
+  #expect(directory.host("clipboard")?.reopened(["open": "r"]) == nil)
+  #expect(directory.rootRows(configuration).allSatisfy(CommandDirectory.isRootRow))
+  #expect(
+    !CommandDirectory.isRootRow(
+      Result(provider: "extension:weather", row: Row(id: "open", title: "W", actions: []))))
+  await model.finish()
+}
+
+@MainActor @Test func aRootWithoutTheHostStoresStillListsTheirRows() async throws {
+  // Headless has no history store, and its list matches the panel's.
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.input = "history"
+  await model.settled()
+  #expect(model.results.first?.id == "history:open")
+  model.go(Address(extensionName: "history"))
+  #expect(model.command == nil && model.actionProblem == "No extension named history")
+  await model.finish()
+}

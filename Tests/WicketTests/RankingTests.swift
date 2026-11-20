@@ -28,7 +28,8 @@ private func compose(
       .init(provider: "apps", kind: .app, rows: apps), .init(provider: "files", kind: .file, rows: files),
     ]
       + items.map { .init(provider: $0.key, kind: .item, rows: $0.value) },
-    patterns: patterns, extensions: extensions, problems: problems, usage: usage)
+    patterns: patterns, extensions: extensions, problems: problems,
+    hosts: [CommandDirectory.settings, AgentHistory.row], usage: usage)
 }
 private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\.row.title) }
 

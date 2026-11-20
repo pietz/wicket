@@ -34,6 +34,15 @@ enum Ranking {
     return 0
   }
 
+  /// A host's row at the root, which opens `id`: Settings or a host command.
+  static func host(_ id: String, _ title: String, icon: String, keywords: [String]? = nil) -> Result {
+    Result(
+      provider: id,
+      row: Row(
+        id: "open", title: title, icon: icon, actions: [.run(Address(extensionName: id))], keywords: keywords)
+    )
+  }
+
   /// What a pattern extension did for the current input.
   enum Pattern: Sendable {
     case items([Row])
@@ -85,7 +94,7 @@ enum Ranking {
   ///
   /// 1. Pattern extension results, one extension after another by name, each in its own order.
   /// 2. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
-  ///    History, and Clipboard History when it is on) and files, by tier, then usage for this exact input, then
+  ///    History, and Clipboard History when it is on: `hosts`) and files, by tier, then usage for this exact input, then
   ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
   ///    never crosses a tier.
   /// 3. Ask agent, only when nothing is strong, and then on top.
@@ -102,10 +111,10 @@ enum Ranking {
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
-  ///   - sources: The enabled source IDs; `clipboard` offers the Clipboard History row.
+  ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
   static func compose(
     query input: String, names: [Names], patterns: [String: Pattern],
-    extensions: [String: ExtensionManifest], problems: [String: String], sources: Set<String> = [],
+    extensions: [String: ExtensionManifest], problems: [String: String], hosts: [Result] = [],
     usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)
@@ -168,21 +177,7 @@ enum Ranking {
         actions: [.run(Address(id: id, input: ""))], keywords: manifest.keyword.map { [$0] })
       if let found = candidate(Result(provider: id, row: row), .command) { candidates.append(found) }
     }
-    if !query.isEmpty {
-      let hosts =
-        [
-          ("settings", "Settings", "gearshape", ["preferences"]),
-          ("history", AgentHistory.title, "clock.arrow.circlepath", nil),
-        ]
-        + (sources.contains("clipboard")
-          ? [("clipboard", ClipboardHistory.title, "doc.on.clipboard", ["pasteboard"])] : [])
-      candidates += hosts.compactMap { id, title, icon, keywords in
-        let row = Row(
-          id: "open", title: title, icon: icon, actions: [.run(Address(extensionName: id))],
-          keywords: keywords)
-        return candidate(Result(provider: id, row: row), .host)
-      }
-    }
+    if !query.isEmpty { candidates += hosts.compactMap { candidate($0, .host) } }
     candidates.sort { a, b in
       if a.tier != b.tier { return a.tier > b.tier }
       if query.isEmpty, a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
