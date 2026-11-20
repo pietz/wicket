@@ -1,138 +1,86 @@
 # Manual checks
 
-A walk through everything Wicket 0.1 does, for a person on a real Mac. Each step says what to try and what should happen. Note what feels wrong, not only what breaks. Run it before a release and whenever a change touches the panel, voice or the agent.
+What only a person at a real Mac can check: glass, focus, IME, real hotkeys, audio, Accessibility and the agent CLIs. The owner runs it on Wicket Dev (`Scripts/build-app.sh`, default shortcut ⌃⌥Space, folder `~/.config/wicket-dev`) after a batch of changes and before a release; "the shortcut" below is whichever one that build listens to. Tests cover the logic; note here what feels wrong, not only what breaks. For the extension checks, ask the agent for a Weather extension first (`build a weather extension for a city, with a forecast per day`).
 
-Debugging after the fact: agent runs are logged to `~/Library/Logs/Wicket/agent.log` (Wicket Dev: `~/Library/Logs/Wicket Dev/agent.log`), voice latencies to `voice-timing.txt` in the config folder, and why voice stopped to the unified log: `/usr/bin/log show --predicate 'subsystem == "app.wicket" AND category == "voice"' --last 5m`.
+Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stopped in `/usr/bin/log show --predicate 'subsystem == "app.wicket" AND category == "voice"' --last 5m`.
 
 ## 1. Open and close
 
-1. Press ⌥Space. The launcher appears near the top of the screen with the cursor in the field.
-2. Type a few letters. They appear right away, with no lost first keystroke.
-3. Click anywhere outside. The launcher closes.
-4. Open again, type something, press Escape. The input clears. Press Escape again: it closes.
-5. Press ⌥Space twice quickly. It opens and closes without flicker.
-6. Open it on another Space and over a fullscreen app.
-7. Menu bar icon: Settings…, Check for Updates…, Quit.
+1. Press the shortcut: the panel appears near the top of the screen under the pointer, the first keystroke lands. Press it twice quickly: no flicker.
+2. Click outside: it closes. Escape clears the input, a second Escape closes. Open it on another Space and over a full-screen app.
+3. Type steadily while late results arrive (files, a slow extension): the input row never moves, the list grows at once and shrinks only after a pause.
 
-## 2. Apps
+## 2. Search
 
-1. Type `saf`. Safari is on top. Return opens it and closes the launcher.
-2. Type an exact app name (`Notes`). It is first even if other apps contain the word.
-3. Type a loose match (`vsc` for Visual Studio Code). It shows up, below exact and prefix matches.
-4. Type the start of a later word of an app (`pass` with 1Password or Proton Pass installed). Those apps are above every file named `pass…`, and at most eight files follow them. No Ask agent row.
-5. Open the launcher with an empty field. Apps and commands only, no Ask agent row.
-6. Use one app often for a day: it should win ties against similar names, never beat a better match.
+1. `saf` puts Safari first; an exact name (`Notes`) beats loose matches (`vsc` still finds Visual Studio Code, lower).
+2. `pass` with 1Password or Proton Pass installed: those apps above files named `pass…`, at most eight files, no Ask agent row. Empty input: apps and commands only.
+3. Files from Spotlight: icons and folder subtitles; Return opens a document, a folder and an iCloud Drive file; ⌘K reveals; a script only reveals; results from `~/Library/CloudStorage` and a mounted volume.
+4. Return right after typing, before files arrive, runs what was first then.
 
-## 3. Calculator and units
+## 3. Calculator, units and Shell
 
-1. `12*7` shows 84 on top. Return copies it.
-2. `(3+4)^2`, `10/3`, `2^10`.
-3. `200 + 10%` shows 220, `10% of 200` shows 20, `3,5 * 2` shows 7, and `1,000 + 1` follows your locale (1001 in English, 2 in German). `11.11` and `1.2.3` show no calculator row.
-4. `10 km to mi`, `70 kg in lb`, `20 c to k` show a converted row from the bundled units extension.
-5. Typing `12*7` quickly shows the result with the rest of the list, never an Ask agent row first; the same after quitting and reopening Wicket.
-6. Copy `examples/currency` into `extensions/`. `100 usd in eur` shows a rate with "ECB reference rate of … (today)" or its age.
+1. `12*7` shows 84 first with the rest of the list, Return copies it. `200 + 10%` is 220, `1,000 + 1` follows the locale, `1.2.3` shows no row. The first calculation after installing an update may lag once.
+2. `10 km to mi`, `20 c to k` convert.
+3. `> touch /tmp/wicket-shell-test` shows one row and creates nothing until Return. Return on `> ls -la` closes Wicket and opens the default terminal in the home folder with a shell left open. `>` alone shows a hint and Return does nothing.
 
-## 4. Ask the agent
+## 4. The agent
 
-1. Type a sentence (`what is the tallest building in europe`). Ask agent is on top. Return asks.
-2. Type `saf`. Safari is on top and there is no Ask agent row; the footer shows ⌘↩ Ask agent.
-3. With an app match visible, press Cmd+Return. It asks the agent instead of opening the app. The footer showed ⌘↩ Ask agent.
-4. With nothing typed, press Cmd+Return at the root: the bar reads Ask Claude… and Esc Back returns to the root list with its selection. Enter Weather, select a row, press Cmd+Return with nothing typed: the bar reads Ask about Weather…, typing `will it rain` does not rerun Weather, and Escape returns to Weather with its view, input and selection. Press Cmd+Return again, type the question and press Return: the header says "from Weather" and the answer knows the forecast that was shown.
-5. In Weather, type `will it rain tomorrow` (Weather shows an error) and press Cmd+Return. The footer said ⌘↩ Ask about Weather, and the agent gets the forecast from before you typed, not the error.
-6. While it works: the status line shows thinking or the tool in use. Type a follow-up draft meanwhile; it stays.
-7. When the answer is there, type a follow-up and press Return. It continues the same conversation.
-8. Click away while it works, reopen. It says Continuing conversation and the answer has arrived.
-9. Escape order: first Escape cancels a running turn, the next ends the conversation, then clears input, then closes.
-10. After several turns only the last question and its answer show, with nothing beside the question. Select text in the answer with the mouse.
-11. Ask for links (`give me three links about Swift Testing`). They appear as rows where the answer puts them, with nothing selected; Return still sends a follow-up typed in the field. The first arrow key selects the first row, Return opens it; arrow up from the first row, or typing, deselects. A row with a follow-up fills the field and sends nothing until Return. Next to a native list (root search) the rows look the same: icon, title, grey subtitle, height and selection.
-12. Targets in the page (the owner's test list, also in ISSUES.md): ask `what is the weather in Berlin this week, with each day's details`, `what meetings do I have today` and `find me three quiet cafes near Rosenthaler Platz as tiles that open in Maps`. Arrow keys walk tiles, rows and code blocks in reading order, the footer names the action, Return opens a meeting or a day tile's detail and Esc comes back to the same selection and scroll position; Return on a cafe tile opens Maps. Click a tile: it runs. Click a code block's copy button: it copies; click in its text: nothing runs. Drag across text: it selects and runs nothing. Hold the arrow key down while an answer streams: the selection never jumps.
-13. Ask for something with a table, a code block, a list and a link. Note how it looks compared with 0.0.x.
-14. Agent History: ask a question, press Escape twice to end the conversation, type `history` and choose Agent History. The run is the top row (first question, age, agent). Return shows it as it was, with Continuing conversation; a follow-up remembers what was said. Quit and relaunch Wicket and do the same. Type a word from an answer: the list filters. Delete a run from the context menu; Clear History in Settings ▸ Agent empties the list after a confirmation.
+1. A sentence puts Ask agent first; Return asks. With `saf` typed, ⌘Return asks instead of opening Safari.
+2. ⌘Return with nothing typed at the root, then inside Weather: the bar reads Ask about Weather…, typing does not rerun Weather, Escape returns to the same view and selection. Send a question: the header says "from Weather" and the answer knows the forecast. A question typed into Weather (which then shows an error) still carries the forecast.
+3. While it works: the status shows the step; a follow-up draft stays. Click away and reopen: Continuing conversation. Escape order: cancel the turn, end the conversation, clear, close.
+4. Ask for links, a week's weather with details per day, and today's meetings. Nothing is selected at first; arrows walk rows, tiles and code blocks in reading order; the footer names the action; Return opens a detail and Escape comes back to the same selection and scroll. A click runs a target; a click in code only places the caret and its button copies; dragging selects text and runs nothing. A row that drafts a follow-up fills the field and sends nothing until Return. Hold an arrow while an answer streams: the selection never jumps.
+5. Page rows look like native rows on real glass, light and dark, at all four text sizes, over a busy wallpaper; the grey question reads as secondary.
+6. Agent History: end a conversation with Escape, type `history`: the run is the top row; Return reopens it; a follow-up remembers it, also after relaunching. Delete from the context menu; Clear History in Settings ▸ Agent.
 
-## 5. Agent settings (Settings → Agent)
+## 5. Agent settings
 
-1. Switch between Claude and ChatGPT. Ask the same question with each.
-2. Change model and effort; the next question uses them. Try Fast where offered.
-3. Turn Stream answers on and off. With it on, text appears as it is written; off, the answer appears at the end.
-4. Permission modes, each with a question that edits a file (`create a file hello.txt in my Downloads folder with the text hi`):
-   - **Supervised:** a card asks before the edit. Cmd+Return allows once, Escape declines, Tab moves between buttons. Show details shows the path.
-   - **Auto-accept edits:** file edits go through, commands still ask.
-   - **Auto:** the agent decides what needs you; most things go through.
-   - **Full access:** nothing asks.
-5. Leave a permission card open, click away, reopen within 20 minutes: the card is still there.
+1. Switch between Claude and ChatGPT; change model, effort and Fast where offered; the next question uses them.
+2. Stream answers on: text appears as written. Off: completed messages appear at message and tool boundaries, so a tool-using turn may show intermediate text.
+3. One question that edits a scratch file per permission mode. Supervised asks: ⌘Return allows once, Escape declines, plain Return does nothing, Tab moves between buttons, Show details shows the path. Auto-accept edits, Auto and Full access ask less, in that order.
+4. Leave a permission card open, click away, reopen within 20 minutes: it is still there.
 
-## 6. Voice (Settings → Voice)
+## 6. Voice
 
-1. Turn Voice input on. Open the launcher and speak right away. The words appear in the field; note whether the first word is cut off.
-2. Start typing while it listens. Typing takes over and listening stops.
-3. Speak a question, then press Cmd+Return to ask it. Speech alone never submits.
-4. Set the built-in microphone, a USB microphone and a Bluetooth headset as the input in Sound settings in turn, reopening the launcher each time; each one is heard. With the Bluetooth headset as the input and the Mac's own microphone available, Wicket hears the Mac's microphone and music in the headset keeps its quality (no call mode); with only the headset (lid closed, no USB microphone), the headset is heard. Unplug or switch off the device while listening: one retry hint, and nothing restarts by itself.
-5. Open and close quickly several times. The microphone indicator in the menu bar goes away each time.
-6. Open the launcher and say nothing. About 3 seconds after listening starts, it stops quietly with no message and the microphone indicator goes away; the voice log says `noSpeech`. Click the mic and speak: it listens again. Speak once, then pause for more than 3 seconds: it keeps listening.
+1. Open and speak at once: the first word is caught. Typing takes over; speech never submits; ⌘Return asks.
+2. With the built-in, a USB microphone and a Bluetooth headset each chosen in Sound settings: each works; with the headset chosen and the Mac's own microphone present, the Mac's is heard and music keeps its quality; with only the headset, the headset is heard. Unplug mid-capture: one retry hint, nothing restarts.
+3. Say nothing: about 3 seconds after listening starts it stops quietly; a mic click listens again. Open and close quickly: the menu bar mic indicator always goes away.
+4. First-time permission prompt and a denial; focus returns to the panel after the dialog.
 
-## 7. Extensions (Settings → Extensions)
+## 7. Extensions
 
-1. The list shows Built in (Apps, Files, Clipboard History) and Extensions (Calculator, Convert units, Shell, Window), each with a switch. Turn units off: `10 km to mi` no longer converts. Turn it back on. Click each row: the detail shows its name and description; check light and dark, and how the selected row looks.
-2. Copy `~/.config/wicket/examples/web-search` into `~/.config/wicket/extensions/`. It shows up in the list within a second, enabled.
-3. Ask the agent: `build a wicket extension that shows the current week number`. It writes a folder into `extensions/`; type its name or keyword and run it.
-4. Ask the agent for a command with arguments (`build a caffeinate extension with hours and minutes`). Type its name: fields named `hours` and `minutes` appear right after the typed text, and the row or body says the default. Tab into them (Tab again returns to the input, Shift+Tab goes back), fill them, press Return: the command opens with those values, and Return with empty fields uses the default. Try the fields with an input method such as Japanese, with paste, with a click on the row instead of Return, and while voice is listening. Arrow down to another row: the fields go away and typing goes to the input. Check their look in light and dark.
-5. Break a `wicket.json` on purpose. The list shows it with a warning icon and the detail the problem; the rest keeps working.
-6. Window's detail: set Gap to 8 and press Return, then Almost Maximize to 80 and click elsewhere. `config.json` has `"extensions": {"window": {"almostMaximize": "80", "gap": "8"}}`. Left Half, Right Half and Maximize leave 8 points to the screen's edges and between the halves; Almost Maximize takes 80 percent. Empty both fields: the entry goes and the defaults (0, 90) apply.
-7. In Window's Hotkeys, Record Hotkey on Right Half, press ⌃⌥→: it shows there and on the Right Half row in the panel; the remove button clears it in both. A combination already bound or ⌘C is refused below the list, as in the panel.
-8. Show in Finder selects Window's folder inside the app. Make It Mine: `extensions/window` appears with `wicket.json`, `main`, `main.swift` and `JSON.swift`, the button goes away (the copy now replaces the bundled one), and the window commands still work. Press Make It Mine on Calculator after creating `extensions/calculator` by hand: refused with a message, nothing overwritten.
+1. Settings ▸ Extensions lists Built in and Extensions with switches; units off stops `10 km to mi`. Copy `examples/web-search` into `extensions/`: listed within a second, enabled. A broken `wicket.json` shows a warning and its problem.
+2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: the fields follow the typed text; Tab and ⇧Tab move through them; Return or a click on the selected row runs with the values; Japanese IME, paste and ⌘A work in a field; an arrow off the row returns the keys to the input.
+3. Window's settings: Gap 8 and Almost Maximize 80 save on Return and on focus loss; emptying restores the defaults.
+4. Make It Mine on Window: `extensions/window` appears with `wicket.json`, `main`, `main.swift` and `JSON.swift`, and still works. On Calculator with `extensions/calculator` already there: refused. Move to Trash on your copy: confirmation, the bundled one returns.
+5. `open "wicket-dev://weather?input=berlin"` with Wicket Dev closed and open opens Weather with the input; it never reaches the installed Wicket. A `wicket://` link in an answer works too.
 
-## 8. Settings (General)
+## 8. Settings
 
-1. Record a new shortcut. A conflicting one (Spotlight's ⌘Space) is refused with a message and the old one keeps working.
-2. Text size: all four steps, with an answer open.
-3. Background transparency: More readable gives a clearly legible tint over a busy wallpaper, More glass untinted glass, in light and dark mode; the search pill and the card look like one material, the result card frosted glass. Turn on Reduce Transparency in System Settings ▸ Accessibility ▸ Display: both become solid. Change the system's Liquid Glass setting (Clear or Tinted) in Appearance and note whether Wicket follows it.
-4. Launch at login, then log out and in.
+1. Record a shortcut already taken on this Mac (the installed Wicket's): refused, the old one keeps working.
+2. Text size, all four steps, with an answer, a table and a permission card open.
+3. Transparency from More readable to More glass in light and dark; Reduce Transparency makes both surfaces solid.
+4. Launch at login, then log out and in: Wicket starts hidden.
 
-## 9. Updates
+## 9. Window commands
 
-1. Check for Updates… says you are up to date, or offers the newest version and installs it.
+1. Without Accessibility for Wicket: `left` shows "Allow Wicket in Privacy & Security > Accessibility" and no system prompt; Return opens the pane. Grant it to Wicket only (no separate entry for the extension).
+2. Over a Safari window, reopening Wicket for each: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize and Center move Safari clear of the menu bar and Dock, Wicket closes at once, Safari keeps focus.
+3. Restore after Left Half then Maximize goes back one move at a time, then says Nothing to restore. A window moved by hand has nothing to restore.
+4. Next Display with two displays of different sizes keeps the window's place and share; with one display it says so.
+5. Dock left and hidden, a notched display, a full-screen window, Finder with no window, Wicket's own Settings in front: each gives a row saying why, nothing wrong moves.
 
-## 10. Window commands
+## 10. Hotkeys and the action panel
 
-Use Wicket (or Wicket Dev) with a few ordinary windows open; nothing here should move a window you did not pick.
+1. Set Hotkey… on Left Half, press ⌃⌥←: shown on the row and saved in `hotkeys`. With the panel closed over Safari, ⌃⌥← moves the window with no panel or flash; over a full-screen window it opens the panel on the reason.
+2. Reusing ⌃⌥← for Right Half, ⌘C and the launcher shortcut are refused; Escape cancels recording.
+3. ⌘K on a file: Open and Reveal in Finder. On Left Half: Run, Set Hotkey…, Remove Hotkey. Escape or ⌘K again returns with the same selection; typing closes it and becomes the search; IME composition works in its field.
+4. ⌘K over a long answer: the answer underneath is invisible and takes no clicks or scrolling; Escape returns to the same scroll position.
 
-1. Before granting anything: switch Wicket off in Privacy & Security ▸ Accessibility (or remove it). Click into a Safari window, open Wicket, type `left`, Return. No system prompt appears; the row reads "Allow Wicket in Privacy & Security > Accessibility". Return opens that pane and closes the launcher. Switch Wicket on there (only Wicket: no separate `window` or `main` entry should appear or be needed).
-2. Without restarting Wicket, open it over Safari again, `left`, Return: Safari's window fills the left half below the menu bar and beside the Dock, Wicket closes at once with no notice, and Safari keeps focus (type a key: it goes to Safari). If it still asks for the permission, quit and reopen Wicket and note it.
-3. With the panel still open, run Right Half, Top Half, Bottom Half, Maximize, Almost Maximize (a margin of 5 percent on each side, with the default 90) and Center (same size, centered) from the list, then the same by typing `right`, `top`, `bottom`, `max`, `almost max` and `center` at the root after reopening. Each acts on Safari, never on Wicket's panel.
-4. Restore (reopen Wicket for each command: every move closes it): after Left Half then Maximize, Restore returns to the left half and closes Wicket, Restore again to the original frame, a third Restore says "Nothing to restore" and Wicket stays open. Move the window by hand after a command: Restore says there is nothing to restore.
-5. Next Display, with a second display: the window keeps its place and share (a left half lands as a left half), the next Next Display brings it back; with one display the row says "Only one display". Try displays of different sizes and one arranged above the other.
-6. Dock on the left, then hidden; a notched display; Terminal (it snaps to its grid: Restore must still work); a full-screen window (row: "… is in full screen"); Finder with no window open (a row says there is no window to move; the desktop does not move).
-7. Open Wicket's Settings, then the launcher, `left`: the row says to switch to the window first, and Settings does not move.
+## 11. Clipboard history
 
-## 11. Hotkeys for commands
-
-Wicket has Accessibility for this section (section 10). No hotkeys are set at the start.
-
-1. Type `left`, right-click Left Half, Set Hotkey…: the row says Press a shortcut. Press ⌃⌥←. The row shows ⌃⌥← at its right edge, and `config.json` has `"hotkeys": [{"keys": "ctrl+option+left", "address": "wicket://window?item=left"}]`.
-2. Close the panel, click into Safari, press ⌃⌥←: the window moves to the left half and no Wicket panel or flash appears. Repeat over Safari in full screen and with Finder and no window: nothing moves, and the panel opens on Window with the row saying why ("… is in full screen", no window to move); without Accessibility it opens on the row that asks for it.
-3. Right-click Right Half, Set Hotkey…, press ⌃⌥← again: refused in the footer as Left Half's, and ⌃⌥← still moves left. Press ⌘C: refused. Press ⌥Space: refused as the launcher's. Press a combination another app holds (if any): refused, nothing saved. Escape cancels without a change; clicking away cancels too.
-4. While recording in the panel, press the launcher's shortcut: it is recorded (and refused), the panel does not toggle. In Settings ▸ General, start recording and press ⌃⌥←: nothing moves.
-5. Set ⌥V on Clipboard History (type `clip`) and a hotkey on the Window command row and on Settings. Each opens the panel there (Settings opens its window), and nothing listens to the microphone.
-6. Make a command fail on purpose: in `config.json` bind an item of an extension whose program exits with an error (ask the agent for one), press it with the panel closed: the panel opens on that command with the error and its Copy and Ask agent buttons, and the program ran once.
-7. Edit `hotkeys` by hand: change a key, add a duplicate key for another address (the footer says which), break an address (`Config:` error, last good hotkeys keep working), remove one (it stops working). Remove Hotkey from the context menu removes the entry and the trailing label.
-
-## 12. Action panel (⌘K)
-
-1. Type a file name that Files finds. The footer shows ⌘K Actions. Press ⌘K: the bar reads Actions for <the file> and the card lists Open and Reveal in Finder. Down, Return reveals it in Finder and closes the panel.
-2. Type `left`, select Left Half, press ⌘K: Run (or Open), then Set Hotkey…. Choose Set Hotkey…: the panel goes back to the list and the row says Press a shortcut. Press ⌃⌥←. ⌘K again now ends with Remove Hotkey.
-3. Press ⌘K, then Escape: the same list with the same row selected. ⌘K twice does the same. Press ⌘K and type a letter: the panel closes and the letter is the whole search.
-4. Open Clipboard History, select a clip, ⌘K: Paste into previous app, Copy, Delete. Delete removes it and stays in Clipboard History.
-5. Ask the agent for a week's weather with days as rows. Arrow to a day, ⌘K: Show details and its action. Escape: the same day selected and the answer scrolled where it was. With a long answer scrolled down, ⌘K and Escape keep the position.
-6. In an extension page with view actions (Window's detail is none; use one the agent wrote), nothing selected: the footer shows ⌘K Actions, ⌘K lists the view's actions, and the header's Actions button opens the same list.
-7. While the panel is open over an answer, press ⌘Return: it closes and asks the agent as from the answer. While an agent asks for permission, ⌘K does nothing and the card stays in view.
-8. With a Japanese or Chinese input method, press ⌘K and start composing: the composition works and becomes the search when committed.
-
-## 13. Shell
-
-1. Type `> ls`. One row: `ls`, Open in Terminal. Nothing has run (type `> touch ~/Desktop/shell-test` and check the Desktop: no file until Return).
-2. Return on `> ls -la`: Wicket closes, your default terminal opens a window in your home folder, runs the command and leaves a shell there.
-3. Type `>` alone, and open Shell by name: a hint row, Type a command after >; Return does nothing.
+1. Switch it on in Settings ▸ Extensions. Copy a multi-line text, a screenshot (⌃⇧⌘4) and an image from Preview. `clip` lists them, newest selected with its preview beside it; arrowing feels immediate. Return pastes into the previous app, the image too.
+2. A password copied from Apple Passwords or 1Password is not kept. If macOS asks before Wicket reads the clipboard, the Settings hint names Paste from Other Apps.
 
 ## Feedback
 
-For each section: works, broken (what you did, what happened), or feels off (what you expected). Screenshots help for layout.
+For each section: works, broken (what you did, what happened), or feels off (what you expected). Only open problems go to [ISSUES.md](../ISSUES.md).
