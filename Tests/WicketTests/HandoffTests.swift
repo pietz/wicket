@@ -274,11 +274,13 @@ private func application(in root: URL) throws -> RowAction {
 private final class HeldFiles: @unchecked Sendable {
   private let lock = NSLock()
   private var continuation: AsyncStream<[FileHit]>.Continuation?
+  private let home: String
+  init(home: String = "/Users/me") { self.home = home }
   var provider: FilesProvider {
     FilesProvider(
       search: { _, _, _ in
         AsyncStream { continuation in self.lock.withLock { self.continuation = continuation } }
-      }, home: "/Users/me", scopes: { ["/Users/me"] }, debounce: .zero)
+      }, home: home, scopes: { [self.home] }, debounce: .zero)
   }
   var started: Bool { lock.withLock { continuation != nil } }
   func send(_ path: String) {
@@ -313,5 +315,50 @@ private final class HeldFiles: @unchecked Sendable {
   // A pick still runs, and ⌘↩ still asks.
   model.navigator.askAgent()
   #expect(model.agent.active && model.agent.question == "needle")
+  await model.finish()
+}
+
+/// A Return pressed before the rows waits for the pattern; once the pattern fails, the file Spotlight
+/// delivered, before or after the failure, is not what the Return was for: nothing runs. A fresh press on
+/// the file, now seen, opens it.
+@MainActor @Test(arguments: [true, false])
+func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let file = root.appending(path: "needle.txt")
+  try Data("x".utf8).write(to: file)
+  let files = HeldFiles(home: root.path)
+  _ = try extensionFolder(
+    root, name: "broken", script: "cat >/dev/null\nwhile [ ! -e release ]; do sleep 0.01; done\nexit 1",
+    fields: ["match": "^needle"])
+  let model = LauncherModel(
+    files: files.provider, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    bundled: nil)
+  model.agent.connect = { _, _, _ in FakeAgent() }
+  model.store.update { $0.providers = [.init("extension:broken"), .init("files")] }
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  model.navigator.input = "needle"
+  model.navigator.run()
+  #expect(model.navigator.returnQueued)
+  #expect(await eventually { files.started })
+  let fileShown = { model.navigator.results.first?.provider == "files" }
+  if fileFirst {
+    files.send(file.path)
+    #expect(await eventually { fileShown() })
+    #expect(model.navigator.returnQueued && surface.effects.isEmpty)
+  }
+  try release(root, "broken")
+  #expect(await eventually { model.navigator.results.contains { $0.row.id == "error" } })
+  if !fileFirst {
+    files.send(file.path)
+    #expect(await eventually { fileShown() })
+  }
+  try await Task.sleep(for: .milliseconds(50))
+  #expect(!model.navigator.returnQueued && surface.effects.isEmpty && !model.agent.active)
+  model.navigator.select(model.navigator.results.first?.id)
+  model.navigator.run()
+  #expect(surface.effects.count == 1 && !model.agent.active)
   await model.finish()
 }

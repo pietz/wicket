@@ -444,21 +444,25 @@ final class Navigator {
   /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
   /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row
   ///    (`RootCommand.outranked`): what is typed was meant for it.
-  /// 5. Ask agent standing in for a failed pattern is refused: nothing runs and nothing waits. ⌘↩, or
-  ///    picking Ask agent or the error row, still acts.
+  /// 5. After a pattern that matched failed, Return is refused (nothing runs, nothing waits) on Ask agent
+  ///    standing in for it, and, in a replay, on anything but a pattern's result: what is typed was meant
+  ///    for the pattern, not for the file or row that took its place unseen. A fresh press on that row
+  ///    runs it; ⌘↩, or picking Ask agent or the error row, still acts.
   /// 6. Else the selected row runs.
   ///
   /// Anywhere else (a command, a conversation, a switch, the action panel) it runs at once. A Return
-  /// that waits is decided again on each list composed, as a `replay`: rule 3 is for a press, since nobody
-  /// saw the row it would run. It runs or is dropped once it no longer waits; an edit, a pick, a switch or
-  /// hiding call it off. ⌘↩ never waits: it asks the agent with what is typed.
+  /// that waits is decided again on each list composed, as a `replay`: rules 3 and 5 tell it from a press,
+  /// since nobody saw the row it would run. It runs or is dropped once it no longer waits; an edit, a
+  /// pick, a switch or hiding call it off. ⌘↩ never waits: it asks the agent with what is typed.
   enum ReturnPlan { case run, wait, refuse }
   func returnPlan(replay: Bool = false) -> ReturnPlan {
     guard command == nil, !conversing, arriving == nil, overlay == nil else { return .run }
     if composedInput != input { return .wait }
     if current.touched || !replay && search.isPatternResult(selected) { return .run }
     if search.outranked(selected) { return .wait }
-    return selected?.provider == "agent" && search.failedPattern ? .refuse : .run
+    guard search.failedPattern else { return .run }
+    let standIn = replay ? !search.isPatternResult(selected) : selected?.provider == "agent"
+    return standIn ? .refuse : .run
   }
   /// A pattern that matched what is typed is still running at the root, so the list has no Ask agent yet
   /// and an empty list is not "No results".
