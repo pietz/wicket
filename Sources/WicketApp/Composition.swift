@@ -1,7 +1,7 @@
 import Foundation
 
 /// One row of the launcher list and the source that produced it.
-struct Result: Identifiable, Sendable {
+struct Result: Identifiable, Sendable, Equatable {
   let provider: String
   let row: Row
   var id: String {

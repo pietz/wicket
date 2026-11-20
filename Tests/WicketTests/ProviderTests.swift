@@ -91,7 +91,9 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   let model = LauncherModel(
     apps: provider, history: UsageHistory(url: folder.appending(path: "usage.json")))
   var sizes: [Int] = []
-  model.navigator.onResultsChange = { sizes.append(model.navigator.results.count) }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onDraw = { sizes.append(model.navigator.results.count) }
   model.navigator.input = "first"
   #expect(await eventually { provider.waiting["first"] != nil })
   provider.waiting.removeValue(forKey: "first")?.resume(returning: .init(items: [row("first")]))

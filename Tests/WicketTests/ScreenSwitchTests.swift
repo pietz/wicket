@@ -19,8 +19,10 @@ import Testing
     let height: CGFloat
   }
   private(set) var all: [Frame] = []
+  let surface = RecordingSurface()
   init(_ model: LauncherModel) {
-    model.navigator.onResultsChange = { [weak model] in
+    model.navigator.surface = surface
+    surface.onDraw = { [weak model] in
       guard let model else { return }
       self.all.append(
         Frame(
@@ -165,9 +167,12 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   model.navigator.arrivalDeadline = .seconds(5)
   var prepared: [String] = []
   var release: CheckedContinuation<Void, Never>?
-  model.navigator.preparePage = { page, _ in
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onPrepare = { page, _ in
     prepared.append(page.source)
     await withCheckedContinuation { release = $0 }
+    return true
   }
   model.navigator.go(Address(id: "test"), submitted: true)
   #expect(await eventually { release != nil })

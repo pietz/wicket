@@ -133,29 +133,12 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
         run: { [weak self] action in self?.run(action) }, flatSurfaces: flatSurfaces))
     root.sizingOptions = []
     panel.contentView = root
-    navigator.onResultsChange = { [weak self] in
-      guard let self else { return }
-      input.screensChanged()
-      if isOpen { renderContent() }
-      resize()
-    }
-    navigator.onReturnReady = { [weak self] in self?.run() }
     renderer.onHeight = { [weak self] in self?.resize() }
     // A click on a page's target is Return on it, if it was made on the page shown now.
     renderer.onTarget = { [weak self] id, turn in
       guard let self, navigator.clickTarget(id, turn: turn) else { return }
       run()
     }
-    navigator.onSelectionChange = { [weak self] in
-      guard let self else { return }
-      renderer.selected = navigator.selectedTarget
-      // Beside a list, the selected item's detail, with its neighbors' pictures prepared.
-      if isOpen, navigator.splits {
-        renderContent()
-        PageIcons.prepare(navigator.nearbyPictures)
-      }
-    }
-    navigator.preparePage = { [weak self] page, turn in await self?.prepare(page, turn: turn) }
   }
   var permissionPending: Bool { !model.agent.permissions.isEmpty }
   var hasArguments: Bool { !navigator.declaredArguments.isEmpty }
@@ -173,10 +156,35 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     }
     return true
   }
+  /// What the screens show changed: drawn in the same turn, so the native frame and the content change
+  /// together. A hidden panel renders nothing.
+  func present(_ change: PaletteChange) {
+    switch change {
+    case .content:
+      input.screensChanged()
+      if isOpen { renderContent() }
+      resize()
+    case .selection:
+      renderer.selected = navigator.selectedTarget
+      // Beside a list, the selected item's detail, with its neighbors' pictures prepared.
+      if isOpen, navigator.splits {
+        renderContent()
+        PageIcons.prepare(navigator.nearbyPictures)
+      }
+    }
+  }
+  func prepare(_ page: Page, turn: String) async -> Bool {
+    guard isOpen else { return true }
+    renderer.textSize = model.configuration.textSize
+    renderer.selected = nil
+    await renderer.render(page, turn: turn)
+    return renderer.renderedTurn == turn
+  }
   func perform(_ effect: PaletteEffect) {
     switch effect {
     case .close: hide()
     case .settings: showSettings()
+    case .run(let action, let result): perform(action, from: result)
     }
   }
   /// The native Settings window, which the launcher leaves for.
@@ -271,29 +279,23 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// A hotkey from `hotkeys` in config.json (`LauncherModel.press`). The panel shows only for a view or a
   /// failure, and never listens: the hotkey named where to go.
   func press(_ target: HotkeyTarget) {
-    Task { await model.press(target, prepare: prepare(_:turn:)) { show(listen: false) } }
-  }
-  /// Renders a page before it shows, so the card's height is known when it appears.
-  private func prepare(_ page: Page, turn: String) async {
-    guard isOpen else { return }
-    renderer.textSize = model.configuration.textSize
-    renderer.selected = nil
-    await renderer.render(page, turn: turn)
+    Task {
+      await model.press(target, prepare: { _ = await self.prepare($0, turn: $1) }) { show(listen: false) }
+    }
   }
   /// Whether Set Hotkey… is recording this row's hotkey.
   func recordsHotkey(of result: Result) -> Bool {
     recorder.target != nil && recorder.target == navigator.hotkeyTarget(of: result)
   }
-  /// Return, a button or a menu item. Moving between views goes through the navigator's dispatcher; what is
-  /// left here are the effects on the panel and the system.
+  /// Return, a button or a menu item (`Navigator.run`): dictation stops first.
   func run(_ chosen: RowAction? = nil) {
     input.stop(.run)
-    if chosen == nil, navigator.returnWaits {
-      navigator.returnQueued = true
-      return
-    }
-    guard !opening, let (action, result) = navigator.pick(chosen) else { return }
-    if navigator.activate(action, from: result) { return }
+    navigator.run(chosen)
+  }
+  /// What Return, a button or a menu item chose that leaves the screens: the effects on the panel and the
+  /// system. Nothing while an application is opening.
+  private func perform(_ action: RowAction, from result: Result?) {
+    guard !opening else { return }
     let input = navigator.input
     func record() { if let result { navigator.record(result) } }
     switch action.kind {

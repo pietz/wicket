@@ -17,7 +17,9 @@ func queryLatency() async throws {
     bundled: bundledExtensions)
   await model.extensions.reload()
   var published: [(input: String, first: String?, at: ContinuousClock.Instant)] = []
-  model.navigator.onResultsChange = {
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onDraw = {
     published.append((model.navigator.input, model.navigator.results.first?.provider, .now))
   }
   /// Milliseconds from setting the input to the first publish for it, and that publish's first row.

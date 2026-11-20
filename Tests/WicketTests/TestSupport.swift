@@ -71,13 +71,30 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   return (model, PaletteController(model: model, panel: panel, transcriber: transcriber))
 }
 
-/// Stands in for the panel the screens show in, recording what leaves them.
+/// Stands in for the panel the screens show in, or stands before it (`next`), which still draws,
+/// measures and performs: records what leaves the screens and lets a test see each drawing and hold each
+/// page's measurement.
 @MainActor final class RecordingSurface: PaletteSurface {
+  let next: (any PaletteSurface)?
   var effects: [PaletteEffect] = []
   var onEffect: (PaletteEffect) -> Void = { _ in }
+  /// Each drawing of what the screens show, once the panel drew it.
+  var onDraw: () -> Void = {}
+  /// Measures an arriving page instead of the panel.
+  var onPrepare: ((Page, String) async -> Bool)?
+  init(wrapping next: (any PaletteSurface)? = nil) { self.next = next }
+  func present(_ change: PaletteChange) {
+    next?.present(change)
+    if change == .content { onDraw() }
+  }
+  func prepare(_ page: Page, turn: String) async -> Bool {
+    if let onPrepare { return await onPrepare(page, turn) }
+    return await next?.prepare(page, turn: turn) ?? true
+  }
   func perform(_ effect: PaletteEffect) {
     effects.append(effect)
     onEffect(effect)
+    next?.perform(effect)
   }
   func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
 }

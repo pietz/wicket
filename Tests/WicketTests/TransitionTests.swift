@@ -36,8 +36,10 @@ import Testing
     var height: CGFloat
   }
   private(set) var frames: [Frame] = []
+  let surface = RecordingSurface()
   init(_ model: LauncherModel) {
-    model.navigator.onResultsChange = { [weak self, weak model] in
+    model.navigator.surface = surface
+    surface.onDraw = { [weak self, weak model] in
       guard let self, let model else { return }
       frames.append(
         Frame(
@@ -140,7 +142,10 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let trace = Trace(model)
   model.navigator.arrivalDeadline = .seconds(60)
   var measuring: CheckedContinuation<Void, Never>?
-  model.navigator.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
+  trace.surface.onPrepare = { _, _ in
+    await withCheckedContinuation { measuring = $0 }
+    return true
+  }
   model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { measuring != nil })
   #expect(model.navigator.command == nil)
@@ -207,12 +212,41 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+/// One renderer serves every page: a measurement that returns after another page took the renderer (a
+/// list's detail on an arrow key) is measured again before the arriving page shows.
+@MainActor @Test func anArrivingPageWaitsForAMeasurementOfItsOwnTurn() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.navigator.arrivalDeadline = .seconds(60)
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  var turns: [String] = []
+  surface.onPrepare = { page, turn in
+    turns.append(turn)
+    // The first pass measured another page; the command is still not shown.
+    if turns.count == 1 { return false }
+    #expect(model.navigator.command == nil && page.source == "# First page")
+    return true
+  }
+  model.navigator.go(Address(id: "page"), submitted: true)
+  await model.navigator.settled()
+  #expect(turns.count == 2 && turns[0] == turns[1])
+  #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
+  #expect(try logged(root, "page").count == 1)
+  await model.finish()
+}
+
 @MainActor @Test func pageToPageRendersTheIncomingPageWhileTheOutgoingOneShows() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.arrivalDeadline = .seconds(5)
   var measured: [(page: String, shown: String?)] = []
-  model.navigator.preparePage = { page, _ in measured.append((page.source, model.navigator.body)) }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onPrepare = { page, _ in
+    measured.append((page.source, model.navigator.body))
+    return true
+  }
   model.navigator.go(Address(id: "page"), submitted: true)
   await model.navigator.settled()
   model.navigator.go(Address(id: "other"), submitted: true)
@@ -569,16 +603,17 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     [(screen: String, input: String, selection: String?, body: String?, busy: Bool, frame: NSRect)] = []
   private var held: [CheckedContinuation<Void, Never>] = []
   var measuring: Int { held.count }
+  let surface: RecordingSurface
   init(answer: String = finished) async throws {
     let (model, _, root) = try await transitions(answer: answer)
     self.model = model
     self.root = root
     controller = PaletteController(model: model, panel: panel)
+    surface = RecordingSurface(wrapping: controller)
     controller.show(orderFront: false, listen: false)
     await model.navigator.settled()
-    let draw = model.navigator.onResultsChange
-    model.navigator.onResultsChange = { [unowned self] in
-      draw?()
+    model.navigator.surface = surface
+    surface.onDraw = { [unowned self] in
       shown.append(
         (
           model.agent.active ? "agent" : model.navigator.command?.id ?? "root", model.navigator.input,
@@ -586,10 +621,9 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
           model.navigator.body, model.navigator.command?.busy == true, panel.frame
         ))
     }
-    let measure = model.navigator.preparePage
-    model.navigator.preparePage = { [unowned self] page, turn in
+    surface.onPrepare = { [unowned self] page, turn in
       await withCheckedContinuation { held.append($0) }
-      await measure?(page, turn)
+      return await controller.prepare(page, turn: turn)
     }
   }
   func release() {
@@ -723,11 +757,9 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
   var batches = 0
-  let draw = model.navigator.onResultsChange
-  model.navigator.onResultsChange = {
-    draw?()
-    if model.navigator.command == nil { batches += 1 }
-  }
+  let surface = RecordingSurface(wrapping: controller)
+  model.navigator.surface = surface
+  surface.onDraw = { if model.navigator.command == nil { batches += 1 } }
   model.navigator.input = "> B"
   controller.run()
   #expect(model.navigator.returnQueued)
@@ -1035,7 +1067,10 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   // A page on its way over the first one, and ⌘↩ with nothing typed while it is measured.
   model.navigator.arrivalDeadline = .seconds(60)
   var measuring: CheckedContinuation<Void, Never>?
-  model.navigator.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
+  surface.onPrepare = { _, _ in
+    await withCheckedContinuation { measuring = $0 }
+    return true
+  }
   model.navigator.go(Address(id: "other"), submitted: true)
   #expect(await eventually { measuring != nil })
   model.navigator.askAgent()
@@ -1526,7 +1561,9 @@ private func printing(_ answer: String) -> String {
   model.navigator.move(1)
   #expect(model.activateReturn() && model.navigator.inDetail)
   var drawn: [Bool] = []
-  model.navigator.onResultsChange = { drawn.append(model.navigator.inDetail) }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onDraw = { drawn.append(model.navigator.inDetail) }
   // Quitting resets the session itself: nothing of the agent's screen is drawn after it.
   await model.finish()
   #expect(!model.agent.active && !model.navigator.inDetail && model.navigator.page == nil)

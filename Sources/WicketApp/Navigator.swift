@@ -1,12 +1,28 @@
 import AppKit
 import Observation
 
-/// What the navigator asks of the panel it shows in (`PaletteController`).
+/// What the navigator asks of the panel it shows in (`PaletteController`): drawing what changed, in the
+/// same turn, so the native frame and the content change together; measuring a page before it shows; and
+/// what leaves the screens.
 @MainActor protocol PaletteSurface: AnyObject {
+  func present(_ change: PaletteChange)
+  /// Renders and measures a page before it shows, so the card's height is known when it appears. False
+  /// when the renderer measured another page meanwhile: one renderer serves every page.
+  func prepare(_ page: Page, turn: String) async -> Bool
   func perform(_ effect: PaletteEffect)
+}
+enum PaletteChange: Equatable {
+  /// What the screens show: the panel renders the page and sizes itself at once.
+  case content
+  /// Only what is selected: the page paints it at once, and beside a list the selected item's detail
+  /// shows, without waiting for the next render.
+  case selection
 }
 /// What leaves the screens.
 enum PaletteEffect: Equatable {
+  /// What Return, a button or a menu item chose that is not the screens': a copy, paste, open or reveal,
+  /// or recording a hotkey (`Navigator.activate`), and the row it came from.
+  case run(RowAction, from: Result?)
   /// An extension's answer to a submitted request said it is done (`ProviderView.close`): the panel hides
   /// without showing it, as the user hiding it would; the effect (a moved window) is the feedback.
   case close
@@ -93,7 +109,7 @@ final class Navigator {
   private func agentChanged() {
     guard !committing else { return }
     if !agent.permissions.isEmpty { closeActions() }
-    onResultsChange?()
+    draw()
   }
   @ObservationIgnored private var committing = false
   /// Ends the agent's screen. The session resets without drawing: the caller draws the screen under it.
@@ -136,7 +152,7 @@ final class Navigator {
       guard (try? await Task.sleep(for: .milliseconds(300))) != nil, let self else { return }
       shrinking = nil
       sizedRows = max(1, min(results.count, 8))
-      onResultsChange?()
+      draw()
     }
   }
   /// What the arrow keys walk: the action panel's rows, the open page's targets in reading order, else
@@ -184,25 +200,17 @@ final class Navigator {
   var prominentFirst: Bool { results.first.map { $0.row.prominent == true } ?? false }
   var questionExpanded = false
   var conversationHeaderHeight: CGFloat = 32 {
-    didSet { if conversationHeaderHeight != oldValue { onResultsChange?() } }
+    didSet { if conversationHeaderHeight != oldValue { draw() } }
   }
   var confirmationHeight: CGFloat = 210 {
-    didSet { if confirmationHeight != oldValue { onResultsChange?() } }
+    didSet { if confirmationHeight != oldValue { draw() } }
   }
   /// What the last action could not do, until the configuration next changes.
   var actionProblem: String?
 
-  /// Draws what changed: the controller renders the page and sizes the panel at once.
-  @ObservationIgnored var onResultsChange: (() -> Void)?
-  /// The page paints its selection from here, at once rather than with the next render.
-  @ObservationIgnored var onSelectionChange: (() -> Void)?
-  /// A Return that waited (`returnWaits`) runs now.
-  @ObservationIgnored var onReturnReady: (() -> Void)?
-  /// The panel the screens show in, which does what leaves them: hiding, and the Settings window.
+  /// The panel the screens show in (`PaletteSurface`).
   @ObservationIgnored weak var surface: (any PaletteSurface)?
-  /// Prepares an arriving page before it is shown: the controller renders and measures it, so the
-  /// card's height is known when the page appears. Arguments are the page and its turn.
-  @ObservationIgnored var preparePage: ((Page, String) async -> Void)?
+  private func draw() { surface?.present(.content) }
 
   // MARK: Layers: details and the action panel
 
@@ -223,7 +231,7 @@ final class Navigator {
           page: Page(body: markdown, items: action.map { [$0] } ?? [], runs: !conversing), base: baseTurn,
           turn: pageTurn + ">" + (result?.row.id ?? ""))
       ]
-    onResultsChange?()
+    draw()
   }
   private var overlay: ActionPresentation?
   /// The title of the row whose actions the panel lists; nil while it is closed.
@@ -262,7 +270,7 @@ final class Navigator {
     focusTarget = nil
     select(first.id)
     sizeList(now: true)
-    onResultsChange?()
+    draw()
   }
   /// Back to the screen ⌘K was pressed on, with its selection as it was.
   private func closeActions() {
@@ -270,7 +278,7 @@ final class Navigator {
     overlay = nil
     reconcileSelection()
     sizeList(now: true)
-    onResultsChange?()
+    draw()
   }
   /// What Return or a menu item runs, and the row it came from. An action chosen in the action panel
   /// closes it and belongs to the row the panel was opened for.
@@ -300,7 +308,7 @@ final class Navigator {
       guard newValue.id != old else { return }
       // The draft is gone, so the input takes the keys again.
       if command == nil { focusTarget = nil }
-      onSelectionChange?()
+      surface?.present(.selection)
     }
   }
   var selection: String? { current.id }
@@ -322,7 +330,7 @@ final class Navigator {
   /// The one step after a screen's content changed: the selection follows it, then the panel draws it.
   private func publish() {
     retainSelection()
-    onResultsChange?()
+    draw()
   }
   private func retainSelection() {
     guard overlay == nil else { return }
@@ -488,7 +496,7 @@ final class Navigator {
       let left = conversing
       showArrival()
       input = text.hasPrefix(old) ? arrival.input + text.dropFirst(old.count) : text
-      if left { onResultsChange?() }
+      if left { draw() }
       return
     }
     input = text
@@ -498,7 +506,7 @@ final class Navigator {
     let left = arriving != nil && conversing
     showArrival()
     input = text
-    if left { onResultsChange?() }
+    if left { draw() }
   }
   /// The input the root's rows were composed for. Until the rows of an edit are there (normally after
   /// `RootCommand.patternHold`), the previous ones still show.
@@ -512,7 +520,18 @@ final class Navigator {
       || !current.touched && selected?.provider == "agent" && search.awaitsPattern
   }
   /// A Return that waits runs once `returnWaits` is over; an edit, a pick, a switch or hiding calls it off.
-  var returnQueued = false
+  private(set) var returnQueued = false
+  /// Return, a button or a menu item: the action chosen, else what Return does, from the row it belongs
+  /// to. A Return that waits for the root's rows runs once they are composed. What is not the screens'
+  /// goes to the panel.
+  func run(_ chosen: RowAction? = nil) {
+    if chosen == nil, returnWaits {
+      returnQueued = true
+      return
+    }
+    guard let (action, result) = pick(chosen), !activate(action, from: result) else { return }
+    surface?.perform(.run(action, from: result))
+  }
 
   // MARK: Switching screens
 
@@ -610,7 +629,7 @@ final class Navigator {
       actionProblem = nil
       sourcesChanged(switched)
     }
-    onResultsChange?()
+    draw()
   }
   /// `typed`: the input was edited, which a command's context ignores unless an address set it.
   func refresh(typed: Bool = false) {
@@ -665,10 +684,12 @@ final class Navigator {
             guard let self, !Task.isCancelled, generation == version else { return }
             if view.close, request.submitted { return surface?.perform(.close) ?? () }
             let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-            if arriving != nil, let page, let preparePage {
-              await preparePage(page, turn)
+            // Measured for this page: one the renderer measured meanwhile, such as a list's detail on an
+            // arrow key, says nothing about this one's height.
+            while arriving != nil, let page, let surface, await surface.prepare(page, turn: turn) == false {
               guard !Task.isCancelled, generation == version else { return }
             }
+            guard !Task.isCancelled, generation == version else { return }
             showArrival()
             show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
           } catch {
@@ -684,7 +705,7 @@ final class Navigator {
           command?.busy = false
           publish()
         })
-      onResultsChange?()
+      draw()
       return
     }
     cancelWork()
@@ -720,7 +741,7 @@ final class Navigator {
     publish()
     if returnQueued, !returnWaits {
       returnQueued = false
-      onReturnReady?()
+      run()
     }
   }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
@@ -843,14 +864,14 @@ final class Navigator {
     // A detail goes back to where the user was on the page under it.
     if inDetail {
       screen.details = Array(openDetails.dropLast())
-      onResultsChange?()
+      draw()
       return true
     }
     if returnsOnEscape {
       // Cmd+Return's empty question goes back to the screen under it as it was: nothing reruns.
       closeConversation()
       reconcileSelection()
-      onResultsChange?()
+      draw()
       return true
     }
     if conversing {
@@ -1030,6 +1051,6 @@ final class Navigator {
       show(view, page: page, of: program.id, request: request, turn: turn, remembered: true)
       retainSelection()
     }
-    onResultsChange?()
+    draw()
   }
 }
