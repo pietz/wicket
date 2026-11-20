@@ -2,7 +2,7 @@
 # Cuts a release: bumps the version, builds and signs Wicket, makes a notarized, stapled DMG, signs
 # it for Sparkle, adds it to appcast.xml and the cask, then prints the commands that publish it.
 # It publishes nothing itself. One-time setup and the full sequence: docs/release.md.
-#   Scripts/release.sh 0.0.2
+#   Scripts/release.sh <version>
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -37,8 +37,8 @@ build=$(( ${last:-0} + 1 ))
 echo "== Wicket $version ($build)"
 
 Scripts/build-app.sh --release
-# The app must run without this checkout: 0.2.0 found its resources only in the build folder, so it
-# started on no other Mac. Headless, with that folder unreadable.
+# The app must run without this checkout, so start it headless with the build folder unreadable; only
+# the exit status counts.
 check=$(mktemp -d)
 WICKET_CONFIG_DIR="$check" sandbox-exec -p "(version 1)(allow default)(deny file-read* (subpath \"$PWD/.build\"))" \
   build/Wicket.app/Contents/MacOS/Wicket --query 1+1 >/dev/null || {

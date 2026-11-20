@@ -45,7 +45,7 @@ runtime=(--options runtime)
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
-# Wicket's own resources, found through Bundle.module. Not "*.bundle": a stale .build can hold the
+# Wicket's own resources, found through Bundle.wicket. Not "*.bundle": a stale .build can hold the
 # test targets' bundles of an earlier layout.
 ditto "$bin/Wicket_WicketApp.bundle" "$app/Contents/Resources/Wicket_WicketApp.bundle"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"

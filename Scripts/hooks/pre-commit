@@ -1,8 +1,8 @@
 #!/bin/zsh
-# Runs the definition-of-done gate before every commit. Enabled per clone with:
+# Runs the definition-of-done gate before a commit that stages Swift, Package.swift or .swift-format
+# files; any other commit skips it. Enabled per clone with:
 #   git config core.hooksPath Scripts/hooks
-# Commits that only touch docs skip the Swift checks. On failure it prints the failing lines, so a
-# flaky test names itself instead of vanishing on the rerun.
+# On failure it prints the failing lines, so a flaky test names itself instead of vanishing on the rerun.
 if git diff --cached --name-only | grep -qE '\.swift$|^Package\.swift$|\.swift-format$'; then
   out="$(mktemp -t wicket-check)"
   "$(git rev-parse --show-toplevel)/Scripts/check.sh" >"$out" 2>&1 || {
