@@ -145,7 +145,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   var measuring: CheckedContinuation<Void, Never>?
   trace.surface.onPrepare = { _, _ in
     await withCheckedContinuation { measuring = $0 }
-    return true
+    return .unmeasured
   }
   model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { measuring != nil })
@@ -215,7 +215,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 
 /// One renderer serves every page: a measurement that returns after another page took the renderer (a
 /// list's detail on an arrow key) is measured again before the arriving page shows.
-@MainActor @Test func anArrivingPageWaitsForAMeasurementOfItsOwnTurn() async throws {
+@MainActor @Test func anArrivingPageWaitsForAMeasurementOfItsOwnTurnAndShowsAtItsHeight() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.arrivalDeadline = .seconds(60)
@@ -225,15 +225,37 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   surface.onPrepare = { page, turn in
     turns.append(turn)
     // The first pass measured another page; the command is still not shown.
-    if turns.count == 1 { return false }
+    if turns.count == 1 { return .superseded }
     #expect(model.navigator.command == nil && page.source == "# First page")
-    return true
+    return .measured(PageHeight(turn: turn, height: 300))
   }
   model.navigator.go(Address(id: "page"), submitted: true)
   await model.navigator.settled()
   #expect(turns.count == 2 && turns[0] == turns[1])
   #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
+  // Shown in one step with the height measured for it.
+  #expect(surface.changes.last == .measured(PageHeight(turn: turns[0], height: 300)))
+  #expect(surface.changes.dropLast().allSatisfy { $0 == .content })
+  #expect(model.navigator.pageTurn == turns[0])
   #expect(try logged(root, "page").count == 1)
+  await model.finish()
+}
+
+@MainActor @Test func aPageThatCannotBeMeasuredShowsAtOnce() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.navigator.arrivalDeadline = .seconds(60)
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  var prepared = 0
+  surface.onPrepare = { _, _ in
+    prepared += 1
+    return .unmeasured
+  }
+  model.navigator.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { model.navigator.body == "# First page" })
+  // Measured once, not again until the deadline, and drawn as it is.
+  #expect(prepared == 1 && surface.changes.allSatisfy { $0 == .content })
   await model.finish()
 }
 
@@ -246,7 +268,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.navigator.surface = surface
   surface.onPrepare = { page, _ in
     measured.append((page.source, model.navigator.body))
-    return true
+    return .unmeasured
   }
   model.navigator.go(Address(id: "page"), submitted: true)
   await model.navigator.settled()
@@ -590,9 +612,13 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 /// A panel that routes keys as if it had them, and records every frame it is given.
 @MainActor private final class FramePanel: PalettePanel {
   var frames: [NSRect] = []
+  /// The screen shown when each frame was set.
+  var screens: [String] = []
+  var shows: () -> String = { "" }
   override var isKeyWindow: Bool { true }
   override func setFrame(_ frame: NSRect, display: Bool) {
     frames.append(frame)
+    screens.append(shows())
     super.setFrame(frame, display: display)
   }
 }
@@ -1126,7 +1152,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   var measuring: CheckedContinuation<Void, Never>?
   surface.onPrepare = { _, _ in
     await withCheckedContinuation { measuring = $0 }
-    return true
+    return .unmeasured
   }
   model.navigator.go(Address(id: "other"), submitted: true)
   #expect(await eventually { measuring != nil })
@@ -1467,6 +1493,39 @@ private let page = String(
   // Both one-line pages measure the same, so the frame never moves.
   #expect(panel.panel.frame == first && panel.panel.frames.count == frames)
   #expect(try logged(panel.root, "page").count == 1 && logged(panel.root, "other").count == 1)
+  await panel.finish()
+}
+
+@MainActor @Test func pageToPageOfAnotherHeightResizesOnlyWhenTheIncomingPageShows() async throws {
+  let panel = try await Measured()
+  let model = panel.model
+  let tall = (1...12).map { "Paragraph \($0) of a page taller than one line." }.joined(separator: "\n\n")
+  let view = String(decoding: try JSONEncoder().encode(ProviderView(body: tall)), as: UTF8.self)
+  _ = try extensionFolder(panel.root, name: "tall", script: "cat >/dev/null\nprintf '%s' '\(view)'")
+  await model.extensions.reload()
+  model.navigator.arrivalDeadline = .seconds(60)
+  panel.panel.shows = { model.navigator.command?.id ?? "root" }
+  model.navigator.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  panel.release()
+  #expect(await eventually { model.navigator.body == "# First page" })
+  await panel.controller.renderer.settled()
+  let first = panel.panel.frame
+  let frames = panel.panel.frames.count
+  model.navigator.go(Address(id: "tall"), submitted: true)
+  #expect(await eventually { panel.measuring == 1 })
+  panel.release()
+  #expect(await eventually { model.navigator.command?.id == "extension:tall" })
+  await panel.controller.renderer.settled()
+  let measured = PaletteLayout.panelHeight(
+    card: PaletteLayout.cardHeight(
+      model.navigator, answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+  // The first page keeps its frame while the tall one is measured; one frame, at the tall page's height,
+  // comes with the tall page.
+  #expect(measured > first.height + 100)
+  #expect(Array(panel.panel.screens.dropFirst(frames)) == ["extension:tall"])
+  #expect(panel.panel.frames.dropFirst(frames).map(\.height) == [measured])
+  #expect(panel.shown.last?.screen == "extension:tall" && panel.shown.last?.frame.height == measured)
   await panel.finish()
 }
 

@@ -81,8 +81,11 @@ final class AnswerRenderer {
   private var positions: [String: Double] = [:]
   private let bridge = try! String(
     contentsOf: Bundle.wicket.url(forResource: "bridge", withExtension: "js")!, encoding: .utf8)
-  /// Callers of `render` waiting for the pass that measures their page.
+  /// Callers of `measure` waiting for the pass that measures their page.
   private var waiting: [CheckedContinuation<Void, Never>] = []
+  /// The turn `measure` renders before it shows, whose height waits for `adopt`, and what it found.
+  private var staging: String?
+  private var staged: PageMeasurement?
 
   init(folder: URL, open: @escaping @MainActor (URL) -> Void) {
     self.folder = folder
@@ -116,6 +119,7 @@ final class AnswerRenderer {
     ["html": NSNull(), "selected": selected ?? NSNull()]
   }
   func update(_ page: Page, turn: String, streaming: Bool) {
+    staging = nil
     releaseTask?.cancel()
     source = page
     self.turn = turn
@@ -124,11 +128,22 @@ final class AnswerRenderer {
     prepare()
     schedule()
   }
-  /// Renders a page and returns once it is measured (or rendering stopped), so a page can be shown
-  /// at its height from the first frame.
-  func render(_ page: Page, turn: String) async {
+  /// Renders a page that is not shown yet and returns its height once measured, so it can show at that
+  /// height from its first frame. The height is not `height` until `adopt`: the card still shows another
+  /// page, which keeps its own.
+  func measure(_ page: Page, turn: String) async -> PageMeasurement {
     update(page, turn: turn, streaming: false)
+    staging = turn
+    staged = nil
     await withCheckedContinuation { waiting.append($0) }
+    guard staging == turn, let staged else { return .superseded }
+    return staged
+  }
+  /// The page measured for `measured.turn` shows now: the card takes its height.
+  func adopt(_ measured: PageHeight) {
+    guard renderedTurn == measured.turn else { return }
+    if staging == measured.turn { staging = nil }
+    if height != measured.height { height = measured.height }
   }
   /// Returns once no render is scheduled or running, like `Navigator.settled`.
   func settled() async {
@@ -227,18 +242,25 @@ final class AnswerRenderer {
               if positions.count > 16 { positions.removeAll() }
             }
             if let measured = values["height"] as? Double, measured.isFinite {
-              height = PaletteLayout.answerHeight(
+              let measured = PaletteLayout.answerHeight(
                 measured, previous: reset ? PaletteLayout.answerMin : height, streaming: isStreaming,
                 cap: cap)
-              onHeight?()
+              if currentTurn == staging {
+                staged = .measured(PageHeight(turn: currentTurn, height: measured))
+              } else {
+                height = measured
+                onHeight?()
+              }
             }
           }
+          if currentTurn == staging, staged == nil { staged = .unmeasured }
           renderedTurn = currentTurn
           problem = nil
           if version == revision { break }
           try await Task.sleep(for: .milliseconds(40))
         }
       } catch is CancellationError {} catch {
+        if turn == staging { staged = .unmeasured }
         if !ready { shellLoad = nil }
         problem = "Answer: \(error.localizedDescription)"
       }

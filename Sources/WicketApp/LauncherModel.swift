@@ -81,7 +81,7 @@ final class LauncherModel {
   /// host command, or an item whose action opens a view. Nothing is recorded as usage. `prepare` renders
   /// a view's page before the panel shows it.
   func press(
-    _ target: HotkeyTarget, prepare: ((Page, String) async -> Void)? = nil, show: () -> Void
+    _ target: HotkeyTarget, prepare: ((Page, String) async -> PageMeasurement)? = nil, show: () -> Void
   ) async {
     let owner = target.target.flatMap { extensions.commands[$0] }
     let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
@@ -113,9 +113,10 @@ final class LauncherModel {
     guard !view.close else { return }
     let turn = UUID().uuidString
     let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-    if let page, let prepare { await prepare(page, turn) }
+    var measured: PageHeight?
+    if let page, let prepare, case .measured(let height) = await prepare(page, turn) { measured = height }
     show()
-    navigator.adopt(program, request: request, view: view, page: page, turn: turn)
+    navigator.adopt(program, request: request, view: view, page: page, turn: turn, measured: measured)
   }
   func finish() async {
     navigator.finish()

@@ -173,7 +173,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   surface.onPrepare = { page, _ in
     prepared.append(page.source)
     await withCheckedContinuation { release = $0 }
-    return true
+    return .unmeasured
   }
   model.navigator.go(Address(id: "test"), submitted: true)
   #expect(await eventually { release != nil })

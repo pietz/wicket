@@ -176,7 +176,10 @@ final class Navigator {
 
   /// The panel the screens show in (`PaletteSurface`).
   @ObservationIgnored weak var surface: (any PaletteSurface)?
-  private func draw() { surface?.present(.content) }
+  /// `measured`: the page shown now was measured before it showed, at this height.
+  private func draw(_ measured: PageHeight? = nil) {
+    surface?.present(measured.map { .measured($0) } ?? .content)
+  }
 
   // MARK: Layers: details and the action panel
 
@@ -294,9 +297,9 @@ final class Navigator {
     if inDetail { screen.details[screen.details.count - 1].selection.reset = true }
   }
   /// The one step after a screen's content changed: the selection follows it, then the panel draws it.
-  private func publish() {
+  private func publish(_ measured: PageHeight? = nil) {
     retainSelection()
-    draw()
+    draw(measured)
   }
   private func retainSelection() {
     guard overlay == nil else { return }
@@ -637,18 +640,22 @@ final class Navigator {
     let turn = UUID().uuidString
     tasks.append(
       Task { [weak self] in
+        var measured: PageHeight?
         do {
           if speaking { try await Task.sleep(for: .milliseconds(350)) }
           let view = try await source(request)
           guard let self, !Task.isCancelled, generation == version else { return }
           if view.close, request.submitted { return surface?.perform(.close) ?? () }
           let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-          // Measured for this page: one the renderer measured meanwhile, such as a list's detail on an
-          // arrow key, says nothing about this one's height.
-          while arriving != nil, let page, let surface, await surface.prepare(page, turn: turn) == false {
+          // Measured for this page's turn: one the renderer measured meanwhile, such as a list's detail
+          // on an arrow key, says nothing about this one's height. What failed shows unmeasured at once.
+          while arriving != nil, let page, let surface {
+            let measurement = await surface.prepare(page, turn: turn)
             guard !Task.isCancelled, generation == version else { return }
+            if measurement == .superseded { continue }
+            if case .measured(let height) = measurement, height.turn == turn { measured = height }
+            break
           }
-          guard !Task.isCancelled, generation == version else { return }
           showArrival()
           show(view, page: page, of: state.id, request: request, turn: turn, remembered: remembered)
         } catch {
@@ -660,7 +667,7 @@ final class Navigator {
         }
         guard let self, generation == version else { return }
         command?.busy = false
-        publish()
+        publish(measured)
       })
     draw()
   }
@@ -974,7 +981,7 @@ final class Navigator {
   /// report, as if Return had run it, and nothing runs again.
   func adopt(
     _ program: ExtensionCommand, request: ProviderRequest, view: ProviderView? = nil, page: Page? = nil,
-    turn: String = "", problem: String? = nil
+    turn: String = "", measured: PageHeight? = nil, problem: String? = nil
   ) {
     cancelWork()
     var state = CommandState(id: program.id, screen: Screen(arguments: request.arguments), next: .rerun)
@@ -988,6 +995,6 @@ final class Navigator {
       show(view, page: page, of: program.id, request: request, turn: turn, remembered: true)
       retainSelection()
     }
-    draw()
+    draw(measured)
   }
 }

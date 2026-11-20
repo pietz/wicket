@@ -5,9 +5,10 @@ import Foundation
 /// what leaves the screens.
 @MainActor protocol PaletteSurface: AnyObject {
   func present(_ change: PaletteChange)
-  /// Renders and measures a page before it shows, so the card's height is known when it appears. False
-  /// when the renderer measured another page meanwhile: one renderer serves every page.
-  func prepare(_ page: Page, turn: String) async -> Bool
+  /// Renders and measures a page before it shows, so the card's height is known when it appears. The
+  /// height is held for the page's turn until the navigator shows it (`PaletteChange.measured`): the page
+  /// shown meanwhile keeps its own.
+  func prepare(_ page: Page, turn: String) async -> PageMeasurement
   /// An effect that hides the panel when it ends is under way (an application opening): until it ends,
   /// Return, buttons and menu items do nothing, a Return that waits for its rows included, so nothing
   /// else runs and then disappears with the panel.
@@ -17,9 +18,26 @@ import Foundation
 enum PaletteChange: Equatable {
   /// What the screens show: the panel renders the page and sizes itself at once.
   case content
+  /// What the screens show, with the page shown now at the height measured for its turn before it showed.
+  case measured(PageHeight)
   /// Only what is selected: the page paints it at once, and beside a list the selected item's detail
   /// shows, without waiting for the next render.
   case selection
+}
+/// A page's height, measured for its turn.
+struct PageHeight: Equatable {
+  let turn: String
+  let height: Double
+}
+/// What measuring a page before it shows found (`PaletteSurface.prepare`).
+enum PageMeasurement: Equatable {
+  case measured(PageHeight)
+  /// The renderer moved on to another page before it measured this one (one renderer serves every
+  /// page): measure again.
+  case superseded
+  /// Nothing measured it: rendering failed, or the panel is hidden. It shows at once, at the height the
+  /// renderer has, and is measured where it shows.
+  case unmeasured
 }
 /// What leaves the screens.
 enum PaletteEffect: Equatable {

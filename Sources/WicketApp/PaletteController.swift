@@ -165,7 +165,8 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// together. A hidden panel renders nothing.
   func present(_ change: PaletteChange) {
     switch change {
-    case .content:
+    case .content, .measured:
+      if case .measured(let height) = change { renderer.adopt(height) }
       input.screensChanged()
       if isOpen { renderContent() }
       resize()
@@ -178,12 +179,11 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       }
     }
   }
-  func prepare(_ page: Page, turn: String) async -> Bool {
-    guard isOpen else { return true }
+  func prepare(_ page: Page, turn: String) async -> PageMeasurement {
+    guard isOpen else { return .unmeasured }
     renderer.textSize = model.configuration.textSize
     renderer.selected = nil
-    await renderer.render(page, turn: turn)
-    return renderer.renderedTurn == turn
+    return await renderer.measure(page, turn: turn)
   }
   var holdsReturn: Bool { opening }
   func perform(_ effect: PaletteEffect) {
@@ -286,7 +286,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// failure, and never listens: the hotkey named where to go.
   func press(_ target: HotkeyTarget) {
     Task {
-      await model.press(target, prepare: { _ = await self.prepare($0, turn: $1) }) { show(listen: false) }
+      await model.press(target, prepare: { await self.prepare($0, turn: $1) }) { show(listen: false) }
     }
   }
   /// Whether Set Hotkey… is recording this row's hotkey.

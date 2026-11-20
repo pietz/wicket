@@ -81,15 +81,18 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   /// Each drawing of what the screens show, once the panel drew it.
   var onDraw: () -> Void = {}
   /// Measures an arriving page instead of the panel.
-  var onPrepare: ((Page, String) async -> Bool)?
+  var onPrepare: ((Page, String) async -> PageMeasurement)?
+  /// Every change drawn, in order.
+  var changes: [PaletteChange] = []
   init(wrapping next: (any PaletteSurface)? = nil) { self.next = next }
   func present(_ change: PaletteChange) {
     next?.present(change)
-    if change == .content { onDraw() }
+    changes.append(change)
+    if change != .selection { onDraw() }
   }
-  func prepare(_ page: Page, turn: String) async -> Bool {
+  func prepare(_ page: Page, turn: String) async -> PageMeasurement {
     if let onPrepare { return await onPrepare(page, turn) }
-    return await next?.prepare(page, turn: turn) ?? true
+    return await next?.prepare(page, turn: turn) ?? .unmeasured
   }
   var holdsReturn: Bool { next?.holdsReturn ?? false }
   func perform(_ effect: PaletteEffect) {
@@ -98,4 +101,12 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
     next?.perform(effect)
   }
   func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
+}
+
+extension AnswerRenderer {
+  /// Shows a page and returns once it is rendered and measured.
+  func render(_ page: Page, turn: String) async {
+    update(page, turn: turn, streaming: false)
+    await settled()
+  }
 }
