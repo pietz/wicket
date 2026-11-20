@@ -144,44 +144,44 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
-  model.input = "inv"
+  model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
-  #expect(await eventually { model.results.map(\.row.title) == ["Invoice.pdf"] })
+  #expect(await eventually { model.navigator.results.map(\.row.title) == ["Invoice.pdf"] })
   #expect(model.root.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], finish: true)
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf"])
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf"])
   // The next keystroke keeps the files that still match until its own first batch replaces them.
-  model.input = "invoice"
-  #expect(model.results.map(\.row.title) == ["Invoice.pdf"])
+  model.navigator.input = "invoice"
+  #expect(model.navigator.results.map(\.row.title) == ["Invoice.pdf"])
   let longer = #"kMDItemFSName == "invoice*"cdw"#
   #expect(await eventually { spotlight.started == [invoice, longer] })
   spotlight.send(longer, [], finish: true)
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Ask agent"])
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Ask agent"])
 }
 
 @MainActor @Test func nothingSearchesBelowTwoCharactersAndTypingStopsTheOldQuery() async throws {
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
-  model.input = ""
-  model.input = "i"
+  model.navigator.input = ""
+  model.navigator.input = "i"
   try await Task.sleep(for: .milliseconds(150))
   #expect(spotlight.started.isEmpty)
   // Keystrokes inside the debounce never reach Spotlight.
-  model.input = "in"
-  model.input = "inv"
+  model.navigator.input = "in"
+  model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
-  model.input = "invo"
+  model.navigator.input = "invo"
   let next = #"kMDItemFSName == "invo*"cdw"#
   #expect(await eventually { spotlight.stopped == [invoice] && spotlight.started == [invoice, next] })
   // A late batch of the stopped query changes nothing.
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
   try await Task.sleep(for: .milliseconds(50))
-  #expect(model.results.map(\.provider) == ["agent"])
-  model.input = ""
+  #expect(model.navigator.results.map(\.provider) == ["agent"])
+  model.navigator.input = ""
   #expect(await eventually { spotlight.stopped == [invoice, next] })
 }
 
@@ -190,7 +190,7 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
   model.store.update { $0.providers = [.init("files", enabled: false)] }
-  model.input = "inv"
+  model.navigator.input = "inv"
   try await Task.sleep(for: .milliseconds(150))
   #expect(spotlight.started.isEmpty)
 }
@@ -199,26 +199,26 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
-  model.input = "inv"
+  model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
-  #expect(await eventually { model.results.count == FileSearch.shown })
-  #expect(model.sizedRows == 8)
-  model.input = "invx"
-  #expect(model.results.count == 1 && model.sizedRows == 8)
-  #expect(await eventually { model.sizedRows == 1 })
-  model.input = ""
+  #expect(await eventually { model.navigator.results.count == FileSearch.shown })
+  #expect(model.navigator.sizedRows == 8)
+  model.navigator.input = "invx"
+  #expect(model.navigator.results.count == 1 && model.navigator.sizedRows == 8)
+  #expect(await eventually { model.navigator.sizedRows == 1 })
+  model.navigator.input = ""
 }
 
 @MainActor @Test func theListShrinksOnTimeWhileALateQueryFindsNothing() async throws {
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
-  model.input = "inv"
+  model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
-  #expect(await eventually { model.sizedRows == 8 })
-  model.input = "invxq"
+  #expect(await eventually { model.navigator.sizedRows == 8 })
+  model.navigator.input = "invxq"
   let query = #"kMDItemFSName == "invxq*"cdw"#
   #expect(await eventually { spotlight.started.last == query })
   // Empty batches recompose the list every 150 ms while the query runs, which ends only after them.
@@ -227,25 +227,25 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
     spotlight.send(query, [])
     try await Task.sleep(for: .milliseconds(150))
   }
-  #expect(model.sizedRows == 1)
+  #expect(model.navigator.sizedRows == 1)
   spotlight.send(query, [], finish: true)
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["agent"] && model.sizedRows == 1)
-  model.input = ""
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["agent"] && model.navigator.sizedRows == 1)
+  model.navigator.input = ""
 }
 
 @MainActor @Test func theListShrinksAtOnceWhenNothingIsPending() async throws {
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
-  model.input = "inv"
+  model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == [invoice] })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
-  #expect(await eventually { model.sizedRows == 8 })
-  model.input = "invxq"
+  #expect(await eventually { model.navigator.sizedRows == 8 })
+  model.navigator.input = "invxq"
   let query = #"kMDItemFSName == "invxq*"cdw"#
   #expect(await eventually { spotlight.started.last == query })
   spotlight.send(query, [], finish: true)
-  await model.settled()
-  #expect(model.sizedRows == 1)
+  await model.navigator.settled()
+  #expect(model.navigator.sizedRows == 1)
 }

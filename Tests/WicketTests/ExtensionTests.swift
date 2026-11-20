@@ -84,32 +84,32 @@ func answering(_ title: String) -> String {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:links")] }
   await model.extensions.reload()
-  model.input = ""
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Links"])
-  model.input = "docs"
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Alpha", "Beta Docs"])
+  model.navigator.input = ""
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Links"])
+  model.navigator.input = "docs"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Alpha", "Beta Docs"])
   // An item's run action without `extension` means its own extension.
-  let beta = try #require(model.results.first { $0.row.title == "Beta Docs" })
+  let beta = try #require(model.navigator.results.first { $0.row.title == "Beta Docs" })
   model.activate(beta.row.actions[0], from: beta)
-  await model.settled()
-  #expect(model.command?.id == "extension:links" && model.input == "beta")
-  #expect(model.results.map(\.row.title) == ["Beta Docs"])
-  model.input = ""
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Beta Docs", "Alpha", "Gamma"])
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:links" && model.navigator.input == "beta")
+  #expect(model.navigator.results.map(\.row.title) == ["Beta Docs"])
+  model.navigator.input = ""
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Beta Docs", "Alpha", "Gamma"])
   // Inside its own command an item shows the extension's icon too, and no subtitle of the host's.
-  #expect(model.results.allSatisfy { $0.row.icon == "bookmark" && $0.row.subtitle == nil })
-  model.input = "docs"
-  await model.settled()
+  #expect(model.navigator.results.allSatisfy { $0.row.icon == "bookmark" && $0.row.subtitle == nil })
+  model.navigator.input = "docs"
+  await model.navigator.settled()
   // Filtered and ordered like any command's items: an exact keyword before the manifest's order.
-  #expect(model.results.map(\.row.title) == ["Alpha", "Beta Docs"])
-  #expect(model.escape())
+  #expect(model.navigator.results.map(\.row.title) == ["Alpha", "Beta Docs"])
+  #expect(model.navigator.escape())
   model.store.update { $0.providers = [.init("extension:links", enabled: false)] }
-  model.input = "docs"
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["agent"])
+  model.navigator.input = "docs"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["agent"])
   await model.finish()
 }
 
@@ -149,23 +149,24 @@ func answering(_ title: String) -> String {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = "test"
-  await model.settled()
+  model.navigator.input = "test"
+  await model.navigator.settled()
   #expect(model.activateReturn())
-  await model.settled()
-  #expect(model.body == "## Berlin" && model.results.map(\.row.id) == ["a", "b"])
-  #expect(model.viewActions == [.copy("view")])
+  await model.navigator.settled()
+  #expect(model.navigator.body == "## Berlin" && model.navigator.results.map(\.row.id) == ["a", "b"])
+  #expect(model.navigator.viewActions == [.copy("view")])
   // A page starts with nothing selected: Return runs the view's actions until an arrow key enters the items.
-  #expect(model.selection == nil && model.selected?.row.actions == [.copy("view")])
-  model.move(1)
-  #expect(model.selected?.row.id == "a" && model.selected?.row.actions.first == .copy("one"))
-  model.move(1)
-  #expect(model.selected?.row.id == "b")
-  model.move(1)
-  #expect(model.selected?.row.id == "b")
-  model.move(-1)
-  model.move(-1)
-  #expect(model.selection == nil && model.selected?.row.actions == [.copy("view")])
+  #expect(model.navigator.selection == nil && model.navigator.selected?.row.actions == [.copy("view")])
+  model.navigator.move(1)
+  #expect(
+    model.navigator.selected?.row.id == "a" && model.navigator.selected?.row.actions.first == .copy("one"))
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.id == "b")
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.id == "b")
+  model.navigator.move(-1)
+  model.navigator.move(-1)
+  #expect(model.navigator.selection == nil && model.navigator.selected?.row.actions == [.copy("view")])
   await model.finish()
 }
 
@@ -179,10 +180,10 @@ func answering(_ title: String) -> String {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = "weather berlin"
-  await model.settled()
-  #expect(model.results.first { $0.provider == "extension:test" }?.row.id == "detail")
-  #expect(!model.results.contains { $0.row.title == "Inner" })
+  model.navigator.input = "weather berlin"
+  await model.navigator.settled()
+  #expect(model.navigator.results.first { $0.provider == "extension:test" }?.row.id == "detail")
+  #expect(!model.navigator.results.contains { $0.row.title == "Inner" })
   await model.finish()
 }
 
@@ -276,20 +277,20 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = "ship"
-  await model.settled()
-  #expect(model.results.first?.row.title == "Deploy")
+  model.navigator.input = "ship"
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Deploy")
   #expect(model.activateReturn())
-  await model.settled()
-  #expect(model.results.first?.row.title == "Ready")
-  model.input = "next"
-  await model.settled()
-  #expect(model.results.first?.row.title == "Ready")
-  #expect(model.escape() && model.command == nil)
-  model.input = "an unrelated sentence"
-  await model.settled()
-  #expect(model.results.first?.provider == "agent")
-  #expect(model.results.contains { $0.row.id == "fallback" })
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Ready")
+  model.navigator.input = "next"
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Ready")
+  #expect(model.navigator.escape() && model.navigator.command == nil)
+  model.navigator.input = "an unrelated sentence"
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.provider == "agent")
+  #expect(model.navigator.results.contains { $0.row.id == "fallback" })
   await model.finish()
 }
 
@@ -304,14 +305,14 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel(history: history, folder: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = "test"
-  await model.settled()
+  model.navigator.input = "test"
+  await model.navigator.settled()
   #expect(model.activateReturn())
-  model.input = "x"
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Beta", "Alpha"])
+  model.navigator.input = "x"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Beta", "Alpha"])
   let before = history.store.entries
-  model.record(try #require(model.results.first))
+  model.navigator.record(try #require(model.navigator.results.first))
   #expect(history.store.entries == before)
   await model.finish()
 }
@@ -332,13 +333,13 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = ""
-  await model.settled()
-  model.go(Address(id: "extension:test", arguments: ["view": "all"]))
-  await model.settled()
-  #expect(model.command?.id == "extension:test")
-  model.dismiss()
-  #expect(model.command == nil)
+  model.navigator.input = ""
+  await model.navigator.settled()
+  model.navigator.go(Address(id: "extension:test", arguments: ["view": "all"]))
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:test")
+  model.navigator.dismiss()
+  #expect(model.navigator.command == nil)
   await model.finish()
 }
 
@@ -356,15 +357,17 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   model.extensions.start()
   let ext = try extensionFolder(root, name: "new", script: answering("Fresh"), fields: ["match": "^new$"])
   #expect(await eventually { model.extensions.commands["extension:new"] != nil })
-  model.input = "new"
-  await model.settled()
-  #expect(model.results.first?.provider == "extension:new" && model.results.first?.row.title == "Fresh")
+  model.navigator.input = "new"
+  await model.navigator.settled()
+  #expect(
+    model.navigator.results.first?.provider == "extension:new"
+      && model.navigator.results.first?.row.title == "Fresh")
   #expect(try Data(contentsOf: root.appending(path: "config.json")) == before)
   try FileManager.default.removeItem(at: ext)
   #expect(await eventually { model.extensions.commands.isEmpty })
-  model.input = "newer"
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["agent"])
+  model.navigator.input = "newer"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["agent"])
   await model.finish()
 }
 
@@ -377,11 +380,11 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = "slow"
+  model.navigator.input = "slow"
   #expect(await eventually { FileManager.default.fileExists(atPath: runs.path) })
   await model.extensions.reload()
-  await model.settled()
-  #expect(model.results.first?.row.title == "Slow")
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Slow")
   #expect(try String(contentsOf: runs, encoding: .utf8) == "run\n")
   await model.finish()
 }
@@ -396,14 +399,14 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test", enabled: false)] }
   await model.extensions.reload()
-  model.input = "ship"
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["agent"])
+  model.navigator.input = "ship"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["agent"])
   #expect(!FileManager.default.fileExists(atPath: marker.path))
   model.store.update { $0.providers = [.init("extension:test")] }
-  model.refresh()
-  await model.settled()
-  #expect(model.results.first?.row.title == "Off")
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Off")
   await model.finish()
 }
 
@@ -422,15 +425,15 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
       Int32($0.trimmingCharacters(in: .whitespacesAndNewlines))
     }
   }
-  model.input = "slow"
+  model.navigator.input = "slow"
   #expect(await eventually { written() != nil })
   let pid = try #require(written())
-  model.input = "fast"
-  await model.settled()
+  model.navigator.input = "fast"
+  await model.navigator.settled()
   #expect(await eventually { !isRunning(pid) })
-  #expect(!model.results.contains { $0.row.title == "Late" })
+  #expect(!model.navigator.results.contains { $0.row.title == "Late" })
   try FileManager.default.removeItem(at: marker)
-  model.input = "slow"
+  model.navigator.input = "slow"
   #expect(await eventually { written() != nil })
   let next = try #require(written())
   await model.finish()
@@ -448,17 +451,17 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.input = "test"
-  await model.settled()
+  model.navigator.input = "test"
+  await model.navigator.settled()
   #expect(model.activateReturn())
-  await model.settled()
-  model.go(Address(id: "extension:test", arguments: ["view": "one"]))
-  await model.settled()
-  #expect(model.body == "one:")
-  model.input = "next"
-  await model.settled()
-  #expect(model.body == "one:next")
-  #expect(model.escape() && model.command == nil)
+  await model.navigator.settled()
+  model.navigator.go(Address(id: "extension:test", arguments: ["view": "one"]))
+  await model.navigator.settled()
+  #expect(model.navigator.body == "one:")
+  model.navigator.input = "next"
+  await model.navigator.settled()
+  #expect(model.navigator.body == "one:next")
+  #expect(model.navigator.escape() && model.navigator.command == nil)
   await model.finish()
 }
 
@@ -478,32 +481,33 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   var closed = 0
-  model.onClose = {
+  model.navigator.onClose = {
     closed += 1
-    model.dismiss()
+    model.navigator.dismiss()
   }
-  model.input = "keep"
-  await model.settled()
+  model.navigator.input = "keep"
+  await model.navigator.settled()
 
   // Chosen and done: the panel closes without showing the view, and the root is left as hiding leaves it.
-  model.go(Address(id: "extension:shut", input: "left"), submitted: true)
-  await model.settled()
+  model.navigator.go(Address(id: "extension:shut", input: "left"), submitted: true)
+  await model.navigator.settled()
   #expect(closed == 1)
-  #expect(model.command == nil && model.input.isEmpty)
+  #expect(model.navigator.command == nil && model.navigator.input.isEmpty)
 
   // Typing reruns are not submitted: the same answer shows as a view and nothing closes.
-  model.go(Address(id: "extension:shut", input: "a"))
-  await model.settled()
-  model.input = "ab"
-  await model.settled()
+  model.navigator.go(Address(id: "extension:shut", input: "a"))
+  await model.navigator.settled()
+  model.navigator.input = "ab"
+  await model.navigator.settled()
   #expect(closed == 1)
-  #expect(model.command?.id == "extension:shut" && model.results.map(\.row.id) == ["moved"])
+  #expect(
+    model.navigator.command?.id == "extension:shut" && model.navigator.results.map(\.row.id) == ["moved"])
 
   // A submitted request that fails keeps the panel open with its error.
-  model.go(Address(id: "extension:shut", input: "fail"), submitted: true)
-  await model.settled()
+  model.navigator.go(Address(id: "extension:shut", input: "fail"), submitted: true)
+  await model.navigator.settled()
   #expect(closed == 1)
-  #expect(model.command?.problem != nil)
+  #expect(model.navigator.command?.problem != nil)
 
   // Close alone is a whole view; a view needs one of body, items or close.
   #expect(

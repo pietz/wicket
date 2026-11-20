@@ -989,24 +989,24 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
     starts += 1
     return fake
   }
-  model.input = "One"
-  model.send()
+  model.navigator.input = "One"
+  model.navigator.send()
   #expect(await eventually { fake.running })
   fake.text("First")
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  model.input = "Two"
+  model.navigator.input = "Two"
   #expect(model.agent.active)
-  model.send()
+  model.navigator.send()
   #expect(await eventually { fake.running })
   fake.text("Second")
   #expect(model.agent.answer == "Second" && starts == 2)
-  #expect(model.escape())
+  #expect(model.navigator.escape())
   #expect(await eventually { !model.agent.busy })
   #expect(model.agent.active)
-  #expect(model.escape())
+  #expect(model.navigator.escape())
   #expect(!model.agent.active && model.agent.answer.isEmpty)
-  #expect(!model.escape())
+  #expect(!model.navigator.escape())
   await model.finish()
 }
 

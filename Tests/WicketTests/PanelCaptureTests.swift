@@ -323,27 +323,27 @@ private let installedAgent: Void = {
     scenario.keep.append(apps)
 
     if name.hasPrefix("answer") || (name.hasPrefix("conversation") && !transitions.contains(name)) {
-      try await finishTurn(model.agent, turn.question, turn.reply)
+      try await finishTurn(model, turn.question, turn.reply)
     }
     if transitions.contains(name) {
       try await transition(name, scenario, apps: apps, transcriber: transcriber, runs: runs)
       return scenario
     }
     switch name {
-    case "apps": model.input = "cal"
+    case "apps": model.navigator.input = "cal"
     case "math":
       await model.extensions.reload()
-      model.input = "200*10%+2^3"
-      await model.settled()
-    case "ask": model.input = "How do rainbows form?"
+      model.navigator.input = "200*10%+2^3"
+      await model.navigator.settled()
+    case "ask": model.navigator.input = "How do rainbows form?"
     case "listening":
       model.armVoice()
       transcriber.feeds[0].yield(.ready)
       transcriber.feeds[0].yield(.transcript("How do rainbows form?"))
-      #expect(await eventually { model.input == "How do rainbows form?" })
+      #expect(await eventually { model.navigator.input == "How do rainbows form?" })
     case "conversation-reopen":
-      model.input = "Could this work offline?"
-      model.dismiss()
+      model.navigator.input = "Could this work offline?"
+      model.navigator.dismiss()
       model.reopen()
     case _ where name.hasPrefix("conversation") || name.hasPrefix("permission") || name.hasPrefix("working"):
       let agent = FakeAgent()
@@ -355,7 +355,7 @@ private let installedAgent: Void = {
           repeating: "How can I improve this launcher while keeping the experience calm and native? ",
           count: 5)
         : (name.hasPrefix("permission") ? "Update the weather extension" : "What should I build next?")
-      model.send(question)
+      model.navigator.send(question)
       #expect(await eventually { agent.running })
       if name.hasPrefix("permission") {
         agent.onEvent(.permission(permissionRequest(high: name == "permission-high", folder: folder)))
@@ -368,7 +368,7 @@ private let installedAgent: Void = {
         agent.end()
         #expect(await eventually { !model.agent.busy })
       }
-      if name == "conversation-long-expanded" { model.questionExpanded = true }
+      if name == "conversation-long-expanded" { model.navigator.questionExpanded = true }
     case "clipboard", "clipboard-image":
       let clips = try #require(clipboard)
       model.store.update { $0.providers = [.init("clipboard")] }
@@ -379,17 +379,17 @@ private let installedAgent: Void = {
       clips.capture(
         "func greet(_ name: String) -> String {\n  // Say hello.\n  \"Hello, \\(name)!\"\n}",
         now: Date() - 2 * minute)
-      model.go(Address(extensionName: "clipboard"))
-      if name == "clipboard-image" { model.move(3) }
+      model.navigator.go(Address(extensionName: "clipboard"))
+      if name == "clipboard-image" { model.navigator.move(3) }
     case "actions":
-      model.input = "settings"
-      await model.settled()
-      model.toggleActions()
+      model.navigator.input = "settings"
+      await model.navigator.settled()
+      model.navigator.toggleActions()
     case _ where name.hasPrefix("extension-"): try await configureExtension(name, model)
-    case "asking": model.askAgent()
+    case "asking": model.navigator.askAgent()
     case "asking-extension":
       try await configureExtension("extension-detail", model)
-      model.askAgent()
+      model.navigator.askAgent()
     case _ where name.hasPrefix("arguments-"): try await configureArguments(name, model)
     case "history", "history-reopened":
       let hour: TimeInterval = 3600
@@ -405,13 +405,13 @@ private let installedAgent: Void = {
             .init(question: "How is the launch going?", answer: launchAnswer),
             .init(question: "And for the whole week?", answer: nextAnswer),
           ]))
-      model.go(Address(extensionName: "history"))
-      await model.settled()
+      model.navigator.go(Address(extensionName: "history"))
+      await model.navigator.settled()
       if name == "history-reopened" { model.activateReturn() }
     default: break
     }
     controller.show(orderFront: false, listen: false)
-    await model.settled()
+    await model.navigator.settled()
     return scenario
   }
 
@@ -427,53 +427,53 @@ private let installedAgent: Void = {
     model.extensions.onCatalogChange = nil
     await model.extensions.reload()
     controller.show(orderFront: false, listen: false)
-    await model.settled()
+    await model.navigator.settled()
     // Held: the switch waits for content that does not come while the capture is drawn.
-    model.arrivalDeadline = .seconds(60)
+    model.navigator.arrivalDeadline = .seconds(60)
     switch name {
-    case "arrival-root-held": model.go(Address(id: "slow"), submitted: true)
+    case "arrival-root-held": model.navigator.go(Address(id: "slow"), submitted: true)
     case "arrival-running", "asking-running-command", "asking-running-back":
-      model.arrivalDeadline = .milliseconds(1)
-      model.go(Address(id: "slow"), submitted: true)
-      #expect(await eventually { model.command?.busy == true })
-      if name != "arrival-running" { model.askAgent() }
-      if name == "asking-running-back" { #expect(model.escape()) }
+      model.navigator.arrivalDeadline = .milliseconds(1)
+      model.navigator.go(Address(id: "slow"), submitted: true)
+      #expect(await eventually { model.navigator.command?.busy == true })
+      if name != "arrival-running" { model.navigator.askAgent() }
+      if name == "asking-running-back" { #expect(model.navigator.escape()) }
     case "arrival-page-ready", "extension-actions", "extension-nested-detail", "extension-actions-back":
-      model.go(Address(id: "report"), submitted: true)
-      await model.settled()
+      model.navigator.go(Address(id: "report"), submitted: true)
+      await model.navigator.settled()
       await controller.renderer.settled()
       switch name {
-      case "extension-actions": model.toggleActions()
+      case "extension-actions": model.navigator.toggleActions()
       case "extension-nested-detail":
         // Release notes, then Known issues inside its detail.
-        model.move(1)
+        model.navigator.move(1)
         model.activateReturn()
-        model.move(1)
+        model.navigator.move(1)
         model.activateReturn()
       case "extension-actions-back":
-        model.move(1)
-        model.toggleActions()
-        #expect(model.escape())
+        model.navigator.move(1)
+        model.navigator.toggleActions()
+        #expect(model.navigator.escape())
       default: break
       }
     case "arrival-back-held":
-      model.go(Address(id: "notes"), submitted: true)
+      model.navigator.go(Address(id: "notes"), submitted: true)
       apps.held = true
-      #expect(model.escape())
+      #expect(model.navigator.escape())
     case "arrival-typed":
-      model.go(Address(id: "slow"), submitted: true)
-      model.editInput("fin")
+      model.navigator.go(Address(id: "slow"), submitted: true)
+      model.navigator.editInput("fin")
     case "arrival-dictated":
       model.armVoice()
       transcriber.feeds[0].yield(.ready)
       #expect(await eventually { model.voice?.state == .listening })
-      model.go(Address(id: "slow"), submitted: true)
+      model.navigator.go(Address(id: "slow"), submitted: true)
       transcriber.feeds[0].yield(.transcript("Finished yet?"))
-      #expect(await eventually { model.command != nil })
+      #expect(await eventually { model.navigator.command != nil })
     case "answer-actions", "answer-actions-back":
-      model.move(1)
-      model.toggleActions()
-      if name == "answer-actions-back" { #expect(model.escape()) }
+      model.navigator.move(1)
+      model.navigator.toggleActions()
+      if name == "answer-actions-back" { #expect(model.navigator.escape()) }
     case "history-back":
       runs.save(
         .init(
@@ -483,34 +483,34 @@ private let installedAgent: Void = {
         .init(
           id: "newer", agent: .claude, session: "s", used: Date().addingTimeInterval(-2 * 3600), source: nil,
           turns: [.init(question: "How is the launch going?", answer: launchAnswer)]))
-      model.go(Address(extensionName: "history"))
+      model.navigator.go(Address(extensionName: "history"))
       model.activateReturn()
-      #expect(model.agent.continuing && model.escape())
-      await model.settled()
+      #expect(model.agent.continuing && model.navigator.escape())
+      await model.navigator.settled()
     case "conversation-back-command":
       let agent = FakeAgent()
       scenario.keep.append(agent)
       model.agent.connect = { _, _, _ in agent }
-      model.go(Address(id: "notes"), submitted: true)
-      model.editInput("Which note is oldest?")
-      model.askAgent()
+      model.navigator.go(Address(id: "notes"), submitted: true)
+      model.navigator.editInput("Which note is oldest?")
+      model.navigator.askAgent()
       #expect(await eventually { agent.running })
       agent.text(nextAnswer)
       agent.end()
       #expect(await eventually { !model.agent.busy })
-      #expect(model.escape())
-      await model.settled()
+      #expect(model.navigator.escape())
+      await model.navigator.settled()
     case "hotkey-command-error":
       controller.hide()
-      await model.press(HotkeyTarget(target: "extension:mover", item: "left")) {
+      await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) {
         controller.show(orderFront: false, listen: false)
       }
     case "hotkey-binding":
       model.store.bind(try Shortcut("ctrl+option+s"), to: HotkeyTarget(target: "extension:slow"))
       model.store.bind(
         try Shortcut("ctrl+option+left"), to: HotkeyTarget(target: "extension:mover", item: "left"))
-      model.input = "l"
-      await model.settled()
+      model.navigator.input = "l"
+      await model.navigator.settled()
     default: Issue.record("No transition named \(name)")
     }
   }
@@ -621,18 +621,18 @@ private let installedAgent: Void = {
         .write(
           to: demo.appending(path: "main.py"))
       await host.reload()
-      model.input = "demo"
-      await model.settled()
+      model.navigator.input = "demo"
+      await model.navigator.settled()
       _ = model.activateReturn()
-      await model.settled()
-      for _ in 0..<3 { model.move(1) }
+      await model.navigator.settled()
+      for _ in 0..<3 { model.navigator.move(1) }
     } else if state == "extension-error" {
       // Its extension is in `reportedExtensions`, as the model's bundled one.
       await host.reload()
-      model.input = "demo"
-      await model.settled()
+      model.navigator.input = "demo"
+      await model.navigator.settled()
       _ = model.activateReturn()
-      await model.settled()
+      await model.navigator.settled()
     } else if ["extension-detail", "extension-both"].contains(state) {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
@@ -661,10 +661,10 @@ private let installedAgent: Void = {
       try Data("import json,sys; json.load(sys.stdin); sys.stdout.write(open('view.json').read())".utf8)
         .write(to: demo.appending(path: "main.py"))
       await host.reload()
-      model.input = "demo"
-      await model.settled()
+      model.navigator.input = "demo"
+      await model.navigator.settled()
       _ = model.activateReturn()
-      await model.settled()
+      await model.navigator.settled()
     } else {
       let web = folder.appending(path: "extensions/web-search")
       if !FileManager.default.fileExists(atPath: web.path) {
@@ -673,15 +673,15 @@ private let installedAgent: Void = {
       await host.reload()
       switch state {
       case "extension-list":
-        model.input = "web"
-        await model.settled()
+        model.navigator.input = "web"
+        await model.navigator.settled()
         _ = model.activateReturn()
-        await model.settled()
-        model.input = "wicket launcher"
-      case "extension-fallback": model.input = "a useful sentence to search"
-      default: model.input = "10 km in mi"
+        await model.navigator.settled()
+        model.navigator.input = "wicket launcher"
+      case "extension-fallback": model.navigator.input = "a useful sentence to search"
+      default: model.navigator.input = "10 km in mi"
       }
-      await model.settled()
+      await model.navigator.settled()
     }
   }
 
@@ -701,19 +701,19 @@ private let installedAgent: Void = {
       """
     try Data(code.utf8).write(to: folder.appending(path: "main.py"))
     await model.extensions.reload()
-    model.input = "caff"
-    await model.settled()
+    model.navigator.input = "caff"
+    await model.navigator.settled()
     if state == "arguments-filled" || state == "arguments-command" {
-      model.setArgument("hours", to: "12")
-      model.setArgument("minutes", to: "30")
+      model.navigator.setArgument("hours", to: "12")
+      model.navigator.setArgument("minutes", to: "30")
     }
     if ["arguments-command", "arguments-open", "arguments-long"].contains(state) {
       _ = model.activateReturn()
-      await model.settled()
+      await model.navigator.settled()
     }
     if state == "arguments-long" {
-      model.input = "a long note about why the build server should stay awake through the night"
-      await model.settled()
+      model.navigator.input = "a long note about why the build server should stay awake through the night"
+      await model.navigator.settled()
     }
   }
 
@@ -870,37 +870,50 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   let scenario = try await Scenario.make(state, dark: false)
   let model = scenario.model
   switch state {
-  case "arrival-root-held": #expect(model.command == nil && model.sizedRows == 8 && !model.returnWaits)
+  case "arrival-root-held":
+    #expect(model.navigator.command == nil && model.navigator.sizedRows == 8 && !model.navigator.returnWaits)
   case "arrival-running", "asking-running-back", "arrival-typed", "arrival-dictated":
-    #expect(model.command?.id == "extension:slow" && model.command?.busy == true && !model.agent.active)
-    #expect(model.input == ["arrival-typed": "fin", "arrival-dictated": "Finished yet?"][state, default: ""])
+    #expect(
+      model.navigator.command?.id == "extension:slow" && model.navigator.command?.busy == true
+        && !model.agent.active)
+    #expect(
+      model.navigator.input
+        == ["arrival-typed": "fin", "arrival-dictated": "Finished yet?"][state, default: ""])
   case "arrival-page-ready":
-    #expect(model.body?.contains("Weekly report") == true && model.results.count == 1)
+    #expect(model.navigator.body?.contains("Weekly report") == true && model.navigator.results.count == 1)
   case "arrival-back-held", "conversation-back-command":
     #expect(
-      model.command?.id == "extension:notes" && model.results.map(\.row.title) == ["Groceries", "Ideas"])
+      model.navigator.command?.id == "extension:notes"
+        && model.navigator.results.map(\.row.title) == ["Groceries", "Ideas"])
     #expect(!model.agent.active)
   case "extension-actions":
-    #expect(model.actionsTitle == "Weekly report" && model.results.map(\.row.title) == ["Copy", "Refresh"])
-  case "answer-actions": #expect(model.actionsTitle == "Swift Testing" && model.agent.active)
+    #expect(
+      model.navigator.actionsTitle == "Weekly report"
+        && model.navigator.results.map(\.row.title) == ["Copy", "Refresh"])
+  case "answer-actions": #expect(model.navigator.actionsTitle == "Swift Testing" && model.agent.active)
   case "extension-nested-detail":
-    #expect(model.inDetail && model.page?.source.hasPrefix("## Known issues") == true)
+    #expect(model.navigator.inDetail && model.navigator.page?.source.hasPrefix("## Known issues") == true)
   case "extension-actions-back", "answer-actions-back":
-    #expect(model.actionsTitle == nil && model.selectedTarget == "#0")
+    #expect(model.navigator.actionsTitle == nil && model.navigator.selectedTarget == "#0")
   case "asking-running-command":
-    #expect(model.agent.active && model.returnsOnEscape && model.askingAbout == "Slow list")
+    #expect(
+      model.agent.active && model.navigator.returnsOnEscape && model.navigator.askingAbout == "Slow list")
   case "history-back":
-    #expect(model.command?.id == "history" && !model.agent.active && model.results.count == 2)
+    #expect(
+      model.navigator.command?.id == "history" && !model.agent.active && model.navigator.results.count == 2)
   case "hotkey-command-error":
-    #expect(model.command?.id == "extension:mover" && model.command?.problem?.contains("REPAIR") == true)
+    #expect(
+      model.navigator.command?.id == "extension:mover"
+        && model.navigator.command?.problem?.contains("REPAIR") == true)
   case "hotkey-binding":
-    #expect(model.results.compactMap { model.hotkey(of: $0) }.count == 2)
+    #expect(model.navigator.results.compactMap { model.navigator.hotkey(of: $0) }.count == 2)
   case _ where state.hasPrefix("settings-"):
     #expect(scenario.controller == nil && scenario.view.frame.size == CGSize(width: 560, height: 480))
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)
   case "working": #expect(model.agent.busy && model.agent.answer.isEmpty)
   case "working-text": #expect(model.agent.busy && !model.agent.answer.isEmpty)
-  case "conversation-reopen": #expect(model.agent.continuing && model.input == "Could this work offline?")
+  case "conversation-reopen":
+    #expect(model.agent.continuing && model.navigator.input == "Could this work offline?")
   case _ where state.hasPrefix("conversation"):
     #expect(
       model.agent.active && !model.agent.busy && model.agent.previous.count == 1
@@ -910,40 +923,48 @@ func scenariosSetUpTheirState(_ state: String) async throws {
       model.agent.active && model.agent.answer.contains("A good start")
         && model.agent.status == "Ready for a follow-up")
   case "extension-detail", "extension-detail-larger":
-    #expect(model.command != nil && model.body?.contains("A useful extension") == true)
-    #expect(model.results.isEmpty && model.askingAbout == "Extension report")
+    #expect(model.navigator.command != nil && model.navigator.body?.contains("A useful extension") == true)
+    #expect(model.navigator.results.isEmpty && model.navigator.askingAbout == "Extension report")
   case "asking", "asking-extension":
-    #expect(model.agent.active && model.agent.question.isEmpty && model.returnsOnEscape)
-    #expect(model.askingAbout == (state == "asking" ? nil : "Extension report"))
+    #expect(model.agent.active && model.agent.question.isEmpty && model.navigator.returnsOnEscape)
+    #expect(model.navigator.askingAbout == (state == "asking" ? nil : "Extension report"))
   case "extension-both":
-    #expect(model.body?.contains("A useful extension") == true && model.results.count == 2)
-    #expect(model.selected?.row.id == "detail")
-  case "actions": #expect(model.actionsTitle == "Settings" && model.results.count == 2)
+    #expect(
+      model.navigator.body?.contains("A useful extension") == true && model.navigator.results.count == 2)
+    #expect(model.navigator.selected?.row.id == "detail")
+  case "actions": #expect(model.navigator.actionsTitle == "Settings" && model.navigator.results.count == 2)
   case "extension-targets":
-    #expect(model.results.count == 9 && model.selected?.row.title == "10° 7°" && model.selectedTarget == "#2")
-  case "arguments-empty": #expect(model.declaredArguments.count == 2 && model.argumentValues.isEmpty)
+    #expect(
+      model.navigator.results.count == 9 && model.navigator.selected?.row.title == "10° 7°"
+        && model.navigator.selectedTarget == "#2")
+  case "arguments-empty":
+    #expect(model.navigator.declaredArguments.count == 2 && model.navigator.argumentValues.isEmpty)
   case "arguments-filled":
-    #expect(model.command == nil && model.argumentValues == ["hours": "12", "minutes": "30"])
+    #expect(
+      model.navigator.command == nil && model.navigator.argumentValues == ["hours": "12", "minutes": "30"])
   case "arguments-command":
-    #expect(model.argumentValues.count == 2 && model.results.first?.row.title == "Awake for 12 h 30 min")
-  case "arguments-open", "arguments-long": #expect(model.command != nil && model.argumentValues.isEmpty)
-  case "arguments-three": #expect(model.declaredArguments.count == 3)
-  case "extension-error": #expect(model.command?.problem?.contains("REPAIR") == true)
-  case "history": #expect(model.command?.id == "history" && model.results.count == 2)
+    #expect(
+      model.navigator.argumentValues.count == 2
+        && model.navigator.results.first?.row.title == "Awake for 12 h 30 min")
+  case "arguments-open", "arguments-long":
+    #expect(model.navigator.command != nil && model.navigator.argumentValues.isEmpty)
+  case "arguments-three": #expect(model.navigator.declaredArguments.count == 3)
+  case "extension-error": #expect(model.navigator.command?.problem?.contains("REPAIR") == true)
+  case "history": #expect(model.navigator.command?.id == "history" && model.navigator.results.count == 2)
   case "clipboard":
-    #expect(model.splits && model.selected?.row.title.hasPrefix("func greet") == true)
-    #expect(model.preview?.page.source.contains("Hello") == true)
+    #expect(model.navigator.splits && model.navigator.selected?.row.title.hasPrefix("func greet") == true)
+    #expect(model.navigator.preview?.page.source.contains("Hello") == true)
   case "clipboard-image":
-    #expect(model.splits && model.selected?.row.title == "Image 1200×800")
-    #expect(model.preview?.page.picture != nil)
+    #expect(model.navigator.splits && model.navigator.selected?.row.title == "Image 1200×800")
+    #expect(model.navigator.preview?.page.picture != nil)
   case "history-reopened":
     #expect(model.agent.continuing && model.agent.previous.count == 1 && model.agent.sessionID == "s")
-  case "extension-pattern": #expect(model.results.first?.row.title.contains("6.21") == true)
-  case "extension-fallback": #expect(model.results.contains { $0.row.id == "fallback" })
-  case "extension-list": #expect(model.command != nil && !model.results.isEmpty)
-  case "listening": #expect(model.voice?.active == true && model.input == "How do rainbows form?")
-  case "empty": #expect(model.results.map(\.row.title) == ["Calculator", "Calendar", "Chess"])
-  default: #expect(!model.results.isEmpty)
+  case "extension-pattern": #expect(model.navigator.results.first?.row.title.contains("6.21") == true)
+  case "extension-fallback": #expect(model.navigator.results.contains { $0.row.id == "fallback" })
+  case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
+  case "listening": #expect(model.voice?.active == true && model.navigator.input == "How do rainbows form?")
+  case "empty": #expect(model.navigator.results.map(\.row.title) == ["Calculator", "Calendar", "Chess"])
+  default: #expect(!model.navigator.results.isEmpty)
   }
   #expect(scenario.controller?.panel.isVisible != true && scenario.controller?.panel.isKeyWindow != true)
   await scenario.finish()
@@ -981,11 +1002,11 @@ func replyCapture(_ index: Int) async throws {
     // Only keys the model handles itself: Return dispatches a detail or a follow-up, never an effect.
     for key in entry.dropFirst(2) {
       switch key {
-      case "down": scenario.model.move(1)
-      case "up": scenario.model.move(-1)
+      case "down": scenario.model.navigator.move(1)
+      case "up": scenario.model.navigator.move(-1)
       case "return": scenario.model.activateReturn()
-      case "escape": _ = scenario.model.escape()
-      case "actions": scenario.model.toggleActions()
+      case "escape": _ = scenario.model.navigator.escape()
+      case "actions": scenario.model.navigator.toggleActions()
       default: break
       }
     }

@@ -24,6 +24,8 @@ final class AgentSession {
   private(set) var status = ""
   private(set) var problem: String?
   private(set) var permissions: [AgentPermission] = []
+  /// Whether speech may go into the input now: not while a turn runs or a permission waits.
+  var takesSpeech: Bool { !busy && permissions.isEmpty }
   var onChange: (() -> Void)?
   let folder: URL
   private(set) var sessionID: String?

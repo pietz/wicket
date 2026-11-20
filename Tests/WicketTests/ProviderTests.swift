@@ -55,17 +55,17 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   let model = LauncherModel(apps: TestProvider("apps"), history: UsageHistory(url: url), folder: root)
   model.store.update { $0.providers = [.init("apps"), .init("extension:pattern")] }
   await model.extensions.reload()
-  model.input = "test"
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Inline", "appstest"])
+  model.navigator.input = "test"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Inline", "appstest"])
   model.store.update { $0.providers.reverse() }
-  model.refresh()
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["extension:pattern", "apps"])
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["extension:pattern", "apps"])
   model.store.update { $0.providers[$0.providers.firstIndex { $0.id == "apps" }!].enabled = false }
-  model.refresh()
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["extension:pattern"])
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["extension:pattern"])
 }
 
 @MainActor @Test func oldQueriesCannotReplaceNewResults() async {
@@ -73,15 +73,15 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
     path: UUID().uuidString + "/usage.json")
   let provider = TestProvider("apps", delayed: true)
   let model = LauncherModel(apps: provider, history: UsageHistory(url: url))
-  model.input = "old"
+  model.navigator.input = "old"
   #expect(await eventually { provider.waiting["old"] != nil })
-  model.input = "new"
+  model.navigator.input = "new"
   #expect(await eventually { provider.waiting["new"] != nil })
   provider.waiting.removeValue(forKey: "new")?.resume(returning: .init(items: [row("New")]))
-  #expect(await eventually { model.results.first?.row.title == "New" })
+  #expect(await eventually { model.navigator.results.first?.row.title == "New" })
   provider.waiting.removeValue(forKey: "old")?.resume(returning: .init(items: [row("Old")]))
   await Task.yield()
-  #expect(model.results.map(\.row.title) == ["New"])
+  #expect(model.navigator.results.map(\.row.title) == ["New"])
 }
 
 @MainActor @Test func refreshingNeverPublishesAnEmptyIntermediateList() async throws {
@@ -91,14 +91,14 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   let model = LauncherModel(
     apps: provider, history: UsageHistory(url: folder.appending(path: "usage.json")))
   var sizes: [Int] = []
-  model.onResultsChange = { sizes.append(model.results.count) }
-  model.input = "first"
+  model.navigator.onResultsChange = { sizes.append(model.navigator.results.count) }
+  model.navigator.input = "first"
   #expect(await eventually { provider.waiting["first"] != nil })
   provider.waiting.removeValue(forKey: "first")?.resume(returning: .init(items: [row("first")]))
   #expect(await eventually { !model.root.isSearching })
   sizes.removeAll()
-  model.input = "second"
-  #expect(model.results.count == 1 && sizes.isEmpty)
+  model.navigator.input = "second"
+  #expect(model.navigator.results.count == 1 && sizes.isEmpty)
   #expect(await eventually { provider.waiting["second"] != nil })
   provider.waiting.removeValue(forKey: "second")?.resume(returning: .init(items: [row("second")]))
   #expect(await eventually { !model.root.isSearching })
@@ -129,38 +129,42 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.input = "weather"
-  #expect(await eventually { !model.root.isSearching && model.results.count == 2 })
-  let chosen = try #require(model.results.first { $0.provider == "apps" })
-  model.select(chosen.id)
+  model.navigator.input = "weather"
+  #expect(await eventually { !model.root.isSearching && model.navigator.results.count == 2 })
+  let chosen = try #require(model.navigator.results.first { $0.provider == "apps" })
+  model.navigator.select(chosen.id)
   let top = controller.panel.frame.maxY
   try Data().write(to: gate)
-  await model.settled()
+  await model.navigator.settled()
   #expect(
-    model.selection == chosen.id
-      && model.results.map(\.provider) == [
+    model.navigator.selection == chosen.id
+      && model.navigator.results.map(\.provider) == [
         "extension:weather", "extension:weather", "extension:weather", "apps",
       ])
   #expect(controller.panel.frame.maxY == top)
-  model.refresh()
-  await model.settled()
-  #expect(model.selection == chosen.id)
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.selection == chosen.id)
   try FileManager.default.removeItem(at: gate)
-  model.input = "weather tomorrow"
+  model.navigator.input = "weather tomorrow"
   #expect(await eventually { !model.root.isSearching })
-  #expect(model.selection == model.results.first?.id && model.selected?.provider == "agent")
+  #expect(
+    model.navigator.selection == model.navigator.results.first?.id
+      && model.navigator.selected?.provider == "agent")
   try Data().write(to: gate)
-  await model.settled()
-  #expect(model.selection == model.results.first?.id && model.selected?.provider == "extension:weather")
+  await model.navigator.settled()
+  #expect(
+    model.navigator.selection == model.navigator.results.first?.id
+      && model.navigator.selected?.provider == "extension:weather")
   // Even a query edited away and back before results arrive counts as a new query.
   try FileManager.default.removeItem(at: gate)
-  model.move(2)
-  model.input = "other"
-  model.input = "weather tomorrow"
+  model.navigator.move(2)
+  model.navigator.input = "other"
+  model.navigator.input = "weather tomorrow"
   #expect(await eventually { !model.root.isSearching })
-  #expect(model.selection == model.results.first?.id)
+  #expect(model.navigator.selection == model.navigator.results.first?.id)
   try Data().write(to: gate)
-  await model.settled()
+  await model.navigator.settled()
   controller.hide()
   await model.finish()
 }
@@ -181,35 +185,35 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   model.store.update { $0.providers = [.init("extension:test")] }
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
-  model.input = "test"
-  await model.settled()
-  model.go(Address(id: "extension:test", arguments: [:]))
-  await model.settled()
-  model.move(1)
-  let chosen = model.selection
+  model.navigator.input = "test"
+  await model.navigator.settled()
+  model.navigator.go(Address(id: "extension:test", arguments: [:]))
+  await model.navigator.settled()
+  model.navigator.move(1)
+  let chosen = model.navigator.selection
   try reply([c, b, a])
-  model.refresh()
-  await model.settled()
-  #expect(model.selection == chosen && model.selected?.row.id == "b")
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.selection == chosen && model.navigator.selected?.row.id == "b")
   try reply([c, a])
-  model.refresh()
-  await model.settled()
-  #expect(model.selected?.row.id == "a")  // Previous index 1, rather than the first row.
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.id == "a")  // Previous index 1, rather than the first row.
   try reply([c])
-  model.refresh()
-  await model.settled()
-  #expect(model.selected?.row.id == "c")  // Clamp a removed last row.
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.id == "c")  // Clamp a removed last row.
   try reply([])
-  model.refresh()
-  await model.settled()
-  #expect(model.selection == nil)
+  model.navigator.refresh()
+  await model.navigator.settled()
+  #expect(model.navigator.selection == nil)
   try reply([a, b])
-  model.refresh()
-  await model.settled()
-  model.move(1)
-  model.input = "new"
-  await model.settled()
-  #expect(model.selected?.row.id == "a")
+  model.navigator.refresh()
+  await model.navigator.settled()
+  model.navigator.move(1)
+  model.navigator.input = "new"
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.id == "a")
   await model.finish()
 }
 
@@ -232,16 +236,17 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.input = "> A"
-  await model.settled()
+  model.navigator.input = "> A"
+  await model.navigator.settled()
   // Return while the rows of "> A" still show, then while Ask agent stands in for the slow pattern: it
   // runs "> B" once that answers, never A and never the agent.
-  model.input = "> B"
+  model.navigator.input = "> B"
   controller.run()
-  #expect(await eventually { model.results.first?.provider == "agent" })
-  #expect(model.command == nil && !model.agent.active)
-  #expect(await eventually(within: .seconds(3)) { model.command != nil })
-  #expect(model.command?.id == "extension:echo" && model.input == "> B" && !model.agent.active)
+  #expect(await eventually { model.navigator.results.first?.provider == "agent" })
+  #expect(model.navigator.command == nil && !model.agent.active)
+  #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
+  #expect(
+    model.navigator.command?.id == "extension:echo" && model.navigator.input == "> B" && !model.agent.active)
   controller.hide()
   await model.finish()
 }
@@ -264,21 +269,21 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   model.store.update { $0.providers = [.init("extension:forecast")] }
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
-  model.input = "weather"
+  model.navigator.input = "weather"
   // The list waits a moment for the matching pattern, then shows without it.
-  #expect(model.results.isEmpty)
-  #expect(await eventually { model.selected?.provider == "agent" })
+  #expect(model.navigator.results.isEmpty)
+  #expect(await eventually { model.navigator.selected?.provider == "agent" })
   try Data().write(to: gate)
-  await model.settled()
-  #expect(model.selected?.provider == "extension:forecast")
-  model.select(model.selection)  // Mouse or keyboard intent now pins the identity.
-  let chosen = model.selection
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.provider == "extension:forecast")
+  model.navigator.select(model.navigator.selection)  // Mouse or keyboard intent now pins the identity.
+  let chosen = model.navigator.selection
   try FileManager.default.removeItem(at: gate)
-  model.sourcesChanged([])
-  #expect(model.selection == chosen)
+  model.navigator.sourcesChanged([])
+  #expect(model.navigator.selection == chosen)
   try Data().write(to: gate)
-  await model.settled()
-  #expect(model.selection == chosen)
+  await model.navigator.settled()
+  #expect(model.navigator.selection == chosen)
   await model.finish()
 }
 
@@ -291,14 +296,14 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
     bundled: nil)
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
-  model.input = "test"
-  await model.settled()
+  model.navigator.input = "test"
+  await model.navigator.settled()
   // Headless searches without the panel: the same rows and reason, in the same order.
   var lists: [RootCommand.Output] = []
   model.root.search("test", speaking: false) { lists.append($0) }
   await model.root.settled()
-  #expect(lists.last?.input == "test" && lists.last?.results.map(\.id) == model.results.map(\.id))
-  #expect(model.results.map(\.row.title) == ["Inline", "appstest"])
+  #expect(lists.last?.input == "test" && lists.last?.results.map(\.id) == model.navigator.results.map(\.id))
+  #expect(model.navigator.results.map(\.row.title) == ["Inline", "appstest"])
   #expect(model.root.strongReason == "pattern result: extension:pattern" && !model.root.isSearching)
   await model.finish()
 }

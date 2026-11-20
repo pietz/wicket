@@ -148,39 +148,41 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   var settings = 0
-  model.onSettings = { settings += 1 }
+  model.navigator.onSettings = { settings += 1 }
   await model.extensions.reload()
 
   /// Selects the row and presses Return, which is the only way in.
   func press(_ input: String, _ pick: (Result) -> Bool) async throws {
-    _ = model.escape()
-    model.input = input
-    await model.settled()
-    let row = try #require(model.results.first { pick($0) }, Comment(rawValue: input))
+    _ = model.navigator.escape()
+    model.navigator.input = input
+    await model.navigator.settled()
+    let row = try #require(model.navigator.results.first { pick($0) }, Comment(rawValue: input))
     #expect(row.row.actions.count == 1)
-    model.select(row.id)
+    model.navigator.select(row.id)
     #expect(model.activateReturn())
-    await model.settled()
+    await model.navigator.settled()
   }
 
   // Name match: the command row enters with empty input.
   try await press("sh") { $0.row.id == "command" }
-  #expect(model.command?.id == "extension:ship" && model.input == "")
+  #expect(model.navigator.command?.id == "extension:ship" && model.navigator.input == "")
   // Fallback: enters with the root query kept.
   try await press("an unrelated sentence") { $0.row.id == "fallback" }
-  #expect(model.command?.id == "extension:ship" && model.input == "an unrelated sentence")
+  #expect(model.navigator.command?.id == "extension:ship" && model.navigator.input == "an unrelated sentence")
   // A pattern result with a body: enters with the query kept and shows the body.
   try await press("page one") { $0.row.id == "detail" }
-  #expect(model.command?.id == "extension:page" && model.input == "page one" && model.body == "## Details")
+  #expect(
+    model.navigator.command?.id == "extension:page" && model.navigator.input == "page one"
+      && model.navigator.body == "## Details")
   // A failed pattern: the error row enters the command with the query kept, which runs it again and
   // shows the failure with its report, where the header offers Ask agent.
   try await press("broken now") { $0.row.id == "error" }
-  #expect(model.command?.id == "extension:broken" && model.input == "broken now")
-  let problem = try #require(model.command?.problem)
+  #expect(model.navigator.command?.id == "extension:broken" && model.navigator.input == "broken now")
+  let problem = try #require(model.navigator.command?.problem)
   #expect(problem.contains("REPAIR") && problem.contains("Command:") && problem.contains("broken now"))
   // An invalid manifest: the repair row drafts the brief in an empty conversation and sends nothing.
   try await press("zzz") { $0.row.id == "discovery-error" }
-  #expect(model.input.contains("Invalid wicket.json") && model.command == nil)
+  #expect(model.navigator.input.contains("Invalid wicket.json") && model.navigator.command == nil)
   #expect(model.agent.active && !model.agent.busy && model.agent.question.isEmpty)
   // Settings.
   try await press("settings") { $0.provider == "settings" }
@@ -191,12 +193,14 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   #expect(model.agent.question == "Where is the moon?")
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  model.agent.reset()
+  // Ending the conversation goes back to the root.
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
 
   // Nothing the root list shows is without an action.
-  model.input = "ship"
-  await model.settled()
-  #expect(!model.results.isEmpty && model.results.allSatisfy { !$0.row.actions.isEmpty })
+  model.navigator.input = "ship"
+  await model.navigator.settled()
+  #expect(!model.navigator.results.isEmpty && model.navigator.results.allSatisfy { !$0.row.actions.isEmpty })
   await model.finish()
 }
 
@@ -214,33 +218,38 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   // An extension's own row may name another extension with arguments.
-  model.go(Address(extensionName: "two", input: "x", arguments: ["p": "a", "q": "b"]), from: "extension:one")
-  await model.settled()
-  #expect(model.command?.id == "extension:two" && model.body == "a/b:x")
+  model.navigator.go(
+    Address(extensionName: "two", input: "x", arguments: ["p": "a", "q": "b"]), from: "extension:one")
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:two" && model.navigator.body == "a/b:x")
   // Without a target it is this one, and without an input the typed one stays.
-  model.go(Address(arguments: ["p": "c"]), from: "extension:two")
-  await model.settled()
-  #expect(model.command?.id == "extension:two" && model.body == "c:x")
+  model.navigator.go(Address(arguments: ["p": "c"]), from: "extension:two")
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:two" && model.navigator.body == "c:x")
   // Entering another extension without an input starts empty.
-  model.go(Address(id: "extension:one"))
-  await model.settled()
-  #expect(model.command?.id == "extension:one" && model.body == ":")
+  model.navigator.go(Address(id: "extension:one"))
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:one" && model.navigator.body == ":")
   // An unknown extension changes nothing and says so.
-  model.go(Address(extensionName: "nothing", input: "x"))
-  #expect(model.command?.id == "extension:one" && model.actionProblem?.contains("nothing") == true)
+  model.navigator.go(Address(extensionName: "nothing", input: "x"))
+  #expect(
+    model.navigator.command?.id == "extension:one"
+      && model.navigator.actionProblem?.contains("nothing") == true)
   // No target is a root query.
-  model.go(Address(input: "calc"))
-  #expect(model.command == nil && model.input == "calc")
+  model.navigator.go(Address(input: "calc"))
+  #expect(model.navigator.command == nil && model.navigator.input == "calc")
   // A root URL stays the root even from an extension's own row, where an omitted target is that one.
-  try model.go(#require(url("wicket://two?input=y")), from: "extension:one")
-  await model.settled()
-  try model.go(#require(url("wicket://?input=hello")), from: "extension:two")
-  #expect(model.command == nil && model.input == "hello")
+  try model.navigator.go(#require(url("wicket://two?input=y")), from: "extension:one")
+  await model.navigator.settled()
+  try model.navigator.go(#require(url("wicket://?input=hello")), from: "extension:two")
+  #expect(model.navigator.command == nil && model.navigator.input == "hello")
   // `agent` leaves an open command for an empty conversation holding the unsent text.
-  model.go(Address(id: "extension:one"))
-  await model.settled()
-  model.go(Address(extensionName: "agent", input: "Why?"), from: "extension:one")
-  #expect(model.input == "Why?" && model.agent.active && !model.agent.busy && model.command == nil)
+  model.navigator.go(Address(id: "extension:one"))
+  await model.navigator.settled()
+  model.navigator.go(Address(extensionName: "agent", input: "Why?"), from: "extension:one")
+  #expect(
+    model.navigator.input == "Why?" && model.agent.active && !model.agent.busy
+      && model.navigator.command == nil)
   await model.finish()
 }
 
@@ -342,18 +351,18 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   func activate(_ action: RowAction, from result: Result? = nil) async throws -> ProviderRequest {
     let before = try requests().count
     model.activate(action, from: result)
-    await model.settled()
+    await model.navigator.settled()
     let after = try requests()
     #expect(after.count == before + 1)
     return try #require(after.last)
   }
   func atRoot(_ input: String, _ pick: (Result) -> Bool) async throws -> Result {
-    _ = model.escape()
-    model.input = input
-    await model.settled()
-    return try #require(model.results.first { pick($0) }, Comment(rawValue: input))
+    _ = model.navigator.escape()
+    model.navigator.input = input
+    await model.navigator.settled()
+    return try #require(model.navigator.results.first { pick($0) }, Comment(rawValue: input))
   }
-  func item(_ id: String) throws -> Result { try #require(model.results.first { $0.row.id == id }) }
+  func item(_ id: String) throws -> Result { try #require(model.navigator.results.first { $0.row.id == id }) }
 
   // The command row, the fallback row and a manifest item are submitted.
   var row = try await atRoot("ship") { $0.row.id == "command" }
@@ -370,13 +379,13 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     #expect(request.submitted && request.arguments == arguments, Comment(rawValue: id))
   }
   // Typing reruns and a catalog refresh are not.
-  model.go(Address(id: "extension:ship", arguments: ["a": "1"]), submitted: true)
-  await model.settled()
-  model.input = "p"
-  await model.settled()
+  model.navigator.go(Address(id: "extension:ship", arguments: ["a": "1"]), submitted: true)
+  await model.navigator.settled()
+  model.navigator.input = "p"
+  await model.navigator.settled()
   #expect(try requests().last.map { !$0.submitted && $0.arguments == ["a": "1"] && $0.input == "p" } == true)
-  model.sourcesChanged(["extension:ship"])
-  await model.settled()
+  model.navigator.sourcesChanged(["extension:ship"])
+  await model.navigator.settled()
   #expect(try requests().last?.submitted == false)
   // Links: a JSON open of a wicket URL, an outside URL, an agent item. Never submitted, never arguments.
   var request = try await activate(try item("link").row.actions[0], from: try item("link"))
@@ -402,10 +411,10 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(root, name: "first", script: answering("First"))
   let model = LauncherModel.testing(in: root, bundled: nil)
-  model.follow(try #require(Address(url: URL(string: "wicket://first")!)))
+  model.navigator.follow(try #require(Address(url: URL(string: "wicket://first")!)))
   model.extensions.start()
-  #expect(await eventually { model.command?.id == "extension:first" })
-  #expect(model.actionProblem == nil)
+  #expect(await eventually { model.navigator.command?.id == "extension:first" })
+  #expect(model.navigator.actionProblem == nil)
   await model.finish()
 }
 
@@ -421,7 +430,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     clipboard: clipboard, agentHistory: runs, history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root, bundled: nil)
   await model.extensions.reload()
-  let directory = model.directory
+  let directory = CommandDirectory(extensions: model.extensions, hosts: [clipboard, runs])
   for (target, expected) in [
     (nil, "root"), ("agent", "agent"), ("settings", "settings"), ("history", "history"),
     ("clipboard", "clipboard"), ("extension:weather", "extension:weather"), ("extension:gone", "none"),
@@ -465,10 +474,10 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
-  model.input = "history"
-  await model.settled()
-  #expect(model.results.first?.id == "history:open")
-  model.go(Address(extensionName: "history"))
-  #expect(model.command == nil && model.actionProblem == "No extension named history")
+  model.navigator.input = "history"
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.id == "history:open")
+  model.navigator.go(Address(extensionName: "history"))
+  #expect(model.navigator.command == nil && model.navigator.actionProblem == "No extension named history")
   await model.finish()
 }

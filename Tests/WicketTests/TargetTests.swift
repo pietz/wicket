@@ -236,9 +236,9 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, fake) = try await answered("Run:\n\n```sh\nls\n```", root: root)
   #expect(await eventually { model.agent.answer.hasSuffix("```") })
-  #expect(model.results.isEmpty)
+  #expect(model.navigator.results.isEmpty)
   fake.end()
-  #expect(await eventually { model.results.map(\.row.title) == ["Code"] })
+  #expect(await eventually { model.navigator.results.map(\.row.title) == ["Code"] })
   await model.finish()
 }
 
@@ -335,8 +335,8 @@ import Testing
   let model = LauncherModel.testing(in: root)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.input = "What is on today?"
-  model.send()
+  model.navigator.input = "What is on today?"
+  model.navigator.send()
   #expect(await eventually { fake.running })
   fake.text(reply)
   return (model, fake)
@@ -350,30 +350,32 @@ import Testing
     root: root)
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  #expect(model.results.map(\.provider) == ["answer", "answer"])
+  #expect(model.navigator.results.map(\.provider) == ["answer", "answer"])
   // Return still sends the follow-up until an arrow key selects a target.
-  #expect(model.selection == nil && model.selected == nil && model.returnAction == .send(model.input))
-  model.move(-1)
-  #expect(model.selectedTarget == "#0" && model.returnAction?.label == "Read the docs")
-  model.move(1)
-  #expect(model.selected?.row.title == "Next" && model.selectedTarget == "#1")
-  model.move(1)
-  #expect(model.selected?.row.title == "Next")
-  model.move(-1)
-  model.move(-1)
-  #expect(model.selection == nil && model.returnAction == .send(model.input))
-  model.move(1)
-  #expect(model.selected?.row.title == "Docs")
+  #expect(
+    model.navigator.selection == nil && model.navigator.selected == nil
+      && model.navigator.returnAction == .send(model.navigator.input))
+  model.navigator.move(-1)
+  #expect(model.navigator.selectedTarget == "#0" && model.navigator.returnAction?.label == "Read the docs")
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.title == "Next" && model.navigator.selectedTarget == "#1")
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.title == "Next")
+  model.navigator.move(-1)
+  model.navigator.move(-1)
+  #expect(model.navigator.selection == nil && model.navigator.returnAction == .send(model.navigator.input))
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.title == "Docs")
   // Typing goes back to the follow-up.
-  model.editInput("And")
-  #expect(model.selection == nil && model.returnAction == .send(model.input))
+  model.navigator.editInput("And")
+  #expect(model.navigator.selection == nil && model.navigator.returnAction == .send(model.navigator.input))
   // The `<row ask>` action fills the input and sends nothing.
-  model.move(1)
-  model.move(1)
-  #expect(model.selected?.row.actions == [.agent("What about tests?")])
+  model.navigator.move(1)
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.actions == [.agent("What about tests?")])
   model.activateReturn()
-  #expect(model.input == "What about tests?" && !model.agent.busy && model.agent.previous.isEmpty)
-  #expect(model.selection == nil && model.returnAction == .send(model.input))
+  #expect(model.navigator.input == "What about tests?" && !model.agent.busy && model.agent.previous.isEmpty)
+  #expect(model.navigator.selection == nil && model.navigator.returnAction == .send(model.navigator.input))
   await model.finish()
 }
 
@@ -381,22 +383,23 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, fake) = try await answered("<row title=\"One\" copy=\"1\"/>\n", root: root)
-  #expect(await eventually { model.results.count == 1 })
-  model.move(1)
-  #expect(model.selectedTarget == "#0")
+  #expect(await eventually { model.navigator.results.count == 1 })
+  model.navigator.move(1)
+  #expect(model.navigator.selectedTarget == "#0")
   fake.text("<tile title=\"Two\" copy=\"2\">Still writ")
   #expect(await eventually { model.agent.answer.contains("Still") })
   // An unfinished tile is no target yet; the selection stays where it was.
-  #expect(model.results.count == 1 && model.selectedTarget == "#0")
+  #expect(model.navigator.results.count == 1 && model.navigator.selectedTarget == "#0")
   fake.text("ing.</tile>\n<row title=\"Three\" copy=\"3\"/>")
-  #expect(await eventually { model.results.count == 3 })
-  #expect(model.selectedTarget == "#0")
+  #expect(await eventually { model.navigator.results.count == 3 })
+  #expect(model.navigator.selectedTarget == "#0")
   // A click from another page, or on a target this page does not have, does nothing.
-  let turn = model.pageTurn
-  #expect(!model.clickTarget("#2", turn: "an older answer") && model.selectedTarget == "#0")
-  #expect(!model.clickTarget("#7", turn: turn) && model.selectedTarget == "#0")
-  #expect(model.clickTarget("#2", turn: turn) && model.selectedTarget == "#2")
-  #expect(model.returnAction == .copy("3"))
+  let turn = model.navigator.pageTurn
+  #expect(
+    !model.navigator.clickTarget("#2", turn: "an older answer") && model.navigator.selectedTarget == "#0")
+  #expect(!model.navigator.clickTarget("#7", turn: turn) && model.navigator.selectedTarget == "#0")
+  #expect(model.navigator.clickTarget("#2", turn: turn) && model.navigator.selectedTarget == "#2")
+  #expect(model.navigator.returnAction == .copy("3"))
   fake.end()
   await model.finish()
 }
@@ -408,24 +411,30 @@ import Testing
     "Week\n<row title=\"Mon\" copy=\"m\"/>\n<row title=\"Tue\" subtitle=\"Rain\">Rain until 15:00.\n<row title=\"Radar\" open=\"https://example.com/radar\"/></row>",
     root: root)
   fake.end()
-  #expect(await eventually { !model.agent.busy && model.results.count == 2 })
-  let base = model.pageTurn
-  model.move(1)
-  model.move(1)
-  #expect(model.selected?.row.title == "Tue" && model.returnAction?.label == "Show details")
+  #expect(await eventually { !model.agent.busy && model.navigator.results.count == 2 })
+  let base = model.navigator.pageTurn
+  model.navigator.move(1)
+  model.navigator.move(1)
+  #expect(
+    model.navigator.selected?.row.title == "Tue" && model.navigator.returnAction?.label == "Show details")
   #expect(model.activateReturn())
   // Its own page, with nothing selected: the follow-up still has Return. No new question was asked.
-  #expect(model.inDetail && model.page?.source.hasPrefix("## Tue\n\nRain until 15:00.") == true)
-  #expect(model.pageTurn != base && model.selection == nil && model.returnAction == .send(model.input))
+  #expect(
+    model.navigator.inDetail && model.navigator.page?.source.hasPrefix("## Tue\n\nRain until 15:00.") == true)
+  #expect(
+    model.navigator.pageTurn != base && model.navigator.selection == nil
+      && model.navigator.returnAction == .send(model.navigator.input))
   #expect(fake.prompts.count == 1 && model.agent.previous.isEmpty)
-  #expect(model.results.map(\.row.title) == ["Radar"])
+  #expect(model.navigator.results.map(\.row.title) == ["Radar"])
   // A click from the page under it no longer counts.
-  #expect(!model.clickTarget("#0", turn: base))
-  model.move(1)
-  #expect(model.returnAction == .open(URL(string: "https://example.com/radar")!))
+  #expect(!model.navigator.clickTarget("#0", turn: base))
+  model.navigator.move(1)
+  #expect(model.navigator.returnAction == .open(URL(string: "https://example.com/radar")!))
   // Escape goes back to the answer with the same target selected, and only then ends the conversation.
-  #expect(model.escape())
-  #expect(!model.inDetail && model.pageTurn == base && model.selected?.row.title == "Tue")
+  #expect(model.navigator.escape())
+  #expect(
+    !model.navigator.inDetail && model.navigator.pageTurn == base
+      && model.navigator.selected?.row.title == "Tue")
   #expect(model.agent.active)
   await model.finish()
 }
@@ -450,17 +459,18 @@ import Testing
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.go(Address(id: "test"))
-  await model.settled()
+  model.navigator.go(Address(id: "test"))
+  await model.navigator.settled()
   #expect(
-    model.results.map(\.row.id) == ["#0", "radar"] && model.results.map(\.row.title) == ["Rain", "Radar"])
+    model.navigator.results.map(\.row.id) == ["#0", "radar"]
+      && model.navigator.results.map(\.row.title) == ["Rain", "Radar"])
   // Nothing selected: Return runs the view's action, as before.
-  #expect(model.returnAction == .copy("week"))
-  model.move(1)
-  #expect(model.returnAction?.label == "Run")
+  #expect(model.navigator.returnAction == .copy("week"))
+  model.navigator.move(1)
+  #expect(model.navigator.returnAction?.label == "Run")
   #expect(model.activateReturn())
-  await model.settled()
-  #expect(model.body == "## tue")
+  await model.navigator.settled()
+  #expect(model.navigator.body == "## tue")
   let log = try String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)
     .split(separator: "\n").map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
   #expect(log.last == ProviderRequest(input: "", arguments: ["view": "day", "day": "tue"], submitted: true))
@@ -514,9 +524,9 @@ import Testing
   let controller = PaletteController(model: model, flatSurfaces: true, panel: PalettePanel())
   controller.show(orderFront: false, listen: false)
   for input in ["2+2", "c", ""] {
-    model.input = input
-    await model.settled()
-    model.move(1)
+    model.navigator.input = input
+    await model.navigator.settled()
+    model.navigator.move(1)
   }
   await controller.renderer.settled()
   // The page is made ready when the panel opens, and nothing is drawn into it for the root's list.
@@ -528,7 +538,7 @@ import Testing
         "return document.querySelector('main')?.innerHTML ?? null", contentWorld: .defaultClient) as? String
     if shell == nil { try await Task.sleep(for: .milliseconds(20)) }
   }
-  #expect(shell == "" && model.page == nil && controller.renderer.selected == nil)
+  #expect(shell == "" && model.navigator.page == nil && controller.renderer.selected == nil)
   controller.hide()
   await model.finish()
 }

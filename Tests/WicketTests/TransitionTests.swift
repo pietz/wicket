@@ -37,14 +37,16 @@ import Testing
   }
   private(set) var frames: [Frame] = []
   init(_ model: LauncherModel) {
-    model.onResultsChange = { [weak self, weak model] in
+    model.navigator.onResultsChange = { [weak self, weak model] in
       guard let self, let model else { return }
       frames.append(
         Frame(
-          screen: model.agent.active ? "agent" : model.command?.id ?? "root", input: model.input,
-          rows: model.results.map(\.row.title), selection: model.selected?.row.title, body: model.body,
-          busy: model.command?.busy == true,
-          height: model.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
+          screen: model.agent.active ? "agent" : model.navigator.command?.id ?? "root",
+          input: model.navigator.input,
+          rows: model.navigator.results.map(\.row.title), selection: model.navigator.selected?.row.title,
+          body: model.navigator.body,
+          busy: model.navigator.command?.busy == true,
+          height: model.navigator.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
   /// The screens in the order they were drawn, each once per visit.
@@ -91,9 +93,9 @@ private let finished = #"{"items":[{"id":"done","title":"Finished","actions":[]}
     apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
-  model.input = "a"
-  await model.settled()
-  #expect(model.results.count > 8 && model.sizedRows == 8)
+  model.navigator.input = "a"
+  await model.navigator.settled()
+  #expect(model.navigator.results.count > 8 && model.navigator.sizedRows == 8)
   return (model, apps, root)
 }
 
@@ -108,19 +110,19 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   let trace = Trace(model)
-  model.arrivalDeadline = .milliseconds(30)
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.arrivalDeadline = .milliseconds(30)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   // Recorded as it is: starting the request draws the root once more, unchanged.
   let rootFrame = try #require(trace.frames.first)
   #expect(trace.frames.count == 1 && rootFrame.screen == "root" && rootFrame.input == "a")
   #expect(rootFrame.rows.count == 13 && rootFrame.selection == "App 0" && rootFrame.height == full)
-  #expect(await eventually { model.command != nil })
+  #expect(await eventually { model.navigator.command != nil })
   #expect(
     trace.frames == [
       rootFrame, .init(screen: "extension:slow", input: "", rows: [], busy: true, height: one),
     ])
   try release(root)
-  await model.settled()
+  await model.navigator.settled()
   #expect(
     trace.frames.last
       == .init(
@@ -136,17 +138,18 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   let trace = Trace(model)
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   var measuring: CheckedContinuation<Void, Never>?
-  model.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
-  model.go(Address(id: "page"), submitted: true)
+  model.navigator.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
+  model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { measuring != nil })
-  #expect(model.command == nil)
+  #expect(model.navigator.command == nil)
   // The deadline shows the command, still busy and with no page, while the same render goes on.
-  model.passDeadline()
-  #expect(model.command?.busy == true && model.body == nil && model.results.isEmpty)
+  model.navigator.passDeadline()
+  #expect(
+    model.navigator.command?.busy == true && model.navigator.body == nil && model.navigator.results.isEmpty)
   measuring?.resume()
-  #expect(await eventually { model.body == "# First page" })
+  #expect(await eventually { model.navigator.body == "# First page" })
   #expect(
     trace.frames.map { [$0.screen, $0.body ?? "-", "\($0.busy)"] } == [
       ["root", "-", "false"], ["extension:page", "-", "true"], ["extension:page", "# First page", "false"],
@@ -158,43 +161,47 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aLateAnswerOfALeftEntryChangesNothing() async throws {
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
+  model.navigator.arrivalDeadline = .seconds(5)
   var closed = 0
-  model.onClose = { closed += 1 }
+  model.navigator.onClose = { closed += 1 }
   // Hidden while entering: the late close never hides anything.
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 1 })
-  model.dismiss()
+  model.navigator.dismiss()
   try release(root)
   try await Task.sleep(for: .milliseconds(100))
-  #expect(closed == 0 && model.command == nil && model.input.isEmpty)
+  #expect(closed == 0 && model.navigator.command == nil && model.navigator.input.isEmpty)
   // Replaced by another command: the late answer of the first is dropped.
   try FileManager.default.removeItem(at: root.appending(path: "extensions/slow/release"))
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 2 })
-  model.go(Address(id: "notes"), submitted: true)
-  #expect(model.command?.id == "extension:notes")
+  model.navigator.go(Address(id: "notes"), submitted: true)
+  #expect(model.navigator.command?.id == "extension:notes")
   try release(root)
   try await Task.sleep(for: .milliseconds(100))
-  #expect(closed == 0 && model.command?.id == "extension:notes" && model.command?.problem == nil)
+  #expect(
+    closed == 0 && model.navigator.command?.id == "extension:notes" && model.navigator.command?.problem == nil
+  )
   await model.finish()
 }
 
 @MainActor @Test func aSecondEscapeWhileGoingBackWaitsForTheRoot() async throws {
   let (model, apps, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
-  model.go(Address(id: "notes"), submitted: true)
-  #expect(model.command?.id == "extension:notes" && model.sizedRows == 2)
+  model.navigator.go(Address(id: "notes"), submitted: true)
+  #expect(model.navigator.command?.id == "extension:notes" && model.navigator.sizedRows == 2)
   let trace = Trace(model)
   apps.held = true
-  #expect(model.escape())
-  #expect(model.escape())
+  #expect(model.navigator.escape())
+  #expect(model.navigator.escape())
   // Still the command, exactly as it was, and nothing was drawn.
-  #expect(model.command?.id == "extension:notes" && model.results.map(\.row.title) == ["Groceries", "Ideas"])
+  #expect(
+    model.navigator.command?.id == "extension:notes"
+      && model.navigator.results.map(\.row.title) == ["Groceries", "Ideas"])
   #expect(trace.frames.isEmpty)
   apps.release()
-  await model.settled()
-  #expect(model.command == nil && model.input.isEmpty && model.sizedRows == 8)
+  await model.navigator.settled()
+  #expect(model.navigator.command == nil && model.navigator.input.isEmpty && model.navigator.sizedRows == 8)
   #expect(trace.screens == ["root"] && trace.frames.allSatisfy { $0.height == full })
   await model.finish()
 }
@@ -202,17 +209,17 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func pageToPageRendersTheIncomingPageWhileTheOutgoingOneShows() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
+  model.navigator.arrivalDeadline = .seconds(5)
   var measured: [(page: String, shown: String?)] = []
-  model.preparePage = { page, _ in measured.append((page.source, model.body)) }
-  model.go(Address(id: "page"), submitted: true)
-  await model.settled()
-  model.go(Address(id: "other"), submitted: true)
-  await model.settled()
+  model.navigator.preparePage = { page, _ in measured.append((page.source, model.navigator.body)) }
+  model.navigator.go(Address(id: "page"), submitted: true)
+  await model.navigator.settled()
+  model.navigator.go(Address(id: "other"), submitted: true)
+  await model.navigator.settled()
   // The one renderer measures the second page while the first one is what the model shows.
   #expect(measured.map(\.page) == ["# First page", "# Second page"])
   #expect(measured.map(\.shown) == [nil, "# First page"])
-  #expect(model.body == "# Second page")
+  #expect(model.navigator.body == "# Second page")
   #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
   await model.finish()
 }
@@ -221,7 +228,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   let trace = Trace(model)
-  model.go(Address(id: "notes"), submitted: true)
+  model.navigator.go(Address(id: "notes"), submitted: true)
   #expect(
     trace.frames == [
       .init(
@@ -235,26 +242,28 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func typingDuringAnEntryAppendsWhatWasAddedOrReplacesTheInput() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
+  model.navigator.arrivalDeadline = .seconds(5)
   // An addition to the old input is what is typed into the new one.
-  model.go(Address(id: "slow", input: "x"), submitted: true)
-  model.editInput("ab")
-  #expect(model.command?.id == "extension:slow" && model.input == "xb")
+  model.navigator.go(Address(id: "slow", input: "x"), submitted: true)
+  model.navigator.editInput("ab")
+  #expect(model.navigator.command?.id == "extension:slow" && model.navigator.input == "xb")
   // The entry's request is called off before it started, and the appended input runs once as typing.
   #expect(await eventually { (try? logged(root).count) == 1 })
   #expect(try logged(root).map { [$0.input, "\($0.submitted)"] } == [["xb", "false"]])
-  model.dismiss()
-  model.input = "a"
-  await model.settled()
+  model.navigator.dismiss()
+  model.navigator.input = "a"
+  await model.navigator.settled()
   // Anything else is the new input as a whole, run once as typing, never submitted.
-  model.go(Address(id: "slow"), submitted: true)
-  model.editInput("z")
-  #expect(model.command?.id == "extension:slow" && model.input == "z" && model.command?.busy == true)
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  model.navigator.editInput("z")
+  #expect(
+    model.navigator.command?.id == "extension:slow" && model.navigator.input == "z"
+      && model.navigator.command?.busy == true)
   #expect(await eventually { (try? logged(root).contains { $0.input == "z" }) == true })
   try release(root)
-  await model.settled()
+  await model.navigator.settled()
   let typed = try logged(root).filter { $0.input == "z" }
-  #expect(typed.count == 1 && !typed[0].submitted && model.results.map(\.row.title) == ["Finished"])
+  #expect(typed.count == 1 && !typed[0].submitted && model.navigator.results.map(\.row.title) == ["Finished"])
   #expect(try logged(root).count == 2)
   await model.finish()
 }
@@ -270,17 +279,18 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   voiced.extensions.onCatalogChange = nil
   await voiced.extensions.reload()
   voiced.store.update { $0.voice.enabled = true }
-  voiced.input = "a"
-  await voiced.settled()
+  voiced.navigator.input = "a"
+  await voiced.navigator.settled()
   voiced.armVoice()
   transcriber.feeds[0].yield(.ready)
   #expect(await eventually { voiced.voice?.state == .listening })
-  voiced.arrivalDeadline = .seconds(5)
-  voiced.go(Address(id: "slow"), submitted: true)
+  voiced.navigator.arrivalDeadline = .seconds(5)
+  voiced.navigator.go(Address(id: "slow"), submitted: true)
   transcriber.feeds[0].yield(.transcript("is it done"))
-  #expect(await eventually { voiced.command != nil })
+  #expect(await eventually { voiced.navigator.command != nil })
   #expect(
-    voiced.command?.id == "extension:slow" && voiced.input == "is it done" && voiced.voice?.active == true)
+    voiced.navigator.command?.id == "extension:slow" && voiced.navigator.input == "is it done"
+      && voiced.voice?.active == true)
   // Speech waits its 350 ms before the rerun, which is never submitted.
   #expect(
     await eventually(within: .seconds(3)) {
@@ -309,50 +319,56 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   _ = try extensionFolder(root, name: "links", script: "cat >/dev/null\nprintf '%s' '\(json)'")
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
-  model.go(Address(id: "links"), submitted: true)
-  await model.settled()
-  let turn = model.pageTurn
-  model.move(1)
-  model.move(1)
-  #expect(model.selectedTarget == "#1")
-  model.toggleActions()
-  #expect(model.actionsTitle == "Blog" && model.selectedTarget == nil)
-  #expect(model.escape())
-  #expect(model.actionsTitle == nil && model.selectedTarget == "#1" && model.pageTurn == turn)
+  model.navigator.go(Address(id: "links"), submitted: true)
+  await model.navigator.settled()
+  let turn = model.navigator.pageTurn
+  model.navigator.move(1)
+  model.navigator.move(1)
+  #expect(model.navigator.selectedTarget == "#1")
+  model.navigator.toggleActions()
+  #expect(model.navigator.actionsTitle == "Blog" && model.navigator.selectedTarget == nil)
+  #expect(model.navigator.escape())
+  #expect(
+    model.navigator.actionsTitle == nil && model.navigator.selectedTarget == "#1"
+      && model.navigator.pageTurn == turn)
   // Two actions with one label: the second one chosen is the second one run, from the row it belongs to.
-  model.move(1)
-  model.toggleActions()
-  #expect(model.results.map(\.row.title) == ["Open", "Open"])
-  model.move(1)
-  let picked = try #require(model.pick())
+  model.navigator.move(1)
+  model.navigator.toggleActions()
+  #expect(model.navigator.results.map(\.row.title) == ["Open", "Open"])
+  model.navigator.move(1)
+  let picked = try #require(model.navigator.pick())
   #expect(picked.action.kind == .open(URL(string: "https://example.com/two")!))
-  #expect(picked.from?.row.id == "twins" && model.actionsTitle == nil)
+  #expect(picked.from?.row.id == "twins" && model.navigator.actionsTitle == nil)
   // Typing into the panel's empty field closes it, and the text is the whole input.
-  model.toggleActions()
-  model.editInput("x")
-  #expect(model.actionsTitle == nil && model.input == "x")
+  model.navigator.toggleActions()
+  model.navigator.editInput("x")
+  #expect(model.navigator.actionsTitle == nil && model.navigator.input == "x")
   // Cmd+Return closes it before asking.
-  model.input = ""
-  model.toggleActions()
-  model.askAgent()
-  #expect(model.actionsTitle == nil && model.agent.active && model.returnsOnEscape)
+  model.navigator.input = ""
+  model.navigator.toggleActions()
+  model.navigator.askAgent()
+  #expect(model.navigator.actionsTitle == nil && model.agent.active && model.navigator.returnsOnEscape)
   await model.finish()
 }
 
 @MainActor @Test func cmdReturnOverARunningCommandKeepsItRunningAndEscapeRevealsItsResult() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .milliseconds(1)
-  model.go(Address(id: "slow"), submitted: true)
-  #expect(await eventually { model.command?.busy == true })
-  model.askAgent()
-  #expect(model.agent.active && model.returnsOnEscape && model.askingAbout == "slow")
+  model.navigator.arrivalDeadline = .milliseconds(1)
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { model.navigator.command?.busy == true })
+  model.navigator.askAgent()
+  #expect(model.agent.active && model.navigator.returnsOnEscape && model.navigator.askingAbout == "slow")
   try release(root)
-  #expect(await eventually { model.command?.busy == false })
+  #expect(await eventually { model.navigator.command?.busy == false })
   // The result belongs to the command under the conversation.
-  #expect(model.agent.active && model.results.isEmpty && model.command?.shown.view.items.count == 1)
-  #expect(model.escape())
-  #expect(!model.agent.active && model.results.map(\.row.title) == ["Finished"] && model.input.isEmpty)
+  #expect(
+    model.agent.active && model.navigator.results.isEmpty
+      && model.navigator.command?.shown.view.items.count == 1)
+  #expect(model.navigator.escape())
+  #expect(
+    !model.agent.active && model.navigator.results.map(\.row.title) == ["Finished"]
+      && model.navigator.input.isEmpty)
   #expect(try logged(root).count == 1)
   await model.finish()
 }
@@ -361,15 +377,15 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
   var closed = 0
-  model.onClose = { closed += 1 }
-  model.arrivalDeadline = .milliseconds(1)
-  model.go(Address(id: "slow"), submitted: true)
-  #expect(await eventually { model.command?.busy == true })
-  model.askAgent()
+  model.navigator.onClose = { closed += 1 }
+  model.navigator.arrivalDeadline = .milliseconds(1)
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { model.navigator.command?.busy == true })
+  model.navigator.askAgent()
   try release(root)
   // Recorded as it is: the submitted request's close is accepted even under the empty conversation.
   #expect(await eventually { closed == 1 })
-  #expect(model.agent.active && model.returnsOnEscape)
+  #expect(model.agent.active && model.navigator.returnsOnEscape)
   await model.finish()
 }
 
@@ -378,26 +394,27 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   defer { try? FileManager.default.removeItem(at: root) }
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.arrivalDeadline = .milliseconds(1)
-  model.go(Address(id: "slow"), submitted: true)
-  #expect(await eventually { model.command?.busy == true })
+  model.navigator.arrivalDeadline = .milliseconds(1)
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { model.navigator.command?.busy == true })
   #expect(await eventually { (try? logged(root).count) == 1 })
-  model.askAgent()
-  model.editInput("why so slow")
+  model.navigator.askAgent()
+  model.navigator.editInput("why so slow")
   #expect(model.activateReturn())
   #expect(await eventually { fake.running })
-  #expect(model.command?.busy == false && !model.returnsOnEscape)
+  #expect(model.navigator.command?.busy == false && !model.navigator.returnsOnEscape)
   fake.text("Because.")
   fake.end()
   #expect(await eventually { !model.agent.busy })
   try release(root)
-  #expect(model.escape())
-  await model.settled()
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
   // Back on the command with a blank input and a fresh request, not the old one revealed.
-  #expect(!model.agent.active && model.command?.id == "extension:slow" && model.input.isEmpty)
+  #expect(
+    !model.agent.active && model.navigator.command?.id == "extension:slow" && model.navigator.input.isEmpty)
   let sent = try logged(root)
   #expect(sent.count == 2 && sent[0].submitted && !sent[1].submitted)
-  #expect(model.results.map(\.row.title) == ["Finished"])
+  #expect(model.navigator.results.map(\.row.title) == ["Finished"])
   await model.finish()
 }
 
@@ -422,8 +439,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.input = "> A"
-  await model.settled()
+  model.navigator.input = "> A"
+  await model.navigator.settled()
   return (model, controller, root)
 }
 
@@ -431,21 +448,21 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
   for cancel in ["edit", "pick", "hide"] {
-    model.input = "> B"
+    model.navigator.input = "> B"
     controller.run()
-    #expect(model.returnQueued && model.returnWaits)
+    #expect(model.navigator.returnQueued && model.navigator.returnWaits)
     switch cancel {
-    case "edit": model.editInput("> Bb")
-    case "pick": model.select(model.results.first?.id)
+    case "edit": model.navigator.editInput("> Bb")
+    case "pick": model.navigator.select(model.navigator.results.first?.id)
     default:
       controller.hide()
       controller.show(orderFront: false, listen: false)
     }
-    #expect(!model.returnQueued)
+    #expect(!model.navigator.returnQueued)
   }
   try release(root, "echo")
-  await model.settled()
-  #expect(model.command == nil && !model.agent.active)
+  await model.navigator.settled()
+  #expect(model.navigator.command == nil && !model.agent.active)
   controller.hide()
   await model.finish()
 }
@@ -454,19 +471,21 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
   // A failed pattern leaves the Return waiting: it never becomes Ask agent.
-  model.input = "> F"
+  model.navigator.input = "> F"
   controller.run()
-  await model.settled()
-  #expect(model.returnQueued && model.command == nil && !model.agent.active)
-  #expect(model.results.contains { $0.row.id == "error" })
+  await model.navigator.settled()
+  #expect(model.navigator.returnQueued && model.navigator.command == nil && !model.agent.active)
+  #expect(model.navigator.results.contains { $0.row.id == "error" })
   // Replayed once, when the rows for what is typed arrive.
-  model.input = "> B"
+  model.navigator.input = "> B"
   controller.run()
   try release(root, "echo")
-  #expect(await eventually(within: .seconds(3)) { model.command != nil })
-  #expect(model.command?.id == "extension:echo" && model.input == "> B" && !model.returnQueued)
-  await model.settled()
-  #expect(model.command?.id == "extension:echo" && !model.agent.active)
+  #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
+  #expect(
+    model.navigator.command?.id == "extension:echo" && model.navigator.input == "> B"
+      && !model.navigator.returnQueued)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:echo" && !model.agent.active)
   controller.hide()
   await model.finish()
 }
@@ -486,16 +505,19 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   var shown = 0
-  let press = Task { await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 } }
+  let press = Task {
+    await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
+  }
   #expect(await eventually { (try? logged(root, "mover").count) == 1 })
-  #expect(shown == 0 && model.command == nil)
+  #expect(shown == 0 && model.navigator.command == nil)
   try release(root, "mover")
   await press.value
   #expect(
-    shown == 1 && model.command?.id == "extension:mover" && model.command?.problem?.contains("nope") == true)
+    shown == 1 && model.navigator.command?.id == "extension:mover"
+      && model.navigator.command?.problem?.contains("nope") == true)
   let sent = try logged(root, "mover")
   #expect(sent.count == 1 && sent[0].submitted && sent[0].arguments == ["to": "left"])
-  await model.settled()
+  await model.navigator.settled()
   #expect(try logged(root, "mover").count == 1)
   await model.finish()
 }
@@ -521,7 +543,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aSwitchWaitsAHundredAndFiftyMilliseconds() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  #expect(LauncherModel.testing(in: root, bundled: nil).arrivalDeadline == .milliseconds(150))
+  #expect(LauncherModel.testing(in: root, bundled: nil).navigator.arrivalDeadline == .milliseconds(150))
 }
 
 /// A panel that routes keys as if it had them, and records every frame it is given.
@@ -551,18 +573,19 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     self.root = root
     controller = PaletteController(model: model, panel: panel)
     controller.show(orderFront: false, listen: false)
-    await model.settled()
-    let draw = model.onResultsChange
-    model.onResultsChange = { [unowned self] in
+    await model.navigator.settled()
+    let draw = model.navigator.onResultsChange
+    model.navigator.onResultsChange = { [unowned self] in
       draw?()
       shown.append(
         (
-          model.agent.active ? "agent" : model.command?.id ?? "root", model.input, model.selected?.row.title,
-          model.body, model.command?.busy == true, panel.frame
+          model.agent.active ? "agent" : model.navigator.command?.id ?? "root", model.navigator.input,
+          model.navigator.selected?.row.title,
+          model.navigator.body, model.navigator.command?.busy == true, panel.frame
         ))
     }
-    let measure = model.preparePage
-    model.preparePage = { [unowned self] page, turn in
+    let measure = model.navigator.preparePage
+    model.navigator.preparePage = { [unowned self] page, turn in
       await withCheckedContinuation { held.append($0) }
       await measure?(page, turn)
     }
@@ -581,16 +604,17 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aMeasuredPageArrivesWithItsHeightInOneFrame() async throws {
   let panel = try await Measured()
   let model = panel.model
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
-  model.go(Address(id: "page"), submitted: true)
+  model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
-  #expect(model.command == nil && panel.panel.frame == rootFrame)
+  #expect(model.navigator.command == nil && panel.panel.frame == rootFrame)
   panel.release()
-  #expect(await eventually { model.body == "# First page" })
+  #expect(await eventually { model.navigator.body == "# First page" })
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
-    card: model.cardHeight(answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+    card: model.navigator.cardHeight(
+      answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
   // The root once more, unchanged, then the page at its measured height: no frame in between.
   #expect(panel.shown.map(\.screen) == ["root", "extension:page"])
   #expect(panel.shown.map(\.frame.height) == [rootFrame.height, measured])
@@ -606,21 +630,22 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func theDeadlineShowsRunningThenTheMeasuredPage() async throws {
   let panel = try await Measured()
   let model = panel.model
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
-  model.go(Address(id: "page"), submitted: true)
+  model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
-  #expect(model.command == nil)
-  model.passDeadline()
+  #expect(model.navigator.command == nil)
+  model.navigator.passDeadline()
   // The deadline: the command, busy, with its one row, at the list's height.
   let running = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer)
   #expect(panel.shown.last?.screen == "extension:page" && panel.shown.last?.busy == true)
   #expect(panel.shown.last?.body == nil && panel.panel.frame.height == running)
   panel.release()
-  #expect(await eventually { model.body == "# First page" })
+  #expect(await eventually { model.navigator.body == "# First page" })
   await panel.controller.renderer.settled()
   let measured = PaletteLayout.panelHeight(
-    card: model.cardHeight(answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+    card: model.navigator.cardHeight(
+      answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
   #expect(panel.shown.map(\.screen) == ["root", "extension:page", "extension:page"])
   #expect(panel.shown.map(\.frame.height) == [rootFrame.height, running, measured])
   let frames = panel.panel.frames
@@ -632,15 +657,15 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aMeasurementThatEndsAfterEscapeChangesNothing() async throws {
   let panel = try await Measured()
   let model = panel.model
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
-  model.go(Address(id: "page"), submitted: true)
+  model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
-  #expect(model.escape())
+  #expect(model.navigator.escape())
   let drawn = panel.shown.count
   panel.release()
   try await Task.sleep(for: .milliseconds(200))
-  #expect(model.command == nil && model.body == nil && panel.shown.count == drawn)
+  #expect(model.navigator.command == nil && model.navigator.body == nil && panel.shown.count == drawn)
   #expect(panel.panel.frame == rootFrame)
   await panel.finish()
 }
@@ -650,14 +675,16 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     let (model, _, root) = try await transitions(answer: answer)
     defer { try? FileManager.default.removeItem(at: root) }
     var closed = 0
-    model.onClose = { closed += 1 }
-    model.arrivalDeadline = .seconds(60)
-    model.go(Address(id: "slow"), submitted: true)
+    model.navigator.onClose = { closed += 1 }
+    model.navigator.arrivalDeadline = .seconds(60)
+    model.navigator.go(Address(id: "slow"), submitted: true)
     #expect(await eventually { (try? logged(root).count) == 1 })
-    #expect(model.escape())
+    #expect(model.navigator.escape())
     try release(root)
     try await Task.sleep(for: .milliseconds(200))
-    #expect(model.command == nil && closed == 0 && model.input == "a" && model.results.count > 8)
+    #expect(
+      model.navigator.command == nil && closed == 0 && model.navigator.input == "a"
+        && model.navigator.results.count > 8)
     await model.finish()
   }
 }
@@ -668,21 +695,23 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   _ = apps
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.input = "slow"
-  await model.settled()
-  #expect(model.selected?.row.title == "slow")
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.input = "slow"
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.title == "slow")
+  model.navigator.arrivalDeadline = .seconds(60)
   controller.run()
   #expect(await eventually { (try? logged(root).count) == 1 })
   // Recorded as it is: the root is still what shows, so Return runs its selected row again, and the
   // second entry replaces the first.
-  #expect(model.command == nil && model.selected?.row.title == "slow")
+  #expect(model.navigator.command == nil && model.navigator.selected?.row.title == "slow")
   controller.run()
   #expect(await eventually { (try? logged(root).count) == 2 })
   #expect(try logged(root).allSatisfy { $0.submitted && $0.input.isEmpty })
   try release(root)
-  await model.settled()
-  #expect(model.command?.id == "extension:slow" && model.results.map(\.row.title) == ["Finished"])
+  await model.navigator.settled()
+  #expect(
+    model.navigator.command?.id == "extension:slow"
+      && model.navigator.results.map(\.row.title) == ["Finished"])
   #expect(try logged(root).count == 2)
   controller.hide()
   await model.finish()
@@ -692,22 +721,22 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
   var batches = 0
-  let draw = model.onResultsChange
-  model.onResultsChange = {
+  let draw = model.navigator.onResultsChange
+  model.navigator.onResultsChange = {
     draw?()
-    if model.command == nil { batches += 1 }
+    if model.navigator.command == nil { batches += 1 }
   }
-  model.input = "> B"
+  model.navigator.input = "> B"
   controller.run()
-  #expect(model.returnQueued)
+  #expect(model.navigator.returnQueued)
   // The held pattern lets the list compose without it first: Return keeps waiting.
   #expect(await eventually { batches >= 1 })
-  #expect(model.returnQueued && model.command == nil)
+  #expect(model.navigator.returnQueued && model.navigator.command == nil)
   try release(root, "echo")
-  #expect(await eventually(within: .seconds(3)) { model.command != nil })
-  await model.settled()
+  #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
+  await model.navigator.settled()
   let submitted = try logged(root, "echo").filter(\.submitted)
-  #expect(submitted.count == 1 && submitted[0].input == "> B" && !model.returnQueued)
+  #expect(submitted.count == 1 && submitted[0].input == "> B" && !model.navigator.returnQueued)
   controller.hide()
   await model.finish()
 }
@@ -719,23 +748,23 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     root, name: "caffeinate", fields: ["arguments": [["name": "hours"], ["name": "minutes"]]])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
-  model.input = "caffeinate"
-  await model.settled()
-  #expect(model.selected?.row.id == "command" && model.declaredArguments.count == 2)
-  model.setArgument("hours", to: "2")
-  model.focusedArgument = "hours"
-  model.toggleActions()
-  #expect(model.actionsTitle == "caffeinate" && model.declaredArguments.isEmpty)
-  #expect(model.escape())
-  #expect(model.argumentValues == ["hours": "2"] && model.selected?.row.id == "command")
+  model.navigator.input = "caffeinate"
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.id == "command" && model.navigator.declaredArguments.count == 2)
+  model.navigator.setArgument("hours", to: "2")
+  model.navigator.focusedArgument = "hours"
+  model.navigator.toggleActions()
+  #expect(model.navigator.actionsTitle == "caffeinate" && model.navigator.declaredArguments.isEmpty)
+  #expect(model.navigator.escape())
+  #expect(model.navigator.argumentValues == ["hours": "2"] && model.navigator.selected?.row.id == "command")
   // Return on the row itself enters with the draft; ⌘K runs the row's action as it was captured.
-  guard case .run(let entered)? = model.returnAction?.kind else { throw CancellationError() }
+  guard case .run(let entered)? = model.navigator.returnAction?.kind else { throw CancellationError() }
   #expect(entered.arguments == ["hours": "2"])
-  model.toggleActions()
-  let picked = try #require(model.pick())
-  #expect(picked.from?.row.id == "command" && model.actionsTitle == nil)
+  model.navigator.toggleActions()
+  let picked = try #require(model.navigator.pick())
+  #expect(picked.from?.row.id == "command" && model.navigator.actionsTitle == nil)
   guard case .run(let captured) = picked.action.kind else { throw CancellationError() }
-  #expect(captured.arguments == nil && model.argumentValues == ["hours": "2"])
+  #expect(captured.arguments == nil && model.navigator.argumentValues == ["hours": "2"])
   await model.finish()
 }
 
@@ -749,23 +778,29 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     fields: ["submit": true, "arguments": [["name": "format"]]])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
-  model.go(Address(id: "report"), submitted: true)
-  await model.settled()
-  model.move(1)
-  #expect(model.activateReturn() && model.inDetail)
+  model.navigator.go(Address(id: "report"), submitted: true)
+  await model.navigator.settled()
+  model.navigator.move(1)
+  #expect(model.activateReturn() && model.navigator.inDetail)
   // Typing, then filling a slot, in the detail: Return sends the edited request, not the detail's Copy.
-  model.move(1)
-  #expect(model.returnAction?.kind == .copy("note"))
-  model.editInput("updated")
-  #expect(model.inDetail && model.selection == nil && model.selected?.row.id == "submit")
-  model.move(1)
-  #expect(model.returnAction?.kind == .copy("note"))
-  model.setArgument("format", to: "json")
-  #expect(model.inDetail && model.selection == nil && model.selected?.row.id == "submit")
+  model.navigator.move(1)
+  #expect(model.navigator.returnAction?.kind == .copy("note"))
+  model.navigator.editInput("updated")
+  #expect(
+    model.navigator.inDetail && model.navigator.selection == nil
+      && model.navigator.selected?.row.id == "submit")
+  model.navigator.move(1)
+  #expect(model.navigator.returnAction?.kind == .copy("note"))
+  model.navigator.setArgument("format", to: "json")
+  #expect(
+    model.navigator.inDetail && model.navigator.selection == nil
+      && model.navigator.selected?.row.id == "submit")
   // Sending it replaces the page: the fresh one starts with nothing selected.
   #expect(model.activateReturn())
-  await model.settled()
-  #expect(!model.inDetail && model.selection == nil && model.selected?.row.id == "submit")
+  await model.navigator.settled()
+  #expect(
+    !model.navigator.inDetail && model.navigator.selection == nil
+      && model.navigator.selected?.row.id == "submit")
   await model.finish()
 }
 
@@ -783,8 +818,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.go(Address(id: "report"), submitted: true)
-  await model.settled()
+  model.navigator.go(Address(id: "report"), submitted: true)
+  await model.navigator.settled()
   await controller.renderer.settled()
   return (model, controller, root)
 }
@@ -809,33 +844,35 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func theActionPanelAndNestedDetailsKeepThePagesScrollAndSelection() async throws {
   let (model, controller, root) = try await scrolledPage()
   defer { try? FileManager.default.removeItem(at: root) }
-  #expect(model.results.map(\.row.title) == ["Notes", "Owner"])
+  #expect(model.navigator.results.map(\.row.title) == ["Notes", "Owner"])
   // The selected target is scrolled into view, then the page a little further.
-  model.move(1)
-  #expect(model.selectedTarget == "#0")
+  model.navigator.move(1)
+  #expect(model.navigator.selectedTarget == "#0")
   let page = try await scrollY(controller) + 40
   try await scroll(controller, to: page)
   #expect(try await scrollY(controller) == page)
   // ⌘K and back: the page stays mounted where it was. Recorded as it is: unpainting the selected
   // target under the panel moves the page by a few points, and Escape keeps that position.
-  model.toggleActions()
+  model.navigator.toggleActions()
   let under = try await scrollY(controller)
-  #expect(model.selectedTarget == nil && abs(under - page) <= 8)
-  #expect(model.escape())
-  #expect(try await scrollY(controller) == under && model.selectedTarget == "#0")
+  #expect(model.navigator.selectedTarget == nil && abs(under - page) <= 8)
+  #expect(model.navigator.escape())
+  #expect(try await scrollY(controller) == under && model.navigator.selectedTarget == "#0")
   // A detail, a detail inside it, and back twice: each page where it was, with its target selected.
   #expect(model.activateReturn())
-  #expect(try await scrollY(controller) == 0 && model.inDetail)
-  model.move(1)
-  #expect(model.selected?.row.title == "Deeper")
+  #expect(try await scrollY(controller) == 0 && model.navigator.inDetail)
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.title == "Deeper")
   let detail = try await scrollY(controller) + 40
   try await scroll(controller, to: detail)
   #expect(model.activateReturn())
   #expect(try await scrollY(controller) == 0)
-  #expect(model.escape())
-  #expect(try await scrollY(controller) == detail && model.selected?.row.title == "Deeper")
-  #expect(model.escape())
-  #expect(try await scrollY(controller) == under && !model.inDetail && model.selectedTarget == "#0")
+  #expect(model.navigator.escape())
+  #expect(try await scrollY(controller) == detail && model.navigator.selected?.row.title == "Deeper")
+  #expect(model.navigator.escape())
+  #expect(
+    try await scrollY(controller) == under && !model.navigator.inDetail
+      && model.navigator.selectedTarget == "#0")
   controller.hide()
   await model.finish()
 }
@@ -848,14 +885,14 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   controller.show(orderFront: false, listen: false)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.send("What is on today?")
+  model.navigator.send("What is on today?")
   #expect(await eventually { fake.running })
   fake.text("Today.\n<row title=\"Tue\" copy=\"tue\"/>")
-  #expect(await eventually { model.results.count == 1 })
-  model.move(1)
-  #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.actionsTitle == "Tue")
+  #expect(await eventually { model.navigator.results.count == 1 })
+  model.navigator.move(1)
+  #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.navigator.actionsTitle == "Tue")
   fake.ask()
-  #expect(model.actionsTitle == nil)
+  #expect(model.navigator.actionsTitle == nil)
   // Return is no decision; ⌘↩ allows, Escape would deny.
   #expect(controller.panel.route(voiceKey(36, "\r")))
   #expect(fake.decisions.isEmpty && model.agent.permissions.count == 1)
@@ -894,20 +931,20 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let model = LauncherModel.testing(in: root, bundled: nil)
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.input = "settings"
-  await model.settled()
-  model.toggleActions()
+  model.navigator.input = "settings"
+  await model.navigator.settled()
+  model.navigator.toggleActions()
   try await update(controller)
   let field = try #require(controller.panel.input)
-  #expect(model.actionsTitle == "Settings" && field.stringValue.isEmpty)
+  #expect(model.navigator.actionsTitle == "Settings" && field.stringValue.isEmpty)
   let editor = try compose("か", in: field)
   try await update(controller)
-  #expect(model.actionsTitle == "Settings" && model.input == "settings")
+  #expect(model.navigator.actionsTitle == "Settings" && model.navigator.input == "settings")
   #expect(editor.hasMarkedText() && field.stringValue == "か")
   // Committed, it closes the panel and is the whole input; the field is not written again.
   commit("か", in: editor)
   try await update(controller)
-  #expect(model.actionsTitle == nil && model.input == "か" && field.stringValue == "か")
+  #expect(model.navigator.actionsTitle == nil && model.navigator.input == "か" && field.stringValue == "か")
   controller.hide()
   await model.finish()
 }
@@ -917,34 +954,38 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   defer { try? FileManager.default.removeItem(at: root) }
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  await model.settled()
-  model.arrivalDeadline = .seconds(60)
-  model.go(Address(id: "slow"), submitted: true)
+  await model.navigator.settled()
+  model.navigator.arrivalDeadline = .seconds(60)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   try await update(controller)
   let field = try #require(controller.panel.input)
   var editor = try compose("か", in: field)
   try await update(controller)
-  #expect(model.command == nil && model.input == "a" && editor.hasMarkedText() && field.stringValue == "aか")
+  #expect(
+    model.navigator.command == nil && model.navigator.input == "a" && editor.hasMarkedText()
+      && field.stringValue == "aか")
   // Committed, what was added to the old input is the new one's, and the field is rewritten to it.
   commit("か", in: editor)
   try await update(controller)
-  #expect(model.command?.id == "extension:slow" && model.input == "か" && field.stringValue == "か")
+  #expect(
+    model.navigator.command?.id == "extension:slow" && model.navigator.input == "か"
+      && field.stringValue == "か")
   // A composition still open when the deadline shows the command.
-  _ = model.escape()
-  model.dismiss()
+  _ = model.navigator.escape()
+  model.navigator.dismiss()
   controller.show(orderFront: false, listen: false)
-  model.input = "a"
-  await model.settled()
-  model.arrivalDeadline = .seconds(60)
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.input = "a"
+  await model.navigator.settled()
+  model.navigator.arrivalDeadline = .seconds(60)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   try await update(controller)
   editor = try compose("か", in: field)
-  model.passDeadline()
-  #expect(model.command != nil)
+  model.navigator.passDeadline()
+  #expect(model.navigator.command != nil)
   try await update(controller)
   // Recorded as it is: the field is written to the new, empty input, which commits the composition
   // with the old input before it, and that is typed into the command.
-  #expect(model.input == "aか" && field.stringValue == "aか" && !editor.hasMarkedText())
+  #expect(model.navigator.input == "aか" && field.stringValue == "aか" && !editor.hasMarkedText())
   #expect(await eventually { (try? logged(root).contains { $0.input == "aか" && !$0.submitted }) == true })
   controller.hide()
   await model.finish()
@@ -958,19 +999,21 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.input = "note"
-  await model.settled()
-  model.focusedArgument = "title"
+  model.navigator.input = "note"
+  await model.navigator.settled()
+  model.navigator.focusedArgument = "title"
   try await update(controller)
   let content = try #require(controller.panel.contentView)
   let slot = try #require(fields(in: content).first { $0 !== controller.panel.input })
   #expect(controller.panel.firstResponder === slot.currentEditor())
   let editor = try compose("か", in: slot)
   try await update(controller)
-  #expect(model.argumentValues.isEmpty && editor.hasMarkedText() && slot.stringValue == "か")
+  #expect(model.navigator.argumentValues.isEmpty && editor.hasMarkedText() && slot.stringValue == "か")
   commit("か", in: editor)
   try await update(controller)
-  #expect(model.argumentValues == ["title": "か"] && model.input == "note" && slot.stringValue == "か")
+  #expect(
+    model.navigator.argumentValues == ["title": "か"] && model.navigator.input == "note"
+      && slot.stringValue == "か")
   controller.hide()
   await model.finish()
 }
@@ -979,32 +1022,35 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
   defer { try? FileManager.default.removeItem(at: root) }
   var closed = 0
-  model.onClose = { closed += 1 }
-  model.go(Address(id: "page"), submitted: true)
-  await model.settled()
-  #expect(model.command?.id == "extension:page" && model.body == "# First page")
+  model.navigator.onClose = { closed += 1 }
+  model.navigator.go(Address(id: "page"), submitted: true)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
   // A page on its way over the first one, and ⌘↩ with nothing typed while it is measured.
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   var measuring: CheckedContinuation<Void, Never>?
-  model.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
-  model.go(Address(id: "other"), submitted: true)
+  model.navigator.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
+  model.navigator.go(Address(id: "other"), submitted: true)
   #expect(await eventually { measuring != nil })
-  model.askAgent()
-  #expect(model.agent.active && model.returnsOnEscape && model.command?.id == "extension:page")
+  model.navigator.askAgent()
+  #expect(
+    model.agent.active && model.navigator.returnsOnEscape && model.navigator.command?.id == "extension:page")
   measuring?.resume()
-  await model.settled()
+  await model.navigator.settled()
   // The first command, exactly as it was under the question.
-  #expect(model.escape())
-  #expect(model.command?.id == "extension:page" && model.body == "# First page" && !model.agent.active)
+  #expect(model.navigator.escape())
+  #expect(
+    model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page"
+      && !model.agent.active)
   // A submitted close of an entry called off this way hides nothing.
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 1 })
-  model.askAgent()
+  model.navigator.askAgent()
   try release(root)
   try await Task.sleep(for: .milliseconds(200))
-  #expect(closed == 0 && model.agent.active && model.returnsOnEscape)
-  #expect(model.escape())
-  #expect(model.command?.id == "extension:page" && model.body == "# First page")
+  #expect(closed == 0 && model.agent.active && model.navigator.returnsOnEscape)
+  #expect(model.navigator.escape())
+  #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
   #expect(try logged(root, "page").count == 1 && logged(root, "other").count == 1)
   await model.finish()
 }
@@ -1017,26 +1063,28 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let model = LauncherModel.testing(in: root, bundled: nil)
   model.agent.connect = { _, _, _ in FakeAgent() }
   await model.extensions.reload()
-  model.refresh()
-  await model.settled()
-  let row = try #require(model.results.first { $0.provider == "extension:caffeinate" }?.id)
-  model.select(row)
-  model.setArgument("hours", to: "2")
+  model.navigator.refresh()
+  await model.navigator.settled()
+  let row = try #require(model.navigator.results.first { $0.provider == "extension:caffeinate" }?.id)
+  model.navigator.select(row)
+  model.navigator.setArgument("hours", to: "2")
   // The question has its own input, values and selection; Escape finds the root as it was.
-  model.askAgent()
-  #expect(model.agent.active && model.argumentValues.isEmpty && model.selection == nil)
-  model.editInput("how long")
-  #expect(model.escape())
-  #expect(model.input.isEmpty && model.selection == row && model.argumentValues == ["hours": "2"])
+  model.navigator.askAgent()
+  #expect(model.agent.active && model.navigator.argumentValues.isEmpty && model.navigator.selection == nil)
+  model.navigator.editInput("how long")
+  #expect(model.navigator.escape())
+  #expect(
+    model.navigator.input.isEmpty && model.navigator.selection == row
+      && model.navigator.argumentValues == ["hours": "2"])
   // Sending instead leaves the draft behind with the root.
-  model.askAgent()
-  model.editInput("how long")
+  model.navigator.askAgent()
+  model.navigator.editInput("how long")
   #expect(model.activateReturn() && model.agent.question == "how long")
   model.agent.cancel()
   #expect(await eventually { !model.agent.busy })
-  #expect(model.escape())
-  await model.settled()
-  #expect(!model.agent.active && model.input.isEmpty && model.argumentValues.isEmpty)
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
+  #expect(!model.agent.active && model.navigator.input.isEmpty && model.navigator.argumentValues.isEmpty)
   await model.finish()
 }
 
@@ -1046,37 +1094,37 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   _ = try extensionFolder(root, name: "caffeinate", fields: ["arguments": [["name": "hours"]]])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
-  model.refresh()
-  await model.settled()
-  let row = try #require(model.results.first { $0.provider == "extension:caffeinate" }?.id)
-  model.select(row)
-  model.setArgument("hours", to: "2")
-  model.askAgent()
-  model.editInput("how long")
+  model.navigator.refresh()
+  await model.navigator.settled()
+  let row = try #require(model.navigator.results.first { $0.provider == "extension:caffeinate" }?.id)
+  model.navigator.select(row)
+  model.navigator.setArgument("hours", to: "2")
+  model.navigator.askAgent()
+  model.navigator.editInput("how long")
   // Hidden and shown again, the question is kept, and Escape still finds the root as it was.
-  model.dismiss()
+  model.navigator.dismiss()
   model.reopen()
-  #expect(model.returnsOnEscape && model.input == "how long")
-  #expect(model.escape())
-  #expect(model.selection == row && model.argumentValues == ["hours": "2"])
+  #expect(model.navigator.returnsOnEscape && model.navigator.input == "how long")
+  #expect(model.navigator.escape())
+  #expect(model.navigator.selection == row && model.navigator.argumentValues == ["hours": "2"])
   // Leaving the question for the root another way, by a link, starts the root over.
-  model.askAgent()
-  model.go(Address(input: ""))
-  await model.settled()
-  #expect(!model.agent.active && model.command == nil && model.argumentValues.isEmpty)
-  model.select(row)
-  model.setArgument("hours", to: "2")
+  model.navigator.askAgent()
+  model.navigator.go(Address(input: ""))
+  await model.navigator.settled()
+  #expect(!model.agent.active && model.navigator.command == nil && model.navigator.argumentValues.isEmpty)
+  model.navigator.select(row)
+  model.navigator.setArgument("hours", to: "2")
   // Hiding the root itself drops them.
-  model.dismiss()
+  model.navigator.dismiss()
   model.reopen()
-  #expect(model.argumentValues.isEmpty)
+  #expect(model.navigator.argumentValues.isEmpty)
   // So does the question expiring while hidden: the root starts over.
-  model.select(row)
-  model.setArgument("hours", to: "3")
-  model.askAgent()
-  model.dismiss()
+  model.navigator.select(row)
+  model.navigator.setArgument("hours", to: "3")
+  model.navigator.askAgent()
+  model.navigator.dismiss()
   model.reopen(now: Date().addingTimeInterval(60 * 60))
-  #expect(!model.agent.active && model.argumentValues.isEmpty)
+  #expect(!model.agent.active && model.navigator.argumentValues.isEmpty)
   await model.finish()
 }
 
@@ -1088,18 +1136,18 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   controller.show(orderFront: false, listen: false)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.send("Update the weather extension")
+  model.navigator.send("Update the weather extension")
   #expect(await eventually { fake.running })
   fake.text("Working on it.\n<row title=\"Tue\" copy=\"tue\"/>")
-  #expect(await eventually { model.results.count == 1 })
-  model.move(1)
+  #expect(await eventually { model.navigator.results.count == 1 })
+  model.navigator.move(1)
   controller.hide()
   fake.ask()
   #expect(model.agent.permissions.count == 1 && fake.decisions.isEmpty)
   controller.show(orderFront: false, listen: false)
   // The card is what shows: ⌘K waits, Return decides nothing, ⌘↩ allows.
-  #expect(model.agent.active && model.agent.permissions.count == 1 && model.actionsTitle == nil)
-  #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.actionsTitle == nil)
+  #expect(model.agent.active && model.agent.permissions.count == 1 && model.navigator.actionsTitle == nil)
+  #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.navigator.actionsTitle == nil)
   #expect(controller.panel.route(voiceKey(36, "\r")) && fake.decisions.isEmpty)
   #expect(controller.panel.route(voiceKey(36, "\r", .command)))
   #expect(fake.decisions.map(\.allow) == [true] && model.agent.permissions.isEmpty && model.agent.busy)
@@ -1112,17 +1160,17 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aCoveredCommandFinishingAfterTheQuestionWasLeftShowsItsResult() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .milliseconds(1)
-  model.go(Address(id: "slow"), submitted: true)
-  #expect(await eventually { model.command?.busy == true })
-  model.askAgent()
-  model.editInput("is it slow")
+  model.navigator.arrivalDeadline = .milliseconds(1)
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { model.navigator.command?.busy == true })
+  model.navigator.askAgent()
+  model.navigator.editInput("is it slow")
   // Escape before sending: the command, still running, with its own empty input.
-  #expect(model.escape())
-  #expect(!model.agent.active && model.command?.busy == true && model.input.isEmpty)
+  #expect(model.navigator.escape())
+  #expect(!model.agent.active && model.navigator.command?.busy == true && model.navigator.input.isEmpty)
   let trace = Trace(model)
   try release(root)
-  await model.settled()
+  await model.navigator.settled()
   #expect(trace.screens == ["extension:slow"])
   #expect(
     trace.frames.last
@@ -1147,37 +1195,40 @@ private let listHeight = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeigh
   let model = panel.model
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   try release(panel.root)
-  model.go(Address(id: "slow"), submitted: true)
-  await model.settled()
-  model.move(1)
-  #expect(model.selected?.row.title == "Second")
-  model.askAgent()
-  model.editInput("why")
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  await model.navigator.settled()
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.title == "Second")
+  model.navigator.askAgent()
+  model.navigator.editInput("why")
   #expect(model.activateReturn())
   #expect(await eventually { fake.running })
   fake.text("Because.")
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  model.editInput("and then")
+  model.navigator.editInput("and then")
   try FileManager.default.removeItem(at: panel.root.appending(path: "extensions/slow/release"))
   let drawn = panel.shown.count
   let frames = panel.panel.frames.count
   let top = panel.panel.frame.maxY
   // Escape stages the way back and a second one waits for it: the conversation stays as it is.
-  #expect(model.escape())
-  #expect(model.escape())
+  #expect(model.navigator.escape())
+  #expect(model.navigator.escape())
   #expect(await eventually { (try? logged(panel.root).count) == 2 })
-  #expect(model.agent.active && model.input == "and then" && model.selection == nil)
-  #expect(model.command?.busy == false && panel.panel.frames.count == frames)
+  #expect(model.agent.active && model.navigator.input == "and then" && model.navigator.selection == nil)
+  #expect(model.navigator.command?.busy == false && panel.panel.frames.count == frames)
   #expect(panel.shown.dropFirst(drawn).allSatisfy { $0.screen == "agent" && $0.input == "and then" })
   try release(panel.root)
   #expect(await eventually { !model.agent.active })
-  await model.settled()
-  // The command with a blank input, its first row, at the list's height, the top edge where it was.
-  let last = try #require(panel.shown.last)
-  #expect(last.screen == "extension:slow" && last.input.isEmpty && last.selection == "First" && !last.busy)
+  await model.navigator.settled()
+  // One handoff: the command with a blank input, its first row, at the list's height, the top edge where
+  // it was.
+  let back = panel.shown.dropFirst(drawn).filter { $0.screen != "agent" }
+  let last = try #require(back.last)
+  #expect(back.count == 1 && last.screen == "extension:slow" && last.input.isEmpty)
+  #expect(last.selection == "First" && !last.busy && last.frame.height == listHeight)
   #expect(panel.panel.frame.height == listHeight && panel.panel.frame.maxY == top)
   #expect(panel.panel.frames.dropFirst(frames).map(\.height) == [listHeight])
   let sent = try logged(panel.root)
@@ -1203,21 +1254,21 @@ private let listHeight = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeigh
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   await model.extensions.reload()
-  model.go(Address(id: "counter"), submitted: true)
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["View 1"])
+  model.navigator.go(Address(id: "counter"), submitted: true)
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["View 1"])
   // A rerun on its way, held, when ⌘↩ with nothing typed opens the question over it.
   let hold = root.appending(path: "extensions/counter/hold")
   try Data().write(to: hold)
-  model.refresh()
+  model.navigator.refresh()
   #expect(await eventually(within: .seconds(3)) { (try? logged(root, "counter").count) == 2 })
-  model.askAgent()
-  #expect(model.agent.active && model.returnsOnEscape && model.command?.busy == true)
+  model.navigator.askAgent()
+  #expect(model.agent.active && model.navigator.returnsOnEscape && model.navigator.command?.busy == true)
   // The covered rerun finishes under the question, before it is sent.
   try FileManager.default.removeItem(at: hold)
-  #expect(await eventually(within: .seconds(3)) { model.command?.busy == false })
-  #expect(model.command?.shown.view.items.map(\.title) == ["View 2"])
-  model.editInput("what is this")
+  #expect(await eventually(within: .seconds(3)) { model.navigator.command?.busy == false })
+  #expect(model.navigator.command?.shown.view.items.map(\.title) == ["View 2"])
+  model.navigator.editInput("what is this")
   #expect(model.activateReturn())
   #expect(await eventually { fake.running })
   // The question tells the agent what showed when it was opened.
@@ -1231,16 +1282,19 @@ private let listHeight = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeigh
 @MainActor @Test func aQuestionPrefilledByAnAddressGoesBackToTheRoot() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
-  model.go(Address(id: "notes"), submitted: true)
-  #expect(model.command?.id == "extension:notes")
+  model.navigator.go(Address(id: "notes"), submitted: true)
+  #expect(model.navigator.command?.id == "extension:notes")
   let trace = Trace(model)
-  model.go(Address(extensionName: "agent", input: "Why?"), from: "extension:notes")
-  #expect(model.agent.active && model.command == nil && model.input == "Why?" && !model.returnsOnEscape)
-  #expect(model.escape())
-  await model.settled()
-  #expect(!model.agent.active && model.command == nil && model.input.isEmpty)
+  model.navigator.go(Address(extensionName: "agent", input: "Why?"), from: "extension:notes")
   #expect(
-    trace.screens == ["agent", "root"] && trace.frames.last?.selection == model.results.first?.row.title)
+    model.agent.active && model.navigator.command == nil && model.navigator.input == "Why?"
+      && !model.navigator.returnsOnEscape)
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
+  #expect(!model.agent.active && model.navigator.command == nil && model.navigator.input.isEmpty)
+  #expect(
+    trace.screens == ["agent", "root"]
+      && trace.frames.last?.selection == model.navigator.results.first?.row.title)
   await model.finish()
 }
 
@@ -1250,20 +1304,21 @@ private let page = String(
 @MainActor @Test func theDeadlineThenTheAnswerShowsRunningThenThePageRenderedWhereItShows() async throws {
   let panel = try await Measured(answer: page)
   let model = panel.model
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   let rootFrame = panel.panel.frame
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(panel.root).count) == 1 })
-  model.passDeadline()
+  model.navigator.passDeadline()
   let running = PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer)
-  #expect(model.command?.busy == true && panel.panel.frame.height == running)
+  #expect(model.navigator.command?.busy == true && panel.panel.frame.height == running)
   try release(panel.root)
-  #expect(await eventually { model.body == "# Late page" })
+  #expect(await eventually { model.navigator.body == "# Late page" })
   await panel.controller.renderer.settled()
   // Shown already, the page is rendered where it shows rather than measured first.
   #expect(panel.measuring == 0)
   let measured = PaletteLayout.panelHeight(
-    card: model.cardHeight(answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
+    card: model.navigator.cardHeight(
+      answer: panel.controller.renderer.height, cap: panel.controller.renderer.cap))
   #expect(panel.shown.map(\.screen) == ["root", "extension:slow", "extension:slow"])
   #expect(panel.shown.map(\.busy) == [false, true, false])
   #expect(panel.panel.frame.height == measured)
@@ -1276,15 +1331,15 @@ private let page = String(
 @MainActor @Test func theAnswerAndItsMeasurementBeforeTheDeadlineLeaveTheDeadlineNothingToDo() async throws {
   let panel = try await Measured(answer: page)
   let model = panel.model
-  model.arrivalDeadline = .seconds(60)
+  model.navigator.arrivalDeadline = .seconds(60)
   try release(panel.root)
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
   panel.release()
-  #expect(await eventually { model.body == "# Late page" })
+  #expect(await eventually { model.navigator.body == "# Late page" })
   let drawn = panel.shown.count
   let frames = panel.panel.frames
-  model.passDeadline()
+  model.navigator.passDeadline()
   #expect(panel.shown.count == drawn && panel.panel.frames == frames)
   #expect(panel.shown.map(\.screen) == ["root", "extension:slow"] && panel.shown.allSatisfy { !$0.busy })
   await panel.finish()
@@ -1293,21 +1348,21 @@ private let page = String(
 @MainActor @Test func pageToPageKeepsTheOutgoingPageAndFrameUntilTheIncomingOneIsMeasured() async throws {
   let panel = try await Measured()
   let model = panel.model
-  model.arrivalDeadline = .seconds(60)
-  model.go(Address(id: "page"), submitted: true)
+  model.navigator.arrivalDeadline = .seconds(60)
+  model.navigator.go(Address(id: "page"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
   panel.release()
-  #expect(await eventually { model.body == "# First page" })
+  #expect(await eventually { model.navigator.body == "# First page" })
   await panel.controller.renderer.settled()
   let first = panel.panel.frame
   let drawn = panel.shown.count
   let frames = panel.panel.frames.count
-  model.go(Address(id: "other"), submitted: true)
+  model.navigator.go(Address(id: "other"), submitted: true)
   #expect(await eventually { panel.measuring == 1 })
-  #expect(model.command?.id == "extension:page" && model.body == "# First page")
+  #expect(model.navigator.command?.id == "extension:page" && model.navigator.body == "# First page")
   #expect(panel.panel.frame == first && panel.panel.frames.count == frames)
   panel.release()
-  #expect(await eventually { model.body == "# Second page" })
+  #expect(await eventually { model.navigator.body == "# Second page" })
   await panel.controller.renderer.settled()
   #expect(panel.shown.dropFirst(drawn).map(\.screen).last == "extension:other")
   #expect(panel.shown.allSatisfy { !$0.busy })
@@ -1321,24 +1376,25 @@ private let page = String(
   for replaced in [true, false] {
     let panel = try await Measured()
     let model = panel.model
-    model.arrivalDeadline = .seconds(60)
-    model.go(Address(id: "page"), submitted: true)
+    model.navigator.arrivalDeadline = .seconds(60)
+    model.navigator.go(Address(id: "page"), submitted: true)
     #expect(await eventually { panel.measuring == 1 })
     if replaced {
-      model.go(Address(id: "notes"), submitted: true)
-      #expect(model.command?.id == "extension:notes")
+      model.navigator.go(Address(id: "notes"), submitted: true)
+      #expect(model.navigator.command?.id == "extension:notes")
     } else {
       panel.controller.hide()
     }
     // Hiding composes the empty root; the measurement is still held.
     await model.root.settled()
-    let turn = model.pageTurn
+    let turn = model.navigator.pageTurn
     let drawn = panel.shown.count
     let frame = panel.panel.frame
     panel.release()
     try await Task.sleep(for: .milliseconds(100))
-    #expect(model.command?.id == (replaced ? "extension:notes" : nil) && model.body == nil)
-    #expect(model.pageTurn == turn && panel.shown.count == drawn && panel.panel.frame == frame)
+    #expect(
+      model.navigator.command?.id == (replaced ? "extension:notes" : nil) && model.navigator.body == nil)
+    #expect(model.navigator.pageTurn == turn && panel.shown.count == drawn && panel.panel.frame == frame)
     #expect(try logged(panel.root, "page").count == 1)
     await panel.finish()
   }
@@ -1368,18 +1424,22 @@ private func printing(_ answer: String) -> String {
       _ = try extensionFolder(root, name: "late", script: printing(answer))
       await model.extensions.reload()
       var closed = 0
-      model.onClose = { closed += 1 }
-      model.arrivalDeadline = .seconds(60)
-      model.go(Address(id: "late"), submitted: true)
+      model.navigator.onClose = { closed += 1 }
+      model.navigator.arrivalDeadline = .seconds(60)
+      model.navigator.go(Address(id: "late"), submitted: true)
       #expect(await eventually { (try? logged(root, "late").count) == 1 })
       try release(root, "late")
       blockUntilPrinted(root, "late")
-      if replaced { model.go(Address(id: "notes"), submitted: true) } else { model.dismiss() }
-      let turn = model.command?.turn
-      await model.settled()
+      if replaced {
+        model.navigator.go(Address(id: "notes"), submitted: true)
+      } else {
+        model.navigator.dismiss()
+      }
+      let turn = model.navigator.command?.turn
+      await model.navigator.settled()
       try await Task.sleep(for: .milliseconds(100))
-      #expect(closed == 0 && model.command?.id == (replaced ? "extension:notes" : nil), "\(answer)")
-      #expect(model.command?.problem == nil && model.command?.turn == turn)
+      #expect(closed == 0 && model.navigator.command?.id == (replaced ? "extension:notes" : nil), "\(answer)")
+      #expect(model.navigator.command?.problem == nil && model.navigator.command?.turn == turn)
       #expect(try logged(root, "late").count == 1)
       await model.finish()
     }
@@ -1397,14 +1457,16 @@ private func printing(_ answer: String) -> String {
     root, name: "pager", script: "cat >> log.jsonl\necho >> log.jsonl\nprintf '%s' '\(json)'")
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
-  model.go(Address(id: "pager"), submitted: true)
-  await model.settled()
+  model.navigator.go(Address(id: "pager"), submitted: true)
+  await model.navigator.settled()
   let trace = Trace(model)
   #expect(model.activateReturn())
   // No switch: the same command, its rows kept while its request runs, then its answer.
-  #expect(model.command?.id == "extension:pager" && model.input == "page 2" && model.command?.busy == true)
-  #expect(model.results.map(\.row.title) == ["Next"])
-  await model.settled()
+  #expect(
+    model.navigator.command?.id == "extension:pager" && model.navigator.input == "page 2"
+      && model.navigator.command?.busy == true)
+  #expect(model.navigator.results.map(\.row.title) == ["Next"])
+  await model.navigator.settled()
   #expect(trace.screens == ["extension:pager"] && trace.frames.first?.busy == true)
   #expect(trace.frames.last?.busy == false && trace.frames.last?.selection == "Next")
   let sent = try logged(root, "pager")
@@ -1425,21 +1487,40 @@ private func printing(_ answer: String) -> String {
     ])
   await model.extensions.reload()
   var shown = 0
-  let press = Task { await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 } }
+  let press = Task {
+    await model.navigator.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
+  }
   #expect(await eventually { (try? logged(root, "mover").count) == 1 })
   // An entry on its way when the hotkey's run answers.
-  model.arrivalDeadline = .seconds(60)
-  model.go(Address(id: "slow"), submitted: true)
+  model.navigator.arrivalDeadline = .seconds(60)
+  model.navigator.go(Address(id: "slow"), submitted: true)
   #expect(await eventually { (try? logged(root).count) == 1 })
   try release(root, "mover")
   await press.value
-  #expect(shown == 1 && model.command?.id == "extension:mover" && model.command?.busy == false)
-  #expect(model.results.map(\.row.title) == ["Moved"] && model.input.isEmpty)
+  #expect(
+    shown == 1 && model.navigator.command?.id == "extension:mover" && model.navigator.command?.busy == false)
+  #expect(model.navigator.results.map(\.row.title) == ["Moved"] && model.navigator.input.isEmpty)
   // The entry's late answer changes nothing, and nothing ran twice.
   try release(root)
   try await Task.sleep(for: .milliseconds(100))
-  await model.settled()
-  #expect(model.command?.id == "extension:mover" && model.results.map(\.row.title) == ["Moved"])
+  await model.navigator.settled()
+  #expect(
+    model.navigator.command?.id == "extension:mover" && model.navigator.results.map(\.row.title) == ["Moved"])
   #expect(try logged(root, "mover").count == 1 && logged(root).count == 1)
   await model.finish()
+}
+
+@MainActor @Test func aSessionEndingElsewhereTakesTheAgentsScreenAndItsDetailWithIt() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  try await finishTurn(model, "What shipped?", "Done.\n<row title=\"Notes\" copy=\"n\">More</row>")
+  model.navigator.move(1)
+  #expect(model.activateReturn() && model.navigator.inDetail)
+  var drawn: [Bool] = []
+  model.navigator.onResultsChange = { drawn.append(model.navigator.inDetail) }
+  // Quitting resets the session itself: nothing of the agent's screen is drawn after it.
+  await model.finish()
+  #expect(!model.agent.active && !model.navigator.inDetail && model.navigator.page == nil)
+  #expect(!drawn.isEmpty && drawn.allSatisfy { !$0 })
 }

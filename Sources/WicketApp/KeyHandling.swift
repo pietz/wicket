@@ -2,7 +2,7 @@
 enum PaletteKeyAction: Equatable, Sendable {
   enum Edit: Equatable, Sendable { case cut, copy, paste, selectAll, undo, redo }
   case dismiss, run, send
-  /// ⌘K: the selected row's actions (`LauncherModel.toggleActions`).
+  /// ⌘K: the selected row's actions (`Navigator.toggleActions`).
   case actions
   case permission(Bool)
   case move(Int)

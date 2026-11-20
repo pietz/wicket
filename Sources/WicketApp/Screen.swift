@@ -61,7 +61,7 @@ struct CommandState {
   }
   /// What the command shows now.
   var shown = Shown()
-  /// What a typed question tells the agent the command showed (`LauncherModel.commandContext`): the
+  /// What a typed question tells the agent the command showed (`Navigator.commandContext`): the
   /// last view whose request the user did not cause by typing. Typing reruns never replace it, so a
   /// question typed into a command that is not `submit` sends the view it was asked about, not the
   /// rerun for its own text. Nil until such a request is answered, and after one fails.
@@ -71,4 +71,27 @@ struct CommandState {
   var problem: String?
   var busy = false
   var turn = UUID().uuidString
+}
+
+/// The agent's screen, over the root or the open command, which stay under it as they were: its own
+/// input, selection and details, and what leaving it does.
+struct AgentScreen {
+  var screen = Screen()
+  let back: Back
+  enum Back {
+    /// The empty question ⌘↩ opened: Escape before sending shows the screen under it exactly as it was,
+    /// with nothing run again, and its first question tells the agent what that screen showed then.
+    case reveal(AgentContext?)
+    /// A conversation (sent, reopened from Agent History, or prefilled by the `agent` action): ending it
+    /// goes back to the screen under it with a blank input, its request run again and its selection
+    /// started over.
+    case refresh
+  }
+}
+
+/// What an open extension command showed, as a `<context>` block for the agent's first question, and the
+/// command's name for the question header.
+struct AgentContext {
+  let text: String
+  let name: String
 }

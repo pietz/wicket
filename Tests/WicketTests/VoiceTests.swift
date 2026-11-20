@@ -184,13 +184,13 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   model.armVoice()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("2+2."))
-  #expect(await eventually { model.input == "2+2" })
-  await model.settled()
+  #expect(await eventually { model.navigator.input == "2+2" })
+  await model.navigator.settled()
   model.store.update { $0.voice.enabled = false }
-  #expect(model.voice?.state == .idle && fake.stops == 1 && model.input == "2+2")
+  #expect(model.voice?.state == .idle && fake.stops == 1 && model.navigator.input == "2+2")
   fake.feeds[0].yield(.transcript("late"))
   await Task.yield()
-  #expect(model.input == "2+2")
+  #expect(model.navigator.input == "2+2")
   await model.finish()
 }
 
@@ -206,7 +206,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.toggleVoice()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("spoken"))
-  #expect(await eventually { model.input == "spoken" })
+  #expect(await eventually { model.navigator.input == "spoken" })
   let panel = RoutingPanel()
   panel.beforeAction = { model.keyPressed($0) }
   var routed: PaletteKeyAction?
@@ -221,14 +221,14 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
     }
   _ = panel.route(voiceKey(code, text, flags))
   #expect(routed == (action == .run || action == .send ? action : nil))
-  #expect(model.voice?.state == .idle && fake.stops == 1 && model.input == "spoken")
+  #expect(model.voice?.state == .idle && fake.stops == 1 && model.navigator.input == "spoken")
   _ = panel.route(voiceKey(53, "\u{1b}"))
   #expect(routed == .dismiss)  // Second Escape reaches ordinary navigation.
   #expect(!panel.isVisible)
-  model.editInput("typed")
+  model.navigator.editInput("typed")
   fake.feeds[0].yield(.transcript("late"))
   await Task.yield()
-  #expect(model.input == "typed")
+  #expect(model.navigator.input == "typed")
   await model.finish()
 }
 
@@ -241,11 +241,11 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
     transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
   model.toggleVoice()
-  model.editInput("typed directly")
+  model.navigator.editInput("typed directly")
   #expect(model.voice?.state == .idle && fake.stops == 1)
   model.toggleVoice()
-  model.dismiss()
-  #expect(model.voice?.state == .idle && fake.stops == 2 && model.input.isEmpty)
+  model.navigator.dismiss()
+  #expect(model.voice?.state == .idle && fake.stops == 2 && model.navigator.input.isEmpty)
   model.toggleVoice()
   await model.finish()
   #expect(model.voice?.state == .idle && fake.stops == 3)
@@ -258,18 +258,18 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let model = LauncherModel.testing(
     in: folder,
     transcriber: { fake })
-  try await finishTurn(model.agent, "First", "Answer")
+  try await finishTurn(model, "First", "Answer")
   let client = FakeAgent()
   model.agent.connect = { _, _, _ in client }
   model.store.update { $0.voice.enabled = true }
   model.toggleVoice()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("Why?"))
-  #expect(await eventually { model.input == "Why?" })
+  #expect(await eventually { model.navigator.input == "Why?" })
   #expect(model.agent.question == "First" && !model.agent.busy)
-  model.send()
+  model.navigator.send()
   #expect(await eventually { client.running })
-  #expect(model.agent.question == "Why?" && model.input.isEmpty && fake.stops == 1)
+  #expect(model.agent.question == "Why?" && model.navigator.input.isEmpty && fake.stops == 1)
   client.end()
   await model.finish()
 }
@@ -352,13 +352,13 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.toggleVoice()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("voice search"))
-  #expect(await eventually { model.input == "voice search" })
-  await model.settled()
-  #expect(model.results.first?.row.title == "spoken result")
+  #expect(await eventually { model.navigator.input == "voice search" })
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "spoken result")
   #expect(model.agent.question.isEmpty && !model.agent.active)
-  model.input = "test"
-  await model.settled()
-  model.select(model.results.first { $0.provider == "extension:test" }?.id)
+  model.navigator.input = "test"
+  await model.navigator.settled()
+  model.navigator.select(model.navigator.results.first { $0.provider == "extension:test" }?.id)
   let panel = RoutingPanel()
   panel.beforeAction = { model.keyPressed($0) }
   panel.onAction = { if $0 == .run { #expect(model.activateReturn()) } }
@@ -367,10 +367,11 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.toggleVoice()
   fake.feeds[1].yield(.ready)
   fake.feeds[1].yield(.transcript("command words"))
-  #expect(await eventually { model.input == "command words" })
-  await model.settled()
+  #expect(await eventually { model.navigator.input == "command words" })
+  await model.navigator.settled()
   #expect(
-    model.command?.id == "extension:test" && model.results.first?.row.title == "spoken result")
+    model.navigator.command?.id == "extension:test"
+      && model.navigator.results.first?.row.title == "spoken result")
   await model.finish()
 }
 
@@ -384,8 +385,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.armVoice()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("How do rainbows form?"))
-  #expect(await eventually { model.voice?.state == .listening && model.input.contains("rainbows") })
-  model.dismiss()
+  #expect(await eventually { model.voice?.state == .listening && model.navigator.input.contains("rainbows") })
+  model.navigator.dismiss()
   #expect(model.voice?.state == .idle)
   await model.finish()
 }
@@ -416,8 +417,8 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   model.toggleVoice()
   fake.feeds[0].yield(.ready)
   #expect(await eventually { model.voice?.state == .listening })
-  model.agent.ask("Busy now", settings: .init())
-  #expect(!model.takesSpeech && model.voice?.state == .idle && fake.stops == 1)
+  model.navigator.send("Busy now")
+  #expect(!model.agent.takesSpeech && model.voice?.state == .idle && fake.stops == 1)
   await model.finish()
 }
 
@@ -475,16 +476,16 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   let editor = try #require(field.currentEditor() as? NSTextView)
   editor.insertText("a", replacementRange: editor.selectedRange())
   await Task.yield()
-  #expect(model.input == "a" && model.voice?.state == .idle && fake.stops == 1)
+  #expect(model.navigator.input == "a" && model.voice?.state == .idle && fake.stops == 1)
   controller.hide()
   controller.show(orderFront: false)
   #expect(model.voice?.state == .starting && fake.feeds.count == 2)
   fake.feeds[1].yield(.ready)
   fake.feeds[1].yield(.transcript("Open Safari."))
-  #expect(await eventually { model.input == "Open Safari" })
+  #expect(await eventually { model.navigator.input == "Open Safari" })
   #expect(!model.agent.active)
   controller.hide()
-  #expect(model.voice?.state == .idle && fake.stops == 2 && model.input.isEmpty)
+  #expect(model.voice?.state == .idle && fake.stops == 2 && model.navigator.input.isEmpty)
   model.store.update { $0.voice.enabled = false }
   controller.show(orderFront: false)
   #expect(model.voice?.state == .idle && fake.feeds.count == 2)
@@ -507,16 +508,16 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   fake.feeds[0].finish(throwing: VoiceError.microphoneDenied)
   #expect(await eventually { model.voice?.problem == VoiceError.microphoneDenied.description })
   #expect(restored == 1 && model.voice?.requestingPermission == false)
-  model.dismiss()
+  model.navigator.dismiss()
   model.armVoice()
-  model.editInput("typed normally")
-  #expect(fake.feeds.count == 1 && model.input == "typed normally")
+  model.navigator.editInput("typed normally")
+  #expect(fake.feeds.count == 1 && model.navigator.input == "typed normally")
   #expect(model.voice?.problem == VoiceError.microphoneDenied.description)
   // An intentional mic click retries after the user changes System Settings.
   model.toggleVoice()
   fake.feeds[1].yield(.ready)
   #expect(await eventually { model.voice?.state == .listening })
-  model.dismiss()
+  model.navigator.dismiss()
   model.armVoice()
   #expect(fake.feeds.count == 3)
   await model.finish()
@@ -549,16 +550,16 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
     fake.feeds[0].yield(.permission(true))
     #expect(await eventually { model.voice?.requestingPermission == true })
   }
-  model.input = "kept through consent"
+  model.navigator.input = "kept through consent"
   controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
   #expect(model.voice?.active == permission)
   if permission {
     fake.feeds[0].yield(.permission(false))
     fake.feeds[0].yield(.ready)
     #expect(await eventually { model.voice?.state == .listening })
-    #expect(model.input == "kept through consent")
+    #expect(model.navigator.input == "kept through consent")
   } else {
-    #expect(model.input.isEmpty)
+    #expect(model.navigator.input.isEmpty)
   }
   await model.finish()
 }
@@ -653,16 +654,16 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
     transcriber: { fake })
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  await model.settled()
+  await model.navigator.settled()
   model.armVoice()
   fake.feeds[0].yield(.ready)
   for number in 1...4 {
     fake.feeds[0].yield(.transcript("2+\(number)"))
-    #expect(await eventually { model.input == "2+\(number)" })
+    #expect(await eventually { model.navigator.input == "2+\(number)" })
     try await Task.sleep(for: .milliseconds(80))
     #expect(!FileManager.default.fileExists(atPath: log.path))
   }
-  await model.settled()
+  await model.navigator.settled()
   #expect(try String(contentsOf: log, encoding: .utf8) == "2+4\n")
   await model.finish()
 }

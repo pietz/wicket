@@ -141,6 +141,7 @@ struct InputBar: Layout {
 
 struct LauncherView: View {
   @Bindable var model: LauncherModel
+  private var navigator: Navigator { model.navigator }
   let renderer: AnswerRenderer
   let registerInput: (NSTextField) -> Void
   let run: (RowAction?) -> Void
@@ -162,13 +163,13 @@ struct LauncherView: View {
           ).foregroundStyle(.secondary).frame(width: 24)
           InputBar {
             input
-            ForEach(model.declaredArguments, id: \.name) { argumentSlot($0) }
+            ForEach(navigator.declaredArguments, id: \.name) { argumentSlot($0) }
           }
           .frame(height: 30)
           // The free space after the slots belongs to the input.
           .contentShape(Rectangle())
-          .onTapGesture { model.focusedArgument = nil }
-          if model.configuration.voice.enabled, model.takesSpeech {
+          .onTapGesture { navigator.focusedArgument = nil }
+          if model.configuration.voice.enabled, model.agent.takesSpeech {
             Button {
               model.toggleVoice()
             } label: {
@@ -184,19 +185,21 @@ struct LauncherView: View {
 
         VStack(spacing: 0) {
           // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
-          let actions = model.actionsTitle != nil
+          let actions = navigator.actionsTitle != nil
           ZStack(alignment: .top) {
             Group {
               if model.agent.active {
                 agentContent
-              } else if model.command?.problem != nil || model.page != nil {
+              } else if navigator.command?.problem != nil || navigator.page != nil {
                 extensionContent
               }
             }
             .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
-            if model.splits {
+            if navigator.splits {
               split
-            } else if actions || !model.agent.active && model.command?.problem == nil && model.page == nil {
+            } else if actions
+              || !model.agent.active && navigator.command?.problem == nil && navigator.page == nil
+            {
               list
             }
           }
@@ -212,18 +215,18 @@ struct LauncherView: View {
                 ?? (model.agent.active
                   ? (model.agent.continuing && !model.agent.busy && !model.agent.question.isEmpty
                     ? "Continuing conversation" : (renderer.problem ?? model.agent.status))
-                  : (model.problem ?? model.commandName ?? "Wicket"))
+                  : (model.problem ?? navigator.commandName ?? "Wicket"))
             ).lineLimit(1).help(
               voiceStatus ?? (model.agent.active ? model.agent.status : (model.problem ?? "")))
             Spacer()
             if !model.agent.permissions.isEmpty {
               Text("⌘↩ Allow")
               Text("Esc Don't allow")
-            } else if model.actionsTitle != nil {
-              Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
+            } else if navigator.actionsTitle != nil {
+              Text("↩ " + (navigator.selected?.row.actions.first?.label ?? "Enter"))
               Text("esc Back")
             } else if model.agent.active {
-              if let action = model.selected?.row.actions.first {
+              if let action = navigator.selected?.row.actions.first {
                 Text("↩ " + action.label)
               } else if model.agent.busy {
                 Button("Cancel") { model.agent.cancel() }.buttonStyle(.plain)
@@ -232,19 +235,19 @@ struct LauncherView: View {
               } else {
                 Text("↩ Follow up")
               }
-              if model.offersActions { Text("⌘K Actions") }
+              if navigator.offersActions { Text("⌘K Actions") }
               Text(
-                model.inDetail || model.returnsOnEscape
+                navigator.inDetail || navigator.returnsOnEscape
                   ? "Esc Back"
                   : model.agent.busy
                     ? "Esc Cancel" : model.agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
-              Text("↩ " + (model.selected?.row.actions.first?.label ?? "Enter"))
-              if model.offersActions { Text("⌘K Actions").lineLimit(1) }
+              Text("↩ " + (navigator.selected?.row.actions.first?.label ?? "Enter"))
+              if navigator.offersActions { Text("⌘K Actions").lineLimit(1) }
               // The one hint that may grow with a name: it gives way first.
-              Text("⌘↩ " + (model.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
+              Text("⌘↩ " + (navigator.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
                 .layoutPriority(-1)
-              Text(model.command == nil ? "esc Close" : "esc Back")
+              Text(navigator.command == nil ? "esc Close" : "esc Back")
             }
           }
           .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -263,23 +266,24 @@ struct LauncherView: View {
   /// field itself never sizes itself. The first 200 characters are enough to fill any width.
   private var input: some View {
     // The action panel's field is empty and says what the panel is for; typing returns to the input.
-    let text = model.actionsTitle == nil ? model.input : ""
+    let text = navigator.actionsTitle == nil ? navigator.input : ""
     let placeholder =
-      model.actionsTitle.map { "Actions for \($0)" }
+      navigator.actionsTitle.map { "Actions for \($0)" }
       ?? (model.agent.active
         ? (model.agent.question.isEmpty
-          ? model.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(model.askingName)…" : "Ask a follow-up…")
-        : (model.commandName ?? "Search or ask anything…"))
+          ? navigator.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(navigator.askingName)…"
+          : "Ask a follow-up…")
+        : (navigator.commandName ?? "Search or ask anything…"))
     return Text(text.isEmpty ? placeholder : String(text.prefix(200)))
       .font(.system(size: 21)).lineLimit(1).hidden()
       .padding(.trailing, 8)  // Room for the caret and the field's own inset.
       .frame(minWidth: 0, maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
       .overlay {
         SearchField(
-          text: Binding(get: { text }, set: { model.editInput($0) }),
+          text: Binding(get: { text }, set: { navigator.editInput($0) }),
           placeholder: placeholder, bleed: 6,
-          focused: model.focusedArgument == nil,
-          onFocus: { if model.focusedArgument != nil { model.focusedArgument = nil } },
+          focused: navigator.focusedArgument == nil,
+          onFocus: { if navigator.focusedArgument != nil { navigator.focusedArgument = nil } },
           register: registerInput)
       }
   }
@@ -287,16 +291,16 @@ struct LauncherView: View {
   /// Fixed sizes, like the input.
   private func argumentSlot(_ argument: ExtensionManifest.Argument) -> some View {
     let label = argument.placeholder ?? argument.name
-    let value = model.argumentValues[argument.name] ?? ""
+    let value = navigator.argumentValues[argument.name] ?? ""
     return Text(value.isEmpty ? label : value).font(.system(size: 15)).lineLimit(1).hidden()
       .padding(.trailing, 4)  // Room for the caret.
       .frame(minWidth: 24, maxWidth: 150).fixedSize()
       .overlay {
         SearchField(
-          text: Binding(get: { value }, set: { model.setArgument(argument.name, to: $0) }),
-          placeholder: label, size: 15, focused: model.focusedArgument == argument.name,
+          text: Binding(get: { value }, set: { navigator.setArgument(argument.name, to: $0) }),
+          placeholder: label, size: 15, focused: navigator.focusedArgument == argument.name,
           onFocus: {
-            if model.focusedArgument != argument.name { model.focusedArgument = argument.name }
+            if navigator.focusedArgument != argument.name { navigator.focusedArgument = argument.name }
           })
       }
       .padding(.horizontal, 9).frame(height: 28)
@@ -307,17 +311,17 @@ struct LauncherView: View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(spacing: 2) {
-          if model.results.isEmpty {
-            Text(model.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
+          if navigator.results.isEmpty {
+            Text(navigator.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
               .frame(height: PaletteLayout.header)
           }
-          ForEach(model.results) { result in resultRow(result) }
+          ForEach(navigator.results) { result in resultRow(result) }
         }.padding(10)
       }
-      .frame(height: model.listHeight)
-      .onChange(of: model.selection) { _, id in if let id { proxy.scrollTo(id) } }
-      .onChange(of: model.results.map(\.id)) { _, _ in
-        if let id = model.selection { proxy.scrollTo(id) }
+      .frame(height: navigator.listHeight)
+      .onChange(of: navigator.selection) { _, id in if let id { proxy.scrollTo(id) } }
+      .onChange(of: navigator.results.map(\.id)) { _, _ in
+        if let id = navigator.selection { proxy.scrollTo(id) }
       }
     }
   }
@@ -331,18 +335,18 @@ struct LauncherView: View {
       if let page = renderer.page {
         WebView(page).webViewContentBackground(.hidden)
           .opacity(
-            renderer.renderedTurn.hasPrefix(LauncherModel.previewTurn(model.command?.id ?? "", nil)) ? 1 : 0)
+            renderer.renderedTurn.hasPrefix(Navigator.previewTurn(navigator.command?.id ?? "", nil)) ? 1 : 0)
       } else {
         Spacer()
       }
     }
-    .frame(height: model.listHeight)
+    .frame(height: navigator.listHeight)
   }
   /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
   private func resultRow(_ result: Result) -> some View {
     HStack(spacing: 10) {
       icon(result).frame(width: 26, height: 26)
-      if result.row.prominent == true, result.id == model.results.first?.id {
+      if result.row.prominent == true, result.id == navigator.results.first?.id {
         VStack(alignment: .leading, spacing: 0) {
           Text(result.row.title).font(
             .system(size: 24 * textSize.scale, weight: .medium).monospacedDigit())
@@ -354,7 +358,7 @@ struct LauncherView: View {
           .layoutPriority(
             1)
         // Beside a detail the list is narrow, and the detail says more.
-        if let subtitle = result.row.subtitle, result.provider != "apps", !model.splits {
+        if let subtitle = result.row.subtitle, result.provider != "apps", !navigator.splits {
           Text(subtitle).font(.system(size: 14 * textSize.scale)).foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -367,62 +371,62 @@ struct LauncherView: View {
       if model.recordsHotkey(of: result) {
         Text(model.recorder.rejected ? "Add ⌘, ⌃ or ⌥ · Esc cancels" : "Press a shortcut · Esc cancels")
           .font(.system(size: 13 * textSize.scale)).foregroundStyle(.secondary).lineLimit(1)
-      } else if let hotkey = model.hotkey(of: result) {
+      } else if let hotkey = navigator.hotkey(of: result) {
         Text(hotkey.symbols).font(.system(size: 13 * textSize.scale)).foregroundStyle(.tertiary)
           .lineLimit(1)
       }
     }
     .padding(.horizontal, 10).frame(
       height: (result.row.prominent == true)
-        && result.id == model.results.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
+        && result.id == navigator.results.first?.id ? textSize.rowHeight + 20 : textSize.rowHeight
     )
     .background {
-      if result.id == model.selection {
+      if result.id == navigator.selection {
         RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
           .primary.opacity(0.1))
       }
     }
     .contentShape(Rectangle()).id(result.id)
     .onTapGesture(count: 2) {
-      model.select(result.id)
+      navigator.select(result.id)
       run(nil)
     }
-    .onTapGesture { if model.click(result.id) { run(nil) } }
+    .onTapGesture { if navigator.click(result.id) { run(nil) } }
     .contextMenu {
-      ForEach(Array(model.actions(of: result).enumerated()), id: \.offset) { _, action in
+      ForEach(Array(navigator.actions(of: result).enumerated()), id: \.offset) { _, action in
         Button(action.label) {
-          model.select(result.id)
+          navigator.select(result.id)
           run(action)
         }
       }
     }
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(
-      result.id == model.selection ? [.isSelected, .isButton] : .isButton)
+      result.id == navigator.selection ? [.isSelected, .isButton] : .isButton)
   }
   private var voiceStatus: String? {
     if model.voice?.state == .starting { return "Starting voice…" }
     if model.voice?.state == .listening { return "Listening…" }
     return model.voice?.problem
   }
-  private var cardHeight: CGFloat { model.cardHeight(answer: renderer.height, cap: renderer.cap) }
+  private var cardHeight: CGFloat { navigator.cardHeight(answer: renderer.height, cap: renderer.cap) }
   private var extensionContent: some View {
     VStack(spacing: 0) {
       HStack {
-        Text(model.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
+        Text(navigator.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
           .lineLimit(1)
         Spacer()
-        if model.command?.busy == true { ProgressView().controlSize(.small) }
-        if let error = model.command?.problem {
+        if navigator.command?.busy == true { ProgressView().controlSize(.small) }
+        if let error = navigator.command?.problem {
           Button("Copy") {
             model.writePasteboard(error)
           }
-          Button("Ask agent") { model.send(error) }
-        } else if !model.viewActions.isEmpty {
-          Button("Actions") { model.toggleActions(model.viewRow) }
+          Button("Ask agent") { navigator.send(error) }
+        } else if !navigator.viewActions.isEmpty {
+          Button("Actions") { navigator.toggleActions(navigator.viewRow) }
         }
       }.buttonStyle(.plain).padding(.horizontal, 20).frame(height: PaletteLayout.header)
-      if let error = model.command?.problem {
+      if let error = navigator.command?.problem {
         ScrollView {
           Text(error).font(.system(size: 13)).textSelection(.enabled).frame(
             maxWidth: .infinity, alignment: .leading
@@ -437,10 +441,10 @@ struct LauncherView: View {
     if model.agent.question.isEmpty {
       // A draft from the `agent` action or Cmd+Return: nothing is asked yet.
       Text(
-        model.returnsOnEscape
-          ? model.askingAbout.map { "\(model.askingName) will see what \($0) shows." }
-            ?? "Type a question for \(model.askingName)."
-          : "Press Return to ask \(model.askingName), or edit the question first."
+        navigator.returnsOnEscape
+          ? navigator.askingAbout.map { "\(navigator.askingName) will see what \($0) shows." }
+            ?? "Type a question for \(navigator.askingName)."
+          : "Press Return to ask \(navigator.askingName), or edit the question first."
       )
       .font(.system(size: textSize.points)).foregroundStyle(.secondary)
       .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
@@ -457,11 +461,13 @@ struct LauncherView: View {
             Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
           }
           Text(model.agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
-            .lineLimit(model.questionExpanded ? nil : 2).textSelection(.enabled)
+            .lineLimit(navigator.questionExpanded ? nil : 2).textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
           if longQuestion {
-            Button(model.questionExpanded ? "Show less" : "Show more") { model.questionExpanded.toggle() }
-              .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
+            Button(navigator.questionExpanded ? "Show less" : "Show more") {
+              navigator.questionExpanded.toggle()
+            }
+            .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
           }
           if let notice = model.agent.notice {
             Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
@@ -470,7 +476,7 @@ struct LauncherView: View {
           .onGeometryChange(for: CGFloat.self) {
             $0.size.height
           } action: {
-            model.conversationHeaderHeight = $0
+            navigator.conversationHeaderHeight = $0
           }
         if let permission = model.agent.permissions.first {
           ConfirmationView(
@@ -480,7 +486,7 @@ struct LauncherView: View {
           .id(permission.id).onGeometryChange(for: CGFloat.self) {
             $0.size.height
           } action: {
-            model.confirmationHeight = $0
+            navigator.confirmationHeight = $0
           }
         } else if let problem = model.agent.problem ?? renderer.problem {
           Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
@@ -575,7 +581,7 @@ extension RowAction {
   }
 }
 
-extension LauncherModel {
+extension Navigator {
   /// The list's height: as tall as its rows, or beside a detail always eight rows, so that arrowing
   /// through details of different lengths never changes it; a longer detail scrolls.
   var listHeight: CGFloat {

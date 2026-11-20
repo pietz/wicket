@@ -32,39 +32,44 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   let model = try await notes(in: root)
   // At the root the same items are rows like apps, with no detail beside them.
-  model.input = "note"
-  await model.settled()
-  #expect(model.results.contains { $0.row.title == "Alpha note" && $0.row.detail != nil })
-  #expect(!model.splits && model.preview == nil)
+  model.navigator.input = "note"
+  await model.navigator.settled()
+  #expect(model.navigator.results.contains { $0.row.title == "Alpha note" && $0.row.detail != nil })
+  #expect(!model.navigator.splits && model.navigator.preview == nil)
   // Inside the command the first item is selected and its detail shows at once.
-  model.go(Address(id: "notes"))
-  await model.settled()
-  #expect(model.splits && model.selected?.row.id == "alpha")
-  let alpha = try #require(model.preview)
+  model.navigator.go(Address(id: "notes"))
+  await model.navigator.settled()
+  #expect(model.navigator.splits && model.navigator.selected?.row.id == "alpha")
+  let alpha = try #require(model.navigator.preview)
   #expect(alpha.page.source.contains("## Alpha") && alpha.turn == "detail:extension:notes:alpha")
-  #expect(model.cardHeight(answer: 80, cap: 500) == PaletteLayout.rowsHeight(8) + PaletteLayout.footer)
+  #expect(
+    model.navigator.cardHeight(answer: 80, cap: 500) == PaletteLayout.rowsHeight(8) + PaletteLayout.footer)
   // Arrows change what it shows, with no request; an item without a detail shows an empty pane, and the
   // card keeps its height.
-  model.move(1)
-  #expect(model.preview?.page.source == "" && model.preview?.turn == "detail:extension:notes:beta")
-  model.move(1)
-  #expect(model.preview?.page.source == "Gamma body")
-  #expect(model.cardHeight(answer: 300, cap: 500) == PaletteLayout.rowsHeight(8) + PaletteLayout.footer)
+  model.navigator.move(1)
+  #expect(
+    model.navigator.preview?.page.source == ""
+      && model.navigator.preview?.turn == "detail:extension:notes:beta")
+  model.navigator.move(1)
+  #expect(model.navigator.preview?.page.source == "Gamma body")
+  #expect(
+    model.navigator.cardHeight(answer: 300, cap: 500) == PaletteLayout.rowsHeight(8) + PaletteLayout.footer)
   // Return runs the item's own first action, and ⌘K lists its actions in place of the split.
-  model.move(-2)
-  #expect(model.returnAction == .copy("alpha") && model.offersActions)
-  model.toggleActions()
-  #expect(!model.splits && model.results.map(\.row.title) == ["Copy", "Open", "Set Hotkey…"])
-  #expect(model.escape() && model.splits && model.selected?.row.id == "alpha")
+  model.navigator.move(-2)
+  #expect(model.navigator.returnAction == .copy("alpha") && model.navigator.offersActions)
+  model.navigator.toggleActions()
+  #expect(
+    !model.navigator.splits && model.navigator.results.map(\.row.title) == ["Copy", "Open", "Set Hotkey…"])
+  #expect(model.navigator.escape() && model.navigator.splits && model.navigator.selected?.row.id == "alpha")
   // Typing filters as in any list; a list left without details is a plain list.
-  model.input = "beta"
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Beta note"] && !model.splits)
+  model.navigator.input = "beta"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Beta note"] && !model.navigator.splits)
   // A conversation over the command shows no detail.
-  model.input = ""
-  await model.settled()
-  model.askAgent()
-  #expect(model.agent.active && !model.splits && model.preview == nil)
+  model.navigator.input = ""
+  await model.navigator.settled()
+  model.navigator.askAgent()
+  #expect(model.agent.active && !model.navigator.splits && model.navigator.preview == nil)
   await model.finish()
 }
 
@@ -137,11 +142,11 @@ import Testing
     clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
   model.store.start(watching: false)
   model.store.update { $0.providers = [.init("clipboard")] }
-  model.go(Address(extensionName: "clipboard"))
-  #expect(model.command?.id == "clipboard" && model.splits)
+  model.navigator.go(Address(extensionName: "clipboard"))
+  #expect(model.navigator.command?.id == "clipboard" && model.navigator.splits)
   // The newest clip is selected, so its detail shows as the history opens.
-  #expect(model.selected?.row.title == "let a = \"``\"")
-  let shown = try #require(model.preview?.page)
+  #expect(model.navigator.selected?.row.title == "let a = \"``\"")
+  let shown = try #require(model.navigator.preview?.page)
   // The text is one literal code block, its fence longer than any backtick run, then quiet properties.
   #expect(shown.source.hasPrefix("`````\n" + text + "\n`````\n\n"))
   #expect(shown.targets.isEmpty && shown.picture == nil)
@@ -150,8 +155,8 @@ import Testing
   let html = AnswerMarkdown.html(shown.source, streaming: false)
   #expect(html.contains("&lt;row title=&quot;Injected&quot;") && !html.contains("<w-row title=\"Injected\""))
   // The image's detail is its picture, named by the host, and its pixel and file size.
-  model.move(1)
-  let image = try #require(model.preview?.page)
+  model.navigator.move(1)
+  let image = try #require(model.navigator.preview?.page)
   let id = try #require(history.clips.last?.id)
   #expect(image.picture == folder.appending(path: id + ".png"))
   #expect(image.source.contains("<row label=\"Dimensions\" value=\"32×24\"/>"))
@@ -177,11 +182,11 @@ import Testing
   let model = try await notes(in: root)
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.go(Address(id: "notes"))
-  await model.settled()
+  model.navigator.go(Address(id: "notes"))
+  await model.navigator.settled()
   await controller.renderer.settled()
   #expect(controller.renderer.renderedTurn == "detail:extension:notes:alpha")
-  model.move(2)
+  model.navigator.move(2)
   await controller.renderer.settled()
   #expect(controller.renderer.renderedTurn == "detail:extension:notes:gamma")
   controller.hide()

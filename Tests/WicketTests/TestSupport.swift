@@ -17,7 +17,7 @@ extension LauncherModel {
   /// Return as the model sees it, without the panel's effects on the system: the selected row's
   /// action, or the follow-up of a conversation. False for an effect the panel would run.
   @discardableResult func activateReturn() -> Bool {
-    pick().map { activate($0.action, from: $0.from) } ?? false
+    navigator.pick().map { activate($0.action, from: $0.from) } ?? false
   }
   /// A model with no built-in providers that keeps its settings and usage in `folder`.
   static func testing(
@@ -40,6 +40,18 @@ func requests(in folder: URL) throws -> [ProviderRequest] {
   }
 }
 
+/// A turn asked as the user would, from the screen shown, and answered.
+@MainActor @discardableResult
+func finishTurn(_ model: LauncherModel, _ question: String, _ answer: String) async throws -> FakeAgent {
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  model.navigator.send(question)
+  #expect(await eventually { fake.running })
+  fake.text(answer)
+  fake.end()
+  #expect(await eventually { !model.agent.busy && fake.stopped })
+  return fake
+}
 /// Finishes one question through the real session and a fake agent, whose process ends with the turn.
 @MainActor @discardableResult
 func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) async throws -> FakeAgent {

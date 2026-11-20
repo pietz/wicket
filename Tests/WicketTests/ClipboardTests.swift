@@ -226,45 +226,52 @@ func testImage(_ width: Int, _ height: Int, seed: Int = 0, as type: NSBitmapImag
     folder: folder)
   model.store.start(watching: false)
   // Off: no row, and the address opens the command only to say how to switch it on.
-  model.input = "clip"
-  await model.settled()
-  #expect(!model.results.contains { $0.provider == "clipboard" })
-  model.go(Address(extensionName: "clipboard"))
-  #expect(model.command?.problem?.contains("Switch it on in Settings") == true && model.results.isEmpty)
-  #expect(model.escape())
+  model.navigator.input = "clip"
+  await model.navigator.settled()
+  #expect(!model.navigator.results.contains { $0.provider == "clipboard" })
+  model.navigator.go(Address(extensionName: "clipboard"))
+  #expect(
+    model.navigator.command?.problem?.contains("Switch it on in Settings") == true
+      && model.navigator.results.isEmpty)
+  #expect(model.navigator.escape())
 
   model.store.update { $0.providers = [.init("clipboard")] }
   history.capture("alpha one")
   history.capture("beta two")
-  model.input = "clip"
-  await model.settled()
-  let row = try #require(model.results.first { $0.provider == "clipboard" })
-  model.select(row.id)
+  model.navigator.input = "clip"
+  await model.navigator.settled()
+  let row = try #require(model.navigator.results.first { $0.provider == "clipboard" })
+  model.navigator.select(row.id)
   #expect(model.activateReturn())
-  await model.settled()
-  #expect(model.command?.id == "clipboard" && model.input == "" && model.commandName == "Clipboard History")
-  #expect(model.results.map(\.row.title) == ["beta two", "alpha one"])
-  #expect(model.returnAction == .paste("beta two"))
-  model.input = "alp"
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["alpha one"])
+  await model.navigator.settled()
+  #expect(
+    model.navigator.command?.id == "clipboard" && model.navigator.input == ""
+      && model.navigator.commandName == "Clipboard History")
+  #expect(model.navigator.results.map(\.row.title) == ["beta two", "alpha one"])
+  #expect(model.navigator.returnAction == .paste("beta two"))
+  model.navigator.input = "alp"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["alpha one"])
   // Delete from the context menu: the row's own run action, through the one dispatcher.
-  let alpha = try #require(model.results.first)
+  let alpha = try #require(model.navigator.results.first)
   #expect(alpha.row.actions.last?.label == "Delete")
   #expect(model.activate(try #require(alpha.row.actions.last), from: alpha))
-  await model.settled()
-  #expect(model.command?.id == "clipboard" && model.input == "alp")
-  #expect(model.results.isEmpty && history.clips.map(\.text) == ["beta two"])
-  #expect(model.escape() && model.command == nil)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "clipboard" && model.navigator.input == "alp")
+  #expect(model.navigator.results.isEmpty && history.clips.map(\.text) == ["beta two"])
+  #expect(model.navigator.escape() && model.navigator.command == nil)
   // Clearing empties the view; an outsider's URL opens it with the input filled.
   history.clear()
-  model.go(try #require(Address(url: URL(string: "wicket://clipboard?input=beta")!)))
-  await model.settled()
-  #expect(model.command?.id == "clipboard" && model.input == "beta" && model.results.isEmpty)
+  model.navigator.go(try #require(Address(url: URL(string: "wicket://clipboard?input=beta")!)))
+  await model.navigator.settled()
+  #expect(
+    model.navigator.command?.id == "clipboard" && model.navigator.input == "beta"
+      && model.navigator.results.isEmpty)
   // Switched off while open: the command says how to switch it back on.
   model.store.update { $0.providers = [.init("clipboard", enabled: false)] }
-  model.refresh()
-  #expect(model.command?.problem?.contains("switched off") == true && model.results.isEmpty)
+  model.navigator.refresh()
+  #expect(
+    model.navigator.command?.problem?.contains("switched off") == true && model.navigator.results.isEmpty)
   await model.finish()
 }
 
@@ -460,6 +467,6 @@ private func pngs(_ folder: URL) -> Set<String> {
   history.delete(row.id)
   let count = pasteboard.changeCount
   #expect(!model.writePasteboard(row.actions[1].kind))
-  #expect(pasteboard.changeCount == count && model.actionProblem?.contains("no longer") == true)
+  #expect(pasteboard.changeCount == count && model.navigator.actionProblem?.contains("no longer") == true)
   await model.finish()
 }

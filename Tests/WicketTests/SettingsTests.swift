@@ -125,7 +125,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root)
   #expect(model.problem == nil)
-  model.actionProblem = "paste"
+  model.navigator.actionProblem = "paste"
   #expect(model.problem == "paste")
   model.installProblem = "install"
   #expect(model.problem == "install")
@@ -136,7 +136,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   #expect(model.problem?.hasPrefix("Config:") == true)
   model.store.update { _ in }
   #expect(model.problem == "hotkey")
-  model.clearTransientProblems()
+  model.navigator.actionProblem = nil
   #expect(model.problem == "hotkey")
   model.store.hotkeyProblem = nil
   #expect(model.problem == "install")
@@ -268,13 +268,13 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root)
   var opened = 0
-  model.onSettings = { opened += 1 }
-  model.input = "Settings"
-  #expect(model.results.map(\.provider) == ["settings"])
-  #expect(model.selected?.row.title == "Settings" && model.activateReturn())
+  model.navigator.onSettings = { opened += 1 }
+  model.navigator.input = "Settings"
+  #expect(model.navigator.results.map(\.provider) == ["settings"])
+  #expect(model.navigator.selected?.row.title == "Settings" && model.activateReturn())
   #expect(opened == 1 && !model.agent.active)
-  model.input = "unmatched sentence"
-  #expect(model.results.first?.provider == "agent")
+  model.navigator.input = "unmatched sentence"
+  #expect(model.navigator.results.first?.provider == "agent")
   await model.finish()
 }
 

@@ -37,16 +37,16 @@ private func run(
   }
   /// Opens Agent History from the root and reopens the row with this title.
   func reopen(_ title: String) async throws {
-    model.input = "history"
-    await model.settled()
-    let row = try #require(model.results.first { $0.provider == "history" })
+    model.navigator.input = "history"
+    await model.navigator.settled()
+    let row = try #require(model.navigator.results.first { $0.provider == "history" })
     #expect(row.row.title == AgentHistory.title)
-    model.select(row.id)
+    model.navigator.select(row.id)
     #expect(model.activateReturn())
-    await model.settled()
-    #expect(model.command?.id == "history" && model.commandName == AgentHistory.title)
-    let entry = try #require(model.results.first { $0.row.title == title })
-    model.select(entry.id)
+    await model.navigator.settled()
+    #expect(model.navigator.command?.id == "history" && model.navigator.commandName == AgentHistory.title)
+    let entry = try #require(model.navigator.results.first { $0.row.title == title })
+    model.navigator.select(entry.id)
     #expect(model.activateReturn())
   }
   func finish() async {
@@ -143,9 +143,9 @@ private func run(
   #expect(model.agent.previous.map(\.question) == ["Weather in Berlin?"])
   #expect(model.agent.sessionID == "thread-1" && model.agent.agentName == "ChatGPT")
   // The source belongs to the first question, which is not the one under the header now.
-  #expect(model.agent.source == nil && model.input == "" && bench.starts.isEmpty)
+  #expect(model.agent.source == nil && model.navigator.input == "" && bench.starts.isEmpty)
   // Claude is configured, but the run keeps its agent and resumes its thread.
-  model.send("And Munich?")
+  model.navigator.send("And Munich?")
   #expect(await eventually { bench.fakes.first?.running == true })
   #expect(bench.starts.count == 1 && bench.starts[0].agent == .codex && bench.starts[0].resume == "thread-1")
   let fake = bench.fakes[0]
@@ -158,10 +158,10 @@ private func run(
   #expect(saved.id == "r1" && saved.session == "thread-1" && saved.source == "Weather")
   #expect(saved.turns.map(\.answer) == ["Sunny", "Rain", "Clouds"])
   // Escape ends the conversation and goes back to the list, the run on top.
-  #expect(model.escape())
-  await model.settled()
-  #expect(!model.agent.active && model.command?.id == "history")
-  #expect(model.results.first?.row.title == "Weather in Berlin?")
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
+  #expect(!model.agent.active && model.navigator.command?.id == "history")
+  #expect(model.navigator.results.first?.row.title == "Weather in Berlin?")
   await bench.finish()
 }
 
@@ -172,7 +172,7 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   bench.runs.save(
     run("r1", [("What is a mutex?", "A lock")], agent: claude ? .claude : .codex, session: "gone"))
   try await bench.reopen("What is a mutex?")
-  model.send("And a semaphore?")
+  model.navigator.send("And a semaphore?")
   #expect(await eventually { bench.fakes.first?.running == true })
   // The CLI's own answer to an unknown session, before it reported any session.
   bench.fakes[0].onEvent(
@@ -189,7 +189,7 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   #expect(model.agent.answer == "A counter" && model.agent.previous.map(\.answer) == ["A lock"])
   #expect(bench.runs.runs.first?.session == "fresh" && bench.runs.runs.first?.turns.count == 2)
   // The next follow-up resumes it, and the line is gone.
-  model.send("Which is faster?")
+  model.navigator.send("Which is faster?")
   #expect(await eventually { bench.fakes.count == 3 && bench.fakes[2].running })
   #expect(bench.starts.last?.resume == "fresh" && model.agent.notice == nil)
   bench.fakes[2].end()
@@ -202,7 +202,7 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   let model = bench.model
   bench.runs.save(run("r1", [("Question", "Answer")], session: "kept"))
   try await bench.reopen("Question")
-  model.send("Follow-up")
+  model.navigator.send("Follow-up")
   #expect(await eventually { bench.fakes.first?.running == true })
   bench.fakes[0].onEvent(.session("kept"))
   bench.fakes[0].onEvent(.failed("Rate limited"))
@@ -215,13 +215,15 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   let bench = try Bench()
   let model = bench.model
   bench.runs.save(run("r1", [("Question", "Answer")]))
-  model.go(try #require(Address(url: URL(string: "wicket://history?input=quest")!)))
-  await model.settled()
-  #expect(model.command?.id == "history" && model.input == "quest" && model.results.count == 1)
+  model.navigator.go(try #require(Address(url: URL(string: "wicket://history?input=quest")!)))
+  await model.navigator.settled()
+  #expect(
+    model.navigator.command?.id == "history" && model.navigator.input == "quest"
+      && model.navigator.results.count == 1)
   // An outsider cannot spell the open argument, and an unchosen request never opens anything.
-  model.go(Address(extensionName: "history", arguments: ["open": "r1"]))
-  await model.settled()
-  #expect(!model.agent.active && model.command?.id == "history")
+  model.navigator.go(Address(extensionName: "history", arguments: ["open": "r1"]))
+  await model.navigator.settled()
+  #expect(!model.agent.active && model.navigator.command?.id == "history")
   #expect(Address.reserved.contains("history"))
   await bench.finish()
 }
@@ -229,15 +231,15 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
 @MainActor @Test func openingACommandDuringATurnEndsItAndKeepsItInAgentHistory() async throws {
   let bench = try Bench()
   let model = bench.model
-  model.input = "Weather in Berlin?"
-  model.askAgent()
+  model.navigator.input = "Weather in Berlin?"
+  model.navigator.askAgent()
   #expect(await eventually { bench.fakes.first?.running == true })
   bench.fakes[0].onEvent(.session("s-1"))
   bench.fakes[0].text("Sunny so f")
   // A link in the answer opens a command: the turn ends, saved as a cancelled one would be.
-  model.go(try #require(Address(url: URL(string: "wicket://history")!)))
-  await model.settled()
-  #expect(!model.agent.active && model.command?.id == "history")
+  model.navigator.go(try #require(Address(url: URL(string: "wicket://history")!)))
+  await model.navigator.settled()
+  #expect(!model.agent.active && model.navigator.command?.id == "history")
   #expect(await eventually { bench.fakes[0].stopped })
   let saved = try #require(bench.runs.runs.first)
   #expect(

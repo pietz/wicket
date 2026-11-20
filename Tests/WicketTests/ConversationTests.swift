@@ -12,30 +12,30 @@ import Testing
   let escape = { controller.panel.route(voiceKey(53, "\u{1b}")) }
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.input = "First question"
-  model.send()
+  model.navigator.input = "First question"
+  model.navigator.send()
   #expect(await eventually { fake.running })
   fake.text("First answer")
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  model.editInput("Draft follow-up")
+  model.navigator.editInput("Draft follow-up")
   #expect(model.agent.answer == "First answer")
   let hidden = Date()
-  model.dismiss()
+  model.navigator.dismiss()
   model.reopen(now: hidden.addingTimeInterval(1199))
-  #expect(model.input == "Draft follow-up" && model.agent.continuing)
-  model.send()
+  #expect(model.navigator.input == "Draft follow-up" && model.agent.continuing)
+  model.navigator.send()
   #expect(!model.agent.continuing)
   #expect(await eventually { fake.running })
   #expect(model.agent.previous.first?.question == "First question")
   #expect(model.agent.previous.first?.answer == "First answer")
-  model.editInput("Editable while running")
-  model.send()
-  #expect(model.agent.question == "Draft follow-up" && model.input == "Editable while running")
+  model.navigator.editInput("Editable while running")
+  model.navigator.send()
+  #expect(model.agent.question == "Draft follow-up" && model.navigator.input == "Editable while running")
   fake.ask()
-  model.dismiss()
+  model.navigator.dismiss()
   model.reopen()
-  #expect(model.agent.permissions.count == 1 && model.input == "Editable while running")
+  #expect(model.agent.permissions.count == 1 && model.navigator.input == "Editable while running")
   for code: UInt16 in [36, 76] {
     #expect(controller.panel.route(voiceKey(code, "\r", .command, repeatKey: true)))
     #expect(model.agent.permissions.count == 1 && fake.decisions.isEmpty)
@@ -46,10 +46,10 @@ import Testing
   #expect(await eventually { !model.agent.busy })
   #expect(model.agent.active && model.agent.previous.count == 1)
   #expect(escape() && !model.agent.active && model.agent.previous.isEmpty)
-  model.input = "root draft"
-  #expect(escape() && model.input.isEmpty)
+  model.navigator.input = "root draft"
+  #expect(escape() && model.navigator.input.isEmpty)
   #expect(escape() && !controller.panel.isVisible)
-  model.send()
+  model.navigator.send()
   #expect(!model.agent.active)
   await model.finish()
 }
@@ -129,20 +129,20 @@ import Testing
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root)
-  try await finishTurn(model.agent, "Question", "Answer")
+  try await finishTurn(model, "Question", "Answer")
   let controller = PaletteController(model: model)
   model.store.update { $0.voice.enabled = false }
   controller.show(orderFront: false, listen: false)
   let frame = controller.panel.frame
-  model.conversationHeaderHeight += 100
+  model.navigator.conversationHeaderHeight += 100
   #expect(controller.panel.frame.height == frame.height + 100)
   #expect(controller.panel.frame.maxY == frame.maxY)
   model.store.update { $0.textSize = .larger }
   #expect(controller.renderer.textSize == .larger)
-  model.input = "Keep temporarily"
-  model.dismiss()
+  model.navigator.input = "Keep temporarily"
+  model.navigator.dismiss()
   model.reopen(now: Date().addingTimeInterval(1201))
-  #expect(!model.agent.active && model.input.isEmpty && model.command == nil)
+  #expect(!model.agent.active && model.navigator.input.isEmpty && model.navigator.command == nil)
   await model.finish()
 }
 
@@ -227,15 +227,15 @@ import Testing
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.renderer.releaseDelay = .milliseconds(200)
   controller.show(orderFront: false, listen: false)
-  model.input = "test"
-  await model.settled()
+  model.navigator.input = "test"
+  await model.navigator.settled()
   #expect(model.activateReturn())
-  await model.settled()
-  #expect(model.body == "Extension detail" && controller.renderer.page != nil)
+  await model.navigator.settled()
+  #expect(model.navigator.body == "Extension detail" && controller.renderer.page != nil)
   // Ask the agent from the detail, then hide while it works.
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.send("Explain this")
+  model.navigator.send("Explain this")
   #expect(await eventually { fake.running })
   controller.hide()
   fake.text("Still working")
@@ -261,20 +261,22 @@ import Testing
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   // At the root nothing goes with the question.
-  model.send("What time is it?")
+  model.navigator.send("What time is it?")
   #expect(await eventually { fake.running })
   #expect(fake.prompts.last?.text == "What time is it?" && model.agent.source == nil)
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  model.agent.reset()
+  // Ending the conversation goes back to the root.
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
 
-  model.go(Address(id: "weather", input: "Hamburg", arguments: ["view": "day"]))
-  await model.settled()
-  #expect(model.body?.hasPrefix("## Hamburg") == true)
-  let path = try #require(model.extensionCommand).folder.path
+  model.navigator.go(Address(id: "weather", input: "Hamburg", arguments: ["view": "day"]))
+  await model.navigator.settled()
+  #expect(model.navigator.body?.hasPrefix("## Hamburg") == true)
+  let path = try #require(model.navigator.extensionCommand).folder.path
   #expect(path.hasSuffix(folder.path))
-  model.editInput("add the wind here")
-  model.send()
+  model.navigator.editInput("add the wind here")
+  model.navigator.send()
   #expect(await eventually { fake.running })
   let prompt = try #require(fake.prompts.last?.text)
   #expect(
@@ -282,7 +284,7 @@ import Testing
       "<context>\nThe user asked from the Weather command (\(path), folder `weather`), input \"Hamburg\", arguments {\"view\":\"day\"}.\nIt showed:\n{\"body\":\"## Hamburg"
     ))
   #expect(prompt.hasSuffix("[cut: the view was longer than this]\n</context>\n\nadd the wind here"))
-  #expect(prompt.count < LauncherModel.contextLimit + 400)
+  #expect(prompt.count < Navigator.contextLimit + 400)
   // The conversation shows only the user's words, and where they asked from.
   #expect(model.agent.question == "add the wind here" && model.agent.source == "Weather")
   fake.text("Done")
@@ -290,7 +292,7 @@ import Testing
   #expect(await eventually { !model.agent.busy })
 
   // A follow-up carries only its text.
-  model.send("and the gusts")
+  model.navigator.send("and the gusts")
   #expect(await eventually { fake.prompts.last?.text == "and the gusts" })
   #expect(model.agent.source == nil)
   #expect(model.agent.previous.last?.question == "add the wind here")
@@ -310,7 +312,7 @@ import Testing
     return fake
   }
   model.store.update { $0.textSize = .larger }
-  model.send("Weather in Hamburg?")
+  model.navigator.send("Weather in Hamburg?")
   #expect(await eventually { fake.running })
   #expect(sizes == [.larger])
   fake.end()
@@ -348,36 +350,43 @@ import Testing
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   // At the root: an empty conversation like the `agent` action's, and Escape is the root again.
-  model.input = " "
-  await model.settled()
-  #expect(model.askingAbout == nil)
-  model.askAgent()
-  #expect(model.agent.active && model.agent.question.isEmpty && model.returnsOnEscape && model.input == "")
-  #expect(model.askingAbout == nil)
-  #expect(model.escape())
-  #expect(!model.agent.active && model.command == nil && model.input == " ")
+  model.navigator.input = " "
+  await model.navigator.settled()
+  #expect(model.navigator.askingAbout == nil)
+  model.navigator.askAgent()
+  #expect(
+    model.agent.active && model.agent.question.isEmpty && model.navigator.returnsOnEscape
+      && model.navigator.input == "")
+  #expect(model.navigator.askingAbout == nil)
+  #expect(model.navigator.escape())
+  #expect(!model.agent.active && model.navigator.command == nil && model.navigator.input == " ")
 
-  model.go(Address(id: "extension:weather"))
-  await model.settled()
-  model.move(1)
-  let selected = try #require(model.selection)
-  #expect(model.selected?.row.title == "Berlin b" && model.askingAbout == "Weather" && runs() == [""])
-  model.askAgent()
-  #expect(model.agent.active && model.agent.question.isEmpty && model.askingAbout == "Weather")
+  model.navigator.go(Address(id: "extension:weather"))
+  await model.navigator.settled()
+  model.navigator.move(1)
+  let selected = try #require(model.navigator.selection)
+  #expect(
+    model.navigator.selected?.row.title == "Berlin b" && model.navigator.askingAbout == "Weather"
+      && runs() == [""])
+  model.navigator.askAgent()
+  #expect(model.agent.active && model.agent.question.isEmpty && model.navigator.askingAbout == "Weather")
   // Typing goes to the agent: the extension never reruns and its rows are not walked.
-  model.editInput("will it rain tomorrow")
-  model.move(1)
-  await model.settled()
-  #expect(runs() == [""] && model.results.isEmpty && model.selected == nil)
+  model.navigator.editInput("will it rain tomorrow")
+  model.navigator.move(1)
+  await model.navigator.settled()
+  #expect(runs() == [""] && model.navigator.results.isEmpty && model.navigator.selected == nil)
   // Escape: the command with its view, input and selection, without a rerun.
-  #expect(model.escape())
-  await model.settled()
-  #expect(!model.agent.active && model.command?.id == "extension:weather" && model.input == "")
-  #expect(runs() == [""] && model.selection == selected && model.selected?.row.title == "Berlin b")
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
+  #expect(
+    !model.agent.active && model.navigator.command?.id == "extension:weather" && model.navigator.input == "")
+  #expect(
+    runs() == [""] && model.navigator.selection == selected
+      && model.navigator.selected?.row.title == "Berlin b")
 
   // Return sends what was typed with the screen Cmd+Return found.
-  model.askAgent()
-  model.editInput("will it rain tomorrow")
+  model.navigator.askAgent()
+  model.navigator.editInput("will it rain tomorrow")
   #expect(model.activateReturn())
   #expect(await eventually { fake.running })
   let prompt = try #require(fake.prompts.last?.text)
@@ -394,14 +403,14 @@ import Testing
   let (model, runs) = try await cityCommand(root)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
-  model.go(Address(id: "extension:weather", input: "Hamburg"))
-  await model.settled()
+  model.navigator.go(Address(id: "extension:weather", input: "Hamburg"))
+  await model.navigator.settled()
   // Typing reruns the command, which fails on the question; the context stays the view it was asked about.
-  model.editInput("will it rain")
-  await model.settled()
-  #expect(runs() == ["Hamburg", "will it rain"] && model.command?.problem != nil)
-  #expect(model.askingAbout == "Weather")
-  model.askAgent()
+  model.navigator.editInput("will it rain")
+  await model.navigator.settled()
+  #expect(runs() == ["Hamburg", "will it rain"] && model.navigator.command?.problem != nil)
+  #expect(model.navigator.askingAbout == "Weather")
+  model.navigator.askAgent()
   #expect(await eventually { fake.running })
   let prompt = try #require(fake.prompts.last?.text)
   #expect(prompt.contains("input \"Hamburg\"") && prompt.contains("Hamburg a"))

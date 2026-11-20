@@ -225,16 +225,16 @@ import Testing
     in: folder,
     bundled: bundledExtensions)
   await model.extensions.reload()
-  model.input = "What is the answer?"
+  model.navigator.input = "What is the answer?"
   #expect(await eventually { !model.root.isSearching })
-  #expect(model.results.first?.provider == "agent")
-  model.input = "2+2"
-  await model.settled()
-  #expect(model.results.map(\.provider) == ["extension:calculator"])
-  #expect(model.selected?.provider == "extension:calculator")
-  model.input = ""
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["Calculator", "Convert units", "Shell", "Window"])
+  #expect(model.navigator.results.first?.provider == "agent")
+  model.navigator.input = "2+2"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["extension:calculator"])
+  #expect(model.navigator.selected?.provider == "extension:calculator")
+  model.navigator.input = ""
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Calculator", "Convert units", "Shell", "Window"])
 }
 
 @Test func commandReturnAsksAndIMEKeepsOwnership() {
@@ -261,11 +261,11 @@ import Testing
   let model = LauncherModel.testing(in: folder)
   model.store.update { $0.providers = [.init("extension:demo")] }
   await model.extensions.reload()
-  model.input = "demo"
-  await model.settled()
+  model.navigator.input = "demo"
+  await model.navigator.settled()
   #expect(model.activateReturn())
-  await model.settled()
-  let body = try #require(model.body)
+  await model.navigator.settled()
+  let body = try #require(model.navigator.body)
   #expect(body.contains("Wicket.</card>"))
   #expect(!body.contains(#"<\/card>"#))
   let html = AnswerMarkdown.html(body)

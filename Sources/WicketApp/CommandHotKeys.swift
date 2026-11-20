@@ -43,7 +43,7 @@ struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
 
 /// The `hotkeys` of config.json, each its own registration, so a conflict costs only that one and keeps the
 /// working registration it would have replaced, as the launcher's shortcut does. Nothing here knows what a
-/// press does (`LauncherModel.press`).
+/// press does (`Navigator.press`).
 @MainActor
 final class CommandHotKeys {
   typealias Register = (Shortcut, @escaping @MainActor () -> Void) -> AnyObject?

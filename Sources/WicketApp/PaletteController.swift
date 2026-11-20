@@ -74,6 +74,7 @@ class PalettePanel: NSPanel {
 final class PaletteController: NSObject, NSWindowDelegate {
   let panel: PalettePanel
   let model: LauncherModel
+  let navigator: Navigator
   let renderer: AnswerRenderer
   private var anchor = NSPoint.zero
   private var opening = false
@@ -86,9 +87,11 @@ final class PaletteController: NSObject, NSWindowDelegate {
   init(model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel()) {
     self.panel = panel
     self.model = model
+    let navigator = model.navigator
+    self.navigator = navigator
     // A `wicket://` link in a page is an address; any other goes to the system.
-    renderer = AnswerRenderer(folder: model.agent.folder) { [weak model] url in
-      if let address = Address(url: url) { model?.go(address) } else { NSWorkspace.shared.open(url) }
+    renderer = AnswerRenderer(folder: model.agent.folder) { [weak navigator] url in
+      if let address = Address(url: url) { navigator?.go(address) } else { NSWorkspace.shared.open(url) }
     }
     super.init()
     panel.delegate = self
@@ -102,28 +105,28 @@ final class PaletteController: NSObject, NSWindowDelegate {
     root.sizingOptions = []
     panel.contentView = root
     panel.permissionPending = { [weak model] in model.map { !$0.agent.permissions.isEmpty } ?? false }
-    panel.hasArguments = { [weak model] in model.map { !$0.declaredArguments.isEmpty } ?? false }
+    panel.hasArguments = { [weak navigator] in navigator.map { !$0.declaredArguments.isEmpty } ?? false }
     panel.beforeAction = { [weak model] action in model?.keyPressed(action) ?? false }
     panel.onAction = { [weak self] action in
       guard let self else { return }
       switch action {
-      case .dismiss: if !model.escape() { hide() }
+      case .dismiss: if !navigator.escape() { hide() }
       case .run: run()
-      case .send: model.askAgent()
-      case .actions: model.toggleActions()
+      case .send: navigator.askAgent()
+      case .actions: navigator.toggleActions()
       case .permission(let allow): model.agent.decide(allow)
-      case .move(let delta): model.move(delta)
-      case .focus(let delta): model.moveFocus(delta)
+      case .move(let delta): navigator.move(delta)
+      case .focus(let delta): navigator.moveFocus(delta)
       default: break
       }
     }
-    model.onResultsChange = { [weak self] in
+    navigator.onResultsChange = { [weak self] in
       guard let self else { return }
       if isOpen { renderContent() }
       resize()
     }
-    model.onClose = { [weak self] in self?.hide() }
-    model.onReturnReady = { [weak self] in self?.run() }
+    navigator.onClose = { [weak self] in self?.hide() }
+    navigator.onReturnReady = { [weak self] in self?.run() }
     model.onVoicePermissionFinished = { [weak self] in
       guard let self, self.panel.isVisible else { return }
       self.panel.makeKey()
@@ -131,19 +134,19 @@ final class PaletteController: NSObject, NSWindowDelegate {
     renderer.onHeight = { [weak self] in self?.resize() }
     // A click on a page's target is Return on it, if it was made on the page shown now.
     renderer.onTarget = { [weak self] id, turn in
-      guard let self, model.clickTarget(id, turn: turn) else { return }
+      guard let self, navigator.clickTarget(id, turn: turn) else { return }
       run()
     }
-    model.onSelectionChange = { [weak self] in
+    navigator.onSelectionChange = { [weak self] in
       guard let self else { return }
-      renderer.selected = model.selectedTarget
+      renderer.selected = navigator.selectedTarget
       // Beside a list, the selected item's detail, with its neighbors' pictures prepared.
-      if isOpen, model.splits {
+      if isOpen, navigator.splits {
         renderContent()
-        PageIcons.prepare(model.nearbyPictures)
+        PageIcons.prepare(navigator.nearbyPictures)
       }
     }
-    model.preparePage = { [weak self] page, turn in
+    navigator.preparePage = { [weak self] page, turn in
       guard let self, isOpen else { return }
       renderer.textSize = model.configuration.textSize
       renderer.selected = nil
@@ -194,18 +197,20 @@ final class PaletteController: NSObject, NSWindowDelegate {
       (input.currentEditor() as? NSTextView)?.setSelectedRange(
         NSRange(location: input.stringValue.utf16.count, length: 0))
     }
-    model.refresh()
+    navigator.refresh()
   }
   func hide() {
     isOpen = false
     model.stopVoice(.hidden)
     panel.orderOut(nil)
-    model.dismiss()
+    model.recorder.stop()
+    navigator.dismiss()
     renderer.closed()
   }
   private func resize() {
     guard panel.isVisible || anchor != .zero else { return }
-    let height = PaletteLayout.panelHeight(card: model.cardHeight(answer: renderer.height, cap: renderer.cap))
+    let height = PaletteLayout.panelHeight(
+      card: navigator.cardHeight(answer: renderer.height, cap: renderer.cap))
     let frame = PaletteLayout.frame(anchor: anchor, height: height)
     if panel.frame != frame { panel.setFrame(frame, display: false) }
     panel.contentView?.layoutSubtreeIfNeeded()
@@ -214,41 +219,41 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// The page that is open: a detail, the conversation's answer or an extension's body, or beside a list
   /// the selected item's detail. Another list has none, and the renderer is not touched.
   private func renderContent() {
-    if let preview = model.preview {
+    if let preview = navigator.preview {
       renderer.textSize = model.configuration.textSize
       renderer.selected = nil
       return renderer.update(preview.page, turn: preview.turn, streaming: false)
     }
-    guard let page = model.page else { return }
+    guard let page = navigator.page else { return }
     renderer.textSize = model.configuration.textSize
-    renderer.selected = model.selectedTarget
+    renderer.selected = navigator.selectedTarget
     renderer.update(
-      page, turn: model.pageTurn,
-      streaming: model.agent.active && !model.inDetail && model.agent.busy && model.agent.streaming)
+      page, turn: navigator.pageTurn,
+      streaming: model.agent.active && !navigator.inDetail && model.agent.busy && model.agent.streaming)
   }
   /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
   func open(_ url: URL) {
     guard let address = Address(url: url) else { return }
     show()
-    model.follow(address)
+    navigator.follow(address)
   }
-  /// A hotkey from `hotkeys` in config.json (`LauncherModel.press`). The panel shows only for a view or a
+  /// A hotkey from `hotkeys` in config.json (`Navigator.press`). The panel shows only for a view or a
   /// failure, and never listens: the hotkey named where to go.
   func press(_ target: HotkeyTarget) {
-    Task { await model.press(target) { show(listen: false) } }
+    Task { await navigator.press(target) { show(listen: false) } }
   }
   /// Return, a button or a menu item. Moving between views goes through the model's dispatcher; what is
   /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
     model.stopVoice(.run)
-    if chosen == nil, model.returnWaits {
-      model.returnQueued = true
+    if chosen == nil, navigator.returnWaits {
+      navigator.returnQueued = true
       return
     }
-    guard !opening, let (action, result) = model.pick(chosen) else { return }
+    guard !opening, let (action, result) = navigator.pick(chosen) else { return }
     if model.activate(action, from: result) { return }
-    let input = model.input
-    func record() { if let result { model.record(result) } }
+    let input = navigator.input
+    func record() { if let result { navigator.record(result) } }
     switch action.kind {
     case .copy, .clip(_, paste: false):
       guard model.writePasteboard(action.kind) else { return }
@@ -263,7 +268,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
       guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),
         !previousApp.isTerminated
       else {
-        model.actionProblem =
+        navigator.actionProblem =
           "Paste requires Accessibility access for Wicket and a previous app. Enable it in System Settings, then reopen Wicket."
         return
       }
@@ -289,7 +294,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
           record()
           hide()
         } else {
-          model.actionProblem = "Could not open \(url.absoluteString)"
+          navigator.actionProblem = "Could not open \(url.absoluteString)"
         }
         return
       }
@@ -300,9 +305,9 @@ final class PaletteController: NSObject, NSWindowDelegate {
           guard let self else { return }
           self.opening = false
           if let error {
-            self.model.actionProblem = error.localizedDescription
+            self.navigator.actionProblem = error.localizedDescription
           } else {
-            if let result { self.model.record(result, input: input) }
+            if let result { self.navigator.record(result, input: input) }
             self.hide()
           }
         }

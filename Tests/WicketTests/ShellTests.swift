@@ -104,10 +104,10 @@ private func request(_ input: String, submitted: Bool = false) -> JSON {
   try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
-  model.input = "> touch x"
-  await model.settled()
-  #expect(model.results.map(\.row.title) == ["touch x"])
-  #expect(model.results.first?.row.subtitle == "Open in Terminal")
+  model.navigator.input = "> touch x"
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["touch x"])
+  #expect(model.navigator.results.first?.row.subtitle == "Open in Terminal")
   #expect(try FileManager.default.contentsOfDirectory(atPath: temporary.path).isEmpty)
   await model.finish()
 }

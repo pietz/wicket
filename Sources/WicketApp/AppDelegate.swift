@@ -36,7 +36,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       model.installProblem = error.localizedDescription
     }
     palette = PaletteController(model: model)
-    apps.onChange = { [weak model] in model?.sourcesChanged([apps.id]) }
+    apps.onChange = { [weak model] in model?.navigator.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name
     updater = Updater()
@@ -83,7 +83,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     settings = SettingsWindowController(
       store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
       pauseHotkey: pause)
-    model.onSettings = { [weak self] in self?.showSettings() }
+    model.navigator.onSettings = { [weak self] in self?.showSettings() }
     let appMenu = NSMenu()
     let root = NSMenuItem()
     root.submenu = menu.copy() as? NSMenu

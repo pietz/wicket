@@ -17,17 +17,17 @@ func queryLatency() async throws {
     bundled: bundledExtensions)
   await model.extensions.reload()
   var published: [(input: String, first: String?, at: ContinuousClock.Instant)] = []
-  model.onResultsChange = {
-    published.append((model.input, model.results.first?.provider, .now))
+  model.navigator.onResultsChange = {
+    published.append((model.navigator.input, model.navigator.results.first?.provider, .now))
   }
   /// Milliseconds from setting the input to the first publish for it, and that publish's first row.
   func type(_ input: String) async -> (Double, String?) {
     published.removeAll()
     let start = ContinuousClock.now
-    model.input = input
+    model.navigator.input = input
     while !published.contains(where: { $0.input == input }) { await Task.yield() }
     let first = published.first { $0.input == input }!
-    await model.settled()
+    await model.navigator.settled()
     return (Double((first.at - start).components.attoseconds) / 1e15, first.first)
   }
   func summary(_ times: [Double]) -> String {
@@ -53,10 +53,10 @@ func queryLatency() async throws {
     var start = ContinuousClock.now
     for text in ["1", "12", "12*", "12*7"] {
       start = .now
-      model.input = text
+      model.navigator.input = text
       try await Task.sleep(for: .milliseconds(4))
     }
-    await model.settled()
+    await model.navigator.settled()
     let shown = published.filter { $0.input == "12*7" }
     #expect(shown.first?.first == "extension:calculator", "no Ask agent before the result")
     if let at = shown.first?.at { fast.append(Double((at - start).components.attoseconds) / 1e15) }
@@ -97,11 +97,11 @@ func hotkeyToVisibleWithBindings() async throws {
   _ = median()
   let none = median()
   try bind { HotkeyTarget(target: "extension:elsewhere", item: "\($0)") }
-  #expect(model.results.allSatisfy { model.hotkey(of: $0) == nil })
+  #expect(model.navigator.results.allSatisfy { model.navigator.hotkey(of: $0) == nil })
   let hidden = median()
   for n in 0..<20 { model.store.bind(nil, to: HotkeyTarget(target: "extension:elsewhere", item: "\(n)")) }
   try bind { HotkeyTarget(target: "extension:command\($0)") }
-  #expect(model.results.compactMap { model.hotkey(of: $0) }.count == 20)
+  #expect(model.navigator.results.compactMap { model.navigator.hotkey(of: $0) }.count == 20)
   let shown = median()
   print(
     String(
@@ -143,13 +143,13 @@ func detailLatency() async throws {
   model.store.update { $0.providers = [.init("clipboard")] }
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
-  model.go(Address(extensionName: "clipboard"))
+  model.navigator.go(Address(extensionName: "clipboard"))
   await controller.renderer.settled()
   func move(_ delta: Int) async -> Double {
     let start = ContinuousClock.now
-    model.move(delta)
+    model.navigator.move(delta)
     await controller.renderer.settled()
-    #expect(controller.renderer.renderedTurn == model.preview?.turn)
+    #expect(controller.renderer.renderedTurn == model.navigator.preview?.turn)
     return Double((ContinuousClock.now - start).components.attoseconds) / 1e15
   }
   func summary(_ times: [Double]) -> String {
@@ -173,7 +173,7 @@ func detailLatency() async throws {
     } else {
       image.append(await move(1))
     }
-    #expect(model.preview?.page.picture != nil)
+    #expect(model.navigator.preview?.page.picture != nil)
     _ = await move(-1)
     cached.append(await move(1))
     if group < 9 { text.append(await move(1)) }

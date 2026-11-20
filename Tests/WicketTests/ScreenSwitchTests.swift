@@ -20,12 +20,12 @@ import Testing
   }
   private(set) var all: [Frame] = []
   init(_ model: LauncherModel) {
-    model.onResultsChange = { [weak model] in
+    model.navigator.onResultsChange = { [weak model] in
       guard let model else { return }
       self.all.append(
         Frame(
-          command: model.command?.id, rows: model.results.count,
-          height: model.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
+          command: model.navigator.command?.id, rows: model.navigator.results.count,
+          height: model.navigator.cardHeight(answer: PaletteLayout.answerMin, cap: PaletteLayout.answerMax)))
     }
   }
 }
@@ -48,9 +48,9 @@ import Testing
   let model = LauncherModel(
     apps: ManyApps(), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()
-  model.input = "a"
-  await model.settled()
-  #expect(model.results.count > 8 && model.sizedRows == 8)
+  model.navigator.input = "a"
+  await model.navigator.settled()
+  #expect(model.navigator.results.count > 8 && model.navigator.sizedRows == 8)
   return (model, root)
 }
 
@@ -61,15 +61,15 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   let (model, root) = try await launcher("cat >/dev/null\nsleep 0.6\necho '{\"items\":[]}'")
   defer { try? FileManager.default.removeItem(at: root) }
   let frames = Frames(model)
-  model.go(Address(id: "test"), submitted: true)
+  model.navigator.go(Address(id: "test"), submitted: true)
   // The root stays exactly as it was: no rows vanish, the height stays.
-  #expect(model.command == nil && model.input == "a" && model.sizedRows == 8)
+  #expect(model.navigator.command == nil && model.navigator.input == "a" && model.navigator.sizedRows == 8)
   #expect(frames.all.allSatisfy { $0 == .init(command: nil, rows: 13, height: full) })
-  #expect(await eventually { model.command != nil })
+  #expect(await eventually { model.navigator.command != nil })
   // After the deadline the command shows, quietly loading, at its own height in the same publish.
-  #expect(model.command?.busy == true && model.input.isEmpty)
+  #expect(model.navigator.command?.busy == true && model.navigator.input.isEmpty)
   #expect(frames.all.last == .init(command: "extension:test", rows: 0, height: one))
-  await model.settled()
+  await model.navigator.settled()
   #expect(frames.all.filter { $0.command == "extension:test" }.allSatisfy { $0.height == one })
   await model.finish()
 }
@@ -78,11 +78,11 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   let (model, root) = try await launcher(answering("Ready"))
   defer { try? FileManager.default.removeItem(at: root) }
   let frames = Frames(model)
-  model.arrivalDeadline = .seconds(5)  // In time, however busy the test machine is.
-  model.go(Address(id: "test"), submitted: true)
-  #expect(model.command == nil && model.sizedRows == 8)
-  await model.settled()
-  #expect(model.command?.busy == false && model.results.map(\.row.title) == ["Ready"])
+  model.navigator.arrivalDeadline = .seconds(5)  // In time, however busy the test machine is.
+  model.navigator.go(Address(id: "test"), submitted: true)
+  #expect(model.navigator.command == nil && model.navigator.sizedRows == 8)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.busy == false && model.navigator.results.map(\.row.title) == ["Ready"])
   // Every publish is either the root as it was or the command with its row: never one without the other.
   #expect(
     frames.all.allSatisfy {
@@ -98,22 +98,24 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     nil, items: [["id": "one", "title": "One", "actions": [["type": "copy", "text": "1"]]]])
   defer { try? FileManager.default.removeItem(at: root) }
   let frames = Frames(model)
-  model.go(Address(id: "test"), submitted: true)
-  #expect(model.command?.id == "extension:test" && model.results.map(\.row.title) == ["One"])
-  #expect(model.sizedRows == 1 && frames.all == [.init(command: "extension:test", rows: 1, height: one)])
+  model.navigator.go(Address(id: "test"), submitted: true)
+  #expect(
+    model.navigator.command?.id == "extension:test" && model.navigator.results.map(\.row.title) == ["One"])
+  #expect(
+    model.navigator.sizedRows == 1 && frames.all == [.init(command: "extension:test", rows: 1, height: one)])
   await model.finish()
 }
 
 @MainActor @Test func goingBackShowsTheRootWithItsOwnHeightAtOnce() async throws {
   let (model, root) = try await launcher(nil, items: [["id": "one", "title": "One", "actions": []]])
   defer { try? FileManager.default.removeItem(at: root) }
-  model.go(Address(id: "test"), submitted: true)
-  #expect(model.sizedRows == 1)
+  model.navigator.go(Address(id: "test"), submitted: true)
+  #expect(model.navigator.sizedRows == 1)
   let frames = Frames(model)
-  #expect(model.escape())
-  await model.settled()
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
   // The root's rows and height arrive together: no 300 ms hold from the command's single row.
-  #expect(model.command == nil && model.sizedRows == 8)
+  #expect(model.navigator.command == nil && model.navigator.sizedRows == 8)
   #expect(frames.all.allSatisfy { $0.command == "extension:test" ? $0.height == one : $0.height == full })
   await model.finish()
 }
@@ -121,16 +123,18 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 @MainActor @Test func typingOrEscapeWhileACommandIsComingIsHandled() async throws {
   let (model, root) = try await launcher("cat >/dev/null\nsleep 0.6\necho '{\"items\":[]}'")
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
-  model.go(Address(id: "test"), submitted: true)
+  model.navigator.arrivalDeadline = .seconds(5)
+  model.navigator.go(Address(id: "test"), submitted: true)
   // Escape calls the switch off and stays at the root.
-  #expect(model.escape() && model.command == nil && model.input == "a")
+  #expect(model.navigator.escape() && model.navigator.command == nil && model.navigator.input == "a")
   try await Task.sleep(for: .milliseconds(50))
-  #expect(model.command == nil)
+  #expect(model.navigator.command == nil)
   // Typing goes to the command being entered, which shows at once.
-  model.go(Address(id: "test"), submitted: true)
-  model.editInput("ab")
-  #expect(model.command?.id == "extension:test" && model.input == "b" && model.sizedRows == 1)
+  model.navigator.go(Address(id: "test"), submitted: true)
+  model.navigator.editInput("ab")
+  #expect(
+    model.navigator.command?.id == "extension:test" && model.navigator.input == "b"
+      && model.navigator.sizedRows == 1)
   await model.finish()
 }
 
@@ -142,12 +146,12 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     echo '{"close":true}'
     """)
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
+  model.navigator.arrivalDeadline = .seconds(5)
   var closed = false
-  model.onClose = { closed = true }
+  model.navigator.onClose = { closed = true }
   // A late close never hides the root the user stayed on.
-  model.go(Address(id: "test", input: "close"), submitted: true)
-  #expect(model.escape() && model.command == nil)
+  model.navigator.go(Address(id: "test", input: "close"), submitted: true)
+  #expect(model.navigator.escape() && model.navigator.command == nil)
   try await Task.sleep(for: .milliseconds(600))
   #expect(!closed)
   await model.finish()
@@ -158,19 +162,19 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     decoding: try JSONEncoder().encode(ProviderView(body: "# Hello")), as: UTF8.self)
   let (model, root) = try await launcher("cat >/dev/null\nprintf '%s' '\(page)'")
   defer { try? FileManager.default.removeItem(at: root) }
-  model.arrivalDeadline = .seconds(5)
+  model.navigator.arrivalDeadline = .seconds(5)
   var prepared: [String] = []
   var release: CheckedContinuation<Void, Never>?
-  model.preparePage = { page, _ in
+  model.navigator.preparePage = { page, _ in
     prepared.append(page.source)
     await withCheckedContinuation { release = $0 }
   }
-  model.go(Address(id: "test"), submitted: true)
+  model.navigator.go(Address(id: "test"), submitted: true)
   #expect(await eventually { release != nil })
   // Measuring: the root is still what shows.
-  #expect(prepared == ["# Hello"] && model.command == nil && model.body == nil)
+  #expect(prepared == ["# Hello"] && model.navigator.command == nil && model.navigator.body == nil)
   release?.resume()
-  #expect(await eventually { model.body == "# Hello" })
-  #expect(model.command?.busy == false)
+  #expect(await eventually { model.navigator.body == "# Hello" })
+  #expect(model.navigator.command?.busy == false)
   await model.finish()
 }

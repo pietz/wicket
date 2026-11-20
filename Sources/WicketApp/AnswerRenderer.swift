@@ -130,7 +130,7 @@ final class AnswerRenderer {
     update(page, turn: turn, streaming: false)
     await withCheckedContinuation { waiting.append($0) }
   }
-  /// Returns once no render is scheduled or running, like `LauncherModel.settled`.
+  /// Returns once no render is scheduled or running, like `Navigator.settled`.
   func settled() async {
     guard renderTask != nil else { return }
     await withCheckedContinuation { waiting.append($0) }
