@@ -2,8 +2,9 @@ import AppKit
 import Observation
 
 /// The launcher's services and what the panel does outside its screens: it composes the sources, the
-/// agent's session and the stores, reacts to configuration, owns dictation and hotkey recording, and
-/// dispatches the actions the user runs. The screens and moving between them are `navigator`'s.
+/// agent's session and the stores, reacts to configuration, owns hotkey recording, and dispatches the
+/// actions the user runs. The screens and moving between them are `navigator`'s; dictation is the
+/// panel's (`PanelInput`).
 @MainActor @Observable
 final class LauncherModel {
   let navigator: Navigator
@@ -25,14 +26,11 @@ final class LauncherModel {
   init(
     apps: (any Provider)? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
     agentHistory: AgentHistory? = nil, history: UsageHistory,
-    folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
-    transcriber: (() -> any Transcriber)? = nil
+    folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder
   ) {
     self.clipboard = clipboard
     self.agentHistory = agentHistory
-    makeTranscriber = transcriber ?? { AppleTranscriber() }
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
-    timingURL = folder.appending(path: "voice-timing.txt")
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
     extensions = ExtensionHost(folder: folder, bundled: bundled)
@@ -45,7 +43,6 @@ final class LauncherModel {
       guard let self else { return }
       if let configuration {
         extensions.settings = configuration.extensions
-        if !configuration.voice.enabled { stopVoice(.disabled) }
         clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
         var switched: Set<String>?
         if configuration != applied {
@@ -73,38 +70,6 @@ final class LauncherModel {
     clipboard?.expire(now: now)
     agentHistory?.expire(now: now)
     navigator.reopen(now: now)
-  }
-
-  // MARK: Voice
-
-  private(set) var voice: VoiceInput?
-  private let makeTranscriber: () -> any Transcriber
-  private let timingURL: URL
-  /// The panel makes the key window again when the microphone's consent dialog is done.
-  @ObservationIgnored var onVoicePermissionFinished: (() -> Void)?
-  func stopVoice(_ reason: VoiceStop) { voice?.stop(reason) }
-  func armVoice() { prepareVoice()?.arm() }
-  func toggleVoice() { prepareVoice()?.toggle() }
-  private func prepareVoice() -> VoiceInput? {
-    guard configuration.voice.enabled, agent.takesSpeech else { return nil }
-    if voice == nil {
-      voice = VoiceInput(
-        transcriber: makeTranscriber,
-        timingURL: timingURL,
-        write: { [weak self] text in
-          guard let self, agent.takesSpeech else {
-            self?.stopVoice(.busy)
-            return
-          }
-          navigator.dictate(text)
-        })
-      navigator.voice = voice
-    }
-    voice?.onPermissionFinished = { [weak self] in self?.onVoicePermissionFinished?() }
-    return voice
-  }
-  func keyPressed(_ action: PaletteKeyAction) -> Bool {
-    return voice?.keyPressed(isEscape: action == .dismiss) ?? false
   }
 
   // MARK: Actions
@@ -163,8 +128,6 @@ final class LauncherModel {
     recorder.target != nil && recorder.target == navigator.hotkeyTarget(of: result)
   }
   func finish() async {
-    stopVoice(.quit)
-    await voice?.shutdown?.value
     navigator.cancelWork()
     await extensions.shutdown()
     await agent.shutdown()

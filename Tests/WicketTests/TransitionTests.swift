@@ -274,31 +274,32 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let transcriber = FakeTranscriber()
   let voiced = LauncherModel(
     apps: GatedApps(), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
-    bundled: nil, transcriber: { transcriber })
+    bundled: nil)
+  let controller = PaletteController(model: voiced, panel: RoutingPanel(), transcriber: { transcriber })
   await model.finish()
   voiced.extensions.onCatalogChange = nil
   await voiced.extensions.reload()
   voiced.store.update { $0.voice.enabled = true }
   voiced.navigator.input = "a"
   await voiced.navigator.settled()
-  voiced.armVoice()
+  controller.input.arm()
   transcriber.feeds[0].yield(.ready)
-  #expect(await eventually { voiced.voice?.state == .listening })
+  #expect(await eventually { controller.input.voice?.state == .listening })
   voiced.navigator.arrivalDeadline = .seconds(5)
   voiced.navigator.go(Address(id: "slow"), submitted: true)
   transcriber.feeds[0].yield(.transcript("is it done"))
   #expect(await eventually { voiced.navigator.command != nil })
   #expect(
     voiced.navigator.command?.id == "extension:slow" && voiced.navigator.input == "is it done"
-      && voiced.voice?.active == true)
+      && controller.input.voice?.active == true)
   // Speech waits its 350 ms before the rerun, which is never submitted.
   #expect(
     await eventually(within: .seconds(3)) {
       (try? logged(root).contains { $0.input == "is it done" }) == true
     })
   #expect(try logged(root).filter { $0.input == "is it done" }.allSatisfy { !$0.submitted })
-  voiced.stopVoice(.edit)
-  await voiced.finish()
+  controller.input.stop(.edit)
+  await controller.finish()
 }
 
 @MainActor @Test func theActionPanelReturnsToItsPlaceAndDispatchesTheActionChosen() async throws {
@@ -935,7 +936,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.navigator.settled()
   model.navigator.toggleActions()
   try await update(controller)
-  let field = try #require(controller.panel.input)
+  let field = try #require(controller.panel.field)
   #expect(model.navigator.actionsTitle == "Settings" && field.stringValue.isEmpty)
   let editor = try compose("か", in: field)
   try await update(controller)
@@ -949,7 +950,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
-@MainActor @Test func aCompositionDuringAnEntryIsAddedWhenCommittedAndEndsAtTheDeadline() async throws {
+@MainActor @Test func aCompositionDuringAnEntryIsAddedWhenCommittedAndOutlivesTheDeadline() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }
   let controller = PaletteController(model: model, panel: RoutingPanel())
@@ -958,7 +959,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.navigator.arrivalDeadline = .seconds(60)
   model.navigator.go(Address(id: "slow"), submitted: true)
   try await update(controller)
-  let field = try #require(controller.panel.input)
+  let field = try #require(controller.panel.field)
   var editor = try compose("か", in: field)
   try await update(controller)
   #expect(
@@ -983,10 +984,14 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.navigator.passDeadline()
   #expect(model.navigator.command != nil)
   try await update(controller)
-  // Recorded as it is: the field is written to the new, empty input, which commits the composition
-  // with the old input before it, and that is typed into the command.
-  #expect(model.navigator.input == "aか" && field.stringValue == "aか" && !editor.hasMarkedText())
-  #expect(await eventually { (try? logged(root).contains { $0.input == "aか" && !$0.submitted }) == true })
+  // The field is not written under the composition, which stays open.
+  #expect(model.navigator.input.isEmpty && field.stringValue == "aか" && editor.hasMarkedText())
+  // Committed, it goes after the command's own input, not after the root's.
+  commit("か", in: editor)
+  try await update(controller)
+  #expect(model.navigator.input == "か" && field.stringValue == "か" && !editor.hasMarkedText())
+  #expect(await eventually { (try? logged(root).contains { $0.input == "か" && !$0.submitted }) == true })
+  #expect(try !logged(root).contains { $0.input == "aか" })
   controller.hide()
   await model.finish()
 }
@@ -1004,7 +1009,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.navigator.focusedArgument = "title"
   try await update(controller)
   let content = try #require(controller.panel.contentView)
-  let slot = try #require(fields(in: content).first { $0 !== controller.panel.input })
+  let slot = try #require(fields(in: content).first { $0 !== controller.panel.field })
   #expect(controller.panel.firstResponder === slot.currentEditor())
   let editor = try compose("か", in: slot)
   try await update(controller)

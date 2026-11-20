@@ -42,7 +42,7 @@ struct SearchField: NSViewRepresentable {
     (field as? FocusReportingField)?.onFocus = onFocus
     field.placeholderString = placeholder
     field.setAccessibilityLabel(placeholder)
-    Self.updateText(text, in: field)
+    context.coordinator.write(text, to: field)
     // Only a change takes the keys, so a button that Tab reached keeps them on later updates.
     if focused, !context.coordinator.focused, field.currentEditor() == nil, let window = field.window {
       window.makeFirstResponder(field)
@@ -60,14 +60,32 @@ struct SearchField: NSViewRepresentable {
     (field.currentEditor() as? NSTextView)?.setSelectedRange(
       NSRange(location: field.stringValue.utf16.count, length: 0))
   }
-  final class Coordinator: NSObject, NSTextFieldDelegate {
+  @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
     var text: Binding<String>
     var focused = false
+    /// A write that waits for an input method's composition: the field's text without the marked part
+    /// when it was held, and what the field was to show.
+    private var held: (from: String, to: String)?
     init(text: Binding<String>) { self.text = text }
+    /// Writing the field while an input method composes would commit the composition after the old text,
+    /// so the write waits for the commit (`controlTextDidChange`), and the composition goes after the
+    /// new text instead, as typing during a screen switch does.
+    func write(_ text: String, to field: NSTextField) {
+      if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
+        let from = (editor.string as NSString).replacingCharacters(in: editor.markedRange(), with: "")
+        held = from == text ? nil : (from, text)
+        return
+      }
+      held = nil
+      SearchField.updateText(text, in: field)
+    }
     func controlTextDidChange(_ notification: Notification) {
       guard let field = notification.object as? NSTextField else { return }
       // AppKit owns marked text and all composition keystrokes.
-      text.wrappedValue = field.stringValue
+      var value = field.stringValue
+      if let held, value.hasPrefix(held.from) { value = held.to + value.dropFirst(held.from.count) }
+      held = nil
+      text.wrappedValue = value
     }
   }
 }
@@ -142,6 +160,7 @@ struct InputBar: Layout {
 struct LauncherView: View {
   @Bindable var model: LauncherModel
   private var navigator: Navigator { model.navigator }
+  let input: PanelInput
   let renderer: AnswerRenderer
   let registerInput: (NSTextField) -> Void
   let run: (RowAction?) -> Void
@@ -162,23 +181,22 @@ struct LauncherView: View {
             .system(size: 19, weight: .medium)
           ).foregroundStyle(.secondary).frame(width: 24)
           InputBar {
-            input
+            inputField
             ForEach(navigator.declaredArguments, id: \.name) { argumentSlot($0) }
           }
           .frame(height: 30)
           // The free space after the slots belongs to the input.
           .contentShape(Rectangle())
           .onTapGesture { navigator.focusedArgument = nil }
-          if model.configuration.voice.enabled, model.agent.takesSpeech {
+          if input.offersVoice {
             Button {
-              model.toggleVoice()
+              input.toggle()
             } label: {
-              Image(systemName: model.voice?.state == .listening ? "mic.fill" : "mic")
-                .font(.system(size: 18)).foregroundStyle(
-                  model.voice?.active == true ? Color.accentColor : Color.secondary)
+              Image(systemName: input.voice?.state == .listening ? "mic.fill" : "mic")
+                .font(.system(size: 18)).foregroundStyle(input.speaking ? Color.accentColor : Color.secondary)
             }.buttonStyle(.plain)
-              .help(model.voice?.active == true ? "Stop listening" : "Start listening")
-              .accessibilityLabel(model.voice?.active == true ? "Stop listening" : "Start listening")
+              .help(input.speaking ? "Stop listening" : "Start listening")
+              .accessibilityLabel(input.speaking ? "Stop listening" : "Start listening")
           }
         }
         .padding(.horizontal, 18).frame(height: PaletteLayout.search)
@@ -264,7 +282,7 @@ struct LauncherView: View {
   }
   /// The main input, sized by a hidden copy of its text (or placeholder) so the slots can follow it; the
   /// field itself never sizes itself. The first 200 characters are enough to fill any width.
-  private var input: some View {
+  private var inputField: some View {
     // The action panel's field is empty and says what the panel is for; typing returns to the input.
     let text = navigator.actionsTitle == nil ? navigator.input : ""
     let placeholder =
@@ -280,7 +298,7 @@ struct LauncherView: View {
       .frame(minWidth: 0, maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
       .overlay {
         SearchField(
-          text: Binding(get: { text }, set: { navigator.editInput($0) }),
+          text: Binding(get: { text }, set: { input.edit($0) }),
           placeholder: placeholder, bleed: 6,
           focused: navigator.focusedArgument == nil,
           onFocus: { if navigator.focusedArgument != nil { navigator.focusedArgument = nil } },
@@ -297,7 +315,7 @@ struct LauncherView: View {
       .frame(minWidth: 24, maxWidth: 150).fixedSize()
       .overlay {
         SearchField(
-          text: Binding(get: { value }, set: { navigator.setArgument(argument.name, to: $0) }),
+          text: Binding(get: { value }, set: { input.edit(argument: argument.name, to: $0) }),
           placeholder: label, size: 15, focused: navigator.focusedArgument == argument.name,
           onFocus: {
             if navigator.focusedArgument != argument.name { navigator.focusedArgument = argument.name }
@@ -405,9 +423,9 @@ struct LauncherView: View {
       result.id == navigator.selection ? [.isSelected, .isButton] : .isButton)
   }
   private var voiceStatus: String? {
-    if model.voice?.state == .starting { return "Starting voice…" }
-    if model.voice?.state == .listening { return "Listening…" }
-    return model.voice?.problem
+    if input.voice?.state == .starting { return "Starting voice…" }
+    if input.voice?.state == .listening { return "Listening…" }
+    return input.voice?.problem
   }
   private var cardHeight: CGFloat { navigator.cardHeight(answer: renderer.height, cap: renderer.cap) }
   private var extensionContent: some View {

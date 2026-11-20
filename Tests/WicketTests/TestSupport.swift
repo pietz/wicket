@@ -20,12 +20,9 @@ extension LauncherModel {
     navigator.pick().map { activate($0.action, from: $0.from) } ?? false
   }
   /// A model with no built-in providers that keeps its settings and usage in `folder`.
-  static func testing(
-    in folder: URL, bundled: URL? = ExtensionHost.bundledFolder, transcriber: (() -> any Transcriber)? = nil
-  ) -> LauncherModel {
+  static func testing(in folder: URL, bundled: URL? = ExtensionHost.bundledFolder) -> LauncherModel {
     LauncherModel(
-      history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
-      bundled: bundled, transcriber: transcriber)
+      history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder, bundled: bundled)
   }
 }
 
@@ -63,4 +60,13 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   fake.end()
   #expect(await eventually { !session.busy && fake.stopped })
   return fake
+}
+
+/// A model and its panel with a fake microphone. The panel routes keys and never shows.
+@MainActor func voicedPanel(
+  in folder: URL, bundled: URL? = ExtensionHost.bundledFolder, panel: PalettePanel = RoutingPanel(),
+  transcriber: @escaping () -> any Transcriber
+) -> (LauncherModel, PaletteController) {
+  let model = LauncherModel.testing(in: folder, bundled: bundled)
+  return (model, PaletteController(model: model, panel: panel, transcriber: transcriber))
 }

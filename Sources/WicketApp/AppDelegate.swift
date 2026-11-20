@@ -135,7 +135,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   @objc private func quit() { NSApp.terminate(nil) }
   public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     Task {
-      await palette.model.finish()
+      await palette.finish()
       sender.reply(toApplicationShouldTerminate: true)
     }
     return .terminateLater

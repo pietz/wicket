@@ -1,13 +1,19 @@
 import AppKit
 import SwiftUI
 
+/// Where the panel's keys go once decided (`PaletteKeyAction.decide`), and what deciding them needs.
+@MainActor protocol PaletteKeyTarget: AnyObject {
+  var permissionPending: Bool { get }
+  var hasArguments: Bool { get }
+  /// Does what a key means; false leaves it to the panel: AppKit's editing shortcuts and the keys it types.
+  func handle(_ action: PaletteKeyAction) -> Bool
+}
+
 /// Focus and event routing extracted from the first Wicket, without its command/frame layer.
 class PalettePanel: NSPanel {
-  var beforeAction: (PaletteKeyAction) -> Bool = { _ in false }
-  var onAction: (PaletteKeyAction) -> Void = { _ in }
-  weak var input: NSTextField?
-  var permissionPending: () -> Bool = { false }
-  var hasArguments: () -> Bool = { false }
+  weak var target: (any PaletteKeyTarget)?
+  /// The input's native field, which the first key finds even before SwiftUI finished an update.
+  weak var field: NSTextField?
   init() {
     super.init(
       contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -36,19 +42,21 @@ class PalettePanel: NSPanel {
     guard isKeyWindow else { return false }
     // The first key after summon must find the field even before SwiftUI finishes its update.
     let flagsOnly = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    if !permissionPending(), !(firstResponder is NSTextView), !(firstResponder is NSTextField),
+    let permissionPending = target?.permissionPending == true
+    if !permissionPending, !(firstResponder is NSTextView), !(firstResponder is NSTextField),
       flagsOnly.isDisjoint(with: [.command, .control]),
       ![48, 53, 36, 76, 125, 126].contains(Int(event.keyCode)),
-      let input
+      let field
     {
-      makeFirstResponder(input)
+      makeFirstResponder(field)
     }
     let action = PaletteKeyAction.decide(
       keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
       modifiers: Shortcut.Modifiers(event.modifierFlags),
       hasMarkedText: (firstResponder as? NSTextView)?.hasMarkedText() == true,
-      permissionPending: permissionPending(), isARepeat: event.isARepeat, hasArguments: hasArguments())
-    if beforeAction(action) { return true }
+      permissionPending: permissionPending, isARepeat: event.isARepeat,
+      hasArguments: target?.hasArguments == true)
+    if target?.handle(action) == true { return true }
     switch action {
     case .passThrough: return false
     case .edit(let edit):
@@ -62,8 +70,7 @@ class PalettePanel: NSPanel {
         case .redo: Selector(("redo:"))
         }
       NSApp.sendAction(selector, to: nil, from: self)
-    case .consume: break
-    default: onAction(action)
+    default: break
     }
     return true
   }
@@ -71,11 +78,13 @@ class PalettePanel: NSPanel {
 }
 
 @MainActor
-final class PaletteController: NSObject, NSWindowDelegate {
+final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget {
   let panel: PalettePanel
   let model: LauncherModel
   let navigator: Navigator
   let renderer: AnswerRenderer
+  /// What the panel types and says into the screens, and its voice.
+  let input: PanelInput
   private var anchor = NSPoint.zero
   private var opening = false
   private var previousApp: NSRunningApplication?
@@ -84,7 +93,10 @@ final class PaletteController: NSObject, NSWindowDelegate {
   private var isOpen = false
 
   /// `flatSurfaces` draws solid surfaces instead of glass, which an offscreen render cannot show.
-  init(model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel()) {
+  init(
+    model: LauncherModel, flatSurfaces: Bool = false, panel: PalettePanel = PalettePanel(),
+    transcriber: @escaping () -> any Transcriber = { AppleTranscriber() }
+  ) {
     self.panel = panel
     self.model = model
     let navigator = model.navigator
@@ -93,44 +105,33 @@ final class PaletteController: NSObject, NSWindowDelegate {
     renderer = AnswerRenderer(folder: model.agent.folder) { [weak navigator] url in
       if let address = Address(url: url) { navigator?.go(address) } else { NSWorkspace.shared.open(url) }
     }
+    input = PanelInput(
+      navigator: navigator, agent: model.agent, store: model.store, folder: model.agent.folder,
+      transcriber: transcriber,
+      permissionFinished: { [weak panel] in
+        guard let panel, panel.isVisible else { return }
+        panel.makeKey()
+      })
     super.init()
     panel.delegate = self
+    panel.target = self
     model.window = panel
     panel.setAccessibilityLabel("Wicket Launcher")
     let root = NSHostingView(
       rootView: LauncherView(
-        model: model, renderer: renderer,
-        registerInput: { [weak self] field in self?.panel.input = field },
+        model: model, input: input, renderer: renderer,
+        registerInput: { [weak self] field in self?.panel.field = field },
         run: { [weak self] action in self?.run(action) }, flatSurfaces: flatSurfaces))
     root.sizingOptions = []
     panel.contentView = root
-    panel.permissionPending = { [weak model] in model.map { !$0.agent.permissions.isEmpty } ?? false }
-    panel.hasArguments = { [weak navigator] in navigator.map { !$0.declaredArguments.isEmpty } ?? false }
-    panel.beforeAction = { [weak model] action in model?.keyPressed(action) ?? false }
-    panel.onAction = { [weak self] action in
-      guard let self else { return }
-      switch action {
-      case .dismiss: if !navigator.escape() { hide() }
-      case .run: run()
-      case .send: navigator.askAgent()
-      case .actions: navigator.toggleActions()
-      case .permission(let allow): model.agent.decide(allow)
-      case .move(let delta): navigator.move(delta)
-      case .focus(let delta): navigator.moveFocus(delta)
-      default: break
-      }
-    }
     navigator.onResultsChange = { [weak self] in
       guard let self else { return }
+      input.screensChanged()
       if isOpen { renderContent() }
       resize()
     }
     navigator.onClose = { [weak self] in self?.hide() }
     navigator.onReturnReady = { [weak self] in self?.run() }
-    model.onVoicePermissionFinished = { [weak self] in
-      guard let self, self.panel.isVisible else { return }
-      self.panel.makeKey()
-    }
     renderer.onHeight = { [weak self] in self?.resize() }
     // A click on a page's target is Return on it, if it was made on the page shown now.
     renderer.onTarget = { [weak self] id, turn in
@@ -152,6 +153,22 @@ final class PaletteController: NSObject, NSWindowDelegate {
       renderer.selected = nil
       await renderer.render(page, turn: turn)
     }
+  }
+  var permissionPending: Bool { !model.agent.permissions.isEmpty }
+  var hasArguments: Bool { !navigator.declaredArguments.isEmpty }
+  func handle(_ action: PaletteKeyAction) -> Bool {
+    if input.keyPressed(action) { return true }
+    switch action {
+    case .dismiss: if !navigator.escape() { hide() }
+    case .run: run()
+    case .send: navigator.askAgent()
+    case .actions: navigator.toggleActions()
+    case .permission(let allow): model.agent.decide(allow)
+    case .move(let delta): navigator.move(delta)
+    case .focus(let delta): navigator.moveFocus(delta)
+    case .edit, .consume, .passThrough: return false
+    }
+    return true
   }
   func toggle(eventTime: TimeInterval) {
     if panel.isVisible { hide() } else { show(eventTime: eventTime) }
@@ -190,9 +207,9 @@ final class PaletteController: NSObject, NSWindowDelegate {
       if panel.canBecomeKey { panel.makeKeyAndOrderFront(nil) }
       panel.orderFrontRegardless()
     }
-    if listen { model.armVoice() }
+    if listen { input.arm() }
     panel.contentView?.layoutSubtreeIfNeeded()
-    if panel.canBecomeKey, let input = panel.input {
+    if panel.canBecomeKey, let input = panel.field {
       panel.makeFirstResponder(input)
       (input.currentEditor() as? NSTextView)?.setSelectedRange(
         NSRange(location: input.stringValue.utf16.count, length: 0))
@@ -201,7 +218,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
   }
   func hide() {
     isOpen = false
-    model.stopVoice(.hidden)
+    input.stop(.hidden)
     panel.orderOut(nil)
     model.recorder.stop()
     navigator.dismiss()
@@ -245,7 +262,7 @@ final class PaletteController: NSObject, NSWindowDelegate {
   /// Return, a button or a menu item. Moving between views goes through the model's dispatcher; what is
   /// left here are the effects on the system.
   func run(_ chosen: RowAction? = nil) {
-    model.stopVoice(.run)
+    input.stop(.run)
     if chosen == nil, navigator.returnWaits {
       navigator.returnQueued = true
       return
@@ -314,9 +331,14 @@ final class PaletteController: NSObject, NSWindowDelegate {
       }
     }
   }
+  /// Quitting: the microphone closes, then the services stop.
+  func finish() async {
+    await input.finish()
+    await model.finish()
+  }
   func windowDidResignKey(_ notification: Notification) {
     // Only the system consent dialog may borrow focus while voice starts.
-    if model.voice?.requestingPermission != true { hide() }
+    if input.voice?.requestingPermission != true { hide() }
   }
   func windowDidChangeOcclusionState(_ notification: Notification) {
     guard panel.occlusionState.contains(.visible), let started = visibleStarted else { return }

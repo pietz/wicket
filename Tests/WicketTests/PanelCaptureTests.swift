@@ -266,7 +266,7 @@ private let installedAgent: Void = {
     self.folder = folder
   }
   func finish() async {
-    await model.finish()
+    if let controller { await controller.finish() } else { await model.finish() }
     window?.close()
     try? FileManager.default.removeItem(at: folder)
   }
@@ -307,8 +307,7 @@ private let installedAgent: Void = {
       apps: apps, clipboard: clipboard, agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       bundled: ["extension-error", "hotkey-command-error"].contains(name)
-        ? try reportedExtensions() : bundledExtensions,
-      transcriber: { transcriber })
+        ? try reportedExtensions() : bundledExtensions)
     model.store.update {
       $0.voice.enabled = name == "listening" || name == "arrival-dictated"
       $0.textSize = size
@@ -316,7 +315,8 @@ private let installedAgent: Void = {
     }
     let panel = CapturePanel()
     panel.appearance = appearance
-    let controller = PaletteController(model: model, flatSurfaces: true, panel: panel)
+    let controller = PaletteController(
+      model: model, flatSurfaces: true, panel: panel, transcriber: { transcriber })
     let scenario = Scenario(
       model: model, controller: controller, view: panel.contentView!, window: nil, folder: folder)
     scenario.keep.append(transcriber)
@@ -337,7 +337,7 @@ private let installedAgent: Void = {
       await model.navigator.settled()
     case "ask": model.navigator.input = "How do rainbows form?"
     case "listening":
-      model.armVoice()
+      controller.input.arm()
       transcriber.feeds[0].yield(.ready)
       transcriber.feeds[0].yield(.transcript("How do rainbows form?"))
       #expect(await eventually { model.navigator.input == "How do rainbows form?" })
@@ -464,9 +464,10 @@ private let installedAgent: Void = {
       model.navigator.go(Address(id: "slow"), submitted: true)
       model.navigator.editInput("fin")
     case "arrival-dictated":
-      model.armVoice()
+      let input = try #require(scenario.controller?.input)
+      input.arm()
       transcriber.feeds[0].yield(.ready)
-      #expect(await eventually { model.voice?.state == .listening })
+      #expect(await eventually { input.voice?.state == .listening })
       model.navigator.go(Address(id: "slow"), submitted: true)
       transcriber.feeds[0].yield(.transcript("Finished yet?"))
       #expect(await eventually { model.navigator.command != nil })
@@ -962,7 +963,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-pattern": #expect(model.navigator.results.first?.row.title.contains("6.21") == true)
   case "extension-fallback": #expect(model.navigator.results.contains { $0.row.id == "fallback" })
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
-  case "listening": #expect(model.voice?.active == true && model.navigator.input == "How do rainbows form?")
+  case "listening":
+    #expect(scenario.controller?.input.speaking == true && model.navigator.input == "How do rainbows form?")
   case "empty": #expect(model.navigator.results.map(\.row.title) == ["Calculator", "Calendar", "Chess"])
   default: #expect(!model.navigator.results.isEmpty)
   }

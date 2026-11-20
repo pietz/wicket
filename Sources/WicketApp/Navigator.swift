@@ -5,8 +5,9 @@ import Observation
 /// an open command over it, and the agent's screen over either (`AgentScreen`); details and the action
 /// panel are layers over the screen shown. It switches screens once the next one has its content
 /// (`arrive`), runs the open command's requests, owns every selection and decides what Return, Escape
-/// and the arrows do. Configuration, voice, hotkey recording and effects on the system belong to
-/// `LauncherModel`; the agent's process, turns and permissions to `AgentSession`.
+/// and the arrows do. Configuration, hotkey recording and effects on the system belong to
+/// `LauncherModel`, dictation to the panel (`PanelInput`), and the agent's process, turns and permissions
+/// to `AgentSession`.
 @MainActor @Observable
 final class Navigator {
   let agent: AgentSession
@@ -14,9 +15,8 @@ final class Navigator {
   private let search: RootCommand
   private let store: ConfigurationStore
   private let history: UsageHistory
-  /// Dictation, once the panel started it: speech delays a command's request, and an edit or hiding
-  /// stops it.
-  @ObservationIgnored var voice: VoiceInput?
+  /// Whether dictation is writing the input: a request made meanwhile waits for the transcript to settle.
+  @ObservationIgnored weak var speech: (any Speech)?
   var configuration: Configuration { store.configuration }
   var extensions: ExtensionHost { directory.extensions }
 
@@ -79,7 +79,6 @@ final class Navigator {
   /// ending the conversation draws once it is done instead (`closeConversation`).
   private func agentChanged() {
     guard !committing else { return }
-    if !agent.takesSpeech { voice?.stop(.busy) }
     if !agent.permissions.isEmpty { closeActions() }
     onResultsChange?()
   }
@@ -467,7 +466,6 @@ final class Navigator {
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
   func editInput(_ text: String) {
-    voice?.stop(.edit)
     // Typing in the action panel's empty field closes it, and what the field shows is the input: never
     // joined to the earlier input, which would rewrite the field under an input method's marked text.
     closeActions()
@@ -605,7 +603,7 @@ final class Navigator {
   /// `typed`: the input was edited, which a command's context ignores unless an address set it.
   func refresh(typed: Bool = false) {
     guard !conversing || arriving != nil else { return }
-    let speaking = voice?.active == true
+    let speaking = speech?.speaking == true
     let input = arriving?.input ?? self.input
     if let state = target {
       let source = directory.source(state.id)
@@ -776,7 +774,6 @@ final class Navigator {
     // question's expiry (`reopen`).
     if !returnsOnEscape { base.arguments = [:] }
     focusTarget = nil
-    voice?.stop(.hidden)
     agent.hidden()
     stopArriving()
     // Hiding stops a running command, also under a conversation.

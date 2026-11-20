@@ -29,15 +29,12 @@ import Testing
     fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
   _ = try extensionFolder(root, name: "caffeine")  // Another row to move to.
   let fake = FakeTranscriber()
-  let model = LauncherModel.testing(
-    in: root,
-    transcriber: { fake })
+  let (model, controller) = voicedPanel(in: root, transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
   await model.extensions.reload()
-  let controller = PaletteController(model: model, panel: RoutingPanel())
   let panel = controller.panel
   controller.show(orderFront: false, listen: false)
-  let input = try #require(panel.input)
+  let input = try #require(panel.field)
   func editing(_ field: NSTextField?) -> Bool {
     guard let editor = field?.currentEditor() else { return false }
     return panel.firstResponder === editor
@@ -68,11 +65,11 @@ import Testing
   #expect(model.navigator.focusedArgument == "minutes")
 
   // A key in a slot stops voice capture first.
-  model.toggleVoice()
+  controller.input.toggle()
   fake.feeds[0].yield(.ready)
-  #expect(await eventually { model.voice?.state == .listening })
+  #expect(await eventually { controller.input.voice?.state == .listening })
   #expect(panel.route(voiceKey(48, "\t", .shift)))
-  #expect(model.voice?.state == .idle && fake.stops == 1)
+  #expect(controller.input.voice?.state == .idle && fake.stops == 1)
   await settle()
   #expect(model.navigator.focusedArgument == "hours" && editing(hours))
 
@@ -108,7 +105,7 @@ import Testing
   await settle()
   #expect(model.navigator.command == nil && model.navigator.focusedArgument == nil && editing(input))
   controller.hide()
-  await model.finish()
+  await controller.finish()
 }
 
 @MainActor @Test func aClickOnTheSelectedCommandRowWithADraftEntersIt() async throws {
@@ -156,7 +153,7 @@ import Testing
   let controller = PaletteController(model: model, panel: RoutingPanel())
   let panel = controller.panel
   controller.show(orderFront: false, listen: false)
-  let input = try #require(panel.input)
+  let input = try #require(panel.field)
   func slot(_ label: String) -> NSTextField? { slotField(label, in: panel, besides: input) }
   func frame(_ view: NSView?) -> NSRect { view.map { $0.convert($0.bounds, to: nil) } ?? .zero }
   let editor = try #require(input.currentEditor() as? NSTextView)

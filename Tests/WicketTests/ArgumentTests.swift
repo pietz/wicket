@@ -114,9 +114,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   let (_, requests) = try logging(
     root, name: "Note", fields: ["arguments": [["name": "text"]], "submit": true])
   let fake = FakeTranscriber()
-  let model = LauncherModel.testing(
-    in: root,
-    transcriber: { fake })
+  let (model, controller) = voicedPanel(in: root, transcriber: { fake })
   await model.extensions.reload()
   model.navigator.input = "note"
   await model.navigator.settled()
@@ -160,14 +158,14 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(try requests().count == 3 && last.submitted && last.arguments == ["text": "again"])
   // Voice fills the input and runs nothing.
   model.store.update { $0.voice.enabled = true }
-  model.toggleVoice()
+  controller.input.toggle()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("spoken words"))
   #expect(await eventually { model.navigator.input == "spoken words" })
   try await Task.sleep(for: .milliseconds(450))
   await model.navigator.settled()
   #expect(try requests().count == 3 && model.navigator.selection == nil)
-  await model.finish()
+  await controller.finish()
 }
 
 /// A submit sends the input and the declared arguments. What a run action set under an undeclared name
