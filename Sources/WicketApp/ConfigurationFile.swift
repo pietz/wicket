@@ -7,9 +7,23 @@ struct ConfigurationFile {
 
   @discardableResult func edit(_ change: (inout [String: Any]) throws -> Void) throws -> Configuration {
     let data = try Data(contentsOf: url)
-    _ = try JSONDecoder().decode(Configuration.self, from: data)
-    var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    let current = try JSONDecoder().decode(Configuration.self, from: data)
+    let original = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    var object = original
     try change(&object)
+    // A file from before the clear glass (`Configuration.oldDefaultTransparencies`) that this edit changes
+    // is saved as it reads: an old default dropped and `blur` added, so every value written from now on
+    // round-trips. An edit that changes nothing leaves it as it was.
+    if !(original["blur"] is NSNumber), !NSDictionary(dictionary: object).isEqual(to: original) {
+      object = original
+      if let stored = object["backgroundTransparency"] as? Double,
+        Configuration.oldDefaultTransparencies.contains(stored)
+      {
+        object["backgroundTransparency"] = nil
+      }
+      object["blur"] = current.blur
+      try change(&object)
+    }
     for key in ["backgroundTransparency", "blur"] {
       if let value = object[key] as? Double { object[key] = NSDecimalNumber(string: String(value)) }
     }

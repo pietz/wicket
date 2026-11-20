@@ -76,8 +76,9 @@ struct Configuration: Codable, Equatable, Sendable {
   /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
   var backgroundTransparency: Double = 0.5
   /// The defaults of earlier looks, which every new file stored: 0.15 before Liquid Glass (through 0.3.4),
-  /// 0.75 for the frosted tint. A stored value equal to one reads as unset, so those files get the current
-  /// default without Wicket rewriting them.
+  /// 0.75 for the frosted tint. Such a file has no `blur`, which came with the clear glass; there a stored
+  /// value equal to one reads as unset, so it gets the current default without Wicket rewriting it. A file
+  /// with `blur` keeps every value as stored (`ConfigurationFile.edit` adds it on the first save).
   static let oldDefaultTransparencies: Set<Double> = [0.15, 0.75]
   /// How strongly the glass blurs what is behind it, 0 to 10 (`GlassBlur`).
   var blur = 4.0
@@ -100,12 +101,13 @@ struct Configuration: Codable, Equatable, Sendable {
     hotkeys = try c.decodeIfPresent([Hotkey].self, forKey: .hotkeys) ?? hotkeys
     extensions = try c.decodeIfPresent([String: [String: String]].self, forKey: .extensions) ?? extensions
     appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? appearance
+    let storedBlur = try c.decodeIfPresent(Double.self, forKey: .blur)
+    blur = storedBlur ?? blur
     if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency),
-      !Self.oldDefaultTransparencies.contains(stored)
+      storedBlur != nil || !Self.oldDefaultTransparencies.contains(stored)
     {
       backgroundTransparency = stored
     }
-    blur = try c.decodeIfPresent(Double.self, forKey: .blur) ?? blur
     providers = try c.decodeIfPresent([ProviderEntry].self, forKey: .providers) ?? providers
     guard hotkey.leavesTypingAlone else {
       throw DecodingError.dataCorruptedError(

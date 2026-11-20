@@ -432,3 +432,35 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url)) == .object([:]))
   }
 }
+
+@MainActor @Test(arguments: [0.75, 0.15])
+func theSliderSavesEveryTransparencyExactly(value: Double) throws {
+  try withSettings { file in
+    var slider = SliderEdit("backgroundTransparency")
+    slider.value = value
+    slider.editingChanged(false, store: ConfigurationStore(url: file.url))
+    let saved = try Configuration.load(at: file.url)
+    #expect(saved.backgroundTransparency == value)
+  }
+}
+
+@Test func theFirstSaveOfAnOldFileKeepsWhatItReadsAs() throws {
+  // An old look's default goes, as it read as unset; another value stays. Either way `blur` marks the file
+  // as current, so a 0.75 saved later is kept.
+  try withSettings(#"{"backgroundTransparency":0.75}"#) { file in
+    try file.set("enabled", to: false, in: "voice")
+    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any]
+    #expect(object?["backgroundTransparency"] == nil && object?["blur"] as? Double == 4)
+    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.5)
+    try file.set("backgroundTransparency", to: 0.75)
+    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.75)
+  }
+  try withSettings(#"{"backgroundTransparency":0.4,"blur":4}"#) { file in
+    try file.set("enabled", to: false, in: "voice")
+    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.4)
+  }
+  try withSettings(#"{"backgroundTransparency":0.4}"#) { file in
+    try file.set("enabled", to: false, in: "voice")
+    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.4)
+  }
+}

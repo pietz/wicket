@@ -15,9 +15,15 @@ private func config(_ json: String) throws -> Configuration {
   let changed = try config(#"{"backgroundTransparency":0.4}"#)
   #expect(changed.hotkey == .default)
   #expect(changed.backgroundTransparency == 0.4)
-  // Files written with an earlier look's default get the current one.
+  // Files from before the clear glass (no `blur`) with an earlier look's default get the current one;
+  // newer files keep every value.
   #expect(try config(#"{"backgroundTransparency":0.15}"#).backgroundTransparency == 0.5)
   #expect(try config(#"{"backgroundTransparency":0.75}"#).backgroundTransparency == 0.5)
+  #expect(try config(#"{"backgroundTransparency":0.75,"blur":4}"#).backgroundTransparency == 0.75)
+  #expect(try config(#"{"backgroundTransparency":0.15,"blur":4}"#).backgroundTransparency == 0.15)
+  var saved = Configuration()
+  saved.backgroundTransparency = 0.75
+  #expect(try JSONDecoder().decode(Configuration.self, from: JSONEncoder().encode(saved)) == saved)
 }
 
 @Test func explicitOrderAndDisable() throws {
