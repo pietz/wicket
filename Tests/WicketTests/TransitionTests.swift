@@ -940,3 +940,34 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   controller.hide()
   await model.finish()
 }
+
+@MainActor @Test func anEmptyQuestionDuringAnEntryLeavesTheEntrysRequestLive() async throws {
+  let (model, _, root) = try await transitions(answer: #"{"close":true}"#)
+  defer { try? FileManager.default.removeItem(at: root) }
+  var closed = 0
+  model.onClose = { closed += 1 }
+  model.go(Address(id: "page"), submitted: true)
+  await model.settled()
+  #expect(model.command?.id == "extension:page" && model.body == "# First page")
+  // A page on its way over the first one, and ⌘↩ with nothing typed while it is measured.
+  model.arrivalDeadline = .seconds(60)
+  var measuring: CheckedContinuation<Void, Never>?
+  model.preparePage = { _, _ in await withCheckedContinuation { measuring = $0 } }
+  model.go(Address(id: "other"), submitted: true)
+  #expect(await eventually { measuring != nil })
+  model.askAgent()
+  #expect(model.agent.active && model.returnsOnEscape && model.command?.id == "extension:page")
+  measuring?.resume()
+  await model.settled()
+  // Recorded as it is: the second page's answer lands in the first command under the question.
+  #expect(model.escape())
+  #expect(model.command?.id == "extension:page" && model.body == "# Second page")
+  // And a submitted close of an entry on its way hides the panel over the question.
+  model.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { (try? logged(root).count) == 1 })
+  model.askAgent()
+  try release(root)
+  #expect(await eventually { closed == 1 })
+  #expect(model.agent.active && model.returnsOnEscape)
+  await model.finish()
+}
