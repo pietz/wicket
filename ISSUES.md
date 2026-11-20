@@ -12,7 +12,7 @@ Open problems only, each with what the user sees and the next step. Fixed items 
 - **A copy cannot be marked concealed.** With Clipboard History on, a secret an extension copies is kept like any copy. Next: a `concealed` flag on `copy`.
 - **The 20 root items per extension are picked by fuzzy score alone**, before tier and usage, so in a large list a much-used item can stay out for a short input.
 - **Model choice offers only the curated tiers**, so a newly advertised model outside them needs a hand edit of `config.json`.
-- **A page entered from another page** briefly shows the new body under the old header while WebKit renders. Kept as is through the refactor (one shared renderer).
+- **A page entered from another page** briefly shows the new body under the old header while WebKit renders, because one renderer serves every page. Next: only as its own measured change, a separate surface that stages the arriving page.
 - **The cask's `zap` misses current data**: it trashes the 0.0.x `Application Support/Wicket` folder but not `Application Support/app.wicket.Wicket`, where the clipboard and agent history live. Next: the owner decides what an explicit uninstall should remove, then fix it at the next release.
 
 ## Files
