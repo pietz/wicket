@@ -1105,9 +1105,47 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+@MainActor @Test func aCompositionReplacingSelectedTextCarriesAllOfItIntoTheEntry() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  let field = try #require(controller.panel.field)
+  // `か` selected in `aかc` and replaced by a composition that starts with it, or by itself again, on
+  // both sides of the deadline: the old letter is not what the field kept.
+  for (committed, deadline) in [("かな", true), ("かな", false), ("か", true), ("か", false)] {
+    model.navigator.dismiss()
+    controller.show(orderFront: false, listen: false)
+    model.navigator.input = "aかc"
+    await model.navigator.settled()
+    try await update(controller)
+    model.navigator.arrivalDeadline = .seconds(60)
+    model.navigator.go(Address(id: "slow"), submitted: true)
+    try await update(controller)
+    let editor = try compose(committed, in: field, selecting: NSRange(location: 1, length: 1))
+    if deadline { model.navigator.passDeadline() }
+    try await update(controller)
+    commit(committed, in: editor)
+    try await update(controller)
+    #expect(
+      model.navigator.command?.id == "extension:slow" && model.navigator.input == committed,
+      "\(committed) \(deadline): \(model.navigator.input)")
+    #expect(field.stringValue == committed && !editor.hasMarkedText())
+    #expect(
+      await eventually { (try? logged(root).last.map { $0.input == committed && !$0.submitted }) == true })
+    _ = model.navigator.escape()
+  }
+  controller.hide()
+  await model.finish()
+}
+
 @Test func anEditKnowsWhatItInserted() {
   #expect(InputEdit("ab", from: "a").inserted == "b")
   #expect(InputEdit("aかb", from: "ab", endingAt: 2).inserted == "か")
+  // A replacement that starts with what it replaced, where the field says it began.
+  #expect(InputEdit("aかなc", from: "aかc", endingAt: 3).inserted == "な")
+  #expect(InputEdit("aかなc", from: "aかc", startingBy: 1, endingAt: 3).inserted == "かな")
+  #expect(InputEdit("aかc", from: "aかc", startingBy: 1, endingAt: 2).inserted == "か")
   #expect(InputEdit("axc", from: "abc", endingAt: 2).inserted == "x")
   // Among repeated letters, the caret says which one is new.
   #expect(InputEdit("aaa", from: "aa", endingAt: 1).inserted == "a")

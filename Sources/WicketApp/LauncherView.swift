@@ -29,6 +29,7 @@ struct SearchField: NSViewRepresentable {
     // Since macOS 14 views draw outside their bounds by default; text longer than the field must not.
     field.bleed = bleed
     field.delegate = context.coordinator
+    context.coordinator.field = field
     register(field)
     return field
   }
@@ -71,9 +72,26 @@ struct SearchField: NSViewRepresentable {
     /// A write that waits for an input method's composition: the field's text without the marked part
     /// and where that part is in it, and what the field was to show.
     private var held: (from: String, marked: Int, to: String)?
+    weak var field: NSTextField?
+    /// The lowest UTF-16 offset that the field's edits changed since the last one reported. A composition
+    /// edits the field without reporting it, from where it replaced the selection, and its commit then
+    /// reports only its own end (the caret); the old text alone cannot tell where the replacement began
+    /// when it starts with what it replaced (`か` → `かな`).
+    private var changedFrom: Int?
     init(text: String, edit: @escaping (InputEdit) -> Void) {
       self.text = text
       self.edit = edit
+      super.init()
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(edited), name: NSTextStorage.didProcessEditingNotification, object: nil)
+    }
+    /// One field editor serves every field of the panel; only edits of this field's text count.
+    @objc private func edited(_ notification: Notification) {
+      guard let storage = notification.object as? NSTextStorage,
+        storage.editedMask.contains(.editedCharacters),
+        let editor = field?.currentEditor() as? NSTextView, editor.textStorage === storage
+      else { return }
+      changedFrom = min(changedFrom ?? .max, storage.editedRange.location)
     }
     /// Writing the field while an input method composes would commit the composition after the old text,
     /// so the write waits for the commit (`controlTextDidChange`), and the composition goes after the
@@ -87,12 +105,17 @@ struct SearchField: NSViewRepresentable {
       }
       held = nil
       SearchField.updateText(text, in: field)
+      changedFrom = nil
     }
     func controlTextDidChange(_ notification: Notification) {
       guard let field = notification.object as? NSTextField else { return }
       // AppKit owns marked text and all composition keystrokes.
       let value = field.stringValue
-      defer { held = nil }
+      let from = changedFrom
+      defer {
+        held = nil
+        changedFrom = nil
+      }
       if let held {
         // Only what the composition committed, found where it was composed: before the held text's
         // remainder, which is the field's old text, not the model's.
@@ -101,7 +124,7 @@ struct SearchField: NSViewRepresentable {
         return edit(InputEdit(text: held.to + committed, base: held.to, inserted: committed))
       }
       let caret = (field.currentEditor() as? NSTextView)?.selectedRange().location
-      edit(InputEdit(value, from: text, endingAt: caret))
+      edit(InputEdit(value, from: text, startingBy: from, endingAt: caret))
     }
   }
 }

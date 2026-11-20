@@ -103,9 +103,10 @@ struct InputEdit: Equatable {
     self.inserted = inserted
   }
   /// The edit that turned `base` into `text`, its insertion ending at UTF-16 offset `end` of `text` (the
-  /// caret after it, or the end), which places it among repeated characters. What `text` keeps of
-  /// `base`'s start and end is not inserted; text that cannot be such an edit was inserted as a whole.
-  init(_ text: String, from base: String, endingAt end: Int? = nil) {
+  /// caret after it, or the end), which places it among repeated characters, and starting no later than
+  /// `limit` when the field knows where it changed. What `text` keeps of `base`'s start and end is not
+  /// inserted; text that cannot be such an edit was inserted as a whole.
+  init(_ text: String, from base: String, startingBy limit: Int? = nil, endingAt end: Int? = nil) {
     let new = Array(text.utf16)
     let old = Array(base.utf16)
     let end = min(max(end ?? new.count, 0), new.count)
@@ -115,7 +116,7 @@ struct InputEdit: Equatable {
       return
     }
     var start = 0
-    while start < min(end, old.count - kept), old[start] == new[start] { start += 1 }
+    while start < min(end, old.count - kept, limit ?? .max), old[start] == new[start] { start += 1 }
     // Never inside a surrogate pair.
     if start > 0, start < end, UTF16.isTrailSurrogate(new[start]) { start -= 1 }
     self.init(text: text, base: base, inserted: String(decoding: new[start..<end], as: UTF16.self))
