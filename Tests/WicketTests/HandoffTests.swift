@@ -362,3 +362,30 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   #expect(surface.effects.count == 1 && !model.agent.active)
   await model.finish()
 }
+
+/// Filling the selected command row's argument picks that row: Return runs it with the draft, though a
+/// pattern that would rank above it is still running.
+@MainActor @Test func returnFromAFilledArgumentRunsItsCommandWhileAPatternRuns() async throws {
+  let (model, controller, root) = try await staleReturn()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "notes", fields: ["arguments": [["name": "topic"]]])
+  _ = try extensionFolder(
+    root, name: "held",
+    script: "cat >/dev/null\nwhile [ ! -e release ]; do sleep 0.01; done\n" + answering("held result"),
+    fields: ["match": "^notes"])
+  model.store.update { $0.providers = [.init("extension:notes"), .init("extension:held")] }
+  await model.extensions.reload()
+  model.navigator.input = "notes"
+  #expect(await eventually { model.navigator.selected?.provider == "extension:notes" })
+  #expect(model.navigator.selected?.row.id == "command" && model.navigator.awaitsPattern)
+  #expect(model.navigator.moveFocus(1) && model.navigator.focusedArgument == "topic")
+  model.navigator.setArgument("topic", to: "travel")
+  controller.run()
+  #expect(!model.navigator.returnQueued)
+  #expect(await eventually { model.navigator.command?.id == "extension:notes" })
+  #expect(model.navigator.argumentValues == ["topic": "travel"])
+  try release(root, "held")
+  await model.navigator.settled()
+  controller.hide()
+  await model.finish()
+}

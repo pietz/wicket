@@ -388,7 +388,10 @@ final class Navigator {
   /// or in a submit command waits for Return.
   func setArgument(_ name: String, to value: String) {
     guard declaredArguments.contains(where: { $0.name == name }) else { return }
-    guard command != nil else { return base.fill(name, with: value) }
+    guard command != nil else {
+      base.fill(name, with: value)
+      return pickArgumentRow()
+    }
     command?.screen.fill(name, with: value)
     resetSelection()
     refresh()
@@ -397,15 +400,25 @@ final class Navigator {
   /// the input takes the keys back when the slots go away. A click into a field sets it too.
   var focusedArgument: String? {
     get { focusTarget.flatMap { name in declaredArguments.contains { $0.name == name } ? name : nil } }
-    set { focusTarget = newValue }
+    set {
+      focusTarget = newValue
+      if focusedArgument != nil { pickArgumentRow() }
+    }
   }
   private var focusTarget: String?
+  /// Focusing or filling a slot at the root picks the command row it belongs to (`returnPlan` rule 2):
+  /// a pattern arriving no longer takes the selection and the draft with it, and a Return waiting from
+  /// before is called off.
+  private func pickArgumentRow() {
+    if command == nil, let selection { select(selection) }
+  }
   /// Tab and Shift+Tab: the input, then each slot in order, round again. False when there are none.
   @discardableResult func moveFocus(_ delta: Int) -> Bool {
     let names = [nil] + declaredArguments.map(\.name)
     guard names.count > 1 else { return false }
     let index = names.firstIndex(of: focusedArgument) ?? 0
     focusTarget = names[(index + delta + names.count) % names.count]
+    if focusTarget != nil { pickArgumentRow() }
     return true
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
@@ -440,7 +453,7 @@ final class Navigator {
   /// What Return does with the selected row, the one place that decides it. At the root:
   ///
   /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
-  /// 2. A row the user picked runs at once.
+  /// 2. A row the user picked runs at once; focusing or filling a command row's argument picks it.
   /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
   /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row
   ///    (`RootCommand.outranked`): what is typed was meant for it.
