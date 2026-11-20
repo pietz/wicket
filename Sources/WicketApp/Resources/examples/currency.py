@@ -1,6 +1,8 @@
 #!/usr/bin/python3
-"""Currency conversion with the European Central Bank's daily reference rates, cached for the day in
-rates.json next to this file. The network is used only for input shaped like `100 usd in eur`."""
+"""Currency conversion with the European Central Bank's daily reference rates, kept in rates.json next to
+this file. The network is used only for input shaped like `100 usd in eur`, at most once a day while
+downloads succeed; offline, the last cache answers, and a failed download is retried after ten minutes.
+The cache is not a user-visible effect, so any request may write it. Amounts ignore `request.locale`."""
 import datetime, json, os, re, sys, time, urllib.request
 FEED = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
