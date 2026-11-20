@@ -348,7 +348,9 @@ struct LauncherView: View {
       ScrollView {
         LazyVStack(spacing: 2) {
           if navigator.results.isEmpty {
-            Text(navigator.command?.busy == true ? "Running…" : "No results").foregroundStyle(.secondary)
+            Text(
+              navigator.command?.busy == true ? "Running…" : navigator.awaitsPattern ? " " : "No results"
+            ).foregroundStyle(.secondary)
               .frame(height: PaletteLayout.header)
           }
           ForEach(navigator.results) { result in resultRow(result) }

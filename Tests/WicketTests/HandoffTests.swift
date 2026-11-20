@@ -129,3 +129,50 @@ private func application(in root: URL) throws -> RowAction {
   #expect(await eventually { released == nil && view == nil })
   await model.finish()
 }
+
+@MainActor @Test func aPatternStillRunningHoldsAskAgentAndAnUntouchedReturnForItsRows() async throws {
+  let (model, controller, root) = try await staleReturn()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let surface = RecordingSurface(wrapping: controller)
+  model.navigator.surface = surface
+  var lists: [[String]] = []
+  surface.onDraw = { lists.append(model.navigator.results.map(\.provider)) }
+  model.navigator.input = "> B"
+  // The list for what is typed comes after the hold, without Ask agent while the pattern runs.
+  #expect(await eventually { !model.root.isSearching })
+  #expect(!model.navigator.results.contains { $0.provider == "agent" || $0.row.id == "fallback" })
+  #expect(model.navigator.awaitsPattern)
+  controller.run()
+  #expect(model.navigator.returnQueued && model.navigator.command == nil)
+  try release(root, "echo")
+  #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
+  #expect(model.navigator.command?.id == "extension:echo" && !model.agent.active)
+  #expect(lists.allSatisfy { !$0.contains("agent") })
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func cmdReturnAsksWhileAPatternIsStillRunning() async throws {
+  let (model, controller, root) = try await staleReturn()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.navigator.input = "> B"
+  #expect(await eventually { !model.root.isSearching })
+  model.navigator.askAgent()
+  #expect(model.agent.active && model.agent.question == "> B")
+  try release(root, "echo")
+  await model.navigator.settled()
+  controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func aPatternThatAnswersNothingBringsAskAgentBackForReturn() async throws {
+  let (model, controller, root) = try await staleReturn()
+  defer { try? FileManager.default.removeItem(at: root) }
+  model.navigator.input = "> E"
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.provider == "agent" && !model.navigator.awaitsPattern)
+  controller.run()
+  #expect(!model.navigator.returnQueued && model.agent.active && model.agent.question == "> E")
+  controller.hide()
+  await model.finish()
+}

@@ -152,7 +152,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   #expect(await eventually { !model.root.isSearching })
   #expect(
     model.navigator.selection == model.navigator.results.first?.id
-      && model.navigator.selected?.provider == "agent")
+      && !model.navigator.results.contains { $0.provider == "agent" })
   try Data().write(to: gate)
   await model.navigator.settled()
   #expect(
@@ -240,11 +240,12 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   controller.show(orderFront: false, listen: false)
   model.navigator.input = "> A"
   await model.navigator.settled()
-  // Return while the rows of "> A" still show, then while Ask agent stands in for the slow pattern: it
-  // runs "> B" once that answers, never A and never the agent.
+  // Return while the rows of "> A" still show, then while the list waits for the slow pattern without
+  // Ask agent: it runs "> B" once that answers, never A and never the agent.
   model.navigator.input = "> B"
   controller.run()
-  #expect(await eventually { model.navigator.results.first?.provider == "agent" })
+  #expect(await eventually { !model.root.isSearching })
+  #expect(!model.navigator.results.contains { $0.provider == "agent" })
   #expect(model.navigator.command == nil && !model.agent.active)
   #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
   #expect(
@@ -272,9 +273,10 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
   model.navigator.input = "weather"
-  // The list waits a moment for the matching pattern, then shows without it.
+  // The list waits a moment for the matching pattern, then shows without it, and without Ask agent.
   #expect(model.navigator.results.isEmpty)
-  #expect(await eventually { model.navigator.selected?.provider == "agent" })
+  #expect(await eventually { !model.root.isSearching })
+  #expect(!model.navigator.results.contains { $0.provider == "agent" })
   try Data().write(to: gate)
   await model.navigator.settled()
   #expect(model.navigator.selected?.provider == "extension:forecast")
@@ -323,9 +325,11 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.extensions.reload()
   var delivered = 0
   model.root.search("test", speaking: false) { _ in delivered += 1 }
-  #expect(model.root.pending == ["extension:pattern"] && model.root.isSearching && model.root.awaitsPattern)
+  #expect(
+    model.root.pending == ["extension:pattern"] && model.root.isSearching
+      && model.root.runningPatterns == ["extension:pattern"])
   model.root.cancel()
-  #expect(model.root.pending.isEmpty && !model.root.isSearching)
+  #expect(model.root.pending.isEmpty && !model.root.isSearching && model.root.runningPatterns.isEmpty)
   try Data().write(to: root.appending(path: "extensions/pattern/release"))
   await model.root.settled()
   try await Task.sleep(for: .milliseconds(100))

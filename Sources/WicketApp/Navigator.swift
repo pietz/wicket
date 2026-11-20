@@ -467,13 +467,19 @@ final class Navigator {
   /// `RootCommand.patternHold`), the previous ones still show.
   private var composedInput = ""
   /// Return at the root waits for the rows composed for what is typed, so it never runs a row made for an
-  /// earlier input, and never asks the agent only because a pattern that matched what is typed (a `>`
-  /// command for Shell) has not answered with rows: the input was meant for it. A picked row acts at once.
+  /// earlier input. Unless the user picked a row, it also waits while a pattern that matched what is typed
+  /// (a calculation, a `>` command for Shell) is still running: the input was meant for it, and its rows
+  /// come first. Once that pattern answers with nothing, Return runs the first row, Ask agent included;
+  /// if it failed, Return never asks the agent in its place. A picked row acts at once.
   var returnWaits: Bool {
     guard command == nil, !conversing, arriving == nil, overlay == nil else { return false }
-    return composedInput != input
-      || !current.touched && selected?.provider == "agent" && search.awaitsPattern
+    if composedInput != input { return true }
+    guard !current.touched else { return false }
+    return !search.runningPatterns.isEmpty || selected?.provider == "agent" && search.failedPattern
   }
+  /// A pattern that matched what is typed is still running at the root, so the list has no Ask agent yet
+  /// and an empty list is not "No results".
+  var awaitsPattern: Bool { command == nil && !conversing && !search.runningPatterns.isEmpty }
   /// A Return that waits runs once `returnWaits` is over, as Return would then (`run`); an edit, a pick, a
   /// switch or hiding calls it off.
   private(set) var returnQueued = false

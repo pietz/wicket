@@ -49,10 +49,14 @@ import Foundation
     self.history = history
   }
 
-  /// Whether a pattern extension that matched the input has not answered with rows yet, or failed: what is
-  /// typed was meant for it, so Return does not ask the agent in its place.
-  var awaitsPattern: Bool {
-    matchedPatterns.contains { if case .items = patterns[$0] { false } else { true } }
+  /// The pattern extensions that matched the input and have not answered yet. What is typed was meant
+  /// for them: Ask agent and fallbacks wait for them (`Ranking.compose`), and so does a Return the user
+  /// did not aim at a row (`Navigator.returnWaits`). The list itself waits only `patternHold`.
+  var runningPatterns: Set<String> { matchedPatterns.filter { patterns[$0] == nil } }
+  /// Whether a pattern extension that matched the input failed: Return never asks the agent in its place,
+  /// though Ask agent shows again, with the failure, for ⌘↩ and a click.
+  var failedPattern: Bool {
+    matchedPatterns.contains { if case .failed = patterns[$0] { true } else { false } }
   }
 
   /// Searches for `input`, replacing any search before it. `speaking`: voice is writing the input, so
@@ -169,6 +173,7 @@ import Foundation
     tasks.removeAll()
     isSearching = false
     pending.removeAll()
+    matchedPatterns.removeAll()
   }
 
   /// Waits until the search is done, including a search started while this was waiting.
@@ -190,7 +195,7 @@ import Foundation
         Ranking.Names(provider: "files", kind: .file, rows: fileRows),
       ] + itemRows
     let ranked = Ranking.compose(
-      query: input, names: names, patterns: patterns,
+      query: input, names: names, patterns: patterns, running: runningPatterns,
       extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       hosts: directory.rootRows(configuration), usage: history.store, now: Date())

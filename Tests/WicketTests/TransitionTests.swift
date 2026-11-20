@@ -477,7 +477,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
-/// A root pattern for `> text`, held on `release` for inputs with B, failing for inputs with F.
+/// A root pattern for `> text`, held on `release` for inputs with B, failing for inputs with F, answering
+/// nothing for inputs with E.
 @MainActor func staleReturn(
   transcriber: @escaping () -> any Transcriber = { FakeTranscriber() },
   openApplication: @escaping (URL, @escaping @MainActor (Error?) -> Void) -> Void = { _, _ in }
@@ -491,6 +492,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
       open('log.jsonl', 'a').write(json.dumps(request) + '\\n')
       text = request['input']
       if 'F' in text: sys.exit(1)
+      if 'E' in text: print(json.dumps({'items':[]})); sys.exit(0)
       while 'B' in text and not os.path.exists('release'): time.sleep(0.01)
       print(json.dumps({'items':[{'id':'run','title':text,'actions':[{'type':'run','input':text}]}]}))
       """, fields: ["match": "^> ", "command": ["/usr/bin/python3", "main.sh"]])

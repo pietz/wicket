@@ -99,6 +99,10 @@ enum Ranking {
   ///    never crosses a tier.
   /// 3. Ask agent, only when nothing is strong, and then on top.
   /// 4. Fallback extensions, only when nothing is strong, right after Ask agent.
+  ///
+  /// Ask agent and fallbacks also wait while a pattern extension that matched the input is still
+  /// running (`running`): the input was meant for it, and its rows, strong when it answers any, would
+  /// replace them a moment later. Once it answers nothing or fails they show.
   /// 5. Error and repair rows.
   ///
   /// Strong means a nonempty successful pattern result or a name match with tier 1
@@ -109,11 +113,12 @@ enum Ranking {
   ///   - names: Name matches from apps, file search and extension items. Only apps list anything
   ///     for empty input.
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
+  ///   - running: The pattern extensions that matched the input and have not answered yet.
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
   ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
   static func compose(
-    query input: String, names: [Names], patterns: [String: Pattern],
+    query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
     extensions: [String: ExtensionManifest], problems: [String: String], hosts: [Result] = [],
     usage: UsageStore, now: Date = Date()
   ) -> Output {
@@ -215,7 +220,8 @@ enum Ranking {
 
     // Fallbacks replace their extension's own command row when nothing is strong.
     var fallbacks: [Result] = []
-    if reason == nil {
+    let fallsBack = reason == nil && running.isEmpty
+    if fallsBack {
       let ids = named(extensions.filter { $0.value.fallback }.keys)
       candidates.removeAll { $0.kind == .command && ids.contains($0.result.provider) }
       fallbacks = ids.map {
@@ -227,7 +233,7 @@ enum Ranking {
       }
     }
     // Sorted by tier, so the strong come first; with none strong there are no pattern rows either.
-    let ordered = (reason == nil ? [ask] + fallbacks : patternRows) + candidates.map(\.result)
+    let ordered = (fallsBack ? [ask] + fallbacks : patternRows) + candidates.map(\.result)
     return Output(results: ordered + failures + repairs, strongReason: reason)
   }
 }

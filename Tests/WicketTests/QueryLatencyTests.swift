@@ -5,9 +5,10 @@ import Testing
 @testable import WicketApp
 
 /// Opt-in, for work on the root's hot path: `WICKET_MEASURE=1 swift test -c release -Xswiftc
-/// -enable-testing --filter queryLatency`. Prints how long a calculation takes from the keystroke to
-/// the list that shows it, the first time and then typical, and checks it lands in the first publish
-/// for that input, with no Ask agent before it, also while typing fast.
+/// -enable-testing --filter queryLatency`. Prints how long a calculation takes from the keystroke to the
+/// first list for it and to the first list that shows it, the first time (the bundled calculator may be a
+/// binary macOS has not run yet, which can outlast `RootCommand.patternHold`) and then, after the process
+/// started a few times, typical, also while typing fast. No list ever shows Ask agent before the result.
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
 func queryLatency() async throws {
   let folder = try scratch()
@@ -16,21 +17,33 @@ func queryLatency() async throws {
     in: folder,
     bundled: bundledExtensions)
   await model.extensions.reload()
-  var published: [(input: String, first: String?, at: ContinuousClock.Instant)] = []
+  var published: [(input: String, first: String?, asks: Bool, at: ContinuousClock.Instant)] = []
   let surface = RecordingSurface()
   model.navigator.surface = surface
   surface.onDraw = {
-    published.append((model.navigator.input, model.navigator.results.first?.provider, .now))
+    published.append(
+      (
+        model.navigator.input, model.navigator.results.first?.provider,
+        model.navigator.results.contains { $0.provider == "agent" }, .now
+      ))
   }
-  /// Milliseconds from setting the input to the first publish for it, and that publish's first row.
-  func type(_ input: String) async -> (Double, String?) {
+  func milliseconds(_ from: ContinuousClock.Instant, _ to: ContinuousClock.Instant) -> Double {
+    Double((to - from).components.attoseconds) / 1e15
+  }
+  /// From setting the input: milliseconds to the first list for it and its first row, and to the first
+  /// list with a calculation first, if any. No list for it before that one offers Ask agent.
+  func type(_ input: String) async -> (first: Double, row: String?, result: Double?) {
     published.removeAll()
     let start = ContinuousClock.now
     model.navigator.input = input
     while !published.contains(where: { $0.input == input }) { await Task.yield() }
-    let first = published.first { $0.input == input }!
     await model.navigator.settled()
-    return (Double((first.at - start).components.attoseconds) / 1e15, first.first)
+    let lists = published.filter { $0.input == input }
+    let result = lists.firstIndex { $0.first == "extension:calculator" }
+    if let result { #expect(!lists[..<result].contains { $0.asks }, "no Ask agent before the result") }
+    return (
+      milliseconds(start, lists[0].at), lists[0].first, result.map { milliseconds(start, lists[$0].at) }
+    )
   }
   func summary(_ times: [Double]) -> String {
     let sorted = times.sorted()
@@ -39,11 +52,13 @@ func queryLatency() async throws {
       sorted[sorted.count * 9 / 10], sorted.last!)
   }
   let cold = await type("12*7")
-  #expect(cold.1 == "extension:calculator")
+  #expect(cold.result != nil)
+  // The calculator's process starts a few times before the typical case is measured.
+  for n in 0..<3 { _ = await type("1+\(n)") }
   var warm: [Double] = []
   for n in 0..<60 {
     _ = await type("x")
-    let (time, first) = await type("12*\(n)")
+    let (time, first, _) = await type("12*\(n)")
     #expect(first == "extension:calculator")
     warm.append(time)
   }
@@ -60,11 +75,11 @@ func queryLatency() async throws {
     }
     await model.navigator.settled()
     let shown = published.filter { $0.input == "12*7" }
-    #expect(shown.first?.first == "extension:calculator", "no Ask agent before the result")
-    if let at = shown.first?.at { fast.append(Double((at - start).components.attoseconds) / 1e15) }
+    #expect(shown.first?.first == "extension:calculator", "the result in the first list")
+    if let at = shown.first?.at { fast.append(milliseconds(start, at)) }
   }
   print(
-    "queryLatency: first \(String(format: "%.2f", cold.0)) ms; warm \(summary(warm)); typing \(summary(fast))"
+    "queryLatency: first list \(String(format: "%.2f", cold.first)) ms, first result \(String(format: "%.2f", cold.result ?? .nan)) ms; warm \(summary(warm)); typing \(summary(fast))"
   )
 }
 
