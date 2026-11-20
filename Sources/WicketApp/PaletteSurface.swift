@@ -99,6 +99,8 @@ struct PalettePresentation: Equatable {
   var askingName = ""
   /// A pattern that matched what is typed is still running at the root (`Navigator.awaitsPattern`).
   var awaitsPattern = false
+  /// Return does nothing on the selected row (`Navigator.returnPlan`), so the footer offers only ⌘↩.
+  var refusesReturn = false
 }
 
 extension Navigator {
@@ -114,6 +116,6 @@ extension Navigator {
       problem: command?.problem, busy: command?.busy == true, viewActions: viewActions, viewRow: viewRow,
       page: page, pageTurn: pageTurn, inDetail: inDetail, selectedTarget: selectedTarget,
       offersActions: offersActions, returnsOnEscape: returnsOnEscape, askingAbout: askingAbout,
-      askingName: askingName, awaitsPattern: awaitsPattern)
+      askingName: askingName, awaitsPattern: awaitsPattern, refusesReturn: returnPlan() == .refuse)
   }
 }

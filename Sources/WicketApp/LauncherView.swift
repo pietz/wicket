@@ -301,7 +301,7 @@ struct LauncherView: View {
                   : agent.busy
                     ? "Esc Cancel" : agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
             } else {
-              Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter"))
+              if !shown.refusesReturn { Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter")) }
               if shown.offersActions { Text("⌘K Actions").lineLimit(1) }
               // The one hint that may grow with a name: it gives way first.
               Text("⌘↩ " + (shown.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)

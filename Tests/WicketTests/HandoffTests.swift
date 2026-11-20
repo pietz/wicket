@@ -308,6 +308,8 @@ private final class HeldFiles: @unchecked Sendable {
   model.navigator.run()
   model.navigator.run()
   #expect(!model.navigator.returnQueued && !model.agent.active)
+  // The footer offers ⌘↩ alone, not a Return that does nothing.
+  #expect(model.navigator.presentation.refusesReturn)
   files.send("/Users/me/needle.txt")
   #expect(await eventually { model.navigator.selected?.provider == "files" })
   try await Task.sleep(for: .milliseconds(50))
