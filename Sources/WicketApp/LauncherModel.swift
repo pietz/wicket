@@ -217,7 +217,8 @@ final class LauncherModel {
   }
   /// The screen being switched to while its first content is on its way: a command (nil for the root)
   /// and its input. Until it arrives, or `arrivalDeadline` passes, the screen being left stays exactly as
-  /// it was, so the panel's content and height change together in one step (`arrive`).
+  /// it was, so the panel's content and height change together in one step (`arrive`). Collapsing at once
+  /// and growing on arrival was tried and rejected: a command with many items flashed small, then large.
   private struct Arrival {
     var command: CommandState?
     let input: String

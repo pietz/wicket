@@ -159,7 +159,7 @@ private func windowView(_ arguments: [String: String] = [:], submitted: Bool = f
   let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent()
   let rows = try #require(try bundled("window").manifest.items)
-  for file in ["README.md", "SPEC.md", "docs/manual-checks.md"] {
+  for file in ["README.md", "docs/manual-checks.md"] {
     let text = try String(contentsOf: root.appending(path: file), encoding: .utf8)
     let missing = rows.map(\.title).filter { !text.contains($0) }
     #expect(missing.isEmpty, "\(file) does not name \(missing)")

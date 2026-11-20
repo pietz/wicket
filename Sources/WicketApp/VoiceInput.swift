@@ -62,7 +62,8 @@ final class VoiceInput {
   @ObservationIgnored private var firstTranscript: Duration?
   @ObservationIgnored private var opened = ContinuousClock.now
   var silenceDuration: Duration = .seconds(60)
-  /// Listening ends this soon after capture is ready when nothing has been said yet.
+  /// Listening ends this soon after capture is ready when nothing has been said yet, so the microphone
+  /// goes off quickly whenever Wicket is opened only to type.
   var noSpeechDuration: Duration = .seconds(3)
   var maximumDuration: Duration = .seconds(300)
 

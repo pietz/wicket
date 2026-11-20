@@ -5,7 +5,9 @@ import os
 /// Past agent runs, newest first, kept in `agent-history.json` in the private folder beside the clipboard
 /// history, out of the agent's reach. A run is saved whenever one of its turns ends, with its questions
 /// and answers only: no tool output and no `<context>` block. Return on a row reopens the run as it was
-/// left, and a follow-up resumes the CLI's own session. Never logs what was asked.
+/// left, and a follow-up resumes the CLI's own session. Never logs what was asked. Wicket keeps its own
+/// copy rather than reading the CLIs' session stores: their formats are undocumented, change with CLI
+/// versions and are full of tool noise.
 @MainActor @Observable
 final class AgentHistory: Provider {
   let id = "history"
