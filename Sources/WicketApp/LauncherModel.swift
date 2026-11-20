@@ -692,8 +692,10 @@ final class LauncherModel {
     return extensions.commands[row.provider]?.manifest.arguments ?? []
   }
   /// Values filled in at the root for the selected command row; dropped when the selection moves or
-  /// the panel is dismissed.
-  private var drafted: [String: String] { command == nil && !agent.active ? search.arguments : [:] }
+  /// the panel is dismissed. Only the row itself takes them: an action chosen in ⌘K runs as captured.
+  private var drafted: [String: String] {
+    command == nil && !agent.active && overlay == nil ? search.arguments : [:]
+  }
   /// The current values by name: the open command's arguments, or the root draft. Unfilled is absent.
   var argumentValues: [String: String] { screen.arguments }
   /// Fills in a declared argument. Inside a command it is an edit like typing: it reruns the command,

@@ -729,10 +729,14 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(model.actionsTitle == "caffeinate" && model.declaredArguments.isEmpty)
   #expect(model.escape())
   #expect(model.argumentValues == ["hours": "2"] && model.selected?.row.id == "command")
-  // Where ⌘K took its actions from: Return on the panel's first row enters with the draft.
+  // Return on the row itself enters with the draft; ⌘K runs the row's action as it was captured.
+  guard case .run(let entered)? = model.returnAction?.kind else { throw CancellationError() }
+  #expect(entered.arguments == ["hours": "2"])
   model.toggleActions()
   let picked = try #require(model.pick())
   #expect(picked.from?.row.id == "command" && model.actionsTitle == nil)
+  guard case .run(let captured) = picked.action.kind else { throw CancellationError() }
+  #expect(captured.arguments == nil && model.argumentValues == ["hours": "2"])
   await model.finish()
 }
 
