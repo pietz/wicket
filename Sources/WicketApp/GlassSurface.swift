@@ -1,4 +1,5 @@
 import AppKit
+import ObjCBoundary
 import SwiftUI
 
 /// The search pill and the card: AppKit clear glass, whose own backdrop blur follows the Blur setting, over a
@@ -39,8 +40,8 @@ struct GlassSurface: View {
 /// `inputBlurOpacity0…4` bands fade the blur in from the edge, and raising them keeps the centre sharp. A
 /// layer copies its filters, so the filter is cloned and the array reassigned. AppKit writes its own value
 /// back whenever it rebuilds the glass (a resize, a tint or state change), so the view applies the value
-/// again after each. Missing filter, key or input leaves plain clear glass over the backing: this is private
-/// API that any macOS update may change, and it must fail quietly.
+/// again after each. Missing filter, key or input, or a radius that is not a number, leaves plain clear glass
+/// over the backing: this is private API that any macOS update may change, and it must fail quietly.
 enum GlassBlur {
   static let filterType = "glassBackground"
   static let radiusKey = "inputBlurRadius"
@@ -64,35 +65,46 @@ enum GlassBlur {
   }
 
   /// The filter if `item` is a glass background with a blur radius; anything else, such as a Core Image
-  /// filter, which has no `type`, is left alone without asking it for keys it lacks.
+  /// filter, which has no `type`, is left alone without asking it for keys it lacks. Every key-value call
+  /// on the private filter goes through `ObjCBoundary`, which turns its exceptions into nil.
   static func glassBackground(_ item: Any) -> NSObject? {
-    guard let filter = item as? NSObject, filter is NSCopying,
+    guard let filter = item as? NSObject,
       filter.responds(to: NSSelectorFromString("type")),
       filter.responds(to: NSSelectorFromString("inputKeys")),
-      filter.value(forKey: "type") as? String == filterType,
-      (filter.value(forKey: "inputKeys") as? [String])?.contains(radiusKey) == true
+      WKValueForKey(filter, "type") as? String == filterType,
+      (WKValueForKey(filter, "inputKeys") as? [String])?.contains(radiusKey) == true
     else { return nil }
     return filter
   }
 
-  /// The blur radius of the first glass background among `filters`.
-  static func radius(in filters: [Any]) -> Double? {
-    filters.lazy.compactMap(glassBackground).first.flatMap {
-      ($0.value(forKey: radiusKey) as? NSNumber)?.doubleValue
-    }
+  /// `filter`'s blur radius, when it is a finite number.
+  static func storedRadius(_ filter: NSObject) -> Double? {
+    guard let number = WKValueForKey(filter, radiusKey) as? NSNumber, number.doubleValue.isFinite
+    else { return nil }
+    return number.doubleValue
   }
 
-  /// `filters` with each glass background's blur set to `radius` on a copy, or nil when none needs it.
+  /// The blur radius of the first glass background among `filters`.
+  static func radius(in filters: [Any]) -> Double? {
+    filters.lazy.compactMap(glassBackground).first.flatMap(storedRadius)
+  }
+
+  /// `filters` with each glass background's blur set to `radius` on a copy, or nil when none needs it. A
+  /// filter whose radius cannot be read, copied, or written and read back as a number fails the whole
+  /// patch, so the layer keeps the filters it has.
   static func patched(_ filters: [Any], radius: Double) -> [Any]? {
+    guard radius.isFinite else { return nil }
+    var updated = filters
     var changed = false
-    let updated = filters.map { item -> Any in
-      guard let filter = glassBackground(item),
-        !matches((filter.value(forKey: radiusKey) as? NSNumber)?.doubleValue, radius),
-        let copy = (filter as? NSCopying)?.copy(with: nil) as? NSObject
-      else { return item }
-      copy.setValue(radius, forKey: radiusKey)
+    for (index, item) in filters.enumerated() {
+      guard let filter = glassBackground(item) else { continue }
+      guard let stored = storedRadius(filter) else { return nil }
+      if matches(stored, radius) { continue }
+      guard let copy = WKCopy(filter) as? NSObject, storedRadius(copy) != nil,
+        WKSetValueForKey(copy, NSNumber(value: radius), radiusKey), matches(storedRadius(copy), radius)
+      else { return nil }
+      updated[index] = copy
       changed = true
-      return copy
     }
     return changed ? updated : nil
   }
