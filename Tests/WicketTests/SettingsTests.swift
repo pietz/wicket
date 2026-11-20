@@ -435,12 +435,24 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 
 @MainActor @Test(arguments: [0.75, 0.15])
 func theSliderSavesEveryTransparencyExactly(value: Double) throws {
-  try withSettings { file in
-    var slider = SliderEdit("backgroundTransparency")
-    slider.value = value
-    slider.editingChanged(false, store: ConfigurationStore(url: file.url))
-    let saved = try Configuration.load(at: file.url)
-    #expect(saved.backgroundTransparency == value)
+  // An untouched old file stores this value but reads as 0.5, so choosing it is a change to save.
+  for json in ["{}", #"{"backgroundTransparency":\#(value)}"#] {
+    try withSettings(json) { file in
+      var slider = SliderEdit("backgroundTransparency")
+      slider.value = value
+      slider.editingChanged(false, store: ConfigurationStore(url: file.url))
+      let saved = try Configuration.load(at: file.url)
+      #expect(saved.backgroundTransparency == value)
+    }
+  }
+}
+
+@Test func anEditThatChangesNothingLeavesTheFileUntouched() throws {
+  for json in [#"{ "backgroundTransparency": 0.75 }"#, #"{ "blur": 4 }"#] {
+    try withSettings(json) { file in
+      try file.bind(nil, to: HotkeyTarget(target: "extension:window", item: "left"))
+      #expect(try String(contentsOf: file.url, encoding: .utf8) == json)
+    }
   }
 }
 

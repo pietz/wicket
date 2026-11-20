@@ -9,21 +9,21 @@ struct ConfigurationFile {
     let data = try Data(contentsOf: url)
     let current = try JSONDecoder().decode(Configuration.self, from: data)
     let original = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-    var object = original
-    try change(&object)
-    // A file from before the clear glass (`Configuration.oldDefaultTransparencies`) that this edit changes
-    // is saved as it reads: an old default dropped and `blur` added, so every value written from now on
-    // round-trips. An edit that changes nothing leaves it as it was.
-    if !(original["blur"] is NSNumber), !NSDictionary(dictionary: object).isEqual(to: original) {
-      object = original
-      if let stored = object["backgroundTransparency"] as? Double,
+    // A file from before the clear glass (`Configuration.oldDefaultTransparencies`) is edited as it reads:
+    // an old default dropped and `blur` added, so every value written from now on round-trips, including
+    // that old default chosen again. An edit that changes nothing it reads as leaves the file untouched.
+    var base = original
+    if !(original["blur"] is NSNumber) {
+      if let stored = base["backgroundTransparency"] as? Double,
         Configuration.oldDefaultTransparencies.contains(stored)
       {
-        object["backgroundTransparency"] = nil
+        base["backgroundTransparency"] = nil
       }
-      object["blur"] = current.blur
-      try change(&object)
+      base["blur"] = current.blur
     }
+    var object = base
+    try change(&object)
+    guard !NSDictionary(dictionary: object).isEqual(to: base) else { return current }
     for key in ["backgroundTransparency", "blur"] {
       if let value = object[key] as? Double { object[key] = NSDecimalNumber(string: String(value)) }
     }
