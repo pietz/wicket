@@ -28,6 +28,11 @@ Open problems only, each with what the user sees and the next step. Fixed items 
 - **The Settings sign-in check is bounded in time, not bytes**: `claude auth status` and `codex login status` output is read whole within its 8 s limit.
 - **Agent stderr reads are uncapped.** The diagnostic retains only the last 4 KiB, but unread chunks can accumulate if the consumer falls behind. Fold the error path into the transport cleanup.
 
+## Code
+
+- **`Navigator` is still about 970 lines.** It no longer knows command rules, but still holds agent question settings and the staging of header and permission heights. Next: move agent question settings to the agent screen; key header and permission heights to the visit together with measuring before showing.
+- **A successful pattern drops what was typed into a command's argument** when its row is replaced. Next: keep the picked command row and its values through ranking.
+
 ## Tests
 
 - **`HeadlessTests` runs `.build/debug/Wicket` from a fixed path** and depends on `Scripts/check.sh` having built it. Next: build the product from the test, or say so where it fails.

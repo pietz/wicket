@@ -2,15 +2,7 @@
 
 The work the owner has agreed, in order. Open problems are in [ISSUES.md](ISSUES.md). When a step ships, delete it here and update the code comments, README, contract and agent instructions it changes.
 
-## 1. Screen and command refactor (in progress, branch `screens`)
-
-Every launcher screen gets one owner for what was typed, what is selected and what it shows. A small navigator keeps the stack (the root, one command, the agent) and stages each switch so content and height still change together. Root search, extension commands, Clipboard History, Agent History and the agent become commands with one structure; Settings stays a native window. `LauncherModel` stops being the catch-all.
-
-- Nine commits in three batches (1–3, 4–6, 7–9). The first records today's transitions as tests and offscreen captures; every later commit must pass `Scripts/check.sh` with identical captures. Each batch gets an independent review and an owner try on Wicket Dev.
-- No visible change is intended. The mechanism is explained in code comments and AGENTS rules, not a spec.
-- Gate after merging: re-run the speed harness (cold launch, show and hide) and keep today's numbers or better.
-
-## 2. Typed inputs in the search bar and canvas
+## 1. Typed inputs in the search bar and canvas
 
 One coordinated contract change, with the contract, agent instructions, examples, bundled extensions and tests updated together:
 
@@ -19,19 +11,19 @@ One coordinated contract change, with the contract, agent instructions, examples
 - Legacy `rows` decoding goes.
 - Typed inputs appear as search-bar parameters and as interactive fields inside the canvas.
 
-The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. The mechanism for fields inside it is decided by two Wicket prototypes in `FIELD-SPIKES-BRIEF.md`: keyed HTML fields in the page (A), which keeps that decision intact, and a native form section inside the canvas (B), an alternative under evaluation that is worth it only if A cannot be made reliable. Both must exercise fast typing, Tab and Shift-Tab, Japanese IME, focus and caret through a structural rerender, 1,000 rapid updates and headless arguments. The owner selects the mechanism from those results. The earlier clean-room failure informs the tests. If negatives about the HTML canvas pile up, raise it openly.
+The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. Fields inside it are keyed HTML fields (a prototype passed fast typing, a structural re-render and 1,000 rapid updates); before shipping, verify Tab and Shift-Tab, Japanese IME and caret through a re-render with offscreen tests only. If negatives about the HTML canvas pile up, raise it openly.
 
-## 3. Drafts
+## 2. Drafts
 
 A one-off extension the agent writes for an answer lives in `drafts/<runID>/<name>/` in the working folder and opens through `wicket://draft/<name>`. It goes with its Agent History run (delete, clear, expiry); orphans are swept at launch; drafts get no hotkeys and no ⌘K entry. To keep one, the user asks the agent, which moves the folder into `extensions/`.
 
-## 4. Live extension results inside agent answers
+## 3. Live extension results inside agent answers
 
 During a turn the agent can call enabled extensions as tools, and their results appear live inside its answer. The clean-room app's MCP tool bridge is the reference; the bridge interface and which extensions are eligible are settled in its design. This reverses the earlier decision against MCP Apps and a tool flag. Streaming of the agent's text stays as shipped (Settings ▸ Agent ▸ Stream answers, on by default).
 
-## 5. Diagnostics cuts (after the refactor)
+## 4. Diagnostics cuts
 
-After the refactor, take the ranked cuts in `GROWTH-AND-HARDENING.md`: one voice failure category with its OS code and one stop reason; remove per-session `voice-timing.txt` writes while retaining the first-transcript marker; keep one bounded private agent wire log behind an off-by-default switch; report one actionable malformed-extension-output error with a field path or stderr; give agent transport one close path with a bounded final drain and one missing-outcome diagnostic; remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation with the process regression checks.
+Take the ranked cuts in `GROWTH-AND-HARDENING.md`: one voice failure category with its OS code and one stop reason; remove per-session `voice-timing.txt` writes while retaining the first-transcript marker; keep one bounded private agent wire log behind an off-by-default switch; report one actionable malformed-extension-output error with a field path or stderr; give agent transport one close path with a bounded final drain and one missing-outcome diagnostic; remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation with the process regression checks.
 
 ## Also agreed
 
@@ -41,7 +33,9 @@ Not yet ordered; each takes its place after the steps above.
 - Enforce the answer-tag allowlist. Unknown tags display as literal text.
 - Ship and update layout and components in `core.css` and allow an advanced user override. Keep user tokens in `theme.css`, migrate existing themes and retain system-derived row and selection colours.
 - Add Allow for this conversation as the third agent permission choice, alongside Allow once and Don't allow.
+- Make the canvas controls look closer to native macOS: a small token-driven control layer in `core.css` (switch, checkbox, pop-up, text field) with `native` and `flat` presets that `theme.css` can override. The owner judges offscreen before-and-after captures.
+- A theme option to join the search pill and the card into one glass shape (`tools/glass-lab`, ⌘J); separate stays the default.
 
 ## Throughout
 
-Optimise performance only where a user could feel or see it; Wicket is already fast. No performance work is planned beyond the gate in step 1.
+Optimise performance only where a user could feel or see it; Wicket is already fast. After the screen refactor, re-run the speed check once (cold launch about 270 ms, show and hide about 50 ms before it) and keep those numbers or better.

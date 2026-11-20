@@ -8,7 +8,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - `Sources/WicketApp/Resources`: answer stylesheet, bridge script, `agent-instructions.md` (Claude receives the bundled instructions and the owner's additions on each turn; Codex receives them when its thread starts), the extension contract and the examples, found through `Bundle.wicket`.
 - `Sources/Extensions`: the bundled extensions (calculator, units, window, shell), one executable target each in plain Swift without Foundation, plus the shared `Shared/JSON.swift`; `build-app.sh` puts each binary with its manifest and source in `Contents/Resources/Extensions`.
 - `Tests/WicketTests`: headless tests with fakes at the hardware edges (voice, agent, hotkey); recorded agent streams in `Fixtures/`. Tests open and end conversations through `Navigator`, never by driving the session behind it, and stand in for the panel with `RecordingSurface`.
-- `Resources`: Info.plist, entitlements and icons. `Scripts`: `check.sh`, `build-app.sh`, `release.sh`, `land.sh`, `hooks/`. `appcast.xml` and `Casks/wicket.rb` are the update feed and the Homebrew cask, written by `release.sh`.
+- `Resources`: Info.plist, entitlements and icons. `Scripts`: `check.sh`, `build-app.sh`, `release.sh`, `land.sh`, `hooks/`. `appcast.xml` and `Casks/wicket.rb` are the update feed and the Homebrew cask, written by `release.sh`. `tools/glass-lab`: a standalone window for judging surface looks live (`swift run` there); not part of the app or the check.
 
 ## Rules
 
