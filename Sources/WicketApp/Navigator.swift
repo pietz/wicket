@@ -968,21 +968,24 @@ final class Navigator {
     }
   }
   /// What a question goes with: the agent settings at the Text size. A run reopened from Agent History
-  /// keeps its agent, with that agent's defaults when another one is configured now, but the configured
-  /// permission mode (`AgentOptions.mode`).
+  /// keeps its agent, with that agent's defaults when another one is configured now, read-only
+  /// (`AgentOptions.readOnly`).
   private func questionSettings(keeping kept: AgentConfiguration.Agent?) -> AgentConfiguration {
     var settings = configuration.agent
     if let kept, kept != settings.agent {
       settings = AgentConfiguration()
       settings.agent = kept
-      settings.mode = AgentOptions.mode(configuration.agent, for: kept)
+      settings.mode = AgentOptions.readOnly[kept]
       settings.streamAnswers = configuration.agent.streamAnswers
     }
     settings.textSize = configuration.textSize
     return settings
   }
   private func restore(_ run: AgentHistory.Run) {
-    converse { agent.restore(run, settings: questionSettings(keeping: run.agent)) }
+    let notice =
+      run.agent == configuration.agent.agent
+      ? nil : "Follow-ups are read-only. Choose \(run.agent.title) in Settings for your permission mode."
+    converse { agent.restore(run, settings: questionSettings(keeping: run.agent), notice: notice) }
   }
   /// Cmd+Return: asks what is typed. With nothing typed it opens an empty question about what is on
   /// screen, which Escape leaves for exactly that screen again.

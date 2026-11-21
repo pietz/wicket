@@ -41,7 +41,8 @@ final class AgentSession {
   private var runSource: String?
   /// The agent of a run reopened from Agent History, which its follow-ups keep; nil otherwise.
   private(set) var reopened: AgentConfiguration.Agent?
-  /// One quiet line under the question: the session could not be resumed, so the answer started afresh.
+  /// One quiet line under the question: a reopened run's follow-ups are read-only (`restore`), or the
+  /// session could not be resumed, so the answer started afresh.
   private(set) var notice: String?
   /// What the current question sends, context included.
   private var prompt = ""
@@ -415,9 +416,10 @@ final class AgentSession {
   }
   /// Reopens a run from Agent History as it was left: its last answer under its question, the earlier
   /// turns kept for the next save, and Continuing conversation. A follow-up resumes its session.
-  func restore(_ run: AgentHistory.Run, settings: AgentConfiguration) {
+  func restore(_ run: AgentHistory.Run, settings: AgentConfiguration, notice: String?) {
     reset()
     guard let last = run.turns.last else { return }
+    self.notice = notice
     chosen = settings
     runID = run.id
     runSource = run.source

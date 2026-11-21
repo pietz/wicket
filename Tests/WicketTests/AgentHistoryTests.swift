@@ -359,20 +359,28 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   #expect(!reloaded.canClear)
 }
 
-/// A run of the other agent asks with the permission the user chose, under that agent's name for it: never
-/// its broader default. A mode Settings does not offer is the most restrictive.
+/// A run of the other agent asks read-only, whatever mode the user chose: no Settings label means the
+/// same thing for both agents. The reopened conversation says so once, before the follow-up.
 @MainActor
 @Test(arguments: [
-  (nil, "agent"), ("default", "read-only"), ("acceptEdits", "workspace-write"),
-  ("bypassPermissions", "agent-full-access"), ("plan", "read-only"),
+  (AgentConfiguration.Agent.claude, nil as String?, AgentConfiguration.Agent.codex, "read-only"),
+  (.claude, "acceptEdits", .codex, "read-only"), (.claude, "bypassPermissions", .codex, "read-only"),
+  (.codex, "read-only", .claude, "plan"), (.codex, "agent-full-access", .claude, "plan"),
 ])
-func aReopenedRunOfTheOtherAgentKeepsTheChosenPermission(configured: String?, expected: String) async throws {
+func aReopenedRunOfTheOtherAgentIsReadOnly(
+  configured: AgentConfiguration.Agent, mode: String?, kept: AgentConfiguration.Agent, expected: String
+) async throws {
   let bench = try Bench()
-  bench.model.store.update { $0.agent.mode = configured }
-  bench.runs.save(run("r1", [("Weather in Berlin?", "Sunny")], agent: .codex, session: "thread-1"))
+  bench.model.store.update {
+    $0.agent.agent = configured
+    $0.agent.mode = mode
+  }
+  bench.runs.save(run("r1", [("Weather in Berlin?", "Sunny")], agent: kept, session: "thread-1"))
   try await bench.reopen("Weather in Berlin?")
+  #expect(bench.model.agent.notice?.contains("read-only") == true)
   bench.model.navigator.send("And Munich?")
   #expect(await eventually { bench.fakes.first?.running == true })
-  #expect(bench.starts.first?.agent == .codex && bench.modes == [expected])
+  #expect(bench.starts.first?.agent == kept && bench.modes == [expected])
+  #expect(bench.model.agent.notice == nil)
   await bench.finish()
 }

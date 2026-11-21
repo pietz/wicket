@@ -128,13 +128,11 @@ enum AgentOptions {
     default: settings.model ?? defaultModel(models, agent: settings.agent)
     }
   }
-  /// The configured permission mode as `agent`'s mode with the same Settings label (Supervised,
-  /// Auto-accept edits, Auto, Full access), or its most restrictive for a mode Settings does not offer:
-  /// a run of the other agent is never allowed more than the user chose.
-  static func mode(_ settings: AgentConfiguration, for agent: AgentConfiguration.Agent) -> String {
-    let index = modes[settings.agent, default: []].firstIndex(of: settings.permissionMode) ?? 0
-    return modes[agent, default: []][index]
-  }
+  /// Each agent's most restrictive mode, for a run of the agent not configured now. Settings' labels do
+  /// not carry across safely: Codex's workspace write lets scripts change files without asking, and the
+  /// user's Claude allow rules broaden Claude's Supervised. These only read, so a reopened run never gets
+  /// more than the user chose.
+  static let readOnly: [AgentConfiguration.Agent: String] = [.claude: "plan", .codex: "read-only"]
   /// Whether Settings offers Fast: the chosen model has it, or a value is already saved.
   static func offersFast(_ settings: AgentConfiguration, models: [AgentModel]) -> Bool {
     model(settings, in: models)?.fast == true || settings.speed != nil
