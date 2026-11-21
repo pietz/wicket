@@ -266,6 +266,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     input.stop(.hidden)
     panel.orderOut(nil)
     recorder.stop()
+    model.store.rejection = nil
     navigator.dismiss()
     renderer.closed()
   }

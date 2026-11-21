@@ -63,7 +63,8 @@ final class LauncherModel {
   /// action's in the navigator.
   var installProblem: String?
   var problem: String? {
-    store.problem ?? store.hotkeyProblem ?? store.bindingProblem ?? installProblem ?? navigator.actionProblem
+    store.problem ?? store.rejection?.problem ?? store.hotkeyProblem ?? store.bindingProblem ?? installProblem
+      ?? navigator.actionProblem
   }
   /// The panel shows again: both histories drop what is past their time, and so do the screens.
   func reopen(now: Date = Date()) {

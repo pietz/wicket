@@ -210,17 +210,17 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     store.applyHotkey = { hotkey.apply($0) }
     #expect(hotkey.apply(.default) == nil)
     store.setHotkey(try Shortcut("ctrl+k"))
-    #expect(store.hotkeyProblem != nil && hotkey.inEffect == .default)
+    #expect(store.rejection?.problem != nil && hotkey.inEffect == .default)
     #expect(try Data(contentsOf: file.url) == original)
     for spelling in ["cmd+c", "cmd+v", "cmd+q", "cmd+w", "cmd+shift+z", "cmd+k"] {
       let count = attempted.count
       store.setHotkey(try Shortcut(spelling))
-      #expect(store.hotkeyProblem?.contains("editing or app shortcut") == true)
+      #expect(store.rejection?.problem.contains("editing or app shortcut") == true)
       #expect(attempted.count == count)
       #expect(try Data(contentsOf: file.url) == original)
     }
     store.setHotkey(try Shortcut("ctrl+j"))
-    #expect(store.hotkeyProblem == nil)
+    #expect(store.rejection == nil && store.hotkeyProblem == nil)
     #expect(hotkey.inEffect == (try Shortcut("ctrl+j")))
     #expect(try Configuration.load(at: file.url).hotkey == (try Shortcut("ctrl+j")))
   }

@@ -123,10 +123,10 @@ import Testing
   }
   let left = HotkeyTarget(target: "extension:window", item: "left")
   store.bind(try Shortcut("ctrl+option+left"), to: left)
-  #expect(store.configuration.hotkeys.map(\.target) == [left] && store.bindingProblem == nil)
+  #expect(store.configuration.hotkeys.map(\.target) == [left] && store.rejection == nil)
   refuse = true
   store.bind(try Shortcut("ctrl+option+h"), to: left)
-  #expect(store.bindingProblem == "in use")
+  #expect(store.rejection?.target == left && store.rejection?.problem == "in use")
   #expect(store.configuration.hotkeys.first?.keys.description == "ctrl+option+left")
   refuse = false
   store.bind(nil, to: left)
@@ -488,4 +488,29 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   // A row without an address offers no hotkey.
   let app = Result(provider: "apps", row: Row(id: "x", title: "X", actions: [.copy("x")]))
   #expect(model.navigator.actions(of: app) == [.copy("x")])
+}
+
+/// A rejected recording changed no hotkey, so the footer says why only until the panel hides or the next
+/// recording starts; what registration reports stays.
+@MainActor @Test func aRejectedRecordingLastsUntilThePanelHidesOrTheNextRecording() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let left = HotkeyTarget(target: "extension:mover", item: "left")
+  model.store.applyBinding = { _, _ in "in use" }
+  controller.show(orderFront: false, listen: false)
+  model.store.bind(try Shortcut("ctrl+option+h"), to: left)
+  #expect(model.problem == "in use")
+  controller.hide()
+  #expect(model.problem == nil)
+  controller.show(orderFront: false, listen: false)
+  model.store.bind(try Shortcut("ctrl+option+h"), to: left)
+  controller.recorder.record(left, in: controller.panel, store: model.store, pausing: { _ in })
+  #expect(model.problem == nil)
+  controller.recorder.stop()
+  model.store.bindingProblem = "not registered"
+  controller.hide()
+  #expect(model.problem == "not registered")
+  await model.finish()
 }

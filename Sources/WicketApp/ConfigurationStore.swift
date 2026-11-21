@@ -8,11 +8,15 @@ final class ConfigurationStore {
   private(set) var problem: String?
   private(set) var writeProblem: String?
   var applyHotkey: (Shortcut) -> String? = { _ in nil }
+  /// Why the launcher hotkey is not in effect, as its registration reports.
   var hotkeyProblem: String?
   /// Registers or removes a `hotkeys` binding before it is saved (`CommandHotKeys.set`).
   var applyBinding: (Shortcut?, HotkeyTarget) -> String? = { _, _ in nil }
-  /// Why a `hotkeys` binding is not in effect, one line each.
+  /// Why a `hotkeys` binding is not in effect, one line each, as registration reports.
   var bindingProblem: String?
+  /// Why the last hotkey recorded was not taken, for the launcher (no target) or a binding. The hotkeys in
+  /// effect did not change, so it lasts only until the next recording starts or the panel hides.
+  var rejection: (target: HotkeyTarget?, problem: String)?
   private(set) var catalogs: [AgentConfiguration.Agent: AgentCatalog] = [:]
   private(set) var discoveryStatus: [String: String] = [:]
   var models: [AgentModel] { catalogs[configuration.agent.agent]?.models ?? [] }
@@ -99,8 +103,12 @@ final class ConfigurationStore {
     }
   }
   func setHotkey(_ shortcut: Shortcut) {
-    hotkeyProblem = applyHotkey(shortcut)
-    guard hotkeyProblem == nil else { return }
+    if let problem = applyHotkey(shortcut) {
+      rejection = (nil, problem)
+      return
+    }
+    rejection = nil
+    hotkeyProblem = nil
     if !change({ try $0.set("hotkey", to: shortcut.description) }) {
       hotkeyProblem = applyHotkey(configuration.hotkey)
     }
@@ -108,11 +116,14 @@ final class ConfigurationStore {
   /// The launcher's rule for a binding too: registered first, so a conflict keeps the working one and the
   /// file value; a failed save restores the registration.
   func bind(_ keys: Shortcut?, to target: HotkeyTarget) {
-    bindingProblem = applyBinding(keys, target)
-    guard bindingProblem == nil else { return }
+    if let problem = applyBinding(keys, target) {
+      rejection = (target, problem)
+      return
+    }
+    rejection = nil
     if !change({ try $0.bind(keys, to: target) }) {
       _ = applyBinding(configuration.hotkeys.first { $0.target == target }?.keys, target)
-      bindingProblem = writeProblem
+      rejection = writeProblem.map { (target, $0) }
     }
   }
   private func failed(_ error: any Error) {

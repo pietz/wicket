@@ -146,11 +146,15 @@ struct SettingsPane: View {
     Section {
       LabeledContent("Open Wicket") {
         shortcutButton(config.hotkey.symbols, recording: recorder.isRecording, minWidth: 120) {
-          recorder.start(pausing: pauseHotkey) { store.setHotkey($0) }
+          recorder.record(nil, store: store, pausing: pauseHotkey)
         }
       }
       if recorder.isRecording { recorderHint }
-      if let problem = store.hotkeyProblem { warning(problem) }
+      if let rejection = store.rejection, rejection.target == nil {
+        warning(rejection.problem)
+      } else if let problem = store.hotkeyProblem {
+        warning(problem)
+      }
       Picker("Appearance", selection: binding(config.appearance.rawValue, key: "appearance")) {
         ForEach(Configuration.Appearance.allCases, id: \.self) { appearance in
           Text(appearance.rawValue.capitalized).tag(appearance.rawValue)
@@ -487,7 +491,11 @@ struct SettingsPane: View {
       Section("Hotkeys") {
         ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
         if recorder.target != nil { recorderHint }
-        if let problem = store.bindingProblem { warning(problem) }
+        if let rejection = store.rejection, targets.contains(where: { $0.1 == rejection.target }) {
+          warning(rejection.problem)
+        } else if let problem = store.bindingProblem {
+          warning(problem)
+        }
       }
     }
   }

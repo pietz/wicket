@@ -43,13 +43,17 @@ final class ShortcutRecorder {
       observe(NSApplication.didResignActiveNotification, object: nil),
     ]
   }
-  /// The next shortcut pressed becomes `target`'s hotkey, under the launcher's rules
-  /// (`ConfigurationStore.bind`): the panel's Set Hotkey… and Settings' Hotkeys alike.
+  /// The next shortcut pressed becomes the launcher's hotkey (no target) or `target`'s, under the
+  /// launcher's rules (`ConfigurationStore.bind`): Settings and the panel's Set Hotkey… alike. The last
+  /// recording's rejection goes as this one starts.
   func record(
-    _ target: HotkeyTarget, in window: NSWindow? = NSApp.keyWindow, store: ConfigurationStore,
+    _ target: HotkeyTarget?, in window: NSWindow? = NSApp.keyWindow, store: ConfigurationStore,
     pausing pause: @escaping (Bool) -> Void
   ) {
-    start(in: window, pausing: pause) { store.bind($0, to: target) }
+    store.rejection = nil
+    start(in: window, pausing: pause) { keys in
+      if let target { store.bind(keys, to: target) } else { store.setHotkey(keys) }
+    }
     self.target = target
   }
   private func observe(_ name: Notification.Name, object: Any?) -> any NSObjectProtocol {
