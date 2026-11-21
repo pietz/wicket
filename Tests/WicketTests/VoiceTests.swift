@@ -575,30 +575,22 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   await controller.finish()
 }
 
+/// Past the hard limit the transcript itself stops capture, so a steady stream of speech (or a TV) cannot
+/// keep replacing the timer before it runs: the next buffered transcript is never written.
 @MainActor @Test func transcriptActivityCannotExtendTheHardLimit() async throws {
   let fake = FakeTranscriber()
-  let voice = VoiceInput(transcriber: { fake }, write: { _ in })
-  // The silence and no-speech deadlines are far away, so only the hard limit can stop it. The hard
-  // limit also bounds startup, and a loaded test run can starve the main actor for seconds before the
-  // session reads the buffered ready, so it is shortened only once listening.
+  var written: [String] = []
+  let voice = VoiceInput(transcriber: { fake }, write: { written.append($0) })
   voice.silenceDuration = .seconds(30)
   voice.noSpeechDuration = .seconds(30)
-  voice.maximumDuration = .seconds(30)
-  let started = ContinuousClock.now
   voice.toggle()
   fake.feeds[0].yield(.ready)
-  while voice.state == .starting { try await Task.sleep(for: .milliseconds(5)) }
-  #expect(voice.state == .listening, "problem \(voice.problem ?? "none")")
-  voice.maximumDuration = .seconds(2)
-  while voice.active, ContinuousClock.now - started < .seconds(20) {
-    fake.feeds[0].yield(.transcript("words at \(ContinuousClock.now)"))
-    try await Task.sleep(for: .milliseconds(20))
-  }
-  #expect(
-    voice.state == .idle && fake.stops == 1 && voice.problem == nil,
-    "state \(voice.state), stops \(fake.stops), problem \(voice.problem ?? "none")")
-  #expect(ContinuousClock.now - started >= voice.maximumDuration)
-  voice.stop(.toggle)
+  #expect(await eventually { voice.state == .listening })
+  voice.maximumDuration = .zero
+  fake.feeds[0].yield(.transcript("one"))
+  fake.feeds[0].yield(.transcript("two"))
+  #expect(await eventually { !voice.active })
+  #expect(written == ["one"] && fake.stops == 1 && voice.problem == nil)
 }
 
 // Disabled: under parallel load the 250 ms startup timer can fire before the session reads the

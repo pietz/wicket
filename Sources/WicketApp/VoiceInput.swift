@@ -20,7 +20,7 @@ enum VoiceLog {
 /// Why capture stopped: the one thing the log needs to tell a key or edit from a failure.
 enum VoiceStop: String, Sendable {
   case toggle, key, escape, edit, hidden, run, busy, disabled, quit, ended, failed, startTimeout, noSpeech,
-    silence
+    silence, limit
 }
 
 enum VoiceUpdate: Sendable {
@@ -193,15 +193,20 @@ final class VoiceInput {
   }
   private func stopAfterSilence() {
     guard active, !requestingPermission else { return }
+    let limit = started + maximumDuration
+    // Past the hard limit a transcript stops capture itself: continuous speech (or a TV) would
+    // otherwise keep replacing the timer before it gets to run.
+    guard ContinuousClock.now < limit else { return stop(.limit) }
+    let waiting = state == .listening && firstTranscript == nil
+    let deadline = min(limit, .now + (waiting ? noSpeechDuration : silenceDuration))
     timer?.cancel()
     let current = generation
-    let waiting = state == .listening && firstTranscript == nil
-    let deadline = min(started + maximumDuration, .now + (waiting ? noSpeechDuration : silenceDuration))
     timer = Task { [weak self] in
       try? await Task.sleep(until: deadline, clock: .continuous)
       guard !Task.isCancelled, let self, generation == current else { return }
       let starting = state == .starting
-      stop(starting ? .startTimeout : firstTranscript == nil ? .noSpeech : .silence)
+      stop(
+        starting ? .startTimeout : deadline == limit ? .limit : firstTranscript == nil ? .noSpeech : .silence)
       if starting { problem = "Voice didn't start. Check permissions and try again." }
     }
   }
