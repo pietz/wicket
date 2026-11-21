@@ -1,7 +1,8 @@
 import CoreServices
 import Foundation
 
-/// Coalesced FSEvents, optionally filtered to exact files, including atomic replacement.
+/// Coalesced FSEvents, optionally filtered to exact files, including atomic replacement. A symlinked file
+/// is watched where it points.
 @MainActor
 final class FileWatcher {
   private let paths: [String]
@@ -43,8 +44,8 @@ final class FileWatcher {
       let stream = FSEventStreamCreate(
         nil, callback, &context,
         (filesOnly
-          ? Array(Set(paths.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path })) : paths)
-          as CFArray,
+          ? Array(Set(self.paths.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }))
+          : paths) as CFArray,
         FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency,
         FSEventStreamCreateFlags(
           kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot

@@ -1,7 +1,8 @@
 import Foundation
 
-/// Every edit starts from disk, validates both versions, and replaces the file atomically.
-/// Patch the JSON object rather than re-encoding Configuration, so future keys survive.
+/// Every edit starts from disk, validates both versions, and replaces the file atomically: the file a
+/// symlink points to, so the link stays. Patch the JSON object rather than re-encoding Configuration, so
+/// future keys survive.
 struct ConfigurationFile {
   let url: URL
 
@@ -30,7 +31,7 @@ struct ConfigurationFile {
     let updated = try JSONSerialization.data(
       withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     let configuration = try JSONDecoder().decode(Configuration.self, from: updated)
-    try updated.write(to: url, options: .atomic)
+    try updated.write(to: url.resolvingSymlinksInPath(), options: .atomic)
     return configuration
   }
 

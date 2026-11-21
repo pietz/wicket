@@ -504,3 +504,25 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
   #expect(model.navigator.results.map(\.provider) == ["extension:calculator"])
   await model.finish()
 }
+
+@MainActor @Test func aSymlinkedConfigIsEditedAndWatchedWhereItPoints() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let target = root.appending(path: "dotfiles/wicket.json")
+  try FileManager.default.createDirectory(
+    at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+  try Data("{}".utf8).write(to: target)
+  let link = root.appending(path: "config/config.json")
+  try FileManager.default.createDirectory(
+    at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+  let store = ConfigurationStore(url: link)
+  store.start()
+  #expect(store.change { try $0.set("textSize", to: "large") })
+  #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+  #expect(try Configuration.load(at: target).textSize == .large && store.configuration.textSize == .large)
+  // An edit where the link points reloads, once the events of the setup have passed.
+  try await Task.sleep(for: .milliseconds(500))
+  try Data(#"{"textSize":"small"}"#.utf8).write(to: target, options: .atomic)
+  #expect(await eventually { store.configuration.textSize == .small })
+}
