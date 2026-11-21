@@ -15,6 +15,10 @@ Open problems only, each with what the user sees and the next step. Fixed items 
 - **A page entered from another page** briefly shows the new body under the old header while WebKit renders, because one renderer serves every page. Next: only as its own measured change, a separate surface that stages the arriving page.
 - **A Settings save can overwrite a simultaneous edit of `config.json`.** Wicket reads the file, applies the change and writes it whole, so a key an editor or agent wrote in between is lost. Next: re-read and re-apply on conflict (compare the file before writing), or report the conflict.
 - **The cask's `zap` misses current data**: it trashes the 0.0.x `Application Support/Wicket` folder but not `Application Support/app.wicket.Wicket`, where the clipboard and agent history live. Next: the owner decides what an explicit uninstall should remove, then fix it at the next release.
+- **A restored `config.json` link target is noticed only after a restart.** While the link dangles, Wicket keeps the launcher hotkey and runs no extension; when the target comes back (a synced folder mounting late), nothing reloads, so extensions stay off until Wicket restarts. Next: watch the link's target folder too, or retry loading when the panel opens.
+- **An extension folder linked into `extensions/` is not watched where it points**, so editing its manifest in a separate checkout shows up only after something in `extensions/` changes or Wicket restarts. Next: watch each linked folder's target as well.
+- **Units read only ASCII digits and the point or comma**: an amount in other digits (Arabic-Indic) or with another decimal mark (`٫`) gives no row. Next: normalise digits and the locale's decimal separator in the units parser and pattern if users ask.
+
 
 ## Files
 
