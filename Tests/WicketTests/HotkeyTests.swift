@@ -251,6 +251,26 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(
     surface.shows == 1 && model.navigator.actionProblem?.contains("does not open scripts") == true)
   #expect(surface.effects.count == 1 && model.navigator.command == nil)
+  // The next hotkey's screen does not carry that failure.
+  model.press(HotkeyTarget(target: "extension:mover"))
+  #expect(model.navigator.actionProblem == nil)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:mover" && model.navigator.actionProblem == nil)
+}
+
+/// The Settings hotkey leaves for the Settings window: the launcher is never ordered front over it.
+@MainActor @Test func theSettingsHotkeyNeverShowsTheLauncher() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let panel = FrontRecordingPanel()
+  let controller = PaletteController(model: model, panel: panel)
+  var fronted = 0
+  panel.onFront = { fronted += 1 }
+  model.navigator.surface = controller
+  model.press(HotkeyTarget(target: "settings"))
+  #expect(fronted == 0 && !controller.isShown)
+  await model.finish()
 }
 
 /// A panel that records what its controller holds each time it would be ordered front, and never is.

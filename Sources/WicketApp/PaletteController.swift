@@ -239,6 +239,8 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     renderer.cap = PaletteLayout.answerCap(available: anchor.y - visible.minY)
     isOpen = true
     arriving?()
+    // What arrived may have left the panel, as the Settings window does.
+    guard isOpen else { return }
     presentation = navigator.presentation
     renderContent()
     resize()

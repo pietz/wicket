@@ -785,6 +785,7 @@ final class Navigator {
   ) {
     let shown = surface?.isShown == true
     if shown, let hotkey, let pressed, pressed == (hotkey, generation), target?.busy == true { return }
+    actionProblem = nil
     func arrive() {
       go(address, from: origin, submitted: submitted, holding: shown)
       pressed = hotkey.map { ($0, generation) }
