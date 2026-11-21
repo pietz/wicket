@@ -193,6 +193,32 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+/// The busy delay times the process alone: once it has answered, the delay passing while its page is
+/// measured shows no busy state. (A process slower than the delay shows it already, as it should.)
+@MainActor @Test func measuringAnAnsweredPageNeverStartsTheBusyState() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  var measuring: CheckedContinuation<Void, Never>?
+  surface.onPrepare = { _, _ in
+    await withCheckedContinuation { measuring = $0 }
+    return .unmeasured
+  }
+  model.navigator.arrivalDeadline = .seconds(60)
+  model.navigator.busyDelay = .milliseconds(300)
+  model.navigator.go(Address(id: "page"), submitted: true)
+  #expect(await eventually { measuring != nil })
+  model.navigator.passDeadline()
+  let answered = model.navigator.showsBusy
+  try await Task.sleep(for: .milliseconds(500))
+  #expect(model.navigator.command?.busy == true && model.navigator.showsBusy == answered)
+  measuring?.resume()
+  await model.navigator.settled()
+  #expect(model.navigator.body == "# First page" && !model.navigator.showsBusy)
+  await model.finish()
+}
+
 @MainActor @Test func aLateAnswerOfALeftEntryChangesNothing() async throws {
   let (model, _, root) = try await transitions()
   defer { try? FileManager.default.removeItem(at: root) }

@@ -524,8 +524,9 @@ final class Navigator {
   }
   /// The open command's running request.
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
-  /// The busy state (Running…, the spinner) shows only once a request has run this long, so a quick
-  /// answer replaces the screen without it flashing first, whether Return, a link or a hotkey asked.
+  /// The busy state (Running…, the spinner) shows only once a request's process has run this long, so a
+  /// quick answer replaces the screen without it flashing first, whether Return, a link or a hotkey asked.
+  /// Neither the wait for dictation to settle nor measuring the answer's page counts.
   var busyDelay: Duration = .milliseconds(400)
   @ObservationIgnored private var busyTimer: Task<Void, Never>?
   @ObservationIgnored private var ranLong = false
@@ -646,20 +647,17 @@ final class Navigator {
       return
     case .deferred(let answered):
       target?.run()
-      let delay = busyDelay
-      busyTimer = Task { [weak self] in
-        guard (try? await Task.sleep(for: delay)) != nil, let self else { return }
-        ranLong = true
-        if showsBusy { draw() }
-      }
       let version = generation
       let visit = target?.visit
       let turn = UUID().uuidString
       tasks.append(
         Task { [weak self] in
           if speaking, (try? await Task.sleep(for: .milliseconds(350))) == nil { return }
+          self?.timeBusy(version)
           let outcome = await answered()
           guard let self else { return }
+          // A newer request cancelled this one's timer and may have started its own.
+          if generation == version { busyTimer?.cancel() }
           // Only the visit and the run that asked take what it was answered with.
           @MainActor func current() -> Bool {
             !Task.isCancelled && generation == version && target?.visit == visit
@@ -684,6 +682,17 @@ final class Navigator {
           }
         })
       draw()
+    }
+  }
+  /// Starts timing request `version`'s process for `busyDelay`, which a newer request cancels.
+  private func timeBusy(_ version: Int) {
+    let delay = busyDelay
+    busyTimer = Task { [weak self] in
+      // Cancelled once the process answered, even if its sleep had just ended.
+      guard (try? await Task.sleep(for: delay)) != nil, !Task.isCancelled, let self, generation == version
+      else { return }
+      ranLong = true
+      if showsBusy { draw() }
     }
   }
   /// Takes what a request was answered with: a view or a problem shows on the command, which arrives if
