@@ -71,9 +71,12 @@ private final class KeylessFilter: NSObject, NSCopying {
   let glass = FakeFilter()
   let other = FakeFilter(type: "vibrantColorMatrix")
   let patched = try #require(GlassBlur.patched([other, glass], radius: 2.5))
-  #expect((patched[0] as AnyObject) === other)
+  // Identity through ObjectIdentifier: Swift 6.2.4 crashes compiling `===` on these inside #expect.
+  #expect(ObjectIdentifier(patched[0] as AnyObject) == ObjectIdentifier(other))
   let copy = try #require(patched[1] as? FakeFilter)
-  #expect(copy !== glass && copy.inputBlurRadius as? Double == 2.5 && glass.inputBlurRadius as? Double == 10)
+  #expect(
+    ObjectIdentifier(copy) != ObjectIdentifier(glass) && copy.inputBlurRadius as? Double == 2.5
+      && glass.inputBlurRadius as? Double == 10)
   #expect(GlassBlur.radius(in: patched) == 2.5)
   // Already at the value, as a float reads back: nothing to reassign.
   copy.inputBlurRadius = NSNumber(value: Float(2.5))
@@ -159,5 +162,5 @@ private func privateFilter(_ className: String, type: String) -> NSObject? {
   root.addSublayer(child)
   GlassBlur.apply(3, in: root)
   #expect(GlassBlur.matches(GlassBlur.radius(in: root), 3))
-  #expect((child.filters?.first as AnyObject) !== filter)
+  #expect(ObjectIdentifier(child.filters?.first as AnyObject) != ObjectIdentifier(filter))
 }
