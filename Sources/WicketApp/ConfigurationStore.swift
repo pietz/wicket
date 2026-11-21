@@ -33,7 +33,9 @@ final class ConfigurationStore {
   /// Creates the file when missing and reads it. Headless runs pass `watching: false`.
   func start(watching: Bool = true) {
     do {
-      if !FileManager.default.fileExists(atPath: url.path) {
+      // The entry itself, not what it links to: a link whose target is missing (an unmounted volume at
+      // login) is a broken file, not a missing one to fill with defaults.
+      if (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil {
         // A new file names an agent that is installed: Claude, unless only Codex is.
         var initial = Configuration()
         if !AgentCLI.installed(.claude), AgentCLI.installed(.codex) { initial.agent.agent = .codex }

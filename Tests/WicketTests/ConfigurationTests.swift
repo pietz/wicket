@@ -104,3 +104,17 @@ func invalidShortcut(spelling: String) {
   #expect(reported.count == 1 && reported[0].hotkey == .default && reported[0].hotkeys.isEmpty)
   #expect(!reported[0].runsExtensions)
 }
+
+/// A linked config.json whose target is missing at launch is broken, not absent: the link stays and no
+/// extension runs on defaults.
+@MainActor @Test func aDanglingConfigLinkIsBrokenNotReplaced() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let url = root.appending(path: "config.json")
+  let target = root.appending(path: "elsewhere/config.json").path
+  try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: target)
+  let store = ConfigurationStore(url: url)
+  store.start(watching: false)
+  #expect(try FileManager.default.destinationOfSymbolicLink(atPath: url.path) == target)
+  #expect(store.problem != nil && !store.configuration.runsExtensions)
+}
