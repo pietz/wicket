@@ -1169,3 +1169,25 @@ func textBeforeAToolCallIsNarrationNotTheAnswer(_ streaming: Bool) async throws 
   #expect(session.answer == "I'll write it now.")
   await session.shutdown()
 }
+
+@MainActor @Test func aStreamedAnswerIsDrawnInBatchesAndInFullWhenTheTurnEnds() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let fake = FakeAgent()
+  let session = AgentSession(folder: folder)
+  session.connect = { _, _, _ in fake }
+  session.ask("Count", settings: .init())
+  #expect(await eventually { fake.running })
+  var draws = 0
+  session.onChange = { draws += 1 }
+  for number in 0..<200 { fake.text("\(number) ") }
+  // Two hundred deltas at once are one draw, of the whole answer so far.
+  #expect(draws == 0 && session.answer.hasSuffix("199 "))
+  #expect(await eventually { draws == 1 })
+  #expect(session.page == Page(body: session.answer, runs: false, streaming: true))
+  fake.text("done")
+  fake.end()
+  #expect(await eventually { !session.busy })
+  #expect(session.page == Page(body: session.answer, runs: false))
+  await session.shutdown()
+}

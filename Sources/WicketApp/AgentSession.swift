@@ -11,16 +11,21 @@ final class AgentSession {
   private(set) var continuing = false
   var agentName: String { chosen.agent.title }
   private(set) var active = false
-  private(set) var busy = false {
-    didSet { if busy != oldValue { page = Page(body: answer, runs: false, streaming: busy) } }
-  }
+  private(set) var busy = false
   private(set) var turnID = UUID().uuidString
   private(set) var question = ""
   /// The command the question was asked from, whose context went with it; nil for a follow-up.
   private(set) var source: String?
-  private(set) var answer = "" { didSet { page = Page(body: answer, runs: false, streaming: busy) } }
-  /// The answer as a page, with what it lets the user act on where it stands. Never a run action.
-  private(set) var page = Page(body: "", runs: false)
+  private(set) var answer = ""
+  /// The answer as a page, with what it lets the user act on where it stands. Never a run action. Built
+  /// when read and kept while the answer stays as it is: building reads the whole answer.
+  var page: Page {
+    if let built, built.streaming == busy, built.body == answer { return built.page }
+    let page = Page(body: answer, runs: false, streaming: busy)
+    built = (answer, busy, page)
+    return page
+  }
+  @ObservationIgnored private var built: (body: String, streaming: Bool, page: Page)?
   private(set) var status = ""
   private(set) var problem: String?
   private(set) var permissions: [AgentPermission] = []
@@ -240,6 +245,7 @@ final class AgentSession {
       if answer.utf8.count + pendingAnswer.utf8.count + text.utf8.count <= 1_048_576 {
         if streaming {
           answer += text
+          return drawSoon()
         } else {
           pendingAnswer += text
           status = "Working…"
@@ -287,6 +293,18 @@ final class AgentSession {
     }
     onChange?()
   }
+  /// A streamed answer is drawn at most every 40 ms, as often as the renderer takes it, since drawing
+  /// builds its page. Anything else draws at once, the end of the turn included.
+  private func drawSoon() {
+    guard drawing == nil else { return }
+    drawing = Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(40))
+      guard let self else { return }
+      drawing = nil
+      onChange?()
+    }
+  }
+  @ObservationIgnored private var drawing: Task<Void, Never>?
   func decide(_ allow: Bool) {
     guard let permission = permissions.first else { return }
     connection?.decide(permission.id, allow: allow)

@@ -226,6 +226,9 @@ import Testing
   #expect(copies("> ```\n> ls\n\nAfter") == 0 && copies("1. ```\n   ls\n2. ```") == 0)
   #expect(copies("```\nls\n```", streaming: true) == 0 && copies("```\nls\n```\n", streaming: true) == 1)
   #expect(copies("```\nls\n```") == 1 && copies("````\n```\n```") == 0)
+  // The same after other blocks, which the check of each fence does not read again.
+  #expect(copies("Intro\n\n```\nls\n```\n\n> ```\n> ls\n>\t```\n\n- a\n- ```\n  ls\n  ```") == 3)
+  #expect(copies("Intro\n\n```\nls\n```\n\n> ```\n> ls\n\nAfter\n\n1. ```\n   ls\n2. ```") == 1)
   let partial = AnswerMarkdown.html("Text\n<tile title=\"A > B", streaming: true)
   #expect(partial == "<p>Text</p>\n")
   #expect(AnswerMarkdown.html("3 < 4", streaming: true).contains("3 &lt; 4"))

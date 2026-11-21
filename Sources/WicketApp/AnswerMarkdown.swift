@@ -158,7 +158,7 @@ enum AnswerMarkdown {
         count == last - first - 1
         && !(streaming && last == lines.count - 1 && end(last) == bytes.count)
         && fence(
-          bytes, line: lines[last]..<end(last), of: node, length: Int(length),
+          bytes, lines: lines, line: lines[last]..<end(last), of: node, length: Int(length),
           character: UInt8(bitPattern: character), count: count)
       if !closed { last = min(lines.count - 1, first + count) }
       code.append(start..<max(start, end(last)))
@@ -176,23 +176,30 @@ enum AnswerMarkdown {
     }
   }
   /// Whether `line`, which ends a fenced block, closes it: with its fence run replaced by text, the line
-  /// would be the block's next line of content if, and only if, it closed it.
+  /// would be the block's next line of content if, and only if, it closed it. Only the top-level block
+  /// that holds it is parsed again, which nothing before it changes, so a reply's blocks cost one pass.
   private static func fence(
-    _ bytes: [UInt8], line: Range<Int>, of node: UnsafeMutablePointer<cmark_node>, length: Int,
-    character: UInt8, count: Int
+    _ bytes: [UInt8], lines: [Int], line: Range<Int>, of node: UnsafeMutablePointer<cmark_node>,
+    length: Int, character: UInt8, count: Int
   ) -> Bool {
     var end = line.upperBound
     while end > line.lowerBound, bytes[end - 1] == 32 || bytes[end - 1] == 9 { end -= 1 }
     var run = end
     while run > line.lowerBound, bytes[run - 1] == character { run -= 1 }
     guard end - run >= length else { return false }
-    let probe = Tree(String(decoding: bytes[..<run] + Array("x".utf8), as: UTF8.self))
+    var top = node
+    while let parent = cmark_node_parent(top), cmark_node_get_type(parent) != CMARK_NODE_DOCUMENT {
+      top = parent
+    }
+    let skipped = cmark_node_get_start_line(top) - 1
+    let probe = Tree(
+      String(decoding: bytes[lines[Int(skipped)]..<run] + Array("x".utf8), as: UTF8.self))
     let iter = cmark_iter_new(probe.root)!
     defer { cmark_iter_free(iter) }
     while cmark_iter_next(iter) != CMARK_EVENT_DONE {
       let other = cmark_iter_get_node(iter)!
       guard cmark_node_get_type(other) == CMARK_NODE_CODE_BLOCK,
-        cmark_node_get_start_line(other) == cmark_node_get_start_line(node),
+        cmark_node_get_start_line(other) + skipped == cmark_node_get_start_line(node),
         cmark_node_get_start_column(other) == cmark_node_get_start_column(node)
       else { continue }
       return lineCount(String(cString: cmark_node_get_literal(other))) == count + 1
