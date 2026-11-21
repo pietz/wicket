@@ -293,11 +293,9 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       page, turn: presentation.pageTurn,
       streaming: !presentation.inDetail && presentation.agent.map { $0.busy && $0.streaming } == true)
   }
-  /// A `wicket://` URL from outside: the panel opens on its address, and the user presses Return.
+  /// A `wicket://` URL from outside (`Navigator.open`).
   func open(_ url: URL) {
-    guard let address = Address(url: url) else { return }
-    show()
-    navigator.follow(address)
+    if let address = Address(url: url) { navigator.open(address) }
   }
   /// Whether Set Hotkey… is recording this row's hotkey.
   func recordsHotkey(of result: Result) -> Bool {

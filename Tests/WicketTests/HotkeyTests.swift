@@ -341,6 +341,28 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   await model.finish()
 }
 
+/// An external `wicket://` URL takes the hotkeys' way: the hidden panel is ordered front already on its
+/// command, never the root, without listening, and the request is sent once, as a link's.
+@MainActor @Test func anExternalURLShowsItsCommandAtOnceWithoutListening() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let panel = FrontRecordingPanel()
+  let voice = FakeTranscriber()
+  let controller = PaletteController(model: model, panel: panel, transcriber: { voice })
+  var fronted: [String] = []
+  panel.onFront = { fronted.append(controller.presentation.command ?? "root") }
+  model.navigator.surface = controller
+  controller.open(URL(string: "wicket://mover?input=x")!)
+  #expect(controller.isShown && !fronted.isEmpty && fronted.allSatisfy { $0 == "extension:mover" })
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Nothing moved" && voice.feeds.isEmpty)
+  let sent = try runs(root)
+  #expect(sent.count == 1 && !sent[0].submitted && sent[0].input == "x")
+  controller.hide()
+  await model.finish()
+}
+
 /// A repeat is the same binding while its request still runs: another extension's item with an equal
 /// address runs, and so does the same hotkey once typing replaced its request.
 @MainActor @Test func onlyTheSameHotkeyWhileItsRequestRunsIsIgnored() async throws {

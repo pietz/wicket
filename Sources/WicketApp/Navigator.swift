@@ -775,14 +775,23 @@ final class Navigator {
       self.input = input
     }
   }
-  /// A hotkey's address (`LauncherModel.press`), as Return on its item: a hidden panel shows at once on
-  /// the address's screen, since it has no screen to hold; an open one follows it like a clicked link.
-  /// Pressed again while the request it started still runs, it does nothing: the same binding, and no
-  /// request replaced that one since (`generation`), such as one typing sent.
+  /// An address from outside the panel: a hotkey's (`LauncherModel.press`), as Return on its item, or an
+  /// external `wicket://` URL, which the user then runs with Return. A hidden panel shows at once on the
+  /// address's screen, since it has no screen to hold; an open one follows it like a clicked link. Before
+  /// the first extension scan (a URL that launched Wicket) it waits, so the extension it names is known.
+  /// Pressed again while the request it started still runs, a hotkey does nothing: the same binding, and
+  /// no request replaced that one since (`generation`), such as one typing sent.
   func open(
     _ address: Address, from origin: String? = nil, submitted: Bool = false,
     pressed hotkey: HotkeyTarget? = nil
   ) {
+    guard extensions.scanned else {
+      Task { [weak self] in
+        await self?.extensions.firstScan()
+        self?.open(address, from: origin, submitted: submitted, pressed: hotkey)
+      }
+      return
+    }
     let shown = surface?.isShown == true
     if shown, let hotkey, let pressed, pressed == (hotkey, generation), target?.busy == true { return }
     actionProblem = nil
@@ -798,15 +807,6 @@ final class Navigator {
   func perform(_ action: RowAction) {
     if !activate(action) { surface?.perform(.run(action, from: nil)) }
     if actionProblem != nil, surface?.isShown == false { surface?.show { [self] in refresh() } }
-  }
-  /// An external `wicket://` URL: the panel opens on its address. One that launched Wicket waits for the
-  /// first extension scan, so the extension it names is known.
-  func follow(_ address: Address) {
-    guard !extensions.scanned else { return go(address) }
-    Task { [weak self] in
-      await self?.extensions.firstScan()
-      self?.go(address)
-    }
   }
   /// What the user runs, whoever asked: Return, a button, a menu item or a link. Moving between screens,
   /// sending questions and removing a hotkey happen here; effects on the panel and the system (copy,

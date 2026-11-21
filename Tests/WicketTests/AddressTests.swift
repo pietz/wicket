@@ -411,7 +411,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(root, name: "first", script: answering("First"))
   let model = LauncherModel.testing(in: root, bundled: nil)
-  model.navigator.follow(try #require(Address(url: URL(string: "wicket://first")!)))
+  model.navigator.open(try #require(Address(url: URL(string: "wicket://first")!)))
   model.extensions.start()
   #expect(await eventually { model.navigator.command?.id == "extension:first" })
   #expect(model.navigator.actionProblem == nil)
