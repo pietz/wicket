@@ -115,15 +115,21 @@ final class ConfigurationStore {
     problem = "Config: \(error.localizedDescription)"
     onChange(nil, problem)
   }
-  /// Reads the file now. An invalid file keeps the last good configuration.
+  /// Reads the file now. An invalid file keeps the last good configuration, or before one has loaded
+  /// the defaults without extensions.
   func load() {
     do {
       configuration = try Configuration.load(at: url)
+      loaded = true
       problem = nil
       loadOptions()
       onChange(configuration, nil)
-    } catch { failed(error) }
+    } catch {
+      if !loaded { configuration.runsExtensions = false }
+      failed(error)
+    }
   }
+  private var loaded = false
 }
 
 /// A slider's drag: held while it moves, saved once on release, rounded to hundredths.

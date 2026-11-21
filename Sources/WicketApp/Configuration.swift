@@ -87,6 +87,9 @@ struct Configuration: Codable, Equatable, Sendable {
   /// A source without an entry is on, except clipboard history, which keeps what the user copies.
   static func enabledByDefault(_ id: String) -> Bool { id != "clipboard" }
   var providers = builtins.map { ProviderEntry($0, enabled: enabledByDefault($0)) }
+  /// False for the stand-in while no valid file has loaded (`ConfigurationStore.load`): every extension is
+  /// off then, since the defaults would switch on one the unreadable file switched off. Never stored.
+  var runsExtensions = true
   init() {}
   private enum CodingKeys: String, CodingKey {
     case hotkey, hotkeys, appearance, backgroundTransparency, blur, providers, agent, voice, textSize,
@@ -144,7 +147,10 @@ struct Configuration: Codable, Equatable, Sendable {
     return providers.filter { known.contains($0.id) }
       + (Self.builtins.filter { !listed.contains($0) }
       + known.subtracting(Self.builtins).subtracting(listed).sorted())
-      .map { ProviderEntry($0, enabled: Self.enabledByDefault($0)) }
+      .map {
+        ProviderEntry(
+          $0, enabled: Self.enabledByDefault($0) && (runsExtensions || Self.builtins.contains($0)))
+      }
   }
   func isEnabled(_ id: String, extensions: some Sequence<String>) -> Bool {
     sources(extensions: extensions).contains { $0.id == id && $0.enabled }

@@ -77,7 +77,7 @@ WICKET_CONFIG_DIR=/tmp/wicket-test /Applications/Wicket.app/Contents/MacOS/Wicke
 
 ## Configuration
 
-Settings opens from the menu bar icon, ⌘, or by typing `settings`. Everything it changes lives in `~/.config/wicket/config.json`, which you or your agent can also edit; Wicket reloads it at once, keeps the last good values if an edit breaks it and says what is wrong. A global shortcut needs Command, Control or Option, or can be an F-key. For a letter with Command alone or Command plus Shift, add Control or Option. Launch at login is in Settings ▸ General.
+Settings opens from the menu bar icon, ⌘, or by typing `settings`. Everything it changes lives in `~/.config/wicket/config.json`, which you or your agent can also edit; Wicket reloads it at once, keeps the last good values if an edit breaks it and says what is wrong. If it is broken when Wicket starts, no extension runs until it is fixed. A global shortcut needs Command, Control or Option, or can be an F-key. For a letter with Command alone or Command plus Shift, add Control or Option. Launch at login is in Settings ▸ General.
 
 ## Build from source
 

@@ -43,9 +43,10 @@ final class LauncherModel {
     store.onChange = { [weak self] configuration, _ in self?.apply(configuration) }
   }
   /// A configuration was loaded: the extensions' settings, the clipboard and the sources it switched on
-  /// or off follow it. Nil when the file could not be read, which changes nothing.
+  /// or off follow it. Nil when the file could not be read: the store's stand-in then, which is the last
+  /// good configuration, or before one loaded the defaults without extensions.
   func apply(_ configuration: Configuration?) {
-    guard let configuration else { return }
+    let configuration = configuration ?? store.configuration
     extensions.settings = configuration.extensions
     clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
     var switched: Set<String>?

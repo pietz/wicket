@@ -476,3 +476,31 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
     #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.4)
   }
 }
+
+@MainActor @Test func anUnreadableFileAtStartRunsNoExtensionUntilAValidOneLoads() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  await model.extensions.reload()
+  // The file may switch the calculator off, but it no longer reads: the defaults must not switch it on.
+  try Data(#"{"providers":[{"id":"extension:calculator","enabled":false}],"#.utf8)
+    .write(to: model.store.url)
+  model.store.start(watching: false)
+  #expect(model.problem?.hasPrefix("Config:") == true)
+  model.navigator.input = "2+2"
+  await model.navigator.settled()
+  #expect(!model.navigator.results.contains { $0.provider == "extension:calculator" })
+  model.navigator.go(Address(extensionName: "calculator"), submitted: true)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.problem?.contains("switched off") == true)
+  #expect(model.navigator.escape())
+  model.navigator.input = "3+3"
+  await model.navigator.settled()
+  #expect(!model.navigator.results.contains { $0.provider == "extension:calculator" })
+  // Once a valid file loads, it decides, and what is shown follows it without another keystroke.
+  try Data("{}".utf8).write(to: model.store.url)
+  model.store.load()
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.provider) == ["extension:calculator"])
+  await model.finish()
+}
