@@ -17,6 +17,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   private var status: NSStatusItem!
   private var shortcutItem: NSMenuItem!
   private var updater: Updater?
+  /// URLs AppKit delivered before setup, which can happen on a cold launch; nil once set up.
+  private var launchURLs: [URL]? = []
 
   public func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -111,7 +113,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     configuration.start()
     model.extensions.start()
     Task { await apps.start() }
-    palette.showOnLaunch(NSAppleEventManager.shared().currentAppleEvent)
+    palette.showOnLaunch(NSAppleEventManager.shared().currentAppleEvent, opening: launchURLs ?? [])
+    launchURLs = nil
   }
 
   public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
@@ -122,6 +125,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   public func application(_ application: NSApplication, open urls: [URL]) {
+    guard launchURLs == nil else {
+      launchURLs?.append(contentsOf: urls)
+      return
+    }
     for url in urls { palette.open(url) }
   }
 

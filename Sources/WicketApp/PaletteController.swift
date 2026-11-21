@@ -207,7 +207,11 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   func toggle(eventTime: TimeInterval) {
     if panel.isVisible { hide() } else { show(eventTime: eventTime) }
   }
-  func showOnLaunch(_ event: NSAppleEventDescriptor?, orderFront: Bool = true) {
+  /// What a launch shows: the addresses of the `wicket://` URLs that launched Wicket, nothing yet when
+  /// the launch is a URL still to arrive (`kAEGetURL`) or a login item, otherwise the root.
+  func showOnLaunch(_ event: NSAppleEventDescriptor?, opening urls: [URL] = [], orderFront: Bool = true) {
+    guard urls.isEmpty else { return urls.forEach(open) }
+    if event?.eventID == AEEventID(kAEGetURL) { return }
     if event?.eventID == kAEOpenApplication,
       event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     {

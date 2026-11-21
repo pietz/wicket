@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 
 @testable import WicketApp
@@ -359,6 +359,29 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(model.navigator.results.first?.row.title == "Nothing moved" && voice.feeds.isEmpty)
   let sent = try runs(root)
   #expect(sent.count == 1 && !sent[0].submitted && sent[0].input == "x")
+  controller.hide()
+  await model.finish()
+}
+
+/// A launch by URL never shows the root: URLs delivered before setup open their addresses in its place, and
+/// a URL launch whose URL is still to come shows nothing until it arrives.
+@MainActor @Test func aLaunchByURLShowsOnlyItsAddress() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let panel = FrontRecordingPanel()
+  let controller = PaletteController(model: model, panel: panel, transcriber: { FakeTranscriber() })
+  var fronted: [String] = []
+  panel.onFront = { fronted.append(controller.presentation.command ?? "root") }
+  model.navigator.surface = controller
+  let event = NSAppleEventDescriptor(
+    eventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL), targetDescriptor: nil,
+    returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+  controller.showOnLaunch(event)
+  #expect(!controller.isShown && fronted.isEmpty)
+  controller.showOnLaunch(event, opening: [URL(string: "wicket://mover?input=x")!])
+  #expect(controller.isShown && !fronted.isEmpty && fronted.allSatisfy { $0 == "extension:mover" })
+  await model.navigator.settled()
   controller.hide()
   await model.finish()
 }
