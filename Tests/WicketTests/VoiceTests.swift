@@ -235,6 +235,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
+  controller.show(orderFront: false, listen: false)
   controller.input.toggle()
   controller.input.edit("typed directly")
   #expect(controller.input.voice?.state == .idle && fake.stops == 1)
@@ -369,7 +370,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
-  controller.input.arm()
+  controller.show(orderFront: false)
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("How do rainbows form?"))
   #expect(
@@ -507,7 +508,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   let fake = FakeTranscriber()
   let panel = RekeyingPanel()
   let (model, controller) = voicedPanel(in: folder, panel: panel, transcriber: { fake })
-  controller.input.arm()
+  controller.show()
   fake.feeds[0].yield(.permission(true))
   #expect(await eventually { controller.input.voice?.requestingPermission == true })
   fake.feeds[0].yield(.permission(false))
@@ -515,7 +516,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   #expect(await eventually { controller.input.voice?.problem == VoiceError.microphoneDenied.description })
   #expect(panel.keys == 1 && controller.input.voice?.requestingPermission == false)
   controller.hide()
-  controller.input.arm()
+  controller.show()
   model.navigator.editInput("typed normally")
   #expect(fake.feeds.count == 1 && model.navigator.input == "typed normally")
   #expect(controller.input.voice?.problem == VoiceError.microphoneDenied.description)
@@ -524,16 +525,20 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   fake.feeds[1].yield(.ready)
   #expect(await eventually { controller.input.voice?.state == .listening })
   controller.hide()
-  controller.input.arm()
+  controller.show()
   #expect(fake.feeds.count == 3)
   await controller.finish()
 }
 
-/// Counts the panel taking the keys back after the consent dialog. It says it is visible, as the panel is
-/// while the dialog borrows the keys, without ordering a window.
+/// Counts the panel taking the keys back after the consent dialog. It says it is visible from showing to
+/// hiding, as the panel is while the dialog borrows the keys, without ordering a window.
 @MainActor private final class RekeyingPanel: PalettePanel {
   var keys = 0
-  override var isVisible: Bool { true }
+  private var ordered = false
+  override var isVisible: Bool { ordered }
+  override func makeKeyAndOrderFront(_ sender: Any?) { ordered = true }
+  override func orderFrontRegardless() { ordered = true }
+  override func orderOut(_ sender: Any?) { ordered = false }
   override func makeKey() { keys += 1 }
 }
 
@@ -556,7 +561,7 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
-  controller.input.arm()
+  controller.show(orderFront: false)
   if permission {
     fake.feeds[0].yield(.permission(true))
     #expect(await eventually { controller.input.voice?.requestingPermission == true })
@@ -703,10 +708,10 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   let panel = HideOrderPanel()
   let (_, controller) = voicedPanel(in: root, panel: panel, transcriber: { fake })
   panel.onHide = { #expect(!closed && fake.stops >= 1) }
-  controller.input.arm()
+  controller.show(orderFront: false)
   controller.hide()
   #expect(fake.stops == 1 && panel.hides == 1)
-  controller.input.stop(.toggle)
+  controller.show(orderFront: false, listen: false)
   controller.hide()
   #expect(panel.hides == 2)
   // The main actor still runs while shutdown is suspended. No window is ordered front.

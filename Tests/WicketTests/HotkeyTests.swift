@@ -258,6 +258,33 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(model.navigator.command?.id == "extension:mover" && model.navigator.actionProblem == nil)
 }
 
+/// A direct hotkey's copy, paste, open or reveal ends by hiding the panel, which is already hidden then: a
+/// kept conversation's time still runs from when it was hidden. (The hide is called directly: the copy
+/// itself would write the real pasteboard.)
+@MainActor @Test func aDirectHotkeyDoesNotReviveAKeptConversation() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let controller = PaletteController(model: model, panel: FrontRecordingPanel())
+  model.navigator.surface = controller
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  controller.show(orderFront: false, listen: false)
+  model.navigator.input = "Question"
+  model.navigator.send()
+  #expect(await eventually { fake.running })
+  fake.text("Answer")
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  model.agent.retention = 0.2
+  controller.hide()
+  try await Task.sleep(for: .milliseconds(300))
+  controller.hide()
+  model.reopen()
+  #expect(!model.agent.active)
+  await model.finish()
+}
+
 /// The Settings hotkey leaves for the Settings window: the launcher is never ordered front over it.
 @MainActor @Test func theSettingsHotkeyNeverShowsTheLauncher() async throws {
   let root = try scratch()

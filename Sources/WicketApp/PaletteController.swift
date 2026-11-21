@@ -258,7 +258,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     }
     if arriving == nil { navigator.refresh() }
   }
+  /// Only from open: a direct hotkey's effect hides an already hidden panel, and dismissing again would
+  /// restart a kept conversation's time.
   func hide() {
+    guard isOpen else { return }
     isOpen = false
     input.stop(.hidden)
     panel.orderOut(nil)
