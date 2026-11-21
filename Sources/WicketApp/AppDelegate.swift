@@ -107,8 +107,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         register(config)
         shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"
       }
+      // Only what lasts: it is set when a configuration loads, so a recording's rejection would stay.
       status.button?.toolTip =
-        model.problem ?? "\(name): \(hotkey.inEffect?.symbols ?? "use menu to open")"
+        configuration.problem ?? configuration.hotkeyProblem ?? configuration.bindingProblem
+        ?? model.installProblem ?? "\(name): \(hotkey.inEffect?.symbols ?? "use menu to open")"
     }
     configuration.start()
     model.extensions.start()
