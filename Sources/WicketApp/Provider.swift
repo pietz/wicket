@@ -167,10 +167,13 @@ struct Address: Codable, Sendable, Equatable {
     if hidden { try c.encode(true, forKey: .hidden) }
   }
   /// The address of an extension by its ID, `extension:weather`.
-  init(id: String, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false) {
+  init(
+    id: String, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false,
+    hidden: Bool = false
+  ) {
     self.init(
       extensionName: id.hasPrefix("extension:") ? String(id.dropFirst("extension:".count)) : id,
-      input: input, arguments: arguments, link: link)
+      input: input, arguments: arguments, link: link, hidden: hidden)
   }
   /// Parsed leniently: the target is the host or else the path, any query item but `input` is ignored and
   /// the arguments are never read, because a URL comes from outside the extension. Percent-encode the

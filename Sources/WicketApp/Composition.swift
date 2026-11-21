@@ -182,7 +182,8 @@ enum Ranking {
       let manifest = extensions[id]!
       let row = Row(
         id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon,
-        actions: [.run(Address(id: id, input: ""))], keywords: manifest.keyword.map { [$0] })
+        actions: [.run(Address(id: id, input: "", hidden: manifest.hidden))],
+        keywords: manifest.keyword.map { [$0] })
       if let found = candidate(Result(provider: id, row: row), .command) { candidates.append(found) }
     }
     if !query.isEmpty { candidates += hosts.compactMap { candidate($0, .host) } }
@@ -232,7 +233,7 @@ enum Ranking {
           provider: $0,
           row: Row(
             id: "fallback", title: extensions[$0]!.name, subtitle: input, icon: extensions[$0]!.icon,
-            actions: [.run(Address(id: $0, input: input))]))
+            actions: [.run(Address(id: $0, input: input, hidden: extensions[$0]!.hidden))]))
       }
     }
     // Sorted by tier, so the strong come first; with none strong there are no pattern rows either.

@@ -7,10 +7,11 @@ private func app(_ title: String, keywords: [String]? = nil) -> Row {
   Row(
     id: "/Applications/\(title).app", title: title, subtitle: "Application", actions: [], keywords: keywords)
 }
-private func manifest(_ name: String, keyword: String? = nil, match: String? = nil, fallback: Bool = false)
-  -> ExtensionManifest
-{
+private func manifest(
+  _ name: String, keyword: String? = nil, match: String? = nil, fallback: Bool = false, hidden: Bool = false
+) -> ExtensionManifest {
   var object: [String: Any] = ["name": name, "command": ["/bin/echo"], "fallback": fallback]
+  if hidden { object.merge(["submit": true, "hidden": true]) { $1 } }
   if let keyword { object["keyword"] = keyword }
   if let match { object["match"] = match }
   return try! JSONDecoder().decode(
@@ -169,6 +170,20 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(!hasFallback(compose("", apps: [app("Safari")], extensions: extensions)))
   // A pattern that returned nothing is not strong.
   #expect(hasFallback(compose("zzz", patterns: ["extension:web": .items([])], extensions: extensions)))
+}
+
+/// A submit command marked hidden is a hidden run from the root too: its command row and its fallback.
+@Test func aHiddenCommandsRootRowsAreHiddenRuns() {
+  let extensions = ["extension:term": manifest("Terminal", fallback: true, hidden: true)]
+  func run(_ query: String, _ id: String) -> Address? {
+    guard
+      case .run(let address)? = compose(query, extensions: extensions).results
+        .first(where: { $0.row.id == id })?.row.actions.first?.kind
+    else { return nil }
+    return address
+  }
+  #expect(run("term", "command")?.hidden == true && run("zzz", "fallback")?.hidden == true)
+  #expect(run("zzz", "fallback")?.input == "zzz")
 }
 
 @Test func aStrongMatchHidesAskAgentEvenForAQuestion() {
