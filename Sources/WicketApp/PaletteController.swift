@@ -299,6 +299,8 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// What Return, a button or a menu item chose that leaves the screens: the effects on the panel and the
   /// system.
   private func perform(_ action: RowAction, from result: Result?) {
+    // A hotkey's paste goes to the app in front, not the one the panel last showed over.
+    if !isOpen { previousApp = NSWorkspace.shared.frontmostApplication }
     let input = navigator.input
     func record() { if let result { navigator.record(result) } }
     switch action.kind {

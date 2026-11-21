@@ -157,6 +157,8 @@ import Testing
       "items": [
         item("left"), item("fail"), item("stuck"), item("show"),
         ["id": "page", "title": "Page", "actions": [["type": "open", "url": "wicket://mover?input=x"]]],
+        ["id": "copy", "title": "Copy", "actions": [["type": "copy", "text": "moved"]]],
+        ["id": "script", "title": "Script", "actions": [["type": "open", "url": "file:///bin/sh"]]],
       ],
     ])
   let model = LauncherModel.testing(in: root)
@@ -235,6 +237,20 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   // A host command.
   model.press(HotkeyTarget(target: "settings"))
   #expect(surface.count(.show) == 2 && surface.count(.settings) == 1)
+}
+
+/// An item whose first action is a copy, paste, open or reveal does it without the panel, as Return on the
+/// item would; one that cannot be done shows the panel with why.
+@MainActor @Test func aHotkeysCopyIsDoneWithoutThePanel() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await windowLike(root)
+  model.press(HotkeyTarget(target: "extension:mover", item: "copy"))
+  #expect(surface.effects == [.run(.copy("moved"), from: nil)] && model.navigator.command == nil)
+  model.press(HotkeyTarget(target: "extension:mover", item: "script"))
+  #expect(
+    surface.count(.show) == 1 && model.navigator.actionProblem?.contains("does not open scripts") == true)
+  #expect(surface.effects.count == 2 && model.navigator.command == nil)
 }
 
 /// A run that is not hidden opens the panel on its command at once, through a real panel whose showing

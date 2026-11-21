@@ -774,6 +774,13 @@ final class Navigator {
     pressed = target.map { (address, $0.visit) }
   }
   @ObservationIgnored private var pressed: (address: Address, visit: UUID)?
+  /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
+  /// panel shows only to say why it could not, such as a paste without Accessibility access.
+  func perform(_ action: RowAction) {
+    actionProblem = nil
+    if !activate(action) { surface?.perform(.run(action, from: nil)) }
+    if actionProblem != nil, surface?.isShown == false { surface?.perform(.show) }
+  }
   /// An external `wicket://` URL: the panel opens on its address. One that launched Wicket waits for the
   /// first extension scan, so the extension it names is known.
   func follow(_ address: Address) {

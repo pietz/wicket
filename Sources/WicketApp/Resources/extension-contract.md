@@ -126,7 +126,7 @@ The calculator, the unit converter, the window commands and the Shell (`> comman
 
 ## Hotkeys
 
-A global hotkey for a command or manifest item is an entry in `config.json`: `"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]`, keys spelled like `hotkey`, one entry per address, `item` naming a manifest item. A manifest-item hotkey does what Return on the item does, without recording usage: a hidden `run` runs without showing Wicket, and any other first `run` or link opens Wicket at once where it leads, with the request it sends there. A hotkey bound to the command itself, an item with another first action, or an item of a switched-off extension opens its command like a link, with `submitted:false`. `item` resolves only in hotkey configuration. Keep other existing bindings.
+A global hotkey for a command or manifest item is an entry in `config.json`: `"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]`, keys spelled like `hotkey`, one entry per address, `item` naming a manifest item. A manifest-item hotkey does what Return on the item does, without recording usage: a hidden `run`, `copy`, `paste`, `open` or `reveal` is done without showing Wicket, and any other `run` or link opens Wicket at once where it leads, with the request it sends there. A hotkey bound to the command itself, or an item of a switched-off extension, opens its command like a link, with `submitted:false`. `item` resolves only in hotkey configuration. Keep other existing bindings.
 
 ## Repair
 

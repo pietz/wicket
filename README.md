@@ -44,7 +44,7 @@ A click selects a row and a double-click runs it. When a command takes arguments
 
 **Clipboard history** is off until you switch it on in Settings ▸ Extensions. Then type `clip` to search the texts and images you copied; Return pastes into the app you came from. It keeps the last 500 entries for 30 days, skips what password managers mark as concealed, and stores them only on your Mac, outside the agent's folder. Paste needs Accessibility.
 
-**Hotkeys for commands:** any command, a command's item such as Left Half, Settings, Agent History or Clipboard History can have its own global hotkey: ⌘K or right-click its row, Set Hotkey…, press the combination. A window command's hotkey moves the window without showing Wicket; any other opens Wicket at once on what it leads to. None are set by default.
+**Hotkeys for commands:** any command, a command's item such as Left Half, Settings, Agent History or Clipboard History can have its own global hotkey: ⌘K or right-click its row, Set Hotkey…, press the combination. A window command's hotkey moves the window without showing Wicket, and an item that copies, pastes or opens something does so directly; any other opens Wicket at once on what it leads to. None are set by default.
 
 ## Voice
 
