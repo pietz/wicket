@@ -994,7 +994,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(model.navigator.preview?.page.picture != nil)
   case "history-reopened":
     #expect(model.agent.continuing && model.agent.previous.count == 1 && model.agent.sessionID == "s")
-  case "extension-pattern": #expect(model.navigator.results.first?.row.title.contains("6.21") == true)
+  case "extension-pattern":
+    let decimal = ProviderRequest.NumberMarks.current.decimal
+    #expect(model.navigator.results.first?.row.title.contains("6\(decimal)21") == true)
   case "extension-fallback": #expect(model.navigator.results.contains { $0.row.id == "fallback" })
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
   case "listening":

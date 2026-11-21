@@ -162,13 +162,26 @@ func datesVersionsAndPhonesAreNotMath(input: String) async throws {
   ("", "Try 10 km in mi, 20 c in k or 2 gal to l"),
 ])
 func unitsConvert(input: String, expected: String) async throws {
-  let view = try await ExtensionRunner().run(bundled("units"), request: ProviderRequest(input: input))
+  let view = try await ExtensionRunner().run(
+    bundled("units"), request: ProviderRequest(input: input, locale: us))
   #expect(view.items.map(\.title) == [expected])
   if view.items.first?.id == "result" { #expect(view.items.first?.actions == [.copy(expected)]) }
 }
 
-@Test func unitsOfDifferentKindsGiveNoRow() async throws {
-  let view = try await ExtensionRunner().run(bundled("units"), request: ProviderRequest(input: "10 km in kg"))
+/// With a decimal comma, the root's pattern takes `1,5 km in mi` and the result shows and copies with the
+/// comma; a point still reads as a decimal.
+@Test(arguments: [("1,5 km in mi", "0,93205679 mi"), ("2.5 km to m", "2500 m"), ("-0,5 c in f", "31,1 °F")])
+func unitsReadAndWriteTheDecimalComma(input: String, expected: String) async throws {
+  let units = try bundled("units")
+  #expect(units.manifest.matches(input))
+  let view = try await ExtensionRunner().run(units, request: ProviderRequest(input: input, locale: de))
+  #expect(view.items.map(\.title) == [expected] && view.items.first?.actions == [.copy(expected)])
+}
+
+@Test(arguments: ["10 km in kg", "1\(String(repeating: "0", count: 400)) km in mm"])
+func unitsWithoutAResultGiveNoRow(input: String) async throws {
+  let view = try await ExtensionRunner().run(
+    bundled("units"), request: ProviderRequest(input: input, locale: us))
   #expect(view.items.isEmpty)
 }
 

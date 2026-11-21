@@ -205,7 +205,8 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let units = try await cli(root, ["--extension", "units", "--input", "10 km in mi"])
-  #expect(units.1["items"].array.first?["title"].string == "6.2137119 mi")
+  let decimal = ProviderRequest.NumberMarks.current.decimal
+  #expect(units.1["items"].array.first?["title"].string == "6\(decimal)2137119 mi")
   let calculator = try await cli(root, ["--extension", "calculator", "--input", "12*7"])
   #expect(calculator.1["items"].array.first?["title"].string == "84")
 }

@@ -26,8 +26,8 @@ func fromKelvin(_ value: Double, to unit: String) -> Double {
 }
 
 /// `amount unit in|to unit`, with spaces around the words: the amount (digits, an optional minus and
-/// decimal point) and both units in lowercase, or nil.
-func parse(_ input: String) -> (amount: Double, source: String, target: String)? {
+/// a decimal point or the user's decimal mark) and both units in lowercase, or nil.
+func parse(_ input: String, decimal: Character) -> (amount: Double, source: String, target: String)? {
   let text = Array(input)
   var at = 0
   func run(_ accepts: (Character) -> Bool) -> String {
@@ -44,7 +44,7 @@ func parse(_ input: String) -> (amount: Double, source: String, target: String)?
   let whole = run(digit)
   guard !whole.isEmpty else { return nil }
   amount += whole
-  if at + 1 < text.count, text[at] == ".", digit(text[at + 1]) {
+  if at + 1 < text.count, text[at] == "." || text[at] == decimal, digit(text[at + 1]) {
     at += 1
     amount += "." + run(digit)
   }
@@ -59,26 +59,34 @@ func parse(_ input: String) -> (amount: Double, source: String, target: String)?
   return (value, source, target)
 }
 
-/// Eight significant digits, as printf's `%.8g` writes them.
-func format(_ value: Double) -> String {
+/// Eight significant digits, as printf's `%.8g` writes them, with the user's decimal mark.
+func format(_ value: Double, decimal: Character) -> String {
   var buffer = [CChar](repeating: 0, count: 40)
   _ = withVaList([value]) { vsnprintf(&buffer, buffer.count, "%.8g", $0) }
-  return String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self)
+  return String(
+    String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self).map {
+      $0 == "." ? decimal : $0
+    })
 }
 
 // MARK: - Main
 
-let input = JSON.standardInput()?["input"]?.string ?? ""
+let request = JSON.standardInput()
+let decimal = request?["locale"]?["decimal"]?.string?.first ?? "."
+let input = request?["input"]?.string ?? ""
 var items: [String] = []
-if let (amount, source, target) = parse(input) {
+if let (amount, source, target) = parse(input, decimal: decimal) {
   if let from = units[source], let to = units[target], from.dimension == to.dimension {
     let result =
       from.dimension == "temperature"
       ? fromKelvin(kelvin(amount, from: source), to: target) : amount * from.size / to.size
-    let value = format(result) + " " + (temperatures[target] ?? target)
-    items.append(
-      #"{"id":"result","title":\#(quoted(value)),"prominent":true,"subtitle":"Copy conversion","icon":"ruler","#
-        + #""actions":[{"type":"copy","text":\#(quoted(value))}]}"#)
+    // An amount too long for a Double has no result.
+    if result.isFinite {
+      let value = format(result, decimal: decimal) + " " + (temperatures[target] ?? target)
+      items.append(
+        #"{"id":"result","title":\#(quoted(value)),"prominent":true,"subtitle":"Copy conversion","icon":"ruler","#
+          + #""actions":[{"type":"copy","text":\#(quoted(value))}]}"#)
+    }
   }
 } else {
   items.append(#"{"id":"help","title":"Try 10 km in mi, 20 c in k or 2 gal to l","actions":[]}"#)
