@@ -763,19 +763,21 @@ final class Navigator {
   }
   /// A hotkey's address (`LauncherModel.press`), as Return on its item: a hidden panel shows at once on
   /// the address's screen, since it has no screen to hold; an open one follows it like a clicked link.
-  /// Pressed again while the request it started still runs, it does nothing.
-  func open(_ address: Address, from origin: String? = nil, submitted: Bool = false) {
+  /// Pressed again while the request it started still runs, it does nothing: the same binding, and no
+  /// request replaced that one since (`generation`), such as one typing sent.
+  func open(
+    _ address: Address, from origin: String? = nil, submitted: Bool = false,
+    pressed hotkey: HotkeyTarget? = nil
+  ) {
     let shown = surface?.isShown == true
-    if shown, let pressed, pressed.address == address, pressed.visit == target?.visit, target?.busy == true {
-      return
-    }
+    if shown, let hotkey, let pressed, pressed == (hotkey, generation), target?.busy == true { return }
     func arrive() {
       go(address, from: origin, submitted: submitted, holding: shown)
-      pressed = target.map { (address, $0.visit) }
+      pressed = hotkey.map { ($0, generation) }
     }
     if let surface, !shown { surface.show(arriving: arrive) } else { arrive() }
   }
-  @ObservationIgnored private var pressed: (address: Address, visit: UUID)?
+  @ObservationIgnored private var pressed: (hotkey: HotkeyTarget, generation: Int)?
   /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
   /// panel shows only to say why it could not, such as a paste without Accessibility access.
   func perform(_ action: RowAction) {

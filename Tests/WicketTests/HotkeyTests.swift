@@ -294,6 +294,48 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   await model.finish()
 }
 
+/// A repeat is the same binding while its request still runs: another extension's item with an equal
+/// address runs, and so does the same hotkey once typing replaced its request.
+@MainActor @Test func onlyTheSameHotkeyWhileItsRequestRunsIsIgnored() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  for name in ["one", "two"] {
+    _ = try extensionFolder(
+      root, name: name,
+      script: """
+        echo "$(cat)" >> log.jsonl
+        while [ ! -e "\(root.path)/release" ]; do sleep 0.01; done
+        echo '{"items":[]}'
+        """,
+      fields: ["name": name, "items": [["id": "go", "title": "Go", "actions": [["type": "run"]]]]])
+  }
+  let model = LauncherModel.testing(in: root)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  surface.shown = false
+  model.navigator.surface = surface
+  func sent(_ name: String) -> Int {
+    (try? requests(in: root.appending(path: "extensions/" + name)).count) ?? 0
+  }
+  model.press(HotkeyTarget(target: "extension:one", item: "go"))
+  #expect(await eventually { sent("one") == 1 })
+  let two = HotkeyTarget(target: "extension:two", item: "go")
+  model.press(two)
+  #expect(await eventually { sent("two") == 1 })
+  model.press(two)
+  try await Task.sleep(for: .milliseconds(100))
+  #expect(sent("two") == 1)
+  // Followed like a link, the command shows once its deadline passes; typing there sends a new request.
+  model.navigator.passDeadline()
+  #expect(model.navigator.command?.id == "extension:two")
+  model.navigator.input = "x"
+  #expect(await eventually { sent("two") == 2 })
+  model.press(two)
+  #expect(await eventually { sent("two") == 3 })
+  try Data().write(to: root.appending(path: "release"))
+  await model.finish()
+}
+
 /// A visible hotkey's run is an ordinary request of the open command: leaving it stops it, so a late
 /// result never replaces the screen the user went to or ends an agent's turn.
 @MainActor @Test func aVisibleHotkeysLateResultNeverReplacesANewerScreen() async throws {

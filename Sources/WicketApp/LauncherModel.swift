@@ -86,12 +86,12 @@ final class LauncherModel {
     // A switched-off extension's items run nothing: its address shows that it is off.
     guard let owner, let action = item?.actions.first,
       configuration.isEnabled(owner.id, extensions: extensions.ids)
-    else { return navigator.open(target.address) }
+    else { return navigator.open(target.address, pressed: target) }
     switch action.kind {
     case .run(let address) where address.hidden: navigator.runHidden(address, from: owner.id)
-    case .run(let address): navigator.open(address, from: owner.id, submitted: !address.link)
+    case .run(let address): navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
     case .copy, .paste, .open, .reveal: navigator.perform(action)
-    case .send, .detail, .clip, .hotkey: navigator.open(target.address)
+    case .send, .detail, .clip, .hotkey: navigator.open(target.address, pressed: target)
     }
   }
   func finish() async {
