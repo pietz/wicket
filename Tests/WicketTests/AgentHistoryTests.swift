@@ -166,6 +166,30 @@ private func run(
 }
 
 @MainActor @Test(arguments: [true, false])
+func aFollowUpAfterItsRunWasDeletedSavesOnlyTheNewTurn(_ clearAll: Bool) async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let runs = AgentHistory(url: folder.appending(path: "private/agent-history.json"))
+  let session = AgentSession(folder: folder)
+  session.history = runs
+  try await finishTurn(session, "First", "One")
+  try await finishTurn(session, "Second", "Two")
+  let deleted = try #require(runs.runs.first)
+  #expect(deleted.turns.count == 2)
+  if clearAll { runs.clear() } else { runs.delete(deleted.id) }
+  try await finishTurn(session, "Third", "Three")
+  let saved = try #require(runs.runs.first)
+  #expect(runs.runs.count == 1 && saved.id != deleted.id)
+  #expect(saved.turns == [.init(question: "Third", answer: "Three")])
+  #expect(session.answer == "Three")
+  // The conversation goes on in the new run.
+  try await finishTurn(session, "Fourth", "Four")
+  #expect(runs.runs.count == 1 && runs.runs[0].id == saved.id && runs.runs[0].turns.count == 2)
+  await session.shutdown()
+  await runs.finish()
+}
+
+@MainActor @Test(arguments: [true, false])
 func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async throws {
   let bench = try Bench()
   let model = bench.model

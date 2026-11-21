@@ -6,7 +6,7 @@ import Observation
 @MainActor @Observable
 final class AgentSession {
   typealias Turn = AgentHistory.Run.Turn
-  /// The last ten earlier turns, which Agent History saves with the last one.
+  /// The last ten earlier turns, which Agent History saves with the last one while their run is kept.
   private(set) var previous: [Turn] = []
   private(set) var continuing = false
   var agentName: String { chosen.agent.title }
@@ -330,6 +330,13 @@ final class AgentSession {
   private func saveTurn() {
     publishAnswer()
     if answer.isEmpty { answer = narration }
+    // Earlier turns were saved, but their run is gone (deleted or cleared): they stay deleted, and this
+    // turn starts a new run. The screen keeps what it shows.
+    if !previous.isEmpty, let history, history.run(runID) == nil {
+      runID = UUID().uuidString
+      runSource = source
+      previous = []
+    }
     history?.save(
       AgentHistory.Run(
         id: runID, agent: chosen.agent, session: sessionID, used: Date(), source: runSource,
