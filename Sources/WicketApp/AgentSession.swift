@@ -67,8 +67,9 @@ final class AgentSession {
   private var lastActivity: Date?
   var cancelGrace: Duration = .seconds(3)
   var retention: TimeInterval = 1200
-  /// No event at all from a CLI that started, then no event for this long during the turn: a working
-  /// agent is never cut off, a hung one is. While a permission waits for the user, no limit runs.
+  /// Nothing at all from a CLI that started, then nothing for this long during the turn: a working
+  /// agent, even one whose command prints for an hour, is never cut off, a hung one is. While a
+  /// permission waits for the user, no limit runs.
   var startupLimit: Duration = .seconds(30)
   var turnLimit: Duration = .seconds(600)
   /// Everything stays for `retention` after the last hide or completion, whichever is later. Keeping a CLI
@@ -223,6 +224,8 @@ final class AgentSession {
     // Another tool's update does not restart the limit while a permission waits on the user.
     if permissions.isEmpty { arm(turnLimit) }
     switch event {
+    case .activity:
+      return
     case .session(let id):
       sessionID = id
     case .text(var text, let id):

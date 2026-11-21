@@ -35,6 +35,8 @@ enum AgentEvent: Equatable, Sendable {
   case failed(String)
   /// The CLI no longer has the session it was asked to resume; the message is its own.
   case sessionMissing(String)
+  /// The CLI said something that shows nothing, such as a command's output: it is still working.
+  case activity
 }
 
 /// One running CLI. Everything it says arrives as events; a turn ends with `finished` or `failed`.
@@ -93,7 +95,8 @@ final class AgentLink<T: Translator>: AgentConnection {
     self.log = log
     lines.onMessage = { [weak self] message in
       guard let self else { return }
-      apply(self.translator.receive(message))
+      let step = self.translator.receive(message)
+      apply(step.events.isEmpty ? Step(events: [.activity], send: step.send) : step)
     }
     lines.onClose = { [weak self] reason in self?.emit(.failed("\(T.name) \(reason)")) }
     apply(self.translator.start())

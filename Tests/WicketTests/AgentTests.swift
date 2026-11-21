@@ -568,6 +568,8 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
     folder: URL(fileURLWithPath: "/tmp/wicket-recorded/codex"), resume: nil, settings: settings)
   let events = try await replay(
     allow ? "codex-allow" : "codex-deny", translator, answer: allow, settings: settings)
+  // Messages that show nothing, like `turn/started`, still count as the CLI working.
+  #expect(events.contains(.activity))
   #expect(events.contains { if case .permission = $0 { true } else { false } })
   #expect(events.contains(.finished(cancelled: false)))
 }
@@ -949,6 +951,13 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   let reporting = ContinuousClock.now
   while ContinuousClock.now - reporting < .seconds(1) {
     slow.tool("Working")
+    try await Task.sleep(for: .milliseconds(50))
+  }
+  #expect(session.busy && session.problem == nil)
+  // So does one whose messages show nothing, such as a long build's output.
+  let printing = ContinuousClock.now
+  while ContinuousClock.now - printing < .seconds(1) {
+    slow.onEvent(.activity)
     try await Task.sleep(for: .milliseconds(50))
   }
   #expect(session.busy && session.problem == nil)
