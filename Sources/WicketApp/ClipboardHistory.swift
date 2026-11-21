@@ -130,7 +130,8 @@ final class ClipboardHistory: HostCommand {
     guard readable, let types = pasteboard.types, !types.contains(where: Self.skipped.contains) else {
       return
     }
-    if let text = pasteboard.string(forType: .string) {
+    // A blank text beside an image, as some apps write, is the image.
+    if let text = pasteboard.string(forType: .string), !text.allSatisfy(\.isWhitespace) {
       capture(text, now: now)
     } else if types.contains(.png), let png = pasteboard.data(forType: .png), png.count <= imageLimits.each {
       capturing(png, now: now)
@@ -259,6 +260,9 @@ final class ClipboardHistory: HostCommand {
       if type == .tiff, let tiff { sender.setData(tiff, forType: .tiff) }
     }
   }
+
+  /// Whether Clear History has anything to erase: clips, or a list moved aside as unreadable.
+  var canClear: Bool { !clips.isEmpty || PrivateList.hasUnreadable(url) }
 
   /// The bytes the kept images take on disk.
   var imageBytes: Int { clips.reduce(0) { $0 + ($1.image?.bytes ?? 0) } }

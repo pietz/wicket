@@ -337,7 +337,7 @@ struct SettingsPane: View {
       )
       .font(.callout).foregroundStyle(.secondary)
       LabeledContent("Saved runs", value: "\(runs.runs.count)")
-      Button("Clear History…") { confirmingClearRuns = true }.disabled(runs.runs.isEmpty)
+      Button("Clear History…") { confirmingClearRuns = true }.disabled(!runs.canClear)
         .confirmationDialog("Clear agent history?", isPresented: $confirmingClearRuns) {
           Button("Clear History", role: .destructive) { runs.clear() }
         } message: {
@@ -560,7 +560,7 @@ struct SettingsPane: View {
     }
     LabeledContent("Saved clips", value: "\(clipboard.clips.count)")
     LabeledContent("Image storage", value: Self.megabytes(clipboard.imageBytes))
-    Button("Clear History…") { confirmingClear = true }.disabled(clipboard.clips.isEmpty)
+    Button("Clear History…") { confirmingClear = true }.disabled(!clipboard.canClear)
       .confirmationDialog("Clear clipboard history?", isPresented: $confirmingClear) {
         Button("Clear History", role: .destructive) { clipboard.clear() }
       } message: {

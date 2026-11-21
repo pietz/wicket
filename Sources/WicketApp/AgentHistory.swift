@@ -64,6 +64,9 @@ final class AgentHistory: HostCommand {
     writer.submit(runs)
   }
 
+  /// Whether Clear History has anything to erase: runs, or a list moved aside as unreadable.
+  var canClear: Bool { !runs.isEmpty || PrivateList.hasUnreadable(url) }
+
   func clear() {
     runs.removeAll()
     writer.submit(runs)

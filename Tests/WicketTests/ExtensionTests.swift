@@ -573,3 +573,20 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
       ExtensionManifest.self, from: Data(#"{"name":"x","command":["x"],"hidden":true}"#.utf8))
   }
 }
+
+/// A linked `extensions/` folder is watched where it points, and a linked extension inside it is found.
+@MainActor @Test func linkedExtensionFoldersAreFoundAndWatched() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let real = root.appending(path: "dotfiles/extensions")
+  try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: root.appending(path: "extensions"), withDestinationURL: real)
+  let host = ExtensionHost(folder: root, bundled: nil)
+  host.start()
+  await host.firstScan()
+  let source = try extensionFolder(root.appending(path: "elsewhere"), name: "weather")
+  try FileManager.default.createSymbolicLink(at: real.appending(path: "weather"), withDestinationURL: source)
+  #expect(await eventually { host.commands["extension:weather"] != nil })
+  await host.shutdown()
+}

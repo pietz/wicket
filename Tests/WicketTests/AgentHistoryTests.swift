@@ -344,7 +344,7 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   let url = folder.appending(path: "agent-history.json")
   try Data("[{\"id\":".utf8).write(to: url)
   let runs = AgentHistory(url: url)
-  #expect(runs.runs.isEmpty)
+  #expect(runs.runs.isEmpty && runs.canClear)
   runs.save(run("r1", [("Question", "Answer")]))
   await runs.finish()
   let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
@@ -356,6 +356,7 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   reloaded.clear()
   await reloaded.finish()
   #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["agent-history.json"])
+  #expect(!reloaded.canClear)
 }
 
 /// A run of the other agent asks with the permission the user chose, under that agent's name for it: never

@@ -433,6 +433,8 @@ private func pngs(_ folder: URL) -> Set<String> {
   try Data("[{\"id\":".utf8).write(to: folder.appending(path: "clipboard-history.json"))
   let (history, _) = makeHistory(folder)
   #expect(history.clips.isEmpty && pngs(folder) == [image])
+  // Clear History has something to erase: the list kept aside and its images.
+  #expect(history.canClear)
   // The list is kept aside, and a save writes a new one beside it.
   let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
   let aside = try #require(names.first { $0.hasPrefix("clipboard-history.unreadable-") })
@@ -450,6 +452,20 @@ private func pngs(_ folder: URL) -> Set<String> {
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
       == ["clipboard-history.json", aside + ".bak"])
+  #expect(!reloaded.canClear)
+}
+
+/// Some apps write a blank text beside a copied image: what was copied is the image.
+@MainActor @Test func aBlankTextBesideAnImageIsTheImage() async throws {
+  let folder = try scratch()
+  let (history, pasteboard) = makeHistory(folder)
+  pasteboard.copy(image: testImage(4, 3))
+  pasteboard.text = " \n"
+  pasteboard.types = [.string, .png]
+  history.poll()
+  await history.captured()
+  #expect(history.clips.count == 1 && history.clips.first?.image?.width == 4)
+  await history.finish()
 }
 
 @MainActor @Test func imageRowsCopyAndPasteByIDResolvedWhenTheyRun() async throws {

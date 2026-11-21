@@ -123,15 +123,11 @@ final class ExtensionHost {
   ) {
     var commands: [String: ExtensionCommand] = [:]
     var problems: [String: String] = [:]
+    // The folders holding a wicket.json, linked ones too. Listing does not follow a linked root itself.
     func folders(_ root: URL?) -> [URL] {
-      guard let root else { return [] }
-      return
-        ((try? FileManager.default.contentsOfDirectory(
-          at: root, includingPropertiesForKeys: [.isDirectoryKey]))
-        ?? []).filter {
-          (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            && FileManager.default.fileExists(atPath: $0.appending(path: "wicket.json").path)
-        }
+      guard let root = root?.resolvingSymlinksInPath() else { return [] }
+      return ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
+        .filter { FileManager.default.fileExists(atPath: $0.appending(path: "wicket.json").path) }
     }
     let shipped = folders(bundled)
     let own = folders(root).filter { folder in

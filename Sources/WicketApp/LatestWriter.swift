@@ -33,11 +33,13 @@ final class LatestWriter<Value: Sendable>: Sendable {
 final class UsageHistory {
   private(set) var store: UsageStore
   private let writer: LatestWriter<UsageStore>
+  nonisolated private static let log = Logger(subsystem: "app.wicket", category: "usage")
   init(url: URL) {
     store = UsageStore.load(from: url)
     writer = LatestWriter { store in
+      // The code alone: an error's description can name the file.
       do { try store.save(to: url) } catch {
-        NSLog("Wicket: could not save usage: %@", error.localizedDescription)
+        Self.log.error("save failed, code \((error as NSError).code, privacy: .public)")
       }
     }
   }
@@ -67,9 +69,15 @@ enum PrivateList {
     try? FileManager.default.moveItem(at: url, to: url.deletingLastPathComponent().appending(path: aside))
     return nil
   }
-  /// Whether a list `read` moved aside is among these file names.
+  /// Whether a list `read` moved aside is among these file names, by default the folder's.
   static func hasUnreadable(_ url: URL, among names: some Sequence<String>) -> Bool {
     names.contains { isAside($0, of: url) }
+  }
+  static func hasUnreadable(_ url: URL) -> Bool {
+    hasUnreadable(
+      url,
+      among: (try? FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path))
+        ?? [])
   }
   /// Clear History: what `read` moved aside goes too.
   static func removeUnreadable(_ url: URL) {

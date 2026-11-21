@@ -45,7 +45,7 @@ final class FileWatcher {
         nil, callback, &context,
         (filesOnly
           ? Array(Set(self.paths.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }))
-          : paths) as CFArray,
+          : self.paths) as CFArray,
         FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency,
         FSEventStreamCreateFlags(
           kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot
