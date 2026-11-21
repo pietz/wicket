@@ -273,9 +273,10 @@ struct LauncherView: View {
             }
             Text(
               voiceStatus
-                ?? (agent.map { $0.continuing ? "Continuing conversation" : (renderer.problem ?? $0.status) }
+                ?? (agent.map { renderer.problem ?? $0.footer }
                   ?? (model.problem ?? shown.commandName ?? "Wicket"))
-            ).lineLimit(1).help(voiceStatus ?? agent?.status ?? model.problem ?? "")
+            ).lineLimit(1).help(
+              voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? model.problem ?? "")
             Spacer()
             if shown.permissionPending {
               Text("⌘↩ Allow")

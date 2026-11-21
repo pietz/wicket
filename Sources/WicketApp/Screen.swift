@@ -150,11 +150,12 @@ struct AgentPresentation: Equatable {
   /// A turn runs, `working` until its answer begins: the answer area shows its own spinner meanwhile.
   let busy: Bool
   let working: Bool
-  /// A kept or reopened conversation, ready for a follow-up.
-  let continuing: Bool
   let streaming: Bool
   let expanded: Bool
-  @MainActor init(_ session: AgentSession, _ screen: AgentScreen) {
+  /// The footer's line: what the last action could not do (`Navigator.actionProblem`), else that a kept or
+  /// reopened conversation is ready for a follow-up, else its status.
+  let footer: String
+  @MainActor init(_ session: AgentSession, _ screen: AgentScreen, actionProblem: String?) {
     question = session.question
     source = session.source
     notice = session.notice
@@ -165,8 +166,9 @@ struct AgentPresentation: Equatable {
     folder = session.folder
     busy = session.busy
     working = session.busy && session.answer.isEmpty
-    continuing = session.continuing && !session.busy && !session.question.isEmpty
     streaming = session.streaming
     expanded = screen.expanded
+    let continuing = session.continuing && !session.busy && !session.question.isEmpty
+    footer = actionProblem ?? (continuing ? "Continuing conversation" : status)
   }
 }

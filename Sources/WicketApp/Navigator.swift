@@ -172,8 +172,11 @@ final class Navigator {
   var confirmationHeight: CGFloat = 210 {
     didSet { if confirmationHeight != oldValue { draw() } }
   }
-  /// What the last action could not do, until the configuration next changes.
-  var actionProblem: String?
+  /// What the last action could not do, until the next action, the user's next input or the configuration
+  /// changing. Over a conversation it is the footer's line (`AgentPresentation.footer`), so it is drawn.
+  var actionProblem: String? {
+    didSet { if actionProblem != oldValue, conversing { draw() } }
+  }
 
   /// The panel the screens show in (`PaletteSurface`).
   @ObservationIgnored weak var surface: (any PaletteSurface)?
@@ -425,6 +428,7 @@ final class Navigator {
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
   func editInput(_ edit: InputEdit) {
+    actionProblem = nil
     // Typing in the action panel's empty field closes it, and what the field shows is the input: never
     // joined to the earlier input, which would rewrite the field under an input method's marked text.
     closeActions()
@@ -444,6 +448,7 @@ final class Navigator {
   func editInput(_ text: String) { editInput(InputEdit(text, from: input)) }
   /// A transcript: like typing, speech during a screen switch switches at once, and it is the whole input.
   func dictate(_ text: String) {
+    actionProblem = nil
     let left = arriving != nil && conversing
     showArrival()
     input = text
@@ -790,7 +795,6 @@ final class Navigator {
   /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
   /// panel shows only to say why it could not, such as a paste without Accessibility access.
   func perform(_ action: RowAction) {
-    actionProblem = nil
     if !activate(action) { surface?.perform(.run(action, from: nil)) }
     if actionProblem != nil, surface?.isShown == false { surface?.show { [self] in refresh() } }
   }
@@ -809,6 +813,7 @@ final class Navigator {
   /// reveal that `OpenPolicy` refuses: that does nothing but say why. `result` is the row it came from.
   @discardableResult
   func activate(_ action: RowAction, from result: Result? = nil) -> Bool {
+    actionProblem = nil
     switch action.kind {
     case .run(let address):
       if let result { record(result) }
@@ -918,7 +923,9 @@ final class Navigator {
   // MARK: The agent's screen
 
   /// The agent's screen as drawn, nil while it is not open.
-  var agentScreen: AgentPresentation? { conversation.map { AgentPresentation(agent, $0) } }
+  var agentScreen: AgentPresentation? {
+    conversation.map { AgentPresentation(agent, $0, actionProblem: actionProblem) }
+  }
   /// A long question's header shows all of it, or two lines again.
   func toggleQuestion() {
     conversation?.expanded.toggle()

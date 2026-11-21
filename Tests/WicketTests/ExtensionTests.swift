@@ -529,6 +529,30 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   }
 }
 
+/// A hidden run's failure over a kept conversation shows the panel on the conversation with the failure as
+/// the footer's line, until the user's next input.
+@MainActor @Test func aHiddenFailureOverAConversationIsItsFooterUntilTheNextInput() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "shut", script: "echo broke >&2; exit 1", fields: ["name": "Shut"])
+  let model = LauncherModel.testing(in: root)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  surface.onEffect = { if $0 == .hide { model.navigator.dismiss() } }
+  try await finishTurn(model, "why", "Because.")
+  var footers: [String?] = []
+  surface.onDraw = { footers.append(model.navigator.presentation.agent?.footer) }
+  let row = Result(provider: "extension:shut", row: Row(id: "x", title: "x", actions: []))
+  model.navigator.activate(.run(Address(input: "", hidden: true)), from: row)
+  #expect(!surface.shown)
+  await model.navigator.settled()
+  #expect(surface.shows == 1 && model.navigator.agentScreen != nil && model.navigator.command == nil)
+  #expect(footers.last == "Shut: Extension exited with status 1")
+  model.navigator.editInput("and")
+  #expect(footers.last == "Continuing conversation")
+}
+
 /// `hidden` in a manifest makes a submit command's Return a hidden run; it means nothing without submit.
 @MainActor @Test func aHiddenSubmitCommandsReturnIsAHiddenRun() async throws {
   let root = try scratch()
