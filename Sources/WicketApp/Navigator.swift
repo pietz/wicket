@@ -778,7 +778,7 @@ final class Navigator {
   /// An address from outside the panel: a hotkey's (`LauncherModel.press`), as Return on its item, or an
   /// external `wicket://` URL, which the user then runs with Return. A hidden panel shows at once on the
   /// address's screen, since it has no screen to hold; an open one follows it like a clicked link. Before
-  /// the first extension scan (a URL that launched Wicket) it waits, so the extension it names is known.
+  /// the first extension scan (a URL that launched Wicket) it waits like `LauncherModel.press`, so the extension it names is known.
   /// Pressed again while the request it started still runs, a hotkey does nothing: the same binding, and
   /// no request replaced that one since (`generation`), such as one typing sent.
   func open(

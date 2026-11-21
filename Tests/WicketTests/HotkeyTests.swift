@@ -137,7 +137,9 @@ import Testing
 /// request it gets to `requests`, fails when `move` is `fail`, is done with nothing to show when it is
 /// `left` and otherwise lists `left` under a row saying why nothing moved, as Window does. `show` is a run
 /// that is not hidden and answers once `release` exists; `page` opens the command as a link.
-@MainActor private func windowLike(_ root: URL) async throws -> (LauncherModel, RecordingSurface) {
+@MainActor private func windowLike(_ root: URL, scanned: Bool = true) async throws -> (
+  LauncherModel, RecordingSurface
+) {
   let item = { (id: String) -> [String: Any] in
     ["id": id, "title": id, "actions": [["type": "run", "arguments": ["move": id], "hidden": id != "show"]]]
   }
@@ -163,7 +165,7 @@ import Testing
     ])
   let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
-  await model.extensions.reload()
+  if scanned { await model.extensions.reload() }
   let surface = RecordingSurface()
   surface.shown = false
   model.navigator.surface = surface
@@ -185,6 +187,20 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(surface.effects.isEmpty && model.navigator.command == nil)
   let request = try #require(try runs(root).first)
   #expect(request.submitted && request.arguments == ["move": "left"] && request.input == "")
+}
+
+/// Pressed during the first extension scan, an item's hotkey waits for it and runs the item, not its command.
+@MainActor @Test func anItemsHotkeyPressedBeforeTheFirstScanRunsTheItem() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await windowLike(root, scanned: false)
+  model.press(HotkeyTarget(target: "extension:mover", item: "left"))
+  await model.extensions.reload()
+  #expect(await eventually { (try? runs(root))?.count == 1 })
+  await model.navigator.settled()
+  #expect(surface.shows == 0 && model.navigator.command == nil)
+  #expect(try runs(root).first?.arguments == ["move": "left"])
+  await model.finish()
 }
 
 @MainActor @Test func aFailedHiddenRunShowsThePanelWithItsReport() async throws {

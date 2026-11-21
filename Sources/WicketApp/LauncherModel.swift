@@ -78,8 +78,16 @@ final class LauncherModel {
   /// A hotkey bound to `target` was pressed: as Return on what it names, with no usage recorded. A manifest
   /// item's first action is done: a hidden run (`Navigator.runHidden`), or a copy, paste, open or reveal,
   /// without the panel unless it has to say why it could not. Anything else shows the panel on its
-  /// address (`Navigator.open`): a command, a host command, or an item's `run` action.
+  /// address (`Navigator.open`): a command, a host command, or an item's `run` action. Pressed before the
+  /// first extension scan, it waits for it, so the item is found.
   func press(_ target: HotkeyTarget) {
+    guard extensions.scanned else {
+      Task { [weak self] in
+        await self?.extensions.firstScan()
+        self?.press(target)
+      }
+      return
+    }
     let owner = target.target.flatMap { extensions.commands[$0] }
     let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
     // A switched-off extension's items run nothing: its address shows that it is off.
