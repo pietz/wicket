@@ -121,7 +121,9 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("arguments-long") { return ["hours", "minutes", "Awake"] }
   if name.contains("arguments-three") { return ["caff", "hours", "minutes", "seconds"] }
   if name.contains("arguments-command") { return ["Caffeinate", "12", "30", "Awake for 12 h 30 min"] }
-  if name.contains("extension-pattern") { return ["6.2137119", "Copy conversion", "Ask agent"] }
+  if name.contains("extension-pattern") {
+    return ["6\(ProviderRequest.NumberMarks.current.decimal)2137119", "Copy conversion", "Ask agent"]
+  }
   if name.contains("extension-list") { return ["wicket launcher", "Search for", "Search the web"] }
   if name.contains("extension-fallback") { return ["Ask agent", "Search the web"] }
   if name.contains("answer") {
@@ -790,7 +792,7 @@ private let installedAgent: Void = {
         runs: AgentHistory(url: folder.appending(path: "agent-history.json")),
         updater: nil, pauseHotkey: { _ in },
         selected: state == "settings-window" ? "extension:window" : "apps"))
-    pane.frame = NSRect(x: 0, y: 0, width: 560, height: 480)
+    pane.frame = NSRect(origin: .zero, size: SettingsPane.size)
     let window = NSWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
@@ -943,7 +945,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "hotkey-binding":
     #expect(model.navigator.results.compactMap { model.navigator.hotkey(of: $0) }.count == 2)
   case _ where state.hasPrefix("settings-"):
-    #expect(scenario.controller == nil && scenario.view.frame.size == CGSize(width: 560, height: 480))
+    #expect(scenario.controller == nil && scenario.view.frame.size == SettingsPane.size)
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)
   case "working": #expect(model.agent.busy && model.agent.answer.isEmpty)
   case "working-text": #expect(model.agent.busy && !model.agent.answer.isEmpty)

@@ -45,7 +45,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       let window = NSWindow(contentViewController: tabs)
       window.styleMask = [.titled, .closable, .miniaturizable]
       window.toolbarStyle = .preference
-      window.setContentSize(NSSize(width: 560, height: 480))
+      window.setContentSize(SettingsPane.size)
       window.isReleasedWhenClosed = false
       window.delegate = self
       window.center()
@@ -65,6 +65,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 }
 
 struct SettingsPane: View {
+  static let size = CGSize(width: 680, height: 480)
   let section: Int
   let store: ConfigurationStore
   let extensions: ExtensionHost
@@ -109,7 +110,7 @@ struct SettingsPane: View {
         }
       }
     }
-    .frame(width: 560, height: 480)
+    .frame(width: Self.size.width, height: Self.size.height)
     .onAppear {
       if section == 2 { store.discoverOptions() }
     }
@@ -292,16 +293,12 @@ struct SettingsPane: View {
         Text("Claude").tag("claude")
         Text("ChatGPT").tag("codex")
       }
-      option("Model", key: "model", help: "Choose the model for new answers.")
-      option("Reasoning effort", key: "effort", help: "More effort spends longer thinking before answering.")
-      option("Permission mode", key: "mode", help: "Auto lets the agent decide what needs your approval.")
-      if AgentOptions.offersFast(config.agent, models: store.models) {
-        option("Speed", key: "speed", help: "Fast answers quicker and uses more of your allowance.")
-      }
-      described("Show answers as they arrive. Turn off for completed steps.") {
-        Toggle(
-          "Stream answers", isOn: binding(config.agent.streamAnswers, key: "streamAnswers", group: "agent"))
-      }
+      option("Model", key: "model")
+      option("Reasoning effort", key: "effort")
+      option("Permission mode", key: "mode")
+      if AgentOptions.offersFast(config.agent, models: store.models) { option("Speed", key: "speed") }
+      Toggle(
+        "Stream answers", isOn: binding(config.agent.streamAnswers, key: "streamAnswers", group: "agent"))
     } footer: {
       Text(
         store.discoveryStatus[config.agent.agent.rawValue]
@@ -345,7 +342,7 @@ struct SettingsPane: View {
         }
     }
   }
-  private func option(_ title: String, key: String, help: String) -> some View {
+  private func option(_ title: String, key: String) -> some View {
     let items = AgentOptions.choices(store.models, key: key, for: config.agent)
     let value = AgentOptions.resolved(config.agent, key: key, models: store.models)
     let saved =
@@ -353,31 +350,22 @@ struct SettingsPane: View {
         "model": config.agent.model, "effort": config.agent.effort, "mode": config.agent.mode,
         "speed": config.agent.speed,
       ][key] ?? nil
-    return described(help) {
-      Picker(
-        title,
-        selection: Binding(
-          get: { saved ?? "" },
-          set: { value in
-            store.change { try $0.set(key, to: value.isEmpty ? nil : value, in: "agent") }
-          })
-      ) {
-        Text("Default").tag("")
-        ForEach(items, id: \.value) { item in
-          Text(item.title + (item.available ? "" : " (unavailable)")).tag(item.value).disabled(
-            !item.available)
-        }
-        if saved != nil && !items.contains(where: { $0.value == value }) {
-          Text("Saved: " + value).tag(value)
-        }
+    return Picker(
+      title,
+      selection: Binding(
+        get: { saved ?? "" },
+        set: { value in
+          store.change { try $0.set(key, to: value.isEmpty ? nil : value, in: "agent") }
+        })
+    ) {
+      Text("Default").tag("")
+      ForEach(items, id: \.value) { item in
+        Text(item.title + (item.available ? "" : " (unavailable)")).tag(item.value).disabled(
+          !item.available)
       }
-    }
-  }
-  /// A control with its explanation under it.
-  private func described(_ help: String, @ViewBuilder _ control: () -> some View) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      control()
-      Text(help).font(.callout).foregroundStyle(.secondary)
+      if saved != nil && !items.contains(where: { $0.value == value }) {
+        Text("Saved: " + value).tag(value)
+      }
     }
   }
   private func warning(_ problem: String) -> some View {
