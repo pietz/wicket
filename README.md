@@ -56,7 +56,7 @@ Wicket runs the `claude` or `codex` command line tool you already have, with you
 
 Answers are pages: a result line, rows, tiles and cards you can act on with the arrow keys and Return (open a link, copy a value, draft a follow-up), and code blocks with a copy button. A row can open into more detail; Escape goes back. Type your follow-up in the same field. Asking from inside a command (⌘Return) tells the agent which extension it is and what it showed, so "add the wind here" needs no names.
 
-Hiding Wicket keeps the conversation for 20 minutes after it was hidden or last finished, whichever is later. **Agent History** (type `history`) keeps your last 100 runs for 30 days. Return reopens the saved answer. A follow-up resumes the CLI session when it is available and starts fresh with a notice when its context is gone. Wicket stores the questions and answers outside the working folder. The local agent wire log at `~/Library/Logs/Wicket/agent.log` can include prompts, replies and tool traffic.
+Hiding Wicket keeps the conversation for 20 minutes after it was hidden or last finished, whichever is later. **Agent History** (type `history`) keeps your last 100 runs for 30 days. Return reopens the saved answer. A follow-up resumes the CLI session when it is available and starts fresh with a notice when its context is gone. A run of the agent you are not using now resumes with that agent's default model and the permission mode you chose. Wicket stores the questions and answers outside the working folder. The local agent wire log at `~/Library/Logs/Wicket/agent.log` can include prompts, replies and tool traffic.
 
 Add your own agent instructions in `instructions.md` and restyle answers in `theme.css`, both in the Wicket folder.
 

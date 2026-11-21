@@ -968,12 +968,14 @@ final class Navigator {
     }
   }
   /// What a question goes with: the agent settings at the Text size. A run reopened from Agent History
-  /// keeps its agent, with that agent's defaults when another one is configured now.
+  /// keeps its agent, with that agent's defaults when another one is configured now, but the configured
+  /// permission mode (`AgentOptions.mode`).
   private func questionSettings(keeping kept: AgentConfiguration.Agent?) -> AgentConfiguration {
     var settings = configuration.agent
     if let kept, kept != settings.agent {
       settings = AgentConfiguration()
       settings.agent = kept
+      settings.mode = AgentOptions.mode(configuration.agent, for: kept)
       settings.streamAnswers = configuration.agent.streamAnswers
     }
     settings.textSize = configuration.textSize

@@ -21,6 +21,7 @@ private func run(
   let model: LauncherModel
   var fakes: [FakeAgent] = []
   var starts: [(agent: AgentConfiguration.Agent, resume: String?)] = []
+  var modes: [String] = []
   init() throws {
     folder = try scratch()
     runs = AgentHistory(url: folder.appending(path: "private/agent-history.json"))
@@ -30,6 +31,7 @@ private func run(
     model.store.start(watching: false)
     model.agent.connect = { [unowned self] settings, _, resume in
       starts.append((settings.agent, resume))
+      modes.append(settings.permissionMode)
       let fake = FakeAgent()
       fakes.append(fake)
       return fake
@@ -354,4 +356,22 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   reloaded.clear()
   await reloaded.finish()
   #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["agent-history.json"])
+}
+
+/// A run of the other agent asks with the permission the user chose, under that agent's name for it: never
+/// its broader default. A mode Settings does not offer is the most restrictive.
+@MainActor
+@Test(arguments: [
+  (nil, "agent"), ("default", "read-only"), ("acceptEdits", "workspace-write"),
+  ("bypassPermissions", "agent-full-access"), ("plan", "read-only"),
+])
+func aReopenedRunOfTheOtherAgentKeepsTheChosenPermission(configured: String?, expected: String) async throws {
+  let bench = try Bench()
+  bench.model.store.update { $0.agent.mode = configured }
+  bench.runs.save(run("r1", [("Weather in Berlin?", "Sunny")], agent: .codex, session: "thread-1"))
+  try await bench.reopen("Weather in Berlin?")
+  bench.model.navigator.send("And Munich?")
+  #expect(await eventually { bench.fakes.first?.running == true })
+  #expect(bench.starts.first?.agent == .codex && bench.modes == [expected])
+  await bench.finish()
 }
