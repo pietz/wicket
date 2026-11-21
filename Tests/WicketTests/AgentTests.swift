@@ -405,7 +405,7 @@ private func codexAsking() -> CodexTranslator {
 private func endings(_ events: [AgentEvent]) -> [AgentEvent] {
   events.filter {
     switch $0 {
-    case .finished, .failed: true
+    case .finished, .failed, .sessionMissing: true
     default: false
     }
   }

@@ -105,6 +105,10 @@ struct ClaudeTranslator: Translator {
       }
       let errors = message["errors"].array.compactMap(\.string)
       let reason = ([text].filter { !$0.isEmpty } + errors).joined(separator: " ")
+      // What `--resume` with a session Claude Code no longer has answers (2.1.325).
+      if errors.contains(where: { $0.hasPrefix("No conversation found") }) {
+        return Step(events: [.sessionMissing(reason)])
+      }
       return Step(events: [
         .failed(
           reason.isEmpty

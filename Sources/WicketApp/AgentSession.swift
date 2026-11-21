@@ -38,8 +38,6 @@ final class AgentSession {
   private(set) var reopened: AgentConfiguration.Agent?
   /// One quiet line under the question: the session could not be resumed, so the answer started afresh.
   private(set) var notice: String?
-  /// The CLI was asked to resume a session and has not confirmed it yet.
-  private var resuming = false
   /// What the current question sends, context included.
   private var prompt = ""
   private var connection: (any AgentConnection)?
@@ -161,7 +159,6 @@ final class AgentSession {
   private func launch() {
     generation += 1
     let version = generation
-    resuming = sessionID != nil
     task = Task { [weak self] in
       guard let self else { return }
       do {
@@ -228,7 +225,6 @@ final class AgentSession {
     switch event {
     case .session(let id):
       sessionID = id
-      resuming = false
     case .text(var text, let id):
       guard acceptingUpdates, !text.isEmpty else { return }
       let boundary = id != messageID
@@ -277,7 +273,12 @@ final class AgentSession {
     case .failed(let message):
       // A process that ended after its turn is not an error.
       guard busy else { return }
-      if resuming, !cancelling { return startAfresh() }
+      fail(message)
+      return
+    case .sessionMissing(let message):
+      guard busy else { return }
+      // Any other failure keeps the session: the next question resumes it again.
+      if sessionID != nil, !cancelling { return startAfresh() }
       fail(message)
       return
     }
@@ -373,7 +374,6 @@ final class AgentSession {
     runSource = nil
     reopened = nil
     notice = nil
-    resuming = false
     source = nil
     answer = ""
     pendingAnswer = ""

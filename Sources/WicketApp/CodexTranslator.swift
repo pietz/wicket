@@ -143,6 +143,14 @@ struct CodexTranslator: Translator {
       return flush()
     } else if id == .number(3) {
       guard let id = message["result"]["thread"]["id"].string else {
+        // What `thread/resume` with a thread Codex no longer has answers (0.167.1); the second when its
+        // index still names a rollout file that was deleted (0.171.0), not one it cannot read.
+        if resume != nil, let failure,
+          failure.hasPrefix("no rollout found")
+            || failure.hasPrefix("failed to resolve rollout path") && failure.hasSuffix("file does not exist")
+        {
+          return Step(events: [.sessionMissing(failure)])
+        }
         return Step(events: [.failed(failure ?? "Codex started no thread")])
       }
       thread = id

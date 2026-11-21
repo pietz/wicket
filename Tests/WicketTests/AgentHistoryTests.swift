@@ -176,7 +176,8 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   #expect(await eventually { bench.fakes.first?.running == true })
   // The CLI's own answer to an unknown session, before it reported any session.
   bench.fakes[0].onEvent(
-    .failed(claude ? "No conversation found with session ID: gone" : "no rollout found for thread id gone"))
+    .sessionMissing(
+      claude ? "No conversation found with session ID: gone" : "no rollout found for thread id gone"))
   #expect(await eventually { bench.fakes.count == 2 && bench.fakes[1].running })
   #expect(bench.starts.map(\.resume) == ["gone", nil] && bench.fakes[0].stopped)
   #expect(bench.fakes[1].prompts.map(\.text) == ["And a semaphore?"])
@@ -208,6 +209,28 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   bench.fakes[0].onEvent(.failed("Rate limited"))
   #expect(await eventually { !model.agent.busy })
   #expect(bench.fakes.count == 1 && model.agent.problem == "Rate limited" && model.agent.notice == nil)
+  await bench.finish()
+}
+
+@MainActor @Test func aResumeThatFailsForAnotherReasonKeepsItsSession() async throws {
+  let bench = try Bench()
+  let model = bench.model
+  bench.runs.save(run("r1", [("Question", "Answer")], session: "kept"))
+  try await bench.reopen("Question")
+  model.navigator.send("Follow-up")
+  #expect(await eventually { bench.fakes.first?.running == true })
+  // Before the CLI confirmed the session, a failure that does not say the session is gone.
+  bench.fakes[0].onEvent(.failed("Codex app-server exited (status 1)"))
+  #expect(await eventually { !model.agent.busy })
+  #expect(bench.fakes.count == 1 && model.agent.notice == nil)
+  #expect(model.agent.problem == "Codex app-server exited (status 1)")
+  #expect(bench.runs.runs.first?.session == "kept" && bench.runs.runs.first?.turns.count == 2)
+  // The next follow-up resumes it again.
+  model.navigator.send("Again")
+  #expect(await eventually { bench.fakes.count == 2 })
+  #expect(bench.starts.map(\.resume) == ["kept", "kept"])
+  bench.fakes[1].end()
+  #expect(await eventually { !model.agent.busy })
   await bench.finish()
 }
 
@@ -248,8 +271,8 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
 }
 
 /// What each CLI answered to an unknown session in a live check (16 Nov 2026, Claude Code 2.1.325 and
-/// codex-cli 0.167.1): a failure before any session, which is what starts the question afresh.
-@Test func bothCLIsReportAnUnknownSessionAsAFailureBeforeAnySession() throws {
+/// codex-cli 0.167.1): a missing session before any session, which is what starts the question afresh.
+@Test func bothCLIsReportAnUnknownSessionAsAMissingSession() throws {
   var claude = ClaudeTranslator()
   let claudeEvents = feed(
     &claude,
@@ -261,18 +284,30 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
             .utf8))
     ]
   ).events
-  #expect(claudeEvents == [.failed("No conversation found with session ID: gone")])
+  #expect(claudeEvents == [.sessionMissing("No conversation found with session ID: gone")])
   let settings = codexSettings()
+  // The second when Codex's index still names a rollout file that was deleted (0.171.0).
+  for message in [
+    "no rollout found for thread id gone",
+    "failed to resolve rollout path /tmp/rollout-gone.jsonl: file does not exist",
+  ] {
+    var codex = CodexTranslator(folder: URL(fileURLWithPath: "/tmp"), resume: "gone", settings: settings)
+    _ = codex.start()
+    _ = codex.prompt("Follow-up", settings: settings)
+    let codexEvents = feed(
+      &codex,
+      [.object("id", .number(3), "error", .object("code", .number(-32600), "message", .string(message)))]
+    ).events
+    #expect(codexEvents == [.sessionMissing(message)])
+  }
+  // A rollout that is there but cannot be read is a failure: the session may still resume.
   var codex = CodexTranslator(folder: URL(fileURLWithPath: "/tmp"), resume: "gone", settings: settings)
   _ = codex.start()
   _ = codex.prompt("Follow-up", settings: settings)
-  let codexEvents = feed(
+  let unreadable = "failed to resolve rollout path /tmp/rollout-gone.jsonl: is a directory"
+  let events = feed(
     &codex,
-    [
-      .object(
-        "id", .number(3), "error",
-        .object("code", .number(-32600), "message", .string("no rollout found for thread id gone")))
-    ]
+    [.object("id", .number(3), "error", .object("code", .number(-32600), "message", .string(unreadable)))]
   ).events
-  #expect(codexEvents == [.failed("no rollout found for thread id gone")])
+  #expect(events == [.failed(unreadable)])
 }

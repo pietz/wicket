@@ -33,6 +33,8 @@ enum AgentEvent: Equatable, Sendable {
   /// The turn ended, or was cancelled.
   case finished(cancelled: Bool)
   case failed(String)
+  /// The CLI no longer has the session it was asked to resume; the message is its own.
+  case sessionMissing(String)
 }
 
 /// One running CLI. Everything it says arrives as events; a turn ends with `finished` or `failed`.
@@ -116,7 +118,7 @@ final class AgentLink<T: Translator>: AgentConnection {
   private func emit(_ event: AgentEvent) {
     switch event {
     case .finished(let cancelled): end(cancelled ? "cancelled" : "finished")
-    case .failed(let message): end("failed: \(message)")
+    case .failed(let message), .sessionMissing(let message): end("failed: \(message)")
     default: break
     }
     onEvent(event)
