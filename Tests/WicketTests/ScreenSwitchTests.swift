@@ -146,17 +146,17 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
     """
     cat >/dev/null
     sleep 0.3
-    echo '{"close":true}'
+    echo '{"items":[{"id":"late","title":"Late","actions":[]}]}'
     """)
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.arrivalDeadline = .seconds(5)
   let surface = RecordingSurface()
   model.navigator.surface = surface
-  // A late close never hides the root the user stayed on.
-  model.navigator.go(Address(id: "test", input: "close"), submitted: true)
+  // A late answer never replaces the root the user stayed on.
+  model.navigator.go(Address(id: "test", input: "late"), submitted: true)
   #expect(model.navigator.escape() && model.navigator.command == nil)
   try await Task.sleep(for: .milliseconds(600))
-  #expect(surface.effects.isEmpty)
+  #expect(surface.effects.isEmpty && model.navigator.command == nil)
   await model.finish()
 }
 

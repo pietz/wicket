@@ -41,7 +41,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       guard let self else { return nil }
       return bindings.set(keys, for: target, launcher: hotkey.inEffect)
     }
-    bindings.onPress = { [weak self] in self?.palette.press($0) }
+    bindings.onPress = { [weak self] in self?.palette.model.press($0) }
     let register: (Configuration) -> Void = { [weak self] config in
       guard let self else { return }
       configuration.hotkeyProblem = hotkey.apply(config.hotkey)

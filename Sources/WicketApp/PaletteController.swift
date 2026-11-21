@@ -191,9 +191,11 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     return await renderer.measure(page, turn: turn)
   }
   var holdsReturn: Bool { opening }
+  var isShown: Bool { isOpen }
   func perform(_ effect: PaletteEffect) {
     switch effect {
-    case .close: hide()
+    case .hide: hide()
+    case .show: show(listen: false)
     case .settings: showSettings()
     case .run(let action, let result): perform(action, from: result)
     }
@@ -287,13 +289,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     guard let address = Address(url: url) else { return }
     show()
     navigator.follow(address)
-  }
-  /// A hotkey from `hotkeys` in config.json (`LauncherModel.press`). The panel shows only for a view or a
-  /// failure, and never listens: the hotkey named where to go.
-  func press(_ target: HotkeyTarget) {
-    Task {
-      await model.press(target, prepare: { await self.prepare($0, turn: $1) }) { show(listen: false) }
-    }
   }
   /// Whether Set Hotkey… is recording this row's hotkey.
   func recordsHotkey(of result: Result) -> Bool {

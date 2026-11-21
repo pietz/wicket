@@ -81,6 +81,10 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(omitted.1["items"].array.contains { $0["provider"].string == "extension:pattern" })
   let missing = try await cli(root, ["--extension", "nothing"])
   #expect(missing.0 == 1 && missing.1["error"].string != nil && missing.1["needsApproval"] == .null)
+  // A run that prints nothing, a hidden run's success, is an empty object.
+  _ = try extensionFolder(root, name: "quiet", script: "cat >/dev/null")
+  let quiet = try await cli(root, ["--extension", "quiet", "--submitted"])
+  #expect(quiet.0 == 0 && quiet.1 == .object([:]))
 }
 
 @Test func headlessFallbackRunsOnlyWhenChosenAndDisappearsForStrongMatches() async throws {

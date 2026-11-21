@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// The launcher's services: it composes the sources, the agent's session and the stores, applies a
-/// configuration to them, and runs what a hotkey names. The screens and moving between them are
+/// configuration to them, and decides what a hotkey does. The screens and moving between them are
 /// `navigator`'s; dictation, recording a hotkey and the effects on the system are the panel's
 /// (`PaletteController`).
 @MainActor @Observable
@@ -76,49 +76,18 @@ final class LauncherModel {
 
   // MARK: Hotkeys
 
-  /// A hotkey bound to `target` was pressed. A manifest item whose first action runs an extension's program
-  /// runs it now with a submitted request, as Return on the item would, with the panel hidden; a view that
-  /// says it is done keeps it hidden, and any other view or a failure calls `show` and shows the command
-  /// with it, such as why no window moved. Anything else shows the panel on the address: a command, a
-  /// host command, or an item whose action opens a view. Nothing is recorded as usage. `prepare` renders
-  /// a view's page before the panel shows it.
-  func press(
-    _ target: HotkeyTarget, prepare: ((Page, String) async -> PageMeasurement)? = nil, show: () -> Void
-  ) async {
+  /// A hotkey bound to `target` was pressed: as Return on what it names, with no usage recorded. A manifest
+  /// item whose first action is a hidden run runs it (`Navigator.runHidden`); anything else shows the
+  /// panel on its address (`Navigator.open`): a command, a host command, or an item's `run` action.
+  func press(_ target: HotkeyTarget) {
     let owner = target.target.flatMap { extensions.commands[$0] }
     let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
     // A switched-off extension's items run nothing: its address shows that it is off.
     guard let owner, let item, case .run(let address)? = item.actions.first?.kind,
       configuration.isEnabled(owner.id, extensions: extensions.ids)
-    else {
-      show()
-      return navigator.go(target.address)
-    }
-    let id = address.extensionName == nil ? owner.id : address.targetID
-    guard !address.link, let id, let program = extensions.commands[id], program.manifest.command != nil,
-      configuration.isEnabled(id, extensions: extensions.ids)
-    else {
-      show()
-      return navigator.go(address, from: owner.id, submitted: !address.link)
-    }
-    let request = ProviderRequest(
-      input: address.input ?? "", arguments: address.arguments ?? [:], submitted: true)
-    let view: ProviderView
-    do {
-      view = try await extensions.view(program, request: request)
-    } catch is CancellationError {
-      return
-    } catch {
-      show()
-      return navigator.adopt(program, request: request, problem: program.report(request, error: error))
-    }
-    guard !view.close else { return }
-    let turn = UUID().uuidString
-    let page = view.body.map { Page(body: $0, items: view.items, runs: true) }
-    var measured: PageHeight?
-    if let page, let prepare, case .measured(let height) = await prepare(page, turn) { measured = height }
-    show()
-    navigator.adopt(program, request: request, view: view, page: page, turn: turn, measured: measured)
+    else { return navigator.open(target.address) }
+    guard address.hidden else { return navigator.open(address, from: owner.id, submitted: !address.link) }
+    navigator.runHidden(address, from: owner.id)
   }
   func finish() async {
     navigator.finish()

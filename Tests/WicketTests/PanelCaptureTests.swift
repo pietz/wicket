@@ -234,7 +234,10 @@ private func reportedExtensions() throws -> URL {
     [
       "name": "Mover", "keyword": "mover", "icon": "macwindow", "command": ["/bin/sh", "main.sh"],
       "items": [
-        ["id": "left", "title": "Left half", "actions": [["type": "run", "arguments": ["to": "left"]]]]
+        [
+          "id": "left", "title": "Left half",
+          "actions": [["type": "run", "arguments": ["to": "left"], "hidden": true]],
+        ]
       ],
     ], program: Scenario.moverProgram)
   return root
@@ -503,9 +506,12 @@ private let installedAgent: Void = {
       await model.navigator.settled()
     case "hotkey-command-error":
       controller.hide()
-      await model.press(HotkeyTarget(target: "extension:mover", item: "left")) {
-        controller.show(orderFront: false, listen: false)
-      }
+      let surface = RecordingSurface(wrapping: controller)
+      surface.showing = { controller.show(orderFront: false, listen: false) }
+      scenario.keep.append(surface)
+      model.navigator.surface = surface
+      model.press(HotkeyTarget(target: "extension:mover", item: "left"))
+      await model.navigator.settled()
     case "hotkey-binding":
       model.store.bind(try Shortcut("ctrl+option+s"), to: HotkeyTarget(target: "extension:slow"))
       model.store.bind(
@@ -567,7 +573,10 @@ private let installedAgent: Void = {
       [
         "name": "Mover", "keyword": "mover", "icon": "macwindow",
         "items": [
-          ["id": "left", "title": "Left half", "actions": [["type": "run", "arguments": ["to": "left"]]]]
+          [
+            "id": "left", "title": "Left half",
+            "actions": [["type": "run", "arguments": ["to": "left"], "hidden": true]],
+          ]
         ],
       ],
       script: moverProgram)

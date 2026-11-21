@@ -114,8 +114,8 @@ struct ExtensionScreen: CommandScreenBehavior {
   var descriptor: CommandDescriptor? {
     command.map {
       CommandDescriptor(
-        name: $0.manifest.name, arguments: $0.manifest.arguments, submits: $0.manifest.submit == true,
-        asksAbout: true)
+        name: $0.manifest.name, arguments: $0.manifest.arguments, submits: $0.manifest.submit,
+        hidden: $0.manifest.hidden, asksAbout: true)
     }
   }
   func work(for request: CommandScreenRequest) -> CommandWork {
@@ -130,9 +130,7 @@ struct ExtensionScreen: CommandScreenBehavior {
     let extensions = directory.extensions
     return .deferred {
       do {
-        let view = try await extensions.view(command, request: request.provider)
-        // Only a submitted request may close the panel.
-        return view.close && request.cause == .submission ? .close : .view(view)
+        return .view(try await extensions.view(command, request: request.provider))
       } catch {
         return .problem(command.report(request.provider, error: error))
       }

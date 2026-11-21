@@ -23,6 +23,8 @@ struct CommandDescriptor {
   /// It runs on Return only (`submit` in its manifest): typing, voice and refreshes leave its view alone,
   /// the input has the first say, and Return sends what is typed and filled in.
   let submits: Bool
+  /// What Return sends there is a hidden run (`Address.hidden`).
+  var hidden = false
   /// A question asked from it goes with what it shows (`agentContext`).
   let asksAbout: Bool
 }
@@ -56,9 +58,6 @@ enum CommandOutcome {
   case view(ProviderView)
   /// Why it failed, shown instead of a view.
   case problem(String)
-  /// A submitted request is done (`ProviderView.close`): the panel hides without showing it, as the user
-  /// hiding it would; the effect (a moved window) is the feedback.
-  case close
   /// A run from Agent History opens as a conversation over the screen, which Escape returns to.
   case restore(AgentHistory.Run)
 }
@@ -160,7 +159,10 @@ enum CommandOutcome {
       row: Row(
         id: "submit", title: descriptor.name,
         actions: [
-          .run(Address(input: input, arguments: screen.arguments.filter { declared.contains($0.key) }))
+          .run(
+            Address(
+              input: input, arguments: screen.arguments.filter { declared.contains($0.key) },
+              hidden: descriptor.hidden))
         ]))
   }
   /// What goes with a question asked from here: for a typed question its `context`, else what it shows

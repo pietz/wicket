@@ -543,13 +543,15 @@ final class Navigator {
   /// Switches to a screen once its first content is there: a command's first view, or the root's
   /// built-in results. The current screen stays as it is meanwhile; after `arrivalDeadline` the new one
   /// shows anyway, quietly loading, so a slow process does not make Return feel dead. A command
-  /// answered without a process switches at once. Ending a conversation waits the same way.
-  private func arrive(_ command: CommandScreen?, input: String, back: Bool = false) {
+  /// answered without a process switches at once. Ending a conversation waits the same way. Not
+  /// `holding`, it shows at once: the panel just showed, and there is no screen worth keeping.
+  private func arrive(_ command: CommandScreen?, input: String, back: Bool = false, holding: Bool = true) {
     stopArriving()
     cancelWork()
     arriving = Arrival(command: command, input: input, back: back)
     refresh()
     guard arriving != nil else { return }
+    guard holding else { return passDeadline() }
     deadline = Task { [weak self] in
       guard let self, (try? await Task.sleep(for: arrivalDeadline)) != nil else { return }
       passDeadline()
@@ -670,8 +672,8 @@ final class Navigator {
     }
   }
   /// Takes what a request was answered with: a view or a problem shows on the command, which arrives if
-  /// it was on its way; closing hides the panel, and a run to restore opens its conversation. False when
-  /// the screens are left as they were.
+  /// it was on its way, and a run to restore opens its conversation. False when the screens are left as
+  /// they were.
   private func accept(
     _ outcome: CommandOutcome, for request: CommandScreenRequest, page: Page?, turn: String,
     remembered: Bool
@@ -683,9 +685,6 @@ final class Navigator {
     case .problem(let problem):
       showArrival()
       command?.fail(problem, remembered: remembered)
-    case .close:
-      surface?.perform(.close)
-      return false
     case .restore(let run):
       restore(run)
       return false
@@ -698,7 +697,7 @@ final class Navigator {
     var seen = generation
     repeat {
       seen = generation
-      for task in tasks { await task.value }
+      for task in tasks + hiddenRuns.values { await task.value }
       await search.settled()
     } while seen != generation
   }
@@ -720,7 +719,8 @@ final class Navigator {
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
   /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root. `submitted` marks the user activating a run action, which the first request says.
-  func go(_ address: Address, from origin: String? = nil, submitted: Bool = false) {
+  /// `holding`: the screen being left stays until the new one has its content (`arrive`).
+  func go(_ address: Address, from origin: String? = nil, submitted: Bool = false, holding: Bool = true) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
     guard let destination = directory.destination(target) else {
@@ -730,7 +730,7 @@ final class Navigator {
     switch destination {
     case .settings: surface?.perform(.settings)
     case .agent: fill(address.input ?? input)
-    case .root: arrive(nil, input: address.input ?? "")
+    case .root: arrive(nil, input: address.input ?? "", holding: holding)
     case .command(let behavior):
       let reopened = command?.id == behavior.id
       var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
@@ -738,7 +738,7 @@ final class Navigator {
       state.enter(submitted: submitted)
       // Typing replaces the input, and an address without one keeps what is typed in the same command.
       let input = address.input ?? (reopened ? input : "")
-      guard reopened, !conversing else { return arrive(state, input: input) }
+      guard reopened, !conversing else { return arrive(state, input: input, holding: holding) }
       // The same screen: its request reruns in place.
       stopArriving()
       cancelWork()
@@ -746,6 +746,19 @@ final class Navigator {
       self.input = input
     }
   }
+  /// A hotkey's address (`LauncherModel.press`), as Return on its item: a hidden panel shows at once on
+  /// the address's screen, since it has no screen to hold; an open one follows it like a clicked link.
+  /// Pressed again while the request it started still runs, it does nothing.
+  func open(_ address: Address, from origin: String? = nil, submitted: Bool = false) {
+    let shown = surface?.isShown == true
+    if shown, let pressed, pressed.address == address, pressed.visit == target?.visit, target?.busy == true {
+      return
+    }
+    if !shown { surface?.perform(.show) }
+    go(address, from: origin, submitted: submitted, holding: shown)
+    pressed = target.map { (address, $0.visit) }
+  }
+  @ObservationIgnored private var pressed: (address: Address, visit: UUID)?
   /// An external `wicket://` URL: the panel opens on its address. One that launched Wicket waits for the
   /// first extension scan, so the extension it names is known.
   func follow(_ address: Address) {
@@ -765,7 +778,11 @@ final class Navigator {
     case .run(let address):
       if let result { record(result) }
       // Activating a run action is the user's choice; following a link never is.
-      go(address, from: result?.provider, submitted: !address.link)
+      if address.hidden {
+        runHidden(address, from: result?.provider)
+      } else {
+        go(address, from: result?.provider, submitted: !address.link)
+      }
     case .send(let text): send(text)
     case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
     case .hotkey(let target, record: false): store.bind(nil, to: target)
@@ -978,30 +995,65 @@ final class Navigator {
     guard !configuration.hotkeys.isEmpty, let target = hotkeyTarget(of: result) else { return nil }
     return configuration.hotkeys.first { $0.target == target }?.keys
   }
-  /// A run the user did not watch (a hotkey's, `LauncherModel.press`): its command shows its view or
-  /// report, as if Return had run it, and nothing runs again.
-  func adopt(
-    _ program: ExtensionCommand, request: ProviderRequest, view: ProviderView? = nil, page: Page? = nil,
-    turn: String = "", measured: PageHeight? = nil, problem: String? = nil
-  ) {
+  /// A hidden run (`Address.hidden`), from a row or a hotkey: the panel hides at once, then the program
+  /// runs with a submitted request, on its own, so nothing the user does in the panel meanwhile stops it.
+  /// A clean exit with nothing to show is the end. A failure or a view with a body or items shows on its
+  /// command, as if Return had run it, without running again; while the panel is up, or over a
+  /// conversation kept for when it shows, it is one line instead, so the screen the user is on stays. An
+  /// address without an enabled program to run is followed as usual, which says why.
+  func runHidden(_ address: Address, from origin: String?) {
+    let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
+    guard let id = address.extensionName == nil ? own : address.targetID,
+      let program = extensions.commands[id], program.manifest.command != nil,
+      directory.isAvailable(id, in: configuration)
+    else { return open(address, from: origin, submitted: true) }
+    let request = ProviderRequest(
+      input: address.input ?? (command?.id == id ? input : ""), arguments: address.arguments ?? [:],
+      submitted: true)
+    // Only an open panel hides: hiding again would count as the user leaving a kept conversation now.
+    if surface?.isShown == true { surface?.perform(.hide) }
+    let run = UUID()
+    hiddenRuns[run] = Task { [weak self, extensions] in
+      var outcome: CommandOutcome?
+      var line = ""
+      do {
+        let view = try await extensions.view(program, request: request)
+        outcome = .view(view)
+        line =
+          view.items.first.map { [$0.title, $0.subtitle].compactMap { $0 }.joined(separator: ": ") }
+          ?? view.body.map { $0.prefix { $0 != "\n" }.trimmingCharacters(in: ["#", " "]) } ?? ""
+      } catch let failure as ExtensionFailure where failure.nothingShown {
+      } catch is CancellationError {
+      } catch {
+        outcome = .problem(program.report(request, error: error))
+        line = String(error.localizedDescription.prefix { $0 != "\n" })
+      }
+      guard let self else { return }
+      hiddenRuns[run] = nil
+      guard let outcome else { return }
+      if surface?.isShown != true {
+        surface?.perform(.show)
+        if !conversing { return adopt(program, request: request, outcome: outcome) }
+      }
+      actionProblem = "\(program.manifest.name): \(line)"
+    }
+  }
+  /// Hidden runs on their way, which `settled` waits for too.
+  @ObservationIgnored private var hiddenRuns: [UUID: Task<Void, Never>] = [:]
+  /// What a hidden run answered shows on its command as if Return had run it there, and nothing runs again.
+  private func adopt(_ program: ExtensionCommand, request: ProviderRequest, outcome: CommandOutcome) {
     guard let behavior = directory.behavior(of: program.id) else { return }
+    stopArriving()
     cancelWork()
     var state = CommandScreen(behavior, arguments: request.arguments)
     state.begin()
-    if let problem { state.fail(problem, remembered: false) }
     // An arrival sets the input without a rerun.
     arriving = Arrival(command: state, input: request.input)
-    showArrival()
-    listed = []
-    clearSelection()
-    if let view {
-      command?.show(
-        view, page: page,
-        for: CommandScreenRequest(input: request.input, arguments: request.arguments, cause: .submission),
-        turn: turn, remembered: true)
-      sizeList()
-      retainSelection()
+    var page: Page?
+    if case .view(let view) = outcome, let body = view.body {
+      page = Page(body: body, items: view.items, runs: true)
     }
-    draw(measured)
+    let shown = CommandScreenRequest(input: request.input, arguments: request.arguments, cause: .submission)
+    if accept(outcome, for: shown, page: page, turn: UUID().uuidString, remembered: true) { publish() }
   }
 }

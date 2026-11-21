@@ -65,11 +65,16 @@ public enum Headless {
           try value("--arguments").map {
             try JSONDecoder().decode([String: String].self, from: Data($0.utf8))
           } ?? [:]
-        let view = try await host.view(
-          command,
-          request: ProviderRequest(
-            input: value("--input") ?? "", arguments: arguments, submitted: value("--submitted") != nil))
-        try printJSON(view)
+        do {
+          let view = try await host.view(
+            command,
+            request: ProviderRequest(
+              input: value("--input") ?? "", arguments: arguments, submitted: value("--submitted") != nil))
+          try printJSON(view)
+        } catch let failure as ExtensionFailure where failure.nothingShown {
+          // A hidden run's success, which headless cannot tell from a visible run with nothing to show.
+          FileHandle.standardOutput.write(Data("{}\n".utf8))
+        }
       } else if let input = value("--query") {
         await apps.start(watch: false)
         // The panel's root search, without the panel.

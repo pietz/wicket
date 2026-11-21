@@ -465,53 +465,87 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.finish()
 }
 
-/// `close` ends a submitted request: the panel hides at once, as the user hiding it would, and the root is
-/// what reopens. On a request the user did not choose it is ignored and the view shows; a failure keeps
-/// the panel open with its error.
-@MainActor @Test func aSubmittedAnswerThatClosesHidesThePanel() async throws {
+/// A hidden run hides the panel before its program runs. A clean exit with nothing to show (no output, or
+/// an old `{"close":true}`) leaves it hidden; a failure or a view opens it on its command without running
+/// again, or while the panel is up says so in one line. A visible run with nothing to show is an error that
+/// says how to fix it.
+@MainActor @Test func aHiddenRunHidesThePanelAndShowsItOnlyForSomethingToSee() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let script = """
-    import json,sys; r=json.load(sys.stdin)
-    if r['input'] == 'fail': sys.exit(1)
-    print(json.dumps({'close':True,'items':[{'id':'moved','title':'Moved','actions':[]}]}))
-    """
-  let folder = try extensionFolder(root, name: "shut", fields: ["command": ["/usr/bin/python3", "shut.py"]])
-  try Data(script.utf8).write(to: folder.appending(path: "shut.py"))
+  _ = try extensionFolder(
+    root, name: "shut",
+    script: """
+      line=$(cat); echo "$line" >> log.jsonl
+      case "$line" in
+        *'"input":"old"'*) echo '{"close":true}';;
+        *'"input":"quiet"'*) ;;
+        *'"input":"fail"'*) echo broke >&2; exit 1;;
+        *) echo '{"items":[{"id":"why","title":"Nothing moved","subtitle":"No window","actions":[]}]}';;
+      esac
+      """, fields: ["name": "Shut"])
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   let surface = RecordingSurface()
   model.navigator.surface = surface
-  surface.onEffect = { _ in model.navigator.dismiss() }
-  model.navigator.input = "keep"
-  await model.navigator.settled()
+  surface.onEffect = { if $0 == .hide { model.navigator.dismiss() } }
+  let row = Result(provider: "extension:shut", row: Row(id: "x", title: "x", actions: []))
+  func runHidden(_ input: String) {
+    model.navigator.activate(.run(Address(input: input, hidden: true)), from: row)
+  }
 
-  // Chosen and done: the panel closes without showing the view, and the root is left as hiding leaves it.
-  model.navigator.go(Address(id: "extension:shut", input: "left"), submitted: true)
-  await model.navigator.settled()
-  #expect(surface.count(.close) == 1)
-  #expect(model.navigator.command == nil && model.navigator.input.isEmpty)
+  // Done: the panel hid as Return was pressed and stays hidden.
+  for input in ["old", "quiet"] {
+    runHidden(input)
+    #expect(!surface.shown)
+    await model.navigator.settled()
+    #expect(!surface.shown && surface.count(.show) == 0 && model.navigator.command == nil)
+  }
+  let sent = try requests(in: root.appending(path: "extensions/shut"))
+  #expect(sent.count == 2 && sent.allSatisfy(\.submitted))
 
-  // Typing reruns are not submitted: the same answer shows as a view and nothing closes.
-  model.navigator.go(Address(id: "extension:shut", input: "a"))
+  // A failure with the panel hidden opens it on the report, and nothing runs again.
+  runHidden("fail")
   await model.navigator.settled()
-  model.navigator.input = "ab"
-  await model.navigator.settled()
-  #expect(surface.count(.close) == 1)
-  #expect(
-    model.navigator.command?.id == "extension:shut" && model.navigator.results.map(\.row.id) == ["moved"])
+  #expect(surface.count(.show) == 1 && model.navigator.command?.problem?.contains("broke") == true)
+  #expect(try requests(in: root.appending(path: "extensions/shut")).count == 3)
 
-  // A submitted request that fails keeps the panel open with its error.
-  model.navigator.go(Address(id: "extension:shut", input: "fail"), submitted: true)
+  // A view while the user opened the panel again: one line, and the screen stays.
+  _ = model.navigator.escape()
   await model.navigator.settled()
-  #expect(surface.count(.close) == 1)
-  #expect(model.navigator.command?.problem != nil)
+  runHidden("view")
+  surface.shown = true
+  await model.navigator.settled()
+  #expect(surface.count(.show) == 1 && model.navigator.command == nil)
+  #expect(model.navigator.actionProblem == "Shut: Nothing moved: No window")
 
-  // Close alone is a whole view; a view needs one of body, items or close.
-  #expect(
+  // Not hidden, nothing to show is an error that names the fix.
+  for input in ["old", "quiet"] {
+    model.navigator.go(Address(id: "extension:shut", input: input), submitted: true)
+    await model.navigator.settled()
+    #expect(model.navigator.command?.problem?.contains(#""hidden":true"#) == true)
+  }
+  #expect(throws: ProviderView.Empty.self) {
     try JSONDecoder().decode(ProviderView.self, from: Data(#"{"close":true}"#.utf8))
-      == ProviderView(close: true))
+  }
+}
+
+/// `hidden` in a manifest makes a submit command's Return a hidden run; it means nothing without submit.
+@MainActor @Test func aHiddenSubmitCommandsReturnIsAHiddenRun() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "quick", fields: ["submit": true, "hidden": true])
+  let model = LauncherModel.testing(in: root)
+  await model.extensions.reload()
+  model.navigator.go(Address(id: "extension:quick"))
+  await model.navigator.settled()
+  model.navigator.input = "now"
+  guard case .run(let address)? = model.navigator.returnAction?.kind else {
+    Issue.record("Return sends no run")
+    return
+  }
+  #expect(address.hidden && address.input == "now")
   #expect(throws: (any Error).self) {
-    try JSONDecoder().decode(ProviderView.self, from: Data(#"{"close":false}"#.utf8))
+    try JSONDecoder().decode(
+      ExtensionManifest.self, from: Data(#"{"name":"x","command":["x"],"hidden":true}"#.utf8))
   }
 }

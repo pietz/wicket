@@ -39,24 +39,23 @@ protocol Provider {
 }
 
 /// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows
-/// after the body on a page), `actions` for the header and `close`. At least one of body, items
-/// and close is present on the wire.
+/// after the body on a page) and `actions` for the header. At least one of body and items is present on
+/// the wire.
 struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
   var actions: [RowAction]
-  /// The request did what it was submitted for and the panel closes, as when the user hides it. Only an
-  /// answer to a submitted request closes; on any other the view shows as it is.
-  var close: Bool
 
-  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = [], close: Bool = false) {
+  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = []) {
     self.body = body
     self.items = items
     self.actions = actions
-    self.close = close
   }
 
-  private enum CodingKeys: String, CodingKey { case body, items, actions, close }
+  /// A JSON object with neither body nor items: nothing to show, which only a hidden run may answer
+  /// (`Address.hidden`).
+  struct Empty: Error {}
+  private enum CodingKeys: String, CodingKey { case body, items, actions }
   /// `rows` is the 0.1.0–0.1.2 spelling of `items`; installed extensions are never refreshed, so it is read too.
   private enum Legacy: String, CodingKey { case rows }
   init(from decoder: any Decoder) throws {
@@ -65,25 +64,13 @@ struct ProviderView: Codable, Sendable, Equatable {
     let items =
       try c.decodeIfPresent([Row].self, forKey: .items)
       ?? decoder.container(keyedBy: Legacy.self).decodeIfPresent([Row].self, forKey: .rows)
-    let close = try c.decodeIfPresent(Bool.self, forKey: .close) ?? false
-    guard body != nil || items != nil || close else {
-      throw DecodingError.dataCorruptedError(
-        forKey: .body, in: c, debugDescription: "A view needs a body, items or both, or close")
-    }
+    guard body != nil || items != nil else { throw Empty() }
     guard Row.validIDs(items ?? []) else {
       throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
     }
     self.init(
-      body: body, items: items ?? [],
-      actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [], close: close)
-  }
-  /// `close` is written only when set, so a view without them reads as it always did.
-  func encode(to encoder: any Encoder) throws {
-    var c = encoder.container(keyedBy: CodingKeys.self)
-    try c.encodeIfPresent(body, forKey: .body)
-    try c.encode(items, forKey: .items)
-    try c.encode(actions, forKey: .actions)
-    if close { try c.encode(true, forKey: .close) }
+      body: body, items: items ?? [], actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? []
+    )
   }
 }
 
@@ -142,21 +129,42 @@ struct Address: Codable, Sendable, Equatable {
   /// Spelled as a URL, or a host row that only shows what a pattern produced as such a URL would.
   /// Following a link is never a choice, so its request is not submitted. Never on the wire.
   var link = false
+  /// The run's effect is its own feedback, such as a moved window: the panel hides at once and shows
+  /// only for a failure or a view with something in it (`Navigator.runHidden`). A link never is.
+  var hidden = false
 
   private enum CodingKeys: String, CodingKey {
     case extensionName = "extension"
-    case input, arguments
+    case input, arguments, hidden
   }
   static let schemes = ["wicket", "wicket-dev"]
   static let reserved = ["agent", "settings", "clipboard", "history"]
 
   init(
-    extensionName: String? = nil, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false
+    extensionName: String? = nil, input: String? = nil, arguments: [String: String]? = nil,
+    link: Bool = false,
+    hidden: Bool = false
   ) {
     self.extensionName = extensionName
     self.input = input
     self.arguments = arguments
     self.link = link
+    self.hidden = hidden
+  }
+  init(from decoder: any Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      extensionName: try c.decodeIfPresent(String.self, forKey: .extensionName),
+      input: try c.decodeIfPresent(String.self, forKey: .input),
+      arguments: try c.decodeIfPresent([String: String].self, forKey: .arguments),
+      hidden: try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false)
+  }
+  func encode(to encoder: any Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encodeIfPresent(extensionName, forKey: .extensionName)
+    try c.encodeIfPresent(input, forKey: .input)
+    try c.encodeIfPresent(arguments, forKey: .arguments)
+    if hidden { try c.encode(true, forKey: .hidden) }
   }
   /// The address of an extension by its ID, `extension:weather`.
   init(id: String, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false) {

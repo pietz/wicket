@@ -1,6 +1,6 @@
 // Wicket's Shell: `> command` at the root offers to open the command in the user's default terminal, in
-// the home folder; Return does, and the panel closes. Wicket shows no output: the terminal is the place for
-// a command that runs, asks or keeps going.
+// the home folder; Return does, as a hidden run: the panel closes first. Wicket shows no output: the
+// terminal is the place for a command that runs, asks or keeps going.
 //
 // Nothing runs on a request the user did not choose: the root row, typing and links only describe the
 // command. A submitted request writes a `.command` file to the user's temporary folder and `open`s it, which
@@ -20,7 +20,7 @@ func row(_ command: String) -> String {
   }
   return
     "{\"items\":[{\"id\":\"run\",\"title\":\(quoted(command)),\"subtitle\":\"Open in Terminal\",\"icon\":\"terminal\",\"actions\":["
-    + "{\"type\":\"run\",\"title\":\"Open in Terminal\",\"input\":\(quoted(command))}]}]}"
+    + "{\"type\":\"run\",\"title\":\"Open in Terminal\",\"input\":\(quoted(command)),\"hidden\":true}]}]}"
 }
 let failed =
   #"{"items":[{"id":"failed","title":"Could not open the terminal","icon":"exclamationmark.triangle","actions":[]}]}"#
@@ -118,7 +118,7 @@ func openFile(_ path: String) -> Bool {
 // MARK: - The request
 
 /// The answer to a request: a submitted one with a command hands it to the terminal through `open` and
-/// closes the panel; anything else only describes it.
+/// has nothing to show; anything else only describes it.
 func answer(
   _ request: JSON?, temporary: String = temporaryFolder(), open: (String) -> Bool = openFile
 ) -> String {
@@ -135,7 +135,7 @@ func answer(
     unlink(path)
     return failed
   }
-  return #"{"close":true}"#
+  return ""
 }
 
 print(answer(JSON.standardInput()))

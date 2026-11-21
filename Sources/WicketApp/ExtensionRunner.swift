@@ -79,8 +79,11 @@ struct ExtensionRunner: Sendable {
       await stderr.value
       try Task.checkCancellation()
       let diagnostic = String(decoding: err.data, as: UTF8.self)
-      func failure(_ message: String) -> ExtensionFailure {
-        ExtensionFailure(message + (diagnostic.isEmpty ? "" : "\n\nStderr (last 4 KiB):\n" + diagnostic))
+      func failure(_ message: String, nothingShown: Bool = false) -> ExtensionFailure {
+        var failure = ExtensionFailure(
+          message + (diagnostic.isEmpty ? "" : "\n\nStderr (last 4 KiB):\n" + diagnostic))
+        failure.nothingShown = nothingShown
+        return failure
       }
       if out.exceeded { throw failure("Extension stdout exceeded \(outputLimit) bytes") }
       if err.exceeded { throw failure("Extension stderr exceeded \(stderrLimit) bytes") }
@@ -88,9 +91,11 @@ struct ExtensionRunner: Sendable {
       guard exit.isClean else { throw failure("Extension \(exit)") }
       // A view is JSON, which starts with `{`, and a broken one stays an error. Anything else is Markdown.
       let text = String(decoding: out.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !text.isEmpty else { throw failure("Extension printed nothing") }
+      guard !text.isEmpty else { throw failure(ExtensionFailure.noView, nothingShown: true) }
       guard text.hasPrefix("{") else { return ProviderView(body: text) }
-      do { return try JSONDecoder().decode(ProviderView.self, from: out.data) } catch {
+      do { return try JSONDecoder().decode(ProviderView.self, from: out.data) } catch is ProviderView.Empty {
+        throw failure(ExtensionFailure.noView, nothingShown: true)
+      } catch {
         // DecodingError's description includes the coding path and missing/incorrect field.
         throw failure(Self.decodingMessage(error))
       }
@@ -119,6 +124,11 @@ struct ExtensionRunner: Sendable {
 
 struct ExtensionFailure: LocalizedError, Sendable {
   let message: String
+  /// A clean exit with no view: a hidden run's success (`Address.hidden`), an error anywhere else.
+  var nothingShown = false
   init(_ message: String) { self.message = message }
   var errorDescription: String? { message }
+  static let noView =
+    "Extension printed no view: no body and no items. If its effect is the feedback (a moved window, an "
+    + #"opened file), add "hidden":true to the run action, or to the manifest for a submit command's Return."#
 }

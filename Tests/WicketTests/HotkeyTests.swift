@@ -133,110 +133,175 @@ import Testing
   #expect(store.configuration.hotkeys.isEmpty && registered.count == 3)
 }
 
-/// A Window-like extension: manifest items whose `run` sets `move`, and a program that writes each
-/// request it gets to `requests`, fails when `move` is `fail`, is done (`close`) when it is `left` and
-/// otherwise lists `left` under a row saying why nothing moved, as Window does.
-@MainActor private func windowLike(_ root: URL) async throws -> LauncherModel {
+/// A Window-like extension: manifest items whose hidden `run` sets `move`, and a program that writes each
+/// request it gets to `requests`, fails when `move` is `fail`, is done with nothing to show when it is
+/// `left` and otherwise lists `left` under a row saying why nothing moved, as Window does. `show` is a run
+/// that is not hidden and answers once `release` exists; `page` opens the command as a link.
+@MainActor private func windowLike(_ root: URL) async throws -> (LauncherModel, RecordingSurface) {
   let item = { (id: String) -> [String: Any] in
-    ["id": id, "title": id, "actions": [["type": "run", "arguments": ["move": id]]]]
+    ["id": id, "title": id, "actions": [["type": "run", "arguments": ["move": id], "hidden": id != "show"]]]
   }
   _ = try extensionFolder(
     root, name: "mover",
     script: """
       line=$(cat); echo "$line" >> "\(root.path)/requests"
-      case "$line" in *'"move":"fail"'*) echo broke >&2; exit 3;; *'"move":"left"'*) echo '{"close":true}'; exit;; esac
+      case "$line" in
+        *'"move":"fail"'*) echo broke >&2; exit 3;;
+        *'"move":"left"'*) exit;;
+        *'"move":"show"'*) while [ ! -e "\(root.path)/release" ]; do sleep 0.01; done;;
+      esac
       echo '{"items":[{"id":"why","title":"Nothing moved","actions":[]},{"id":"left","title":"left","actions":[]}]}'
       """,
     fields: [
       "name": "Mover",
       "items": [
-        item("left"), item("fail"), item("stuck"),
+        item("left"), item("fail"), item("stuck"), item("show"),
         ["id": "page", "title": "Page", "actions": [["type": "open", "url": "wicket://mover?input=x"]]],
       ],
     ])
   let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
   await model.extensions.reload()
-  return model
+  let surface = RecordingSurface()
+  surface.shown = false
+  model.navigator.surface = surface
+  return (model, surface)
+}
+private func runs(_ root: URL) throws -> [ProviderRequest] {
+  try String(contentsOf: root.appending(path: "requests"), encoding: .utf8).split(separator: "\n").map {
+    try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8))
+  }
 }
 
-@MainActor @Test func pressingAnItemsHotkeyRunsItSubmittedWithoutThePanel() async throws {
+@MainActor @Test func pressingAHiddenItemsHotkeyRunsItSubmittedWithoutThePanel() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = try await windowLike(root)
-  var shown = 0
-  await model.press(HotkeyTarget(target: "extension:mover", item: "left")) { shown += 1 }
-  #expect(shown == 0 && model.navigator.command == nil)
-  let request = try JSONDecoder().decode(
-    ProviderRequest.self, from: Data(contentsOf: root.appending(path: "requests")))
+  let (model, surface) = try await windowLike(root)
+  model.press(HotkeyTarget(target: "extension:mover", item: "left"))
+  await model.navigator.settled()
+  // Not hidden again either, which would restart a kept conversation's time.
+  #expect(surface.effects.isEmpty && model.navigator.command == nil)
+  let request = try #require(try runs(root).first)
   #expect(request.submitted && request.arguments == ["move": "left"] && request.input == "")
 }
 
-@MainActor @Test func aFailedBackgroundRunShowsThePanelWithItsReport() async throws {
+@MainActor @Test func aFailedHiddenRunShowsThePanelWithItsReport() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = try await windowLike(root)
-  var shown = 0
-  await model.press(HotkeyTarget(target: "extension:mover", item: "fail")) { shown += 1 }
-  #expect(shown == 1 && model.navigator.command?.id == "extension:mover")
+  let (model, surface) = try await windowLike(root)
+  model.press(HotkeyTarget(target: "extension:mover", item: "fail"))
+  await model.navigator.settled()
+  #expect(surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover")
   let problem = try #require(model.navigator.command?.problem)
   #expect(problem.contains("broke") && problem.contains(#""move":"fail""#))
   // The report is what shows; the program ran once and does not run again.
   await model.navigator.settled()
   #expect(model.navigator.command?.problem != nil)
-  let runs = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
-  #expect(runs.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 1)
+  #expect(try runs(root).count == 1)
 }
 
-@MainActor @Test func aBackgroundRunWhoseViewIsNotDoneShowsThePanelOnIt() async throws {
+@MainActor @Test func aHiddenRunWithAViewShowsThePanelOnIt() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = try await windowLike(root)
-  var shown = 0
-  await model.press(HotkeyTarget(target: "extension:mover", item: "stuck")) { shown += 1 }
+  let (model, surface) = try await windowLike(root)
+  model.press(HotkeyTarget(target: "extension:mover", item: "stuck"))
+  await model.navigator.settled()
   #expect(
-    shown == 1 && model.navigator.command?.id == "extension:mover" && model.navigator.command?.problem == nil)
+    surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover"
+      && model.navigator.command?.problem == nil)
   #expect(
     model.navigator.results.first?.row.title == "Nothing moved" && model.navigator.selected?.row.id == "why")
   // What shows is the view of the run the hotkey caused; nothing runs again.
   await model.navigator.settled()
-  let runs = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
-  #expect(runs.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 1)
+  #expect(try runs(root).count == 1)
 }
 
-@MainActor @Test func aHotkeyForAViewOpensThePanelOnIt() async throws {
+@MainActor @Test func aHotkeyForAViewOpensThePanelOnItAtOnce() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = try await windowLike(root)
-  var shown = 0
-  // The command itself: entered as a link would, so its request is not submitted.
-  await model.press(HotkeyTarget(target: "extension:mover")) { shown += 1 }
-  #expect(shown == 1)
-  #expect(
-    await eventually {
-      model.navigator.command?.id == "extension:mover" && model.navigator.command?.busy == false
-    })
+  let (model, surface) = try await windowLike(root)
+  // The command itself: shown at once, entered as a link would, so its request is not submitted.
+  model.press(HotkeyTarget(target: "extension:mover"))
+  #expect(surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover")
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Nothing moved")
   // An item whose action opens a view goes there.
-  _ = model.navigator.escape()
+  surface.perform(.hide)
+  model.navigator.dismiss()
+  model.press(HotkeyTarget(target: "extension:mover", item: "page"))
+  #expect(model.navigator.command?.id == "extension:mover" && model.navigator.input == "x")
   await model.navigator.settled()
-  await model.press(HotkeyTarget(target: "extension:mover", item: "page")) { shown += 1 }
-  #expect(shown == 2)
-  #expect(
-    await eventually { model.navigator.command?.id == "extension:mover" && model.navigator.input == "x" })
-  await model.navigator.settled()
-  let requests = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
-  #expect(!requests.contains(#""submitted":true"#))
+  #expect(try runs(root).allSatisfy { !$0.submitted })
   // A host command.
-  let surface = RecordingSurface()
+  model.press(HotkeyTarget(target: "settings"))
+  #expect(surface.count(.show) == 2 && surface.count(.settings) == 1)
+}
+
+/// A run that is not hidden opens the panel on its command at once, through a real panel whose showing
+/// refreshes the screens: the request is sent once, submitted, and the root is never drawn after it shows.
+/// Pressed again while it runs, nothing happens.
+@MainActor @Test func aVisibleRunsHotkeyShowsItsCommandAtOnceAndSendsOneRequest() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let surface = RecordingSurface(wrapping: controller)
+  surface.showing = { controller.show(orderFront: false, listen: false) }
   model.navigator.surface = surface
-  await model.press(HotkeyTarget(target: "settings")) { shown += 1 }
-  #expect(shown == 3 && surface.count(.settings) == 1)
+  var drawn: [String] = []
+  surface.onDraw = { drawn.append(model.navigator.command?.id ?? "root") }
+  let show = HotkeyTarget(target: "extension:mover", item: "show")
+  model.press(show)
+  #expect(controller.isShown && model.navigator.command?.id == "extension:mover")
+  #expect(model.navigator.command?.busy == true && drawn.last == "extension:mover")
+  #expect(await eventually { (try? runs(root).count) == 1 })
+  model.press(show)
+  try await Task.sleep(for: .milliseconds(100))
+  try Data().write(to: root.appending(path: "release"))
+  await model.navigator.settled()
+  #expect(model.navigator.results.first?.row.title == "Nothing moved")
+  let sent = try runs(root)
+  #expect(sent.count == 1 && sent[0].submitted && sent[0].arguments == ["move": "show"])
+  // Over the open panel it is followed like a link, which holds the screen shown until it answers.
+  model.press(show)
+  #expect(await eventually { (try? runs(root).count) == 2 })
+  controller.hide()
+  await model.finish()
+}
+
+/// A visible hotkey's run is an ordinary request of the open command: leaving it stops it, so a late
+/// result never replaces the screen the user went to or ends an agent's turn.
+@MainActor @Test func aVisibleHotkeysLateResultNeverReplacesANewerScreen() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  let show = HotkeyTarget(target: "extension:mover", item: "show")
+  // Escape back to the root.
+  model.press(show)
+  #expect(await eventually { (try? runs(root).count) == 1 })
+  #expect(model.navigator.escape())
+  await model.navigator.settled()
+  #expect(model.navigator.command == nil)
+  // A question asked meanwhile.
+  model.press(show)
+  #expect(await eventually { (try? runs(root).count) == 2 })
+  model.navigator.send("why")
+  #expect(await eventually { fake.running })
+  try Data().write(to: root.appending(path: "release"))
+  try await Task.sleep(for: .milliseconds(100))
+  await model.navigator.settled()
+  #expect(model.agent.active && model.agent.busy && model.navigator.agentScreen != nil)
+  #expect(model.navigator.command?.shown.view.items.isEmpty == true)
+  fake.end()
+  await model.finish()
 }
 
 @MainActor @Test func rowsWithAnAddressOfferAHotkeyAndShowIt() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = try await windowLike(root)
+  let (model, _) = try await windowLike(root)
   let left = HotkeyTarget(target: "extension:mover", item: "left")
   model.store.bind(try Shortcut("ctrl+option+left"), to: left)
   model.navigator.input = "left"
@@ -269,7 +334,7 @@ import Testing
 @MainActor @Test func setHotkeyRecordsWithEveryHotkeyPausedUntilThePanelHides() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = try await windowLike(root)
+  let (model, _) = try await windowLike(root)
   var pauses: [Bool] = []
   let controller = PaletteController(model: model, panel: RoutingPanel(), pauseHotkeys: { pauses.append($0) })
   controller.show(orderFront: false, listen: false)

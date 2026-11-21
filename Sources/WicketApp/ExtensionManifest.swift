@@ -16,6 +16,8 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let arguments: [Argument]
   /// The command runs on Return with a submitted request, never while typing.
   let submit: Bool
+  /// That Return is a hidden run (`Address.hidden`).
+  let hidden: Bool
   /// Values the user sets in Settings, kept in config.json and sent in every `request.settings`.
   let settings: [Argument]
 
@@ -28,7 +30,8 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   static let maxArguments = 3
 
   private enum CodingKeys: String, CodingKey, CaseIterable {
-    case name, description, keyword, command, icon, match, fallback, items, arguments, submit, settings
+    case name, description, keyword, command, icon, match, fallback, items, arguments, submit, hidden,
+      settings
   }
   /// Any key in the file, so a misspelled one (`keywords`, `trigger`) is an error instead of ignored.
   private struct AnyKey: CodingKey {
@@ -56,6 +59,10 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     items = try c.decodeIfPresent([Row].self, forKey: .items)
     arguments = try c.decodeIfPresent([Argument].self, forKey: .arguments) ?? []
     submit = try c.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+    hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+    guard submit || !hidden else {
+      throw DecodingError.dataCorruptedError(forKey: .hidden, in: c, debugDescription: "hidden needs submit")
+    }
     settings = try c.decodeIfPresent([Argument].self, forKey: .settings) ?? []
     let names = arguments.map(\.name)
     guard names.count <= Self.maxArguments, Set(names).count == names.count, !names.contains(""),

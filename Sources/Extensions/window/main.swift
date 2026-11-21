@@ -297,17 +297,15 @@ if case .array(let range)? = JSON.read(manifest, &position)?["items"] {
   let list = String(decoding: manifest[range], as: UTF8.self)
   items.append(String(list.dropFirst().dropLast()))
 }
-// Only the user's choice moves a window; every other request is the list. A move that worked closes
-// the panel, since the window moving is the feedback; one that did not shows why above the commands.
+// Only the user's choice moves a window; every other request is the list. A move that worked prints
+// nothing, since the window moving is the feedback (the items' runs are hidden); one that did not shows
+// why above the commands.
 if case .bool(true)? = request?["submitted"],
   let move = request?["arguments"]?["move"]?.string.flatMap(Move.init(rawValue:))
 {
   let settings = request?["settings"]
   let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
-  guard let problem = perform(move, layout: layout) else {
-    print(#"{"close":true}"#)
-    exit(0)
-  }
+  guard let problem = perform(move, layout: layout) else { exit(0) }
   items.insert(problem, at: 0)
 }
 print(#"{"items":["# + items.joined(separator: ",") + "]}")

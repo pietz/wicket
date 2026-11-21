@@ -28,18 +28,18 @@ private func request(_ input: String, submitted: Bool = false) -> JSON {
   let described = try JSONDecoder().decode(ProviderView.self, from: Data(answered("> git status").utf8))
   let row = try #require(described.items.first)
   #expect(row.title == "git status" && row.subtitle == "Open in Terminal")
-  #expect(row.actions.map(\.kind) == [.run(Address(input: "git status"))])
+  #expect(row.actions.map(\.kind) == [.run(Address(input: "git status", hidden: true))])
   // Nothing typed is a hint; chosen with nothing typed it still runs nothing.
   #expect(answered(">", submitted: true).contains("Type a command after >") && opened.isEmpty)
-  // Chosen: written as the user's own executable file, opened, and the panel closes.
-  #expect(answered("echo hi", submitted: true) == #"{"close":true}"#)
+  // Chosen: written as the user's own executable file and opened, with nothing to show.
+  #expect(answered("echo hi", submitted: true).isEmpty)
   let file = try #require(opened.first)
   #expect(file.hasPrefix(temporary.path + "/wicket-shell-") && file.hasSuffix(".command"))
   let permissions = try FileManager.default.attributesOfItem(atPath: file)[.posixPermissions] as? Int
   #expect(permissions == 0o700)
   #expect(try String(contentsOfFile: file, encoding: .utf8).contains("-l -c 'echo hi'"))
   // Each hand-over is a new file, and one the terminal could not open is removed; the panel stays.
-  #expect(answered("pwd", submitted: true) == #"{"close":true}"# && Set(opened).count == 2)
+  #expect(answered("pwd", submitted: true).isEmpty && Set(opened).count == 2)
   let refused = answer(request("ls", submitted: true), temporary: temporary.path) { _ in false }
   #expect(refused.contains("Could not open the terminal"))
   #expect(try FileManager.default.contentsOfDirectory(atPath: temporary.path).count == 2)

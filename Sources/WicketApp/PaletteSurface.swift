@@ -14,6 +14,8 @@ import Foundation
   /// Return, buttons and menu items do nothing, a Return that waits for its rows included, so nothing
   /// else runs and then disappears with the panel.
   var holdsReturn: Bool { get }
+  /// Whether the panel is up: a hidden run that finds something to show opens it on that only while not.
+  var isShown: Bool { get }
   func perform(_ effect: PaletteEffect)
 }
 enum PaletteChange: Equatable {
@@ -45,9 +47,10 @@ enum PaletteEffect: Equatable {
   /// What Return, a button or a menu item chose that is not the screens': a copy, paste, open or reveal,
   /// or recording a hotkey (`Navigator.activate`), and the row it came from.
   case run(RowAction, from: Result?)
-  /// An extension's answer to a submitted request said it is done (`ProviderView.close`): the panel hides
-  /// without showing it, as the user hiding it would; the effect (a moved window) is the feedback.
-  case close
+  /// A hidden run starts (`Navigator.runHidden`): the panel hides, as the user hiding it would.
+  case hide
+  /// A hidden run found something to show while the panel was hidden: it shows, without listening.
+  case show
   /// The Settings destination: the launcher leaves for the native window.
   case settings
 }

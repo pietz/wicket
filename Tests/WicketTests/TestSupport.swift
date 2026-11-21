@@ -95,10 +95,16 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
     return await next?.prepare(page, turn: turn) ?? .unmeasured
   }
   var holdsReturn: Bool { next?.holdsReturn ?? false }
+  /// Up unless a test says otherwise; hiding and showing it change it.
+  var shown = true
+  var isShown: Bool { next?.isShown ?? shown }
+  /// Shows the wrapped panel in place of `.show`, such as without ordering it front.
+  var showing: (() -> Void)?
   func perform(_ effect: PaletteEffect) {
+    if effect == .hide || effect == .show { shown = effect == .show }
     effects.append(effect)
     onEffect(effect)
-    next?.perform(effect)
+    if effect == .show, let showing { showing() } else { next?.perform(effect) }
   }
   func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
 }
