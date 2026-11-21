@@ -329,7 +329,7 @@ struct SettingsPane: View {
     }
     Section(AgentHistory.title) {
       Text(
-        "Keeps your last \(AgentHistory.maxEntries) agent runs for \(AgentHistory.maxDays) days, only on this Mac, where the agent cannot see them. Type history to reopen one and follow up."
+        "Keeps your last \(AgentHistory.maxEntries) agent runs for \(AgentHistory.maxDays) days, only on this Mac, outside the agent's working folder; what the agent can read follows its permission mode. Type history to reopen one and follow up."
       )
       .font(.callout).foregroundStyle(.secondary)
       LabeledContent("Saved runs", value: "\(runs.runs.count)")
@@ -384,7 +384,7 @@ struct SettingsPane: View {
 
   private static let builtins = [
     "apps": ("Apps", "square.grid.2x2", "Finds the apps on this Mac by name."),
-    "files": ("Files", "doc", "Finds files by name with Spotlight, from three letters on."),
+    "files": ("Files", "doc", "Finds files by name with Spotlight, from two characters on."),
     "clipboard": (
       ClipboardHistory.title, "doc.on.clipboard", "Keeps the texts and images you copy to paste them again."
     ),
@@ -542,7 +542,7 @@ struct SettingsPane: View {
   }
   @ViewBuilder private func clipboardRows(enabled: Bool) -> some View {
     Text(
-      "Keeps the last \(ClipboardHistory.maxEntries) texts and images you copy for \(ClipboardHistory.maxDays) days, only on this Mac, where the agent cannot see them. Skips anything password managers mark as concealed and images over \(Self.megabytes(ClipboardHistory.imageLimits.each)); past \(Self.megabytes(ClipboardHistory.imageLimits.total)) of images, the oldest go. Type clip to search it."
+      "Keeps the last \(ClipboardHistory.maxEntries) texts and images you copy for \(ClipboardHistory.maxDays) days, only on this Mac, outside the agent's working folder; what the agent can read follows its permission mode. Skips anything password managers mark as concealed and images over \(Self.megabytes(ClipboardHistory.imageLimits.each)); past \(Self.megabytes(ClipboardHistory.imageLimits.total)) of images, the oldest go. Type clip to search it."
     )
     .font(.callout).foregroundStyle(.secondary)
     if enabled, !clipboard.readable {
