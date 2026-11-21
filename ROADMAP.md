@@ -34,6 +34,7 @@ Not yet ordered; each takes its place after the steps above.
 - Ship and update layout and components in `core.css` and allow an advanced user override. Keep user tokens in `theme.css`, migrate existing themes and retain system-derived row and selection colours.
 - Add Allow for this conversation as the third agent permission choice, alongside Allow once and Don't allow.
 - Make the canvas controls look closer to native macOS: a small token-driven control layer in `core.css` (switch, checkbox, pop-up, text field) with `native` and `flat` presets that `theme.css` can override. The owner judges offscreen before-and-after captures.
+- A reusable harness for agents to check the real app on a Mac with an unlocked display: launch Wicket Dev with a scratch config, open the panel, type and press keys, capture screenshots over light, dark and busy backgrounds, and quit cleanly, so no agent rebuilds it each time.
 - A theme option to join the search pill and the card into one glass shape (`tools/glass-lab`, ⌘J); separate stays the default.
 
 ## Throughout
