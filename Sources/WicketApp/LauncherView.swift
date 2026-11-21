@@ -370,7 +370,7 @@ struct LauncherView: View {
       ScrollView {
         LazyVStack(spacing: 2) {
           if shown.rows.isEmpty {
-            Text(shown.busy ? "Running…" : shown.awaitsPattern ? " " : "No results")
+            Text(shown.showsBusy ? "Running…" : shown.busy || shown.awaitsPattern ? " " : "No results")
               .foregroundStyle(.secondary).frame(height: PaletteLayout.header)
           }
           ForEach(shown.rows) { result in resultRow(result) }
@@ -477,7 +477,7 @@ struct LauncherView: View {
         Text(shown.commandName ?? "Extension").font(.system(size: 13, weight: .medium))
           .lineLimit(1)
         Spacer()
-        if shown.busy { ProgressView().controlSize(.small) }
+        if shown.showsBusy { ProgressView().controlSize(.small) }
         if let error = shown.problem {
           Button("Copy") { Pasteboard.write(error) }
           Button("Ask agent") { navigator.send(error) }

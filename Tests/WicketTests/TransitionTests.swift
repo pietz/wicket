@@ -96,6 +96,8 @@ private let finished = #"{"items":[{"id":"done","title":"Finished","actions":[]}
     apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
+  // The tests count frames; when the busy state draws is its own test's.
+  model.navigator.busyDelay = .seconds(60)
   model.navigator.input = "a"
   await model.navigator.settled()
   #expect(model.navigator.results.count > 8 && model.navigator.sizedRows == 8)
@@ -161,6 +163,33 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
       ["root", "-", "false"], ["extension:page", "-", "true"], ["extension:page", "# First page", "false"],
     ])
   #expect(try logged(root, "page").count == 1)
+  await model.finish()
+}
+
+/// Running… and the spinner show only once a request has run for `busyDelay`: a quick answer replaces
+/// the screen with no busy state drawn first, a slow one says it is running until it answers.
+@MainActor @Test func theBusyStateShowsOnlyOnceARequestHasRunForItsDelay() async throws {
+  let (model, _, root) = try await transitions()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  var drawn: [(screen: String, busy: Bool)] = []
+  surface.onDraw = {
+    drawn.append((model.navigator.command?.id ?? "root", model.navigator.presentation.showsBusy))
+  }
+  model.navigator.arrivalDeadline = .zero
+  model.navigator.busyDelay = .seconds(5)
+  model.navigator.go(Address(id: "page"), submitted: true)
+  await model.navigator.settled()
+  #expect(model.navigator.body == "# First page" && drawn.allSatisfy { !$0.busy })
+  model.navigator.busyDelay = .milliseconds(300)
+  model.navigator.go(Address(id: "slow"), submitted: true)
+  #expect(await eventually { drawn.last?.screen == "extension:slow" })
+  #expect(drawn.last?.busy == false && model.navigator.command?.busy == true)
+  #expect(await eventually { drawn.last?.busy == true })
+  try release(root)
+  await model.navigator.settled()
+  #expect(drawn.last?.busy == false && model.navigator.results.map(\.row.title) == ["Finished"])
   await model.finish()
 }
 

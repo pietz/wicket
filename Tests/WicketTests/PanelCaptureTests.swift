@@ -433,6 +433,8 @@ private let installedAgent: Void = {
     await model.navigator.settled()
     // Held: the switch waits for content that does not come while the capture is drawn.
     model.navigator.arrivalDeadline = .seconds(60)
+    // A running command is drawn as it looks once its busy state shows.
+    model.navigator.busyDelay = .zero
     switch name {
     case "arrival-root-held": model.navigator.go(Address(id: "slow"), submitted: true)
     case "arrival-running", "asking-running-command", "asking-running-back":
@@ -519,6 +521,9 @@ private let installedAgent: Void = {
       model.navigator.input = "l"
       await model.navigator.settled()
     default: Issue.record("No transition named \(name)")
+    }
+    if ["arrival-running", "asking-running-back", "arrival-typed", "arrival-dictated"].contains(name) {
+      #expect(await eventually { model.navigator.showsBusy })
     }
   }
 

@@ -524,6 +524,13 @@ final class Navigator {
   }
   /// The open command's running request.
   @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+  /// The busy state (Running…, the spinner) shows only once a request has run this long, so a quick
+  /// answer replaces the screen without it flashing first, whether Return, a link or a hotkey asked.
+  var busyDelay: Duration = .milliseconds(400)
+  @ObservationIgnored private var busyTimer: Task<Void, Never>?
+  @ObservationIgnored private var ranLong = false
+  /// The open command's request has run for `busyDelay`.
+  var showsBusy: Bool { ranLong && command?.busy == true }
   @ObservationIgnored private var generation = 0
   /// Ends what the screen shown is waiting for: its request, the root's search and a waiting Return.
   func cancelWork() {
@@ -531,6 +538,8 @@ final class Navigator {
     generation += 1
     for task in tasks { task.cancel() }
     tasks.removeAll()
+    busyTimer?.cancel()
+    ranLong = false
     search.cancel()
     command?.stop()
   }
@@ -637,6 +646,12 @@ final class Navigator {
       return
     case .deferred(let answered):
       target?.run()
+      let delay = busyDelay
+      busyTimer = Task { [weak self] in
+        guard (try? await Task.sleep(for: delay)) != nil, let self else { return }
+        ranLong = true
+        if showsBusy { draw() }
+      }
       let version = generation
       let visit = target?.visit
       let turn = UUID().uuidString

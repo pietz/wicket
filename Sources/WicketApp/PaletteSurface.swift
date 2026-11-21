@@ -84,11 +84,13 @@ struct PalettePresentation: Equatable {
   var headerHeight: CGFloat = 32
   var confirmationHeight: CGFloat = 210
   var permissionPending = false
-  /// The open command: its id, name, failure, whether it is running, and its view's own actions.
+  /// The open command: its id, name, failure, whether it is running and has for long enough to say so
+  /// (`Navigator.showsBusy`), and its view's own actions.
   var command: String?
   var commandName: String?
   var problem: String?
   var busy = false
+  var showsBusy = false
   var viewActions: [RowAction] = []
   var viewRow: Result?
   /// The page shown, its turn and its selected target.
@@ -116,7 +118,8 @@ extension Navigator {
       nearbyPictures: nearbyPictures, actionsTitle: actionsTitle, agent: agentScreen,
       headerHeight: conversationHeaderHeight, confirmationHeight: confirmationHeight,
       permissionPending: permissionPending, command: command?.id, commandName: commandName,
-      problem: command?.problem, busy: command?.busy == true, viewActions: viewActions, viewRow: viewRow,
+      problem: command?.problem, busy: command?.busy == true, showsBusy: showsBusy, viewActions: viewActions,
+      viewRow: viewRow,
       page: page, pageTurn: pageTurn, inDetail: inDetail, selectedTarget: selectedTarget,
       offersActions: offersActions, returnsOnEscape: returnsOnEscape, askingAbout: askingAbout,
       askingName: askingName, awaitsPattern: awaitsPattern, refusesReturn: returnPlan() == .refuse)

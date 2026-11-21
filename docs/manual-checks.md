@@ -73,7 +73,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 ## 10. Hotkeys and the action panel
 
 1. Set Hotkey… on Left Half, press ⌃⌥←: shown on the row and saved in `hotkeys`. With the panel closed over Safari, ⌃⌥← moves the window with no panel or flash; over a full-screen window it opens the panel on the reason.
-2. A hotkey on the Weather fixture opens the panel at once on Weather, with no root flash; pressing it again while it loads does nothing. Escape or ⌘↩ while it loads: its late result never appears.
+2. A hotkey on the Weather fixture opens the panel at once on Weather, with no root flash; Running… and the spinner appear only if it takes longer than about half a second, also for Return inside the panel; pressing it again while it loads does nothing. Escape or ⌘↩ while it loads: its late result never appears.
 3. Reusing ⌃⌥← for Right Half, ⌘C and the launcher shortcut are refused; Escape cancels recording.
 4. ⌘K on a file: Open and Reveal in Finder. On Left Half: Run, Set Hotkey…, Remove Hotkey. Escape or ⌘K again returns with the same selection; typing closes it and becomes the search; IME composition works in its field.
 5. For the action panel, open a long extension page with a view action, scroll, deselect any target and press ⌘K: the page underneath is invisible and takes no clicks or scrolling; Escape returns to the same scroll position.
