@@ -433,7 +433,23 @@ private func pngs(_ folder: URL) -> Set<String> {
   try Data("[{\"id\":".utf8).write(to: folder.appending(path: "clipboard-history.json"))
   let (history, _) = makeHistory(folder)
   #expect(history.clips.isEmpty && pngs(folder) == [image])
+  // The list is kept aside, and a save writes a new one beside it.
+  let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+  let aside = try #require(names.first { $0.hasPrefix("clipboard-history.unreadable-") })
+  #expect(try Data(contentsOf: folder.appending(path: aside)) == Data("[{\"id\":".utf8))
+  history.capture("new")
   await history.finish()
+  // A later launch reads the new list and still keeps the images the old one may name.
+  let (reloaded, _) = makeHistory(folder)
+  #expect(reloaded.clips.map(\.text) == ["new"] && pngs(folder) == [image])
+  // Clear History deletes the list kept aside and the images kept for it, not a copy the user made.
+  try FileManager.default.copyItem(
+    at: folder.appending(path: aside), to: folder.appending(path: aside + ".bak"))
+  reloaded.clear()
+  await reloaded.finish()
+  #expect(
+    try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+      == ["clipboard-history.json", aside + ".bak"])
 }
 
 @MainActor @Test func imageRowsCopyAndPasteByIDResolvedWhenTheyRun() async throws {

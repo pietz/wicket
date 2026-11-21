@@ -58,6 +58,7 @@ final class ClipboardHistory: HostCommand {
   private(set) var clips: [Clip]
   private(set) var enabled = false
   private let pasteboard: any PasteboardAccess
+  private let url: URL
   private let folder: URL
   private let imageLimits: (each: Int, total: Int)
   private let interval: Duration?
@@ -68,7 +69,7 @@ final class ClipboardHistory: HostCommand {
 
   /// `interval` nil never polls on its own; tests call `poll()`. An image entry whose file is gone is dropped,
   /// and a stray `<uuid>.png` that no entry names is deleted, which a quit between the two writes leaves,
-  /// unless the list exists but cannot be read: it may name any image.
+  /// unless a list that could not be read was moved aside (`PrivateList.read`): it may name any image.
   init(
     url: URL, pasteboard: any PasteboardAccess = NSPasteboard.general,
     interval: Duration? = .milliseconds(500), imageLimits: (each: Int, total: Int) = imageLimits
@@ -76,13 +77,15 @@ final class ClipboardHistory: HostCommand {
     self.pasteboard = pasteboard
     self.interval = interval
     self.imageLimits = imageLimits
+    self.url = url
     folder = url.deletingLastPathComponent()
     writer = PrivateList.writer(url, log: Self.log)
     let stored: [Clip]? = PrivateList.read(url)
     let files = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
     clips = (stored ?? []).filter { $0.image == nil || files.contains($0.id + ".png") }
     let named = Set(clips.map { $0.id + ".png" })
-    for name in files where stored != nil && name.hasSuffix(".png") && !named.contains(name) {
+    let sweeps = stored != nil && !PrivateList.hasUnreadable(url, among: files)
+    for name in files where sweeps && name.hasSuffix(".png") && !named.contains(name) {
       guard UUID(uuidString: String(name.dropLast(4))) != nil else { continue }
       try? FileManager.default.removeItem(at: folder.appending(path: name))
     }
@@ -264,9 +267,16 @@ final class ClipboardHistory: HostCommand {
 
   /// Counts Clear History, so an image still being prepared from before it is dropped.
   private var clears = 0
+  /// Also deletes a list moved aside as unreadable and the images kept for it, which are then every
+  /// `<uuid>.png` left.
   func clear() {
     clears += 1
     replace(with: [])
+    PrivateList.removeUnreadable(url)
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    where name.hasSuffix(".png") && UUID(uuidString: String(name.dropLast(4))) != nil {
+      try? FileManager.default.removeItem(at: folder.appending(path: name))
+    }
   }
 
   private func imageURL(_ id: String) -> URL { folder.appending(path: id + ".png") }

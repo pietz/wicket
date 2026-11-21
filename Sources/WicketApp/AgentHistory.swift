@@ -34,10 +34,12 @@ final class AgentHistory: HostCommand {
   nonisolated static let maxDays = 30
 
   private(set) var runs: [Run]
+  private let url: URL
   private let writer: LatestWriter<[Run]>
   nonisolated private static let log = Logger(subsystem: "app.wicket", category: "history")
 
   init(url: URL, now: Date = Date()) {
+    self.url = url
     runs = PrivateList.read(url) ?? []
     writer = PrivateList.writer(url, log: Self.log)
     expire(now: now)
@@ -65,6 +67,7 @@ final class AgentHistory: HostCommand {
   func clear() {
     runs.removeAll()
     writer.submit(runs)
+    PrivateList.removeUnreadable(url)
   }
 
   /// Drops what is over `maxEntries` or older than `maxDays`: at launch, whenever the panel opens and

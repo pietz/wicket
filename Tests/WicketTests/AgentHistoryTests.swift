@@ -335,3 +335,23 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   ).events
   #expect(events == [.failed(unreadable)])
 }
+
+@MainActor @Test func anUnreadableHistoryIsMovedAsideBeforeAnythingSavesOverIt() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let url = folder.appending(path: "agent-history.json")
+  try Data("[{\"id\":".utf8).write(to: url)
+  let runs = AgentHistory(url: url)
+  #expect(runs.runs.isEmpty)
+  runs.save(run("r1", [("Question", "Answer")]))
+  await runs.finish()
+  let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+  let aside = try #require(names.first { $0.hasPrefix("agent-history.unreadable-") })
+  #expect(try Data(contentsOf: folder.appending(path: aside)) == Data("[{\"id\":".utf8))
+  #expect(AgentHistory(url: url).runs.map(\.id) == ["r1"])
+  // Clear History deletes it too.
+  let reloaded = AgentHistory(url: url)
+  reloaded.clear()
+  await reloaded.finish()
+  #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["agent-history.json"])
+}

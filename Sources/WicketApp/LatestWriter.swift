@@ -53,12 +53,37 @@ final class UsageHistory {
 /// clipboard and agent histories. Read once; written atomically off the main path by a latest-value
 /// writer into a folder created 0700, so the file is unreachable for others whatever its mode.
 enum PrivateList {
-  /// A missing file is an empty list; nil when the file exists but cannot be read or decoded.
-  static func read<Item: Decodable>(_ url: URL) -> [Item]? {
+  /// A missing file is an empty list. One that exists but cannot be read or decoded is moved aside as
+  /// `<name>.unreadable-<seconds>.json` before anything saves over it; nil then.
+  static func read<Item: Decodable>(_ url: URL, now: Date = Date()) -> [Item]? {
     guard FileManager.default.fileExists(atPath: url.path) else { return [] }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    return (try? Data(contentsOf: url)).flatMap { try? decoder.decode([Item].self, from: $0) }
+    if let items = (try? Data(contentsOf: url)).flatMap({ try? decoder.decode([Item].self, from: $0) }) {
+      return items
+    }
+    let aside =
+      url.deletingPathExtension().lastPathComponent + ".unreadable-\(Int(now.timeIntervalSince1970)).json"
+    try? FileManager.default.moveItem(at: url, to: url.deletingLastPathComponent().appending(path: aside))
+    return nil
+  }
+  /// Whether a list `read` moved aside is among these file names.
+  static func hasUnreadable(_ url: URL, among names: some Sequence<String>) -> Bool {
+    names.contains { isAside($0, of: url) }
+  }
+  /// Clear History: what `read` moved aside goes too.
+  static func removeUnreadable(_ url: URL) {
+    let folder = url.deletingLastPathComponent()
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    for name in names where isAside(name, of: url) {
+      try? FileManager.default.removeItem(at: folder.appending(path: name))
+    }
+  }
+  /// `<name>.unreadable-<seconds>.json`, as `read` names it, and no copy the user made of it.
+  private static func isAside(_ name: String, of url: URL) -> Bool {
+    let prefix = url.deletingPathExtension().lastPathComponent + ".unreadable-"
+    return name.hasPrefix(prefix) && name.hasSuffix(".json")
+      && name.dropFirst(prefix.count).dropLast(5).allSatisfy(\.isNumber)
   }
   /// A failed save logs only its error code.
   static func writer<Item: Encodable & Sendable>(_ url: URL, log: Logger) -> LatestWriter<[Item]> {
