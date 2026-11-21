@@ -769,9 +769,11 @@ final class Navigator {
     if shown, let pressed, pressed.address == address, pressed.visit == target?.visit, target?.busy == true {
       return
     }
-    if !shown { surface?.perform(.show) }
-    go(address, from: origin, submitted: submitted, holding: shown)
-    pressed = target.map { (address, $0.visit) }
+    func arrive() {
+      go(address, from: origin, submitted: submitted, holding: shown)
+      pressed = target.map { (address, $0.visit) }
+    }
+    if let surface, !shown { surface.show(arriving: arrive) } else { arrive() }
   }
   @ObservationIgnored private var pressed: (address: Address, visit: UUID)?
   /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
@@ -779,7 +781,7 @@ final class Navigator {
   func perform(_ action: RowAction) {
     actionProblem = nil
     if !activate(action) { surface?.perform(.run(action, from: nil)) }
-    if actionProblem != nil, surface?.isShown == false { surface?.perform(.show) }
+    if actionProblem != nil, surface?.isShown == false { surface?.show { [self] in refresh() } }
   }
   /// An external `wicket://` URL: the panel opens on its address. One that launched Wicket waits for the
   /// first extension scan, so the extension it names is known.
@@ -1053,11 +1055,14 @@ final class Navigator {
       guard let self else { return }
       hiddenRuns[run] = nil
       guard let outcome else { return }
-      if surface?.isShown != true {
-        surface?.perform(.show)
-        if !conversing { return adopt(program, request: request, outcome: outcome) }
+      let problem = "\(program.manifest.name): \(line)"
+      guard surface?.isShown == false else {
+        actionProblem = problem
+        return
       }
-      actionProblem = "\(program.manifest.name): \(line)"
+      surface?.show { [self] in
+        if conversing { actionProblem = problem } else { adopt(program, request: request, outcome: outcome) }
+      }
     }
   }
   /// Hidden runs on their way, which `settled` waits for too.

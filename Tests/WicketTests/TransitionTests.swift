@@ -469,7 +469,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   surface.shown = false
   model.navigator.runHidden(Address(extensionName: "mover", hidden: true), from: nil)
   await model.navigator.settled()
-  #expect(surface.count(.show) == 1 && model.agent.active && model.navigator.returnsOnEscape)
+  #expect(surface.shows == 1 && model.agent.active && model.navigator.returnsOnEscape)
   #expect(
     model.navigator.command == nil && model.navigator.actionProblem?.hasPrefix("mover: Extension") == true)
   await model.finish()
@@ -605,11 +605,11 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.navigator.surface = surface
   model.press(HotkeyTarget(target: "extension:mover", item: "left"))
   #expect(await eventually { (try? logged(root, "mover").count) == 1 })
-  #expect(surface.count(.show) == 0 && model.navigator.command == nil)
+  #expect(surface.shows == 0 && model.navigator.command == nil)
   try release(root, "mover")
   await model.navigator.settled()
   #expect(
-    surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover"
+    surface.shows == 1 && model.navigator.command?.id == "extension:mover"
       && model.navigator.command?.problem?.contains("nope") == true)
   let sent = try logged(root, "mover")
   #expect(sent.count == 1 && sent[0].submitted && sent[0].arguments == ["to": "left"])
@@ -1730,7 +1730,7 @@ private func printing(_ answer: String) -> String {
   #expect(await eventually { (try? logged(root).count) == 1 })
   try release(root, "mover")
   #expect(await eventually { model.navigator.actionProblem == "mover: Not moved" })
-  #expect(surface.count(.show) == 0 && model.navigator.command == nil)
+  #expect(surface.shows == 0 && model.navigator.command == nil)
   // The entry it did not replace arrives with its own answer, and nothing ran twice.
   try release(root)
   await model.navigator.settled()

@@ -16,6 +16,9 @@ import Foundation
   var holdsReturn: Bool { get }
   /// Whether the panel is up: a hidden run that finds something to show opens it on that only while not.
   var isShown: Bool { get }
+  /// Shows the hidden panel without listening, on what `arriving` commits: it runs once a kept conversation
+  /// that ran out has ended and before anything is drawn, so the screen left behind never shows first.
+  func show(arriving: @escaping () -> Void)
   func perform(_ effect: PaletteEffect)
 }
 enum PaletteChange: Equatable {
@@ -49,8 +52,6 @@ enum PaletteEffect: Equatable {
   case run(RowAction, from: Result?)
   /// A hidden run starts (`Navigator.runHidden`): the panel hides, as the user hiding it would.
   case hide
-  /// A hidden run found something to show while the panel was hidden: it shows, without listening.
-  case show
   /// The Settings destination: the launcher leaves for the native window.
   case settings
 }

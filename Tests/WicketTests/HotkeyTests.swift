@@ -193,7 +193,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   let (model, surface) = try await windowLike(root)
   model.press(HotkeyTarget(target: "extension:mover", item: "fail"))
   await model.navigator.settled()
-  #expect(surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover")
+  #expect(surface.shows == 1 && model.navigator.command?.id == "extension:mover")
   let problem = try #require(model.navigator.command?.problem)
   #expect(problem.contains("broke") && problem.contains(#""move":"fail""#))
   // The report is what shows; the program ran once and does not run again.
@@ -209,7 +209,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   model.press(HotkeyTarget(target: "extension:mover", item: "stuck"))
   await model.navigator.settled()
   #expect(
-    surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover"
+    surface.shows == 1 && model.navigator.command?.id == "extension:mover"
       && model.navigator.command?.problem == nil)
   #expect(
     model.navigator.results.first?.row.title == "Nothing moved" && model.navigator.selected?.row.id == "why")
@@ -224,7 +224,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   let (model, surface) = try await windowLike(root)
   // The command itself: shown at once, entered as a link would, so its request is not submitted.
   model.press(HotkeyTarget(target: "extension:mover"))
-  #expect(surface.count(.show) == 1 && model.navigator.command?.id == "extension:mover")
+  #expect(surface.shows == 1 && model.navigator.command?.id == "extension:mover")
   await model.navigator.settled()
   #expect(model.navigator.results.first?.row.title == "Nothing moved")
   // An item whose action opens a view goes there.
@@ -236,7 +236,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(try runs(root).allSatisfy { !$0.submitted })
   // A host command.
   model.press(HotkeyTarget(target: "settings"))
-  #expect(surface.count(.show) == 2 && surface.count(.settings) == 1)
+  #expect(surface.shows == 2 && surface.count(.settings) == 1)
 }
 
 /// An item whose first action is a copy, paste, open or reveal does it without the panel, as Return on the
@@ -249,27 +249,36 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(surface.effects == [.run(.copy("moved"), from: nil)] && model.navigator.command == nil)
   model.press(HotkeyTarget(target: "extension:mover", item: "script"))
   #expect(
-    surface.count(.show) == 1 && model.navigator.actionProblem?.contains("does not open scripts") == true)
-  #expect(surface.effects.count == 2 && model.navigator.command == nil)
+    surface.shows == 1 && model.navigator.actionProblem?.contains("does not open scripts") == true)
+  #expect(surface.effects.count == 1 && model.navigator.command == nil)
 }
 
-/// A run that is not hidden opens the panel on its command at once, through a real panel whose showing
-/// refreshes the screens: the request is sent once, submitted, and the root is never drawn after it shows.
+/// A panel that records what its controller holds each time it would be ordered front, and never is.
+@MainActor private final class FrontRecordingPanel: PalettePanel {
+  var onFront: () -> Void = {}
+  override var isKeyWindow: Bool { true }
+  override func makeKeyAndOrderFront(_ sender: Any?) { onFront() }
+  override func orderFrontRegardless() { onFront() }
+}
+
+/// A run that is not hidden opens the panel on its command at once, through a real panel's showing: as it
+/// is ordered front it holds the command, never the root, and the request is sent once, submitted.
 /// Pressed again while it runs, nothing happens.
 @MainActor @Test func aVisibleRunsHotkeyShowsItsCommandAtOnceAndSendsOneRequest() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, _) = try await windowLike(root)
-  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let panel = FrontRecordingPanel()
+  let controller = PaletteController(model: model, panel: panel)
+  var fronted: [String] = []
+  panel.onFront = { fronted.append(controller.presentation.command ?? "root") }
   let surface = RecordingSurface(wrapping: controller)
-  surface.showing = { controller.show(orderFront: false, listen: false) }
   model.navigator.surface = surface
-  var drawn: [String] = []
-  surface.onDraw = { drawn.append(model.navigator.command?.id ?? "root") }
   let show = HotkeyTarget(target: "extension:mover", item: "show")
   model.press(show)
   #expect(controller.isShown && model.navigator.command?.id == "extension:mover")
-  #expect(model.navigator.command?.busy == true && drawn.last == "extension:mover")
+  #expect(!fronted.isEmpty && fronted.allSatisfy { $0 == "extension:mover" })
+  #expect(controller.presentation.busy && model.navigator.command?.busy == true)
   #expect(await eventually { (try? runs(root).count) == 1 })
   model.press(show)
   try await Task.sleep(for: .milliseconds(100))

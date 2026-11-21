@@ -509,7 +509,7 @@ private let installedAgent: Void = {
     case "hotkey-command-error":
       controller.hide()
       let surface = RecordingSurface(wrapping: controller)
-      surface.showing = { controller.show(orderFront: false, listen: false) }
+      surface.showing = { controller.show(orderFront: false, listen: false, arriving: $0) }
       scenario.keep.append(surface)
       model.navigator.surface = surface
       model.press(HotkeyTarget(target: "extension:mover", item: "left"))

@@ -98,13 +98,26 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
   /// Up unless a test says otherwise; hiding and showing it change it.
   var shown = true
   var isShown: Bool { next?.isShown ?? shown }
-  /// Shows the wrapped panel in place of `.show`, such as without ordering it front.
-  var showing: (() -> Void)?
+  /// How often the panel was shown.
+  var shows = 0
+  /// Shows the wrapped panel in place of `show`, such as without ordering it front.
+  var showing: ((@escaping () -> Void) -> Void)?
+  func show(arriving: @escaping () -> Void) {
+    shown = true
+    shows += 1
+    if let showing {
+      showing(arriving)
+    } else if let next {
+      next.show(arriving: arriving)
+    } else {
+      arriving()
+    }
+  }
   func perform(_ effect: PaletteEffect) {
-    if effect == .hide || effect == .show { shown = effect == .show }
+    if effect == .hide { shown = false }
     effects.append(effect)
     onEffect(effect)
-    if effect == .show, let showing { showing() } else { next?.perform(effect) }
+    next?.perform(effect)
   }
   func count(_ effect: PaletteEffect) -> Int { effects.filter { $0 == effect }.count }
 }

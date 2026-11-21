@@ -195,7 +195,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   func perform(_ effect: PaletteEffect) {
     switch effect {
     case .hide: hide()
-    case .show: show(listen: false)
     case .settings: showSettings()
     case .run(let action, let result): perform(action, from: result)
     }
@@ -216,11 +215,15 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     }
     show(orderFront: orderFront, listen: false)
   }
+  func show(arriving: @escaping () -> Void) { show(listen: false, arriving: arriving) }
+  /// `arriving`: what the panel shows, committed before it is drawn (`PaletteSurface.show`); without it,
+  /// the screens are brought up to date once it is up.
   func show(
     eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime, orderFront: Bool = true,
-    listen: Bool = true
+    listen: Bool = true, arriving: (() -> Void)? = nil
   ) {
     guard !panel.isVisible else {
+      arriving?()
       panel.makeKey()
       return
     }
@@ -235,6 +238,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     renderer.opened()
     renderer.cap = PaletteLayout.answerCap(available: anchor.y - visible.minY)
     isOpen = true
+    arriving?()
     presentation = navigator.presentation
     renderContent()
     resize()
@@ -250,7 +254,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       (input.currentEditor() as? NSTextView)?.setSelectedRange(
         NSRange(location: input.stringValue.utf16.count, length: 0))
     }
-    navigator.refresh()
+    if arriving == nil { navigator.refresh() }
   }
   func hide() {
     isOpen = false

@@ -498,7 +498,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     runHidden(input)
     #expect(!surface.shown)
     await model.navigator.settled()
-    #expect(!surface.shown && surface.count(.show) == 0 && model.navigator.command == nil)
+    #expect(!surface.shown && surface.shows == 0 && model.navigator.command == nil)
   }
   let sent = try requests(in: root.appending(path: "extensions/shut"))
   #expect(sent.count == 2 && sent.allSatisfy(\.submitted))
@@ -506,7 +506,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   // A failure with the panel hidden opens it on the report, and nothing runs again.
   runHidden("fail")
   await model.navigator.settled()
-  #expect(surface.count(.show) == 1 && model.navigator.command?.problem?.contains("broke") == true)
+  #expect(surface.shows == 1 && model.navigator.command?.problem?.contains("broke") == true)
   #expect(try requests(in: root.appending(path: "extensions/shut")).count == 3)
 
   // A view while the user opened the panel again: one line, and the screen stays.
@@ -515,7 +515,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   runHidden("view")
   surface.shown = true
   await model.navigator.settled()
-  #expect(surface.count(.show) == 1 && model.navigator.command == nil)
+  #expect(surface.shows == 1 && model.navigator.command == nil)
   #expect(model.navigator.actionProblem == "Shut: Nothing moved: No window")
 
   // Not hidden, nothing to show is an error that names the fix.
