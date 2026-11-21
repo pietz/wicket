@@ -23,7 +23,9 @@ final class ConfigurationStore {
   private(set) var signIn: [AgentConfiguration.Agent: AgentCLI.SignIn] = [:]
   var checkSignIn: (AgentConfiguration.Agent) async -> AgentCLI.SignIn = { await AgentCLI.signIn($0) }
   private(set) var discovery: Task<Void, Never>?
-  var onChange: (Configuration?, String?) -> Void = { _, _ in }
+  /// After each load, with `configuration`: what was read, or when the file could not be read the
+  /// stand-in (see `load`), so a broken file at launch still registers the launcher hotkey.
+  var onChange: (Configuration) -> Void = { _ in }
   private var watcher: FileWatcher?
   private var optionsWatcher: FileWatcher?
 
@@ -113,7 +115,7 @@ final class ConfigurationStore {
   }
   private func failed(_ error: any Error) {
     problem = "Config: \(error.localizedDescription)"
-    onChange(nil, problem)
+    onChange(configuration)
   }
   /// Reads the file now. An invalid file keeps the last good configuration, or before one has loaded
   /// the defaults without extensions.
@@ -123,7 +125,7 @@ final class ConfigurationStore {
       loaded = true
       problem = nil
       loadOptions()
-      onChange(configuration, nil)
+      onChange(configuration)
     } catch {
       if !loaded { configuration.runsExtensions = false }
       failed(error)

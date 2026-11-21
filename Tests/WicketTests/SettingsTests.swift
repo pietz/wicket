@@ -84,7 +84,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   defer { try? FileManager.default.removeItem(at: root) }
   let store = ConfigurationStore(url: root.appending(path: "config.json"))
   var launcherProblem: String?
-  store.onChange = { _, problem in launcherProblem = problem }
+  store.onChange = { [weak store] _ in launcherProblem = store?.problem }
   store.start()
   #expect(await eventually { FileManager.default.fileExists(atPath: store.url.path) })
   try AgentDiscovery.save([AgentModel(id: "reported-only")], agent: .claude, in: root)

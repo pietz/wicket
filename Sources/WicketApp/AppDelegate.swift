@@ -96,11 +96,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // The app's one reaction to a configuration load, in order: the services (and through the screens'
     // redraw, voice), then the hotkey registrations, then the status item.
     var applied = Configuration()
-    configuration.onChange = { [weak self] config, _ in
+    configuration.onChange = { [weak self] config in
       guard let self else { return }
-      if let config { NSApp.appearance = config.appearance.nsAppearance }
+      NSApp.appearance = config.appearance.nsAppearance
       model.apply(config)
-      if let config, config != applied || hotkey.inEffect == nil {
+      if config != applied || hotkey.inEffect == nil {
         applied = config
         register(config)
         shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"

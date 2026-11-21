@@ -40,13 +40,11 @@ final class LauncherModel {
     self.history = history
     // Tests and headless runs react with the services alone; the app reacts in its own order, these
     // first (`AppDelegate`).
-    store.onChange = { [weak self] configuration, _ in self?.apply(configuration) }
+    store.onChange = { [weak self] configuration in self?.apply(configuration) }
   }
-  /// A configuration was loaded: the extensions' settings, the clipboard and the sources it switched on
-  /// or off follow it. Nil when the file could not be read: the store's stand-in then, which is the last
-  /// good configuration, or before one loaded the defaults without extensions.
-  func apply(_ configuration: Configuration?) {
-    let configuration = configuration ?? store.configuration
+  /// A configuration was loaded (`ConfigurationStore.onChange`): the extensions' settings, the clipboard
+  /// and the sources it switched on or off follow it.
+  func apply(_ configuration: Configuration) {
     extensions.settings = configuration.extensions
     clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
     var switched: Set<String>?

@@ -88,3 +88,19 @@ func invalidShortcut(spelling: String) {
   config.providers = [.init("apps")]
   #expect(config.isEnabled("files", extensions: []))
 }
+
+/// The launcher hotkey is the way to the error, so a file that is broken at launch still hands the app a
+/// configuration to register: the defaults, without extensions.
+@MainActor @Test func aBrokenFileAtLaunchStillReportsAConfiguration() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let url = root.appending(path: "config.json")
+  try Data(#"{"hotkey":"space"}"#.utf8).write(to: url)
+  let store = ConfigurationStore(url: url)
+  var reported: [Configuration] = []
+  store.onChange = { reported.append($0) }
+  store.start(watching: false)
+  #expect(store.problem?.hasPrefix("Config:") == true)
+  #expect(reported.count == 1 && reported[0].hotkey == .default && reported[0].hotkeys.isEmpty)
+  #expect(!reported[0].runsExtensions)
+}
