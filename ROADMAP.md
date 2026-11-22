@@ -12,7 +12,7 @@ One coordinated contract change, with the contract, agent instructions, examples
 - Manifests carry an integer `contract`, read before the rest of the manifest is checked, so a newer one says which Wicket it needs instead of failing as broken.
 - Typed inputs appear as search-bar parameters and as interactive fields inside the canvas.
 - A view can declare fields too, as body tags with the same types (a grid of switches whose entries aren't known in advance). Manifest inputs and view fields share one renderer and one wire format.
-- Field changes follow today's rules: in a live command a change reruns with `submitted:false`, like typing; in a `submit` command nothing is sent until Return or an action. Agent answers show no fields, since no program receives them.
+- Field changes follow today's rules: in a live command a change reruns with `submitted:false`, like typing; in a `submit` command nothing is sent until Return or an action. A field can opt in to make its change an action: one submitted request, so a switch acts at once like a switch in System Settings. Agent answers show no fields, since no program receives them.
 - Every control is a documented tag in the contract, the agent instructions where it applies, the examples and the tests; there are no app-private components, and onboarding (step 3) uses only these. Controls look native: a small token-driven control layer in `core.css` (switch, checkbox, slider, segmented choice, pop-up, text field) that `theme.css` can override, judged in offscreen captures.
 
 The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. Fields inside it are keyed HTML fields (a prototype passed fast typing, a structural re-render and 1,000 rapid updates); before shipping, verify Tab and Shift-Tab, Japanese IME and caret through a re-render with offscreen tests only. If negatives about the HTML canvas pile up, raise it openly.
@@ -31,7 +31,7 @@ Extensions move out of the app into an official GitHub repository, and users ins
 
 ## 3. Onboarding
 
-A first-launch flow in the canvas: a grid of catalog extensions to pick (the picks download when the user continues), the agent and its model, and the panel's look with sliders that change it live. It is also the test of the canvas: toggling tiles, choices and sliders must look native enough, judged in offscreen captures before it is built.
+A first-launch flow in the canvas: a grid of catalog extensions whose switches install one as it is turned on, the agent and its model, and the panel's look with sliders that change it live. It is also the test of the canvas: toggling tiles, choices and sliders must look native enough, judged in offscreen captures before it is built.
 
 ## 4. Drafts
 
