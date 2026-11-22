@@ -520,7 +520,7 @@ struct LauncherView: View {
           if let source = agent.source {
             Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
           }
-          Text(agent.question).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+          Text(agent.question).font(.system(size: 13, weight: .medium))
             .lineLimit(agent.expanded ? nil : 2).textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
           if Self.isLong(agent.question) {
@@ -553,7 +553,7 @@ struct LauncherView: View {
         } else if agent.working {
           HStack(spacing: 12) {
             ProgressView().controlSize(.small)
-            Text(agent.status).font(.system(size: textSize.points)).foregroundStyle(.secondary)
+            Text(agent.status).font(.system(size: textSize.points))
           }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
             .frame(height: PaletteLayout.answerMin)
         } else {
