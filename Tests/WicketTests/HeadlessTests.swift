@@ -240,13 +240,23 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(sample.hasPrefix("# 5 events\n") && sample.contains("sample events"))
   #expect(sample.contains("\n### Tomorrow\n<row label=\"09:30\" title=\"Standup\" subtitle=\"Zoom\""))
   // A floating time is local; the all-day event the day after tomorrow comes first in its day.
-  let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: .now)!
-  let later = Calendar.current.date(byAdding: .day, value: 2, to: .now)!
+  func day(_ offset: Int) -> Date { Calendar.current.date(byAdding: .day, value: offset, to: .now)! }
+  let tomorrow = day(1)
+  let later = day(2)
   func ics(_ date: Date, _ format: String) -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = format
     return formatter.string(from: date)
   }
+  let weekday = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+  func byday(_ date: Date) -> String { weekday[Calendar.current.component(.weekday, from: date) - 1] }
+  // Noon in New York, as this Mac shows it.
+  var newYork = Calendar(identifier: .gregorian)
+  newYork.timeZone = TimeZone(identifier: "America/New_York")!
+  var noon = newYork.dateComponents([.year, .month, .day], from: later)
+  noon.hour = 12
+  let call = ics(newYork.date(from: noon)!, "HH:mm")
+  let url = "https://example.com/j/" + String(repeating: "a", count: 600)
   let calendar = root.appending(path: "calendar.ics")
   try Data(
     """
@@ -264,6 +274,32 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     BEGIN:VEVENT\r
     DTSTART:\(ics(tomorrow, "yyyyMMdd'T'083000"))\r
     SUMMARY:Dentist\r
+    DESCRIPTION:Bring the card\r
+    BEGIN:VALARM\r
+    DESCRIPTION:Reminder\r
+    END:VALARM\r
+    END:VEVENT\r
+    BEGIN:VEVENT\r
+    DTSTART:\(ics(day(-6), "yyyyMMdd'T'100000"))\r
+    DTEND:\(ics(day(-6), "yyyyMMdd'T'101500"))\r
+    RRULE:FREQ=WEEKLY;BYDAY=\(byday(tomorrow)),\(byday(later))\r
+    EXDATE:\(ics(later, "yyyyMMdd'T'100000"))\r
+    SUMMARY:Standup\r
+    END:VEVENT\r
+    BEGIN:VEVENT\r
+    DTSTART;TZID="America/New_York":\(ics(later, "yyyyMMdd'T'120000"))\r
+    SUMMARY:Call\r
+    END:VEVENT\r
+    BEGIN:VEVENT\r
+    DTSTART;VALUE=DATE:\(ics(day(-1), "yyyyMMdd"))\r
+    DURATION:P3D\r
+    SUMMARY:Conference\r
+    END:VEVENT\r
+    BEGIN:VEVENT\r
+    DTSTART:\(ics(later, "yyyyMMdd'T'160000"))\r
+    SUMMARY:\(String(repeating: "Überprüfung ", count: 60))\r
+    LOCATION:\(String(repeating: "Straße ", count: 60))\r
+    URL:\(url)\r
     END:VEVENT\r
     END:VCALENDAR\r
     """.utf8
@@ -271,12 +307,24 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let config = #"{"extensions":{"agenda":{"calendar":"\#(calendar.path)"}}}"#
   try Data(config.utf8).write(to: root.appending(path: "config.json"))
   let page = try await cli(root, ["--extension", "agenda"]).1["body"].string ?? ""
-  #expect(page.hasPrefix("# 3 events\nNext 7 days\n\n### Tomorrow\n"))
+  // An all-day event given a DURATION that began yesterday is still on today.
+  #expect(
+    page.hasPrefix("# 7 events\nNext 7 days\n\n### Today\n<row label=\"All day\" title=\"Conference\">"))
   #expect(page.contains("### Tomorrow\n<row label=\"08:30\" title=\"Dentist\">"))
+  #expect(page.contains("Bring the card") && !page.contains("Reminder"))
+  // A weekly event that began last week repeats tomorrow, but not on the excluded day after.
+  #expect(page.contains("<row label=\"10:00\" title=\"Standup\">\n<row label=\"When\" value=\""))
+  #expect(page.components(separatedBy: "title=\"Standup\"").count == 2)
+  #expect(page.contains("<row label=\"\(call)\" title=\"Call\">"))
   #expect(page.contains("<row label=\"All day\" title=\"Holiday\">\n"))
   #expect(page.contains("<row label=\"14:00\" title=\"Review with Sam\" subtitle=\"Room 4, upstairs\">"))
   #expect(page.contains("<row label=\"Where\" value=\"Room 4, upstairs\"/>"))
   #expect(page.range(of: "Holiday")!.lowerBound < page.range(of: "Review")!.lowerBound)
+  // A long title and place are cut to keep the tag within Wicket's limit; the link is kept whole.
+  let long = page.split(separator: "\n").first { $0.hasPrefix("<row label=\"16:00\"") } ?? ""
+  #expect(
+    long.utf8.count < 1024 && long.contains("Straße")
+      && long.hasSuffix(" open=\"\(url)\" action=\"Open example.com\">"))
   let filtered = try await cli(root, ["--extension", "agenda", "--input", "room"]).1["body"].string
   #expect(filtered?.hasPrefix("# 1 event\n") == true)
   let none = try await cli(root, ["--extension", "agenda", "--input", "xyz"]).1["body"].string
@@ -284,6 +332,10 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   try FileManager.default.removeItem(at: calendar)
   let missing = try await cli(root, ["--extension", "agenda"]).1["body"].string
   #expect(missing?.hasPrefix("# Calendar not read\n") == true)
+  // A file or address that answers with something else, such as a sign-in page, is a problem, not an empty week.
+  try Data("<html>Sign in</html>".utf8).write(to: calendar)
+  let other = try await cli(root, ["--extension", "agenda"]).1["body"].string
+  #expect(other?.hasPrefix("# Calendar not read\nThis is not an iCalendar file") == true)
 }
 
 @MainActor @Test func currencyExampleConvertsFromTheDaysCacheAndShowsSourceAndAge() async throws {
