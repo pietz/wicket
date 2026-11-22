@@ -28,7 +28,7 @@ final class LatestWriter<Value: Sendable>: Sendable {
   }
 }
 
-/// Shared by providers that rank searchable rows and the host that records successful actions.
+/// Shared by providers that rank searchable rows and the host that records their use.
 @MainActor
 final class UsageHistory {
   private(set) var store: UsageStore

@@ -4,7 +4,7 @@ import Testing
 
 @testable import WicketApp
 
-// What the panel hands the screens and back: Return while an application opens, dictation when the
+// What the panel hands the screens and back: launching an application, dictation when the
 // screens write the input themselves, and the panel's own lifetime.
 
 /// An application that opens only when the test says so.
@@ -15,54 +15,73 @@ import Testing
     opened.append(url)
     done.append(completion)
   }
-  func finish() {
-    for completion in done { completion(nil) }
+  func finish(_ error: Error? = nil) {
+    for completion in done { completion(error) }
     done.removeAll()
   }
 }
 /// An application bundle in `root`, so the open policy lets it open.
-private func application(in root: URL) throws -> RowAction {
+private func application(in root: URL) throws -> URL {
   let bundle = root.appending(path: "Slow.app")
   try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-  return RowAction(.open(bundle))
+  return bundle
 }
 
-@MainActor @Test func nothingRunsWhileAnApplicationOpens() async throws {
-  let held = HeldOpen()
-  let (model, controller, root) = try await staleReturn(openApplication: held.open)
+@MainActor private struct SlowApps: Provider {
+  let id = "apps"
+  let url: URL
+  func view(for request: ProviderRequest) async -> ProviderView {
+    .init(items: [Row(id: url.path, title: "Slow", actions: [.open(url)])])
+  }
+}
+
+@MainActor @Test(arguments: [true, false])
+func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async throws {
+  let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let app = try application(in: root)
-  let echo = root.appending(path: "extensions/echo")
-  let before = try requests(in: echo).count
-  controller.run(app)
-  #expect(held.opened.count == 1 && model.navigator.results.first?.row.title == "> A")
-  // Return on the pattern's row would enter its command: it does nothing, nor in the action panel,
-  // which stays open.
-  controller.run()
-  model.navigator.toggleActions()
-  #expect(model.navigator.actionsTitle == "> A")
-  controller.run()
-  controller.run(app)
-  #expect(model.navigator.actionsTitle == "> A" && model.navigator.command == nil && held.opened.count == 1)
-  try await Task.sleep(for: .milliseconds(100))
-  #expect(try requests(in: echo).count == before && model.navigator.command == nil)
-  held.finish()
-  #expect(!controller.panel.isVisible && model.navigator.command == nil)
+  let url = try application(in: root)
+  let history = UsageHistory(url: root.appending(path: "usage.json"))
+  let model = LauncherModel(apps: SlowApps(url: url), history: history, folder: root, bundled: nil)
+  model.agent.connect = { _, _, _ in FakeAgent() }
+  model.store.update { $0.providers = [.init("apps")] }
+  let held = HeldOpen()
+  let panel = RekeyingPanel()
+  let controller = PaletteController(model: model, panel: panel, openApplication: held.open)
+  controller.show(listen: false)
+  let query = "slow"
+  model.navigator.input = query
+  await model.navigator.settled()
+  let result = try #require(model.navigator.selected)
+  #expect(result.provider == "apps" && panel.isVisible)
+  let now = Date()
+  #expect(history.store.frecency(result.id, query: query, now: now) == 0)
+
+  #expect(controller.handle(.run))
+  #expect(held.opened == [url] && !panel.isVisible && !controller.isShown)
+  #expect(history.store.frecency(result.id, query: query, now: now) == 1)
+
+  let message = "The application could not be opened."
+  let error = NSError(domain: "OpenApplication", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+  held.finish(succeeds ? nil : error)
+  #expect(panel.isVisible == !succeeds && controller.isShown == !succeeds)
+  #expect(model.navigator.actionProblem == (succeeds ? nil : message))
+  #expect(history.store.frecency(result.id, query: query, now: now) == 1)
+  controller.hide()
   await model.finish()
 }
 
-@MainActor @Test func aWaitingReturnDoesNotRunWhileAnApplicationOpens() async throws {
+@MainActor @Test func launchingAnAppCancelsAWaitingReturn() async throws {
   let held = HeldOpen()
   let (model, controller, root) = try await staleReturn(openApplication: held.open)
   defer { try? FileManager.default.removeItem(at: root) }
-  let app = try application(in: root)
+  let url = try application(in: root)
   model.navigator.input = "> B"
   controller.run()
   #expect(model.navigator.returnQueued)
-  // A menu item chosen meanwhile opens an application; the rows the Return waited for arrive during it.
-  controller.run(app)
+  // A menu item chosen meanwhile opens an application and dismisses the panel.
+  controller.run(.open(url))
+  #expect(held.opened == [url] && !controller.isShown && !model.navigator.returnQueued)
   try release(root, "echo")
-  #expect(await eventually(within: .seconds(3)) { model.navigator.results.first?.row.title == "> B" })
   await model.navigator.settled()
   #expect(!model.navigator.returnQueued && model.navigator.command == nil)
   #expect(try !requests(in: root.appending(path: "extensions/echo")).contains { $0.submitted })

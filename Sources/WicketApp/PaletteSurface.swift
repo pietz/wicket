@@ -10,10 +10,6 @@ import Foundation
   /// height is held for the page's turn until the navigator shows it (`PaletteChange.measured`): the page
   /// shown meanwhile keeps its own.
   func prepare(_ page: Page, turn: String) async -> PageMeasurement
-  /// An effect that hides the panel when it ends is under way (an application opening): until it ends,
-  /// Return, buttons and menu items do nothing, a Return that waits for its rows included, so nothing
-  /// else runs and then disappears with the panel.
-  var holdsReturn: Bool { get }
   /// Whether the panel is up: a hidden run that finds something to show opens it on that only while not.
   var isShown: Bool { get }
   /// Shows the hidden panel without listening, on what `arriving` commits: it runs once a kept conversation

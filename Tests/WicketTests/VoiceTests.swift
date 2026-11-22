@@ -532,7 +532,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
 
 /// Counts the panel taking the keys back after the consent dialog. It says it is visible from showing to
 /// hiding, as the panel is while the dialog borrows the keys, without ordering a window.
-@MainActor private final class RekeyingPanel: PalettePanel {
+@MainActor final class RekeyingPanel: PalettePanel {
   var keys = 0
   private var ordered = false
   override var isVisible: Bool { ordered }

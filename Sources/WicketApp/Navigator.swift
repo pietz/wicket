@@ -500,7 +500,6 @@ final class Navigator {
   /// Return, a button or a menu item: the action chosen, else what Return does (`returnPlan`), from the
   /// row it belongs to. What is not the screens' goes to the panel.
   func run(_ chosen: RowAction? = nil) {
-    guard surface?.holdsReturn != true else { return }
     // What runs takes the input from dictation first, so a later transcript cannot rewrite it.
     speech?.stop(.run)
     if chosen == nil {
@@ -843,9 +842,9 @@ final class Navigator {
     return true
   }
   /// Only picks that root search can learn from: not inside a chosen command, and not fallbacks.
-  func record(_ result: Result, input: String? = nil) {
+  func record(_ result: Result) {
     guard command == nil, result.row.id != "fallback" else { return }
-    history.record(result.id, input: input ?? self.input)
+    history.record(result.id, input: input)
   }
   /// Hides the panel's screens: what was over them, a switch and the work of the screen shown end. A
   /// conversation stays with its follow-up for when the panel shows again; anything else leaves the root

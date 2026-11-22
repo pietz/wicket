@@ -97,7 +97,6 @@ func finishTurn(_ session: AgentSession, _ question: String, _ answer: String) a
     if let onPrepare { return await onPrepare(page, turn) }
     return await next?.prepare(page, turn: turn) ?? .unmeasured
   }
-  var holdsReturn: Bool { next?.holdsReturn ?? false }
   /// Up unless a test says otherwise; hiding and showing it change it.
   var shown = true
   var isShown: Bool { next?.isShown ?? shown }

@@ -97,8 +97,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// Opens an application and calls back once Launch Services answered; tests hold the answer.
   @ObservationIgnored private let openApplication: (URL, @escaping @MainActor (Error?) -> Void) -> Void
   @ObservationIgnored private var anchor = NSPoint.zero
-  /// An application is opening, which hides the panel once it answers (`holdsReturn`).
-  @ObservationIgnored private var opening = false
   @ObservationIgnored private var previousApp: NSRunningApplication?
   @ObservationIgnored private var visibleStarted: TimeInterval?
   /// Between `show` and `hide`. A hidden panel renders nothing, so the renderer can release its page.
@@ -190,7 +188,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     renderer.selected = nil
     return await renderer.measure(page, turn: turn)
   }
-  var holdsReturn: Bool { opening }
   var isShown: Bool { isOpen }
   func perform(_ effect: PaletteEffect) {
     switch effect {
@@ -314,7 +311,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   private func perform(_ action: RowAction, from result: Result?) {
     // A hotkey's paste goes to the app in front, not the one the panel last showed over.
     if !isOpen { previousApp = NSWorkspace.shared.frontmostApplication }
-    let input = navigator.input
     func record() { if let result { navigator.record(result) } }
     switch action.kind {
     case .copy, .clip(_, paste: false):
@@ -363,17 +359,12 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
         }
         return
       }
-      opening = true
-      // Keep the error visible if Launch Services refuses the application.
+      record()
+      hide()
       openApplication(url) { [weak self] error in
-        guard let self else { return }
-        opening = false
-        if let error {
-          navigator.actionProblem = error.localizedDescription
-        } else {
-          if let result { navigator.record(result, input: input) }
-          hide()
-        }
+        guard let self, let error else { return }
+        navigator.actionProblem = error.localizedDescription
+        if !isOpen { show(listen: false) }
       }
     }
   }
