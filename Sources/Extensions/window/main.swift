@@ -4,8 +4,9 @@
 // request, and only that touches a window. Any other request lists the same items.
 //
 // Moving another app's window takes the Accessibility API, and macOS grants it to the responsible
-// process: Wicket, which started this one. Without the grant the first Accessibility call fails at once
-// and the answer is a row that opens the setting; nothing here asks macOS to prompt.
+// process: Wicket, which started this one. Without the grant (or with one that belongs to an older copy
+// of Wicket, which macOS keeps showing as on) the answer is a row that opens the setting; nothing here
+// asks macOS to prompt.
 //
 // AppKit is linked for two things nothing lower offers publicly: NSScreen's visible frame (the screen
 // without the menu bar and Dock) and NSWorkspace's frontmost app. Linked but unused it costs about 2 ms,
@@ -230,8 +231,23 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
   row(title, icon: "exclamationmark.triangle", subtitle: subtitle)
 }
 
+/// Why nothing moves without Accessibility, with the way to fix it. A grant made for an older copy of
+/// Wicket (an update, a rebuild) still shows its switch on but no longer applies, so the subtitle says
+/// what to do then too. Computed: a stored global in this file is set only by running the program, not
+/// for the tests that import it.
+var permissionRow: String {
+  row(
+    "Allow Wicket in Privacy & Security > Accessibility", icon: "lock",
+    subtitle: "If Wicket is already on there, remove it with − and add it again",
+    actions:
+      #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
+  )
+}
+
 /// Does the move on the frontmost app's focused window: nil when it moved, else a row that says why not.
-@MainActor func perform(_ move: Move, layout: Layout) -> String? {
+/// `trusted` is checked before anything else, so without it nothing touches an app.
+@MainActor func perform(_ move: Move, layout: Layout, trusted: Bool = AXIsProcessTrusted()) -> String? {
+  guard trusted else { return permissionRow }
   // The panel does not activate Wicket, so the app the user came from is still frontmost.
   guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getppid() else {
     return problem("No window to move", "Switch to the window, then open Wicket")
@@ -241,15 +257,8 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
   // A hung app would otherwise hold the request for the API's default six seconds (set on each element).
   AXUIElementSetMessagingTimeout(element, 1)
   var (error, value) = attribute(element, kAXFocusedWindowAttribute)
-  if error == .apiDisabled {
-    return row(
-      "Allow Wicket in Privacy & Security > Accessibility", icon: "lock",
-      subtitle: "Wicket needs it to move other apps' windows",
-      actions:
-        #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
-    )
-  }
-  if value == nil { (error, value) = attribute(element, kAXMainWindowAttribute) }
+  if value == nil, error != .apiDisabled { (error, value) = attribute(element, kAXMainWindowAttribute) }
+  if error == .apiDisabled { return permissionRow }
   guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
     return problem("\(name) has no window to move")
   }
@@ -288,24 +297,28 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
   return nil
 }
 
+/// What the program prints: a problem alone, since the panel orders a command's items by what is typed
+/// and a matching command would rank above it, else the commands (a JSON array's contents).
+func answer(problem: String?, commands: String) -> String { #"{"items":["# + (problem ?? commands) + "]}" }
+
 let request = JSON.standardInput()
 let manifest = contents("wicket.json") ?? []
 var position = 0
-var items: [String] = []
+var commands = ""
 if case .array(let range)? = JSON.read(manifest, &position)?["items"] {
   // The manifest's items without their brackets: the commands, written once.
-  let list = String(decoding: manifest[range], as: UTF8.self)
-  items.append(String(list.dropFirst().dropLast()))
+  commands = String(String(decoding: manifest[range], as: UTF8.self).dropFirst().dropLast())
 }
 // Only the user's choice moves a window; every other request is the list. A move that worked prints
 // nothing, since the window moving is the feedback (the items' runs are hidden); one that did not shows
-// why above the commands.
+// why, which typing in the command replaces with the list again.
+var failure: String?
 if case .bool(true)? = request?["submitted"],
   let move = request?["arguments"]?["move"]?.string.flatMap(Move.init(rawValue:))
 {
   let settings = request?["settings"]
   let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
-  guard let problem = perform(move, layout: layout) else { exit(0) }
-  items.insert(problem, at: 0)
+  failure = perform(move, layout: layout)
+  if failure == nil { exit(0) }
 }
-print(#"{"items":["# + items.joined(separator: ",") + "]}")
+print(answer(problem: failure, commands: commands))

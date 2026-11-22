@@ -155,6 +155,24 @@ private func windowView(_ arguments: [String: String] = [:], submitted: Bool = f
   #expect(try await windowView(["move": "sideways"], submitted: true).items == rows)
 }
 
+/// Without Accessibility (or with a grant left from an older copy of Wicket) a move answers one row that
+/// opens the setting and says what to do when Wicket's switch is already on, before touching any app. It
+/// is the whole answer, so no command that matches what is typed ranks above it, and its first line,
+/// which an open panel shows alone, names the permission.
+@MainActor @Test func anUntrustedMoveAnswersOnlyTheRowThatOpensAccessibility() throws {
+  let failure = try #require(perform(.left, layout: Layout(), trusted: false))
+  let view = try JSONDecoder().decode(
+    ProviderView.self,
+    from: Data(answer(problem: failure, commands: #"{"id":"left","title":"Left Half"}"#).utf8))
+  let row = try #require(view.items.first)
+  #expect(view.items.count == 1)
+  #expect(row.title.contains("Accessibility") && row.subtitle?.contains("add it again") == true)
+  #expect(
+    row.actions.map(\.kind) == [
+      .open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    ])
+}
+
 @Test func theDocsNameEveryWindowCommand() throws {
   let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent()
