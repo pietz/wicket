@@ -4,9 +4,8 @@
 // request, and only that touches a window. Any other request lists the same items.
 //
 // Moving another app's window takes the Accessibility API, and macOS grants it to the responsible
-// process: Wicket, which started this one. Without the grant (or with one that belongs to an older copy
-// of Wicket, which macOS keeps showing as on) the answer is a row that opens the setting; nothing here
-// asks macOS to prompt.
+// process: Wicket, which started this one. The manifest declares `accessibility`, so Wicket runs this
+// program only while it holds the grant and shows its own row otherwise.
 //
 // AppKit is linked for two things nothing lower offers publicly: NSScreen's visible frame (the screen
 // without the menu bar and Dock) and NSWorkspace's frontmost app. Linked but unused it costs about 2 ms,
@@ -231,23 +230,8 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
   row(title, icon: "exclamationmark.triangle", subtitle: subtitle)
 }
 
-/// Why nothing moves without Accessibility, with the way to fix it. A grant made for an older copy of
-/// Wicket (an update, a rebuild) still shows its switch on but no longer applies, so the subtitle says
-/// what to do then too. Computed: a stored global in this file is set only by running the program, not
-/// for the tests that import it.
-var permissionRow: String {
-  row(
-    "Allow Accessibility for Wicket", icon: "lock",
-    subtitle: "Already on? Remove Wicket there and add it again",
-    actions:
-      #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
-  )
-}
-
 /// Does the move on the frontmost app's focused window: nil when it moved, else a row that says why not.
-/// `trusted` is checked before anything else, so without it nothing touches an app.
-@MainActor func perform(_ move: Move, layout: Layout, trusted: Bool = AXIsProcessTrusted()) -> String? {
-  guard trusted else { return permissionRow }
+@MainActor func perform(_ move: Move, layout: Layout) -> String? {
   // The panel does not activate Wicket, so the app the user came from is still frontmost.
   guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getppid() else {
     return problem("No window to move", "Switch to the window, then open Wicket")
@@ -258,7 +242,10 @@ var permissionRow: String {
   AXUIElementSetMessagingTimeout(element, 1)
   var (error, value) = attribute(element, kAXFocusedWindowAttribute)
   if value == nil, error != .apiDisabled { (error, value) = attribute(element, kAXMainWindowAttribute) }
-  if error == .apiDisabled { return permissionRow }
+  // Wicket checked the grant before starting this; the API can still refuse an app.
+  if error == .apiDisabled {
+    return problem("\(name) refused Accessibility", "Remove Wicket in Privacy & Security and add it again")
+  }
   guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
     return problem("\(name) has no window to move")
   }

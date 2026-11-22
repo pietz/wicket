@@ -19,10 +19,13 @@ extension LauncherModel {
   @discardableResult func activateReturn() -> Bool {
     navigator.pick().map { navigator.activate($0.action, from: $0.from) } ?? false
   }
-  /// A model with no built-in providers that keeps its settings and usage in `folder`.
+  /// A model with no built-in providers that keeps its settings and usage in `folder`, holding every
+  /// permission without asking macOS.
   static func testing(in folder: URL, bundled: URL? = ExtensionHost.bundledFolder) -> LauncherModel {
-    LauncherModel(
+    let model = LauncherModel(
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder, bundled: bundled)
+    model.extensions.permissions = Permissions(status: { _ in .granted }, request: { _ in })
+    return model
   }
 }
 

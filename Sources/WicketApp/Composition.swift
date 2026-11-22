@@ -204,15 +204,23 @@ enum Ranking {
     let ask = Result(
       provider: "agent",
       row: Row(id: "ask", title: "Ask agent", subtitle: "⌘↩", icon: "sparkles", actions: [.send(input)]))
-    let repairs = problems.keys.sorted().map {
-      Result(
-        provider: $0,
+    let repairs = problems.keys.sorted().map { id in
+      let problem = problems[id]!
+      // A manifest for a newer contract is not broken: updating Wicket is the fix, in Settings.
+      guard !problem.contains(ExtensionManifest.NewerContract.phrase) else {
+        return Result(
+          provider: id,
+          row: Row(
+            id: "discovery-error", title: id + " " + ExtensionManifest.NewerContract.phrase,
+            subtitle: "Written for a newer extension contract", icon: "arrow.down.circle",
+            actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
+      }
+      return Result(
+        provider: id,
         row: Row(
-          id: "discovery-error", title: $0 + " needs repair", subtitle: "Invalid extension manifest",
+          id: "discovery-error", title: id + " needs repair", subtitle: "Invalid extension manifest",
           icon: "exclamationmark.triangle",
-          actions: [
-            .agent("Fix this extension. " + problems[$0]!.split(separator: "\n").joined(separator: ": "))
-          ]))
+          actions: [.agent("Fix this extension. " + problem.split(separator: "\n").joined(separator: ": "))]))
     }
     if query.isEmpty {
       let apps = candidates.filter { $0.kind == .app }.prefix(emptyApps)

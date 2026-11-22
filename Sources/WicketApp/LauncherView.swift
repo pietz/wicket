@@ -606,6 +606,7 @@ extension RowAction {
     case .detail: "Show details"
     case .clip(_, let paste): paste ? "Paste into previous app" : "Copy"
     case .hotkey(_, let record): record ? "Set Hotkey…" : "Remove Hotkey"
+    case .grant: "Allow"
     }
   }
   /// The SF Symbol of its kind: its row in the action panel, and a page's target row without an icon.
@@ -620,6 +621,7 @@ extension RowAction {
     case .detail: "text.page"
     case .hotkey(_, let record): record ? "keyboard" : "xmark.circle"
     case .clip(_, let paste): paste ? "doc.on.clipboard" : "doc.on.doc"
+    case .grant: "lock.open"
     }
   }
 }

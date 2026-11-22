@@ -323,13 +323,14 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       hide()
     case .hotkey(let target, record: true):
       recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
-    case .run, .send, .detail, .hotkey: break
+    case .run, .send, .detail, .hotkey, .grant: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()
       hide()
     case .paste, .clip(_, paste: true):
-      guard AXIsProcessTrusted(), let previousApp, previousApp.processIdentifier != getpid(),
+      guard model.extensions.permissions.status(.accessibility) == .granted, let previousApp,
+        previousApp.processIdentifier != getpid(),
         !previousApp.isTerminated
       else {
         navigator.actionProblem =

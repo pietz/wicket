@@ -49,7 +49,7 @@ import Testing
   // An allowed target is left to the panel to open.
   #expect(!model.navigator.activate(.open(document)) && model.navigator.actionProblem == nil)
   #expect(!model.navigator.activate(.reveal(unsafe[0])) && model.navigator.actionProblem == nil)
-  // A System Settings pane, as the window extension's Accessibility row opens it.
+  // A System Settings pane, as Wicket's permission row opens it.
   let settings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
   #expect(!model.navigator.activate(.open(settings)) && model.navigator.actionProblem == nil)
   for (action, problem) in [

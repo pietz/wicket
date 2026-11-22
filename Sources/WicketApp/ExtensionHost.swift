@@ -64,6 +64,8 @@ final class ExtensionHost {
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   var runner = ExtensionRunner()
+  /// What macOS grants Wicket, checked before a program that declares permissions runs; tests replace it.
+  var permissions = Permissions.system
   /// Moves a folder to the Trash, so it can be put back; tests replace it.
   var moveToTrash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
   /// The `extensions` of config.json: each folder's saved settings.
@@ -145,17 +147,23 @@ final class ExtensionHost {
         let manifest = try JSONDecoder().decode(
           ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
         commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest)
+      } catch let newer as ExtensionManifest.NewerContract {
+        problems[id] = "\(folder.path)\n\(newer)"
       } catch { problems[id] = "\(folder.path)\nInvalid wicket.json: \(error)" }
     }
     return (commands, problems)
   }
 
-  /// The view the command answers: from its items when it has no program, and nothing runs; else what its
+  /// The view the command answers: from its items when it has no program, and nothing runs; Wicket's
+  /// permission rows while a permission it declares is missing, and nothing runs either; else what its
   /// program printed within the deadline. Cancelling, or `shutdown`, stops the process.
   func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
     var request = request
     request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
     guard command.manifest.command != nil else { return ProviderView(items: command.ownItems(request.input)) }
+    let rerun = Address(
+      id: command.id, input: request.input, arguments: request.arguments, link: !request.submitted)
+    if let gate = permissions.gate(command, rerun: rerun) { return gate }
     let id = UUID()
     let task = Task { [runner, request] in try await runner.run(command, request: request) }
     running[id] = task

@@ -8,7 +8,7 @@ Write a directory under `extensions/` in the Wicket working folder. Read this re
 {"name":"Weather","keyword":"weather","command":["./main.py"],"icon":"cloud.sun"}
 ```
 
-A nonempty `name` and a nonempty `command` argv array, `items` or both are required. `description` (one line on what it does, shown in Settings), `keyword`, SF Symbol `icon`, regex `match`, boolean `fallback` (default false), `arguments`, boolean `submit` (default false), boolean `hidden` (default false, needs `submit`) and `settings` are optional; all but `description`, `keyword` and `icon` need a `command`. Any other key is an error naming it, shown as a repair row. Use a relative executable with its execute bit and shebang, or an installed interpreter, e.g. `["/usr/bin/python3","main.py"]`. No shell expansion. Relative paths resolve in the extension folder.
+A nonempty `name` and a nonempty `command` argv array, `items` or both are required. `description` (one line on what it does, shown in Settings), `keyword`, SF Symbol `icon`, regex `match`, boolean `fallback` (default false), `arguments`, boolean `submit` (default false), boolean `hidden` (default false, needs `submit`), `settings`, `permissions` and integer `contract` are optional; all but `description`, `keyword`, `icon` and `contract` need a `command`. Any other key is an error naming it, shown as a repair row. `contract` is the version of this contract the manifest is written for, 1 for this one and 1 when absent; leave it out. A manifest with a higher number shows that it needs a newer Wicket instead of running. Use a relative executable with its execute bit and shebang, or an installed interpreter, e.g. `["/usr/bin/python3","main.py"]`. No shell expansion. Relative paths resolve in the extension folder.
 
 ### Triggers: when the program runs
 
@@ -41,6 +41,14 @@ Entering a command is itself submitted. A command whose effect is the point of c
 ```
 
 `settings` declares values the owner sets in Settings ▸ Extensions, each `{name, placeholder?, default?}`. Settings names must be nonempty and unique. Wicket keeps them in `config.json` under `extensions`, by folder name (`"extensions":{"window":{"gap":"8"}}`), and sends every request `settings`: each declared name with the saved value, else its default; one with neither is absent. Values are strings: parse and check them, and fall back to your default for one you cannot use. Use settings for preferences across requests (a margin, a home city, a unit), arguments for values of one request. Never store preferences in your own folder: a bundled extension's folder cannot be written.
+
+### Permissions: what macOS must grant
+
+```json
+{"name":"Today","keyword":"today","command":["./main"],"permissions":["calendar"]}
+```
+
+`permissions` names the macOS permissions the program needs: `accessibility` (controlling other apps, such as moving their windows or reading their UI) and `calendar` (full access to Calendar events through EventKit). Wicket holds no other protected access (Contacts, Photos, Location, Automation), so macOS refuses those to every extension for now. macOS grants a permission to Wicket, the app that starts your program, never to the program: once Wicket holds Calendar, every enabled extension and whatever the agent runs has it. Declaring confines nothing, since an enabled extension is trusted; it tells the user and lets Wicket check first. Before running the program, Wicket checks each declared permission and, while one is missing, runs nothing and shows its own row instead (Allow Calendar asks macOS in Wicket's name and then sends the same request; Accessibility opens its pane in System Settings, where only the user can switch it on). At the root, a `match` of such an extension runs nothing until the permission is there; the row shows when the command is entered or run, from a hotkey too. So declare every permission you use, never ask macOS to prompt from your program, and never build a helper app or a separate bundle to hold a permission: it shows up as an unknown entry in Privacy & Security.
 
 ### Items: a known list found like apps
 
@@ -101,7 +109,7 @@ Every action takes an optional `title`, its name in ⌘K and the context menu; w
 - **`copy`** copies and closes the launcher. **`paste`** removes newlines, restores the previous app and posts ⌘V if Accessibility access was already granted; otherwise it says how to enable it, without prompting.
 - **`agent`** fills the input with the text and sends nothing; the user presses Return. Outside a conversation it leaves the open command and opens an empty conversation with the text as an unsent question.
 
-macOS attributes your program's Accessibility use to Wicket, since Wicket starts it (the window commands rely on this). When a permission is missing, show a row that says which one ("Allow Accessibility for Wicket") with an `open` action to its pane, and never ask macOS to prompt. Errors are selectable text with Copy and Ask agent actions carrying the folder, command, request, error and stderr tail.
+Errors are selectable text with Copy and Ask agent actions carrying the folder, command, request, error and stderr tail.
 
 ## Body tags
 

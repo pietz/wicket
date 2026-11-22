@@ -1,6 +1,11 @@
 import Foundation
 
 struct ExtensionManifest: Codable, Sendable, Equatable {
+  /// The version of this contract the manifest is written for; absent means 1. A newer one is read
+  /// before any other key, so it says which Wicket it needs instead of failing as broken.
+  let contract: Int
+  /// The contract this Wicket reads. Raise it only for a change an older Wicket would misread.
+  static let currentContract = 1
   let name: String
   /// One line on what it does, for Settings.
   let description: String?
@@ -20,6 +25,9 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let hidden: Bool
   /// Values the user sets in Settings, kept in config.json and sent in every `request.settings`.
   let settings: [Argument]
+  /// The macOS permissions its program needs, which Wicket checks before running it
+  /// (`Permissions.gate`).
+  let permissions: [Permission]
 
   /// An argument, or a setting, which may have a `default`.
   struct Argument: Codable, Sendable, Equatable {
@@ -31,7 +39,15 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
 
   private enum CodingKeys: String, CodingKey, CaseIterable {
     case name, description, keyword, command, icon, match, fallback, items, arguments, submit, hidden,
-      settings
+      settings, permissions, contract
+  }
+  /// A manifest for a newer contract than this Wicket reads.
+  struct NewerContract: Error, CustomStringConvertible {
+    let contract: Int
+    static let phrase = "needs a newer Wicket"
+    var description: String {
+      "This extension \(Self.phrase): it is written for extension contract \(contract), and this Wicket reads contract \(ExtensionManifest.currentContract). Update Wicket to use it."
+    }
   }
   /// Any key in the file, so a misspelled one (`keywords`, `trigger`) is an error instead of ignored.
   private struct AnyKey: CodingKey {
@@ -43,12 +59,23 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   init(from decoder: any Decoder) throws {
     let valid = CodingKeys.allCases.map(\.rawValue)
     let file = try decoder.container(keyedBy: AnyKey.self)
+    // First, so a newer manifest's new keys are never reported as misspellings.
+    if let contract = try? file.decodeIfPresent(Int.self, forKey: AnyKey(stringValue: "contract")),
+      contract > Self.currentContract
+    {
+      throw NewerContract(contract: contract)
+    }
     if let key = file.allKeys.first(where: { !valid.contains($0.stringValue) }) {
       throw DecodingError.dataCorruptedError(
         forKey: key, in: file,
         debugDescription: "Unknown key `\(key.stringValue)`; valid keys: \(valid.joined(separator: ", "))")
     }
     let c = try decoder.container(keyedBy: CodingKeys.self)
+    contract = try c.decodeIfPresent(Int.self, forKey: .contract) ?? 1
+    guard contract >= 1 else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .contract, in: c, debugDescription: "contract is a whole number from 1")
+    }
     name = try c.decode(String.self, forKey: .name)
     description = try c.decodeIfPresent(String.self, forKey: .description)
     keyword = try c.decodeIfPresent(String.self, forKey: .keyword)
@@ -64,6 +91,17 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
       throw DecodingError.dataCorruptedError(forKey: .hidden, in: c, debugDescription: "hidden needs submit")
     }
     settings = try c.decodeIfPresent([Argument].self, forKey: .settings) ?? []
+    let declared = try c.decodeIfPresent([String].self, forKey: .permissions) ?? []
+    permissions = declared.compactMap(Permission.init(rawValue:))
+    guard permissions.count == declared.count, Set(declared).count == declared.count,
+      command != nil || declared.isEmpty
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .permissions, in: c,
+        debugDescription:
+          "permissions need a command and are distinct names from: \(Permission.allCases.map(\.rawValue).joined(separator: ", "))"
+      )
+    }
     let names = arguments.map(\.name)
     guard names.count <= Self.maxArguments, Set(names).count == names.count, !names.contains(""),
       arguments.allSatisfy({ $0.default == nil })

@@ -155,22 +155,29 @@ private func windowView(_ arguments: [String: String] = [:], submitted: Bool = f
   #expect(try await windowView(["move": "sideways"], submitted: true).items == rows)
 }
 
-/// Without Accessibility (or with a grant left from an older copy of Wicket) a move answers one row that
-/// opens the setting and says what to do when Wicket's switch is already on, before touching any app. It
-/// is the whole answer, so no command that matches what is typed ranks above it, and its first line,
-/// which an open panel shows alone, names the permission.
-@MainActor @Test func anUntrustedMoveAnswersOnlyTheRowThatOpensAccessibility() throws {
-  let failure = try #require(perform(.left, layout: Layout(), trusted: false))
+/// A move that failed answers one row saying why: the whole answer, so no command that matches what is
+/// typed ranks above it, and its first line, which an open panel shows alone, says what happened.
+@Test func aFailedMoveAnswersOnlyTheRowThatSaysWhy() throws {
   let view = try JSONDecoder().decode(
     ProviderView.self,
-    from: Data(answer(problem: failure, commands: #"{"id":"left","title":"Left Half"}"#).utf8))
+    from: Data(
+      answer(problem: problem("No window to move"), commands: #"{"id":"left","title":"Left Half"}"#).utf8))
+  #expect(view.items.map(\.title) == ["No window to move"])
+}
+
+/// Wicket checks Accessibility before running the program: without it the command answers Wicket's row,
+/// which opens the pane and says what to do when Wicket's switch is already on, and no move runs.
+@MainActor @Test func withoutAccessibilityWicketAnswersForTheWindowCommands() async throws {
+  let window = try bundled("window")
+  #expect(window.manifest.permissions == [.accessibility])
+  let host = ExtensionHost(folder: URL(filePath: "/nonexistent"), bundled: bundledExtensions)
+  host.permissions = Permissions(status: { _ in .denied }, request: { _ in })
+  let view = try await host.view(
+    window, request: ProviderRequest(input: "", arguments: ["move": "left"], submitted: true))
   let row = try #require(view.items.first)
-  #expect(view.items.count == 1)
-  #expect(row.title.contains("Accessibility") && row.subtitle?.contains("add it again") == true)
-  #expect(
-    row.actions.map(\.kind) == [
-      .open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    ])
+  #expect(view.items.count == 1 && row.title == "Allow Accessibility for Wicket")
+  #expect(row.subtitle?.contains("add it again") == true)
+  #expect(row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
 }
 
 @Test func theDocsNameEveryWindowCommand() throws {

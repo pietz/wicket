@@ -728,7 +728,7 @@ final class Navigator {
       seen = generation
       for task in tasks + hiddenRuns.values { await task.value }
       await search.settled()
-    } while seen != generation
+    } while seen != generation || !hiddenRuns.isEmpty
   }
   /// The root's list for what is typed; a Return that waits is decided again (`returnPlan`).
   private func show(_ output: RootCommand.Output) {
@@ -827,6 +827,7 @@ final class Navigator {
     case .send(let text): send(text)
     case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
     case .hotkey(let target, record: false): store.bind(nil, to: target)
+    case .grant(let permission, let address): grant(permission, then: address)
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
@@ -1060,6 +1061,20 @@ final class Navigator {
     let request = ProviderRequest(
       input: address.input ?? (command?.id == id ? input : ""), arguments: address.arguments ?? [:],
       submitted: true)
+    // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
+    // opening for it, since the user is waiting for an effect that will not come.
+    let rerun = Address(id: id, input: request.input, arguments: request.arguments, hidden: true)
+    if let gate = extensions.permissions.gate(program, rerun: rerun) {
+      let present = { [self] in
+        if conversing {
+          actionProblem = "\(program.manifest.name): \(gate.items[0].title)"
+        } else {
+          adopt(program, request: request, outcome: .view(gate))
+        }
+      }
+      if let surface, !surface.isShown { surface.show(arriving: present) } else { present() }
+      return
+    }
     // Only an open panel hides: hiding again would count as the user leaving a kept conversation now.
     if surface?.isShown == true { surface?.perform(.hide) }
     let run = UUID()
@@ -1091,7 +1106,18 @@ final class Navigator {
       }
     }
   }
-  /// Hidden runs on their way, which `settled` waits for too.
+  /// Asks macOS for a permission from Wicket itself (its prompt may hide the panel), then sends the
+  /// request the gate held back again, as it was: a hidden run hidden, any other on its command.
+  private func grant(_ permission: Permission, then address: Address) {
+    let id = UUID()
+    hiddenRuns[id] = Task { [weak self, extensions] in
+      await extensions.permissions.request(permission)
+      guard let self else { return }
+      hiddenRuns[id] = nil
+      if address.hidden { runHidden(address, from: nil) } else { open(address, submitted: !address.link) }
+    }
+  }
+  /// Hidden runs and permission requests on their way, which `settled` waits for too.
   @ObservationIgnored private var hiddenRuns: [UUID: Task<Void, Never>] = [:]
   /// What a hidden run answered shows on its command as if Return had run it there, and nothing runs again.
   private func adopt(_ program: ExtensionCommand, request: ProviderRequest, outcome: CommandOutcome) {

@@ -55,6 +55,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 3. Window's settings: Gap 8 and Almost Maximize 80 save on Return and on focus loss; emptying restores the defaults.
 4. Make It Mine on Window: `extensions/window` appears with `wicket.json`, `main`, `main.swift` and `JSON.swift`, and still works. On Calculator with `extensions/calculator` already there: refused. Move to Trash on your copy: confirmation, the bundled one returns.
 5. `open "wicket-dev://weather?input=berlin"` with Wicket Dev closed and open opens Weather with the input; it never reaches the installed Wicket. A `wicket://` link in an answer works too.
+6. Calendar, once on the first release build too: reset with `tccutil reset Calendar app.wicket.Wicket.dev`, then ask the agent for a Today extension that lists today's events with EventKit. Its manifest declares `"permissions":["calendar"]` and no helper app appears. Entering it shows "Allow Calendar for Wicket" and nothing ran; Return shows macOS's prompt naming Wicket Dev with the text "Wicket extensions you enable can read your calendar…"; Allow lists the events at once. With access refused instead, the row opens Privacy & Security ▸ Calendars. A manifest with `"contract":2` shows "needs a newer Wicket" at the root and in Settings, not "needs repair".
 
 ## 8. Settings
 
@@ -65,7 +66,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 
 ## 9. Window commands
 
-1. Without Accessibility for Wicket, and again with its switch on from an older build: Left Half shows only the row "Allow Accessibility for Wicket", whose subtitle fits and says to remove and re-add Wicket if it is already on, and no system prompt; Return opens the pane. From its hotkey over an open agent conversation, the conversation stays and its footer names the permission. Grant it to Wicket only (no separate entry for the extension).
+1. Without Accessibility for Wicket, and again with its switch on from an older build: Left Half from the list, and its hotkey with the panel closed, both show only the row "Allow Accessibility for Wicket" (the hotkey opens the panel on it, never nothing), whose subtitle fits and says to remove and re-add Wicket if it is already on, and no system prompt; Return opens the pane. Typing `left` at the root shows Left Half and no permission row. From its hotkey over an open agent conversation, the conversation stays and its footer names the permission. Grant it to Wicket only (no separate entry for the extension); the next press moves the window.
 2. Over a Safari window, reopening Wicket for each: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize and Center move Safari clear of the menu bar and Dock, Wicket closes at once, Safari keeps focus.
 3. Restore after Left Half then Maximize goes back one move at a time, then says Nothing to restore. A window moved by hand has nothing to restore.
 4. Next Display with two displays of different sizes keeps the window's place and share; with one display it says so.

@@ -1,0 +1,185 @@
+import Foundation
+import Testing
+
+@testable import WicketApp
+
+// Manifest `contract` and `permissions`, and Wicket's permission gate, with the system's permission state
+// faked: no test touches TCC.
+
+/// Stands in for macOS: Calendar can be asked for until granted, Accessibility only granted by hand.
+@MainActor private final class FakePermissions {
+  var granted: Set<Permission> = []
+  var asked: [Permission] = []
+  var permissions: Permissions {
+    Permissions(
+      status: { [self] in granted.contains($0) ? .granted : $0 == .calendar ? .askable : .denied },
+      request: { [self] in
+        asked.append($0)
+        if $0 == .calendar { granted.insert($0) }
+      })
+  }
+}
+
+/// An extension that declares `permissions` and logs each request it gets to `requests`. `move` items are
+/// hidden runs, as the window commands are.
+@MainActor private func gated(
+  _ root: URL, _ permissions: [String], fields: [String: Any] = [:]
+) async throws -> (LauncherModel, FakePermissions, RecordingSurface) {
+  var manifest: [String: Any] = [
+    "name": "Gated", "permissions": permissions,
+    "items": [
+      [
+        "id": "left", "title": "Left",
+        "actions": [["type": "run", "arguments": ["move": "left"], "hidden": true]],
+      ]
+    ],
+  ]
+  manifest.merge(fields) { _, value in value }
+  _ = try extensionFolder(
+    root, name: "gated",
+    script: """
+      line=$(cat); echo "$line" >> "\(root.path)/requests"
+      case "$line" in *'"move"'*) exit;; esac
+      echo '{"items":[{"id":"ran","title":"Ran","actions":[]}]}'
+      """,
+    fields: manifest)
+  let model = LauncherModel.testing(in: root)
+  let fake = FakePermissions()
+  model.extensions.permissions = fake.permissions
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  return (model, fake, surface)
+}
+private func requests(_ root: URL) -> [ProviderRequest] {
+  let log = (try? String(contentsOf: root.appending(path: "requests"), encoding: .utf8)) ?? ""
+  return log.split(separator: "\n").compactMap {
+    try? JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8))
+  }
+}
+
+@Test func aNewerContractNeedsANewerWicketInsteadOfARepair() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  // Keys this Wicket does not know are the newer contract's, not misspellings.
+  _ = try extensionFolder(root, name: "future", fields: ["contract": 2, "widgets": ["clock"]])
+  _ = try extensionFolder(root, name: "current", fields: ["contract": 1, "permissions": ["calendar"]])
+  _ = try extensionFolder(root, name: "zero", fields: ["contract": 0])
+  _ = try extensionFolder(root, name: "camera", fields: ["permissions": ["camera"]])
+  _ = try extensionFolder(root, name: "twice", fields: ["permissions": ["calendar", "calendar"]])
+  _ = try extensionFolder(
+    root, name: "listonly",
+    fields: ["command": NSNull(), "items": [], "permissions": ["calendar"]])
+  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
+  #expect(commands["extension:current"]?.manifest.permissions == [.calendar])
+  let future = try #require(problems["extension:future"])
+  #expect(
+    future.contains("needs a newer Wicket") && future.contains("contract 2") && !future.contains("Invalid"))
+  for broken in ["zero", "camera", "twice", "listonly"] {
+    #expect(problems["extension:" + broken]?.contains("Invalid wicket.json") == true, "\(broken)")
+  }
+  #expect(problems["extension:camera"]?.contains("accessibility, calendar") == true)
+  // At the root it says so, and leads to Settings, where Wicket updates, rather than to the agent.
+  let rows = Ranking.compose(
+    query: "", names: [], patterns: [:], extensions: [:],
+    problems: ["extension:future": future, "extension:zero": problems["extension:zero"]!],
+    usage: UsageStore()
+  ).results
+  let newer = try #require(rows.first { $0.provider == "extension:future" })
+  #expect(newer.row.title == "extension:future needs a newer Wicket")
+  #expect(newer.row.actions.map(\.kind) == [.run(Address(extensionName: "settings"))])
+  #expect(rows.first { $0.provider == "extension:zero" }?.row.title == "extension:zero needs repair")
+}
+
+/// Entering a command whose permission is missing runs nothing and shows Wicket's row; allowing asks
+/// macOS from Wicket and then sends the request the gate held back, as it was.
+@MainActor @Test func aMissingPermissionShowsWicketsRowAndAllowingRunsTheRequest() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(root, ["calendar"])
+  model.navigator.go(Address(extensionName: "gated", input: "today"), submitted: true)
+  await model.navigator.settled()
+  #expect(requests(root).isEmpty && fake.asked.isEmpty)
+  let gate = try #require(model.navigator.results.first)
+  #expect(model.navigator.results.count == 1 && gate.row.title == "Allow Calendar for Wicket")
+  #expect(gate.row.subtitle == "Gated needs it")
+
+  model.navigator.activate(gate.row.actions[0], from: gate)
+  await model.navigator.settled()
+  #expect(fake.asked == [.calendar])
+  let request = try #require(requests(root).first)
+  #expect(requests(root).count == 1 && request.input == "today" && request.submitted)
+  #expect(model.navigator.command?.id == "extension:gated" && model.navigator.results.first?.row.id == "ran")
+  await model.finish()
+}
+
+/// Refused once, Calendar can no longer be asked for inline: the row opens its pane instead.
+@MainActor @Test func aRefusedCalendarOpensItsPane() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _, _) = try await gated(root, ["calendar"])
+  model.extensions.permissions.status = { _ in .denied }
+  model.navigator.go(Address(extensionName: "gated"), submitted: true)
+  await model.navigator.settled()
+  let gate = try #require(model.navigator.results.first)
+  #expect(gate.row.actions.map(\.kind) == [.open(Permission.calendar.pane)] && requests(root).isEmpty)
+  await model.finish()
+}
+
+/// Typing at the root never asks for a permission and never runs a program that lacks one: its pattern
+/// shows nothing until the permission is there.
+@MainActor @Test func aPatternMissingAPermissionRunsNothingAtTheRoot() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(root, ["calendar"], fields: ["match": "^agenda"])
+  model.navigator.editInput("agenda")
+  await model.navigator.settled()
+  #expect(requests(root).isEmpty && fake.asked.isEmpty)
+  #expect(!model.navigator.results.contains { $0.provider == "extension:gated" && $0.row.id == "ran" })
+  fake.granted = [.calendar]
+  model.navigator.editInput("agenda ")
+  await model.navigator.settled()
+  #expect(requests(root).count == 1 && fake.asked.isEmpty)
+  #expect(model.navigator.results.contains { $0.provider == "extension:gated" && $0.row.id == "ran" })
+  await model.finish()
+}
+
+/// A hidden run from a hotkey with the panel hidden, as a window command's: without the permission it does
+/// not run, and the panel opens on Wicket's row instead of nothing happening.
+@MainActor @Test func aHiddenRunMissingAPermissionShowsThePanelOnWicketsRow() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _, surface) = try await gated(root, ["accessibility"])
+  surface.shown = false
+  model.press(HotkeyTarget(target: "extension:gated", item: "left"))
+  await model.navigator.settled()
+  #expect(requests(root).isEmpty && surface.shows == 1 && !surface.effects.contains(.hide))
+  #expect(model.navigator.command?.id == "extension:gated")
+  let gate = try #require(model.navigator.results.first)
+  #expect(gate.row.title == "Allow Accessibility for Wicket")
+  #expect(gate.row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
+  await model.finish()
+}
+
+/// Allowed from the gate, a hidden run is sent again hidden, and its success shows nothing.
+@MainActor @Test func aHiddenRunAllowedFromTheGateRunsHidden() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _, surface) = try await gated(root, ["calendar"])
+  surface.shown = false
+  model.press(HotkeyTarget(target: "extension:gated", item: "left"))
+  await model.navigator.settled()
+  let gate = try #require(model.navigator.results.first)
+  guard case .grant(.calendar, let address) = gate.row.actions[0].kind else {
+    Issue.record("The gate does not ask for Calendar")
+    return
+  }
+  #expect(address.hidden && address.arguments == ["move": "left"])
+  model.navigator.activate(gate.row.actions[0], from: gate)
+  await model.navigator.settled()
+  let request = try #require(requests(root).first)
+  #expect(requests(root).count == 1 && request.submitted && request.arguments == ["move": "left"])
+  #expect(surface.effects.contains(.hide))
+  await model.finish()
+}

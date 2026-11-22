@@ -98,7 +98,7 @@ final class LauncherModel {
     case .run(let address) where address.hidden: navigator.runHidden(address, from: owner.id)
     case .run(let address): navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
     case .copy, .paste, .open, .reveal: navigator.perform(action)
-    case .send, .detail, .clip, .hotkey: navigator.open(target.address, pressed: target)
+    case .send, .detail, .clip, .hotkey, .grant: navigator.open(target.address, pressed: target)
     }
   }
   func finish() async {

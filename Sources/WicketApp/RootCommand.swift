@@ -109,8 +109,11 @@ import Foundation
     // The list is delivered once the apps answered and, for up to `patternHold`, the pattern
     // extensions whose regex matched, so a calculation lands with the rest of the list rather than
     // after it, without an Ask agent row first. A slower pattern adds its rows when it finishes.
+    // One missing a permission it declares runs nothing here and shows nothing: typing never brings up
+    // Wicket's permission row, which shows when the command is entered.
     let matched = Set(
-      active.compactMap { extensions.commands[$0.id] }.filter { $0.manifest.matches(input) }.map(\.id))
+      active.compactMap { extensions.commands[$0.id] }
+        .filter { $0.manifest.matches(input) && extensions.permissions.missing($0).isEmpty }.map(\.id))
     matchedPatterns = matched
     var holding = !matched.isEmpty
     let hold = Task { [weak self] in

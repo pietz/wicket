@@ -216,6 +216,9 @@ struct RowAction: Codable, Sendable, Equatable {
     case clip(String, paste: Bool)
     /// Host only, never decoded: record a row's hotkey (Set Hotkey…), or with `record` false remove it.
     case hotkey(HotkeyTarget, record: Bool)
+    /// Host only, never decoded: ask macOS for a permission from Wicket itself, then follow the address,
+    /// the request the permission gate held back (`Permissions.gate`).
+    case grant(Permission, then: Address)
   }
   var kind: Kind
   var title: String?
@@ -285,6 +288,9 @@ struct RowAction: Codable, Sendable, Equatable {
     case .hotkey(let target, let record):
       try c.encode(record ? "setHotkey" : "removeHotkey", forKey: .type)
       try c.encode(target.description, forKey: .text)
+    case .grant(let permission, _):
+      try c.encode("grant", forKey: .type)
+      try c.encode(permission.rawValue, forKey: .text)
     }
   }
 }

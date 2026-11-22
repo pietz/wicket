@@ -1,4 +1,4 @@
-{"name":"Window","description":"Moves the frontmost window: halves, maximize, center, next display, restore.","icon":"macwindow","command":["./main"],
+{"name":"Window","description":"Moves the frontmost window: halves, maximize, center, next display, restore.","icon":"macwindow","command":["./main"],"permissions":["accessibility"],
 "settings":[{"name":"gap","placeholder":"Gap (points)","default":"0"},{"name":"almostMaximize","placeholder":"Almost Maximize (percent)","default":"90"}],
 "items":[
 {"id":"left","title":"Left Half","keywords":["window"],"icon":"rectangle.lefthalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"left"},"hidden":true}]},
