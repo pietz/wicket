@@ -20,6 +20,8 @@ final class Navigator {
   /// Whether dictation is writing the input: a request made meanwhile waits for the transcript to settle,
   /// and what runs or prefills the input stops it first (`PanelInput`).
   @ObservationIgnored weak var speech: (any Speech)?
+  /// The launcher's footer message, supplied by the model that owns its sources.
+  @ObservationIgnored var footerProblem: () -> String? = { nil }
   var configuration: Configuration { store.configuration }
   var extensions: ExtensionHost { directory.extensions }
 
@@ -64,14 +66,20 @@ final class Navigator {
   var input: String {
     get { screen.input }
     set {
-      let changed = newValue != screen.input
+      let previous = screen.input
+      let changed = newValue != previous
       screen.input = newValue
       if changed {
+        if command == nil, !conversing { revealedRootList = false }
         resetSelection()
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
         if conversing { clearSelection() }
       }
-      if !conversing, arriving == nil { refresh(typed: changed) }
+      if !conversing, arriving == nil {
+        refresh(typed: changed)
+        // The card can change as soon as the input changes, before the new rows arrive.
+        if configuration.compactOnOpen, newValue.isEmpty != previous.isEmpty, search.isSearching { draw() }
+      }
     }
   }
   /// The session changed: a turn's text or status, or a permission, which needs to be seen while its
@@ -175,7 +183,19 @@ final class Navigator {
   /// What the last action could not do, until the next action, the user's next input or the configuration
   /// changing. Over a conversation it is the footer's line (`AgentPresentation.footer`), so it is drawn.
   var actionProblem: String? {
-    didSet { if actionProblem != oldValue, conversing { draw() } }
+    didSet {
+      if actionProblem != oldValue, conversing || (actionProblem != nil && compactRoot) {
+        draw()
+      }
+    }
+  }
+
+  /// Down reveals the empty root for this visit. Typing or hiding starts it over.
+  private var revealedRootList = false
+  private var rootHasProblems = false
+  var compactRoot: Bool {
+    configuration.compactOnOpen && command == nil && !conversing && input.isEmpty && !revealedRootList
+      && !(composedInput == input && rootHasProblems)
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -321,6 +341,12 @@ final class Navigator {
   }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
+    defer {
+      if delta > 0, overlay == nil, !inDetail, compactRoot {
+        revealedRootList = true
+        draw()
+      }
+    }
     let rows = results
     guard !rows.isEmpty else { return }
     guard let current = rows.firstIndex(where: { $0.id == selection }) else {
@@ -741,6 +767,7 @@ final class Navigator {
     showArrival()
     listed = output.results
     composedInput = output.input
+    rootHasProblems = output.hasProblems
     publish()
     guard returnQueued else { return }
     switch returnPlan(replay: true) {
@@ -851,6 +878,7 @@ final class Navigator {
   /// with an empty input.
   func dismiss() {
     overlay = nil
+    revealedRootList = false
     screen.startSelectionOver()
     base.startSelectionOver()
     // The root's draft stays under an empty question that is kept, for Escape to find; it goes with the

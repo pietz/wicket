@@ -61,6 +61,90 @@ import Testing
 private let full = PaletteLayout.rowsHeight(8) + PaletteLayout.footer
 private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 
+@MainActor @Test func compactRootKeepsItsSearchAndReturnAndRevealsTheCard() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let initial = try extensionFolder(
+    root, name: "initial",
+    script: answering("Initial result").replacingOccurrences(
+      of: "cat >/dev/null", with: "cat >> log.jsonl\necho >> log.jsonl"),
+    fields: ["match": "^$"])
+  let apps = GatedApps()
+  let model = LauncherModel(
+    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
+  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  model.store.load()
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  model.reopen()
+  navigator.refresh()
+  await navigator.settled()
+
+  #expect(!surface.presentation.showsCard)
+  #expect(PaletteLayout.cardHeight(surface.presentation, answer: 80, cap: 500) == 0)
+  #expect(surface.presentation.selected?.row.title == "Initial result")
+  #expect(try requests(in: initial).last?.input == "")
+  navigator.run()
+  #expect(surface.effects.last == .run(.copy("Initial result"), from: surface.presentation.selected))
+
+  navigator.move(1)
+  #expect(surface.presentation.showsCard)
+  #expect(surface.presentation.selected?.row.title == "App 0")
+  navigator.dismiss()
+  model.reopen()
+  navigator.refresh()
+  await navigator.settled()
+  #expect(!surface.presentation.showsCard)
+
+  apps.held = true
+  navigator.editInput("app")
+  #expect(model.root.isSearching && surface.presentation.showsCard)
+  apps.release()
+  await navigator.settled()
+  navigator.editInput("")
+  #expect(!surface.presentation.showsCard)
+  await navigator.settled()
+  #expect(!surface.presentation.showsCard && surface.presentation.selected?.row.title == "Initial result")
+  await model.finish()
+}
+
+@MainActor @Test func compactRootShowsProblemsAndReopensAKeptConversation() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  model.store.load()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.refresh()
+  #expect(!surface.presentation.showsCard)
+
+  navigator.go(Address(id: "missing"))
+  #expect(
+    surface.presentation.showsCard && surface.presentation.footerProblem == "No extension named missing")
+  navigator.editInput("")
+  #expect(!surface.presentation.showsCard)
+
+  _ = try extensionFolder(root, name: "broken", script: "exit 1", fields: ["match": "^$"])
+  await model.extensions.reload()
+  await navigator.settled()
+  #expect(surface.presentation.showsCard && surface.presentation.rows.contains { $0.row.id == "error" })
+  try FileManager.default.removeItem(at: root.appending(path: "extensions/broken"))
+  await model.extensions.reload()
+  await navigator.settled()
+  #expect(!surface.presentation.showsCard)
+
+  try await finishTurn(model, "A question", "An answer")
+  navigator.dismiss()
+  model.reopen()
+  #expect(navigator.input.isEmpty)
+  #expect(navigator.presentation.showsCard && navigator.presentation.agent?.question == "A question")
+  await model.finish()
+}
+
 /// A root of twelve apps and these test commands, at input "a":
 /// - `slow`: logs each request, then answers "Finished" (or what `answer` says) once `release` exists.
 /// - `notes`: two manifest items, answered without a process.

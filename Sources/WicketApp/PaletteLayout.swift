@@ -14,7 +14,7 @@ enum PaletteLayout {
   static let search: CGFloat = 56, gap: CGFloat = 8, header: CGFloat = 40, footer: CGFloat = 35
   static let error: CGFloat = 220, permission: CGFloat = 114
   static let answerMin: Double = 80, answerMax: Double = 500
-  static func panelHeight(card: CGFloat) -> CGFloat { 2 * margin + search + gap + card }
+  static func panelHeight(card: CGFloat) -> CGFloat { 2 * margin + search + (card > 0 ? gap + card : 0) }
   static func answerCap(available: CGFloat) -> Double {
     max(answerMin, min(answerMax, available - panelHeight(card: header + footer + permission)))
   }
@@ -41,6 +41,7 @@ extension PaletteLayout {
   }
   /// `answer` is the renderer's measured page height, `cap` the most a command's page may take.
   static func cardHeight(_ screens: PalettePresentation, answer: CGFloat, cap: Double) -> CGFloat {
+    guard screens.showsCard else { return 0 }
     let list = listHeight(screens) + footer
     // The action panel is a list, over whatever it was opened on.
     if screens.actionsTitle != nil { return list }

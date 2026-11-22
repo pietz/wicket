@@ -38,6 +38,7 @@ final class LauncherModel {
     root = RootCommand(apps: apps, files: files, directory: directory, store: store, history: history)
     navigator = Navigator(agent: agent, directory: directory, root: root, store: store, history: history)
     self.history = history
+    navigator.footerProblem = { [weak self] in self?.problem }
     // Tests and headless runs react with the services alone; the app reacts in its own order, these
     // first (`AppDelegate`).
     store.onChange = { [weak self] configuration in self?.apply(configuration) }

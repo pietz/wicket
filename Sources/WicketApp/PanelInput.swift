@@ -7,6 +7,7 @@ import Observation
 /// transcript would otherwise overwrite.
 @MainActor protocol Speech: AnyObject {
   var speaking: Bool { get }
+  var status: String? { get }
   func stop(_ reason: VoiceStop)
 }
 
@@ -41,6 +42,11 @@ final class PanelInput: Speech {
   /// Whether the mic button shows: voice is on and the screen takes speech.
   var offersVoice: Bool { store.configuration.voice.enabled && agent.takesSpeech }
   var speaking: Bool { voice?.active == true }
+  var status: String? {
+    if voice?.state == .starting { return "Starting voice…" }
+    if voice?.state == .listening { return "Listening…" }
+    return voice?.problem
+  }
   func stop(_ reason: VoiceStop) { voice?.stop(reason) }
   func arm() { prepare()?.arm() }
   func toggle() { prepare()?.toggle() }

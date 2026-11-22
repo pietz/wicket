@@ -80,8 +80,7 @@ class PalettePanel: NSPanel {
 @MainActor @Observable
 final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, PaletteSurface {
   let panel: PalettePanel
-  /// What the panel shows, as the navigator last committed it (`present`): the view draws it and the
-  /// frame is sized from it.
+  /// The committed screens and footer. The view draws it and the frame is sized from it.
   private(set) var presentation: PalettePresentation
   let model: LauncherModel
   let navigator: Navigator
@@ -99,6 +98,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   @ObservationIgnored private var anchor = NSPoint.zero
   @ObservationIgnored private var previousApp: NSRunningApplication?
   @ObservationIgnored private var visibleStarted: TimeInterval?
+  @ObservationIgnored private var footerUpdates: Task<Void, Never>?
   /// Between `show` and `hide`. A hidden panel renders nothing, so the renderer can release its page.
   @ObservationIgnored private var isOpen = false
 
@@ -146,7 +146,14 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       guard let self, navigator.clickTarget(id, turn: turn) else { return }
       run()
     }
+    let input = self.input
+    footerUpdates = Task { [weak self] in
+      for await (problem, voice) in Observations({ (model.problem, input.status) }) {
+        self?.updateFooter(problem, voice: voice)
+      }
+    }
   }
+  deinit { footerUpdates?.cancel() }
   var permissionPending: Bool { navigator.permissionPending }
   var hasArguments: Bool { !navigator.declaredArguments.isEmpty }
   func handle(_ action: PaletteKeyAction) -> Bool {
@@ -166,6 +173,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// What the screens show changed: drawn in the same turn, so the native frame and the content change
   /// together. A hidden panel renders nothing.
   func present(_ change: PaletteChange, _ presentation: PalettePresentation) {
+    let cardChanged = self.presentation.showsCard != presentation.showsCard
     if self.presentation != presentation { self.presentation = presentation }
     switch change {
     case .content, .measured:
@@ -180,7 +188,18 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
         renderContent()
         PageIcons.prepare(presentation.nearbyPictures)
       }
+      if cardChanged { resize() }
     }
+  }
+  /// A footer update can arrive without a screen change, even while the next page is being measured.
+  private func updateFooter(_ problem: String?, voice: String?) {
+    guard isOpen, problem != presentation.footerProblem || voice != presentation.voiceStatus else { return }
+    let showedCard = presentation.showsCard
+    var updated = presentation
+    updated.footerProblem = problem
+    updated.voiceStatus = voice
+    presentation = updated
+    if showedCard != updated.showsCard { resize() }
   }
   func prepare(_ page: Page, turn: String) async -> PageMeasurement {
     guard isOpen else { return .unmeasured }
@@ -251,7 +270,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       if panel.canBecomeKey { panel.makeKeyAndOrderFront(nil) }
       panel.orderFrontRegardless()
     }
-    if listen { input.arm() }
+    if listen {
+      input.arm()
+      updateFooter(model.problem, voice: input.status)
+    }
     panel.contentView?.layoutSubtreeIfNeeded()
     if panel.canBecomeKey, let input = panel.field {
       panel.makeFirstResponder(input)

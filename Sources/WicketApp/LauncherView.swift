@@ -217,8 +217,10 @@ struct LauncherView: View {
       VStack(spacing: PaletteLayout.gap) {
         GlassSurface(role: .pill, radius: 28, configuration: model.configuration, drawsGlass: drawsGlass)
           .frame(height: PaletteLayout.search)
-        GlassSurface(role: .card, radius: 22, configuration: model.configuration, drawsGlass: drawsGlass)
-          .frame(height: cardHeight)
+        if shown.showsCard {
+          GlassSurface(role: .card, radius: 22, configuration: model.configuration, drawsGlass: drawsGlass)
+            .frame(height: cardHeight)
+        }
       }
       VStack(spacing: PaletteLayout.gap) {
         HStack(spacing: 12) {
@@ -246,79 +248,82 @@ struct LauncherView: View {
         }
         .padding(.horizontal, 18).frame(height: PaletteLayout.search)
 
-        VStack(spacing: 0) {
-          // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
-          let actions = shown.actionsTitle != nil
-          ZStack(alignment: .top) {
-            Group {
-              if let agent {
-                agentContent(agent)
-              } else if shown.problem != nil || shown.page != nil {
-                extensionContent
-              }
-            }
-            .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
-            if shown.splits {
-              split
-            } else if actions || agent == nil && shown.problem == nil && shown.page == nil {
-              list
-            }
-          }
-          .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
-          Divider()
-          HStack(spacing: 12) {
-            if voiceStatus == nil, let agent, agent.footerBusy {
-              ProgressView().controlSize(.small).padding(.trailing, -4)
-            }
-            Text(
-              voiceStatus
-                ?? (agent.map { renderer.problem ?? $0.footer }
-                  ?? (model.problem ?? shown.commandName ?? "Wicket"))
-            ).lineLimit(1).help(
-              voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? model.problem ?? "")
-            Spacer()
-            if shown.permissionPending {
-              Text("⌘↩ Allow")
-              Text("Esc Don't allow")
-            } else if shown.actionsTitle != nil {
-              Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter"))
-              Text("esc Back")
-            } else if let agent {
-              if let action = shown.selected?.row.actions.first {
-                Text("↩ " + action.label)
-              } else if agent.busy {
-                Button("Cancel") { navigator.cancelTurn() }.buttonStyle(.plain)
-              } else if agent.question.isEmpty {
-                Text("↩ Ask")
-              } else {
-                Text("↩ Follow up")
-              }
-              if shown.offersActions { Text("⌘K Actions") }
-              Text(
-                shown.inDetail || shown.returnsOnEscape
-                  ? "Esc Back"
-                  : agent.busy
-                    ? "Esc Cancel" : agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
-            } else {
-              if !shown.refusesReturn { Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter")) }
-              if shown.offersActions { Text("⌘K Actions").lineLimit(1) }
-              // The one hint that may grow with a name: it gives way first.
-              Text("⌘↩ " + (shown.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
-                .layoutPriority(-1)
-              Text(shown.command == nil ? "esc Close" : "esc Back")
-            }
-          }
-          .font(.system(size: 12)).foregroundStyle(.secondary)
-          .padding(.horizontal, 20).frame(height: PaletteLayout.footer - 1)
-        }
-        .frame(height: cardHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        if shown.showsCard { card }
       }
     }
     .padding(PaletteLayout.margin)
 
     // The host can briefly be taller than its new content. Never centre the input in it.
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+  }
+  private var card: some View {
+    VStack(spacing: 0) {
+      // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
+      let actions = shown.actionsTitle != nil
+      ZStack(alignment: .top) {
+        Group {
+          if let agent {
+            agentContent(agent)
+          } else if shown.problem != nil || shown.page != nil {
+            extensionContent
+          }
+        }
+        .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
+        if shown.splits {
+          split
+        } else if actions || agent == nil && shown.problem == nil && shown.page == nil {
+          list
+        }
+      }
+      .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
+      Divider()
+      HStack(spacing: 12) {
+        if shown.voiceStatus == nil, let agent, agent.footerBusy {
+          ProgressView().controlSize(.small).padding(.trailing, -4)
+        }
+        Text(
+          shown.voiceStatus
+            ?? (agent.map { renderer.problem ?? $0.footer }
+              ?? (shown.footerProblem ?? shown.commandName ?? "Wicket"))
+        ).lineLimit(1).help(
+          shown.voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? shown.footerProblem ?? "")
+        Spacer()
+        if shown.permissionPending {
+          Text("⌘↩ Allow")
+          Text("Esc Don't allow")
+        } else if shown.actionsTitle != nil {
+          Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter"))
+          Text("esc Back")
+        } else if let agent {
+          if let action = shown.selected?.row.actions.first {
+            Text("↩ " + action.label)
+          } else if agent.busy {
+            Button("Cancel") { navigator.cancelTurn() }.buttonStyle(.plain)
+          } else if agent.question.isEmpty {
+            Text("↩ Ask")
+          } else {
+            Text("↩ Follow up")
+          }
+          if shown.offersActions { Text("⌘K Actions") }
+          Text(
+            shown.inDetail || shown.returnsOnEscape
+              ? "Esc Back"
+              : agent.busy
+                ? "Esc Cancel" : agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
+        } else {
+          if !shown.refusesReturn { Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter")) }
+          if shown.offersActions { Text("⌘K Actions").lineLimit(1) }
+          // The one hint that may grow with a name: it gives way first.
+          Text("⌘↩ " + (shown.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
+            .layoutPriority(-1)
+          Text(shown.command == nil ? "esc Close" : "esc Back")
+        }
+      }
+      .font(.system(size: 12)).foregroundStyle(.secondary)
+      .padding(.horizontal, 20).frame(height: PaletteLayout.footer - 1)
+    }
+    .frame(height: cardHeight)
+    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
   }
   /// The main input, sized by a hidden copy of its text (or placeholder) so the slots can follow it; the
   /// field itself never sizes itself. The first 200 characters are enough to fill any width.
@@ -462,11 +467,6 @@ struct LauncherView: View {
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(
       result.id == shown.selection ? [.isSelected, .isButton] : .isButton)
-  }
-  private var voiceStatus: String? {
-    if input.voice?.state == .starting { return "Starting voice…" }
-    if input.voice?.state == .listening { return "Listening…" }
-    return input.voice?.problem
   }
   private var cardHeight: CGFloat {
     PaletteLayout.cardHeight(shown, answer: renderer.height, cap: renderer.cap)

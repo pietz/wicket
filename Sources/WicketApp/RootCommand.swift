@@ -9,6 +9,7 @@ import Foundation
     /// The input the list was composed for.
     let input: String
     let results: [Result]
+    let hasProblems: Bool
   }
   /// How long the list waits for pattern extensions whose regex matched: a few frames, more than the
   /// bundled calculator's few milliseconds and short enough that a slow pattern never delays typing.
@@ -104,7 +105,9 @@ import Foundation
     let compose = { [weak self] in
       guard let self else { return }
       isSearching = false
-      deliver(Output(input: input, results: rank(input)))
+      let ranked = rank(input)
+      strongReason = ranked.strongReason
+      deliver(Output(input: input, results: ranked.results, hasProblems: ranked.hasProblems))
     }
     // The list is delivered once the apps answered and, for up to `patternHold`, the pattern
     // extensions whose regex matched, so a calculation lands with the rest of the list rather than
@@ -206,7 +209,7 @@ import Foundation
     } while seen != generation
   }
 
-  private func rank(_ input: String) -> [Result] {
+  private func rank(_ input: String) -> Ranking.Output {
     let configuration = store.configuration
     let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
     let commands = extensions.commands.filter { enabled.contains($0.key) }
@@ -215,12 +218,10 @@ import Foundation
         Ranking.Names(provider: "apps", kind: .app, rows: appRows),
         Ranking.Names(provider: "files", kind: .file, rows: fileRows),
       ] + itemRows
-    let ranked = Ranking.compose(
+    return Ranking.compose(
       query: input, names: names, patterns: patterns, running: runningPatterns,
       extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       hosts: directory.rootRows(configuration), usage: history.store, now: Date())
-    strongReason = ranked.strongReason
-    return ranked.results
   }
 }

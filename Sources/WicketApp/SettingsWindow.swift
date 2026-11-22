@@ -191,6 +191,7 @@ struct SettingsPane: View {
           Text(size.rawValue.capitalized).tag(size.rawValue)
         }
       }
+      Toggle("Open compact", isOn: binding(config.compactOnOpen, key: "compactOnOpen"))
     }
     Section {
       Toggle(

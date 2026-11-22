@@ -85,7 +85,7 @@ You run in Wicket's working folder, `{{folder}}`:
 
 - `{{contract}}`: the extension contract. Read it before writing or changing an extension or a hotkey.
 - `{{extensions}}`: one folder per extension, live as soon as it appears.
-- `{{config}}`: Wicket's settings, reloaded live.
+- `{{config}}`: Wicket's settings, reloaded live. Set `"compactOnOpen": true` to open with just the search field when the empty root has nothing to report.
 - `{{executable}}`: the Wicket executable, for the contract's headless tests.
 
 A `<context>` block before a question, when there is one, names the extension that was open, its folder, its input and arguments and what it showed, cut when long: what "this" and "here" mean.

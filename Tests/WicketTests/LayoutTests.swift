@@ -4,6 +4,7 @@ import Testing
 @testable import WicketApp
 
 @Test func panelSizingUsesWholeRowsAndStreamingNeverShrinks() {
+  #expect(PaletteLayout.panelHeight(card: 0) == 136)
   #expect(PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer) == 239)
   #expect(
     PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(8) + PaletteLayout.footer)
@@ -16,6 +17,7 @@ import Testing
 @Test func everyHeightKeepsTheSameInputTop() {
   let anchor = CGPoint(x: 300, y: 800)
   for height in [
+    PaletteLayout.panelHeight(card: 0),
     PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(1) + PaletteLayout.footer),
     PaletteLayout.panelHeight(card: PaletteLayout.rowsHeight(8) + PaletteLayout.footer),
     PaletteLayout.panelHeight(

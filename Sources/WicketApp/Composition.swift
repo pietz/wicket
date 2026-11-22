@@ -69,6 +69,7 @@ enum Ranking {
     let results: [Result]
     /// Why a strong match exists, or nil when nothing matches strongly.
     let strongReason: String?
+    let hasProblems: Bool
   }
 
   /// The order inside one extension: exact or prefix title and alias, then the order the extension
@@ -222,12 +223,13 @@ enum Ranking {
           icon: "exclamationmark.triangle",
           actions: [.agent("Fix this extension. " + problem.split(separator: "\n").joined(separator: ": "))]))
     }
+    let hasProblems = !failures.isEmpty || !repairs.isEmpty
     if query.isEmpty {
       let apps = candidates.filter { $0.kind == .app }.prefix(emptyApps)
       let rest = candidates.filter { $0.kind != .app }
       return Output(
         results: patternRows + (apps + rest).map(\.result) + failures + repairs,
-        strongReason: "empty input lists apps first")
+        strongReason: "empty input lists apps first", hasProblems: hasProblems)
     }
 
     // Fallbacks replace their extension's own command row when nothing is strong.
@@ -246,6 +248,6 @@ enum Ranking {
     }
     // Sorted by tier, so the strong come first; with none strong there are no pattern rows either.
     let ordered = (fallsBack ? [ask] + fallbacks : patternRows) + candidates.map(\.result)
-    return Output(results: ordered + failures + repairs, strongReason: reason)
+    return Output(results: ordered + failures + repairs, strongReason: reason, hasProblems: hasProblems)
   }
 }

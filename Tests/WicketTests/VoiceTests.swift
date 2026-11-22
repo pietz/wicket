@@ -39,6 +39,34 @@ import Testing
   }
 }
 
+@MainActor @Test func compactRootShowsVoiceStatusAndDictatedInput() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  model.store.load()
+  let fake = FakeTranscriber()
+  let navigator = model.navigator
+  let input = PanelInput(
+    navigator: navigator, agent: model.agent, store: model.store, folder: root,
+    transcriber: { fake }, permissionFinished: {})
+  #expect(!navigator.presentation.showsCard)
+  input.arm()
+  #expect(navigator.presentation.showsCard && navigator.presentation.voiceStatus == "Starting voice…")
+  fake.feeds[0].yield(.transcript("Search"))
+  #expect(await eventually { navigator.input == "Search" })
+  input.stop(.key)
+  #expect(navigator.presentation.showsCard && navigator.presentation.voiceStatus == nil)
+  navigator.editInput("")
+  #expect(!navigator.presentation.showsCard)
+  input.arm()
+  fake.feeds[1].finish(throwing: VoiceError.noMicrophone)
+  #expect(await eventually { navigator.presentation.voiceStatus == VoiceError.noMicrophone.description })
+  #expect(!input.speaking && navigator.presentation.showsCard)
+  await input.finish()
+  await model.finish()
+}
+
 @MainActor @Test func voiceStreamsRevisionsAndFinalSegmentsWithoutSubmitting() async {
   let fake = FakeTranscriber()
   var input = "existing input"

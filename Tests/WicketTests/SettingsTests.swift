@@ -34,6 +34,8 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 
 @Test func settingsWriteEachValueAndSwitchAgentWithoutCarryingOptions() throws {
   try withSettings { file in
+    #expect(try !Configuration.load(at: file.url).compactOnOpen)
+    try file.set("compactOnOpen", to: true)
     try file.set("hotkey", to: "ctrl+option+k")
     try file.set("backgroundTransparency", to: 0.65)
     try file.set("enabled", to: false, in: "voice")
@@ -44,6 +46,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     try file.setProvider("files", enabled: false)
     try file.setProvider("extension:new", enabled: true)
     let config = try Configuration.load(at: file.url)
+    #expect(config.compactOnOpen)
     #expect(config.hotkey == (try Shortcut("ctrl+option+k")))
     #expect(config.backgroundTransparency == 0.65 && !config.voice.enabled)
     #expect(config.agent.agent == .codex && config.agent.model == "gpt-6")

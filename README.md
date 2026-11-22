@@ -34,6 +34,8 @@ Results are ordered by how well they match: a calculation or conversion first, t
 
 A click selects a row and a double-click runs it. When a command takes arguments (say Caffeinate's `hours` and `minutes`), they appear as small fields after your text: Tab into them, fill them in and press Return, or click the selected row.
 
+Turn on **Open compact** in Settings ▸ General (`"compactOnOpen": true` in `config.json`) to start with just the search field. Typing, pressing ↓, or starting voice shows the card, and clearing the field folds it again when there is nothing else to show. Return still runs the selected result. Problems, notices and screens such as a kept conversation show their card automatically.
+
 **Files** come from Spotlight, from two characters: each word you type must start a word of the file name. Wicket searches the visible folders in your home folder, iCloud Drive, cloud storage and mounted volumes, and skips hidden, Library, build and cache folders. Return opens a file; ⌘K also reveals it. Scripts and installers can only be revealed.
 
 **Calculator:** `+ - * / ^`, parentheses and percentages (`200 + 10%` is 220, `10% of 200` is 20). Decimals take a dot or a comma; `1,000` alone is a thousand only where your locale writes thousands that way. Results show in your number format and copy without grouping. **Units:** length, mass, volume, speed and temperature, offline (`10 km in mi`). Decimals take a dot or your locale's decimal mark, which the result uses.
