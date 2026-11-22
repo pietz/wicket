@@ -229,6 +229,63 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(filtered.1["items"].array.map { $0["title"].string } == ["OpenStreetMap"])
 }
 
+@MainActor @Test func agendaExamplePrintsAPageOfRowsGroupedByDay() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  try ExtensionHost.installFiles(in: root)
+  try FileManager.default.copyItem(
+    at: root.appending(path: "examples/agenda"), to: root.appending(path: "extensions/agenda"))
+  // Without a calendar it shows sample events, so it works before it is set up.
+  let sample = try await cli(root, ["--extension", "agenda"]).1["body"].string ?? ""
+  #expect(sample.hasPrefix("# 5 events\n") && sample.contains("sample events"))
+  #expect(sample.contains("\n### Tomorrow\n<row label=\"09:30\" title=\"Standup\" subtitle=\"Zoom\""))
+  // A floating time is local; the all-day event the day after tomorrow comes first in its day.
+  let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: .now)!
+  let later = Calendar.current.date(byAdding: .day, value: 2, to: .now)!
+  func ics(_ date: Date, _ format: String) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = format
+    return formatter.string(from: date)
+  }
+  let calendar = root.appending(path: "calendar.ics")
+  try Data(
+    """
+    BEGIN:VCALENDAR\r
+    BEGIN:VEVENT\r
+    DTSTART:\(ics(later, "yyyyMMdd'T'140000"))\r
+    SUMMARY:Review with \r
+     Sam\r
+    LOCATION:Room 4\\, upstairs\r
+    END:VEVENT\r
+    BEGIN:VEVENT\r
+    DTSTART;VALUE=DATE:\(ics(later, "yyyyMMdd"))\r
+    SUMMARY:Holiday\r
+    END:VEVENT\r
+    BEGIN:VEVENT\r
+    DTSTART:\(ics(tomorrow, "yyyyMMdd'T'083000"))\r
+    SUMMARY:Dentist\r
+    END:VEVENT\r
+    END:VCALENDAR\r
+    """.utf8
+  ).write(to: calendar)
+  let config = #"{"extensions":{"agenda":{"calendar":"\#(calendar.path)"}}}"#
+  try Data(config.utf8).write(to: root.appending(path: "config.json"))
+  let page = try await cli(root, ["--extension", "agenda"]).1["body"].string ?? ""
+  #expect(page.hasPrefix("# 3 events\nNext 7 days\n\n### Tomorrow\n"))
+  #expect(page.contains("### Tomorrow\n<row label=\"08:30\" title=\"Dentist\">"))
+  #expect(page.contains("<row label=\"All day\" title=\"Holiday\">\n"))
+  #expect(page.contains("<row label=\"14:00\" title=\"Review with Sam\" subtitle=\"Room 4, upstairs\">"))
+  #expect(page.contains("<row label=\"Where\" value=\"Room 4, upstairs\"/>"))
+  #expect(page.range(of: "Holiday")!.lowerBound < page.range(of: "Review")!.lowerBound)
+  let filtered = try await cli(root, ["--extension", "agenda", "--input", "room"]).1["body"].string
+  #expect(filtered?.hasPrefix("# 1 event\n") == true)
+  let none = try await cli(root, ["--extension", "agenda", "--input", "xyz"]).1["body"].string
+  #expect(none?.hasPrefix("# Nothing matches “xyz”") == true)
+  try FileManager.default.removeItem(at: calendar)
+  let missing = try await cli(root, ["--extension", "agenda"]).1["body"].string
+  #expect(missing?.hasPrefix("# Calendar not read\n") == true)
+}
+
 @MainActor @Test func currencyExampleConvertsFromTheDaysCacheAndShowsSourceAndAge() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

@@ -1,0 +1,1 @@
+{"name":"Agenda","keyword":"agenda","description":"The next seven days from an .ics calendar file or address","command":["/usr/bin/python3","main.py"],"icon":"calendar","submit":true,"settings":[{"name":"calendar","placeholder":".ics file or https address"}]}

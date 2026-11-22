@@ -2,15 +2,9 @@
 
 The work the owner has agreed, in order; what is still being decided is under **To decide** at the end. Open problems are in [ISSUES.md](ISSUES.md). When a step ships, delete it here and update the code comments, README, contract and agent instructions it changes.
 
-The concept behind steps 1 to 6: three nouns and one path. A **field** is a typed, named value with one renderer and one wire format, in three scopes: per request in the search bar, per page as a `<field>` tag, and persisted as a setting. An **action** is a one-shot name on a submitted request: Return, a button, a link and a field that acts on change are the same event, never replayed by a rerun. A **permission** is a manifest declaration that Wicket checks before it starts the program. The **path** is the catalog service and the single `config.json` writer, with three faces: headless commands for the agent, a canvas page, and Settings. Onboarding is a host command page on that path, not a feature of its own.
+The concept behind steps 1 to 5: three nouns and one path. A **field** is a typed, named value with one renderer and one wire format, in three scopes: per request in the search bar, per page as a `<field>` tag, and persisted as a setting. An **action** is a one-shot name on a submitted request: Return, a button, a link and a field that acts on change are the same event, never replayed by a rerun. A **permission** is a manifest declaration that Wicket checks before it starts the program. The **path** is the catalog service and the single `config.json` writer, with three faces: headless commands for the agent, a canvas page, and Settings. Onboarding is a host command page on that path, not a feature of its own.
 
-## 1. Before the contract changes
-
-No manifest change:
-
-- **The agent uses the components well.** The owner found extensions and answers working but plain and Markdown-heavy. The contract lists tags without shape guidance and no example prints a page, and agents copy examples: add one rich-page example and a contract section on what a good page looks like (appointments as rows grouped by day with the time as value, a forecast as tiles, a record as property rows, a status as a card). Take reply captures of about ten fixed questions and extension requests before, and judge after; change the instructions only if the captures say so.
-
-## 2. Permissions
+## 1. Permissions
 
 The first contract change, judged by the owner on the window commands:
 
@@ -21,17 +15,17 @@ The first contract change, judged by the owner on the window commands:
 - Grants are per app, not per extension: once Wicket holds Calendar, every enabled extension and whatever the agent runs has it. `permissions` informs the user and is not enforcement, consistent with "enabled means trusted"; the contract and onboarding say so plainly, and the contract tells the agent to declare, never to build a helper app.
 - Done when: with Accessibility off, every window command, hotkey included, shows the gate row; a Calendar extension gets a prompt that says Wicket.
 
-## 3. Fields and actions
+## 2. Fields and actions
 
 One coordinated contract change, with the contract, agent instructions, examples, bundled extensions and tests updated together:
 
-- Manifest `fields` (`text`, `number`, `bool`, `choice`, each with a `description`; `date` later) replace the string `arguments`, and settings become the same fields persisted in `config.json`, so Settings draws a bool setting as a switch instead of a text field. Values stay strings on the wire; one declaration serves the search bar, the page, Settings and the agent's view of the extension (and later step 8's tool schemas).
+- Manifest `fields` (`text`, `number`, `bool`, `choice`, each with a `description`; `date` later) replace the string `arguments`, and settings become the same fields persisted in `config.json`, so Settings draws a bool setting as a switch instead of a text field. Values stay strings on the wire; one declaration serves the search bar, the page, Settings and the agent's view of the extension (and later step 7's tool schemas).
 - Every request carries all current field values plus a one-shot `action`. It replaces verbs passed through arguments (Agent History's `open` and `delete`, Clipboard History's, the window's `move`) and the confirmation-in-an-undeclared-argument convention, and settles the double-Return issue: a rerun never carries an action.
 - The search bar shows text and number fields only.
 - Legacy `rows` decoding goes.
 - The `config.json` writer merges instead of overwriting the whole file, so a Settings save no longer loses an edit the agent just made; the remote control and onboarding rely on it.
 
-## 4. Canvas fields
+## 3. Canvas fields
 
 - A view declares fields as `<field>` tags with the same types (a grid of switches whose entries aren't known in advance); the look comes from the type: bool a switch, number with min and max a slider, choice segmented up to four options, else a pop-up.
 - Field changes follow today's rules: in a live command a change reruns with `submitted:false`, like typing; in a `submit` command nothing is sent until Return or an action. A field can opt in to make its change an action: one submitted request, so a switch acts at once like a switch in System Settings. A slider previews while dragging and acts on release only. Operations on one item are serialized and the view redraws from the returned state, so a slow response cannot undo a newer choice. Agent answers show no fields, since no program receives them.
@@ -41,7 +35,7 @@ One coordinated contract change, with the contract, agent instructions, examples
 
 The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. A keyed-field prototype passed fast typing, a structural re-render and 1,000 rapid updates. If negatives about the HTML canvas pile up, raise it openly.
 
-## 5. Extension catalog
+## 4. Extension catalog
 
 Extensions move out of the app into an official GitHub repository, and users install only what they pick. Headless first, so the agent can install before any UI exists.
 
@@ -52,24 +46,24 @@ Extensions move out of the app into an official GitHub repository, and users ins
 - Whoever installed it (the user, the agent, a file copied into `extensions/`), a newly enabled extension shows one notice at the root.
 - A lock file outside `config.json` records each install's origin and the hashes of the files it installed. An unchanged install updates (official ones automatically); one the user or agent changed is never overwritten and shows that an update exists. Caches and rewritten items don't count as changes.
 - The four bundled extensions become the first entries, still Swift. The update that removes them from the app first copies existing users' extensions locally (tested on a real 0.4.0 working folder), keeps the `retired` recognition, and runs each new compiled binary once to absorb macOS's first-run check. `examples/` becomes catalog entries.
-- Then one catalog screen: a canvas grid page built from step 4's fields, whose switches install and enable or disable (off keeps the files; removal is a named action). Settings ▸ Extensions links to it instead of growing a second catalog UI.
+- Then one catalog screen: a canvas grid page built from step 3's fields, whose switches install and enable or disable (off keeps the files; removal is a named action). Settings ▸ Extensions links to it instead of growing a second catalog UI.
 - A `wicket-js` runner on the system JavaScriptCore, when a real extension needs it: its trial (branch `t3/benchmark-javascriptcore-runner`, `tools/js-trial/`) measured 8.5 ms warm against the Swift calculator's 3.4 ms, the same first-run check as any new binary (~170 ms, once for the runner, never for edited scripts), and 8.6 ms after editing a script against 51 ms for a Swift rebuild. Host functions (http, files, processes) wait for a real user.
 
-## 6. Onboarding
+## 5. Onboarding
 
 A first-launch host command page in the canvas: the catalog grid, the agent and its model, the permissions the picked extensions declare (Accessibility above all, since it cannot be granted inline), each with a button that opens its pane in System Settings and a check that shows when it is granted, and the panel's look with sliders that preview live and save on release. Offline or with the catalog unreachable, it skips the grid cleanly and offers it again later.
 
 The canvas trial (branch `t3/canvas-onboarding-trial`, `tools/canvas-trial/`) showed the canvas can do it with about 90 lines of CSS and no app code; the switches, checkmark list, slider and segmented control read as macOS. To fix when building: onboarding gets a calm frame of its own (a title, the page and Continue; no search field, Actions header or Ask agent hint), the keyboard selection becomes a thin accent ring instead of a grey box, and it is checked over real glass on a screen.
 
-## 7. Drafts
+## 6. Drafts
 
 A one-off extension the agent writes for an answer lives in `drafts/<runID>/<name>/` in the working folder and opens through `wicket://draft/<name>`. It goes with its Agent History run (delete, clear, expiry); orphans are swept at launch; drafts get no hotkeys and no ⌘K entry. To keep one, the user asks the agent, which moves the folder into `extensions/`.
 
-## 8. Live extension results inside agent answers
+## 7. Live extension results inside agent answers
 
 During a turn the agent can call enabled extensions as tools, and their results appear live inside its answer. The clean-room app's MCP tool bridge is the reference; the bridge interface and which extensions are eligible are settled in its design. This reverses the earlier decision against MCP Apps and a tool flag. Streaming of the agent's text stays as shipped (Settings ▸ Agent ▸ Stream answers, on by default).
 
-## 9. Diagnostics cuts
+## 8. Diagnostics cuts
 
 Take these cuts, in this order: one voice failure category with its OS code and one stop reason; remove per-session `voice-timing.txt` writes while retaining the first-transcript marker; keep one bounded private agent wire log behind an off-by-default switch; report one actionable malformed-extension-output error with a field path or stderr; give agent transport one close path with a bounded final drain and one missing-outcome diagnostic; remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation with the process regression checks.
 

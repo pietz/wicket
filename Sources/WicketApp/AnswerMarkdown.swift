@@ -301,11 +301,18 @@ enum AnswerMarkdown {
       var numbers = ""
       for (key, value) in values {
         attrs += " data-\(key)=\"\(escape(value))\""
-        // A target's id is for the bridge, not text.
-        if key != "target" { fields += "<span data-field=\"\(key)\">\(escape(value))</span>" }
         if let number = Double(value), number.isFinite, abs(number) <= 1_000_000 {
           numbers += "--\(key):\(number);"
         }
+      }
+      // Fields go in slot order, whatever order the attributes were written in: a row lays them out
+      // in document order. A target's id is for the bridge, not text.
+      let slots = ["label", "title", "subtitle", "value"]
+      for (key, value) in values.enumerated().sorted(by: {
+        (slots.firstIndex(of: $0.element.0) ?? slots.count, $0.offset)
+          < (slots.firstIndex(of: $1.element.0) ?? slots.count, $1.offset)
+      }).map(\.element) where key != "target" {
+        fields += "<span data-field=\"\(key)\">\(escape(value))</span>"
       }
       // A tile lays out its fields by its own width, which only an element inside it can follow.
       if name == "tile" { fields = "<w-fields>\(fields)</w-fields>" }

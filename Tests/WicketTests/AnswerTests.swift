@@ -325,3 +325,12 @@ import Testing
   #expect(
     try await measure(360)[0...2] == ["cards wide", "column,column,column", "column,column,column,column"])
 }
+
+/// A row lays out its fields in document order, so they come in slot order however the attributes were written.
+@Test func rowFieldsComeInSlotOrder() {
+  let html = AnswerMarkdown.html(#"<row value="09:00" subtitle="Torstraße 12" title="Dentist" label="Tue"/>"#)
+  #expect(
+    html.contains(
+      #"<span data-field="label">Tue</span><span data-field="title">Dentist</span>"#
+        + #"<span data-field="subtitle">Torstraße 12</span><span data-field="value">09:00</span>"#))
+}

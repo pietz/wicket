@@ -218,7 +218,7 @@ final class ExtensionHost {
     try Data(contentsOf: Bundle.wicket.url(forResource: "extension-contract", withExtension: "md")!)
       .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
     // Each example is its manifest and, unless it is only items, its program.
-    for name in ["web-search", "currency", "quicklinks"] {
+    for name in ["web-search", "currency", "quicklinks", "agenda"] {
       let target = folder.appending(path: "examples/" + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)

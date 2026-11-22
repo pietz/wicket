@@ -116,6 +116,30 @@ The language of agent answers: Markdown plus six tags, each an item or a contain
 - Keep each tag, including its attributes, within 1,024 UTF-8 bytes. Put longer text in Markdown or an item's detail. Only closed fenced code blocks get a copy button. Right-align number columns in tables with `---:`. Show each thing once: what the user acts on carries its action where it stands.
 - Unsupported tags can become inert elements, show their attribute values and change the layout. Use backticks for a literal tag or placeholder. Code stays literal. No HTML, JavaScript, images, remote loads or navigation; clicked http, https, mailto and `wicket://` links go through Wicket. The owner's `theme.css` restyles page content; the launcher's own list and frame stay native.
 
+## What a good page looks like
+
+Show what an app made for this one task would: the result first as a `#` line that is the result itself (`# 3 events`, `# 12° Light rain`, `# All systems operational`), one plain line of context under it, then the parts, each in the shape that fits. `examples/agenda` prints such a page.
+
+- **Appointments, messages, files:** rows, soonest or best first, grouped under a `###` heading per day, the time as `label`, the place or sender as `subtitle`, a duration or size as `value`, the facts in the detail.
+  ```
+  ### Tomorrow
+  <row label="09:00" title="Dentist" subtitle="Torstraße 12"><row label="When" value="Tue 24 Nov, 09:00–09:30"/></row>
+  <row label="14:00" title="1:1 with Sam" subtitle="Google Meet" open="https://meet.google.com/abc" action="Join"/>
+  ```
+- **A forecast, or one figure across days:** up to seven tiles in `columns`, each filling the same slots: `<columns><tile label="Tue" icon="cloud.rain" title="10° 7°"/><tile label="Wed" icon="sun.max" title="12° 5°"/></columns>`.
+- **A record (a contact, an order, a pull request):** property rows, `label` and `value` only: `<row label="Status" value="Shipped"/>`.
+- **A status (a service, a build, a device):** a card, its state as a badge and its facts as rows; shares and capacity as `progress`.
+  ```
+  <card icon="server.rack">
+  ## API
+  <badge label="Degraded" tone="warning"/> since 14:05
+  <row label="Error rate" value="2.4%"/>
+  </card>
+  ```
+- **Two or three options to weigh:** tiles side by side, then one sentence with the verdict.
+
+Slots hold labels and figures, never sentences; an explanation or steps stay Markdown. A list is rows, not cards, and an icon that repeats on every row says nothing: leave it out. Only badges have color.
+
 ## An answer as an extension
 
 When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from local data or a public API that needs no key, so the same page appears without the agent, with a detail or a `run` on every item with more to show, since the arrow keys skip an item with neither. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. A lookup is too slow for every keystroke, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
@@ -132,7 +156,7 @@ A global hotkey for a command or manifest item is an entry in `config.json`: `"h
 
 Failure output is the repair brief: change the extension folder and the next request runs the new files. Do not add approval files or trust settings to an extension. config.json stays in the working folder, so an agent allowed to edit it can change `agent.mode`.
 
-This contract is rewritten from the app at every launch. Optional examples sit in `examples/`, outside the active extensions folder, installed only when their folder is absent, so a local copy can be older than the app; copy one into `extensions/` to use it. `quicklinks` is items without a program. `web-search` is a fallback that builds a search URL and makes no request. `currency` downloads ECB rates for conversion-shaped input and caches them in its own folder. Read these and the bundled extensions (above) before building a new one. Do not touch other extensions without a request.
+This contract is rewritten from the app at every launch. Optional examples sit in `examples/`, outside the active extensions folder, installed only when their folder is absent, so a local copy can be older than the app; copy one into `extensions/` to use it. `quicklinks` is items without a program. `web-search` is a fallback that builds a search URL and makes no request. `currency` downloads ECB rates for conversion-shaped input and caches them in its own folder. `agenda` prints a page: the next seven days of an .ics calendar as rows grouped by day, each with its facts in a detail. Read these and the bundled extensions (above) before building a new one. Do not touch other extensions without a request.
 
 ## Testing with the real pipeline
 
