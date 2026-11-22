@@ -153,7 +153,7 @@ struct AgentPresentation: Equatable {
   let streaming: Bool
   let expanded: Bool
   /// The footer's line: what the last action could not do (`Navigator.actionProblem`), else that a kept or
-  /// reopened conversation is ready for a follow-up, else its status.
+  /// reopened conversation is ready for a follow-up, else its status, unless the answer area shows that.
   let footer: String
   @MainActor init(_ session: AgentSession, _ screen: AgentScreen, actionProblem: String?) {
     question = session.question
@@ -169,6 +169,6 @@ struct AgentPresentation: Equatable {
     streaming = session.streaming
     expanded = screen.expanded
     let continuing = session.continuing && !session.busy && !session.question.isEmpty
-    footer = actionProblem ?? (continuing ? "Continuing conversation" : status)
+    footer = actionProblem ?? (continuing ? "Continuing conversation" : working ? "" : status)
   }
 }

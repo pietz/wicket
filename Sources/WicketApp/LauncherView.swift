@@ -553,7 +553,7 @@ struct LauncherView: View {
         } else if agent.working {
           HStack(spacing: 12) {
             ProgressView().controlSize(.small)
-            Text(agent.status).font(.system(size: textSize.points))
+            Text(agent.status).font(.system(size: textSize.points)).lineLimit(1)
           }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
             .frame(height: PaletteLayout.answerMin)
         } else {

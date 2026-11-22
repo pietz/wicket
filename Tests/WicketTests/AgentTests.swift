@@ -178,7 +178,8 @@ func claudePermissionBecomesACardAndTheReplyEchoesTheInput(_ allow: Bool) throws
   #expect(title("Bash", .object("command", .string("ls -la\nrm x"))) == "Bash ls -la")
   #expect(title("WebSearch", .object("query", .string("rainbows"))) == "WebSearch rainbows")
   #expect(title("Task", .object([:])) == "Task")
-  #expect(title("Bash", .object("command", .string(String(repeating: "x", count: 200)))).count == 5 + 80)
+  // Whole, however long: the panel cuts it to its width.
+  #expect(title("Bash", .object("command", .string(String(repeating: "x", count: 200)))).count == 5 + 200)
 }
 
 // MARK: - Codex
@@ -861,6 +862,9 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(session.answer == "Hello world" && session.sessionID == "recorded-session")
   first.tool("Write allowed.txt")
   #expect(session.status == "Write allowed.txt")
+  // The answer area shows the running tool beside its spinner; the footer doesn't repeat it.
+  let shown = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil)
+  #expect(shown.working && shown.status == "Write allowed.txt" && shown.footer.isEmpty)
   first.ask(7)
   #expect(session.permissions.count == 1)
   session.decide(false)

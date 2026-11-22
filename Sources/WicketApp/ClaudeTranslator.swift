@@ -157,13 +157,14 @@ struct ClaudeTranslator: Translator {
     ])
   }
 
-  /// "Write allowed.txt" or "Bash ls -la": the tool and the first thing its input names.
+  /// "Write allowed.txt" or "Bash ls -la": the tool and the first line of the first thing its input
+  /// names, whole: the panel cuts it to the width it has.
   static func title(_ tool: String, _ input: JSONValue) -> String {
     let keys = ["file_path", "notebook_path", "path", "command", "pattern", "url", "query", "description"]
     guard let subject = keys.lazy.compactMap({ input[$0].string }).first else { return tool }
     let line = subject.split(whereSeparator: \.isNewline).first.map(String.init) ?? subject
     let short = line.hasPrefix("/") ? (line as NSString).lastPathComponent : line
-    return tool + " " + (short.count > 80 ? short.prefix(79) + "…" : short)
+    return tool + " " + short
   }
 
   private static func answer(_ id: JSONValue, allow: Bool, input: JSONValue = .null) -> JSONValue {

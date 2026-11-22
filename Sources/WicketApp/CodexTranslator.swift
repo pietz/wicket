@@ -230,7 +230,7 @@ struct CodexTranslator: Translator {
       return Step(events: [.tool("Edit " + (names.isEmpty ? "files" : names.joined(separator: ", ")))])
     case "commandExecution":
       return Step(events: [
-        .tool("Run " + Self.shortened(Self.unwrapped(item["command"].string ?? "a command")))
+        .tool("Run " + Self.firstLine(Self.unwrapped(item["command"].string ?? "a command")))
       ])
     default:
       return Step(events: [.tool("Use " + (item["tool"].string ?? item["type"].string ?? "a tool"))])
@@ -296,8 +296,8 @@ struct CodexTranslator: Translator {
   private static func unwrapped(_ command: String) -> String {
     command.wholeMatch(of: #/\/bin\/(?:z|ba)?sh -lc '([^']*)'/#).map { String($0.output.1) } ?? command
   }
-  private static func shortened(_ command: String) -> String {
-    let line = command.split(whereSeparator: \.isNewline).first.map(String.init) ?? command
-    return line.count > 80 ? line.prefix(79) + "…" : line
+  /// Whole: the panel cuts it to the width it has.
+  private static func firstLine(_ command: String) -> String {
+    command.split(whereSeparator: \.isNewline).first.map(String.init) ?? command
   }
 }
