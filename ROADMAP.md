@@ -22,6 +22,7 @@ One coordinated contract change, with the contract, agent instructions, examples
 - Manifest `fields` (`text`, `number`, `bool`, `choice`, each with a `description`; `date` later) replace the string `arguments`, and settings become the same fields persisted in `config.json`, so Settings draws a bool setting as a switch instead of a text field. Values stay strings on the wire; one declaration serves the search bar, the page, Settings and the agent's view of the extension (and later step 7's tool schemas).
 - Every request carries all current field values plus a one-shot `action`. It replaces verbs passed through arguments (Agent History's `open` and `delete`, Clipboard History's, the window's `move`) and the confirmation-in-an-undeclared-argument convention, and settles the double-Return issue: a rerun never carries an action.
 - The search bar shows text and number fields only.
+- Inside a command the input belongs to the agent unless the command claims it by declaring a search-bar text field (to filter, to look up, or to write something it sends). Unclaimed, the placeholder reads "Ask about <name>…", typing starts no process, and Return asks the agent about the screen, with the footer saying so; ⌘Return keeps asking anywhere. A forgotten declaration falls back to the agent, never to a dead Return. The root is unchanged: `match` patterns read what is typed there. The owner found Return dead on an agent-written Calendar page; Fable's challenge agreed that the extension declares and Wicket never guesses.
 - Legacy `rows` decoding goes.
 - The `config.json` writer merges instead of overwriting the whole file, so a Settings save no longer loses an edit the agent just made; the remote control and onboarding rely on it.
 
@@ -84,6 +85,5 @@ Optimise performance only where a user could feel or see it; Wicket is already f
 
 ## To decide
 
-Raised by the owner, not yet agreed; each with the lead's recommendation.
+Raised by the owner, not yet agreed; each with the lead's recommendation. Nothing is open now.
 
-- **Return that does nothing inside a command.** On a page whose command takes no typed input (the owner's Calendar), typing "move the dentist to 3pm" and pressing Return does nothing; only ⌘Return reaches the agent, which the owner keeps forgetting. Recommended: Return is never dead. When the screen has nothing for Return to do, it asks the agent about this screen, shown up front as an "Ask agent about Calendar" row or footer hint, the way the root offers Ask agent when nothing matches. An extension that uses the typed text (filters, a submit command, an action) keeps Return. Extensions taking over the main input is then only needed for direct commands the extension handles itself, which a submit command already allows.
