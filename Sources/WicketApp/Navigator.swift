@@ -310,8 +310,15 @@ final class Navigator {
   }
   /// Whether the input has the first say, so items wait for an arrow key and typing leaves them: in a
   /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
-  /// it runs the view's actions.
-  private var itemsWait: Bool { overlay == nil && (conversing || submits || page != nil) }
+  /// it runs the view's actions. Wicket's permission gate for what is typed and filled in now is the
+  /// exception: sending that request again would only show the gate again, so Return allows.
+  private var itemsWait: Bool { overlay == nil && (conversing || submits || page != nil) && !gateIsCurrent }
+  /// After an edit Return sends the edited request instead, so a grant then follows that one.
+  private var gateIsCurrent: Bool {
+    guard command != nil, !conversing, Permissions.isGate(results) else { return false }
+    guard case .grant(_, let rerun)? = results.first?.row.actions.first?.kind else { return true }
+    return rerun.input == input && (rerun.arguments ?? [:]) == argumentValues
+  }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     let rows = results

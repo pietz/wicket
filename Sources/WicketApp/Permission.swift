@@ -49,6 +49,12 @@ struct Permissions: Sendable {
     command.manifest.permissions.filter { status($0) != .granted }
   }
 
+  /// Whether `rows` are a gate's (`gate`).
+  static func isGate(_ rows: [Result]) -> Bool {
+    rows.first?.row.id.hasPrefix(rowPrefix) == true
+  }
+  private static let rowPrefix = "permission:"
+
   /// Wicket's own rows in place of the program's view while a declared permission is missing: one per
   /// permission, which asks for it where macOS lets Wicket ask, else opens its pane. `rerun` is the
   /// request the program did not get, which a Calendar grant follows. Nil when nothing is missing.
@@ -60,7 +66,7 @@ struct Permissions: Sendable {
         let open = RowAction.open(permission.pane, title: "Open Privacy & Security")
         let row = { (subtitle: String, action: RowAction) in
           Row(
-            id: "permission:" + permission.rawValue, title: "Allow \(permission.title) for Wicket",
+            id: Self.rowPrefix + permission.rawValue, title: "Allow \(permission.title) for Wicket",
             subtitle: subtitle, icon: permission == .accessibility ? "lock" : "calendar", actions: [action])
         }
         switch (permission, status(permission)) {

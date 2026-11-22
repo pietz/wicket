@@ -6,6 +6,20 @@ public enum Headless {
   public static var requested: Bool {
     CommandLine.arguments.dropFirst().first.map { $0.hasPrefix("--") } ?? false
   }
+  /// A run a missing permission holds back. Headless cannot ask macOS, so in place of the panel's gate it
+  /// fails, naming what to allow, which an agent can tell apart from the program's own view.
+  struct Refusal: Encodable {
+    let error: String
+    let permissions: [Permission]
+  }
+  static func refusal(_ command: ExtensionCommand, _ permissions: Permissions) -> Refusal? {
+    let missing = permissions.missing(command)
+    guard !missing.isEmpty else { return nil }
+    let names = missing.map(\.title).joined(separator: " and ")
+    return Refusal(
+      error: "\(command.manifest.name) needs \(names) for Wicket: open it in the panel to allow it",
+      permissions: missing)
+  }
   public static func run() async -> Int32 {
     // Resolved here so a headless run of a bundle proves its resources are found; the panel needs them at launch.
     _ = Bundle.wicket
@@ -65,6 +79,11 @@ public enum Headless {
           try value("--arguments").map {
             try JSONDecoder().decode([String: String].self, from: Data($0.utf8))
           } ?? [:]
+        if let refusal = refusal(command, host.permissions) {
+          try printJSON(refusal)
+          await model.finish()
+          return 1
+        }
         do {
           let view = try await host.view(
             command,

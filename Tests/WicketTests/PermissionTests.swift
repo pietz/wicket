@@ -183,3 +183,43 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   #expect(surface.effects.contains(.hide))
   await model.finish()
 }
+
+/// In a submit command, where items otherwise wait for an arrow key, Return on the gate allows rather
+/// than sending the request again to the same gate. After an edit, Return first sends the edited request,
+/// so the grant follows that one.
+@MainActor @Test func returnOnTheGateInASubmitCommandAllows() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(root, ["calendar"], fields: ["submit": true])
+  model.navigator.go(Address(extensionName: "gated"))
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.id == "permission:calendar")
+  model.navigator.editInput("today")
+  #expect(model.navigator.selected?.row.id == "submit")
+  #expect(model.activateReturn())
+  await model.navigator.settled()
+  #expect(requests(root).isEmpty && model.navigator.selected?.row.id == "permission:calendar")
+  model.activateReturn()
+  await model.navigator.settled()
+  #expect(fake.asked == [.calendar] && requests(root).map(\.input) == ["today"])
+  #expect(model.navigator.results.first?.row.id == "ran")
+  await model.finish()
+}
+
+/// Headless cannot ask macOS: a run held back by a missing permission is an error naming it, not the
+/// gate's rows printed as if the program had answered.
+@MainActor @Test func headlessRefusesARunMissingAPermission() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(root, ["calendar", "accessibility"])
+  let command = try #require(model.extensions.commands["extension:gated"])
+  let refusal = try #require(Headless.refusal(command, fake.permissions))
+  let json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(refusal))
+  #expect(json["permissions"] == .array([.string("calendar"), .string("accessibility")]))
+  #expect(
+    json["error"].string
+      == "Gated needs Calendar and Accessibility for Wicket: open it in the panel to allow it")
+  fake.granted = [.calendar, .accessibility]
+  #expect(Headless.refusal(command, fake.permissions)?.error == nil)
+  await model.finish()
+}
