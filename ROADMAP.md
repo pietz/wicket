@@ -11,6 +11,9 @@ One coordinated contract change, with the contract, agent instructions, examples
 - Legacy `rows` decoding goes.
 - Manifests carry an integer `contract`, read before the rest of the manifest is checked, so a newer one says which Wicket it needs instead of failing as broken.
 - Typed inputs appear as search-bar parameters and as interactive fields inside the canvas.
+- A view can declare fields too, as body tags with the same types (a grid of switches whose entries aren't known in advance). Manifest inputs and view fields share one renderer and one wire format.
+- Field changes follow today's rules: in a live command a change reruns with `submitted:false`, like typing; in a `submit` command nothing is sent until Return or an action. Agent answers show no fields, since no program receives them.
+- Every control is a documented tag in the contract, the agent instructions where it applies, the examples and the tests; there are no app-private components, and onboarding (step 3) uses only these. Controls look native: a small token-driven control layer in `core.css` (switch, checkbox, slider, segmented choice, pop-up, text field) that `theme.css` can override, judged in offscreen captures.
 
 The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. Fields inside it are keyed HTML fields (a prototype passed fast typing, a structural re-render and 1,000 rapid updates); before shipping, verify Tab and Shift-Tab, Japanese IME and caret through a re-render with offscreen tests only. If negatives about the HTML canvas pile up, raise it openly.
 
@@ -50,7 +53,6 @@ Not yet ordered; each takes its place after the steps above.
 - Enforce the answer-tag allowlist. Unknown tags display as literal text.
 - Ship and update layout and components in `core.css` and allow an advanced user override. Keep user tokens in `theme.css`, migrate existing themes and retain system-derived row and selection colours.
 - Add Allow for this conversation as the third agent permission choice, alongside Allow once and Don't allow.
-- Make the canvas controls look closer to native macOS: a small token-driven control layer in `core.css` (switch, checkbox, pop-up, text field) with `native` and `flat` presets that `theme.css` can override. The owner judges offscreen before-and-after captures.
 - A reusable harness for agents to check the real app on a Mac with an unlocked display: launch Wicket Dev with a scratch config, open the panel, type and press keys, capture screenshots over light, dark and busy backgrounds, and quit cleanly, so no agent rebuilds it each time.
 - A theme option to join the search pill and the card into one glass shape (`tools/glass-lab`, ⌘J); separate stays the default.
 
