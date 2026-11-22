@@ -9,19 +9,36 @@ One coordinated contract change, with the contract, agent instructions, examples
 - Manifest `inputs` (`text`, `number`, `bool`, `choice`; `date` later) replace the string `arguments`. Values stay strings on the wire; one declaration serves the fields, the page and the agent's view of the extension.
 - The request names the action the user chose, replacing verbs passed through arguments (Agent History's `open` and `delete` do this today).
 - Legacy `rows` decoding goes.
+- Manifests carry an integer `contract`, read before the rest of the manifest is checked, so a newer one says which Wicket it needs instead of failing as broken.
 - Typed inputs appear as search-bar parameters and as interactive fields inside the canvas.
 
 The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. Fields inside it are keyed HTML fields (a prototype passed fast typing, a structural re-render and 1,000 rapid updates); before shipping, verify Tab and Shift-Tab, Japanese IME and caret through a re-render with offscreen tests only. If negatives about the HTML canvas pile up, raise it openly.
 
-## 2. Drafts
+## 2. Extension catalog
+
+Extensions move out of the app into an official GitHub repository, and users install only what they pick.
+
+- An extension is any executable that follows the contract, in any language; a manifest `requires` (such as `python3`) names what a Mac must have. Only official entries must run on a clean Mac without extra installs.
+- The repository holds `extensions/<id>/` with manifest, source and test inputs; a pull request is the review. CI tests and builds (Swift included) but holds no keys: the owner signs and notarizes binaries and signs the index with a catalog key of its own (never the Sparkle key) from their Mac, with a `release.sh`-style script. The index lists immutable archives with their SHA-256 and a revoked list.
+- One catalog service serves Settings, onboarding and the agent (`Wicket --catalog`, `--install`, `--update`, `--remove`). The index is fetched with Sparkle's daily check; a revoked extension is turned off with a notice, never deleted.
+- Third-party and own extensions install from a GitHub link or a local folder, pinned and marked not reviewed. Downloaded binaries are quarantined and checked at install, never on a keystroke; local folders are left alone.
+- A lock file outside `config.json` records each install's origin and the hashes of the files it installed. An unchanged install updates (official ones automatically); one the user or agent changed is never overwritten and shows that an update exists. Caches and rewritten items don't count as changes.
+- The four bundled extensions become the first entries, still Swift. The update that removes them from the app first copies existing users' extensions locally, keeps the `retired` recognition, and runs each new compiled binary once to absorb macOS's first-run check. `examples/` becomes catalog entries.
+- A `wicket-js` runner on the system JavaScriptCore is a trial first: request in, view out, timed against Swift on a fresh install and after an app update. Adopt it only if it fits the 30 ms root wait and real extensions need it; host functions (http, files, processes) wait for a real user.
+
+## 3. Onboarding
+
+A first-launch flow in the canvas: a grid of catalog extensions to pick (the picks download when the user continues), the agent and its model, and the panel's look with sliders that change it live. It is also the test of the canvas: toggling tiles, choices and sliders must look native enough, judged in offscreen captures before it is built.
+
+## 4. Drafts
 
 A one-off extension the agent writes for an answer lives in `drafts/<runID>/<name>/` in the working folder and opens through `wicket://draft/<name>`. It goes with its Agent History run (delete, clear, expiry); orphans are swept at launch; drafts get no hotkeys and no ⌘K entry. To keep one, the user asks the agent, which moves the folder into `extensions/`.
 
-## 3. Live extension results inside agent answers
+## 5. Live extension results inside agent answers
 
 During a turn the agent can call enabled extensions as tools, and their results appear live inside its answer. The clean-room app's MCP tool bridge is the reference; the bridge interface and which extensions are eligible are settled in its design. This reverses the earlier decision against MCP Apps and a tool flag. Streaming of the agent's text stays as shipped (Settings ▸ Agent ▸ Stream answers, on by default).
 
-## 4. Diagnostics cuts
+## 6. Diagnostics cuts
 
 Take these cuts, in this order: one voice failure category with its OS code and one stop reason; remove per-session `voice-timing.txt` writes while retaining the first-transcript marker; keep one bounded private agent wire log behind an off-by-default switch; report one actionable malformed-extension-output error with a field path or stderr; give agent transport one close path with a bounded final drain and one missing-outcome diagnostic; remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation with the process regression checks.
 
