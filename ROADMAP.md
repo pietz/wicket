@@ -6,9 +6,8 @@ The concept behind steps 1 to 6: three nouns and one path. A **field** is a type
 
 ## 1. Before the contract changes
 
-Two independent pieces, none touching the manifest:
+No manifest change:
 
-- **A dot on the menu bar icon** meaning "something is waiting for you": an answer finished while the panel was hidden, or the agent is asking for a permission (today one is declined silently when the retention window ends while hidden). Cleared when the panel opens; no system notification.
 - **The agent uses the components well.** The owner found extensions and answers working but plain and Markdown-heavy. The contract lists tags without shape guidance and no example prints a page, and agents copy examples: add one rich-page example and a contract section on what a good page looks like (appointments as rows grouped by day with the time as value, a forecast as tiles, a record as property rows, a status as a card). Take reply captures of about ten fixed questions and extension requests before, and judge after; change the instructions only if the captures say so.
 
 ## 2. Permissions

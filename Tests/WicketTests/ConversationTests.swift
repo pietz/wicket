@@ -445,3 +445,55 @@ import Testing
   #expect(!prompt.contains("no such city") && prompt.hasSuffix("\n\nwill it rain"))
   await model.finish()
 }
+
+@MainActor @Test func menuBarDotWaitsForWhatArrivedWhileHidden() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  // An answer that ends while the panel shows waits for nobody.
+  model.navigator.input = "First"
+  model.navigator.send()
+  #expect(await eventually { fake.running })
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  #expect(!model.agent.waiting)
+  // One that ends while hidden does, until the panel shows.
+  model.navigator.input = "Second"
+  model.navigator.send()
+  #expect(await eventually { fake.running })
+  model.navigator.dismiss()
+  #expect(!model.agent.waiting)
+  fake.text("Answer")
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  #expect(model.agent.waiting)
+  model.reopen()
+  model.agent.seen()
+  #expect(!model.agent.waiting)
+  // A permission asked while hidden waits, and still does when the panel shows.
+  model.navigator.input = "Third"
+  model.navigator.send()
+  #expect(await eventually { fake.running })
+  model.navigator.dismiss()
+  fake.ask()
+  #expect(model.agent.waiting)
+  model.reopen()
+  model.agent.seen()
+  #expect(!model.agent.waiting && model.agent.permissions.count == 1)
+  // One still pending when the panel hides waits too.
+  model.navigator.dismiss()
+  #expect(model.agent.waiting)
+  model.reopen()
+  model.agent.seen()
+  model.navigator.decide(true)
+  // A turn cancelled before hiding has nothing to come back for, though it ends while hidden.
+  fake.ignoresCancel = true
+  model.navigator.cancelTurn()
+  model.navigator.dismiss()
+  fake.end(cancelled: true)
+  #expect(await eventually { !model.agent.busy })
+  #expect(!model.agent.waiting)
+  await model.finish()
+}

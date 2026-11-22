@@ -245,6 +245,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     arriving?()
     // What arrived may have left the panel, as the Settings window does.
     guard isOpen else { return }
+    model.agent.seen()
     presentation = navigator.presentation
     renderContent()
     resize()

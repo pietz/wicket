@@ -64,8 +64,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     apps.onChange = { [weak model] in model?.navigator.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name
-    status.button?.image = NSImage(
-      systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: name)
+    Task { [weak self] in
+      for await waiting in Observations({ model.agent.waiting }) {
+        self?.status.button?.image = Self.statusImage(name: name, dot: waiting)
+      }
+    }
     let menu = NSMenu()
     shortcutItem = menu.addItem(
       withTitle: "Open \(name)", action: #selector(show), keyEquivalent: "")
@@ -132,6 +135,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
     for url in urls { palette.open(url) }
+  }
+
+  /// The menu bar icon, with a dot at its top right while something waits for the user. Drawn, since
+  /// this symbol has no badged variant; a template, so the menu bar tints the dot with the icon.
+  private static func statusImage(name: String, dot: Bool) -> NSImage? {
+    guard
+      let symbol = NSImage(
+        systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: name)
+    else { return nil }
+    guard dot else { return symbol }
+    let image = NSImage(size: symbol.size, flipped: false) { bounds in
+      symbol.draw(in: bounds)
+      let dot = NSRect(x: bounds.maxX - 6, y: bounds.maxY - 6, width: 6, height: 6)
+      // A clear ring keeps the dot apart from the symbol under it.
+      NSGraphicsContext.current?.compositingOperation = .clear
+      NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+      NSGraphicsContext.current?.compositingOperation = .sourceOver
+      NSBezierPath(ovalIn: dot).fill()
+      return true
+    }
+    image.isTemplate = true
+    image.accessibilityDescription = "\(name), something is waiting"
+    return image
   }
 
   @objc private func show() { palette.show() }

@@ -244,9 +244,12 @@ func realCLIModelListingWithoutPrompt() async throws {
   config.streamAnswers = false
   session.ask("Bound the whole answer", settings: config)
   #expect(await eventually { fake.running })
+  // Cut off while hidden, the partial answer and its problem wait for the user like any ended turn.
+  session.hidden()
   fake.text(String(repeating: "a", count: 600_000), message: "a")
   fake.text(String(repeating: "b", count: 500_000), message: "b")
   #expect(await eventually { !session.busy })
   #expect(session.problem == "Answer reached the 1 MB limit" && session.answer.utf8.count == 600_000)
+  #expect(session.waiting)
   await session.shutdown()
 }

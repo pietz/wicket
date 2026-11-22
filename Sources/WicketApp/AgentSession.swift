@@ -105,10 +105,17 @@ final class AgentSession {
     shown = false
     lastActivity = max(lastActivity ?? now, now)
     if active { continuing = true }
+    if !permissions.isEmpty { waiting = true }
     expirePermissions(now: now)
   }
+  /// The panel is on screen, so what waited has been seen. Not part of `reopen`: the Settings hotkey
+  /// reopens and leaves for the Settings window without the panel ever showing.
+  func seen() { waiting = false }
   /// Whether the panel shows: between `reopen` and `hidden`.
   private var shown = true
+  /// Something waits for the user while the panel is hidden, a permission or an ended turn; the menu bar
+  /// icon shows a dot until the panel shows again.
+  private(set) var waiting = false
   /// While the panel is hidden, pending permissions are declined at the end of the retention window,
   /// including one that first arrives while hidden: the turn's own limit no longer runs then.
   private func expirePermissions(now: Date = Date()) {
@@ -273,6 +280,7 @@ final class AgentSession {
         return
       }
       permissions.append(permission)
+      if !shown { waiting = true }
       // The CLI is silent until the user answers, which may take until `retention`.
       deadline?.cancel()
       expirePermissions()
@@ -337,6 +345,8 @@ final class AgentSession {
   /// The turn is over, however it ended: its process ends with it. `status` is what the footer says then.
   private func finishTurn(_ outcome: String = "turn ended", status: String? = nil) {
     if let status { self.status = status }
+    // A turn the user cancelled has nothing to come back for; one cut off at the size limit does.
+    if !shown, !cancelling || problem != nil { waiting = true }
     saveTurn()
     declineAll()
     busy = false

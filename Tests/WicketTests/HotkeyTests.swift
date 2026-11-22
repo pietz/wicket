@@ -316,6 +316,32 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   await model.finish()
 }
 
+/// An answer that ended while hidden keeps its menu bar dot through a visit to Settings: only the
+/// launcher showing clears it.
+@MainActor @Test func theMenuBarDotOutlastsSettings() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _) = try await windowLike(root)
+  let controller = PaletteController(model: model, panel: FrontRecordingPanel())
+  model.navigator.surface = controller
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  controller.show(orderFront: false, listen: false)
+  model.navigator.input = "Question"
+  model.navigator.send()
+  #expect(await eventually { fake.running })
+  controller.hide()
+  fake.text("Answer")
+  fake.end()
+  #expect(await eventually { !model.agent.busy })
+  #expect(model.agent.waiting)
+  model.press(HotkeyTarget(target: "settings"))
+  #expect(model.agent.waiting)
+  controller.show(orderFront: false, listen: false)
+  #expect(!model.agent.waiting)
+  await model.finish()
+}
+
 /// A panel that records what its controller holds each time it would be ordered front, and never is.
 @MainActor private final class FrontRecordingPanel: PalettePanel {
   var onFront: () -> Void = {}

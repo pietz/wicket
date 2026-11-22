@@ -30,7 +30,8 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 3. While it works: the status shows the step; a follow-up draft stays. Click away and reopen: Continuing conversation. Escape order: cancel the turn, end the conversation, clear, close.
 4. Ask for links, a week's weather with details per day, and today's meetings. Nothing is selected at first; arrows walk rows, tiles and code blocks in reading order; the footer names the action; Return opens a detail and Escape comes back to the same selection and scroll. A click runs a target; a click in code only places the caret and its button copies; dragging selects text and runs nothing. A row that drafts a follow-up fills the field and sends nothing until Return. Hold an arrow while an answer streams: the selection never jumps. With VoiceOver, check whether actionable page targets and the detail pane are reachable and understandable.
 5. Page rows look like native rows on real glass, light and dark, at all four text sizes, over a busy wallpaper; the grey question reads as secondary.
-6. Agent History: end a conversation with Escape, type `history`: the run is the top row; Return reopens it; a follow-up remembers it, also after relaunching. Delete from the context menu; Clear History in Settings ▸ Agent.
+6. The menu bar dot: ask something slow and hide Wicket; when the answer ends, the menu bar icon shows a dot, in light and dark menu bars. Opening Wicket clears it. Hide while the agent works and have it ask for a permission: the dot shows while it waits, and the request is still there on opening. Cancel a turn, then hide: no dot. No system notification appears.
+7. Agent History: end a conversation with Escape, type `history`: the run is the top row; Return reopens it; a follow-up remembers it, also after relaunching. Delete from the context menu; Clear History in Settings ▸ Agent.
 
 ## 5. Agent settings
 
