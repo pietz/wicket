@@ -5,8 +5,9 @@ The `calendar` setting is an .ics file or an https or webcal address (a calendar
 one the page shows sample events, so it works before it is set up. Input filters by title or place on Return.
 A small .ics reader: it repeats events by daily, weekly (on BYDAY), monthly and yearly rules with INTERVAL,
 UNTIL, COUNT, EXDATE and moved occurrences (RECURRENCE-ID); a rule with other parts, such as BYMONTHDAY or
-"the second Tuesday", shows only its first occurrence."""
-import datetime as dt, http.client, itertools, json, os, re, sys, time, urllib.parse, urllib.request, zoneinfo
+"the second Tuesday", shows only its first occurrence. Weeks start on Monday whatever WKST says, and a time
+within the hour a clock change skips or repeats can show an hour off."""
+import datetime as dt, http.client, itertools, json, os, re, signal, sys, urllib.parse, urllib.request, zoneinfo
 DAYS = 7
 TAG_BYTES = 1000  # Wicket reads a tag of up to 1,024 bytes; a longer one loses its detail.
 WEEKDAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
@@ -153,17 +154,18 @@ def occurrences(events):
 
 
 def download(url):
-    """The calendar at `url`, within a total budget well inside the runner's 10-second deadline: a socket
-    timeout alone lets a server that trickles a few bytes at a time run past it."""
-    deadline, data = time.monotonic() + 5, b""
-    with urllib.request.urlopen(url, timeout=2) as response:
-        while chunk := response.read1(65536):
-            data += chunk
-            if time.monotonic() > deadline:
-                raise TimeoutError("The calendar took too long to download.")
-        if response.length:  # Fewer bytes than the server announced: the connection broke off.
-            raise http.client.IncompleteRead(data, response.length)
-    return data.decode("utf-8", "replace")
+    """The calendar at `url`, within a total budget well inside the runner's 10-second deadline. The alarm
+    covers the whole request, redirects and headers included: a socket timeout alone lets a server that
+    trickles a few bytes at a time run past it. `read` raises IncompleteRead when the connection breaks off."""
+    def late(*_):
+        raise TimeoutError("The calendar took too long to download.")
+    signal.signal(signal.SIGALRM, late)
+    signal.alarm(6)
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            return response.read().decode("utf-8", "replace")
+    finally:
+        signal.alarm(0)
 
 
 def day(event):
