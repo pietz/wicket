@@ -42,7 +42,9 @@ final class PanelInput: Speech {
   /// Whether the mic button shows: voice is on and the screen takes speech.
   var offersVoice: Bool { store.configuration.voice.enabled && agent.takesSpeech }
   var speaking: Bool { voice?.active == true }
+  /// What voice says in the footer; nothing once voice is switched off, even after a failure.
   var status: String? {
+    guard store.configuration.voice.enabled else { return nil }
     if voice?.state == .starting { return "Starting voice…" }
     if voice?.state == .listening { return "Listening…" }
     return voice?.problem
