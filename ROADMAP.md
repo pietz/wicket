@@ -31,7 +31,7 @@ Extensions move out of the app into an official GitHub repository, and users ins
 
 ## 3. Onboarding
 
-A first-launch flow in the canvas: a grid of catalog extensions whose switches install one as it is turned on, the agent and its model, and the panel's look with sliders that change it live. It is also the test of the canvas: toggling tiles, choices and sliders must look native enough, judged in offscreen captures before it is built.
+A first-launch flow in the canvas: a grid of catalog extensions whose switches install one as it is turned on, the agent and its model, the permissions the picked extensions need (Accessibility for the window commands), each with a button that opens its pane in System Settings and a check that shows when it is granted, and the panel's look with sliders that change it live. It is also the test of the canvas: toggling tiles, choices and sliders must look native enough, judged in offscreen captures before it is built.
 
 ## 4. Drafts
 
