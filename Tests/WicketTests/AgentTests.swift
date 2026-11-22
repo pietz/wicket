@@ -864,7 +864,10 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(session.status == "Write allowed.txt")
   // The answer area shows the running tool beside its spinner; the footer doesn't repeat it.
   let shown = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil)
-  #expect(shown.working && shown.status == "Write allowed.txt" && shown.footer.isEmpty)
+  #expect(shown.working && shown.status == "Write allowed.txt" && shown.footer.isEmpty && !shown.footerBusy)
+  // Behind the actions list, the footer shows it instead.
+  let covered = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil, covered: true)
+  #expect(covered.footer == "Write allowed.txt" && covered.footerBusy)
   first.ask(7)
   #expect(session.permissions.count == 1)
   session.decide(false)

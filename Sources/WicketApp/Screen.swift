@@ -155,7 +155,12 @@ struct AgentPresentation: Equatable {
   /// The footer's line: what the last action could not do (`Navigator.actionProblem`), else that a kept or
   /// reopened conversation is ready for a follow-up, else its status, unless the answer area shows that.
   let footer: String
-  @MainActor init(_ session: AgentSession, _ screen: AgentScreen, actionProblem: String?) {
+  /// The footer's spinner: a turn runs and the answer area isn't showing its own.
+  let footerBusy: Bool
+  /// `covered`: the actions list hides the conversation, so the answer area shows nothing.
+  @MainActor init(
+    _ session: AgentSession, _ screen: AgentScreen, actionProblem: String?, covered: Bool = false
+  ) {
     question = session.question
     source = session.source
     notice = session.notice
@@ -169,6 +174,8 @@ struct AgentPresentation: Equatable {
     streaming = session.streaming
     expanded = screen.expanded
     let continuing = session.continuing && !session.busy && !session.question.isEmpty
-    footer = actionProblem ?? (continuing ? "Continuing conversation" : working ? "" : status)
+    let answerShowsStatus = working && !covered
+    footer = actionProblem ?? (continuing ? "Continuing conversation" : answerShowsStatus ? "" : status)
+    footerBusy = busy && !answerShowsStatus
   }
 }

@@ -267,8 +267,7 @@ struct LauncherView: View {
           .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
           Divider()
           HStack(spacing: 12) {
-            // Busy once the answer has begun: before that the answer area shows its own spinner.
-            if voiceStatus == nil, let agent, agent.busy, !agent.working {
+            if voiceStatus == nil, let agent, agent.footerBusy {
               ProgressView().controlSize(.small).padding(.trailing, -4)
             }
             Text(
@@ -553,7 +552,7 @@ struct LauncherView: View {
         } else if agent.working {
           HStack(spacing: 12) {
             ProgressView().controlSize(.small)
-            Text(agent.status).font(.system(size: textSize.points)).lineLimit(1)
+            Text(agent.status).font(.system(size: textSize.points)).lineLimit(1).help(agent.status)
           }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
             .frame(height: PaletteLayout.answerMin)
         } else {

@@ -925,7 +925,9 @@ final class Navigator {
 
   /// The agent's screen as drawn, nil while it is not open.
   var agentScreen: AgentPresentation? {
-    conversation.map { AgentPresentation(agent, $0, actionProblem: actionProblem) }
+    conversation.map {
+      AgentPresentation(agent, $0, actionProblem: actionProblem, covered: overlay != nil)
+    }
   }
   /// A long question's header shows all of it, or two lines again.
   func toggleQuestion() {
