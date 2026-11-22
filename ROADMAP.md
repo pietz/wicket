@@ -6,10 +6,9 @@ The concept behind steps 1 to 6: three nouns and one path. A **field** is a type
 
 ## 1. Before the contract changes
 
-Three independent pieces, none touching the manifest:
+Two independent pieces, none touching the manifest:
 
 - **A dot on the menu bar icon** meaning "something is waiting for you": an answer finished while the panel was hidden, or the agent is asking for a permission (today one is declined silently when the retention window ends while hidden). Cleared when the panel opens; no system notification.
-- **The Calendar trial, on a release-signed build** (ad hoc builds drop the hardened runtime, so Wicket Dev can pass where the release fails): with Calendar's usage string and entitlement on Wicket, a program Wicket starts asks, the prompt names Wicket, a known event is read, and revoking then retrying behaves. Step 2 depends on the result; if the child cannot use Wicket's grant, the smallest Calendar read moves into Wicket and presentation stays in the extension.
 - **The agent uses the components well.** The owner found extensions and answers working but plain and Markdown-heavy. The contract lists tags without shape guidance and no example prints a page, and agents copy examples: add one rich-page example and a contract section on what a good page looks like (appointments as rows grouped by day with the time as value, a forecast as tiles, a record as property rows, a status as a card). Take reply captures of about ten fixed questions and extension requests before, and judge after; change the instructions only if the captures say so.
 
 ## 2. Permissions
@@ -17,6 +16,7 @@ Three independent pieces, none touching the manifest:
 The first contract change, judged by the owner on the window commands:
 
 - Manifests carry an integer `contract`, read before the rest of the manifest is checked, so a newer one says which Wicket it needs instead of failing as broken.
+- Wicket's grant reaches the programs it starts: on the trial branch `t3/calendar-permission-trial` (Wicket Dev, Apple Development signature with hardened runtime), an extension's Calendar request showed a prompt naming Wicket Dev with Wicket's usage text, and after Allow the extension read real events. Confirm once on the first release build.
 - A manifest `permissions` list names what an extension needs, starting with `accessibility` and `calendar`, the two real users; others wait for an extension that needs them. Wicket declares the matching usage strings and entitlements; declaring asks nothing.
 - Wicket gates: before running an extension that declares a permission, it checks the status and, when it is missing, shows its own row (allow, open the pane in System Settings) instead of running the program. A `match` never prompts mid-typing, a child never waits on a dialog past its deadline, and the window extension's own permission row goes.
 - Grants are per app, not per extension: once Wicket holds Calendar, every enabled extension and whatever the agent runs has it. `permissions` informs the user and is not enforcement, consistent with "enabled means trusted"; the contract and onboarding say so plainly, and the contract tells the agent to declare, never to build a helper app.
