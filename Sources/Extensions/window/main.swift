@@ -237,8 +237,8 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
 /// for the tests that import it.
 var permissionRow: String {
   row(
-    "Allow Wicket in Privacy & Security > Accessibility", icon: "lock",
-    subtitle: "If Wicket is already on there, remove it with − and add it again",
+    "Allow Accessibility for Wicket", icon: "lock",
+    subtitle: "Already on? Remove Wicket there and add it again",
     actions:
       #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
   )

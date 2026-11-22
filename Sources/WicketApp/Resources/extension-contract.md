@@ -101,7 +101,7 @@ Every action takes an optional `title`, its name in ⌘K and the context menu; w
 - **`copy`** copies and closes the launcher. **`paste`** removes newlines, restores the previous app and posts ⌘V if Accessibility access was already granted; otherwise it says how to enable it, without prompting.
 - **`agent`** fills the input with the text and sends nothing; the user presses Return. Outside a conversation it leaves the open command and opens an empty conversation with the text as an unsent question.
 
-macOS attributes your program's Accessibility use to Wicket, since Wicket starts it (the window commands rely on this). When a permission is missing, show a row that says which one ("Allow Wicket in Privacy & Security > Accessibility") with an `open` action to its pane, and never ask macOS to prompt. Errors are selectable text with Copy and Ask agent actions carrying the folder, command, request, error and stderr tail.
+macOS attributes your program's Accessibility use to Wicket, since Wicket starts it (the window commands rely on this). When a permission is missing, show a row that says which one ("Allow Accessibility for Wicket") with an `open` action to its pane, and never ask macOS to prompt. Errors are selectable text with Copy and Ask agent actions carrying the folder, command, request, error and stderr tail.
 
 ## Body tags
 

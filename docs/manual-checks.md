@@ -64,7 +64,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 
 ## 9. Window commands
 
-1. Without Accessibility for Wicket, and again with its switch on from an older build: Left Half shows only the row "Allow Wicket in Privacy & Security > Accessibility", saying to remove and re-add Wicket if it is already on, and no system prompt; Return opens the pane. From its hotkey with the panel open, the panel's line names the permission. Grant it to Wicket only (no separate entry for the extension).
+1. Without Accessibility for Wicket, and again with its switch on from an older build: Left Half shows only the row "Allow Accessibility for Wicket", whose subtitle fits and says to remove and re-add Wicket if it is already on, and no system prompt; Return opens the pane. From its hotkey over an open agent conversation, the conversation stays and its footer names the permission. Grant it to Wicket only (no separate entry for the extension).
 2. Over a Safari window, reopening Wicket for each: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize and Center move Safari clear of the menu bar and Dock, Wicket closes at once, Safari keeps focus.
 3. Restore after Left Half then Maximize goes back one move at a time, then says Nothing to restore. A window moved by hand has nothing to restore.
 4. Next Display with two displays of different sizes keeps the window's place and share; with one display it says so.
