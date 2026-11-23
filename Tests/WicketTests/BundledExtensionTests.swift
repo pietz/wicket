@@ -56,10 +56,16 @@ private struct Answer: Equatable {
   let title: String
   let copy: String
 }
-/// The calculator's result for this input, run as Wicket runs it, or nil when it shows none.
+private func calculatorRow(
+  _ input: String, _ locale: ProviderRequest.NumberMarks = us, settings: [String: String] = [:]
+) async throws -> Row? {
+  var request = ProviderRequest(input: input, locale: locale)
+  request.settings = settings
+  return try await runBundled("calculator", request: request).items.first
+}
+
 private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = us) async throws -> Answer? {
-  let view = try await runBundled("calculator", request: ProviderRequest(input: input, locale: locale))
-  guard let row = view.items.first(where: { $0.id == "result" }) else { return nil }
+  guard let row = try await calculatorRow(input, locale), row.id == "result" else { return nil }
   guard case .copy(let copy, false) = row.actions.first?.kind, row.prominent == true else {
     throw ExtensionFailure("A result is prominent and copies the number")
   }
@@ -71,17 +77,19 @@ private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = 
 @Test(arguments: [
   ("2+3*4", "14"), ("(2+3)*4", "20"), ("0.1+0.2", "0.3"), (".5 * 8", "4"),
   ("2^3^2", "512"), ("-2^2", "-4"), ("(-2)^2", "4"), ("2^-2", "0.25"),
-  ("12 ÷ 3 × 2 − 1", "7"), ("1/3", "0.333333333333333"), ("1000*1000", "1,000,000"), ("12*7", "84"),
+  ("12 ÷ 3 × 2 − 1", "7"), ("1/3", "≈ 0.333333333333333"), ("1000*1000", "1,000,000"), ("12*7", "84"),
+  ("555 - 1234", "-679"), ("=555-1234", "-679"), ("11/11-2026", "-2,025"), ("100-12-345", "-257"),
 ])
 func arithmetic(input: String, expected: String) async throws {
   #expect(try await calculate(input)?.title == expected)
 }
 
 @Test(arguments: [
-  ("200 + 10%", "220"), ("200 - 10%", "180"), ("10% of 200", "20"), ("50 * 10%", "5"), ("15%", "0.15"),
+  ("200 + 10%", "220"), ("200 - 10%", "180"), ("=10% of 200", "20"), ("50 * 10%", "5"), ("15%", "0.15"),
   ("200*10%", "20"), ("(20+30)%", "0.5"), ("200 + (10%)", "220"), ("10% + 5%", "0.15"),
   ("200 + (10% + 5%)", "200.15"),
   ("(100 + 10%) + 10%", "121"), ("200 + 10% * 2", "200.2"), ("100 / 10%", "1,000"),
+  ("200 + -10%", "180"), ("=-10% of 200", "-20"),
 ])
 func percentages(input: String, expected: String) async throws {
   #expect(try await calculate(input)?.title == expected)
@@ -106,28 +114,33 @@ func decimalMarks(input: String, inUS: String, inGermany: String) async throws {
   let french = ProviderRequest.NumberMarks(decimal: ",", grouping: "\u{202F}")
   #expect(try await calculate("1234,5 * 2", french) == .init(title: "2\u{202F}469", copy: "2469"))
   #expect(try await calculate("1000 * 1000", .init(decimal: ".", grouping: ""))?.title == "1000000")
-  #expect(try await calculate("2^60")?.title == "1,152,921,504,606,850,000")
+  #expect(try await calculate("2^60")?.title == "1,152,921,504,606,846,976")
   #expect(try await calculate("1 / 2^20")?.title == "0.00000095367431640625")
+  #expect(try await calculate("1\u{202F}234,5 * 2", french)?.copy == "2469")
+  let arabic = ProviderRequest.NumberMarks(decimal: "٫", grouping: "٬")
+  #expect(try await calculate("١٬٢٣٤٫٥ + 0", arabic) == .init(title: "1٬234٫5", copy: "1234٫5"))
 }
 
 @Test(arguments: [
-  "", "123", "hello", "2+", "(2+3", "2+3)", "2..3+1", "1/0", "0/0", "2^9999", "sqrt(4)", "2;3",
+  "123", "hello", "2+", "(2+3", "2+3)", "2..3+1", "sqrt(4)", "2;3",
   "2**3", "2(3+4)", "10 usd", "1 2+3", "1,23,456 + 1", "1.2,3.4 + 1", "1, + 2", "1. + 2", "200 of 10%",
-  "10% off 200", "1.234,5,6 * 2",
+  "10% off 200", "1.234,5,6 * 2", "1/0+",
 ])
 func invalidMath(input: String) async throws {
-  #expect(try await calculate(input, us) == nil)
-  #expect(try await calculate(input, de) == nil)
+  #expect(try await calculatorRow(input, us) == nil)
+  #expect(try await calculatorRow(input, de) == nil)
 }
 
 @Test(arguments: [
   "2024-01-15", "555-1234", "-5", "+5", "−5", "-0", "11.11", "11.11.2026", "11/11/2026", "11-11-2026",
   "1.2.3", "1.2.3-beta", "192.168.1.1", "1,5", "-1,5",
   "+49 30 1234567", "555-123-4567", "(555) 123-4567", "+1 555-123-4567", "+1-555-123-4567",
+  "555−1234", "  555−1234  ", "1234-567-890", "0000-99-99", "2026-11-23", "2026-1-5",
+  "11-23-26", "+123 (555) 123-4567", "+1555123-4567",
 ])
 func datesVersionsAndPhonesAreNotMath(input: String) async throws {
-  #expect(try await calculate(input, us) == nil)
-  #expect(try await calculate(input, de) == nil)
+  #expect(try await calculatorRow(input, us) == nil)
+  #expect(try await calculatorRow(input, de) == nil)
 }
 
 @Test func boundedInput() async throws {
@@ -136,17 +149,127 @@ func datesVersionsAndPhonesAreNotMath(input: String) async throws {
       == nil)
   #expect(try await calculate(String(repeating: "-", count: 100) + "2") == nil)
   #expect(try await calculate(String(repeating: "1+", count: 300) + "1") == nil)
+  #expect(try await calculatorRow(String(repeating: "١+", count: 171) + "1") == nil)
+  #expect(
+    try await calculate("=" + String(repeating: "(", count: 64) + "1" + String(repeating: ")", count: 64))?
+      .copy == "1")
+  #expect(
+    try await calculatorRow(
+      "=" + String(repeating: "(", count: 65) + "1" + String(repeating: ")", count: 65))?.title
+      == "Calculation is too long or nested")
 }
 
-/// The pattern runs the calculator for every calculation it can answer and for little else.
 @Test func theCalculatorsPatternLetsCalculationsThrough() throws {
   let manifest = try bundled("calculator").manifest
-  for input in ["12*7", "200 + 10%", "10% of 200", "12 ÷ 3 × 2 − 1", "(2+3)*4", "1.234,5 + 0", "15%"] {
+  for input in [
+    "12*7", "200 + 10%", "=10% of 200", "12 ÷ 3 × 2 − 1", "(2+3)*4", "1.234,5 + 0", "15%",
+    " =sqrt(9)", "=1e6", "=", "١٬٢٣٤٫٥ + 0",
+  ] {
     #expect(manifest.matches(input), "\(input)")
   }
-  for input in ["", "123", "hello", "saf", "10 km in mi", "100 usd in eur", "what is 2+2"] {
+  for input in [
+    "", "123", "hello", "saf", "10 km", "10 km in mi", "10 km + 5 mi", "100 usd in eur",
+    "100 usd * 3", "what is 2+2", "10% of 200", "12 times 7", "sqrt(9)", "1e6+2",
+  ] {
     #expect(!manifest.matches(input), "\(input)")
   }
+}
+
+@Test(arguments: [
+  ("=sqrt(9) + 2^3", "11"), ("=abs(-2)", "2"), ("=sqrt(2)", "≈ 1.4142135623731"),
+  ("=1.5e-3 + 0.5e-3", "0.002"), ("=sin(pi/2) + cos(0)", "≈ 2"), ("=log(100)", "≈ 2"),
+  ("=round(2.5) + round(-3.5)", "-2"), ("=mod(5,5; 2)", "1.5"),
+  ("=e", "≈ 2.71828182845905"), ("=2", "2"),
+])
+func explicitArithmetic(input: String, expected: String) async throws {
+  #expect(try await calculate(input)?.title == expected)
+}
+
+@Test func decimalArithmeticFallsBackAndMarksOnlyRoundedOrApproximateResults() async throws {
+  #expect(try await calculate("9007199254740992 + 1")?.copy == "9007199254740993")
+  #expect(try await calculate("9007199254740993 - 9007199254740992")?.copy == "1")
+  #expect(try await calculate("2^126 + 1")?.copy == "85070591730234615865843651857942052865")
+  #expect(try await calculate("2^128")?.copy == "340282366920938000000000000000000000000")
+  #expect(try await calculate("2^128")?.title.hasPrefix("≈ ") == true)
+  #expect(try await calculate("(2^128 - 2^128) + 1") == .init(title: "≈ 1", copy: "1"))
+  #expect(try await calculate("1/3", de) == .init(title: "≈ 0,333333333333333", copy: "0,333333333333333"))
+  #expect(try await calculate("1.234567890123445 + 0")?.title == "≈ 1.23456789012344")
+  #expect(try await calculate("1.234567890123455 + 0")?.title == "≈ 1.23456789012346")
+}
+
+@Test(arguments: [
+  ("1/0", "Division by zero"), ("0/0", "Division by zero"), ("=mod(1;0)", "Division by zero"),
+  ("2^9999", "Result out of range"), ("=1e400", "Result out of range"),
+  ("=sqrt(-1)", "Undefined for this input"), ("=log(0)", "Undefined for this input"),
+  ("=2+", "Finish the expression"), ("=1/0)", "Enter a valid expression"),
+  ("=10 km", "Use Convert for units and currencies"),
+  ("=100 usd * 3", "Use Convert for units and currencies"),
+  ("=€50", "Use Convert for units and currencies"),
+])
+func calculatorStatusesHaveNoCopyAction(input: String, title: String) async throws {
+  let row = try #require(try await calculatorRow(input))
+  #expect(row.id == "status")
+  #expect(row.title == title)
+  #expect(row.actions.isEmpty)
+}
+
+@Test func calculatorCopyPasteAndContinuationUseTheVisiblePrecision() async throws {
+  let comma = try #require(try await calculatorRow("1.234,50 * 3", de))
+  #expect(
+    comma.actions == [
+      .copy("3703,5"), .copy("3703.5", title: "Copy Machine Number"), .paste("3703,5", title: "Paste Result"),
+      .run(Address(extensionName: "", input: "=3703,5"), title: "Use Result"),
+    ])
+  let dot = try #require(try await calculatorRow("1/3", us))
+  #expect(
+    dot.actions == [
+      .copy("0.333333333333333"), .paste("0.333333333333333", title: "Paste Result"),
+      .run(Address(extensionName: "", input: "=0.333333333333333"), title: "Use Result"),
+    ])
+  let continued = try #require(try await calculatorRow("=1,234 * 2", de))
+  #expect(continued.actions.first == .copy("2,468"))
+  #expect(
+    try await calculatorRow("=1", de)?.actions.contains(.copy("1", title: "Copy Machine Number")) == true)
+}
+
+@Test func calculatorInputAndOutputSettings() async throws {
+  let dot = try #require(try await calculatorRow("=1.234", de, settings: ["inputFormat": "Dot"]))
+  #expect(dot.actions.first == .copy("1,234"))
+  #expect(dot.actions.last == .run(Address(extensionName: "", input: "=1.234"), title: "Use Result"))
+  #expect(try await calculatorRow("=1,234", us, settings: ["inputFormat": "Comma"])?.title == "1.234")
+  #expect(try await calculatorRow("1,225+0", de, settings: ["outputFormat": "Fixed"])?.title == "≈ 1,22")
+  #expect(
+    try await calculatorRow("=1", us, settings: ["outputFormat": "Fixed", "precision": "-1"])?.title == "1.00"
+  )
+  #expect(
+    try await calculatorRow("=2.5", us, settings: ["outputFormat": "Fixed", "precision": "0"])?.title == "≈ 2"
+  )
+  #expect(
+    try await calculatorRow("=12345", de, settings: ["outputFormat": "Scientific", "precision": "3"])?.title
+      == "≈ 1,23e4")
+}
+
+@MainActor @Test func calculatorReturnCopiesAndUseResultContinuesAtTheRoot() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  await model.extensions.reload()
+  navigator.input = "12*7"
+  await navigator.settled()
+  let selected = try #require(navigator.selected)
+  navigator.run()
+  #expect(surface.effects == [.run(.copy("84"), from: selected)])
+  let useResult = try #require(navigator.actions(of: selected).first { $0.title == "Use Result" })
+  navigator.runRow(selected, action: useResult)
+  await navigator.settled()
+  #expect(navigator.command == nil && navigator.input == "=84")
+  navigator.input = "=84+1"
+  await navigator.settled()
+  #expect(navigator.selected?.row.title == "85")
+  await model.finish()
 }
 
 // MARK: - Units

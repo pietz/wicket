@@ -38,7 +38,11 @@ Turn on **Open compact** in Settings ▸ General (`"compactOnOpen": true` in `co
 
 **Files** come from Spotlight, from two characters: each word you type must start a word of the file name. Wicket searches the visible folders in your home folder, iCloud Drive, cloud storage and mounted volumes, and skips hidden, Library, build and cache folders. Return opens a file; ⌘K also reveals it. Scripts and installers can only be revealed.
 
-**Calculator:** `+ - * / ^`, parentheses and percentages (`200 + 10%` is 220, `10% of 200` is 20). Decimals take a dot or a comma; `1,000` alone is a thousand only where your locale writes thousands that way. Results show in your number format and copy without grouping. **Units:** length, mass, volume, speed and temperature, offline (`10 km in mi`). Decimals take a dot or your locale's decimal mark, which the result uses.
+**Calculator** shows a result as you type arithmetic such as `12*7` or `200 + 10%`. Start with `=` for functions, constants, scientific notation and expressions such as `=sqrt(9) + 2^3` or `=10% of 200`. Bare phone and date shapes stay in search. Use `=555-1234` or add spaces around the minus sign for subtraction. Search for `calc` to open Calculator. Use ⌘Return for spoken operators such as “12 times 7.”
+
+Results use your number format and show `≈` when rounded or approximate. Return copies the displayed precision with your decimal mark and without grouping. ⌘K offers **Paste Result**, **Use Result** to continue the calculation at the root, and **Copy Machine Number** when your decimal mark differs from a dot. Settings ▸ Extensions ▸ Calculator lets you choose an input decimal mark, an output format and precision. With locale input, `1,000` is a thousand only where the comma groups thousands.
+
+**Units** converts length, mass, volume, speed and temperature offline. Try `10 km in mi`. Decimals take a dot or your locale's decimal mark, which the result uses.
 
 **Window Manager** moves the window you were in. Type `left`, `max`, `next display` and so on, or `window` for all of them. The commands are Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display and Restore. Wicket closes for the move and shows a reason if it fails or only part of the move applies. Restore can undo a partial move. If macOS denies Accessibility, choose **Allow Accessibility for Wicket** to open Privacy & Security ▸ Accessibility. Settings ▸ Extensions ▸ Window Manager sets the gap around windows and the size of Almost Maximize.
 

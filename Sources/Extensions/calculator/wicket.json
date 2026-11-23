@@ -1,1 +1,15 @@
-{"name":"Calculator","description":"Calculates arithmetic as you type, such as 12 * 4.5 or 15% of 80.","icon":"equal","command":["./main"],"match":"^(?=.*[0-9])(?=.*[-+−*/×÷^%])(?:[-+−*/×÷^%().,0-9\\s]|of)+$","contract":2,"fields":[{"name":"expression","type":"text","description":"Calculate an expression"}]}
+{
+  "name": "Calculator",
+  "description": "Calculates arithmetic as you type, such as 12 * 4.5 or =15% of 80.",
+  "keyword": "calc",
+  "icon": "equal",
+  "command": ["./main"],
+  "match": "\\A(?:\\s*=[\\s\\S]*|(?=[\\s\\S]*\\p{Nd})(?=[\\s\\S]*[-+−*/×÷^%])[-+−*/×÷^%().,\\p{Nd}\\s'’٫٬]+)\\z",
+  "contract": 2,
+  "fields": [{"name": "expression", "type": "text", "description": "Calculate an expression"}],
+  "settings": [
+    {"name": "inputFormat", "type": "choice", "description": "Input decimal mark", "options": ["Locale", "Dot", "Comma"], "default": "Locale"},
+    {"name": "outputFormat", "type": "choice", "description": "Output format", "options": ["Automatic", "Fixed", "Scientific"], "default": "Automatic"},
+    {"name": "precision", "type": "number", "description": "Precision (significant digits, or decimal places in Fixed)"}
+  ]
+}

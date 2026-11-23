@@ -289,6 +289,22 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(calculator.1["items"].array.first?["title"].string == "84")
 }
 
+@Test func headlessCalculatorKeepsWordsAndQuantitiesOutOfBareSearch() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  try saveProviders([.init("extension:calculator"), .init("extension:units")], in: root)
+  let keyword = try await cli(root, ["--query", "calc"])
+  #expect(keyword.1["items"].array.first?["row"]["title"].string == "Calculator")
+  for input in ["10 km", "100 usd * 3", "12 times 7", "10% of 200", "555−1234", "2026-1-5"] {
+    let query = try await cli(root, ["--query", input])
+    #expect(query.1["items"].array.first?["provider"].string == "agent", "\(input)")
+  }
+  let explicit = try await cli(root, ["--query", "=10% of 200"])
+  #expect(explicit.1["items"].array.first?["row"]["title"].string == "20")
+  let large = try await cli(root, ["--extension", "calculator", "--input", "9007199254740992 + 1"])
+  #expect(large.1["items"].array.first?["actions"].array.first?["text"].string == "9007199254740993")
+}
+
 @MainActor @Test func theQuicklinksExampleIsItemsOnlyAndHeadlessShowsItsItems() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }

@@ -48,8 +48,8 @@ func queryLatency() async throws {
   func summary(_ times: [Double]) -> String {
     let sorted = times.sorted()
     return String(
-      format: "median %.2f ms, p90 %.2f ms, max %.2f ms", sorted[sorted.count / 2],
-      sorted[sorted.count * 9 / 10], sorted.last!)
+      format: "median %.2f ms, p95 %.2f ms, max %.2f ms", sorted[sorted.count / 2],
+      sorted[(sorted.count * 95 + 99) / 100 - 1], sorted.last!)
   }
   let cold = await type("12*7")
   #expect(cold.result != nil)
