@@ -2,10 +2,19 @@ import Foundation
 
 /// One row of the launcher list and the source that produced it.
 struct Result: Identifiable, Sendable, Equatable {
+  enum RootExtensionRow: Sendable { case command, item }
+
   let provider: String
   let row: Row
+  let rootExtensionRow: RootExtensionRow?
   var id: String {
     provider.hasPrefix("extension:") ? "\(provider.utf8.count):" + provider + row.id : provider + ":" + row.id
+  }
+
+  init(provider: String, row: Row, rootExtensionRow: RootExtensionRow? = nil) {
+    self.provider = provider
+    self.row = row
+    self.rootExtensionRow = rootExtensionRow
   }
 }
 
@@ -177,7 +186,11 @@ enum Ranking {
         score: score)
     }
     var candidates = names.flatMap { source in
-      source.rows.compactMap { candidate(Result(provider: source.provider, row: $0), source.kind) }
+      source.rows.compactMap {
+        candidate(
+          Result(provider: source.provider, row: $0, rootExtensionRow: source.kind == .item ? .item : nil),
+          source.kind)
+      }
     }
     for id in extensions.keys where !answered.contains(id) {
       let manifest = extensions[id]!
@@ -185,7 +198,9 @@ enum Ranking {
         id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon,
         actions: [.run(Address(id: id, input: "", hidden: manifest.hidden))],
         keywords: manifest.keyword.map { [$0] })
-      if let found = candidate(Result(provider: id, row: row), .command) { candidates.append(found) }
+      if let found = candidate(Result(provider: id, row: row, rootExtensionRow: .command), .command) {
+        candidates.append(found)
+      }
     }
     if !query.isEmpty { candidates += hosts.compactMap { candidate($0, .host) } }
     candidates.sort { a, b in

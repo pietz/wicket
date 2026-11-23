@@ -423,9 +423,11 @@ final class Navigator {
   /// A hotkey uses the draft only when it names the item being filled in.
   func applyingDraft(to action: RowAction, for hotkey: HotkeyTarget? = nil) -> RowAction {
     let draft = drafted
-    guard !draft.isEmpty, case .run(var address) = action.kind else { return action }
+    guard !draft.isEmpty, let row = selectedRow, row.rootExtensionRow != nil,
+      case .run(var address) = action.kind, !address.link
+    else { return action }
     if let hotkey {
-      guard let item = hotkey.item, let row = selectedRow,
+      guard row.rootExtensionRow == .item, let item = hotkey.item,
         row.provider == hotkey.target, row.row.id == "item:" + item
       else { return action }
     }
@@ -443,18 +445,14 @@ final class Navigator {
       let main = descriptor.inputField?.name
       return descriptor.fields.filter { $0.inSearchBar && $0.name != main }
     }
-    guard let row = selectedRow else { return [] }
-    let target: String
-    if row.row.id == "command" {
-      target = row.provider
-    } else {
-      guard row.row.id.hasPrefix("item:"), case .run(let address)? = row.row.actions.first?.kind,
-        !address.link,
-        let id = address.extensionName == nil ? row.provider : address.targetID
-      else { return [] }
-      target = id
-    }
-    return directory.behavior(of: target)?.descriptor?.fields.filter(\.inSearchBar) ?? []
+    guard let row = selectedRow, let origin = row.rootExtensionRow,
+      case .run(let address)? = row.row.actions.first?.kind, !address.link,
+      let target = address.extensionName == nil ? row.provider : address.targetID,
+      origin == .command || directory.isAvailable(target, in: configuration)
+    else { return [] }
+    return directory.behavior(of: target)?.descriptor?.fields.filter {
+      $0.inSearchBar && address.fields?[$0.name] == nil
+    } ?? []
   }
   /// Values filled in at the root for the selected row; dropped when the selection moves or
   /// the panel is dismissed. Only the row itself takes them: an action chosen in ⌘K runs as captured.

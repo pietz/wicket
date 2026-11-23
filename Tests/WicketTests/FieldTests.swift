@@ -153,13 +153,13 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   await nav.settled()
   let owner = crossExtension ? "extension:personal" : "extension:search"
   #expect(nav.selected?.provider == owner && nav.selected?.row.id == "item:yt")
-  #expect(nav.fieldSlots.map(\.name) == ["query", "limit"])
+  #expect(nav.fieldSlots.map(\.name) == ["query"])
   #expect(nav.moveFocus(1) && nav.focusedField == "query")
   nav.setField("query", to: "cats")
-  #expect(nav.moveFocus(1) && nav.focusedField == "limit")
+  #expect(nav.moveFocus(1) && nav.focusedField == nil)
   nav.setField("limit", to: "2")
   await nav.settled()
-  #expect(nav.input == "yt" && nav.fieldValues == ["query": "cats", "limit": "2"])
+  #expect(nav.input == "yt" && nav.fieldValues == ["query": "cats"])
   #expect(try requests(in: folder).isEmpty)
 
   if byHotkey {
@@ -177,6 +177,149 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   } else {
     #expect(surface.effects.isEmpty && surface.isShown && nav.command?.id == "extension:search")
   }
+  await model.finish()
+}
+
+@MainActor @Test func aRootItemWithAllFieldsFixedHasNoTabStop() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "search",
+    script: """
+      cat >> log.jsonl
+      echo '{"items":[]}'
+      """,
+    fields: [
+      "items": [
+        [
+          "id": "cats", "title": "Find Cats",
+          "actions": [["type": "run", "fields": ["query": "cats"]]],
+        ]
+      ]
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("Find Cats")
+  await nav.settled()
+  #expect(surface.presentation.selected?.row.id == "item:cats")
+  #expect(nav.fieldSlots.isEmpty && !nav.moveFocus(1) && !nav.moveFocus(-1))
+
+  nav.run()
+  await nav.settled()
+  let sent = try requests(in: folder)
+  #expect(sent.count == 1 && sent.first?.fields == ["query": "cats"])
+  await model.finish()
+}
+
+@MainActor @Test func aRootItemTargetingASwitchedOffCommandHasNoFields() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let target = try extensionFolder(
+    root, name: "search",
+    script: """
+      cat >> log.jsonl
+      echo '{"items":[]}'
+      """)
+  _ = try extensionFolder(
+    root, name: "personal",
+    fields: [
+      "command": NSNull(), "fields": [],
+      "items": [
+        ["id": "web", "title": "Search the Web", "actions": [["type": "run", "extension": "search"]]]
+      ],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.update { $0.providers = [.init("extension:search", enabled: false)] }
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("Search the Web")
+  await nav.settled()
+  #expect(surface.presentation.selected?.row.id == "item:web")
+  #expect(nav.fieldSlots.isEmpty && !nav.moveFocus(1))
+  nav.setField("query", to: "cats")
+  #expect(nav.fieldValues.isEmpty)
+
+  nav.run()
+  await nav.settled()
+  #expect(surface.presentation.command == "extension:search")
+  #expect(surface.presentation.problem?.contains("switched off") == true)
+  #expect(try requests(in: target).isEmpty)
+  await model.finish()
+}
+
+@MainActor @Test(arguments: ["item:42", "command"])
+func aPatternResultHasNoFieldsEvenWithAManifestRowID(_ id: String) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "search",
+    script: """
+      cat >> log.jsonl
+      echo '{"items":[{"id":"\(id)","title":"Find Cats","actions":[{"type":"run","input":"cats"}]}]}'
+      """, fields: ["match": "^find "])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("find cats")
+  await nav.settled()
+  #expect(surface.presentation.selected?.row.id == id)
+  #expect(nav.fieldSlots.isEmpty && !nav.moveFocus(1))
+
+  nav.run()
+  await nav.settled()
+  let sent = try requests(in: folder)
+  #expect(sent.map(\.submitted) == [false, true] && sent.last?.input == "cats")
+  await model.finish()
+}
+
+@MainActor @Test(arguments: [false, true])
+func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  func writeManifest(_ action: [String: String]) throws -> URL {
+    try extensionFolder(
+      root, name: "search",
+      script: """
+        cat >> log.jsonl
+        echo '{"items":[]}'
+        """,
+      fields: ["items": [["id": "web", "title": "Search the Web", "actions": [action]]]])
+  }
+  let folder = try writeManifest(["type": "run"])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("Search the Web")
+  await nav.settled()
+  let selection = try #require(surface.presentation.selection)
+  #expect(nav.moveFocus(1) && nav.focusedField == "query")
+  nav.setField("query", to: "draft")
+  #expect(nav.fieldValues == ["query": "draft"])
+
+  _ = try writeManifest(["type": "open", "url": "wicket://search?input=prefill"])
+  await model.extensions.reload()
+  await nav.settled()
+  #expect(surface.presentation.selection == selection)
+  #expect(nav.fieldSlots.isEmpty && nav.focusedField == nil)
+  #expect(nav.returnAction == .run(Address(extensionName: "search", input: "prefill", link: true)))
+
+  if byHotkey {
+    model.press(HotkeyTarget(target: "extension:search", item: "web"))
+  } else {
+    nav.run()
+  }
+  await nav.settled()
+  let sent = try requests(in: folder)
+  #expect(sent.map(\.submitted) == [false] && sent.first?.fields == ["query": "prefill"])
   await model.finish()
 }
 
