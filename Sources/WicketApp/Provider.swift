@@ -21,8 +21,9 @@ struct ProviderRequest: Codable, Sendable, Equatable {
     var decimal: String
     /// Empty where the user's numbers have no grouping.
     var grouping: String
-    var groupingSize: Int? = 3
-    var secondaryGroupingSize: Int? = 3
+    // Strings, like every other locale value, so an extension that decodes `locale` as a string map keeps working.
+    var groupingSize: String? = "3"
+    var secondaryGroupingSize: String? = "3"
 
     static var current: Self { localized(.autoupdatingCurrent) }
 
@@ -35,7 +36,7 @@ struct ProviderRequest: Codable, Sendable, Equatable {
       let secondary = formatter.secondaryGroupingSize
       return Self(
         decimal: locale.decimalSeparator ?? ".", grouping: locale.groupingSeparator ?? "",
-        groupingSize: primary, secondaryGroupingSize: secondary > 0 ? secondary : primary)
+        groupingSize: String(primary), secondaryGroupingSize: String(secondary > 0 ? secondary : primary))
     }
   }
   init(

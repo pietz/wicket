@@ -387,3 +387,11 @@ private func serveRates(in folder: URL) throws -> (Process, String) {
   #expect(nav.input.isEmpty)
   await model.finish()
 }
+
+@Test func everyLocaleValueStaysAStringForExtensionsThatDecodeItAsOne() throws {
+  // Extensions written before grouping sizes existed decode `locale` as a string map.
+  struct OldRequest: Decodable { let locale: [String: String] }
+  let request = ProviderRequest(input: "1,00,000 INR", locale: .localized(Locale(identifier: "en_IN")))
+  let old = try JSONDecoder().decode(OldRequest.self, from: JSONEncoder().encode(request))
+  #expect(old.locale["groupingSize"] == "3" && old.locale["secondaryGroupingSize"] == "2")
+}

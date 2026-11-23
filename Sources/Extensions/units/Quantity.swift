@@ -35,7 +35,7 @@ struct NumberMarks {
 
   init(_ locale: JSON?) {
     func size(_ key: String) -> Int? {
-      guard case .number(let text)? = locale?[key], let value = Int(text), value > 0 else { return nil }
+      guard let text = locale?[key]?.string, let value = Int(text), value > 0 else { return nil }
       return value
     }
     decimal = locale?["decimal"]?.string?.first ?? "."
