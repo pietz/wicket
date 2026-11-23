@@ -281,31 +281,30 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   await model.finish()
 }
 
-@MainActor @Test func webSearchIsAnOptionalExampleAndExistingInstallsArePreserved() throws {
+@MainActor @Test func bundledExtensionsSupersedeExamplesWithoutChangingExistingInstalls() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   try ExtensionHost.installFiles(in: root)
-  let web = root.appending(path: "extensions/web-search")
-  #expect(!FileManager.default.fileExists(atPath: web.path))
-  #expect(
-    FileManager.default.fileExists(atPath: root.appending(path: "examples/web-search/wicket.json").path))
-  // Convert ships inside the app (`ExtensionHost.bundled`), so nothing is installed into extensions.
+  // Official extensions ship inside the app, so nothing is installed into extensions.
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "extensions").path).isEmpty)
   #expect(
     FileManager.default.fileExists(atPath: root.appending(path: "examples/canvas-controls/main.py").path))
   #expect(
-    try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples").path).sorted() == [
-      "agenda", "canvas-controls", "quicklinks", "web-search",
-    ])
-  try FileManager.default.copyItem(at: root.appending(path: "examples/web-search"), to: web)
-  let marker = web.appending(path: "user-file")
-  try Data("keep".utf8).write(to: marker)
-  let old = try extensionFolder(root, name: "currency", script: "echo keep")
-  let program = old.appending(path: "main.sh")
+    try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples").path).sorted()
+      == ["agenda", "canvas-controls"])
+  let names = ["currency", "quicklinks", "web-search"]
+  let installed = try names.map { try extensionFolder(root, name: $0, script: "echo keep") }
   try ExtensionHost.installFiles(in: root)
-  #expect(try String(contentsOf: program, encoding: .utf8) == "echo keep")
-  #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
+  for folder in installed {
+    #expect(try String(contentsOf: folder.appending(path: "main.sh"), encoding: .utf8) == "echo keep")
+  }
+  let (commands, problems) = ExtensionHost.discover(
+    root.appending(path: "extensions"), bundled: bundledExtensions)
+  #expect(problems.isEmpty)
+  for name in names + ["units", "links-search", "web"] {
+    #expect(commands["extension:" + name] != nil)
+  }
 }
 
 // MARK: - Extension settings

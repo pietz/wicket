@@ -1,0 +1,15 @@
+{
+  "contract": 2,
+  "name": "Search the Web",
+  "description": "Search the web when the launcher has no strong match.",
+  "keyword": "web",
+  "command": ["./main"],
+  "icon": "globe",
+  "fallback": true,
+  "submit": true,
+  "hidden": true,
+  "fields": [{"name":"query","type":"text","description":"Query","placeholder":"Search the web"}],
+  "settings": [
+    {"name":"webEngine","type":"choice","description":"Search engine","options":["DuckDuckGo","Google"],"default":"DuckDuckGo"}
+  ]
+}

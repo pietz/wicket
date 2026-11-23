@@ -7,6 +7,7 @@ import Testing
 /// Opt-in, for work on the root's hot path: `WICKET_MEASURE=1 swift test -c release -Xswiftc
 /// -enable-testing --filter queryLatency`. Times Calculator and Convert from the keystroke to the first
 /// result, also during rapid edits, and times immediate Return while a pattern checks unrelated text.
+/// Includes keyword and fallback rows that appear without running a program.
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
 func queryLatency() async throws {
   let folder = try scratch()
@@ -118,6 +119,22 @@ func queryLatency() async throws {
     print("queryLatency: \(query), warm \(summary(times)); typing \(summary(rapid))")
   }
 
+  for (query, provider, rowID) in [
+    ("yt cats", "extension:links-search", "item:youtube"),
+    ("wiki new york", "extension:links-search", "item:wikipedia"),
+    ("how do curious cats find their way home", "agent", "fallback"),
+  ] {
+    var times: [Double] = []
+    for _ in 0..<60 {
+      _ = await type("x")
+      let (first, row, _) = await type(query, provider: provider)
+      #expect(row == provider)
+      #expect(model.navigator.results.contains { $0.row.id == rowID })
+      times.append(first)
+    }
+    print("queryLatency: \(query), first list \(summary(times))")
+  }
+
   var returns: [Double] = []
   var returned: ContinuousClock.Instant?
   surface.onEffect = { effect in
@@ -134,6 +151,28 @@ func queryLatency() async throws {
   }
   print("queryLatency: immediate Return on 10 frogs, \(summary(returns))")
 
+  let youtube = HotkeyTarget(target: "extension:links-search", item: "youtube")
+  var promptTimes: [Double] = []
+  var prompt: ContinuousClock.Instant?
+  surface.onDraw = {
+    if prompt == nil, model.navigator.command?.id == youtube.target,
+      model.navigator.results.first?.row.title == "Enter a search query."
+    {
+      prompt = .now
+    }
+  }
+  for _ in 0..<21 {
+    model.navigator.dismiss()
+    surface.shown = false
+    prompt = nil
+    let start = ContinuousClock.now
+    model.press(youtube)
+    await model.navigator.settled()
+    promptTimes.append(milliseconds(start, try #require(prompt)))
+  }
+  print(
+    "queryLatency: YouTube hotkey to prompt on recording surface, \(summary(Array(promptTimes.dropFirst())))")
+  await model.finish()
 }
 
 /// Opt-in like `queryLatency`: what `hotkeys` cost the launcher's hotkey-to-visible path. The press itself is

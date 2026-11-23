@@ -104,8 +104,11 @@ final class LauncherModel {
       return navigator.open(target.address, pressed: target)
     }
     switch navigator.applyingDraft(to: action, for: target).kind {
-    case .run(let address) where address.hidden: navigator.runHidden(address, from: owner.id)
-    case .run(let address): navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
+    case .run(let address) where address.hidden:
+      // Like the root item, the hotkey supplies its own fields even over an open command.
+      navigator.runHidden(address, from: owner.id, replacingFields: true)
+    case .run(let address):
+      navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
     case .copy, .paste, .open, .reveal: navigator.perform(action)
     case .send, .ask, .detail, .field, .clip, .hotkey, .grant: navigator.open(target.address, pressed: target)
     }

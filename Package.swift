@@ -23,12 +23,15 @@ let package = Package(
     .target(name: "ObjCBoundary"),
     .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
     .executableTarget(name: "wicket-js", path: "Sources/WicketJS"),
-    // The bundled extensions: plain Swift without Foundation, one process per request. build-app.sh
-    // copies each binary into the app with its manifest and source.
+    // The bundled extensions: one process per request. build-app.sh copies each binary into the app
+    // with its manifest and source.
     .executableTarget(name: "calculator", path: "Sources/Extensions/calculator", exclude: ["wicket.json"]),
     .executableTarget(name: "units", path: "Sources/Extensions/units", exclude: ["wicket.json"]),
     .executableTarget(name: "window", path: "Sources/Extensions/window", exclude: ["wicket.json"]),
     .executableTarget(name: "shell", path: "Sources/Extensions/shell", exclude: ["wicket.json"]),
+    .executableTarget(
+      name: "links-search", path: "Sources/Extensions/links-search", exclude: ["wicket.json"]),
+    .executableTarget(name: "web", path: "Sources/Extensions/web", exclude: ["wicket.json"]),
     // The window extension's geometry and the shell's terminal hand-over are tested as functions
     // (`@testable import window`, `shell`).
     .testTarget(

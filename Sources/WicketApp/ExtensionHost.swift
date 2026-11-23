@@ -81,8 +81,8 @@ final class ExtensionHost {
   /// Called with the IDs whose command or problem changed, appeared or went away.
   var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
-  /// The extensions that ship inside Wicket (calculator, units, window, shell), each a folder like any other with its
-  /// binary and source. A folder of the user's own with the same name wins.
+  /// The extensions that ship inside Wicket, each a folder with its binary and source.
+  /// A folder of the user's own with the same name wins.
   let bundled: URL?
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
@@ -389,8 +389,8 @@ final class ExtensionHost {
     // The contract is Wicket's reference, not the user's: rewritten each launch so agents read this version.
     try Data(contentsOf: Bundle.wicket.url(forResource: "extension-contract", withExtension: "md")!)
       .write(to: folder.appending(path: "extension-contract.md"), options: .atomic)
-    // Each example is its manifest and, unless it is only items, its program.
-    for name in ["web-search", "quicklinks", "agenda", "canvas-controls"] {
+    // Each example is its manifest and program.
+    for name in ["agenda", "canvas-controls"] {
       let target = folder.appending(path: "examples/" + name)
       guard !FileManager.default.fileExists(atPath: target.path) else { continue }
       try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)

@@ -1,73 +1,19 @@
 # Links & Search
 
-## 1. Summary
+Wicket ships two extensions for browser shortcuts. **Links & Search** (`links-search`) holds site searches and personal bookmarks. **Search the Web** (`web`) is an independently switchable fallback.
 
-`links-search` ships shortcuts for site searches. Type a keyword, a space and a query, then press Return. A hotkey can take you straight to a site's Query field or open a bookmark. `web` is a separate extension for general web search, with its own switch in Settings ▸ Extensions.
-
-## 2. User experience
-
-| Situation | What the user does and sees |
+| Situation | What to do |
 | --- | --- |
-| Search a site | Type `yt cats` and press Return on **Search YouTube**. With just `yt` typed, Tab reaches Query and Return opens the command with Query ready. Escape returns to the root. |
-| Use a hotkey | On the row, choose ⌘K ▸ **Set Hotkey…**. A search hotkey opens a fresh Query field. A bookmark hotkey opens its destination directly. |
-| Open a bookmark | Type `mdn` or **MDN Web Docs** and press Return. A static bookmark can also offer **Copy Link**. A link configured for a particular app shows that app in its subtitle. |
-| Search the web | When a nonempty root query has no strong match, **Search the Web** appears just below **Ask agent**. Select it and press Return once to search for the root text. For an explicit search, type `web`, a space and the query, then press Return. ⌘Return asks the agent. |
-| Add a personal link | Ask the agent to add a bookmark or a keyword for a site search. The agent edits `links-search`'s `user.json` and checks the new row headlessly. To bring bookmarks from a browser export, ask the agent to write them into that file as a one-off task. |
+| Search a site | Type `yt cats`, `wiki new york` or `gh swift` and press Return. Type just the keyword and Tab to fill Query in the root row, or press Return on the bare keyword to open the command at Query. |
+| Browse the starters | Type `links` and press Return. Enter text and press Return to filter the starter list. |
+| Use a hotkey | Choose ⌘K ▸ **Set Hotkey…** on a row. A search hotkey opens Query with no text when pressed from another screen. A bookmark hotkey opens its destination directly. |
+| Search the web | With a nonempty query and no strong match, choose **Search the Web** just below **Ask agent**. For an explicit search, type `web` followed by the query. ⌘Return asks the agent. |
+| Add a personal link | Ask the agent to add the item to `links-search`'s `user.json`. To bring in a browser bookmark export, ask the agent to write items from it as a one-off task. |
 
-Raycast Quicklinks pairs URL arguments with an app choice. Alfred offers fallback searches. Wicket combines keyword-selected rows, a separate Query slot and one independently switchable official fallback. [Raycast Quicklinks](https://manual.raycast.com/quicklinks) · [Alfred fallback searches](https://www.alfredapp.com/help/features/default-results/fallback-searches/)
+Both are contract 2 extensions with a single Query field. The starter searches are manifest items and the root matches them with [keyword arguments](README.md#shared-work) before running any program. The web fallback carries the whole root query. Its `webEngine` setting in `config.json` defaults to DuckDuckGo and also offers Google.
 
-## 3. Design
+Personal items live in `extensions/links-search/user.json` beside the manifest. Make It Mine copies the bundled extension into that folder before adding the first item. Use `open` for ordinary bookmarks and `open-link` with a fixed template for site searches or bookmarks that target an app. Hotkeys use stable addresses such as `wicket://links-search?item=youtube` and `wicket://links-search?user-item=mdn`. See the [extension contract recipes](../../Sources/WicketApp/Resources/extension-contract.md#recipes).
 
-### Commands and items
+The Swift programs open URLs only after submission. A template fixes the HTTP or HTTPS scheme and host, and can place `{query}` in a path segment or query value. Query text is percent-encoded once. Links & Search rejects user info, invalid URLs, dot-only path segments and placeholders in the authority, query keys or fragment. An optional fixed `bundleID` routes through Launch Services. If the app is missing, Wicket shows how to repair the item and keeps the query. A successful hidden run prints nothing.
 
-Both folders use contract 2 and ship Swift executables. `links-search` has the `links` keyword, `submit:true`, `hidden:true` and one `query` text field. With no link selected, its command lists and filters the shipped searches, including `yt`, `wiki` and `gh`. Each starter has a stable item ID and a first action such as the YouTube search below.
-
-```json
-{"type":"run","action":"open-link","input":"","fields":{"link":"youtube"},"hidden":true}
-```
-
-A search action with an empty query returns a prompt on the command and carries its fixed fields into that visit. In the open command, Return submits the current query and retained fields. A named action applies once, so the program accepts both the named item action and the ordinary Query submission for the selected link. The direct root flow uses [shared work 2 and 11](README.md#shared-work).
-
-`web` has its own folder, the name **Search the Web**, the keyword `web`, one `query` text field, and `fallback:true`, `submit:true` and `hidden:true`. A submitted request with a query opens the configured engine. Its `webEngine` setting belongs to `web` in `config.json`. An empty query opens the command at Query. Use shared work 6, contract recipes, for the fallback authoring recipe. [Shared work](README.md#shared-work)
-
-### Personal links
-
-Follow [Official extensions](README.md#decisions-every-spec-follows). The official `links-search` program and starter searches update together. The user's bookmarks and custom searches are items in `links-search`'s `user.json` (shared work 5), shaped like the items in the [quicklinks example](../../Sources/WicketApp/Resources/examples/quicklinks.json), and updates never touch them. The agent edits that file directly. Static bookmarks use `open`. A custom search's first action runs into the official command with a fixed template:
-
-```json
-{"type":"run","extension":"links-search","action":"open-link","input":"","fields":{"template":"https://en.wikipedia.org/w/index.php?search={query}"},"hidden":true}
-```
-
-Return on that item opens the command's Query field when the query is empty. Keyword text and Tab both fill Query for items that run into an enabled command, including across extensions. Hotkeys bind stable item IDs through the existing local resolver, for example `wicket://links-search?item=youtube`. Public `wicket://` addresses open views and keep `?input=` unchanged as an unsubmitted text prefill. [Extension contract](../../Sources/WicketApp/Resources/extension-contract.md)
-
-### Opening URLs
-
-Only submitted requests open computed URLs. Templates use a fixed HTTP or HTTPS scheme and host, with `{query}` in a path segment or query value. Encode the raw value once for that component, so a slash stays inside its segment and `&`, `#` and `%` stay inside the value. Reject user info, placeholders in the authority or query keys, dot-only path segments and invalid URLs. A successful hidden run prints nothing. The browser makes the first network request after submission.
-
-For an explicit app target, pass a fixed `bundleID` to `open-link`. The template can be a fixed URL for a bookmark. Resolve the bundle ID with Launch Services and open the URL with that app. A missing app shows a repair message and keeps the submitted query available. [Apple NSWorkspace](https://developer.apple.com/documentation/appkit/nsworkspace/open(_:withapplicationat:configuration:completionhandler:))
-
-## 4. What exists today
-
-- The root command and fallback rows both carry the manifest's `hidden` flag. The fallback carries the full root query as input. The hidden-run path submits it, and the first text field receives that input. The same command row already offers its fields on Tab. Settings switches sources by extension ID. [Composition.swift](../../Sources/WicketApp/Composition.swift#L182) · [Navigator.swift](../../Sources/WicketApp/Navigator.swift#L1176) · [ExtensionHost.swift](../../Sources/WicketApp/ExtensionHost.swift#L230) · [SettingsWindow.swift](../../Sources/WicketApp/SettingsWindow.swift#L416)
-- Manifest items are indexed locally by title and keywords. An exact keyword gets the fuzzy matcher's +100 bonus. Item hotkeys activate the first action, including hidden runs. [FuzzyMatcher.swift](../../Sources/WicketApp/FuzzyMatcher.swift#L79) · [LauncherModel.swift](../../Sources/WicketApp/LauncherModel.swift#L84)
-- Canvas fields have shipped on `main`. Canvas text fields are listed under **Also agreed**. [Canvas controls example](../../Sources/WicketApp/Resources/examples/canvas-controls.json) · [Roadmap](../../ROADMAP.md#also-agreed)
-
-## 5. Gaps
-
-| Gap | Work |
-| --- | --- |
-| App-target routing | Implement the bundle-ID opener in the extension. |
-| Several arguments | Defer forms such as GitHub owner and repository until [canvas text fields](../../ROADMAP.md#also-agreed) exist. |
-| Distribution | Use [shared work 10, the extension catalog](README.md#shared-work). |
-
-## 6. Implementation plan
-
-1. **Two folders on contract 2.** Build `links-search` and `web` with the current host. The starter rows open the shared Query field on Return. The web fallback opens directly. In a scratch `WICKET_CONFIG_DIR`, test `--extension links-search --submitted --action open-link --fields …` and the submitted `web` query with an inert opener. Cover encoding, empty input and malformed templates. Use `--query` to verify exact aliases and fallback placement for weak, strong and empty input, including with `web` disabled.
-2. **Route to an app.** Check that keyword text and Tab submit the query to the right link, fixed fields win, and search and bookmark hotkeys behave as described. Check bundle-ID resolution and missing-app handling behind a fake opener. Measure root query latency and hotkey-to-visible for the changed path.
-3. **Catalog.** Publish both folders through the catalog (shared work 10). Verify that `user.json` still opens its bookmarks and runs its searches after an official update.
-
-## 7. Open questions
-
-| Decision | Recommendation |
-| --- | --- |
-| Which web engine should ship as the default? | Start with DuckDuckGo and let the user choose another supported engine in `web` settings. |
+Catalog distribution and update verification remain [shared work](README.md#shared-work). Several arguments, such as GitHub owner and repository, await [canvas text fields](../../ROADMAP.md#also-agreed).

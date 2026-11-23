@@ -173,7 +173,7 @@ When the owner asks to make an answer an extension, the command prints that answ
 
 ## Changing a built-in
 
-Calculator, Convert, Window Manager and Shell (`> command` opens the command in the user's terminal) ship inside Wicket, in `Contents/Resources/Extensions/calculator`, `…/units`, `…/window` and `…/shell` of the app bundle whose `Contents/MacOS` holds the Wicket executable. Each folder holds `wicket.json`, the program `main` and its Swift sources, including the shared `JSON.swift`. To change a built-in's code, copy its files into `extensions/<name>/`. Make It Mine in Settings ▸ Extensions creates the copy when the folder is absent or contains only `user.json`. It keeps that file and copies the bundled files beside it. The copied manifest replaces the bundled one. Edit the source and rebuild in the folder with `swiftc -O *.swift -o main`. Calculator, Convert and Shell run without Foundation so each request stays cheap. Convert uses the system libxml2 parser when refreshing ECB rates. The request's `locale` gives the number format. Window Manager links AppKit for the screens and running apps. Its hidden runs write a frame only on a submitted request. They print nothing when the resulting frame is close enough to the requested placement and Accessibility cleanup succeeds. To add to what a built-in shows, such as a result in another format, prefer your own `match` extension: its rows appear at the root next to it. Apps, files and clipboard are compiled into Wicket: to replace one, switch it off in `config.json` (`{"id":"files","enabled":false}` in `providers`; ids `apps`, `files`, `clipboard`; keep the other entries) and write an extension that does its job; it will approximate the native one. An app replacement can supply the initial rows by matching empty input.
+Calculator, Convert, Links & Search, Search the Web, Window Manager and Shell ship in `Contents/Resources/Extensions/` of the app bundle, in the folders `calculator`, `units`, `links-search`, `web`, `window` and `shell`. Each folder holds `wicket.json`, the program `main` and its Swift sources, including the shared `JSON.swift`. To change a built-in's code, copy its files into `extensions/<name>/`. Make It Mine in Settings ▸ Extensions creates the copy when the folder is absent or contains only `user.json`. It keeps that file and copies the bundled files beside it. The copied manifest replaces the bundled one. Edit the source and rebuild in the folder with `swiftc -O *.swift -o main`. Calculator, Convert and Shell run without Foundation so each request stays cheap. Convert uses the system libxml2 parser when refreshing ECB rates. The request's `locale` gives the number format. Window Manager links AppKit for the screens and running apps. Its hidden runs write a frame only on a submitted request. They print nothing when the resulting frame is close enough to the requested placement and Accessibility cleanup succeeds. To add to what a built-in shows, such as a result in another format, prefer your own `match` extension: its rows appear at the root next to it. Apps, files and clipboard are compiled into Wicket: to replace one, switch it off in `config.json` (`{"id":"files","enabled":false}` in `providers`; ids `apps`, `files`, `clipboard`; keep the other entries) and write an extension that does its job; it will approximate the native one. An app replacement can supply the initial rows by matching empty input.
 
 Calculator's root match accepts symbol arithmetic or an explicit leading `=`. Use `=` in root `input` for functions, constants, scientific notation and `of`. The opened command's `expression` field accepts the full grammar with an optional leading `=`. Unit and currency expressions belong to Convert. Successful results use the stable item ID `result`. The first action copies the number at the shown precision with the request's decimal mark. Grouping and the approximation marker appear only in the title. **Copy Machine Number** uses ASCII digits and a dot and appears when the request's decimal mark differs from a dot. **Use Result** prefills an ungrouped number at the root. The `inputFormat` setting accepts `Locale`, `Dot`, or `Comma`. The `outputFormat` setting accepts `Automatic`, `Fixed`, or `Scientific`. Precision defaults to 15 significant digits or 2 decimal places in Fixed. Set it to 1–34 significant digits or 0–34 decimal places. Automatic shows exact integers in full.
 
@@ -197,18 +197,18 @@ In the working folder's `config.json`, add or update the entry for `wicket://<id
 
 ### A user's addition to an installed extension
 
-Add the item to `extensions/quicklinks/user.json` and keep the user's other items. Bind this item in `hotkeys` with `wicket://quicklinks?user-item=my-docs`. For a built-in, use its folder name in the file path and hotkey address, and create the folder if needed.
+Add the bookmark to `extensions/links-search/user.json` in the working folder. Create `extensions/links-search/` if needed and keep the existing items. The built-in reads the file directly. Bind the bookmark in `hotkeys` with `wicket://links-search?user-item=my-docs`.
 
 ```json
-{"items":[{"id":"my-docs","title":"My docs","actions":[{"type":"open","url":"https://example.com/docs"}]}]}
+{"items":[{"id":"my-docs","title":"My docs","keywords":["mydocs"],"actions":[{"type":"open","url":"https://example.com/docs"},{"type":"copy","title":"Copy Link","text":"https://example.com/docs"}]}]}
 ```
 
 ### A saved definition
 
-Store the definition in the item's `run.fields` as strings. Add this saved search to the site search's `items` below. Its fixed `query` goes straight to the program on Return.
+Store the definition in the item's `run.fields` as strings. Add this saved search to Links & Search's `user.json`. Its fixed `query` goes straight to the program on Return.
 
 ```json
-{"id":"wiki-berlin","title":"Berlin on Wikipedia","actions":[{"type":"run","title":"Search Wikipedia","hidden":true,"fields":{"query":"Berlin"}}]}
+{"id":"wiki-berlin","title":"Berlin on Wikipedia","actions":[{"type":"run","title":"Search Wikipedia","action":"open-link","hidden":true,"fields":{"link":"wikipedia","query":"Berlin"}}]}
 ```
 
 ### A saved window move
@@ -225,37 +225,17 @@ The rectangle is `[x, y, width, height]` as fractions from the top left of the u
 
 ### A site search with a query
 
-Give the item a keyword and let its first action run into a command with a text field. Type `wiki Saturn` to fill `query` with `Saturn`, then press Return. Use the fallback's `main.py` below with `https://en.wikipedia.org/w/index.php?` and the parameter `search`.
+Add an item to Links & Search's `user.json` with a keyword and a template. From another extension set `"extension":"links-search"` on the run action. Type `osm Berlin` and press Return, or type `osm` and press Tab to fill Query. An item hotkey opens Query when there is no text to search. Starter aliases are `yt`, `wiki` and `gh`.
 
 ```json
-{"contract":2,"name":"Site Searches","command":["/usr/bin/python3","main.py"],"submit":true,"hidden":true,
- "fields":[{"name":"query","type":"text","description":"Search Wikipedia"}],
- "items":[{"id":"wiki","title":"Search Wikipedia","keywords":["wiki"],"actions":[{"type":"run","title":"Search Wikipedia","hidden":true}]}]}
+{"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[{"type":"run","title":"Search OpenStreetMap","action":"open-link","input":"","hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
 ```
+
+Use a fixed HTTP or HTTPS scheme and host. Place `{query}` in a path segment or a query value. Links & Search percent-encodes the query once and rejects user info, dot-only path segments and placeholders anywhere else. To target an installed app, set `bundleID` in the fixed action fields and name the app in the item's `subtitle`. A fixed template without a placeholder opens a static URL with that app.
 
 ### A web fallback
 
-Put the fallback in its own extension folder. When nothing matches strongly, its row submits the root query. Open the encoded search URL on submission and let the browser be the feedback.
-
-```json
-{"contract":2,"name":"Search the Web","command":["/usr/bin/python3","main.py"],"fallback":true,"submit":true,"hidden":true,
- "fields":[{"name":"query","type":"text","description":"Search the web"}]}
-```
-
-```python
-import json
-import subprocess
-import sys
-from urllib.parse import urlencode
-
-request = json.load(sys.stdin)
-query = request["fields"].get("query", "").strip()
-if request["submitted"] and query:
-    url = "https://www.google.com/search?" + urlencode({"q": query})
-    subprocess.run(["open", url], check=True)
-else:
-    print("Enter a search query.")
-```
+The bundled `web` extension already supplies a general fallback. Its `webEngine` setting accepts `DuckDuckGo` (the default) or `Google`. To build another fallback, give it a separate folder with `fallback:true`, `submit:true`, `hidden:true` and one text field. When nothing matches strongly, its row submits the full root query. Encode the query for its URL component and open the URL only on submission. Print nothing on a successful open.
 
 ### A JavaScript command
 
@@ -317,7 +297,7 @@ Spell `hotkeys` keys like the launcher `hotkey`, with one entry per address. `it
 
 Failure output is the repair brief: change the extension folder and the next request runs the new files. Do not add approval files or trust settings to an extension. config.json stays in the working folder, so an agent allowed to edit it can change `agent.mode`.
 
-This contract is rewritten from the app at every launch. Optional examples sit in `examples/`, outside the active extensions folder, installed only when their folder is absent, so a local copy can be older than the app; copy one into `extensions/` to use it. `quicklinks` is items without a program. `web-search` is a fallback that builds a search URL and makes no request. `agenda` prints a page: the next seven days of an .ics calendar as rows grouped by day, each with its facts in a detail; its docstring says which repeat rules it expands. `canvas-controls` demonstrates canvas switches, a slider and a choice. Read these and the bundled extensions (above) before building a new one. Do not touch other extensions without a request.
+This contract is rewritten from the app at every launch. Optional examples sit in `examples/`, outside the active extensions folder, installed only when their folder is absent, so a local copy can be older than the app; copy one into `extensions/` to use it. `agenda` prints a page: the next seven days of an .ics calendar as rows grouped by day, each with its facts in a detail; its docstring says which repeat rules it expands. `canvas-controls` demonstrates canvas switches, a slider and a choice. Read these and the bundled extensions (above) before building a new one. Do not touch other extensions without a request.
 
 ## Testing with the real pipeline
 

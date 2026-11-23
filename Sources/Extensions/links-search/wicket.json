@@ -1,0 +1,22 @@
+{
+  "contract": 2,
+  "name": "Links & Search",
+  "description": "Search sites by keyword and open saved links.",
+  "keyword": "links",
+  "command": ["./main"],
+  "icon": "link",
+  "submit": true,
+  "hidden": true,
+  "fields": [{"name":"query","type":"text","description":"Query","placeholder":"Search query"}],
+  "items": [
+    {"id":"youtube","title":"Search YouTube","keywords":["yt"],"actions":[
+      {"type":"run","title":"Search YouTube","action":"open-link","input":"","fields":{"link":"youtube"},"hidden":true}
+    ]},
+    {"id":"wikipedia","title":"Search Wikipedia","keywords":["wiki"],"actions":[
+      {"type":"run","title":"Search Wikipedia","action":"open-link","input":"","fields":{"link":"wikipedia"},"hidden":true}
+    ]},
+    {"id":"github","title":"Search GitHub","keywords":["gh"],"actions":[
+      {"type":"run","title":"Search GitHub","action":"open-link","input":"","fields":{"link":"github"},"hidden":true}
+    ]}
+  ]
+}

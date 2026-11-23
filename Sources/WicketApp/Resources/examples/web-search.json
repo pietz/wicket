@@ -1,1 +1,0 @@
-{"name":"Search the web","keyword":"web","command":["/usr/bin/python3","main.py"],"icon":"globe","fallback":true,"contract":2,"fields":[{"name":"query","type":"text","description":"Search the web"}]}

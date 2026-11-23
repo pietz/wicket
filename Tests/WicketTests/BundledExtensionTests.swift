@@ -17,7 +17,7 @@ let bundledExtensions: URL = {
     products = products.deletingLastPathComponent()
   }
   let folder = products.appending(path: "Extensions")
-  for name in ["calculator", "units", "window", "shell"] {
+  for name in ["calculator", "units", "window", "shell", "links-search", "web"] {
     let target = folder.appending(path: name)
     try! fm.createDirectory(at: target, withIntermediateDirectories: true)
     // Only what changed: macOS checks a new binary on its first run, which takes 70 ms and more.

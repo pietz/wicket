@@ -126,8 +126,8 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("extension-pattern") {
     return ["6\(ProviderRequest.NumberMarks.current.decimal)2137119", "Copy conversion", "Ask agent"]
   }
-  if name.contains("extension-list") { return ["wicket launcher", "Search for", "Search the web"] }
-  if name.contains("extension-fallback") { return ["Ask agent", "Search the web"] }
+  if name.contains("extension-list") { return ["Links & Search", "Search YouTube", "Search Wikipedia"] }
+  if name.contains("extension-fallback") { return ["Ask agent", "Search the Web"] }
   if name.contains("answer") {
     return ["Ask a follow-up", "A good start", "Extensions", "Ready for a follow-up"]
   }
@@ -693,18 +693,10 @@ private let installedAgent: Void = {
       _ = model.activateReturn()
       await model.navigator.settled()
     } else {
-      let web = folder.appending(path: "extensions/web-search")
-      if !FileManager.default.fileExists(atPath: web.path) {
-        try FileManager.default.copyItem(at: folder.appending(path: "examples/web-search"), to: web)
-      }
       await host.reload()
       switch state {
       case "extension-list":
-        model.navigator.input = "web"
-        await model.navigator.settled()
-        _ = model.activateReturn()
-        await model.navigator.settled()
-        model.navigator.input = "wicket launcher"
+        model.navigator.go(Address(id: "extension:links-search", link: true))
       case "extension-fallback": model.navigator.input = "a useful sentence to search"
       default: model.navigator.input = "10 km in mi"
       }

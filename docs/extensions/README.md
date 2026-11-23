@@ -8,7 +8,7 @@ The first official extensions, the decisions they share, and the order to build 
 |---|---|---|
 | Calculator | [calculator.md](calculator.md) | Arithmetic as you type at the root. Deliberately an extension, so its behavior can be changed. |
 | Convert | [convert.md](convert.md) | Units and currency, with a rate source the user can replace. Handles single quantities. Typed arithmetic with units and currencies is later work. |
-| Links & Search | [links-search.md](links-search.md) | Type a keyword and query to open a site search. The agent adds a new search in one sentence. |
+| Links & Search | [links-search.md](links-search.md) | Shipped in the app. Site searches and bookmarks, with a separately switchable Search the Web fallback. |
 | Window Manager | [window-manager.md](window-manager.md) | A small engine that moves windows, plus layouts the agent writes ("on ⌃⌥1, Safari left two-thirds"). |
 | Calendar | [calendar.md](calendar.md) | Upcoming meetings from macOS Calendar, with details and Join. |
 
@@ -59,7 +59,7 @@ Core and contract changes the specs need. The numbers stay fixed because the spe
 - **Calculator:** phase 1 shipped (exact decimals, root row, `calc`, phone and date screening, locale copy).
 - **Convert:** phase 1 shipped (units, ECB rates refreshed only on submitted requests, home currency, Rate details). Typed arithmetic with units is next.
 - **Window Manager:** phases 1 to 3 shipped (verified moves, saved moves in `user.json`, Capture). Multi-window layouts are next.
-- **Links & Search:** phases 1 and 2 built, landing after review; personal links in `extensions/links-search/user.json`.
+- **Links & Search** ships with site searches and a web fallback. Add personal bookmarks and searches in `extensions/links-search/user.json`.
 - **Calendar:** waits for the permission checks.
 - **System:** parked.
 
