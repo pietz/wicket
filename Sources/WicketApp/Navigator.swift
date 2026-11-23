@@ -70,6 +70,7 @@ final class Navigator {
       let changed = newValue != previous
       if !conversing, command != nil { command?.input = newValue } else { screen.input = newValue }
       if changed {
+        returnQueued = false
         if command == nil, !conversing { revealedRootList = false }
         resetSelection()
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
@@ -455,6 +456,7 @@ final class Navigator {
       return pickFieldRow()
     }
     command?.screen.fill(name, with: value)
+    returnQueued = false
     resetSelection()
     refresh()
   }
@@ -463,6 +465,7 @@ final class Navigator {
     guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn,
       command?.problem == nil, command?.edit(change) == true
     else { return }
+    returnQueued = false
     actionProblem = nil
     if command?.runningSubmission == true || !advanceCanvasWork() { draw() }
   }
@@ -536,13 +539,20 @@ final class Navigator {
   ///    runs it; ⌘↩, or picking Ask agent or the error row, still acts.
   /// 6. Else the selected row runs.
   ///
-  /// Anywhere else (a command, a conversation, a switch, the action panel) it runs at once. A Return
-  /// that waits is decided again on each list composed, as a `replay`: rules 3 and 5 tell it from a press,
-  /// since nobody saw the row it would run. It runs or is dropped once it no longer waits; an edit, a
-  /// pick, a switch or hiding call it off. ⌘↩ never waits: it asks the agent with what is typed.
+  /// A live command also waits for a pending rerun. If the rerun fails or shows a permission gate,
+  /// the queued Return is dropped. Submit commands, conversations, switches and overlays run at once.
+  /// A waiting Return is decided again when results arrive, as a `replay`: rules 3 and 5 tell it from a
+  /// press, since nobody saw the row it would run. An edit, a pick, a switch or hiding calls it off.
+  /// ⌘↩ never waits: it asks the agent with what is typed.
   enum ReturnPlan { case run, wait, refuse }
   func returnPlan(replay: Bool = false) -> ReturnPlan {
-    guard command == nil, !conversing, arriving == nil, overlay == nil else { return .run }
+    guard !conversing, arriving == nil, overlay == nil else { return .run }
+    if let command {
+      guard !inDetail, !submits else { return .run }
+      if command.awaitsRerun { return .wait }
+      if replay, command.problem != nil || Permissions.isGate(results) { return .refuse }
+      return .run
+    }
     if composedInput != input { return .wait }
     if current.picked || !replay && search.isPatternResult(selected) { return .run }
     if search.outranked(selected) { return .wait }
@@ -560,11 +570,9 @@ final class Navigator {
   func run(_ chosen: RowAction? = nil) {
     // What runs takes the input from dictation first, so a later transcript cannot rewrite it.
     speech?.stop(.run)
-    if chosen == nil {
-      let plan = returnPlan()
-      returnQueued = plan == .wait
-      guard plan == .run else { return }
-    }
+    let plan = chosen == nil ? returnPlan() : .run
+    returnQueued = plan == .wait
+    guard plan == .run else { return }
     guard let (action, result) = pick(chosen), !activate(action, from: result) else { return }
     surface?.perform(.run(action, from: result))
   }
@@ -610,9 +618,10 @@ final class Navigator {
   /// The open command's request has run for `busyDelay`.
   var showsBusy: Bool { ranLong && command?.busy == true }
   @ObservationIgnored private var generation = 0
-  /// Ends what the screen shown is waiting for: its request, the root's search and a waiting Return.
-  func cancelWork(preservingCanvas: Bool = false) {
-    returnQueued = false
+  /// Stops the screen's request and the root's search. When advancing work on the same command,
+  /// its queued edits and Return stay pending.
+  func cancelWork(preservingPending: Bool = false) {
+    if !preservingPending { returnQueued = false }
     generation += 1
     for task in tasks { task.cancel() }
     tasks.removeAll()
@@ -620,7 +629,7 @@ final class Navigator {
     ranLong = false
     search.cancel()
     command?.stop()
-    if !preservingCanvas { command?.discardPending() }
+    if !preservingPending { command?.discardPending() }
   }
   /// Stays on the current screen: a switch still waiting for its content is called off.
   private func stopArriving() {
@@ -723,7 +732,7 @@ final class Navigator {
   /// process's answer once it is there, unless another request or visit replaced it meanwhile.
   private func answer(_ work: CommandWork, for request: CommandScreenRequest, typed: Bool) {
     let speaking = speech?.speaking == true
-    cancelWork(preservingCanvas: true)
+    cancelWork(preservingPending: true)
     target?.begin(request)
     let turn = (request.fieldChange == nil ? nil : target?.turn) ?? UUID().uuidString
     // The user did not cause it by typing, so what it shows becomes its context.
@@ -734,13 +743,11 @@ final class Navigator {
       target?.unavailable(problem)
       showArrival()
       sizeList()
-      return publish()
+      publish()
+      replayReturn()
     case .immediate(let outcome):
       let page: Page? = if case .view(let view) = outcome { target?.makePage(view) } else { nil }
-      if accept(outcome, for: request, page: page, turn: turn, remembered: remembered) {
-        publish()
-      }
-      return
+      accept(outcome, for: request, page: page, turn: turn, remembered: remembered)
     case .deferred(let answered):
       target?.run(request)
       let version = generation
@@ -779,9 +786,7 @@ final class Navigator {
             if case .measured(let height) = measurement, height.turn == turn { measured = height }
             break
           }
-          if accept(outcome, for: request, page: page, turn: turn, remembered: remembered) {
-            publish(measured)
-          }
+          accept(outcome, for: request, page: page, turn: turn, remembered: remembered, measured: measured)
         })
       draw()
     }
@@ -797,13 +802,12 @@ final class Navigator {
       if showsBusy { draw() }
     }
   }
-  /// Takes what a request was answered with: a view or a problem shows on the command, which arrives if
-  /// it was on its way, and a run to restore opens its conversation. False when the screens are left as
-  /// they were.
+  /// Takes and draws what a request was answered with: a view or problem on the command, which arrives
+  /// if it was on its way, or a saved run opened as a conversation.
   private func accept(
     _ outcome: CommandOutcome, for request: CommandScreenRequest, page: Page?, turn: String,
-    remembered: Bool
-  ) -> Bool {
+    remembered: Bool, measured: PageHeight? = nil
+  ) {
     switch outcome {
     case .view(let view):
       showArrival()
@@ -813,10 +817,11 @@ final class Navigator {
       command?.fail(problem, remembered: remembered)
     case .restore(let run):
       restore(run)
-      return false
+      return
     }
     sizeList()
-    return true
+    publish(measured)
+    replayReturn()
   }
   /// Waits until no work is left, including work a refresh started while this was waiting.
   func settled() async {
@@ -827,13 +832,16 @@ final class Navigator {
       await search.settled()
     } while seen != generation || !hiddenRuns.isEmpty
   }
-  /// The root's list for what is typed; a Return that waits is decided again (`returnPlan`).
+  /// The root's list for what is typed.
   private func show(_ output: RootCommand.Output) {
     showArrival()
     listed = output.results
     composedInput = output.input
     rootHasProblems = output.hasProblems
     publish()
+    replayReturn()
+  }
+  private func replayReturn() {
     guard returnQueued else { return }
     switch returnPlan(replay: true) {
     case .wait: break
@@ -872,6 +880,7 @@ final class Navigator {
       if arriving == nil, state.runningSubmission, state.page?.fields.isEmpty == false,
         state.next == .submission
       {
+        returnQueued = false
         state.enqueue(state.request())
         state.begin()
         command = state
@@ -1128,6 +1137,7 @@ final class Navigator {
       stopArriving()
       cancelWork()
     }
+    returnQueued = false
     conversation = AgentScreen(back: .reveal(command?.agentContext(typed: false)))
     agent.open(settings: configuration.agent)
     clearSelection()
@@ -1271,6 +1281,6 @@ final class Navigator {
     if case .view(let view) = outcome {
       page = state.makePage(view)
     }
-    if accept(outcome, for: shown, page: page, turn: UUID().uuidString, remembered: true) { publish() }
+    accept(outcome, for: shown, page: page, turn: UUID().uuidString, remembered: true)
   }
 }

@@ -108,14 +108,18 @@ enum CommandOutcome {
   private var failedCanvasValues: [String: String] = [:]
   /// A link or replay cleared the shown form's values; if its request fails, a retry must not restore them.
   private var canvasCleared = false
-  private(set) var busy = false
+  private var runningCause: Cause?
+  var busy: Bool { runningCause != nil }
   private(set) var runningAction = false
-  private(set) var runningSubmission = false
+  var runningSubmission: Bool { runningCause == .submission }
   private(set) var turn = UUID().uuidString
   private var canvasEdits: [String: String] = [:]
   private var submissions: [CommandScreenRequest] = []
   private var pendingChange: Page.Field.Change?
   private var pendingRefresh: Bool?
+  var awaitsRerun: Bool {
+    runningCause == .rerun || runningSubmission && (pendingChange != nil || pendingRefresh != nil)
+  }
 
   init(_ behavior: any CommandScreenBehavior) {
     self.behavior = behavior
@@ -248,15 +252,13 @@ enum CommandOutcome {
   /// A process answers it.
   mutating func run(_ request: CommandScreenRequest) {
     problem = nil
-    busy = true
+    runningCause = request.cause
     runningAction = request.action != nil
-    runningSubmission = request.cause == .submission
   }
   /// Its request stopped: nothing is running.
   mutating func stop() {
-    busy = false
+    runningCause = nil
     runningAction = false
-    runningSubmission = false
   }
 
   func makePage(_ view: ProviderView) -> Page? {

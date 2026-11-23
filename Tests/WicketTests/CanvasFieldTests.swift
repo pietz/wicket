@@ -608,6 +608,53 @@ import WebKit
   await model.finish()
 }
 
+@MainActor @Test func liveCommandReturnWaitsForARerunDeferredByACanvasSubmission() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      text=old
+      case "$request" in
+        *'"action":"set-enabled"'*)
+          touch submitting
+          while [ ! -e release-save ]; do sleep 0.01; done ;;
+        *'"input":"new"'*)
+          touch rerunning
+          while [ ! -e release-rerun ]; do sleep 0.01; done
+          text=new ;;
+      esac
+      printf '%s' '{"body":"<field name=\\"enabled\\" type=\\"bool\\" act=\\"true\\"/>",'
+      printf '"actions":[{"type":"copy","text":"%s"}]}' "$text"
+      """)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  try #require(surface.presentation.page?.fields["enabled"] != nil)
+  navigator.changeField(
+    .init(name: "enabled", value: "true", phase: .commit), turn: surface.presentation.pageTurn)
+  #expect(
+    await eventually { FileManager.default.fileExists(atPath: folder.appending(path: "submitting").path) })
+
+  navigator.editInput("new")
+  navigator.run()
+  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  try Data().write(to: folder.appending(path: "release-save"))
+  #expect(
+    await eventually { FileManager.default.fileExists(atPath: folder.appending(path: "rerunning").path) })
+  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  try Data().write(to: folder.appending(path: "release-rerun"))
+  await navigator.settled()
+  #expect(!navigator.returnQueued)
+  #expect(surface.effects == [.run(.copy("new"), from: surface.presentation.viewRow)])
+  await model.finish()
+}
+
 @MainActor @Test func canvasSameCommandLinkCancelsTheSaveAndRunsImmediately() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

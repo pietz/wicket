@@ -36,7 +36,7 @@ Settings ▸ Extensions shows text and number entries, boolean switches and choi
 
 ### Submit and actions
 
-Without `submit`, editing the command’s search-bar fields reruns it with `submitted:false`. With `submit:true`, edits wait for Return or an action. When a text field claims the input, Return with no selected item submits the current values. With `hidden:true` as well, that submission is a hidden run. Entering by name, a root match, links and actions still make their own requests.
+Without `submit`, editing the command’s search-bar fields reruns it with `submitted:false`. Return waits for that rerun before using the command’s results. If the rerun fails, Wicket drops the queued Return. With `submit:true`, edits wait for Return or an action. When a text field claims the input, Return with no selected item submits the current values. With `hidden:true` as well, that submission is a hidden run. Entering by name, a root match, links and actions still make their own requests.
 
 Show the proposed effect on entry if the user should review it first (for example, deploy, delete or send). Put the effect on a separate, labelled action, such as `{"type":"run","title":"Deploy to production","action":"deploy","fields":{"environment":"production"}}`. Require `submitted:true` and the exact action name, and validate the fields before acting. Choosing the command by name and submitting the search bar carry no action name. A named action applies to one request. Later submissions and reruns carry the current fields without that action.
 

@@ -693,6 +693,77 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
 }
 
+@MainActor private func liveReturnCommand(in root: URL) async throws -> (LauncherModel, RecordingSurface) {
+  _ = try extensionFolder(
+    root, name: "slow",
+    script: """
+      IFS= read -r request
+      case "$request" in
+        *'"input":"12*77"'*|*'"input":"broken"'*)
+          touch rerunning
+          while [ ! -e release ]; do sleep 0.01; done ;;
+      esac
+      case "$request" in
+        *'"input":"broken"'*) echo 'Calculation failed' >&2; exit 1 ;;
+        *'"input":"12*77"'*) result=924 ;;
+        *) result=84 ;;
+      esac
+      printf '{"items":[{"id":"result","title":"%s","actions":[{"type":"copy","text":"%s"}]}]}\n' "$result" "$result"
+      """)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  model.navigator.surface = surface
+  model.navigator.go(Address(extensionName: "slow", input: "12*7"))
+  await model.navigator.settled()
+  return (model, surface)
+}
+
+@MainActor @Test func liveCommandReturnWaitsForTheCurrentInput() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await liveReturnCommand(in: root)
+  let navigator = model.navigator
+  navigator.editInput("12*77")
+  let marker = root.appending(path: "extensions/slow/rerunning")
+  #expect(await eventually { FileManager.default.fileExists(atPath: marker.path) })
+  #expect(surface.presentation.selected?.row.title == "84")
+
+  navigator.run()
+  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  try release(root)
+  await navigator.settled()
+  #expect(!navigator.returnQueued)
+  #expect(surface.effects == [.run(.copy("924"), from: surface.presentation.selected)])
+  await model.finish()
+}
+
+@MainActor @Test func liveCommandReturnRunsImmediatelyOnACurrentView() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await liveReturnCommand(in: root)
+  model.navigator.run()
+  #expect(!model.navigator.returnQueued)
+  #expect(surface.effects == [.run(.copy("84"), from: surface.presentation.selected)])
+  await model.finish()
+}
+
+@MainActor @Test func liveCommandReturnIsDroppedWhenTheRerunFails() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await liveReturnCommand(in: root)
+  let navigator = model.navigator
+  navigator.editInput("broken")
+  navigator.run()
+  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  try release(root)
+  await navigator.settled()
+  #expect(!navigator.returnQueued && navigator.returnPlan() != .wait)
+  #expect(surface.presentation.problem?.contains("Calculation failed") == true)
+  #expect(surface.effects.isEmpty && !model.agent.active)
+  await model.finish()
+}
+
 @MainActor @Test func aHiddenHotkeyRunsItsProgramOnceAndShowsAFailureOnce() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
