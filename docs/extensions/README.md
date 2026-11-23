@@ -40,24 +40,25 @@ Tier 2, not yet specified: Snippets, Capture, Processes & Ports, and Monitor. Cl
 
 ## Shared work
 
-Core and contract changes the specs need, roughly in build order.
+Core and contract changes the specs need. The numbers stay fixed because the specs refer to them.
 
-1. **A private data folder per extension.** One environment value pointing at an edition-scoped folder beside `Edition.privateDirectory()`, for caches and saved state.
-2. **Tab into an item's fields.** An item whose first action runs into a command offers that command's search-bar fields, and the action's fixed fields win over typed ones.
-3. **Untrusted text stays inert.** Unknown tags show as literal text, and a view sent to the agent as context is marked as data, not instructions.
-4. **Patterns compile once**, not on every keystroke.
-5. **`user.json` (implemented).** Wicket reads an extension's `user.json` items beside its manifest's, and the contract tells the agent to write additions there.
+1. **A private data folder per extension.** Shipped: `WICKET_DATA_DIR`.
+2. **Tab into an item's fields.** Shipped.
+3. **Untrusted text stays inert.** Shipped: unknown tags show as literal text, and a view sent to the agent as context is marked as data.
+4. **Patterns compile once.** Shipped.
+5. **`user.json`.** Shipped: additions live in the extension's `user.json`, addressed as `?user-item=` so they never collide with the extension's own items.
 6. **Contract recipes.** A short section in the contract showing how existing mechanisms build common things: a custom hotkey action, a saved definition, an addition in `user.json`, a web fallback.
-7. **`wicket-js`**, with a few abilities beyond computing: its own data folder, fetching on a submitted request, and perhaps starting a command. It gets its own short design first.
+7. **`wicket-js`.** Abilities beyond computing: its own data folder, fetching from the web (never in a run caused by typing at the root), and starting a command and reading its output. It gets a short design first.
 8. **Meeting links.** `open` also accepts a short list of conferencing schemes, such as `zoommtg:` and `msteams:`, behind an explicit action.
 9. **Saving a page's choices to `config.json`**, designed once with onboarding (ROADMAP step 4).
 10. **The extension catalog** (ROADMAP step 3).
+11. **Keyword, space, text.** Typing an item's or command's keyword, a space and text at the root fills its first text field: `yt cats` ⏎ searches YouTube for cats, with no Tab. Tab still moves through named fields, which matter when there is more than one input. This is one host rule for every keyword, not a pattern in each extension. A keyword that is also a common word takes over text that starts with it, and Ask agent stays in the list.
 
 ## Build order
 
-1. Shared work 1 to 4, in progress.
-2. Calculator, then Convert (after the data folder).
-3. Contract recipes, then Links & Search, then Window Manager's stock moves and Capture.
+1. Convert's review fixes, then Contract recipes.
+2. Links & Search, with keyword, space, text.
+3. Window Manager's Capture and saved layouts in `user.json`.
 4. `wicket-js`.
 5. The catalog.
 6. Calendar, once the permission checks have passed.
