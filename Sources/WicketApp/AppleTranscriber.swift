@@ -2,6 +2,7 @@ import AVFoundation
 import CoreAudio
 import CoreMedia
 import Speech
+import Synchronization
 
 /// Apple's macOS 26 on-device pipeline. No fallback recognizer, model download or audio file.
 @MainActor final class AppleTranscriber: Transcriber {
@@ -75,6 +76,7 @@ import Speech
     try await withTaskCancellationHandler {
       try Task.checkCancellation()
       // Audio buffers from here on wait in `inputs` until the analyzer reads them: the first word counts.
+      yield(.openingMicrophone(.now))
       try await microphone.start(
         format: format, audio: { feed.yield(AnalyzerInput(buffer: $0)) },
         firstAudio: { yield(.audio(.now)) }, fail: fail)
@@ -95,14 +97,22 @@ import Speech
   }
 }
 
-/// Each capture has its own queue. A blocked driver call leaves the main actor and later sessions free.
+/// Each capture has its own queue so a stalled teardown cannot block the next session.
 final class Microphone: @unchecked Sendable {
+  private static let hardwareOpen = DispatchSemaphore(value: 1)
+  private let openSlot: DispatchSemaphore
   private let queue = DispatchQueue(label: "app.wicket.capture", qos: .userInitiated)
   private var session: (any CaptureSession)?
   private var samples: AudioSamples?
   private var observers: [any NSObjectProtocol] = []
-  private var stopped = false
+  private let stopped = Atomic(false)
   private let opened = ContinuousClock.now
+
+  init(openSlot: DispatchSemaphore = Microphone.hardwareOpen) {
+    self.openSlot = openSlot
+  }
+
+  private var isStopped: Bool { stopped.load(ordering: .relaxed) }
 
   func open<Device>(
     selecting select: @escaping @Sendable () throws -> Device,
@@ -110,17 +120,29 @@ final class Microphone: @unchecked Sendable {
   ) async throws {
     let (opened, result) = AsyncThrowingStream<Never, any Error>.makeStream()
     queue.async { [self] in
-      guard !stopped, session == nil else {
+      guard !isStopped, session == nil else {
         result.finish(throwing: CancellationError())
         return
       }
-      do {
-        let session = try make(select())
-        self.session = session
-        session.startRunning()
-        guard session.isRunning else { throw VoiceError.microphoneStartFailed }
-        result.finish()
-      } catch {
+      // Fail fast while a previous call into the driver is still outstanding.
+      guard openSlot.wait(timeout: .now()) == .success else {
+        result.finish(throwing: VoiceError.microphoneStartFailed)
+        return
+      }
+      let outcome = Swift.Result<Void, any Error> {
+        defer { openSlot.signal() }
+        let device = try select()
+        guard !isStopped else { throw CancellationError() }
+        let capture = try make(device)
+        guard !isStopped else { throw CancellationError() }
+        capture.startRunning()
+        session = capture
+        guard !isStopped else { throw CancellationError() }
+        guard capture.isRunning else { throw VoiceError.microphoneStartFailed }
+      }
+      switch outcome {
+      case .success: result.finish()
+      case .failure(let error):
         close()
         result.finish(throwing: error)
       }
@@ -130,8 +152,9 @@ final class Microphone: @unchecked Sendable {
     try Task.checkCancellation()
   }
 
-  /// Queue the close before returning. The stream finishes after any opening already in progress.
+  /// Set cancellation now so an opening stalled on the queue can see it before starting the capture.
   func stop() -> AsyncStream<Never> {
+    stopped.store(true, ordering: .relaxed)
     let (closed, finish) = AsyncStream.makeStream(of: Never.self)
     queue.async { [self] in
       close()
@@ -142,7 +165,7 @@ final class Microphone: @unchecked Sendable {
 
   func captureEnded(fail: @escaping @Sendable (VoiceError) -> Void) {
     queue.async { [self] in
-      guard !stopped else { return }
+      guard !isStopped else { return }
       VoiceLog.logger.log(
         "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
       )
@@ -190,7 +213,7 @@ final class Microphone: @unchecked Sendable {
   }
 
   private func close() {
-    stopped = true
+    stopped.store(true, ordering: .relaxed)
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
     observers.removeAll()
     session?.stopRunning()
@@ -212,20 +235,22 @@ extension AVCaptureSession: CaptureSession {}
 /// then USB when the default is Bluetooth.
 enum InputDevice {
   static func select() throws -> AVCaptureDevice {
-    guard let current = AVCaptureDevice.default(for: .audio) else { throw VoiceError.noMicrophone }
-    return avoidingBluetooth(
-      current,
-      AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified)
-        .devices, transport: { UInt32(bitPattern: $0.transportType) })
+    try select(
+      current: AVCaptureDevice.default(for: .audio),
+      discover: { AVCaptureDevice.DiscoverySession(deviceTypes: $0, mediaType: $1, position: $2).devices },
+      transport: { UInt32(bitPattern: $0.transportType) })
   }
 
-  static func avoidingBluetooth<Device>(
-    _ current: Device, _ inputs: @autoclosure () -> [Device], transport: (Device) -> UInt32
-  ) -> Device {
+  static func select<Device>(
+    current: Device?,
+    discover: ([AVCaptureDevice.DeviceType], AVMediaType, AVCaptureDevice.Position) -> [Device],
+    transport: (Device) -> UInt32
+  ) throws -> Device {
+    guard let current else { throw VoiceError.noMicrophone }
     guard
       [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(transport(current))
     else { return current }
-    let candidates = inputs()
+    let candidates = discover([.microphone, .external], .audio, .unspecified)
     return candidates.first { transport($0) == kAudioDeviceTransportTypeBuiltIn }
       ?? candidates.first { transport($0) == kAudioDeviceTransportTypeUSB } ?? current
   }

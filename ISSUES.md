@@ -36,4 +36,3 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 ## Tests
 
 - **`HeadlessTests` invokes `.build/debug/Wicket` at a fixed path** and assumes `Scripts/check.sh` built it. Next: build the target from the test or report clearly if missing.
-- **`permissionWaitDoesNotUseStartupOrCaptureDeadlines` is disabled:** races its 250 ms startup timer under parallel load (not a product bug). Next: inject a clock into `VoiceInput` and re-enable.

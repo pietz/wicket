@@ -46,7 +46,7 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 ## 6. Voice
 
 1. Open and speak immediately: first word is caught. Typing takes over; speech never submits; ⌘Return asks.
-2. Test built-in, USB mic, and Bluetooth headset in Sound settings. With the headset set as both input and output, play music and open Wicket for its first voice session after launch. Verify dictation uses the Mac's mic and the music stays high quality. Hide during startup and reopen. Dictation should work on reopen, and any startup failure should show "Microphone didn't start. Try again." With only the headset mic available, verify it still works. Unplug the active mic mid-capture and verify one retry hint and no auto-restart.
+2. Test built-in, USB mic, and Bluetooth headset in Sound settings. With the headset set as both input and output, play music and open Wicket for its first voice session after launch. Verify dictation uses the Mac's built-in mic, or the USB mic on a Mac without a built-in mic, and the music stays high quality. Hide during startup and reopen. If the previous open is still stalled, the retry should promptly show "Microphone didn't start. Try again." Verify dictation works when you reopen after the previous open has returned. With only the headset mic available, verify it still works. Unplug the active mic mid-capture and verify one retry hint and no auto-restart.
 3. Stay silent: stops quietly after ~3 s; mic click restarts. Rapid open/close always clears the menu bar mic indicator.
 4. Verify first-time permission prompt and denial; focus returns to panel afterward.
 5. On a Mac lacking the speech model, verify missing-model message and that typing still works.

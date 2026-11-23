@@ -158,12 +158,14 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   voice.shutdownDuration = .milliseconds(30)
   voice.noSpeechDuration = .seconds(60)
   voice.toggle()
+  stuck.feeds[0].yield(.openingMicrophone(.now))
   #expect(await eventually(within: .seconds(15)) { voice.problem == "Microphone didn't start. Try again." })
   #expect(voice.state == .idle && stuck.stops == 1)
 
   voice.startupDuration = .seconds(60)
   voice.toggle()
   try #require(await eventually(within: .seconds(15)) { fresh.feeds.count == 1 })
+  fresh.feeds[0].yield(.openingMicrophone(.now))
   fresh.feeds[0].yield(.ready)
   #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
   #expect(creations == 2 && stuck.feeds.count == 1 && voice.problem == nil)
@@ -676,27 +678,28 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   #expect(written == ["one"] && fake.stops == 1 && voice.problem == nil)
 }
 
-// Disabled: under parallel load the 250 ms startup timer can fire before the session reads the
-// fake's first update. An injectable clock would let the test control the deadline (see ISSUES.md).
-@MainActor @Test(.disabled("Timing race under parallel load; needs an injectable clock"))
-func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
+@MainActor @Test func slowPermissionAndSpeechPreflightLeaveTimeToOpenTheMicrophone() async throws {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
-  voice.startupDuration = .milliseconds(250)
-  voice.silenceDuration = .milliseconds(250)
-  voice.maximumDuration = .milliseconds(400)
+  voice.startupDuration = .milliseconds(30)
+  voice.noSpeechDuration = .seconds(60)
   var restored = 0
   voice.onPermissionFinished = { restored += 1 }
   voice.arm()
   fake.feeds[0].yield(.permission(true))
-  #expect(await eventually { voice.requestingPermission })
-  try await Task.sleep(for: .milliseconds(550))
+  try #require(await eventually { voice.requestingPermission })
+  try await Task.sleep(for: .milliseconds(100))
   #expect(voice.state == .starting && voice.requestingPermission && fake.stops == 0)
+
   fake.feeds[0].yield(.permission(false))
+  try #require(await eventually { restored == 1 })
+  try await Task.sleep(for: .milliseconds(100))
+  #expect(voice.state == .starting && !voice.requestingPermission && fake.stops == 0)
+  fake.feeds[0].yield(.openingMicrophone(.now))
   fake.feeds[0].yield(.ready)
   #expect(await eventually { voice.state == .listening })
-  #expect(restored == 1 && !voice.requestingPermission)
-  #expect(await eventually { voice.state == .idle })
+  #expect(voice.problem == nil)
+  voice.stop(.toggle)
 }
 
 @MainActor @Test func launchPresentationNeverArmsAndLoginNeverPresents() async throws {

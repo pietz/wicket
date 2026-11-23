@@ -25,6 +25,7 @@ enum VoiceStop: String, Sendable {
 
 enum VoiceUpdate: Sendable {
   case permission(Bool)
+  case openingMicrophone(ContinuousClock.Instant)
   case audio(ContinuousClock.Instant)
   case ready
   case transcript(String)
@@ -51,8 +52,7 @@ final class VoiceInput {
   @ObservationIgnored private var transcriber: (any Transcriber)?
   @ObservationIgnored private var session: Task<Void, Never>?
   @ObservationIgnored private var timer: Task<Void, Never>?
-  @ObservationIgnored private var started = ContinuousClock.now
-  @ObservationIgnored private var permissionStarted: ContinuousClock.Instant?
+  @ObservationIgnored private var listeningStarted = ContinuousClock.now
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private let timingURL: URL?
   @ObservationIgnored private(set) var shutdown: Task<Void, Never>?
@@ -87,8 +87,7 @@ final class VoiceInput {
     state = .starting
     generation += 1
     let current = generation
-    started = .now
-    opened = started
+    opened = .now
     firstAudio = nil
     firstTranscript = nil
     timingSaved = false
@@ -96,7 +95,6 @@ final class VoiceInput {
     transcriber = source
     let previous = shutdown
     let stream = previous == nil ? source.start() : nil
-    scheduleStop()
     session = Task { [weak self] in
       await previous?.value
       guard !Task.isCancelled else { return }
@@ -106,18 +104,13 @@ final class VoiceInput {
           switch update {
           case .permission(let pending):
             requestingPermission = pending
-            if pending {
-              permissionStarted = .now
-              timer?.cancel()
-            } else {
-              if let permissionStarted { started += .now - permissionStarted }
-              permissionStarted = nil
-              scheduleStop()
-              onPermissionFinished()
-            }
+            if !pending { onPermissionFinished() }
+          case .openingMicrophone(let time):
+            scheduleStop(at: time + startupDuration, reason: .startTimeout)
           case .audio(let time): firstAudio = time - opened
           case .ready:
             permissionDenied = false
+            listeningStarted = .now
             state = .listening
             guard generation == current else { return }
             scheduleStop()
@@ -179,7 +172,6 @@ final class VoiceInput {
     timer?.cancel()
     timer = nil
     requestingPermission = false
-    permissionStarted = nil
     state = .idle
   }
   /// Any key hands input to typing. Escape stops capture before navigating.
@@ -189,24 +181,23 @@ final class VoiceInput {
     return isEscape
   }
   private func scheduleStop() {
-    guard active, !requestingPermission else { return }
-    let limit = started + maximumDuration
+    guard state == .listening else { return }
+    let limit = listeningStarted + maximumDuration
     // Past the hard limit a transcript stops capture itself: continuous speech (or a TV) would
     // otherwise keep replacing the timer before it gets to run.
-    guard state == .starting || ContinuousClock.now < limit else { return stop(.limit) }
-    let waiting = state == .listening && firstTranscript == nil
-    let deadline = min(
-      limit,
-      state == .starting ? started + startupDuration : .now + (waiting ? noSpeechDuration : silenceDuration))
+    guard ContinuousClock.now < limit else { return stop(.limit) }
+    let waiting = firstTranscript == nil
+    let deadline = min(limit, .now + (waiting ? noSpeechDuration : silenceDuration))
+    scheduleStop(at: deadline, reason: deadline == limit ? .limit : waiting ? .noSpeech : .silence)
+  }
+  private func scheduleStop(at deadline: ContinuousClock.Instant, reason: VoiceStop) {
     timer?.cancel()
     let current = generation
     timer = Task { [weak self] in
       try? await Task.sleep(until: deadline, clock: .continuous)
       guard !Task.isCancelled, let self, generation == current else { return }
-      let starting = state == .starting
-      stop(
-        starting ? .startTimeout : deadline == limit ? .limit : firstTranscript == nil ? .noSpeech : .silence)
-      if starting { problem = VoiceError.microphoneStartFailed.description }
+      stop(reason)
+      if reason == .startTimeout { problem = VoiceError.microphoneStartFailed.description }
     }
   }
 }
