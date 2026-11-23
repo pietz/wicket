@@ -225,7 +225,8 @@ private func reportedExtensions() throws -> URL {
   try install(
     "demo",
     [
-      "name": "Extension report", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"],
+      "contract": 2, "name": "Extension report", "keyword": "demo",
+      "command": ["/usr/bin/python3", "main.py"],
       "icon": "doc.text",
     ],
     program:
@@ -234,7 +235,8 @@ private func reportedExtensions() throws -> URL {
   try install(
     "mover",
     [
-      "name": "Mover", "keyword": "mover", "icon": "macwindow", "command": ["/bin/sh", "main.sh"],
+      "contract": 2, "name": "Mover", "keyword": "mover", "icon": "macwindow",
+      "command": ["/bin/sh", "main.sh"],
       "items": [
         [
           "id": "left", "title": "Left half",
@@ -539,7 +541,10 @@ private let installedAgent: Void = {
       let extensionFolder = folder.appending(path: "extensions/" + id)
       try FileManager.default.createDirectory(at: extensionFolder, withIntermediateDirectories: true)
       var manifest = manifest
-      if script != nil || view != nil { manifest["command"] = ["/bin/sh", "main.sh"] }
+      if script != nil || view != nil {
+        manifest["contract"] = 2
+        manifest["command"] = ["/bin/sh", "main.sh"]
+      }
       try JSONSerialization.data(withJSONObject: manifest, options: .sortedKeys).write(
         to: extensionFolder.appending(path: "wicket.json"))
       if let view { try JSONEncoder().encode(view).write(to: extensionFolder.appending(path: "view.json")) }
@@ -615,7 +620,8 @@ private let installedAgent: Void = {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
       try JSONSerialization.data(withJSONObject: [
-        "name": "Weather", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"], "icon": "cloud.sun",
+        "contract": 2, "name": "Weather", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"],
+        "icon": "cloud.sun",
       ]).write(to: demo.appending(path: "wicket.json"))
       let days = zip(
         ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
@@ -654,7 +660,8 @@ private let installedAgent: Void = {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
       try JSONSerialization.data(withJSONObject: [
-        "name": "Extension report", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"],
+        "contract": 2, "name": "Extension report", "keyword": "demo",
+        "command": ["/usr/bin/python3", "main.py"],
         "icon": "doc.text",
         "fields": [["name": "query", "type": "text", "description": "Search"]],
       ]).write(to: demo.appending(path: "wicket.json"))
@@ -709,7 +716,8 @@ private let installedAgent: Void = {
     let folder = model.agent.folder.appending(path: "extensions/caffeinate")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try JSONSerialization.data(withJSONObject: [
-      "name": "Caffeinate", "command": ["/usr/bin/python3", "main.py"], "icon": "cup.and.saucer",
+      "contract": 2, "name": "Caffeinate", "command": ["/usr/bin/python3", "main.py"],
+      "icon": "cup.and.saucer",
       "fields": [
         ["name": "hours", "type": "number", "description": "Hours", "placeholder": "hours"],
         ["name": "minutes", "type": "number", "description": "Minutes"],
@@ -758,7 +766,7 @@ private let installedAgent: Void = {
     if state == "settings-extensions" {
       let weather = folder.appending(path: "extensions/weather")
       try FileManager.default.createDirectory(at: weather, withIntermediateDirectories: true)
-      try Data(#"{"name":"Weather","command":["/usr/bin/python3","main.py"]}"#.utf8).write(
+      try Data(#"{"contract":2,"name":"Weather","command":["/usr/bin/python3","main.py"]}"#.utf8).write(
         to: weather.appending(path: "wicket.json"))
       try Data("print('weather')".utf8).write(to: weather.appending(path: "main.py"))
       initial.providers.append(.init("extension:weather", enabled: false))

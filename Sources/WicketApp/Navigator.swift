@@ -339,6 +339,7 @@ final class Navigator {
   /// After an edit Return sends the edited request instead, so a grant then follows that one.
   private var gateIsCurrent: Bool {
     guard let command, !conversing, Permissions.isGate(results) else { return false }
+    if agentOwnsCommandInput, !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
     guard case .grant(_, let rerun)? = results.first?.row.actions.first?.kind else { return true }
     let request = command.request()
     return rerun.input == request.input && (rerun.fields ?? [:]) == request.fields

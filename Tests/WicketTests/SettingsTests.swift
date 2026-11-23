@@ -311,15 +311,15 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
   }
   let window = try manifest(
-    #"{"name":"W","description":"Moves windows.","command":["./main"],"settings":[{"name":"gap","type":"number","description":"Window margin","placeholder":"Gap","default":"0"},{"name":"note","type":"text","description":"Note"}]}"#
+    #"{"contract":2,"name":"W","description":"Moves windows.","command":["./main"],"settings":[{"name":"gap","type":"number","description":"Window margin","placeholder":"Gap","default":"0"},{"name":"note","type":"text","description":"Note"}]}"#
   )
   #expect(window.description == "Moves windows." && window.settings.map(\.name) == ["gap", "note"])
   #expect(window.settings[0].default == "0" && window.settings[1].placeholder == nil)
   for invalid in [
-    #"{"name":"W","command":["x"],"settings":[{"name":"a","type":"text","description":"A"},{"name":"a","type":"text","description":"A"}]}"#,
-    #"{"name":"W","command":["x"],"settings":[{"name":"","type":"text","description":"A"}]}"#,
+    #"{"contract":2,"name":"W","command":["x"],"settings":[{"name":"a","type":"text","description":"A"},{"name":"a","type":"text","description":"A"}]}"#,
+    #"{"contract":2,"name":"W","command":["x"],"settings":[{"name":"","type":"text","description":"A"}]}"#,
     #"{"name":"W","items":[],"settings":[{"name":"a","type":"text","description":"A"}]}"#,
-    #"{"name":"W","command":["x"],"fields":[{"name":"a","type":"text","description":"A","default":"1"}]}"#,
+    #"{"contract":2,"name":"W","command":["x"],"fields":[{"name":"a","type":"text","description":"A","default":"1"}]}"#,
   ] {
     #expect(throws: (any Error).self) { try manifest(invalid) }
   }
@@ -556,5 +556,50 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
     #expect(configuration.extensions["window"] == ["gap": "8", "almostMaximize": "80"])
     let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
     #expect(json["future"] == .bool(true))
+  }
+}
+
+@Test func overlappingSettingsSavesUseTheSameLockThroughASymlink() throws {
+  try withSettings { file in
+    let alias = file.url.deletingLastPathComponent().appending(path: "alias.json")
+    try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: file.url)
+    let firstEditing = DispatchSemaphore(value: 0)
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let secondCalling = DispatchSemaphore(value: 0)
+    let secondEditing = DispatchSemaphore(value: 0)
+    let saves = DispatchGroup()
+    defer {
+      releaseFirst.signal()
+      _ = saves.wait(timeout: .now() + .seconds(5))
+    }
+    DispatchQueue.global().async(group: saves) {
+      do {
+        try file.edit { object in
+          firstEditing.signal()
+          guard releaseFirst.wait(timeout: .now() + .seconds(5)) == .success else {
+            throw CocoaError(.fileWriteUnknown)
+          }
+          object["compactOnOpen"] = true
+        }
+      } catch { Issue.record(error) }
+    }
+    try #require(firstEditing.wait(timeout: .now() + .seconds(5)) == .success)
+    DispatchQueue.global().async(group: saves) {
+      do {
+        secondCalling.signal()
+        try ConfigurationFile(url: alias).edit { object in
+          secondEditing.signal()
+          #expect(object["compactOnOpen"] as? Bool == true)
+          object["backgroundTransparency"] = 0.75
+        }
+      } catch { Issue.record(error) }
+    }
+    try #require(secondCalling.wait(timeout: .now() + .seconds(5)) == .success)
+    #expect(secondEditing.wait(timeout: .now() + .milliseconds(100)) == .timedOut)
+    releaseFirst.signal()
+    try #require(saves.wait(timeout: .now() + .seconds(5)) == .success)
+    let updated = try Configuration.load(at: file.url)
+    #expect(updated.compactOnOpen && updated.backgroundTransparency == 0.75)
+    #expect(try FileManager.default.destinationOfSymbolicLink(atPath: alias.path) == file.url.path)
   }
 }

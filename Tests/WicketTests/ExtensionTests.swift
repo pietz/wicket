@@ -10,7 +10,9 @@ func extensionFolder(
 ) throws -> URL {
   let folder = root.appending(path: "extensions/" + name)
   try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-  var manifest: [String: Any] = ["name": name, "keyword": name, "command": ["/bin/sh", "main.sh"]]
+  var manifest: [String: Any] = [
+    "contract": 2, "name": name, "keyword": name, "command": ["/bin/sh", "main.sh"],
+  ]
   manifest["fields"] = [["name": "query", "type": "text", "description": "Search"]]
   manifest.merge(fields) { _, value in value }
   try JSONSerialization.data(withJSONObject: manifest, options: .sortedKeys).write(
@@ -44,7 +46,7 @@ func answering(_ title: String) -> String {
     #expect(throws: (any Error).self) { try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8)) }
   }
   for manifest in [
-    #"{"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#,
+    #"{"contract":2,"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#,
     // Neither a command nor items; a pattern or fallback without a program; the view's item rule.
     #"{"name":"Bad"}"#, #"{"name":"Bad","items":[],"match":"x"}"#,
     #"{"name":"Bad","items":[],"fallback":true}"#,
@@ -61,7 +63,7 @@ func answering(_ title: String) -> String {
   #expect(itemsOnly.command == nil && itemsOnly.items?.map(\.id) == ["a"])
   let both = try JSONDecoder().decode(
     ExtensionManifest.self,
-    from: Data(#"{"name":"Both","command":["echo"],"match":"x","items":[]}"#.utf8))
+    from: Data(#"{"contract":2,"name":"Both","command":["echo"],"match":"x","items":[]}"#.utf8))
   #expect(both.command == ["echo"] && both.items == [])
 }
 
@@ -206,7 +208,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let data = try JSONSerialization.data(withJSONObject: [
-    "name": "Echo", "command": ["/usr/bin/python3", "echo.py"],
+    "contract": 2, "name": "Echo", "command": ["/usr/bin/python3", "echo.py"],
   ])
   try data.write(to: ext.appending(path: "wicket.json"))
   #expect(
@@ -571,7 +573,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   #expect(address.hidden && address.input == "now")
   #expect(throws: (any Error).self) {
     try JSONDecoder().decode(
-      ExtensionManifest.self, from: Data(#"{"name":"x","command":["x"],"hidden":true}"#.utf8))
+      ExtensionManifest.self, from: Data(#"{"contract":2,"name":"x","command":["x"],"hidden":true}"#.utf8))
   }
 }
 
@@ -590,4 +592,44 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   try FileManager.default.createSymbolicLink(at: real.appending(path: "weather"), withDestinationURL: source)
   #expect(await eventually { host.commands["extension:weather"] != nil })
   await host.shutdown()
+}
+
+@MainActor @Test func contractOneProgramsShowMigrationRepairsWhileItemsOnlyManifestsStillWork() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  for (id, json) in [
+    ("implicit", #"{"name":"Implicit","command":["/bin/sh","main.sh"],"match":".+"}"#),
+    ("explicit", #"{"contract":1,"name":"Explicit","command":["/bin/sh","main.sh"],"arguments":[]}"#),
+    (
+      "links",
+      #"{"name":"Links","items":[{"id":"link","title":"Example","actions":[{"type":"open","url":"https://example.com"}]}]}"#
+    ),
+  ] {
+    let folder = try extensionFolder(root, name: id, script: "touch ran")
+    try Data(json.utf8).write(to: folder.appending(path: "wicket.json"))
+  }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.navigator.input = ""
+  await model.navigator.settled()
+  for id in ["implicit", "explicit"] {
+    let provider = "extension:" + id
+    #expect(model.extensions.commands[provider] == nil)
+    let repair = try #require(model.navigator.results.first { $0.provider == provider })
+    #expect(repair.row.title.hasSuffix("needs repair"))
+    #expect(repair.row.subtitle == "Update the manifest and program to contract 2")
+    guard case .run(let address)? = repair.row.actions.first?.kind else {
+      Issue.record("Repair does not open the agent")
+      continue
+    }
+    #expect(address.input?.contains("read request.fields and request.action") == true)
+    #expect(address.input?.contains(#"set "contract": 2"#) == true)
+    let marker = root.appending(path: "extensions/\(id)/ran")
+    #expect(!FileManager.default.fileExists(atPath: marker.path))
+  }
+  #expect(model.extensions.commands["extension:links"]?.manifest.contract == 1)
+  model.navigator.input = "Example"
+  await model.navigator.settled()
+  #expect(model.navigator.results.contains { $0.provider == "extension:links" && $0.row.title == "Example" })
+  await model.finish()
 }

@@ -202,9 +202,18 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   #expect(path(commands["extension:units"]) == path(bundledExtensions.appending(path: "units")))
   #expect(commands["extension:units"]?.manifest.command == ["./main"])
   #expect(FileManager.default.fileExists(atPath: old.appending(path: "main.py").path))
-  // Edited, it is the user's own and wins, like a copy of the bundled calculator.
+  // Editing the old copy makes it the user's own. Its repair takes the place of bundled units.
   let program = old.appending(path: "main.py")
   try (Data(contentsOf: program) + Data("# mine\n".utf8)).write(to: program)
+  let (edited, repairs) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  #expect(edited["extension:units"] == nil)
+  #expect(repairs["extension:units"]?.contains("Update wicket.json and the program to contract 2") == true)
+  // This program already uses input and items, so updating the manifest is enough.
+  let manifestURL = old.appending(path: "wicket.json")
+  var manifest = try #require(
+    JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+  manifest["contract"] = 2
+  try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
   let calculator = extensions.appending(path: "calculator")
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "calculator"), to: calculator)
   (commands, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)

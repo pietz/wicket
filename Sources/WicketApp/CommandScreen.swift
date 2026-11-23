@@ -114,8 +114,11 @@ enum CommandOutcome {
   mutating func enter(_ address: Address, submitted: Bool) {
     next = submitted && !address.link ? .submission : .address
     action = next == .submission ? address.action : nil
-    if let fields = address.fields { screen.fill(fields) } else if address.link { screen.fill([:]) }
     let field = descriptor?.inputField
+    if address.link { screen.fill([:]) }
+    for (name, value) in address.fields ?? [:] where name != field?.name {
+      screen.fill(name, with: value)
+    }
     providerInput = field.flatMap { address.fields?[$0.name] } ?? address.input ?? providerInput
     if let field { screen.fill(field.name, with: "") }
   }

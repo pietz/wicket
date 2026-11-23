@@ -64,7 +64,7 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   defer { try? FileManager.default.removeItem(at: root) }
   // Keys this Wicket does not know are the newer contract's, not misspellings.
   _ = try extensionFolder(root, name: "future", fields: ["contract": 3, "widgets": ["clock"]])
-  _ = try extensionFolder(root, name: "current", fields: ["contract": 1, "permissions": ["calendar"]])
+  _ = try extensionFolder(root, name: "current", fields: ["contract": 2, "permissions": ["calendar"]])
   _ = try extensionFolder(root, name: "zero", fields: ["contract": 0])
   _ = try extensionFolder(root, name: "camera", fields: ["permissions": ["camera"]])
   _ = try extensionFolder(root, name: "twice", fields: ["permissions": ["calendar", "calendar"]])
@@ -222,5 +222,30 @@ private func requests(_ root: URL) -> [ProviderRequest] {
       == "Gated needs Calendar and Accessibility for Wicket: open it in the panel to allow it")
   fake.granted = [.calendar, .accessibility]
   #expect(Headless.refusal(command, fake.permissions)?.error == nil)
+  await model.finish()
+}
+
+@MainActor @Test func anAgentDraftTakesReturnBeforeAnUnselectedPermissionGate() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, permissions, _) = try await gated(root, ["calendar"], fields: ["fields": []])
+  let agent = FakeAgent()
+  model.agent.connect = { _, _, _ in agent }
+  model.navigator.go(Address(id: "gated"))
+  await model.navigator.settled()
+  #expect(model.navigator.selected?.row.id == "permission:calendar")
+  #expect(model.navigator.presentation.commandPlaceholder == "Ask about Gated…")
+  let question = "Why do you need access?"
+  model.navigator.editInput(question)
+  #expect(model.navigator.selection == nil && model.navigator.presentation.returnAsksAgent)
+
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.id == "permission:calendar")
+  #expect(model.navigator.returnAction?.label == "Allow Calendar Access")
+  model.navigator.move(-1)
+  #expect(model.navigator.selection == nil && model.activateReturn())
+  #expect(await eventually { agent.running })
+  #expect(agent.prompts.last?.text.contains(question) == true)
+  #expect(permissions.asked.isEmpty && requests(root).isEmpty)
   await model.finish()
 }

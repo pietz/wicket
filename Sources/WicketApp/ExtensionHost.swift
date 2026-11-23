@@ -149,8 +149,8 @@ final class ExtensionHost {
         let manifest = try JSONDecoder().decode(
           ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
         commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest)
-      } catch let newer as ExtensionManifest.NewerContract {
-        problems[id] = "\(folder.path)\n\(newer)"
+      } catch let contract as ExtensionManifest.ContractError {
+        problems[id] = "\(folder.path)\n\(contract)"
       } catch { problems[id] = "\(folder.path)\nInvalid wicket.json: \(error)" }
     }
     return (commands, problems)

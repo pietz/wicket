@@ -9,23 +9,23 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
 
 @Test func aManifestDeclaresTypedFields() throws {
   let caffeinate = try manifest(
-    #"{"name":"Caffeinate","command":["./main.py"],"fields":[{"name":"hours","type":"number","description":"Hours","placeholder":"hours"},{"name":"minutes","type":"number","description":"Minutes"}],"submit":true}"#
+    #"{"contract":2,"name":"Caffeinate","command":["./main.py"],"fields":[{"name":"hours","type":"number","description":"Hours","placeholder":"hours"},{"name":"minutes","type":"number","description":"Minutes"}],"submit":true}"#
   )
   #expect(caffeinate.submit && caffeinate.fields.map(\.name) == ["hours", "minutes"])
   #expect(caffeinate.fields.map(\.placeholder) == ["hours", nil])
-  let plain = try manifest(#"{"name":"Plain","command":["./main.py"]}"#)
+  let plain = try manifest(#"{"contract":2,"name":"Plain","command":["./main.py"]}"#)
   #expect(!plain.submit && plain.fields.isEmpty)
   for invalid in [
-    #"{"name":"A","command":["x"],"fields":[{"name":"","type":"text","description":"Empty name"}]}"#,
-    #"{"name":"A","command":["x"],"fields":[{"name":"a","type":"text","description":"A"},{"name":"a","type":"text","description":"A"}]}"#,
-    #"{"name":"A","command":["x"],"fields":[{"name":"a","type":"text","description":"A"},{"name":"b","type":"text","description":"B"},{"name":"c","type":"text","description":"C"},{"name":"d","type":"text","description":"D"}]}"#,
-    #"{"name":"A","command":["x"],"fields":["a"]}"#,
-    #"{"name":"A","command":["x"],"submit":"yes"}"#,
+    #"{"contract":2,"name":"A","command":["x"],"fields":[{"name":"","type":"text","description":"Empty name"}]}"#,
+    #"{"contract":2,"name":"A","command":["x"],"fields":[{"name":"a","type":"text","description":"A"},{"name":"a","type":"text","description":"A"}]}"#,
+    #"{"contract":2,"name":"A","command":["x"],"fields":[{"name":"a","type":"text","description":"A"},{"name":"b","type":"text","description":"B"},{"name":"c","type":"text","description":"C"},{"name":"d","type":"text","description":"D"}]}"#,
+    #"{"contract":2,"name":"A","command":["x"],"fields":["a"]}"#,
+    #"{"contract":2,"name":"A","command":["x"],"submit":"yes"}"#,
     #"{"name":"A","items":[],"submit":true}"#,
     #"{"name":"A","items":[],"fields":[{"name":"a","type":"choice","description":"A"}]}"#,
     #"{"name":"A","items":[],"fields":[{"name":"a","type":"choice","description":"A","options":["x","x"]}]}"#,
     #"{"name":"A","items":[],"fields":[{"name":"a","type":"widget","description":"A"}]}"#,
-    #"{"name":"A","command":["x"],"arguments":["a"]}"#,
+    #"{"contract":2,"name":"A","command":["x"],"arguments":["a"]}"#,
   ] {
     #expect(throws: (any Error).self, Comment(rawValue: invalid)) { try manifest(invalid) }
   }
@@ -108,11 +108,11 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.navigator.settled()
   #expect(model.navigator.fieldValues == ["hours": "4"])
   #expect(try requests().last.map { !$0.submitted && $0.fields == ["hours": "4"] } == true)
-  // A run action replaces them, with supplied field values.
+  // A run action adds its supplied field values.
   model.navigator.select(try #require(model.navigator.results.first { $0.row.id == "again" }).id)
   #expect(model.activateReturn())
   await model.navigator.settled()
-  #expect(model.navigator.fieldValues == ["text": "again"])
+  #expect(model.navigator.fieldValues == ["hours": "4", "text": "again"])
   await model.finish()
 }
 
@@ -266,7 +266,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   // What does not concern it reruns nothing: an app rescan, another extension's change, a setting, or
   // another source switched off.
   model.navigator.sourcesChanged(["apps"])
-  try Data(#"{"name":"Other","command":["/bin/sh","main.sh"],"icon":"star"}"#.utf8)
+  try Data(#"{"contract":2,"name":"Other","command":["/bin/sh","main.sh"],"icon":"star"}"#.utf8)
     .write(to: root.appending(path: "extensions/other/wicket.json"))
   await model.extensions.reload()
   #expect(model.extensions.commands["extension:other"]?.manifest.icon == "star")
@@ -353,5 +353,37 @@ func anUnclaimedCommandInputAsksAboutItsViewWithoutRerunning(submit: Bool) async
   #expect(fake.prompts.last?.text.contains("The user asked from the Calendar command") == true)
   #expect(fake.prompts.last?.text.contains("What does this show?") == true)
   #expect(try requests().count == 1)
+  await model.finish()
+}
+
+@MainActor @Test func aRunActionMergesFieldsAndCanClearIndividualValues() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (_, requests) = try logging(
+    root, name: "Weather",
+    fields: [
+      "fields": [
+        ["name": "city", "type": "text", "description": "City"],
+        ["name": "days", "type": "number", "description": "Days"],
+      ]
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.navigator.go(Address(id: "weather", input: "Berlin"))
+  await model.navigator.settled()
+  model.navigator.setField("days", to: "7")
+  await model.navigator.settled()
+  let row = try #require(model.navigator.results.first)
+  model.navigator.activate(.run(Address(fields: ["view": "hourly"], action: "show-hourly")), from: row)
+  await model.navigator.settled()
+  let merged = try #require(requests().last)
+  #expect(
+    merged.action == "show-hourly" && merged.fields == ["city": "Berlin", "days": "7", "view": "hourly"])
+  #expect(model.navigator.fieldValues == merged.fields && model.navigator.input == "Berlin")
+  model.navigator.activate(.run(Address(input: "Paris", fields: ["city": "", "days": ""])), from: row)
+  await model.navigator.settled()
+  let cleared = try #require(requests().last)
+  #expect(cleared.input.isEmpty && cleared.fields == ["view": "hourly"])
+  #expect(model.navigator.fieldValues == cleared.fields && model.navigator.input.isEmpty)
   await model.finish()
 }

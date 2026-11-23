@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Every edit starts from disk, validates both versions, and replaces the file atomically: the file a
@@ -6,10 +7,13 @@ import Foundation
 struct ConfigurationFile {
   let url: URL
 
-  /// Reapply the edit to the latest JSON if an editor saves during this one.
+  /// Serialize Wicket writers and reapply the edit if an unlocked writer changes the file in the meantime.
   @discardableResult func edit(_ change: (inout [String: Any]) throws -> Void) throws -> Configuration {
     for _ in 0..<3 {
       let target = url.resolvingSymlinksInPath()
+      let lock = try lockFile(for: target)
+      defer { close(lock) }
+      guard url.resolvingSymlinksInPath() == target else { continue }
       let data = try Data(contentsOf: target)
       let (updated, configuration) = try patch(data, change)
       guard url.resolvingSymlinksInPath() == target, try Data(contentsOf: target) == data else { continue }
@@ -21,6 +25,21 @@ struct ConfigurationFile {
       userInfo: [
         NSLocalizedDescriptionKey: "config.json kept changing during the save. Try again."
       ])
+  }
+
+  private func lockFile(for target: URL) throws -> Int32 {
+    // Atomic replacement changes the config inode. Keep the lock beside the resolved file so every
+    // writer, including one using a symlink, locks the same inode across replacements.
+    let path = target.deletingLastPathComponent().appending(path: ".\(target.lastPathComponent).lock").path
+    let lock = open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+    guard lock >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    while flock(lock, LOCK_EX) != 0 {
+      if errno == EINTR { continue }
+      let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      close(lock)
+      throw error
+    }
+    return lock
   }
 
   private func patch(_ data: Data, _ change: (inout [String: Any]) throws -> Void) throws

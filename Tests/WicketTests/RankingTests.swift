@@ -10,7 +10,7 @@ private func app(_ title: String, keywords: [String]? = nil) -> Row {
 private func manifest(
   _ name: String, keyword: String? = nil, match: String? = nil, fallback: Bool = false, hidden: Bool = false
 ) -> ExtensionManifest {
-  var object: [String: Any] = ["name": name, "command": ["/bin/echo"], "fallback": fallback]
+  var object: [String: Any] = ["contract": 2, "name": name, "command": ["/bin/echo"], "fallback": fallback]
   if hidden { object.merge(["submit": true, "hidden": true]) { $1 } }
   if let keyword { object["keyword"] = keyword }
   if let match { object["match"] = match }

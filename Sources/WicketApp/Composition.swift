@@ -208,18 +208,21 @@ enum Ranking {
     let repairs = problems.keys.sorted().map { id in
       let problem = problems[id]!
       // A manifest for a newer contract is not broken: updating Wicket is the fix, in Settings.
-      guard !problem.contains(ExtensionManifest.NewerContract.phrase) else {
+      guard !problem.contains(ExtensionManifest.ContractError.newerPhrase) else {
         return Result(
           provider: id,
           row: Row(
-            id: "discovery-error", title: id + " " + ExtensionManifest.NewerContract.phrase,
+            id: "discovery-error", title: id + " " + ExtensionManifest.ContractError.newerPhrase,
             subtitle: "Written for a newer extension contract", icon: "arrow.down.circle",
             actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
       }
+      let repair =
+        problem.contains(ExtensionManifest.ContractError.olderProgramPhrase)
+        ? "Update the manifest and program to contract 2" : "Invalid extension manifest"
       return Result(
         provider: id,
         row: Row(
-          id: "discovery-error", title: id + " needs repair", subtitle: "Invalid extension manifest",
+          id: "discovery-error", title: id + " needs repair", subtitle: repair,
           icon: "exclamationmark.triangle",
           actions: [.agent("Fix this extension. " + problem.split(separator: "\n").joined(separator: ": "))]))
     }

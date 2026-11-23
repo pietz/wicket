@@ -225,7 +225,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   // Without a target it is this one, and without an input the typed one stays.
   model.navigator.go(Address(fields: ["p": "c"]), from: "extension:two")
   await model.navigator.settled()
-  #expect(model.navigator.command?.id == "extension:two" && model.navigator.body == "c:x")
+  #expect(model.navigator.command?.id == "extension:two" && model.navigator.body == "b/c:x")
   // Entering another extension without an input starts empty.
   model.navigator.go(Address(id: "extension:one"))
   await model.navigator.settled()
@@ -372,8 +372,11 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   row = try await atRoot("deploy prod") { $0.row.id == "item:prod" }
   let fromItem = try await activate(row.row.actions[0], from: row)
   #expect(fromItem.submitted && fromItem.fields == ["env": "prod"])
-  // A run action with fields, with `{}` and without any: submitted, with exactly those fields.
-  let shapes: [(String, [String: String])] = [("with", ["a": "1"]), ("empty", [:]), ("none", [:])]
+  // A run action with fields, with `{}` and without any: submitted, preserving fields from earlier actions.
+  let shapes: [(String, [String: String])] = [
+    ("with", ["a": "1", "env": "prod"]), ("empty", ["a": "1", "env": "prod"]),
+    ("none", ["a": "1", "env": "prod"]),
+  ]
   for (id, fields) in shapes {
     let request = try await activate(try item(id).row.actions[0], from: try item(id))
     #expect(request.submitted && request.fields == fields, Comment(rawValue: id))
@@ -386,7 +389,8 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   await model.navigator.settled()
   #expect(
     try requests().last.map {
-      !$0.submitted && $0.action == nil && $0.fields == ["a": "1", "query": "p"] && $0.input == "p"
+      !$0.submitted && $0.action == nil && $0.fields == ["a": "1", "env": "prod", "query": "p"]
+        && $0.input == "p"
     }
       == true)
   model.navigator.sourcesChanged(["extension:ship"])

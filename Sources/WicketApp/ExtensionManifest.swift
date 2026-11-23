@@ -67,12 +67,19 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     case name, description, keyword, command, icon, match, fallback, items, fields, submit, hidden,
       settings, permissions, contract
   }
-  /// A manifest for a newer contract than this Wicket reads.
-  struct NewerContract: Error, CustomStringConvertible {
-    let contract: Int
-    static let phrase = "needs a newer Wicket"
+  enum ContractError: Error, CustomStringConvertible {
+    case newer(Int)
+    case olderProgram
+
+    static let newerPhrase = "needs a newer Wicket"
+    static let olderProgramPhrase = "uses extension contract 1"
     var description: String {
-      "This extension \(Self.phrase): it is written for extension contract \(contract), and this Wicket reads contract \(ExtensionManifest.currentContract). Update Wicket to use it."
+      switch self {
+      case .newer(let contract):
+        "This extension \(Self.newerPhrase): it is written for extension contract \(contract), and this Wicket reads contract \(ExtensionManifest.currentContract). Update Wicket to use it."
+      case .olderProgram:
+        "This program \(Self.olderProgramPhrase). Update wicket.json and the program to contract 2. Use typed fields and settings, read request.fields and request.action, and return items or body. Then set \"contract\": 2 in wicket.json. See extension-contract.md."
+      }
     }
   }
   /// Any key in the file, so a misspelled one (`keywords`, `trigger`) is an error instead of ignored.
@@ -85,27 +92,24 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   init(from decoder: any Decoder) throws {
     let valid = CodingKeys.allCases.map(\.rawValue)
     let file = try decoder.container(keyedBy: AnyKey.self)
-    // First, so a newer manifest's new keys are never reported as misspellings.
-    if let contract = try? file.decodeIfPresent(Int.self, forKey: AnyKey(stringValue: "contract")),
-      contract > Self.currentContract
-    {
-      throw NewerContract(contract: contract)
-    }
-    if let key = file.allKeys.first(where: { !valid.contains($0.stringValue) }) {
-      throw DecodingError.dataCorruptedError(
-        forKey: key, in: file,
-        debugDescription: "Unknown key `\(key.stringValue)`; valid keys: \(valid.joined(separator: ", "))")
-    }
     let c = try decoder.container(keyedBy: CodingKeys.self)
     contract = try c.decodeIfPresent(Int.self, forKey: .contract) ?? 1
     guard contract >= 1 else {
       throw DecodingError.dataCorruptedError(
         forKey: .contract, in: c, debugDescription: "contract is a whole number from 1")
     }
+    // Report the version before keys from another contract can look like misspellings.
+    if contract > Self.currentContract { throw ContractError.newer(contract) }
+    command = try c.decodeIfPresent([String].self, forKey: .command)
+    if command != nil, contract < 2 { throw ContractError.olderProgram }
+    if let key = file.allKeys.first(where: { !valid.contains($0.stringValue) }) {
+      throw DecodingError.dataCorruptedError(
+        forKey: key, in: file,
+        debugDescription: "Unknown key `\(key.stringValue)`; valid keys: \(valid.joined(separator: ", "))")
+    }
     name = try c.decode(String.self, forKey: .name)
     description = try c.decodeIfPresent(String.self, forKey: .description)
     keyword = try c.decodeIfPresent(String.self, forKey: .keyword)
-    command = try c.decodeIfPresent([String].self, forKey: .command)
     icon = try c.decodeIfPresent(String.self, forKey: .icon)
     match = try c.decodeIfPresent(String.self, forKey: .match)
     fallback = try c.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
