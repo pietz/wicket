@@ -104,9 +104,8 @@ enum CommandOutcome {
   /// The view's body as a page, with its items after it; nil for a list.
   private(set) var page: Page?
   private(set) var problem: String?
-  /// The page whose fields count: a failure keeps `page` for the next view but no longer shows its form,
-  /// so its fields neither check nor fill a request made from the error.
-  private var form: Page? { problem == nil ? page : nil }
+  /// A failed form leaves its values for retries until the command returns a new view.
+  private var failedCanvasValues: [String: String] = [:]
   private(set) var busy = false
   private(set) var runningAction = false
   private(set) var runningSubmission = false
@@ -131,7 +130,7 @@ enum CommandOutcome {
     let overrides = address.fields ?? [:]
     if submitting, !replacingFields,
       let invalid = overrides.first(where: { name, value in
-        guard let field = form?.fields[name] else { return false }
+        guard let field = page?.fields[name] else { return false }
         return field.canonical(value) == nil
       })
     {
@@ -144,12 +143,14 @@ enum CommandOutcome {
     if address.link || replacingFields {
       screen.fill([:])
       canvasEdits.removeAll()
+      failedCanvasValues.removeAll()
     }
     for (name, value) in overrides where name != field?.name {
-      if submitting, !replacingFields, form?.fields[name] != nil {
+      if submitting, !replacingFields, page?.fields[name] != nil {
         page?.fill(name, with: value)
         canvasEdits[name] = nil
       } else {
+        if failedCanvasValues.removeValue(forKey: name) != nil { canvasEdits[name] = nil }
         screen.fill(name, with: value)
       }
     }
@@ -162,7 +163,7 @@ enum CommandOutcome {
   func request() -> CommandScreenRequest {
     var fields = screen.fields
     if next != .address, !replacingFields {
-      fields.merge(form?.fields.mapValues(\.value) ?? [:]) { _, canvas in canvas }
+      fields.merge(page?.fields.mapValues(\.value) ?? failedCanvasValues) { _, canvas in canvas }
     }
     if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
     return CommandScreenRequest(
@@ -270,6 +271,7 @@ enum CommandOutcome {
     shown = Shown(view: view, input: request.input, fields: request.fields)
     if remembered { context = shown }
     self.page = page
+    failedCanvasValues.removeAll()
     // Edits still waiting for an explicit submit survive another field's reply.
     canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.canonical(value) != nil }
     for (name, value) in canvasEdits { self.page?.fill(name, with: value) }
@@ -290,6 +292,10 @@ enum CommandOutcome {
   /// Its request failed: why, instead of a view.
   mutating func fail(_ problem: String, remembered: Bool) {
     if remembered { context = nil }
+    if let fields = page?.fields, !fields.isEmpty {
+      failedCanvasValues = fields.mapValues(\.value)
+      page = nil
+    }
     self.problem = problem
     stop()
     screen.rows = []
@@ -298,13 +304,11 @@ enum CommandOutcome {
   mutating func unavailable(_ problem: String) {
     next = .address
     action = nil
-    context = nil
-    self.problem = problem
-    screen.rows = []
+    fail(problem, remembered: true)
   }
 
-  /// Its Markdown body, unless it failed.
-  var body: String? { problem == nil ? shown.view.body : nil }
+  /// Its visible Markdown body.
+  var body: String? { problem == nil && page != nil ? shown.view.body : nil }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { body == nil ? [] : shown.view.actions }
   /// With nothing selected, Return can submit the current fields when the command owns the input.

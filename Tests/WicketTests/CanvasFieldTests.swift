@@ -475,6 +475,103 @@ import WebKit
   await model.finish()
 }
 
+@MainActor @Test func canvasRetryAfterFailureKeepsTheEditedValues() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in
+        *'"submitted":true'*)
+          if [ ! -e failed ]; then touch failed; exit 7; fi ;;
+      esac
+      printf '%s\n' '<field name="environment" type="choice" options="production=Production&staging=Staging"/>'
+      """, fields: ["submit": true])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  navigator.editInput("release")
+  navigator.changeField(
+    .init(name: "environment", value: "staging", phase: .commit), turn: surface.presentation.pageTurn)
+  navigator.run()
+  await navigator.settled()
+  try #require(surface.presentation.problem != nil)
+
+  navigator.run()
+  await navigator.settled()
+  let submissions = try requests(in: folder).filter(\.submitted)
+  #expect(submissions.map(\.input) == ["release", "release"])
+  #expect(submissions.map { $0.fields["environment"] } == ["staging", "staging"])
+  #expect(surface.presentation.page != nil)
+  await model.finish()
+}
+
+@MainActor @Test func canvasFailedFormStaysInactiveDuringALiveRerun() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in
+        *'"action":"break"'*) exit 7 ;;
+        *'"action":"deploy"'*) ;;
+        *'"input":"slow"'*) while [ ! -e release ]; do sleep 0.02; done ;;
+      esac
+      cat <<'PAGE'
+      <field name="environment" type="choice" options="production=Production"/>
+      <field name="confirm" type="bool"/>
+      <row title="Break" run="break"/>
+      PAGE
+      """,
+    fields: [
+      "items": [
+        [
+          "id": "staging", "title": "Deploy to staging",
+          "actions": [["type": "run", "action": "deploy", "fields": ["environment": "staging"]]],
+        ]
+      ]
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  let revision = try #require(surface.presentation.page?.targetRevision)
+  try #require(navigator.clickTarget("#0", revision: revision))
+  navigator.run()
+  await navigator.settled()
+  try #require(surface.presentation.problem != nil)
+
+  navigator.editInput("slow")
+  #expect(await eventually(within: .seconds(5)) { (try? requests(in: folder).count) == 3 })
+  #expect(surface.presentation.busy && surface.presentation.page == nil)
+  let hotkey = HotkeyTarget(target: "extension:test", item: "staging")
+  model.press(hotkey)
+  try Data().write(to: folder.appending(path: "release"))
+  await navigator.settled()
+
+  let log = try requests(in: folder)
+  #expect(log.map(\.action) == [nil, "break", nil, "deploy"])
+  #expect(log.map { $0.fields["environment"] } == [nil, "production", "production", "staging"])
+  #expect(log.last?.fields["confirm"] == "false")
+  try #require(surface.presentation.page != nil)
+  model.press(hotkey)
+  await navigator.settled()
+  #expect(try requests(in: folder).count == log.count)
+  #expect(surface.presentation.footerProblem?.contains("Invalid value for environment") == true)
+  await model.finish()
+}
+
 @MainActor @Test func canvasSameCommandLinkCancelsTheSaveAndRunsImmediately() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
