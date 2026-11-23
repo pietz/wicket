@@ -296,9 +296,9 @@ struct LauncherView: View {
         Text(
           shown.voiceStatus
             ?? (agent.map { renderer.problem ?? $0.footer }
-              ?? (shown.footerProblem ?? shown.commandName ?? "Wicket"))
+              ?? (shown.footerMessage ?? shown.commandName ?? "Wicket"))
         ).lineLimit(1).help(
-          shown.voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? shown.footerProblem ?? "")
+          shown.voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? shown.footerMessage ?? "")
         Spacer()
         if shown.permissionPending {
           Text("⌘↩ Allow")

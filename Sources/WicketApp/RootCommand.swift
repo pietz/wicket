@@ -9,7 +9,7 @@ import Foundation
     /// The input the list was composed for.
     let input: String
     let results: [Result]
-    let hasProblems: Bool
+    let firstProblem: String?
   }
   /// How long the list waits for pattern extensions whose regex matched: a few frames, more than the
   /// bundled calculator's few milliseconds and short enough that a slow pattern never delays typing.
@@ -117,7 +117,7 @@ import Foundation
       isSearching = false
       let ranked = rank(input)
       strongReason = ranked.strongReason
-      deliver(Output(input: input, results: ranked.results, hasProblems: ranked.hasProblems))
+      deliver(Output(input: input, results: ranked.results, firstProblem: ranked.firstProblem))
     }
     // The list is delivered once the apps answered and, for up to `patternHold`, the pattern
     // extensions whose regex matched, so a calculation lands with the rest of the list rather than

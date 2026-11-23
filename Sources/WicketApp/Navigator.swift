@@ -193,10 +193,16 @@ final class Navigator {
 
   /// Down reveals the empty root for this visit. Typing or hiding starts it over.
   private var revealedRootList = false
-  private var rootHasProblems = false
+  private var rootListProblem: String?
+  private var wantsCompactRoot: Bool {
+    configuration.compactOnOpen && command == nil && !conversing && input.isEmpty
+  }
+  /// A repair or error row can be below the visible list. Say why the empty root stayed open.
+  var compactRootProblem: String? {
+    wantsCompactRoot && composedInput.isEmpty ? rootListProblem : nil
+  }
   var compactRoot: Bool {
-    configuration.compactOnOpen && command == nil && !conversing && input.isEmpty && !revealedRootList
-      && !(composedInput == input && rootHasProblems)
+    wantsCompactRoot && !revealedRootList && compactRootProblem == nil
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -888,7 +894,7 @@ final class Navigator {
     showArrival()
     listed = output.results
     composedInput = output.input
-    rootHasProblems = output.hasProblems
+    rootListProblem = output.firstProblem
     publish()
     replayReturn()
   }

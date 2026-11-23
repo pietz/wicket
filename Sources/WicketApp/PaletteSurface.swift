@@ -59,6 +59,8 @@ enum PaletteEffect: Equatable {
 struct PalettePresentation: Equatable {
   var compactRoot = false
   var footerProblem: String?
+  var compactRootProblem: String?
+  var footerMessage: String? { footerProblem ?? compactRootProblem }
   var voiceStatus: String?
   var showsCard: Bool {
     !compactRoot || footerProblem != nil || voiceStatus != nil || page != nil || actionsTitle != nil
@@ -117,7 +119,8 @@ extension Navigator {
   /// The screens as the panel draws them now.
   var presentation: PalettePresentation {
     PalettePresentation(
-      compactRoot: compactRoot, footerProblem: footerProblem(), voiceStatus: speech?.status,
+      compactRoot: compactRoot, footerProblem: footerProblem(), compactRootProblem: compactRootProblem,
+      voiceStatus: speech?.status,
       rows: results, selection: selection, selected: selected, sizedRows: sizedRows,
       rowHeight: configuration.textSize.rowHeight, prominentFirst: prominentFirst, splits: splits,
       preview: preview.map { PalettePresentation.Preview(page: $0.page, turn: $0.turn) },
