@@ -23,37 +23,15 @@ A successful move or layout closes silently. Raycast and Rectangle Pro show the 
 
 Keep folder ID `window`, the nine stock item IDs, and the `gap` and `almostMaximize` settings under `extensions.window`. Name the command **Window Manager** with keyword `window`. Keep the stock browse list and omit a root `match`.
 
-The agent writes the user's moves and layouts as items in `window`'s own `user.json` (shared work 5), which updates never touch. Each item's first action is a hidden `run` into `window`, with its definition in `fields`. Follow shared work 6, contract recipes. [Official extensions](README.md#shared-work)
-
-```json
-{
-  "name": "My Windows",
-  "items": [
-    {
-      "id": "left-two-thirds",
-      "title": "Left Two Thirds",
-      "keywords": ["window"],
-      "actions": [{
-        "type": "run",
-        "extension": "window",
-        "hidden": true,
-        "action": "apply-definition",
-        "fields": {
-          "definition": "{\"kind\":\"move\",\"placement\":{\"display\":\"current\",\"rect\":[0,0,0.667,1],\"gap\":8}}"
-        }
-      }]
-    }
-  ]
-}
-```
-
-The agent writes the item and the `hotkeys` entry in `config.json` as ordinary file edits. The binding addresses the item, for example `wicket://window?item=left-two-thirds`. A stale binding has no window effect. Consider a shared `Wicket --bind KEYS ADDRESS` command later only if editing `config.json` proves insufficient.
+The agent writes the user's moves and layouts as items in `window`'s own `user.json` (shared work 5). Each item's first action is a hidden `run` into `window`, with its definition in `fields`. The agent writes the item and the `hotkeys` entry in `config.json` as ordinary file edits. A stale binding has no window effect. [Saved window move recipe](../../Sources/WicketApp/Resources/extension-contract.md#a-saved-window-move)
 
 ### Placements and Capture
 
-A move defines one placement for the focused window. A layout has a list of bundle IDs and placements. A placement contains a display selector and `rect` as `[x, y, width, height]` fractions of the usable display frame from its top left. Support current, main, next and a particular display by UUID. Skip a missing explicit display unless the definition supplies a fallback. Inset the usable frame by the gap in points, quantize shared edges once and split interior gutters between adjacent placements. Use a common gap for a layout. On a submitted `apply-definition`, validate the definition, including finite coordinates, positive sizes, bounds and display selectors, before writing any frames.
+A move places the frontmost app's focused standard window. The current display is the one containing its center, with the existing overlap rule for windows between displays. Main is the primary display. Next uses the same spatial order and wrap as Next Display and is unavailable with only one display. The optional fallback is another selector to use when the requested display is unavailable.
 
-For Capture, the agent runs `Wicket --extension window --submitted --action capture`. The extension reads eligible windows whose frames fit a usable display and returns a JSON array in the view's `body`, with each window's bundle ID, display and fractional rect. The agent writes the named item with a zero gap to preserve the captured geometry. If several captured windows share a bundle ID, the agent explains which placements the current selectors can replay. A headless run started by Wicket's agent should inherit Wicket's Accessibility grant. Verify this under the shared “three checks on a real Mac.” [Official extensions](README.md#decisions-every-spec-follows)
+On a submitted `apply-definition`, validate the definition before writing any frame. Inset the usable frame by the gap in points, then quantize the placement's edges to whole points. Layouts will use a common gap and split interior gutters between adjacent placements.
+
+On a submitted `capture`, the extension reads eligible windows whose frames fit entirely inside a connected display's usable frame. Capture marks the frontmost app's focused window so the agent can select its placement even when several windows share a bundle ID. The agent saves that placement with zero gap and the captured display UUID. A headless run started by Wicket's agent should inherit Wicket's Accessibility grant. [Permission checks](README.md#decisions-every-spec-follows)
 
 ### Window engine and Restore
 
@@ -71,7 +49,7 @@ The manifest declares `accessibility`. On a missing grant the host already shows
 
 ## 4. What exists today
 
-- The bundled Window Manager manifest indexes nine stock rows with hidden actions. The Swift program supplies the browse list, display geometry, scalar settings and bounded PID/frame restore history. Stock moves accept a difference on each edge of up to 24 points or 5% of the requested width or height for that axis, whichever is smaller. This accommodates character-grid snapping and modest minimum sizes, including on repeat presses. Restore compares frame components within one point when looking up a record and when checking the restored frame. Verified partial moves are available to Restore. The child offers the host's Accessibility recovery action when the API refuses access. [Window manifest](../../Sources/Extensions/window/wicket.json), [Swift engine](../../Sources/Extensions/window/main.swift), [Window tests](../../Tests/WicketTests/WindowTests.swift)
+- The bundled manifest indexes nine stock rows with hidden actions. The program also accepts custom moves and captures placements for the agent. Stock and custom moves share bounded PID/frame restore history. Moves accept a difference on each edge of up to 24 points or 5% of the requested width or height for that axis, whichever is smaller. This accommodates character-grid snapping and modest minimum sizes, including on repeat presses. Restore compares frame components within one point when looking up a record and when checking the restored frame. Verified partial moves are available to Restore. The child offers the host's Accessibility recovery action when the API refuses access. [Window manifest](../../Sources/Extensions/window/wicket.json), [Swift engine](../../Sources/Extensions/window/Window.swift), [Window tests](../../Tests/WicketTests/WindowTests.swift)
 - Cross-extension item hotkeys already work. `LauncherModel.press` finds the first action in the enabled owning manifest, even when that folder has only items. `Navigator.runHidden` resolves the explicit destination, checks its availability and permissions, and submits the action with its fields to that program. [LauncherModel](../../Sources/WicketApp/LauncherModel.swift), [Navigator](../../Sources/WicketApp/Navigator.swift)
 - The headless runner already accepts an explicit submitted action and prints the decoded view. [Headless](../../Sources/WicketApp/Headless.swift)
 
@@ -79,15 +57,12 @@ The manifest declares `accessibility`. On a missing grant the host already shows
 
 | Gap | Change |
 | --- | --- |
-| The engine handles only stock moves | Add custom placement validation, Capture, layout replay and grouped Restore in the extension. |
+| The engine handles one window per move | Add layout replay and grouped Restore in the extension. |
 
 ## 6. Implementation plan
 
-Each phase is testable headlessly with an injectable AX adapter.
+The stock and custom moves and Capture have headless tests with a fake Accessibility adapter. The remaining phases are:
 
-1. **Harden stock moves.** The fake adapter tests cover readback after a failed setter, restoration of `AXEnhancedUserInterface` and the actionable recovery row.
-2. **Add custom moves once `user.json` lands.** Verify that an item in `user.json` is searchable without starting a process and that its hotkey submits the current definition to `window`.
-3. **Add Capture.** Verify eligibility, fractional coordinates and the JSON the agent uses to save the item.
 4. **Replay layouts of existing windows with Restore.** Cover ambiguous or missing targets, disconnected displays, partial moves and a manual move after replay.
 5. **Launch apps on request.** Add explicit opt-in launching with a bounded wait for an eligible window and preserve focus where macOS allows it.
 

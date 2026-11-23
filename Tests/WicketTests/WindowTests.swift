@@ -181,7 +181,7 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   func move(_ move: Move, in folder: URL, commandName: String = "Window Manager") throws -> Row? {
     events.removeAll()
     let failure = perform(
-      move, layout: Layout(), pid: 42, name: "Test App", commandName: commandName, displays: [laptop],
+      .stock(move), layout: Layout(), pid: 42, name: "Test App", commandName: commandName, displays: [laptop],
       recordsFile: folder.appending(path: "moves.txt"), ax: self)
     guard let failure else { return nil }
     return try JSONDecoder().decode(Row.self, from: Data(failure.utf8))
@@ -448,4 +448,197 @@ func apiDisabledOffersTheSameRecoveryAsTheHost(duringWrite: Bool) throws {
   #expect(Layout(gap: "wide", almostMaximize: "150") == Layout())
   #expect(Layout(gap: "-4", almostMaximize: "5") == Layout())
   #expect(Layout(gap: "12.4").gap == 12 && Layout(almostMaximize: "75").almost == 0.75)
+}
+
+// MARK: - Saved moves and Capture
+
+@MainActor
+@Test(
+  arguments: [
+    (nil, "Set fields.definition"),
+    (#"{"kind":"layout","placement":{"display":"current","rect":[0,0,1,1]}}"#, "kind to move"),
+    (#"{"kind":"move","placement":{"display":"primary","rect":[0,0,1,1]}}"#, "display UUID"),
+    (
+      #"{"kind":"move","placement":{"display":"main","fallback":"primary","rect":[0,0,1,1]}}"#, "for fallback"
+    ),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1,1],"gap":-1}}"#, "0 to 200 points"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1]}}"#, "four fractions"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0.5,0,0.6,1]}}"#, "four fractions"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,0,1]}}"#, "positive sizes"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1e309,1]}}"#, "Set fields.definition"),
+  ] as [(String?, String)])
+func invalidWindowDefinitionsGiveAClearRowWithoutTouchingWindows(definition: String?, hint: String) throws {
+  let request = window.JSON.object([
+    "submitted": .bool(true), "action": .string("apply-definition"),
+    "fields": .object(definition.map { ["definition": .string($0)] } ?? [:]),
+  ])
+  let view = windowAnswer(
+    request, manifestBytes: [],
+    move: { _, _, _ in
+      Issue.record("An invalid definition reached the Accessibility adapter")
+      return nil
+    },
+    capture: { _ in
+      Issue.record("An invalid definition reached Capture")
+      return ""
+    })
+  let output = try #require(view)
+  let row = try #require(JSONDecoder().decode(ProviderView.self, from: Data(output.utf8)).items.first)
+  #expect(row.title == "Invalid window move definition")
+  #expect(row.subtitle?.contains(hint) == true)
+}
+
+@Test func customPlacementsResolveDisplaysAndQuantizeEdges() throws {
+  let uuid = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+  var secondary = external
+  secondary.uuid = uuid
+  func placement(_ display: String, fallback: String? = nil, rect: String = "[0,0,1,1]") throws -> Placement {
+    let fallbackField = fallback.map { #","fallback":"\#($0)""# } ?? ""
+    return try Placement.decode(
+      #"{"kind":"move","placement":{"display":"\#(display)"\#(fallbackField),"rect":\#(rect)}}"#
+    ).get()
+  }
+  let displays = [laptop, secondary]
+  let current = external.visible
+  #expect(
+    try placement("current").destination(for: current, displays: displays, defaultGap: 0).get() == current)
+  for selector in ["main", "next"] {
+    #expect(
+      try placement(selector).destination(for: current, displays: displays, defaultGap: 0).get()
+        == laptop.visible)
+  }
+  let explicit = try placement(uuid.uuidString.lowercased())
+  #expect(try explicit.destination(for: laptop.visible, displays: displays, defaultGap: 0).get() == current)
+  #expect(throws: Placement.Failure.self) {
+    _ = try explicit.destination(for: laptop.visible, displays: [laptop], defaultGap: 0).get()
+  }
+  #expect(
+    try placement(uuid.uuidString, fallback: "current")
+      .destination(for: laptop.visible, displays: [laptop], defaultGap: 8).get()
+      == laptop.visible.insetBy(dx: 8, dy: 8))
+  let top = try placement("main", rect: "[0,0,1,0.5]").destination(
+    for: current, displays: displays, defaultGap: 9
+  )
+  .get()
+  let bottom = try placement("main", rect: "[0,0.5,1,0.5]")
+    .destination(for: current, displays: displays, defaultGap: 9).get()
+  #expect(top.maxY == bottom.minY)
+  #expect(top.union(bottom) == laptop.visible.insetBy(dx: 9, dy: 9))
+}
+
+/// Use the same request dispatcher and move engine in the spawned child, with an in-memory AX adapter.
+private func installFakeWindowManager(in root: URL) throws -> URL {
+  let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    .deletingLastPathComponent().appending(path: "Sources/Extensions/window")
+  let fixture = try #require(Bundle.module.url(forResource: "Fixtures/WindowDriver", withExtension: "swift"))
+  let manifestFile = source.appending(path: "wicket.json")
+  var manifest = try #require(
+    JSONSerialization.jsonObject(with: Data(contentsOf: manifestFile)) as? [String: Any])
+  manifest["permissions"] = nil  // All AX calls in the driver go to the fake.
+  let folder = try extensionFolder(root, name: "window", fields: manifest)
+  let entry = root.appending(path: "main.swift")
+  try FileManager.default.copyItem(at: fixture, to: entry)
+  let compiler = Process()
+  compiler.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+  compiler.arguments =
+    ["swiftc", "-swift-version", "6", "-warnings-as-errors", entry.path]
+    + ["Window", "Placement", "Capture", "JSON"].map { source.appending(path: $0 + ".swift").path }
+    + ["-o", folder.appending(path: "main").path]
+  try compiler.run()
+  compiler.waitUntilExit()
+  try #require(compiler.terminationStatus == 0)
+  return folder
+}
+
+@MainActor @Test func captureBecomesAHeadlessMoveAndAHiddenUserItemHotkey() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let folder = try await Task.detached { try installFakeWindowManager(in: root) }.value
+  let history = Edition.current.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": root.path])
+  let (captureStatus, capture) = try await cli(
+    root, ["--extension", "window", "--submitted", "--action", "capture"])
+  #expect(captureStatus == 0)
+  let body = try #require(capture["body"].string)
+  struct Entry: Decodable, Equatable {
+    let bundleID: String
+    let display: String
+    let rect: [Double]
+    let focused: Bool
+  }
+  let entries = try JSONDecoder().decode([Entry].self, from: Data(body.utf8))
+  #expect(
+    entries == [
+      Entry(
+        bundleID: "com.example.Editor", display: "12345678-1234-4321-1234-ABCDEFABCDEF",
+        rect: [0.5, 0.25, 240.0 / 1040, 0.375], focused: true),
+      Entry(
+        bundleID: "com.example.Editor", display: "12345678-1234-4321-1234-FEDCBAFEDCBA",
+        rect: [0.2, 0.1, 0.5, 0.55], focused: false),
+    ])
+  let dataFolder = try #require(
+    FileManager.default.contentsOfDirectory(at: history, includingPropertiesForKeys: nil).first)
+  let frameFile = dataFolder.appending(path: "mock-window-frame.json")
+  let original = CGRect(x: -800, y: -100, width: 500, height: 440)
+  let destination = CGRect(x: 520, y: 240, width: 240, height: 300)
+  // Simulate the user moving the focused window after Capture, before using the saved item.
+  try JSONEncoder().encode(original).write(to: frameFile)
+  func observedFrame() throws -> CGRect {
+    try JSONDecoder().decode(CGRect.self, from: Data(contentsOf: frameFile))
+  }
+  let focused = entries.first(where: \.focused)
+  let saved = try #require(focused)
+  let rectangle = saved.rect.map { String($0) }.joined(separator: ",")
+  let definition =
+    #"{"kind":"move","placement":{"display":"\#(saved.display)","rect":[\#(rectangle)],"gap":0}}"#
+  let item = Row(
+    id: "coding", title: "Coding",
+    actions: [
+      .run(
+        Address(
+          id: "extension:window", fields: ["definition": definition],
+          action: "apply-definition", hidden: true))
+    ])
+  try JSONEncoder().encode(["items": [item]]).write(to: folder.appending(path: "user.json"))
+  try saveProviders([.init("extension:window")], in: root)
+  let (queryStatus, query) = try await cli(root, ["--query", "Coding"])
+  #expect(queryStatus == 0 && query["items"].array.contains { $0["row"]["id"].string == "user-item:coding" })
+  #expect(try observedFrame() == original)
+
+  let command = try #require(
+    ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
+      .0["extension:window"])
+  let target = try #require(HotkeyTarget("wicket://window?user-item=coding"))
+  guard case .run(let action)? = command.item(for: target)?.actions.first?.kind else {
+    Issue.record("The saved item has no run action")
+    return
+  }
+  let fields = String(decoding: try JSONEncoder().encode(action.fields), as: UTF8.self)
+  let status = try await cli(
+    root,
+    [
+      "--extension", "window", "--submitted", "--action",
+      try #require(action.action), "--fields", fields,
+    ])
+  #expect(status.0 == 0 && status.1 == .object([:]))
+  #expect(try observedFrame() == destination)
+  #expect(try moveRecords(in: dataFolder) == [Record(pid: 42, before: original, after: destination)])
+  let restore = try await cli(root, ["--extension", "window", "--submitted", "--action", "restore"])
+  #expect(restore.0 == 0 && restore.1 == .object([:]))
+  #expect(try observedFrame() == original)
+
+  let model = LauncherModel(
+    history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    extensionDataDirectory: history)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  surface.shown = false
+  model.navigator.surface = surface
+  model.store.bind(try Shortcut("ctrl+option+1"), to: target)
+  model.press(try #require(model.configuration.hotkeys.first?.target))
+  await model.navigator.settled()
+  #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
+  #expect(try observedFrame() == destination)
+  #expect(try moveRecords(in: dataFolder) == [Record(pid: 42, before: original, after: destination)])
+  await model.finish()
 }
