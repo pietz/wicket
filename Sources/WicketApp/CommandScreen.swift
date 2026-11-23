@@ -110,6 +110,7 @@ enum CommandOutcome {
   private(set) var problem: String?
   /// A failed form leaves its values for retries until the command returns a new view.
   private var failedCanvasValues: [String: String] = [:]
+  var hasFormValues: Bool { page?.fields.isEmpty == false || !failedCanvasValues.isEmpty }
   /// A link or replay cleared the shown form's values; if its request fails, a retry must not restore them.
   private var canvasCleared = false
   private var runningCause: Cause?

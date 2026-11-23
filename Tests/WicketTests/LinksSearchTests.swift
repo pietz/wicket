@@ -279,6 +279,15 @@ private func fields(_ values: [String: String]) throws -> String {
   await navigator.settled()
   #expect(try takeOpenedURL(in: folder) == "https://example.com/search?q=fixed%20value")
 
+  model.press(youtube)
+  await navigator.settled()
+  try #require(navigator.command?.id == links && surface.isShown && navigator.input.isEmpty)
+  #expect(navigator.fieldValues["link"] == "youtube" && !didOpenURL(in: folder))
+  await type("unsent YouTube query")
+  model.press(HotkeyTarget(target: links, item: "fixed", isUserItem: true))
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: folder) == "https://example.com/search?q=fixed%20value")
+
   await type("archive keep this query")
   navigator.run()
   await navigator.settled()
@@ -374,6 +383,7 @@ func aSavedSearchHotkeyUsesItsOwnSiteFromAnotherQueryPrompt(documented: Bool) as
   await navigator.settled()
   try #require(surface.isShown && navigator.command?.id == links && navigator.input.isEmpty)
   #expect(navigator.results.first?.row.title == "Enter a search query.")
+  #expect(navigator.fieldValues["template"] == "https://www.openstreetmap.org/search?query={query}")
   #expect(!didOpenURL(in: folder))
 
   model.press(try #require(HotkeyTarget("wicket://links-search?user-item=wiki-berlin")))

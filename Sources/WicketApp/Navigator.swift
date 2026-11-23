@@ -908,13 +908,22 @@ final class Navigator {
       run()
     }
   }
+  /// An item hotkey starts its own visit unless the open command owns the form values.
+  private func commandState(for behavior: any CommandScreenBehavior, itemHotkey: Bool) -> CommandScreen {
+    if let command, command.id == behavior.id,
+      !itemHotkey || command.promptedRun == nil && command.hasFormValues
+    {
+      return command
+    }
+    return CommandScreen(behavior)
+  }
   /// Takes the user to an address. `origin` is the provider of the row it came from, which an address
   /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root. `submitted` marks the user activating a run action, which the first request says.
   /// `holding`: the screen being left stays until the new one has its content (`arrive`).
   func go(
     _ address: Address, from origin: String? = nil, submitted: Bool = false, holding: Bool = true,
-    replacingFields: Bool = false
+    replacingFields: Bool = false, itemHotkey: Bool = false
   ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
@@ -927,13 +936,14 @@ final class Navigator {
     case .agent: fill(address.input ?? input)
     case .root: arrive(nil, input: address.input ?? "", holding: holding)
     case .command(let behavior):
-      let reopened = command?.id == behavior.id
-      var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
+      var state = commandState(for: behavior, itemHotkey: itemHotkey)
       if let invalid = state.enter(address, submitted: submitted, replacingFields: replacingFields) {
         actionProblem = "Invalid value for \(invalid)"
         return draw()
       }
-      guard reopened, !conversing else { return arrive(state, input: state.input, holding: holding) }
+      guard state.visit == command?.visit, !conversing else {
+        return arrive(state, input: state.input, holding: holding)
+      }
       if arriving == nil, state.runningSubmission, state.page?.fields.isEmpty == false,
         state.next == .submission
       {
@@ -979,7 +989,8 @@ final class Navigator {
     actionProblem = nil
     func arrive() {
       go(
-        address, from: origin, submitted: submitted, holding: shown, replacingFields: replacingFields)
+        address, from: origin, submitted: submitted, holding: shown, replacingFields: replacingFields,
+        itemHotkey: submitted && hotkey?.item != nil)
       pressed = hotkey.map { ($0, generation) }
     }
     if let surface, !shown { surface.show(arriving: arrive) } else { arrive() }
@@ -1267,8 +1278,10 @@ final class Navigator {
       let program = extensions.commands[id], program.manifest.command != nil,
       let behavior = directory.behavior(of: id),
       directory.isAvailable(id, in: configuration)
-    else { return open(address, from: origin, submitted: true, replacingFields: replacingFields) }
-    var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandScreen(behavior)
+    else {
+      return open(address, from: origin, submitted: true, pressed: hotkey, replacingFields: replacingFields)
+    }
+    var state = commandState(for: behavior, itemHotkey: hotkey?.item != nil)
     if let invalid = state.enter(address, submitted: true, replacingFields: replacingFields) {
       actionProblem = "Invalid value for \(invalid)"
       return draw()

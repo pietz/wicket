@@ -31,7 +31,7 @@ private func showStarters(matching query: String) -> String {
   guard action == nil || action == "open-link" else { return searchStatus("Choose a link to open.") }
 
   let link = fields?["link"]?.string
-  let template = if let link { starters[link] } else { fields?["template"]?.string }
+  let template = fields?["template"]?.string ?? link.flatMap { starters[$0] }
   guard let template else {
     if action == nil, link == nil {
       return showStarters(matching: query.trimmingCharacters(in: .whitespacesAndNewlines))

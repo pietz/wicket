@@ -6,7 +6,7 @@ Wicket ships two extensions for browser shortcuts. **Links & Search** (`links-se
 | --- | --- |
 | Search a site | Type `yt cats`, `wiki new york` or `gh swift` and press Return. Type just the keyword and Tab to fill Query in the root row, or press Return on the bare keyword to open the command at Query. |
 | Browse the starters | Type `links` and press Return. Enter text and press Return to filter the starter list. |
-| Use a hotkey | Choose ⌘K ▸ **Set Hotkey…** on a row. A search hotkey opens Query with no text when pressed from another screen. A bookmark hotkey opens its destination directly. |
+| Use a hotkey | Choose ⌘K ▸ **Set Hotkey…** on a row. A search hotkey uses its own search definition. It opens Query when it needs text, or runs immediately with a fixed query. A bookmark hotkey opens its destination directly. |
 | Search the web | With a nonempty query and no strong match, choose **Search the Web** just below **Ask agent**. For an explicit search, type `web` followed by the query. ⌘Return asks the agent. |
 | Add a bookmark or site search | Ask the agent to add it to `extensions/links-search/user.json`, or edit that file yourself. You can also ask the agent to turn a browser bookmark export into items. |
 
