@@ -175,7 +175,7 @@ private func run(_ path: String) throws {
       throw Failure("main must return a view object, a Markdown string, or undefined")
     }
     if try reporting(context, { JSValueIsInstanceOfConstructor(context, result, promise, &$0) }) {
-      throw Failure("main must be synchronous; wicket.fetch returns directly")
+      throw Failure("main must be synchronous")
     }
     guard !JSValueIsArray(context, result),
       let serialized = try reporting(context, { JSValueCreateJSONString(context, result, 0, &$0) })

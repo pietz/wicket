@@ -128,7 +128,7 @@ private func installScript(
 @Test(arguments: [
   (
     "async function main() { return {body: 'bad'}; }",
-    "main must be synchronous; wicket.fetch returns directly"
+    "main must be synchronous"
   ),
   ("function main() { return Promise.resolve({body: 'bad'}); }", "main must be synchronous"),
   ("function main() { const view = {}; view.loop = view; return view; }", "cyclic"),

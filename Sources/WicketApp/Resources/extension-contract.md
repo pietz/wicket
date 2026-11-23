@@ -248,12 +248,12 @@ else:
 Put `main.js` in the extension folder. The command names the bundled runner and one relative script path.
 
 ```json
-{"contract":2,"name":"Count characters","command":["wicket-js","main.js"]}
+{"contract":2,"name":"Echo","command":["wicket-js","main.js"]}
 ```
 
 ```js
 function main(request) {
-  return { body: `# ${request.input.length} characters` };
+  return { body: request.input ? `You typed: ${request.input}` : "Type something." };
 }
 ```
 
