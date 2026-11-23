@@ -91,7 +91,7 @@ final class PanelInput: Speech {
       stop(.busy)
     }
   }
-  /// Quitting: capture stops, and this returns once the microphone is closed.
+  /// Quitting: give capture the same bounded wait to close as a reopen.
   func finish() async {
     stop(.quit)
     await voice?.shutdown?.value

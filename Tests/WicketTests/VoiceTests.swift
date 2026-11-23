@@ -27,7 +27,7 @@ import Testing
 @MainActor final class FakeTranscriber: Transcriber {
   var feeds: [AsyncThrowingStream<VoiceUpdate, any Error>.Continuation] = []
   var stops = 0
-  var shutdown: Task<Void, Never>?
+  var shutdown: AsyncStream<Never>?
   func start() -> AsyncThrowingStream<VoiceUpdate, any Error> {
     let (stream, feed) = AsyncThrowingStream.makeStream(of: VoiceUpdate.self)
     feeds.append(feed)
@@ -119,7 +119,7 @@ import Testing
 @MainActor
 @Test(arguments: [
   VoiceError.microphoneDenied, .noMicrophone, .noLanguage, .modelMissing,
-  .usageMissing, .conversionFailed, .inputChanged,
+  .usageMissing, .conversionFailed, .inputChanged, .microphoneStartFailed,
 ])
 func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   let fake = FakeTranscriber()
@@ -142,24 +142,69 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   voice.stop(.toggle)
 }
 
-@MainActor @Test func voiceSilenceAndStartupAreBounded() async {
+@MainActor @Test func microphoneStartupTimesOutAndFreshCaptureCanListen() async throws {
+  let stuck = FakeTranscriber()
+  let fresh = FakeTranscriber()
+  let (closing, finish) = AsyncStream.makeStream(of: Never.self)
+  defer { finish.finish() }
+  stuck.shutdown = closing
+  var creations = 0
+  let voice = VoiceInput(
+    transcriber: {
+      creations += 1
+      return creations == 1 ? stuck : fresh
+    }, write: { _ in Issue.record("Unexpected transcript") })
+  voice.startupDuration = .milliseconds(30)
+  voice.shutdownDuration = .milliseconds(30)
+  voice.noSpeechDuration = .seconds(60)
+  voice.toggle()
+  #expect(await eventually(within: .seconds(15)) { voice.problem == "Microphone didn't start. Try again." })
+  #expect(voice.state == .idle && stuck.stops == 1)
+
+  voice.startupDuration = .seconds(60)
+  voice.toggle()
+  try #require(await eventually(within: .seconds(15)) { fresh.feeds.count == 1 })
+  fresh.feeds[0].yield(.ready)
+  #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
+  #expect(creations == 2 && stuck.feeds.count == 1 && voice.problem == nil)
+  voice.stop(.toggle)
+}
+
+@MainActor @Test func microphoneShutdownCanStallAfterListeningWithoutBlockingReopen() async throws {
+  let stuck = FakeTranscriber()
+  let fresh = FakeTranscriber()
+  let (closing, finish) = AsyncStream.makeStream(of: Never.self)
+  defer { finish.finish() }
+  stuck.shutdown = closing
+  var next = stuck
+  let voice = VoiceInput(transcriber: { next }, write: { _ in })
+  voice.startupDuration = .seconds(60)
+  voice.shutdownDuration = .milliseconds(40)
+  voice.noSpeechDuration = .seconds(60)
+  voice.toggle()
+  stuck.feeds[0].yield(.ready)
+  #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
+  voice.stop(.hidden)
+  next = fresh
+  voice.arm()
+  #expect(voice.state == .starting && fresh.feeds.isEmpty)
+  try #require(await eventually(within: .seconds(15)) { fresh.feeds.count == 1 })
+  fresh.feeds[0].yield(.ready)
+  #expect(await eventually(within: .seconds(15)) { voice.state == .listening })
+  #expect(voice.problem == nil)
+  voice.stop(.toggle)
+}
+
+@MainActor @Test func voiceSilenceAfterSpeechIsBounded() async {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
-  // Startup that never becomes ready fails after the deadline. Nothing else races it.
-  voice.silenceDuration = .milliseconds(15)
   voice.toggle()
-  #expect(await eventually { voice.problem != nil })
-  #expect(!voice.active && fake.stops == 1)
-  // The silence deadline starts only once listening is observed, so a slow test machine
-  // cannot expire it before the test has seen the state.
-  voice.silenceDuration = .seconds(30)
-  voice.toggle()
-  fake.feeds[1].yield(.ready)
+  fake.feeds[0].yield(.ready)
   #expect(await eventually { voice.state == .listening })
   voice.silenceDuration = .milliseconds(15)
-  fake.feeds[1].yield(.transcript("hello"))
+  fake.feeds[0].yield(.transcript("hello"))
   #expect(await eventually { voice.state == .idle })
-  #expect(voice.problem == nil && fake.stops == 2)
+  #expect(voice.problem == nil && fake.stops == 1)
 }
 
 @MainActor @Test func listeningStopsQuietlyWhenNothingIsSaidAtFirst() async throws {
@@ -632,12 +677,12 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
 }
 
 // Disabled: under parallel load the 250 ms startup timer can fire before the session reads the
-// fake's first update, so the test fails about one run in three. Not a product bug (the real
-// deadline is 60 s); the fix is an injectable clock in VoiceInput, see ISSUES.md.
+// fake's first update. An injectable clock would let the test control the deadline (see ISSUES.md).
 @MainActor @Test(.disabled("Timing race under parallel load; needs an injectable clock"))
 func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   let fake = FakeTranscriber()
   let voice = VoiceInput(transcriber: { fake }, write: { _ in })
+  voice.startupDuration = .milliseconds(250)
   voice.silenceDuration = .milliseconds(250)
   voice.maximumDuration = .milliseconds(400)
   var restored = 0
@@ -732,12 +777,9 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let fake = FakeTranscriber()
-  let (closing, finish) = AsyncStream.makeStream(of: Void.self)
+  let (closing, finish) = AsyncStream.makeStream(of: Never.self)
   var closed = false
-  fake.shutdown = Task {
-    for await _ in closing {}
-    closed = true
-  }
+  fake.shutdown = closing
   let panel = HideOrderPanel()
   let (_, controller) = voicedPanel(in: root, panel: panel, transcriber: { fake })
   panel.onHide = { #expect(!closed && fake.stops >= 1) }
@@ -747,8 +789,13 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   controller.show(orderFront: false, listen: false)
   controller.hide()
   #expect(panel.hides == 2)
+  let waiter = Task {
+    await controller.input.voice?.shutdown?.value
+    closed = true
+  }
   // The main actor still runs while shutdown is suspended. No window is ordered front.
   finish.finish()
+  await waiter.value
   #expect(await eventually { closed })
   await controller.finish()
 }
@@ -766,11 +813,13 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let fake = FakeTranscriber()
-  let (closing, finish) = AsyncStream.makeStream(of: Void.self)
-  fake.shutdown = Task { for await _ in closing {} }
+  let (closing, finish) = AsyncStream.makeStream(of: Never.self)
+  fake.shutdown = closing
   let (model, controller) = voicedPanel(in: root, transcriber: { fake })
   controller.input.arm()
   let voice = controller.input.voice
+  voice?.shutdownDuration = .seconds(60)
+  voice?.startupDuration = .seconds(60)
   model.store.update { $0.voice.enabled = false }
   #expect(controller.input.voice === voice && voice?.state == .idle)
   model.store.update { $0.voice.enabled = true }
@@ -779,6 +828,6 @@ func permissionWaitDoesNotUseStartupOrCaptureDeadlines() async throws {
   await Task.yield()
   #expect(fake.feeds.count == 1)
   finish.finish()
-  #expect(await eventually { fake.feeds.count == 2 })
+  #expect(await eventually(within: .seconds(15)) { fake.feeds.count == 2 })
   await controller.finish()
 }

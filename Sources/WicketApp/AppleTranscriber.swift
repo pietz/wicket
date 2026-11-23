@@ -1,13 +1,13 @@
 import AVFoundation
 import CoreAudio
+import CoreMedia
 import Speech
 
-/// Apple's macOS 26 on-device pipeline on the system's default input. No fallback recognizer, model
-/// download or audio file.
+/// Apple's macOS 26 on-device pipeline. No fallback recognizer, model download or audio file.
 @MainActor final class AppleTranscriber: Transcriber {
   private var task: Task<Void, Never>?
   private var microphone: Microphone?
-  private(set) var shutdown: Task<Void, Never>?
+  private(set) var shutdown: AsyncStream<Never>?
   func start() -> AsyncThrowingStream<VoiceUpdate, any Error> {
     stop()
     let capture = Microphone()
@@ -75,7 +75,10 @@ import Speech
     try await withTaskCancellationHandler {
       try Task.checkCancellation()
       // Audio buffers from here on wait in `inputs` until the analyzer reads them: the first word counts.
-      try microphone.start(format: format, feed: feed, firstAudio: { yield(.audio(.now)) }, fail: fail)
+      try await microphone.start(
+        format: format, audio: { feed.yield(AnalyzerInput(buffer: $0)) },
+        firstAudio: { yield(.audio(.now)) }, fail: fail)
+      try Task.checkCancellation()
       yield(.ready)
       try await analyzer.start(inputSequence: inputs)
       var transcript = Transcript(locale: locale)
@@ -92,179 +95,187 @@ import Speech
   }
 }
 
-/// The capture of one listening session. One serial queue owns the engine: opening, a device change and
-/// teardown run on it in order, so a stop during opening waits for it and nothing opens after a stop.
-/// Opening runs on the caller's thread (never the main actor); stopping never blocks its caller.
+/// Each capture has its own queue. A blocked driver call leaves the main actor and later sessions free.
 final class Microphone: @unchecked Sendable {
-  private let queue = DispatchQueue(label: "app.wicket.capture")
-  private var engine: (any CaptureEngine)?
-  private var observer: (any NSObjectProtocol)?
-  private var started = false, stopped = false
-  /// Set by the opening once its tap is installed, so closing removes it.
-  var tapped = false
+  private let queue = DispatchQueue(label: "app.wicket.capture", qos: .userInitiated)
+  private var session: (any CaptureSession)?
+  private var samples: AudioSamples?
+  private var observers: [any NSObjectProtocol] = []
+  private var stopped = false
   private let opened = ContinuousClock.now
 
-  /// Makes the engine and runs `body` with it on the queue, once, unless capture already stopped; a
-  /// failure closes what it opened.
-  func open<Engine: CaptureEngine>(_ make: @autoclosure () -> Engine, _ body: (Engine) throws -> Void) throws
-  {
-    try queue.sync {
-      guard !stopped, !started else { throw CancellationError() }
-      started = true
-      let engine = make()
-      self.engine = engine
-      do { try body(engine) } catch {
+  func open<Device>(
+    selecting select: @escaping @Sendable () throws -> Device,
+    session make: @escaping @Sendable (Device) throws -> any CaptureSession
+  ) async throws {
+    let (opened, result) = AsyncThrowingStream<Never, any Error>.makeStream()
+    queue.async { [self] in
+      guard !stopped, session == nil else {
+        result.finish(throwing: CancellationError())
+        return
+      }
+      do {
+        let session = try make(select())
+        self.session = session
+        session.startRunning()
+        guard session.isRunning else { throw VoiceError.microphoneStartFailed }
+        result.finish()
+      } catch {
         close()
-        throw error
+        result.finish(throwing: error)
       }
     }
+    // Cancelling speech releases its wait even if the system call on the queue has not returned.
+    for try await _ in opened {}
+    try Task.checkCancellation()
   }
-  /// Stops capture for good. The close is queued before this returns, so no later opening gets in; the
-  /// task ends once the engine is closed, after any opening in progress.
-  func stop() -> Task<Void, Never> {
+
+  /// Queue the close before returning. The stream finishes after any opening already in progress.
+  func stop() -> AsyncStream<Never> {
     let (closed, finish) = AsyncStream.makeStream(of: Never.self)
     queue.async { [self] in
       close()
       finish.finish()
     }
-    return Task { for await _ in closed {} }
+    return closed
   }
-  /// Configuration changes also arrive during a normal startup, Bluetooth especially: only one that leaves
-  /// the engine stopped ends capture, with a hint, and nothing restarts by itself.
-  func configurationChanged(fail: @escaping @Sendable (VoiceError) -> Void) {
+
+  func captureEnded(fail: @escaping @Sendable (VoiceError) -> Void) {
     queue.async { [self] in
-      guard !stopped, let engine, !engine.isRunning else { return }
+      guard !stopped else { return }
       VoiceLog.logger.log(
         "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
       )
-      close()
       fail(.inputChanged)
+      close()
     }
   }
-  /// Opens the default input (the Mac's own microphone in place of a Bluetooth one), taps it at the
-  /// hardware's format and feeds `format` to the analyzer.
+
   func start(
-    format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation,
+    format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
-  ) throws {
-    try open(AVAudioEngine()) { [self] engine in
-      observer = NotificationCenter.default.addObserver(
-        forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
-      ) { [weak self] _ in self?.configurationChanged(fail: fail) }
-      let input = engine.inputNode
-      // Set before the formats are read; a failure keeps the system default.
-      if let device = InputDevice.avoidingBluetooth(default: InputDevice.systemDefault, InputDevice.all) {
-        do { try input.auAudioUnit.setDeviceID(device) } catch {
-          VoiceLog.logger.error(
-            "voice: setting the input device failed: \(VoiceLog.describe(error), privacy: .public)")
-        }
-      }
-      let tap = try Self.tapFormat(
-        hardware: input.inputFormat(forBus: 0), node: input.outputFormat(forBus: 0))
-      let conversion = try Conversion(input: tap, output: format)
-      // A tap whose rate disagrees with the hardware raises an uncatchable exception: recheck just before.
-      guard input.inputFormat(forBus: 0).sameRateAndChannels(tap) else { throw VoiceError.noMicrophone }
-      nonisolated(unsafe) var received = false
-      input.installTap(onBus: 0, bufferSize: 2048, format: tap) { buffer, _ in
-        if !received {
-          received = true
-          firstAudio()
-        }
-        do {
-          if let converted = try conversion.convert(buffer) { feed.yield(AnalyzerInput(buffer: converted)) }
-        } catch { fail(.conversionFailed) }
-      }
-      tapped = true
-      // Starting with a node format that disagrees with the hardware raises the same exception.
-      guard input.outputFormat(forBus: 0).sameRateAndChannels(tap) else { throw VoiceError.noMicrophone }
-      engine.prepare()
-      try engine.start()
+  ) async throws {
+    // An explicit device input avoids AVAudioEngine binding its default input and switching it back.
+    try await open(selecting: InputDevice.select) { [self] device in
+      let capture = AVCaptureSession()
+      let input = try AVCaptureDeviceInput(device: device)
+      let output = AVCaptureAudioDataOutput()
+      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio, fail: fail)
+      output.audioSettings = [
+        AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
+      ]
+      // Session startup and teardown can wait for delivery to drain.
+      output.setSampleBufferDelegate(
+        samples, queue: DispatchQueue(label: "app.wicket.audio", qos: .userInitiated))
+      guard capture.canAddInput(input) else { throw VoiceError.noMicrophone }
+      capture.addInput(input)
+      guard capture.canAddOutput(output) else { throw VoiceError.microphoneStartFailed }
+      capture.addOutput(output)
+      self.samples = samples
+      observers = [
+        observe(AVCaptureSession.didStopRunningNotification, object: capture, fail: fail),
+        observe(AVCaptureSession.runtimeErrorNotification, object: capture, fail: fail),
+        observe(AVCaptureDevice.wasDisconnectedNotification, object: device, fail: fail),
+      ]
+      return capture
     }
   }
+
+  private func observe(
+    _ name: Notification.Name, object: AnyObject, fail: @escaping @Sendable (VoiceError) -> Void
+  ) -> any NSObjectProtocol {
+    NotificationCenter.default.addObserver(forName: name, object: object, queue: nil) { [weak self] _ in
+      self?.captureEnded(fail: fail)
+    }
+  }
+
   private func close() {
     stopped = true
-    if let observer { NotificationCenter.default.removeObserver(observer) }
-    observer = nil
-    if tapped { engine?.removeTap() }
-    tapped = false
-    engine?.stop()
-    engine = nil
-  }
-  /// The input node cannot convert, so a tap must use the hardware's rate and channel count
-  /// (AVAudioIONode.h); any other rate raises an exception Swift cannot catch. The node's own format
-  /// is kept when it already agrees; otherwise it can be stale, as with a 32 kHz USB microphone
-  /// whose node reported 48 kHz. Conversion resamples either one.
-  static func tapFormat(hardware: AVAudioFormat, node: AVAudioFormat) throws -> AVAudioFormat {
-    guard hardware.sampleRate.isFinite, hardware.sampleRate > 0, hardware.channelCount > 0 else {
-      throw VoiceError.noMicrophone
-    }
-    if node.sameRateAndChannels(hardware), node.commonFormat == .pcmFormatFloat32, !node.isInterleaved {
-      return node
-    }
-    let format =
-      hardware.channelLayout.map {
-        AVAudioFormat(
-          commonFormat: .pcmFormatFloat32, sampleRate: hardware.sampleRate, interleaved: false,
-          channelLayout: $0)
-      } ?? AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate, channels: hardware.channelCount)
-    guard let format, format.sameRateAndChannels(hardware) else { throw VoiceError.noMicrophone }
-    return format
+    for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    observers.removeAll()
+    session?.stopRunning()
+    session = nil
+    samples = nil
   }
 }
 
-/// A Bluetooth microphone switches a headset into call mode, which degrades its playback while listening,
-/// so a built-in or USB microphone replaces a Bluetooth default when there is one. No picker or setting.
-struct InputDevice: Equatable {
-  let id: AudioDeviceID, transport: UInt32
-  /// The input to set instead of the system default, or nil to keep it.
-  static func avoidingBluetooth(default id: AudioDeviceID?, _ inputs: [Self]) -> AudioDeviceID? {
-    guard let current = inputs.first(where: { $0.id == id }),
-      [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(current.transport)
-    else { return nil }
-    return
-      (inputs.first { $0.transport == kAudioDeviceTransportTypeBuiltIn }
-      ?? inputs.first { $0.transport == kAudioDeviceTransportTypeUSB })?.id
-  }
-  /// Property reads only: this never opens a device or changes the system default.
-  static var systemDefault: AudioDeviceID? {
-    values(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice).first
-  }
-  static var all: [Self] {
-    values(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDevices).compactMap { id in
-      guard !values(id, kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeInput).isEmpty,
-        let transport = values(id, kAudioDevicePropertyTransportType).first
-      else { return nil }
-      return Self(id: id, transport: transport)
-    }
-  }
-  private static func values(
-    _ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
-    scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal
-  ) -> [UInt32] {
-    var address = AudioObjectPropertyAddress(
-      mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
-    var size: UInt32 = 0
-    guard AudioObjectGetPropertyDataSize(object, &address, 0, nil, &size) == noErr, size > 0 else {
-      return []
-    }
-    var values = [UInt32](repeating: 0, count: Int(size) / MemoryLayout<UInt32>.size)
-    guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &values) == noErr else { return [] }
-    return Array(values.prefix(Int(size) / MemoryLayout<UInt32>.size))
-  }
-}
-
-/// What closing needs from the engine; tests count it with a fake.
-protocol CaptureEngine: AnyObject {
+/// The session lifecycle, exercised with a fake instead of opening hardware.
+protocol CaptureSession: AnyObject {
   var isRunning: Bool { get }
-  func removeTap()
-  func stop()
+  func startRunning()
+  func stopRunning()
 }
 
-extension AVAudioEngine: CaptureEngine {
-  func removeTap() { inputNode.removeTap(onBus: 0) }
+extension AVCaptureSession: CaptureSession {}
+
+/// A Bluetooth microphone switches its headset into call mode, degrading playback. Prefer built-in
+/// then USB when the default is Bluetooth.
+enum InputDevice {
+  static func select() throws -> AVCaptureDevice {
+    guard let current = AVCaptureDevice.default(for: .audio) else { throw VoiceError.noMicrophone }
+    return avoidingBluetooth(
+      current,
+      AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified)
+        .devices, transport: { UInt32(bitPattern: $0.transportType) })
+  }
+
+  static func avoidingBluetooth<Device>(
+    _ current: Device, _ inputs: @autoclosure () -> [Device], transport: (Device) -> UInt32
+  ) -> Device {
+    guard
+      [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(transport(current))
+    else { return current }
+    let candidates = inputs()
+    return candidates.first { transport($0) == kAudioDeviceTransportTypeBuiltIn }
+      ?? candidates.first { transport($0) == kAudioDeviceTransportTypeUSB } ?? current
+  }
 }
 
-/// AVAudioEngine supplies Float32 PCM; explicit averaging also supports discrete multichannel layouts.
+/// All sample delivery and conversion run in order on the output's delegate queue.
+final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+  private let format: AVAudioFormat
+  private let audio: @Sendable (AVAudioPCMBuffer) -> Void
+  private let firstAudio: @Sendable () -> Void
+  private let fail: @Sendable (VoiceError) -> Void
+  private var conversion: Conversion?
+
+  init(
+    format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
+    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
+  ) {
+    self.format = format
+    self.audio = audio
+    self.firstAudio = firstAudio
+    self.fail = fail
+  }
+
+  func captureOutput(
+    _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection
+  ) {
+    receive(sampleBuffer)
+  }
+
+  func receive(_ sampleBuffer: CMSampleBuffer) {
+    do {
+      guard sampleBuffer.numSamples > 0 else { return }
+      guard let description = sampleBuffer.formatDescription,
+        let buffer = AVAudioPCMBuffer(
+          pcmFormat: AVAudioFormat(cmAudioFormatDescription: description),
+          frameCapacity: AVAudioFrameCount(sampleBuffer.numSamples))
+      else { throw VoiceError.conversionFailed }
+      buffer.frameLength = buffer.frameCapacity
+      try sampleBuffer.copyPCMData(
+        fromRange: 0..<sampleBuffer.numSamples, into: buffer.mutableAudioBufferList)
+      if conversion == nil {
+        firstAudio()
+        conversion = try Conversion(input: buffer.format, output: format)
+      }
+      if let converted = try conversion?.convert(buffer) { audio(converted) }
+    } catch { fail(.conversionFailed) }
+  }
+}
+
+/// Explicit averaging supports discrete multichannel PCM layouts.
 final class Conversion: @unchecked Sendable {
   private let converter: AVAudioConverter
   private let source: AVAudioFormat, mono: AVAudioFormat, format: AVAudioFormat

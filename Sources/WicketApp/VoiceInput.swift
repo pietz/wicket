@@ -30,13 +30,13 @@ enum VoiceUpdate: Sendable {
   case transcript(String)
 }
 
-/// The only hardware boundary. Construction is lazy; stop must release capture immediately.
+/// The only hardware boundary. Construction is lazy and stop must return immediately.
 @MainActor protocol Transcriber {
   func start() -> AsyncThrowingStream<VoiceUpdate, any Error>
   func stop()
-  var shutdown: Task<Void, Never>? { get }
+  var shutdown: AsyncStream<Never>? { get }
 }
-extension Transcriber { var shutdown: Task<Void, Never>? { nil } }
+extension Transcriber { var shutdown: AsyncStream<Never>? { nil } }
 
 @MainActor @Observable
 final class VoiceInput {
@@ -61,6 +61,8 @@ final class VoiceInput {
   @ObservationIgnored private var firstAudio: Duration?
   @ObservationIgnored private var firstTranscript: Duration?
   @ObservationIgnored private var opened = ContinuousClock.now
+  var startupDuration: Duration = .seconds(8)
+  var shutdownDuration: Duration = .milliseconds(500)
   var silenceDuration: Duration = .seconds(60)
   /// Listening ends this soon after capture is ready when nothing has been said yet, so the microphone
   /// goes off quickly whenever Wicket is opened only to type.
@@ -92,30 +94,14 @@ final class VoiceInput {
     timingSaved = false
     let source = makeTranscriber()
     transcriber = source
-    let stream: AsyncThrowingStream<VoiceUpdate, any Error>
-    if let shutdown {
-      stream = AsyncThrowingStream { feed in
-        let pending = Task {
-          await shutdown.value
-          guard !Task.isCancelled else {
-            feed.finish()
-            return
-          }
-          do {
-            for try await update in source.start() { feed.yield(update) }
-            feed.finish()
-          } catch { feed.finish(throwing: error) }
-        }
-        feed.onTermination = { _ in pending.cancel() }
-      }
-    } else {
-      stream = source.start()
-    }
-    // Bounds startup as well as capture, even if the system service never replies.
-    stopAfterSilence()
+    let previous = shutdown
+    let stream = previous == nil ? source.start() : nil
+    scheduleStop()
     session = Task { [weak self] in
+      await previous?.value
+      guard !Task.isCancelled else { return }
       do {
-        for try await update in stream {
+        for try await update in stream ?? source.start() {
           guard let self, !Task.isCancelled, generation == current else { return }
           switch update {
           case .permission(let pending):
@@ -126,7 +112,7 @@ final class VoiceInput {
             } else {
               if let permissionStarted { started += .now - permissionStarted }
               permissionStarted = nil
-              stopAfterSilence()
+              scheduleStop()
               onPermissionFinished()
             }
           case .audio(let time): firstAudio = time - opened
@@ -134,7 +120,7 @@ final class VoiceInput {
             permissionDenied = false
             state = .listening
             guard generation == current else { return }
-            stopAfterSilence()
+            scheduleStop()
           case .transcript(let text):
             let text = Transcript.searchText(text)
             guard text.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
@@ -143,7 +129,7 @@ final class VoiceInput {
               saveTiming()
             }
             write(text)
-            stopAfterSilence()
+            scheduleStop()
           }
         }
         guard let self, generation == current else { return }
@@ -174,7 +160,18 @@ final class VoiceInput {
     )
     generation += 1
     transcriber?.stop()
-    shutdown = transcriber?.shutdown ?? shutdown
+    if let closing = transcriber?.shutdown {
+      let deadline = ContinuousClock.now + shutdownDuration
+      // A driver can stall its capture queue. Cancel the stream wait so the next session can open.
+      shutdown = Task {
+        await withTaskGroup(of: Void.self) { group in
+          group.addTask { for await _ in closing {} }
+          group.addTask { try? await Task.sleep(until: deadline, clock: .continuous) }
+          await group.next()
+          group.cancelAll()
+        }
+      }
+    }
     transcriber = nil
     saveTiming()
     session?.cancel()
@@ -191,14 +188,16 @@ final class VoiceInput {
     stop(isEscape ? .escape : .key)
     return isEscape
   }
-  private func stopAfterSilence() {
+  private func scheduleStop() {
     guard active, !requestingPermission else { return }
     let limit = started + maximumDuration
     // Past the hard limit a transcript stops capture itself: continuous speech (or a TV) would
     // otherwise keep replacing the timer before it gets to run.
-    guard ContinuousClock.now < limit else { return stop(.limit) }
+    guard state == .starting || ContinuousClock.now < limit else { return stop(.limit) }
     let waiting = state == .listening && firstTranscript == nil
-    let deadline = min(limit, .now + (waiting ? noSpeechDuration : silenceDuration))
+    let deadline = min(
+      limit,
+      state == .starting ? started + startupDuration : .now + (waiting ? noSpeechDuration : silenceDuration))
     timer?.cancel()
     let current = generation
     timer = Task { [weak self] in
@@ -207,18 +206,20 @@ final class VoiceInput {
       let starting = state == .starting
       stop(
         starting ? .startTimeout : deadline == limit ? .limit : firstTranscript == nil ? .noSpeech : .silence)
-      if starting { problem = "Voice didn't start. Check permissions and try again." }
+      if starting { problem = VoiceError.microphoneStartFailed.description }
     }
   }
 }
 
 /// The raw value is the case alone, for the log.
 enum VoiceError: String, Error, Equatable, CustomStringConvertible {
-  case microphoneDenied, noMicrophone, noLanguage, modelMissing, usageMissing, conversionFailed, inputChanged
+  case microphoneDenied, noMicrophone, microphoneStartFailed, noLanguage, modelMissing, usageMissing,
+    conversionFailed, inputChanged
   var description: String {
     switch self {
     case .microphoneDenied: "Microphone denied. Allow Wicket in System Settings."
     case .noMicrophone: "No microphone. Check Sound → Input in System Settings."
+    case .microphoneStartFailed: "Microphone didn't start. Try again."
     case .noLanguage: "No on-device speech for your preferred languages."
     case .modelMissing: "Speech model missing. Check macOS Dictation settings."
     case .inputChanged: "Microphone changed. Open Wicket again to retry."

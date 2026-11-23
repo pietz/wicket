@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreAudio
+import CoreMedia
 import Synchronization
 import Testing
 
@@ -39,85 +40,97 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
   #expect(abs(result.floatChannelData![0][500] - expected) < 0.001)
 }
 
-/// Counts what closing does, in place of the hardware.
-private final class FakeEngine: CaptureEngine, @unchecked Sendable {
-  let counts = Mutex((removedTaps: 0, stops: 0))
-  let running = Mutex(true)
-  var isRunning: Bool { running.withLock { $0 } }
-  func removeTap() { counts.withLock { $0.removedTaps += 1 } }
-  func stop() { counts.withLock { $0.stops += 1 } }
+/// Counts what opening and closing do in place of hardware.
+private final class FakeCapture: CaptureSession, @unchecked Sendable {
+  let counts = Mutex((starts: 0, stops: 0))
+  let isRunning: Bool
+
+  init(running: Bool = true) { isRunning = running }
+  func startRunning() { counts.withLock { $0.starts += 1 } }
+  func stopRunning() { counts.withLock { $0.stops += 1 } }
 }
 
 @Test func microphoneStoppedBeforeOpeningNeverOpens() async {
-  // The stop is not awaited: it must already keep out an opening that comes right after it.
+  // The close is already queued, even when the caller hasn't waited for it.
   let microphone = Microphone()
   let shutdown = microphone.stop()
-  let engine = FakeEngine()
-  #expect(throws: CancellationError.self) { try microphone.open(engine) { _ in Issue.record("Opened") } }
-  await shutdown.value
-  #expect(engine.counts.withLock { $0 } == (0, 0))
+  await #expect(throws: CancellationError.self) {
+    try await microphone.open(
+      selecting: {},
+      session: { _ in
+        Issue.record("Opened after stop")
+        return FakeCapture()
+      })
+  }
+  for await _ in shutdown {}
 }
 
-@Test(arguments: [true, false])
-func microphoneClosesExactlyOnce(_ keepsRunning: Bool) async throws {
+@Test func microphoneClosesExactlyOnceAfterLosingItsInput() async throws {
   let microphone = Microphone()
-  let engine = FakeEngine()
-  try microphone.open(engine) { _ in microphone.tapped = true }
-  #expect(throws: CancellationError.self) {
-    try microphone.open(FakeEngine()) { _ in Issue.record("Reopened") }
+  let capture = FakeCapture()
+  try await microphone.open(selecting: {}, session: { _ in capture })
+  await #expect(throws: CancellationError.self) {
+    try await microphone.open(
+      selecting: {},
+      session: { _ in
+        Issue.record("Reopened")
+        return FakeCapture()
+      })
   }
-  // A change that leaves the engine running is part of startup and is ignored; one that stops it ends
-  // capture with one retry hint, however many changes and stops follow.
-  engine.running.withLock { $0 = keepsRunning }
   let retries = Mutex(0)
   for _ in 0..<2 {
-    microphone.configurationChanged {
+    microphone.captureEnded {
       #expect($0 == .inputChanged)
       retries.withLock { $0 += 1 }
     }
   }
-  let first = microphone.stop()
-  await microphone.stop().value
-  await first.value
-  #expect(engine.counts.withLock { $0 } == (1, 1))
-  #expect(retries.withLock { $0 } == (keepsRunning ? 0 : 1))
+  for await _ in microphone.stop() {}
+  for await _ in microphone.stop() {}
+  #expect(capture.counts.withLock { $0 } == (1, 1))
+  #expect(retries.withLock { $0 } == 1)
+}
+
+@Test func microphoneThatFailsToRunClosesAndReportsStartupFailure() async {
+  let microphone = Microphone()
+  let capture = FakeCapture(running: false)
+  await #expect(throws: VoiceError.microphoneStartFailed) {
+    try await microphone.open(selecting: {}, session: { _ in capture })
+  }
+  #expect(capture.counts.withLock { $0 } == (1, 1))
 }
 
 @MainActor @Test func microphoneStopWaitsForOpeningWithoutBlockingTheMainActor() async {
   let microphone = Microphone()
   let entered = DispatchSemaphore(value: 0)
   let release = DispatchSemaphore(value: 0)
+  var stoppedWaiting = false
   // The opening stays blocked until the test releases it, so a starved machine cannot let it finish
   // early. The limits are watchdogs for a hung harness, not timings the test depends on.
-  let opening = Task.detached {
-    try? microphone.open(FakeEngine()) { _ in
-      entered.signal()
-      if release.wait(timeout: .now() + 60) == .timedOut {
-        Issue.record("Harness timeout: the opening was never released")
-      }
-    }
+  let opening = Task {
+    defer { stoppedWaiting = true }
+    try await microphone.open(
+      selecting: {},
+      session: { _ in
+        entered.signal()
+        if release.wait(timeout: .now() + 60) == .timedOut {
+          Issue.record("Harness timeout: the opening was never released")
+        }
+        return FakeCapture()
+      })
   }
   #expect(await signalArrives(entered, within: 60), "Harness timeout: the opening never started")
-  // This returns on the main actor even while opening is blocked on the background thread, and the
-  // shutdown waits for the opening: it cannot have closed while the opening is held, however long the
-  // watcher had to run.
   let shutdown = microphone.stop()
-  let closed = Mutex(false)
-  let watcher = Task.detached {
-    await shutdown.value
-    closed.withLock { $0 = true }
+  var closed = false
+  let watcher = Task {
+    for await _ in shutdown {}
+    closed = true
   }
-  try? await Task.sleep(for: .milliseconds(50))
-  #expect(!closed.withLock { $0 })
+  opening.cancel()
+  #expect(await eventually(within: .seconds(15)) { stoppedWaiting })
+  #expect(!closed)
   release.signal()
   await watcher.value
-  await opening.value
-  // Nothing opens after a stop.
-  await Task.detached {
-    _ = #expect(throws: CancellationError.self) {
-      try microphone.open(FakeEngine()) { _ in Issue.record("Opened after stop") }
-    }
-  }.value
+  await #expect(throws: CancellationError.self) { try await opening.value }
 }
 
 private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) async -> Bool {
@@ -154,57 +167,57 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
   #expect(throws: VoiceError.conversionFailed) { try Conversion(input: unsupported, output: output) }
 }
 
-// Hardware rate and channels, then the node's: a 32 kHz USB microphone whose node reported 48 kHz first.
-@Test(
-  arguments: [
-    [32000, 2, 48000, 2], [44100, 1, 48000, 1], [48000, 1, 48000, 2], [96000, 4, 48000, 2],
-  ] as [[Double]])
-func tapUsesTheHardwareRateAndChannels(_ formats: [Double]) throws {
-  let hardware = try audio(UInt32(formats[1]), rate: formats[0]).format
-  let tap = try Microphone.tapFormat(
-    hardware: hardware, node: try audio(UInt32(formats[3]), rate: formats[2]).format)
-  #expect(tap.sampleRate == formats[0] && tap.channelCount == UInt32(formats[1]))
-  #expect(tap.commonFormat == .pcmFormatFloat32 && !tap.isInterleaved)
-}
-
-@Test func tapKeepsAnAgreeingNodeFormatAndRejectsUnusableHardware() throws {
-  let builtin = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
-  let node = try #require(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1))
-  #expect(try Microphone.tapFormat(hardware: builtin, node: node) === node)
-  let unusable = [
-    AVAudioFormat(),
-    try #require(AVAudioFormat(standardFormatWithSampleRate: 0, channels: 1)),
-    try #require(AVAudioFormat(standardFormatWithSampleRate: .nan, channels: 1)),
-  ]
-  for hardware in unusable {
-    #expect(throws: VoiceError.noMicrophone) { try Microphone.tapFormat(hardware: hardware, node: node) }
-  }
-}
-
 @Test func thirtyTwoKilohertzStereoReachesTheAnalyzerFormat() throws {
   let input = try audio(2, rate: 32000)
-  let tap = try Microphone.tapFormat(hardware: input.format, node: try audio(2).format)
   let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
-  let conversion = try Conversion(input: tap, output: output)
-  let result = try #require(try conversion.convert(input))
-  #expect(result.format == output && result.frameLength > 2000 && result.frameLength <= 2400)
-  #expect(abs(result.floatChannelData![0][500] - 0.75) < 0.001)
+  var sample: CMSampleBuffer?
+  let created = CMAudioSampleBufferCreateWithPacketDescriptions(
+    allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: false, makeDataReadyCallback: nil,
+    refcon: nil, formatDescription: input.format.formatDescription, sampleCount: Int(input.frameLength),
+    presentationTimeStamp: .zero, packetDescriptions: nil, sampleBufferOut: &sample)
+  try #require(created == noErr)
+  let sampleBuffer = try #require(sample)
+  let copied = CMSampleBufferSetDataBufferFromAudioBufferList(
+    sampleBuffer, blockBufferAllocator: kCFAllocatorDefault, blockBufferMemoryAllocator: kCFAllocatorDefault,
+    flags: 0, bufferList: input.audioBufferList)
+  try #require(copied == noErr)
+  try #require(CMSampleBufferSetDataReady(sampleBuffer) == noErr)
+
+  let counts = Mutex((audio: 0, first: 0))
+  let receiver = AudioSamples(
+    format: output,
+    audio: { result in
+      #expect(result.format == output && (2001...2401).contains(result.frameLength))
+      #expect(abs(result.floatChannelData![0][500] - 0.75) < 0.001)
+      counts.withLock { $0.audio += 1 }
+    },
+    firstAudio: { counts.withLock { $0.first += 1 } },
+    fail: { Issue.record("Audio failed: \($0)") })
+  receiver.receive(sampleBuffer)
+  receiver.receive(sampleBuffer)
+  #expect(counts.withLock { $0 } == (2, 1))
 }
 
-@Test func aBluetoothDefaultGivesWayToTheMacsOwnMicrophone() {
-  let bluetooth = InputDevice(id: 1, transport: kAudioDeviceTransportTypeBluetooth)
-  let bluetoothLE = InputDevice(id: 2, transport: kAudioDeviceTransportTypeBluetoothLE)
-  let builtin = InputDevice(id: 3, transport: kAudioDeviceTransportTypeBuiltIn)
-  let usb = InputDevice(id: 4, transport: kAudioDeviceTransportTypeUSB)
-  let virtual = InputDevice(id: 5, transport: kAudioDeviceTransportTypeVirtual)
-  let choose = InputDevice.avoidingBluetooth
-  // Built-in first, then USB; never a virtual or another Bluetooth input.
-  #expect(choose(1, [bluetooth, virtual, usb, builtin]) == 3)
-  #expect(choose(2, [bluetoothLE, bluetooth, virtual, usb]) == 4)
-  // No suitable alternative, a default that isn't Bluetooth, or no default: keep the system's choice.
-  #expect(choose(1, [bluetooth, bluetoothLE, virtual]) == nil)
-  #expect(choose(4, [bluetooth, builtin, usb]) == nil)
-  #expect(choose(5, [virtual, builtin]) == nil)
-  #expect(choose(nil, [bluetooth, builtin]) == nil)
-  #expect(choose(9, [bluetooth, builtin]) == nil)
+@Test func bluetoothInputIsReplacedBeforeTheCaptureSessionIsMade() async throws {
+  let bluetooth = kAudioDeviceTransportTypeBluetooth
+  let bluetoothLE = kAudioDeviceTransportTypeBluetoothLE
+  let builtin = kAudioDeviceTransportTypeBuiltIn
+  let usb = kAudioDeviceTransportTypeUSB
+  let virtual = kAudioDeviceTransportTypeVirtual
+  let capture = FakeCapture()
+  let microphone = Microphone()
+  try await microphone.open(
+    selecting: {
+      InputDevice.avoidingBluetooth(bluetooth, [bluetooth, virtual, usb, builtin], transport: { $0 })
+    },
+    session: { selected in
+      #expect(selected == builtin && capture.counts.withLock { $0 } == (0, 0))
+      return capture
+    })
+  #expect(capture.counts.withLock { $0 } == (1, 0))
+  for await _ in microphone.stop() {}
+  #expect(InputDevice.avoidingBluetooth(bluetoothLE, [bluetooth, virtual, usb], transport: { $0 }) == usb)
+  #expect(InputDevice.avoidingBluetooth(bluetooth, [bluetoothLE, virtual], transport: { $0 }) == bluetooth)
+  #expect(InputDevice.avoidingBluetooth(usb, [bluetooth, builtin, usb], transport: { $0 }) == usb)
+  #expect(InputDevice.avoidingBluetooth(virtual, [bluetooth, builtin], transport: { $0 }) == virtual)
 }
