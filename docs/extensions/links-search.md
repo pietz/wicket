@@ -66,11 +66,10 @@ For an explicit app target, pass a fixed `bundleID` to `open-link`. The template
 1. **Two folders on contract 2.** Build `links-search` and `web` with the current host. The starter rows open the shared Query field on Return. The web fallback opens directly. In a scratch `WICKET_CONFIG_DIR`, test `--extension links-search --submitted --action open-link --fields …` and the submitted `web` query with an inert opener. Cover encoding, empty input and malformed templates. Use `--query` to verify exact aliases and fallback placement for weak, strong and empty input, including with `web` disabled.
 2. **Tab into item fields and route to an app.** Land shared work 2. Check that the typed query reaches the right link, fixed fields win, and search and bookmark hotkeys behave as described. Check bundle-ID resolution and missing-app handling behind a fake opener. Measure root query latency and hotkey-to-visible for the changed path.
 3. **Catalog.** Publish both folders through the catalog (shared work 10). Verify that `user.json` still opens its bookmarks and runs its searches after an official update.
-4. **Optional, each on the owner's go.** Add the root bang pattern and, once canvas text fields exist, multi-argument forms. Live suggestions belong in a separate future spec.
+4. **Keyword, space, text.** `yt cats` ⏎ at the root searches YouTube directly, through shared work 11, a host rule rather than a pattern here. Multi-argument forms wait for canvas text fields. Live suggestions belong in a separate future spec.
 
 ## 7. Open questions
 
 | Decision | Recommendation |
 | --- | --- |
-| Should `yt cats` ⏎ work at the root alongside `yt` ⇥ `cats` ⏎? | Ship the Tab flow first. If the owner wants the shorter flow, start with shipped keywords. The program rewrites an anchored `match` such as `^(yt\|wiki\|gh) \S` whenever its keyword list changes and returns one strong **Search YouTube for cats** row with a submitted launch action. Regenerate the shipped pattern when packaging updates. Budget about 3 ms per warm pattern run and measure it before enabling the feature. [Roadmap runner trial](../../ROADMAP.md#3-extension-catalog) |
 | Which web engine should ship as the default? | Start with DuckDuckGo and let the user choose another supported engine in `web` settings. |
