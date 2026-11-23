@@ -421,7 +421,7 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
     self.onAction = onAction
   }
   var permissionPending: Bool { false }
-  var hasArguments: Bool { false }
+  var hasFields: Bool { false }
   func handle(_ action: PaletteKeyAction) -> Bool {
     if input.keyPressed(action) { return true }
     switch action {

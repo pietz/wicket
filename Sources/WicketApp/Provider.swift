@@ -4,8 +4,10 @@ import Foundation
 /// pattern or fallback) belongs to the host, not the provider or its rows.
 struct ProviderRequest: Codable, Sendable, Equatable {
   let input: String
-  /// Named values: those the user filled into declared arguments and those a run action set.
-  let arguments: [String: String]
+  /// Named values: those the user filled into declared fields and those a run action set.
+  let fields: [String: String]
+  /// The name of this activation, absent on a rerun.
+  let action: String?
   /// True only on the one request the user's activation caused; reruns, refreshes and links never are.
   let submitted: Bool
   /// The user's number format, so an extension reads and writes numbers as the user does without a
@@ -23,10 +25,12 @@ struct ProviderRequest: Codable, Sendable, Equatable {
     }
   }
   init(
-    input: String, arguments: [String: String] = [:], submitted: Bool = false, locale: NumberMarks = .current
+    input: String, fields: [String: String] = [:], action: String? = nil, submitted: Bool = false,
+    locale: NumberMarks = .current
   ) {
     self.input = input
-    self.arguments = arguments
+    self.fields = fields
+    self.action = submitted ? action : nil
     self.submitted = submitted
     self.locale = locale
   }
@@ -56,14 +60,10 @@ struct ProviderView: Codable, Sendable, Equatable {
   /// (`Address.hidden`).
   struct Empty: Error {}
   private enum CodingKeys: String, CodingKey { case body, items, actions }
-  /// `rows` is the 0.1.0–0.1.2 spelling of `items`; installed extensions are never refreshed, so it is read too.
-  private enum Legacy: String, CodingKey { case rows }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let body = try c.decodeIfPresent(String.self, forKey: .body)
-    let items =
-      try c.decodeIfPresent([Row].self, forKey: .items)
-      ?? decoder.container(keyedBy: Legacy.self).decodeIfPresent([Row].self, forKey: .rows)
+    let items = try c.decodeIfPresent([Row].self, forKey: .items)
     guard body != nil || items != nil else { throw Empty() }
     guard Row.validIDs(items ?? []) else {
       throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
@@ -116,16 +116,17 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
 
 /// A request and where it goes. Every field is optional and an omitted one means "this one, as now":
 /// without `extension` the extension that produced the action, without `input` what is typed in the open
-/// command (empty anywhere else), without `arguments` none. Two spellings, one value: JSON for an
-/// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","arguments":{"view":"hourly"}}`,
-/// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no arguments. `agent`,
+/// command (empty anywhere else), without `fields` the command's current values. Two spellings, one value: JSON for an
+/// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","fields":{"view":"hourly"}}`,
+/// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no fields. `agent`,
 /// `settings`, `clipboard` and `history` are reserved targets: `agent` fills the input and never sends,
 /// `clipboard` and `history` are the Clipboard History and Agent History commands, and an empty
 /// `extension`, as in a URL without one, is a root query.
 struct Address: Codable, Sendable, Equatable {
   var extensionName: String?
   var input: String?
-  var arguments: [String: String]?
+  var fields: [String: String]?
+  var action: String?
   /// Spelled as a URL, or a host row that only shows what a pattern produced as such a URL would.
   /// Following a link is never a choice, so its request is not submitted. Never on the wire.
   var link = false
@@ -135,19 +136,21 @@ struct Address: Codable, Sendable, Equatable {
 
   private enum CodingKeys: String, CodingKey {
     case extensionName = "extension"
-    case input, arguments, hidden
+    case input, fields, action, hidden
   }
   static let schemes = ["wicket", "wicket-dev"]
   static let reserved = ["agent", "settings", "clipboard", "history"]
 
   init(
-    extensionName: String? = nil, input: String? = nil, arguments: [String: String]? = nil,
+    extensionName: String? = nil, input: String? = nil, fields: [String: String]? = nil,
+    action: String? = nil,
     link: Bool = false,
     hidden: Bool = false
   ) {
     self.extensionName = extensionName
     self.input = input
-    self.arguments = arguments
+    self.fields = fields
+    self.action = action
     self.link = link
     self.hidden = hidden
   }
@@ -156,27 +159,30 @@ struct Address: Codable, Sendable, Equatable {
     self.init(
       extensionName: try c.decodeIfPresent(String.self, forKey: .extensionName),
       input: try c.decodeIfPresent(String.self, forKey: .input),
-      arguments: try c.decodeIfPresent([String: String].self, forKey: .arguments),
+      fields: try c.decodeIfPresent([String: String].self, forKey: .fields),
+      action: try c.decodeIfPresent(String.self, forKey: .action),
       hidden: try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false)
   }
   func encode(to encoder: any Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeIfPresent(extensionName, forKey: .extensionName)
     try c.encodeIfPresent(input, forKey: .input)
-    try c.encodeIfPresent(arguments, forKey: .arguments)
+    try c.encodeIfPresent(fields, forKey: .fields)
+    try c.encodeIfPresent(action, forKey: .action)
     if hidden { try c.encode(true, forKey: .hidden) }
   }
   /// The address of an extension by its ID, `extension:weather`.
   init(
-    id: String, input: String? = nil, arguments: [String: String]? = nil, link: Bool = false,
+    id: String, input: String? = nil, fields: [String: String]? = nil, action: String? = nil,
+    link: Bool = false,
     hidden: Bool = false
   ) {
     self.init(
       extensionName: id.hasPrefix("extension:") ? String(id.dropFirst("extension:".count)) : id,
-      input: input, arguments: arguments, link: link, hidden: hidden)
+      input: input, fields: fields, action: action, link: link, hidden: hidden)
   }
   /// Parsed leniently: the target is the host or else the path, any query item but `input` is ignored and
-  /// the arguments are never read, because a URL comes from outside the extension. Percent-encode the
+  /// the fields are never read, because a URL comes from outside the extension. Percent-encode the
   /// input; `+` stays a plus.
   init?(url: URL) {
     guard let scheme = url.scheme?.lowercased(), Self.schemes.contains(scheme),
@@ -209,6 +215,8 @@ struct RowAction: Codable, Sendable, Equatable {
     case reveal(URL)
     /// Host only, never decoded: send the text to the agent as a question.
     case send(String)
+    /// Host only, never decoded: ask about the current screen.
+    case ask
     /// Host only, never decoded: show this Markdown as its own page, an item's detail, with the item's
     /// own action as a row at its end, exactly as parsed. Escape returns.
     case detail(String, action: Row? = nil)
@@ -278,6 +286,8 @@ struct RowAction: Codable, Sendable, Equatable {
     case .send(let text):
       try c.encode("send", forKey: .type)
       try c.encode(text, forKey: .text)
+    case .ask:
+      try c.encode("ask", forKey: .type)
     case .detail(let text, _):
       try c.encode("detail", forKey: .type)
       try c.encode(text, forKey: .text)

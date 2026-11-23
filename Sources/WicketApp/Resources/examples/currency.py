@@ -11,7 +11,7 @@ request = json.load(sys.stdin)
 DECIMAL = request.get("locale", {}).get("decimal") or "."
 GROUPING = request.get("locale", {}).get("grouping", "")
 match = re.fullmatch(r"\s*([€$£¥])?\s*(\d[\d.,]*)\s*" + CURRENCY + r"?\s+(?:in|to)\s+" + CURRENCY + r"\s*",
-                     request["input"], re.I)
+                     request["fields"].get("conversion", request["input"]), re.I)
 
 
 def amount(text):

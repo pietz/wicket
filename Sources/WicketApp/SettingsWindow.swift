@@ -569,23 +569,49 @@ struct SettingsPane: View {
 /// One of an extension's settings: saved on Return or when the field loses focus, and removed when emptied,
 /// so the manifest's default, shown as the prompt, applies again.
 private struct SettingField: View {
-  let setting: ExtensionManifest.Argument
+  let setting: ExtensionManifest.Field
   let saved: String?
   let save: (String?) -> Void
   @State private var draft: String?
   @FocusState private var focused: Bool
+  private var label: String { setting.placeholder ?? setting.description }
+  private var validSaved: String? { saved.flatMap { setting.accepts($0) ? $0 : nil } }
   var body: some View {
+    switch setting.type {
+    case .bool:
+      Toggle(
+        label,
+        isOn: Binding(
+          get: { (validSaved ?? setting.default) == "true" },
+          set: { save($0 ? "true" : "false") })
+      )
+      .toggleStyle(.switch).help(setting.description)
+    case .choice:
+      Picker(label, selection: Binding(get: { validSaved }, set: { save($0) })) {
+        Text(setting.default.map { "Default (\($0))" } ?? "Unset").tag(nil as String?)
+        ForEach(setting.options ?? [], id: \.self) { Text($0).tag(Optional($0)) }
+      }
+      .help(setting.description)
+    case .text, .number:
+      editable
+    }
+  }
+  @ViewBuilder private var editable: some View {
     TextField(
-      setting.placeholder ?? setting.name, text: Binding(get: { draft ?? saved ?? "" }, set: { draft = $0 }),
+      label, text: Binding(get: { draft ?? saved ?? "" }, set: { draft = $0 }),
       prompt: setting.default.map { Text($0) }
     )
+    .help(setting.description)
     .focused($focused)
     .onSubmit(commit)
     .onChange(of: focused) { if !focused { commit() } }
     .onDisappear(perform: commit)
+    if let draft, !draft.isEmpty, !setting.accepts(draft) {
+      Text("Enter a number using a decimal point.").foregroundStyle(.red)
+    }
   }
   private func commit() {
-    guard let value = draft else { return }
+    guard let value = draft, value.isEmpty || setting.accepts(value) else { return }
     draft = nil
     if value != saved ?? "" { save(value.isEmpty ? nil : value) }
   }

@@ -88,12 +88,15 @@ final class AgentHistory: HostCommand {
   /// filters, and a submitted `{"delete": id}` deletes that run first. A submitted `{"open": id}` reopens
   /// the run as a conversation instead (`reopened`).
   func view(for request: ProviderRequest) -> ProviderView {
-    if request.submitted, let id = request.arguments["delete"] { delete(id) }
+    if request.submitted, request.action == "delete", let id = request.fields["id"] { delete(id) }
     return ProviderView(items: rows(matching: request.input))
   }
   /// Available whatever sources are on.
   nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool { true }
-  func reopened(_ arguments: [String: String]) -> Run? { arguments["open"].flatMap(run) }
+  func reopened(_ request: ProviderRequest) -> Run? {
+    guard request.submitted, request.action == "open" else { return nil }
+    return request.fields["id"].flatMap(run)
+  }
 
   /// Newest first, each word of the input somewhere in the run's questions or answers, ignoring case
   /// and diacritics. The title is the first question, the subtitle its age and agent.
@@ -118,8 +121,8 @@ final class AgentHistory: HostCommand {
         subtitle: "\(ages.localizedString(for: run.used, relativeTo: now)) · \(run.agent.title)",
         icon: "clock.arrow.circlepath",
         actions: [
-          .run(Address(arguments: ["open": run.id]), title: "Reopen"),
-          .run(Address(arguments: ["delete": run.id]), title: "Delete"),
+          .run(Address(fields: ["id": run.id], action: "open"), title: "Reopen"),
+          .run(Address(fields: ["id": run.id], action: "delete"), title: "Delete"),
         ])
     }
   }

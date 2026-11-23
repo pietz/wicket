@@ -6,8 +6,26 @@ import Foundation
 struct ConfigurationFile {
   let url: URL
 
+  /// Reapply the edit to the latest JSON if an editor saves during this one.
   @discardableResult func edit(_ change: (inout [String: Any]) throws -> Void) throws -> Configuration {
-    let data = try Data(contentsOf: url)
+    for _ in 0..<3 {
+      let target = url.resolvingSymlinksInPath()
+      let data = try Data(contentsOf: target)
+      let (updated, configuration) = try patch(data, change)
+      guard url.resolvingSymlinksInPath() == target, try Data(contentsOf: target) == data else { continue }
+      try updated?.write(to: target, options: .atomic)
+      return configuration
+    }
+    throw CocoaError(
+      .fileWriteUnknown,
+      userInfo: [
+        NSLocalizedDescriptionKey: "config.json kept changing during the save. Try again."
+      ])
+  }
+
+  private func patch(_ data: Data, _ change: (inout [String: Any]) throws -> Void) throws
+    -> (Data?, Configuration)
+  {
     let current = try JSONDecoder().decode(Configuration.self, from: data)
     let original = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     // A file from before the clear glass (`Configuration.oldDefaultTransparencies`) is edited as it reads:
@@ -24,15 +42,14 @@ struct ConfigurationFile {
     }
     var object = base
     try change(&object)
-    guard !NSDictionary(dictionary: object).isEqual(to: base) else { return current }
+    guard !NSDictionary(dictionary: object).isEqual(to: base) else { return (nil, current) }
     for key in ["backgroundTransparency", "blur"] {
       if let value = object[key] as? Double { object[key] = NSDecimalNumber(string: String(value)) }
     }
     let updated = try JSONSerialization.data(
       withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     let configuration = try JSONDecoder().decode(Configuration.self, from: updated)
-    try updated.write(to: url.resolvingSymlinksInPath(), options: .atomic)
-    return configuration
+    return (updated, configuration)
   }
 
   func set(_ key: String, to value: Any?, in group: String? = nil) throws {

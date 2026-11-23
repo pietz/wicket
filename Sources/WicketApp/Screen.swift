@@ -52,24 +52,24 @@ struct Selection {
 /// another one keeps all of it, so coming back to it needs no snapshot.
 struct Screen {
   var input = ""
-  /// A command's argument values. At the root, the values filled in for the selected command row, which
+  /// A command's field values. At the root, the values filled in for the selected command row, which
   /// go when that selection moves (`draftFollowsSelection`).
-  private(set) var arguments: [String: String] = [:]
+  private(set) var fields: [String: String] = [:]
   private(set) var selection = Selection()
   /// The root's results or a command's items.
   var rows: [Result] = []
   /// Items' contents opened as pages over this screen's page, the last one shown.
   private(set) var details: [Detail] = []
-  /// The arguments are a draft for the selected row (the root's), not the screen's own.
+  /// The fields are a draft for the selected row (the root's), not the screen's own.
   var draftFollowsSelection = false
 
-  init(arguments: [String: String] = [:], draftFollowsSelection: Bool = false) {
-    self.arguments = arguments
+  init(fields: [String: String] = [:], draftFollowsSelection: Bool = false) {
+    self.fields = fields
     self.draftFollowsSelection = draftFollowsSelection
   }
-  /// Fills in an argument; empty is unfilled.
-  mutating func fill(_ name: String, with value: String) { arguments[name] = value.isEmpty ? nil : value }
-  mutating func fill(_ arguments: [String: String]) { self.arguments = arguments }
+  /// Fills in an field; empty is unfilled.
+  mutating func fill(_ name: String, with value: String) { fields[name] = value.isEmpty ? nil : value }
+  mutating func fill(_ fields: [String: String]) { self.fields = fields }
 
   /// The details open over the page whose turn is `base`; those of an earlier page are not.
   func details(over base: String) -> [Detail] { details.first?.base == base ? details : [] }
@@ -84,7 +84,7 @@ struct Screen {
       details[details.count - 1].selection = new
       return
     }
-    if draftFollowsSelection, new.id != selection.id { arguments = [:] }
+    if draftFollowsSelection, new.id != selection.id { fields = [:] }
     selection = new
   }
   /// An edit starts the selection over: on the screen, which a rerun's new page shows, and in the detail

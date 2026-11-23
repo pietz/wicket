@@ -78,9 +78,9 @@ final class PanelInput: Speech {
     navigator.editInput(edit)
   }
   func edit(_ text: String) { edit(InputEdit(text, from: navigator.input)) }
-  /// An argument slot's native field changed.
-  func edit(argument name: String, to value: String) {
-    navigator.setArgument(name, to: value)
+  /// A field slot's native field changed.
+  func edit(field name: String, to value: String) {
+    navigator.setField(name, to: value)
   }
   /// The panel drew the screens: one that no longer takes speech, or voice switched off, ends dictation.
   func screensChanged() {

@@ -220,7 +220,7 @@ let request = JSON.standardInput()
 var marks = Marks()
 if let decimal = request?["locale"]?["decimal"]?.string { marks.decimal = decimal }
 if let grouping = request?["locale"]?["grouping"]?.string { marks.grouping = grouping }
-let input = request?["input"]?.string ?? ""
+let input = request?["fields"]?["expression"]?.string ?? request?["input"]?.string ?? ""
 var items: [String] = []
 if let answer = evaluate(input, marks: marks) {
   items.append(

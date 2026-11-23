@@ -1,1 +1,1 @@
-{"name":"Shell","description":"Opens a command typed after > in your default terminal, in your home folder.","icon":"terminal","command":["./main"],"match":"^>"}
+{"name":"Shell","description":"Opens a command typed after > in your default terminal, in your home folder.","icon":"terminal","command":["./main"],"match":"^>","contract":2,"fields":[{"name":"command","type":"text","description":"Command to open in Terminal"}]}

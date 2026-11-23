@@ -5,7 +5,7 @@ import Foundation
 /// `item` (`wicket://window?item=left`). The `item` query is read only here: followed as a link, the
 /// address opens the command and ignores it, as it ignores any query item but `input`. Bind the manifest
 /// item's ID so its current action stays owned by the extension and config never stores a stale copy of
-/// its arguments.
+/// its field values and action.
 struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
   /// `Address.targetID`: a reserved name, an extension ID, or nil for a root query.
   let target: String?

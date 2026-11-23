@@ -1,1 +1,1 @@
-{"name":"Calculator","description":"Calculates arithmetic as you type, such as 12 * 4.5 or 15% of 80.","icon":"equal","command":["./main"],"match":"^(?=.*[0-9])(?=.*[-+−*/×÷^%])(?:[-+−*/×÷^%().,0-9\\s]|of)+$"}
+{"name":"Calculator","description":"Calculates arithmetic as you type, such as 12 * 4.5 or 15% of 80.","icon":"equal","command":["./main"],"match":"^(?=.*[0-9])(?=.*[-+−*/×÷^%])(?:[-+−*/×÷^%().,0-9\\s]|of)+$","contract":2,"fields":[{"name":"expression","type":"text","description":"Calculate an expression"}]}

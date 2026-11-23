@@ -284,12 +284,12 @@ import Testing
 
 @Test func onlyAnExtensionsOwnOutputMayRunIt() {
   let body =
-    #"<row title="Tuesday" run="view=day&day=tue" action="Show Tuesday"/><tile title="Week" run="view=week"/>"#
+    #"<row title="Tuesday" run="show-day?day=tue" action="Show Tuesday"/><tile title="Week" run="show-week"/>"#
   let own = Page(body: body, runs: true)
   #expect(
     own.targets.map(\.actions) == [
-      [.run(Address(arguments: ["view": "day", "day": "tue"]), title: "Show Tuesday")],
-      [.run(Address(arguments: ["view": "week"]))],
+      [.run(Address(fields: ["day": "tue"], action: "show-day"), title: "Show Tuesday")],
+      [.run(Address(action: "show-week"))],
     ])
   #expect(own.targets[0].icon == "arrow.right")
   // In an agent's reply the attribute means nothing: the row and the tile only show.
@@ -450,10 +450,10 @@ import Testing
     import json, sys
     request = json.load(sys.stdin)
     open('log.jsonl', 'a').write(json.dumps(request) + '\\n')
-    if request['arguments'].get('view') == 'day':
-        print(json.dumps({'body': '## ' + request['arguments']['day']}))
+    if request.get('action') == 'show-day':
+        print(json.dumps({'body': '## ' + request['fields']['day']}))
     else:
-        print(json.dumps({'body': '## Week\\n<columns><tile label="Tue" title="Rain" icon="cloud.rain" run="view=day&day=tue"/></columns>',
+        print(json.dumps({'body': '## Week\\n<columns><tile label="Tue" title="Rain" icon="cloud.rain" run="show-day?day=tue"/></columns>',
           'items': [{'id': 'radar', 'title': 'Radar', 'actions': [{'type': 'copy', 'text': 'radar'}]}],
           'actions': [{'type': 'copy', 'text': 'week'}]}))
     """
@@ -476,7 +476,7 @@ import Testing
   #expect(model.navigator.body == "## tue")
   let log = try String(contentsOf: folder.appending(path: "log.jsonl"), encoding: .utf8)
     .split(separator: "\n").map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
-  #expect(log.last == ProviderRequest(input: "", arguments: ["view": "day", "day": "tue"], submitted: true))
+  #expect(log.last == ProviderRequest(input: "", fields: ["day": "tue"], action: "show-day", submitted: true))
   await model.finish()
 }
 

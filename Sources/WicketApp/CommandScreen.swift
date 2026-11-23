@@ -18,8 +18,8 @@ import Foundation
 struct CommandDescriptor {
   /// For the input's placeholder and the footer.
   let name: String
-  /// The arguments the user fills in, in the slots after the input.
-  let arguments: [ExtensionManifest.Argument]
+  let fields: [ExtensionManifest.Field]
+  var inputField: ExtensionManifest.Field? { fields.first { $0.type == .text } }
   /// It runs on Return only (`submit` in its manifest): typing, voice and refreshes leave its view alone,
   /// the input has the first say, and Return sends what is typed and filled in.
   let submits: Bool
@@ -29,14 +29,15 @@ struct CommandDescriptor {
   let asksAbout: Bool
 }
 
-/// A request to a command: the input and arguments it was made with, and why it was made.
+/// A request to a command: the input and fields it was made with, and why it was made.
 struct CommandScreenRequest {
   let input: String
-  let arguments: [String: String]
+  let fields: [String: String]
+  var action: String? = nil
   let cause: CommandScreen.Cause
   /// The request as an extension's program and a host command receive it.
   var provider: ProviderRequest {
-    ProviderRequest(input: input, arguments: arguments, submitted: cause == .submission)
+    ProviderRequest(input: input, fields: fields, action: action, submitted: cause == .submission)
   }
 }
 
@@ -75,12 +76,21 @@ enum CommandOutcome {
   /// What the next request answers. Going to an address runs it even in a submit command, and the
   /// user's activation makes it submitted; every later request is a rerun.
   private(set) var next = Cause.address
+  private var action: String?
+  /// A link or root pattern can supply a command query while the search bar holds an agent draft.
+  private var providerInput = ""
+  var input: String {
+    get { descriptor?.inputField == nil ? screen.input : providerInput }
+    set {
+      if descriptor?.inputField == nil { screen.input = newValue } else { providerInput = newValue }
+    }
+  }
   enum Cause { case rerun, address, submission }
-  /// A view with the input and arguments of the request it answered.
+  /// A view with the input and fields of the request it answered.
   struct Shown {
     var view = ProviderView()
     var input = ""
-    var arguments: [String: String] = [:]
+    var fields: [String: String] = [:]
   }
   /// What the command shows now.
   private(set) var shown = Shown()
@@ -93,51 +103,76 @@ enum CommandOutcome {
   private(set) var page: Page?
   private(set) var problem: String?
   private(set) var busy = false
+  private(set) var runningAction = false
   private(set) var turn = UUID().uuidString
 
-  init(_ behavior: any CommandScreenBehavior, arguments: [String: String] = [:]) {
+  init(_ behavior: any CommandScreenBehavior) {
     self.behavior = behavior
-    screen.fill(arguments)
   }
 
-  /// Entered from an address: its next request runs, submitted when the user activated it.
-  mutating func enter(submitted: Bool) { next = submitted ? .submission : .address }
-  /// The request what is typed makes now.
-  func request(input: String) -> CommandScreenRequest {
-    CommandScreenRequest(input: input, arguments: screen.arguments, cause: next)
+  /// Applies an address to this visit.
+  mutating func enter(_ address: Address, submitted: Bool) {
+    next = submitted && !address.link ? .submission : .address
+    action = next == .submission ? address.action : nil
+    if let fields = address.fields { screen.fill(fields) } else if address.link { screen.fill([:]) }
+    let field = descriptor?.inputField
+    providerInput = field.flatMap { address.fields?[$0.name] } ?? address.input ?? providerInput
+    if let field { screen.fill(field.name, with: "") }
+  }
+
+  func request() -> CommandScreenRequest {
+    var fields = screen.fields
+    if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
+    return CommandScreenRequest(
+      input: providerInput, fields: fields, action: action, cause: next)
   }
   /// A request is being answered; every later one is a rerun.
-  mutating func begin() { next = .rerun }
+  mutating func begin() {
+    next = .rerun
+    action = nil
+  }
   /// A process answers it.
-  mutating func run() {
+  mutating func run(_ request: CommandScreenRequest) {
     problem = nil
     busy = true
+    runningAction = request.action != nil
   }
   /// Its request stopped: nothing is running.
-  mutating func stop() { busy = false }
+  mutating func stop() {
+    busy = false
+    runningAction = false
+  }
   /// What answered `request`: a list ordered by what is typed, or a page. `remembered`: the user did not
   /// cause the request by typing, so the view becomes its context.
   mutating func show(
     _ view: ProviderView, page: Page?, for request: CommandScreenRequest, turn: String, remembered: Bool
   ) {
     self.turn = turn
-    shown = Shown(view: view, input: request.input, arguments: request.arguments)
+    shown = Shown(view: view, input: request.input, fields: request.fields)
     if remembered { context = shown }
     self.page = page
     problem = nil
-    busy = false
+    stop()
     screen.rows = page == nil ? Ranking.order(view.items, provider: id, query: request.input) : []
+    if Permissions.isGate(screen.rows) {
+      screen.startSelectionOver()
+    } else if request.action != nil, !screen.selection(over: turn).touched,
+      case .run(let address)? = screen.rows.first?.row.actions.first?.kind, address.action != nil
+    {
+      screen.select(Selection(touched: true, reset: false), over: turn)
+    }
   }
   /// Its request failed: why, instead of a view.
   mutating func fail(_ problem: String, remembered: Bool) {
     if remembered { context = nil }
     self.problem = problem
-    busy = false
+    stop()
     screen.rows = []
   }
   /// It cannot run: why, instead of a view. Back on or back again, it runs as when it is entered.
   mutating func unavailable(_ problem: String) {
     next = .address
+    action = nil
     context = nil
     self.problem = problem
     screen.rows = []
@@ -147,22 +182,15 @@ enum CommandOutcome {
   var body: String? { problem == nil ? shown.view.body : nil }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { body == nil ? [] : shown.view.actions }
-  /// With nothing selected, what Return sends in a submit command: what is typed, and the declared
-  /// arguments, including a value a run action set under a declared name. What it set under any other
-  /// name stays out, or a Delete chosen once would be sent again with every later Return; the contract
-  /// keeps confirmations to such names. Nil for any other command.
-  func submission(input: String) -> Result? {
-    guard let descriptor, descriptor.submits else { return nil }
-    let declared = Set(descriptor.arguments.map(\.name))
+  /// With nothing selected, Return can submit the current fields when the command owns the input.
+  func submission() -> Result? {
+    guard let descriptor, descriptor.submits, descriptor.inputField != nil else { return nil }
     return Result(
       provider: id,
       row: Row(
         id: "submit", title: descriptor.name,
         actions: [
-          .run(
-            Address(
-              input: input, arguments: screen.arguments.filter { declared.contains($0.key) },
-              hidden: descriptor.hidden))
+          .run(Address(input: providerInput, hidden: descriptor.hidden))
         ]))
   }
   /// What goes with a question asked from here: for a typed question its `context`, else what it shows
@@ -204,7 +232,7 @@ struct AgentContext {
     var asked =
       "The user asked from the \(name) command (\(owner.folder.path), folder `\(owner.folder.lastPathComponent)`)"
     asked += ", input \(json(shown.input))"
-    if !shown.arguments.isEmpty { asked += ", arguments \(json(shown.arguments))" }
+    if !shown.fields.isEmpty { asked += ", fields \(json(shown.fields))" }
     text = "<context>\n\(asked).\nIt showed:\n\(view)\n</context>"
   }
 }

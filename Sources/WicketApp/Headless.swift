@@ -47,7 +47,8 @@ public enum Headless {
           i += 1
           continue
         }
-        guard ["--query", "--extension", "--input", "--arguments"].contains(key), i + 1 < args.count else {
+        guard ["--query", "--extension", "--input", "--fields", "--action"].contains(key), i + 1 < args.count
+        else {
           throw ExtensionFailure("Unknown or incomplete option: " + key)
         }
         options[key] = args[i + 1]
@@ -56,7 +57,7 @@ public enum Headless {
       if value("--help") != nil {
         try printJSON([
           "usage":
-            "Wicket --query TEXT | --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--submitted]; WICKET_CONFIG_DIR selects the folder."
+            "Wicket --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
         ])
         await model.finish()
         return 0
@@ -75,10 +76,15 @@ public enum Headless {
         guard let command = host.commands[id] else {
           throw ExtensionFailure(host.problems[id] ?? "No extension found: \(id)")
         }
-        let arguments =
-          try value("--arguments").map {
+        let fields =
+          try value("--fields").map {
             try JSONDecoder().decode([String: String].self, from: Data($0.utf8))
           } ?? [:]
+        let action = value("--action")
+        let submitted = value("--submitted") != nil
+        if let action, action.isEmpty || !submitted {
+          throw ExtensionFailure("--action needs a nonempty name and --submitted")
+        }
         if let refusal = refusal(command, host.permissions) {
           try printJSON(refusal)
           await model.finish()
@@ -88,7 +94,7 @@ public enum Headless {
           let view = try await host.view(
             command,
             request: ProviderRequest(
-              input: value("--input") ?? "", arguments: arguments, submitted: value("--submitted") != nil))
+              input: value("--input") ?? "", fields: fields, action: action, submitted: submitted))
           try printJSON(view)
         } catch let failure as ExtensionFailure where failure.nothingShown {
           // A hidden run's success, which headless cannot tell from a visible run with nothing to show.
@@ -121,7 +127,8 @@ public enum Headless {
           ))
       } else {
         throw ExtensionFailure(
-          "Use --query TEXT, or --extension ID [--input TEXT] [--arguments JSON_OBJECT] [--submitted]")
+          "Use --query TEXT, or --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]"
+        )
       }
       await model.finish()
       return 0

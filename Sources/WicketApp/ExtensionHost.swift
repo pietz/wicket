@@ -34,7 +34,9 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// The manifest's settings: the saved value, else the default; one with neither is left out.
   func settings(_ saved: [String: String]) -> [String: String] {
-    manifest.settings.reduce(into: [:]) { $0[$1.name] = saved[$1.name] ?? $1.default }
+    manifest.settings.reduce(into: [:]) { values, field in
+      values[field.name] = saved[field.name].flatMap { field.accepts($0) ? $0 : nil } ?? field.default
+    }
   }
   /// The command's own view when there is no program: its items, filtered by what is typed.
   func ownItems(_ input: String) -> [Row] {
@@ -159,10 +161,19 @@ final class ExtensionHost {
   /// program printed within the deadline. Cancelling, or `shutdown`, stops the process.
   func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
     var request = request
+    if let field = command.manifest.inputField {
+      var fields = request.fields
+      let input = fields[field.name] ?? request.input
+      fields[field.name] = input.isEmpty ? nil : input
+      request = ProviderRequest(
+        input: input, fields: fields, action: request.action, submitted: request.submitted,
+        locale: request.locale)
+    }
     request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
     guard command.manifest.command != nil else { return ProviderView(items: command.ownItems(request.input)) }
     let rerun = Address(
-      id: command.id, input: request.input, arguments: request.arguments, link: !request.submitted)
+      id: command.id, input: request.input, fields: request.fields, action: request.action,
+      link: !request.submitted)
     if let gate = permissions.gate(command, rerun: rerun) { return gate }
     let id = UUID()
     let task = Task { [runner, request] in try await runner.run(command, request: request) }

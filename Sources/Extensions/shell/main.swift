@@ -3,7 +3,7 @@
 // terminal is the place for a command that runs, asks or keeps going.
 //
 // Nothing runs on a request the user did not choose: the root row, typing and links only describe the
-// command. A submitted request writes a `.command` file to the user's temporary folder and `open`s it, which
+// command. The named action writes a `.command` file to the user's temporary folder and `open`s it, which
 // hands it to the default terminal; a bundled extension's own folder is inside the signed app.
 //
 // Plain Swift with Darwin, without Foundation, which would cost about 10 ms per process: the root row
@@ -20,7 +20,7 @@ func row(_ command: String) -> String {
   }
   return
     "{\"items\":[{\"id\":\"run\",\"title\":\(quoted(command)),\"subtitle\":\"Open in Terminal\",\"icon\":\"terminal\",\"actions\":["
-    + "{\"type\":\"run\",\"title\":\"Open in Terminal\",\"input\":\(quoted(command)),\"hidden\":true}]}]}"
+    + "{\"type\":\"run\",\"title\":\"Open in Terminal\",\"action\":\"open-terminal\",\"fields\":{\"command\":\(quoted(command))},\"hidden\":true}]}]}"
 }
 let failed =
   #"{"items":[{"id":"failed","title":"Could not open the terminal","icon":"exclamationmark.triangle","actions":[]}]}"#
@@ -117,17 +117,19 @@ func openFile(_ path: String) -> Bool {
 
 // MARK: - The request
 
-/// The answer to a request: a submitted one with a command hands it to the terminal through `open` and
+/// The answer to a request: the submitted open-terminal action hands it to the terminal through `open` and
 /// has nothing to show; anything else only describes it.
 func answer(
   _ request: JSON?, temporary: String = temporaryFolder(), open: (String) -> Bool = openFile
 ) -> String {
-  var command = Substring(request?["input"]?.string ?? "")
+  var command = Substring(request?["fields"]?["command"]?.string ?? request?["input"]?.string ?? "")
   // `> ls` typed inside Shell is `ls`.
   command = command.drop { $0 == " " || $0 == ">" }
   while command.last == " " { command.removeLast() }
   // Only the user's choice runs anything.
-  guard case .bool(true)? = request?["submitted"], !command.isEmpty else { return row(String(command)) }
+  guard case .bool(true)? = request?["submitted"], request?["action"]?.string == "open-terminal",
+    !command.isEmpty
+  else { return row(String(command)) }
   sweep(temporary)
   let script = terminalScript(String(command), folder: homeFolder(), shell: loginShell())
   guard let path = writeCommandFile(script, in: temporary) else { return failed }

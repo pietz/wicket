@@ -384,12 +384,13 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   await model.finish()
 }
 
-/// Filling the selected command row's argument picks that row: Return runs it with the draft, though a
+/// Filling the selected command row's field picks that row: Return runs it with the draft, though a
 /// pattern that would rank above it is still running.
-@MainActor @Test func returnFromAFilledArgumentRunsItsCommandWhileAPatternRuns() async throws {
+@MainActor @Test func returnFromAFilledFieldRunsItsCommandWhileAPatternRuns() async throws {
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
-  _ = try extensionFolder(root, name: "notes", fields: ["arguments": [["name": "topic"]]])
+  _ = try extensionFolder(
+    root, name: "notes", fields: ["fields": [["name": "topic", "type": "text", "description": "Topic"]]])
   _ = try extensionFolder(
     root, name: "held",
     script: "cat >/dev/null\nwhile [ ! -e release ]; do sleep 0.01; done\n" + answering("held result"),
@@ -399,19 +400,19 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   model.navigator.input = "notes"
   #expect(await eventually { model.navigator.selected?.provider == "extension:notes" })
   #expect(model.navigator.selected?.row.id == "command" && model.navigator.awaitsPattern)
-  #expect(model.navigator.moveFocus(1) && model.navigator.focusedArgument == "topic")
-  model.navigator.setArgument("topic", to: "travel")
+  #expect(model.navigator.moveFocus(1) && model.navigator.focusedField == "topic")
+  model.navigator.setField("topic", to: "travel")
   controller.run()
   #expect(!model.navigator.returnQueued)
   #expect(await eventually { model.navigator.command?.id == "extension:notes" })
-  #expect(model.navigator.argumentValues == ["topic": "travel"])
+  #expect(model.navigator.fieldValues == ["topic": "travel"])
   try release(root, "held")
   await model.navigator.settled()
   controller.hide()
   await model.finish()
 }
 
-/// A pick belongs to the row the user chose. Weather's argument picks its command row while its own
+/// A pick belongs to the row the user chose. Weather's field picks its command row while its own
 /// pattern runs; the answer replaces that row, so Return no longer runs whatever took its place unpicked:
 /// after a failure, Ask agent standing in for it is refused; after a success, the result the user now
 /// sees runs.
@@ -423,7 +424,7 @@ func aPickedCommandRowReplacedByItsOwnPatternLeavesNoPick(succeeds: Bool) async 
   _ = try extensionFolder(
     root, name: "weather",
     script: "while [ ! -e release ]; do sleep 0.01; done\n" + answer,
-    fields: ["match": "^weather$", "arguments": [["name": "units"]]])
+    fields: ["match": "^weather$", "fields": [["name": "units", "type": "text", "description": "Units"]]])
   let model = LauncherModel(
     files: nil, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
   model.agent.connect = { _, _, _ in FakeAgent() }
@@ -436,8 +437,8 @@ func aPickedCommandRowReplacedByItsOwnPatternLeavesNoPick(succeeds: Bool) async 
   model.navigator.input = "weather"
   #expect(await eventually { model.navigator.results.map(\.row.id) == ["command"] })
   #expect(model.navigator.selected?.provider == "extension:weather" && model.navigator.awaitsPattern)
-  #expect(model.navigator.moveFocus(1) && model.navigator.focusedArgument == "units")
-  model.navigator.setArgument("units", to: "Celsius")
+  #expect(model.navigator.moveFocus(1) && model.navigator.focusedField == "units")
+  model.navigator.setField("units", to: "Celsius")
   try release(root, "weather")
   #expect(
     await eventually { !model.navigator.awaitsPattern && model.navigator.selected?.row.id != "command" })

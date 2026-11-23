@@ -9,7 +9,7 @@ import Testing
   {
     PaletteKeyAction.decide(
       keyCode: 48, characters: "\t", modifiers: modifiers, hasMarkedText: marked,
-      permissionPending: permission, hasArguments: slots)
+      permissionPending: permission, hasFields: slots)
   }
   #expect(decide([], slots: true) == .focus(1) && decide(.shift, slots: true) == .focus(-1))
   // Without slots, in the confirmation card and during composition, Tab stays AppKit's.
@@ -26,8 +26,13 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
     root, name: "caffeinate",
-    fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
-  _ = try extensionFolder(root, name: "caffeine")  // Another row to move to.
+    fields: [
+      "fields": [
+        ["name": "hours", "type": "number", "description": "Hours", "placeholder": "hours"],
+        ["name": "minutes", "type": "number", "description": "Minutes"],
+      ]
+    ])
+  _ = try extensionFolder(root, name: "caffeine", fields: ["fields": []])  // Another row to move to.
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: root, transcriber: { fake })
   model.store.update { $0.voice.enabled = true }
@@ -46,23 +51,23 @@ import Testing
   }
   model.navigator.editInput("caff")
   await settle()
-  #expect(model.navigator.declaredArguments.map(\.name) == ["hours", "minutes"] && editing(input))
+  #expect(model.navigator.fieldSlots.map(\.name) == ["hours", "minutes"] && editing(input))
   let hours = try #require(slot("hours"))
   #expect(hours.accessibilityLabel() == "hours" && slot("minutes") != nil)
 
   // Tab: input, hours, minutes, input; Shift+Tab goes back.
   #expect(panel.route(voiceKey(48, "\t")))
   await settle()
-  #expect(model.navigator.focusedArgument == "hours" && editing(hours))
+  #expect(model.navigator.focusedField == "hours" && editing(hours))
   #expect(panel.route(voiceKey(48, "\t")))
   await settle()
-  #expect(model.navigator.focusedArgument == "minutes" && editing(slot("minutes")))
+  #expect(model.navigator.focusedField == "minutes" && editing(slot("minutes")))
   #expect(panel.route(voiceKey(48, "\t")))
   await settle()
-  #expect(model.navigator.focusedArgument == nil && editing(input))
+  #expect(model.navigator.focusedField == nil && editing(input))
   #expect(panel.route(voiceKey(48, "\t", .shift)))
   await settle()
-  #expect(model.navigator.focusedArgument == "minutes")
+  #expect(model.navigator.focusedField == "minutes")
 
   // A key in a slot stops voice capture first.
   controller.input.toggle()
@@ -71,20 +76,20 @@ import Testing
   #expect(panel.route(voiceKey(48, "\t", .shift)))
   #expect(controller.input.voice?.state == .idle && fake.stops == 1)
   await settle()
-  #expect(model.navigator.focusedArgument == "hours" && editing(hours))
+  #expect(model.navigator.focusedField == "hours" && editing(hours))
 
   // Typing into the slot fills the draft; an arrow from the slot moves the selection, and the slots
   // going away hand the keys back to the input.
   let editor = try #require(hours.currentEditor() as? NSTextView)
   editor.insertText("4", replacementRange: editor.selectedRange())
-  #expect(model.navigator.argumentValues == ["hours": "4"] && model.navigator.input == "caff")
+  #expect(model.navigator.fieldValues == ["hours": "4"] && model.navigator.input == "caff")
   let row = try #require(model.navigator.selection)
   #expect(panel.route(voiceKey(125, "")))
   await settle()
   #expect(
-    model.navigator.selection != row && model.navigator.declaredArguments.isEmpty
-      && model.navigator.focusedArgument == nil)
-  #expect(editing(input) && model.navigator.argumentValues.isEmpty)
+    model.navigator.selection != row && model.navigator.fieldSlots.isEmpty
+      && model.navigator.focusedField == nil)
+  #expect(editing(input) && model.navigator.fieldValues.isEmpty)
   #expect(!panel.route(voiceKey(48, "\t")))  // No slots: Tab is AppKit's again.
 
   // Return from a slot enters the command with the filled values; the slots stay, with them.
@@ -97,13 +102,13 @@ import Testing
   #expect(panel.route(voiceKey(36, "\r")))
   await settle()
   #expect(
-    model.navigator.command?.id == "extension:caffeinate" && model.navigator.argumentValues == ["hours": "2"])
-  #expect(slot("hours")?.stringValue == "2" && model.navigator.focusedArgument == "hours")
+    model.navigator.command?.id == "extension:caffeinate" && model.navigator.fieldValues == ["hours": "2"])
+  #expect(slot("hours")?.stringValue == "2" && model.navigator.focusedField == "hours")
 
   // Escape leaves the command and the input has the keys.
   #expect(panel.route(voiceKey(53, "\u{1b}")))
   await settle()
-  #expect(model.navigator.command == nil && model.navigator.focusedArgument == nil && editing(input))
+  #expect(model.navigator.command == nil && model.navigator.focusedField == nil && editing(input))
   controller.hide()
   await controller.finish()
 }
@@ -111,8 +116,10 @@ import Testing
 @MainActor @Test func aClickOnTheSelectedCommandRowWithADraftEntersIt() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  _ = try extensionFolder(root, name: "caffeinate", fields: ["arguments": [["name": "hours"]]])
-  _ = try extensionFolder(root, name: "caffeine")
+  _ = try extensionFolder(
+    root, name: "caffeinate",
+    fields: ["fields": [["name": "hours", "type": "number", "description": "Hours"]]])
+  _ = try extensionFolder(root, name: "caffeine", fields: ["fields": []])
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   model.navigator.input = "caff"
@@ -121,22 +128,22 @@ import Testing
   let other = try #require(model.navigator.results.first { $0.id != row }).id
   // Without a draft a click selects; with one, a click on that row is Return, on another it selects.
   #expect(!model.navigator.click(row) && model.navigator.selection == row)
-  model.navigator.setArgument("hours", to: "4")
+  model.navigator.setField("hours", to: "4")
   model.navigator.moveFocus(1)
   #expect(
     !model.navigator.click(other) && model.navigator.selection == other
-      && model.navigator.focusedArgument == nil)
+      && model.navigator.focusedField == nil)
   #expect(!model.navigator.click(row))
-  model.navigator.setArgument("hours", to: "4")
+  model.navigator.setField("hours", to: "4")
   #expect(model.navigator.click(row) && model.navigator.selection == row)
   #expect(model.activateReturn())
   await model.navigator.settled()
-  #expect(model.navigator.argumentValues == ["hours": "4"])
+  #expect(model.navigator.fieldValues == ["hours": "4"])
   // Dismissing drops the focus with the slots.
   model.navigator.moveFocus(1)
-  #expect(model.navigator.focusedArgument == "hours")
+  #expect(model.navigator.focusedField == "hours")
   model.navigator.dismiss()
-  #expect(model.navigator.focusedArgument == nil)
+  #expect(model.navigator.focusedField == nil)
   await model.finish()
 }
 
@@ -147,7 +154,12 @@ import Testing
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
     root, name: "caffeinate",
-    fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
+    fields: [
+      "fields": [
+        ["name": "hours", "type": "number", "description": "Hours", "placeholder": "hours"],
+        ["name": "minutes", "type": "number", "description": "Minutes"],
+      ]
+    ])
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
@@ -207,7 +219,7 @@ import Testing
   await model.finish()
 }
 
-/// The argument slot whose placeholder is `label`: any text field in the panel but the input.
+/// The field slot whose placeholder is `label`: any text field in the panel but the input.
 @MainActor private func slotField(_ label: String, in panel: NSPanel, besides input: NSTextField)
   -> NSTextField?
 {

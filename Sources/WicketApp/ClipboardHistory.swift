@@ -311,7 +311,7 @@ final class ClipboardHistory: HostCommand {
   /// The command behind the reserved address `clipboard`, answered like an extension's: the input
   /// filters, and a submitted `{"delete": id}` deletes that clip first, as a row's Delete asks.
   func view(for request: ProviderRequest) -> ProviderView {
-    if request.submitted, let id = request.arguments["delete"] { delete(id) }
+    if request.submitted, request.action == "delete", let id = request.fields["id"] { delete(id) }
     return ProviderView(items: rows(matching: request.input))
   }
   /// Available while its source is on.
@@ -335,7 +335,7 @@ final class ClipboardHistory: HostCommand {
     }
     return matches.prefix(Self.maxRows).map { clip in
       let age = ages.localizedString(for: clip.copied, relativeTo: now)
-      let delete = RowAction.run(Address(arguments: ["delete": clip.id]), title: "Delete")
+      let delete = RowAction.run(Address(fields: ["id": clip.id], action: "delete"), title: "Delete")
       if let image = clip.image {
         let size = ByteCountFormatter.string(fromByteCount: Int64(image.bytes), countStyle: .file)
         return Row(

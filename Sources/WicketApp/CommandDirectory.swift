@@ -12,11 +12,11 @@ import Foundation
   nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool
   /// The conversation a submitted request reopens instead of answering with a view (Agent History's
   /// Reopen); nil for any other request.
-  func reopened(_ arguments: [String: String]) -> AgentHistory.Run?
+  func reopened(_ request: ProviderRequest) -> AgentHistory.Run?
 }
 
 extension HostCommand {
-  func reopened(_ arguments: [String: String]) -> AgentHistory.Run? { nil }
+  func reopened(_ request: ProviderRequest) -> AgentHistory.Run? { nil }
 }
 
 /// Where every command address resolves: the root, the agent, the native Settings window, or a command
@@ -114,7 +114,7 @@ struct ExtensionScreen: CommandScreenBehavior {
   var descriptor: CommandDescriptor? {
     command.map {
       CommandDescriptor(
-        name: $0.manifest.name, arguments: $0.manifest.arguments, submits: $0.manifest.submit,
+        name: $0.manifest.name, fields: $0.manifest.fields, submits: $0.manifest.submit,
         hidden: $0.manifest.hidden, asksAbout: true)
     }
   }
@@ -147,14 +147,18 @@ struct HostScreen: CommandScreenBehavior {
   let directory: CommandDirectory
   var id: String { host.id }
   var descriptor: CommandDescriptor? {
-    CommandDescriptor(name: type(of: host).title, arguments: [], submits: false, asksAbout: false)
+    CommandDescriptor(
+      name: type(of: host).title,
+      fields: [.init(name: "query", type: .text, description: "Filter history")],
+      submits: false, asksAbout: false)
   }
   func work(for request: CommandScreenRequest) -> CommandWork {
     if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
-    if request.cause == .submission, let run = host.reopened(request.arguments) {
+    let request = request.provider
+    if let run = host.reopened(request) {
       return .immediate(.restore(run))
     }
-    return .immediate(.view(host.view(for: request.provider)))
+    return .immediate(.view(host.view(for: request)))
   }
   func agentContext(from shown: CommandScreen.Shown) -> AgentContext? { nil }
 }

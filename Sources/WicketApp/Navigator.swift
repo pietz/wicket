@@ -64,11 +64,11 @@ final class Navigator {
   }
   /// What is typed on the screen shown.
   var input: String {
-    get { screen.input }
+    get { conversing ? screen.input : command?.input ?? base.input }
     set {
-      let previous = screen.input
+      let previous = input
       let changed = newValue != previous
-      screen.input = newValue
+      if !conversing, command != nil { command?.input = newValue } else { screen.input = newValue }
       if changed {
         if command == nil, !conversing { revealedRootList = false }
         resetSelection()
@@ -76,6 +76,7 @@ final class Navigator {
         if conversing { clearSelection() }
       }
       if !conversing, arriving == nil {
+        if agentOwnsCommandInput { return publish() }
         refresh(typed: changed)
         // The card can change as soon as the input changes, before the new rows arrive.
         if configuration.compactOnOpen, newValue.isEmpty != previous.isEmpty, search.isSearching { draw() }
@@ -332,12 +333,15 @@ final class Navigator {
   /// conversation Return sends the follow-up, in a submit command it sends the request, and on a page
   /// it runs the view's actions. Wicket's permission gate for what is typed and filled in now is the
   /// exception: sending that request again would only show the gate again, so Return allows.
-  private var itemsWait: Bool { overlay == nil && (conversing || submits || page != nil) && !gateIsCurrent }
+  private var itemsWait: Bool {
+    overlay == nil && (conversing || agentOwnsCommandInput || submits || page != nil) && !gateIsCurrent
+  }
   /// After an edit Return sends the edited request instead, so a grant then follows that one.
   private var gateIsCurrent: Bool {
-    guard command != nil, !conversing, Permissions.isGate(results) else { return false }
+    guard let command, !conversing, Permissions.isGate(results) else { return false }
     guard case .grant(_, let rerun)? = results.first?.row.actions.first?.kind else { return true }
-    return rerun.input == input && (rerun.arguments ?? [:]) == argumentValues
+    let request = command.request()
+    return rerun.input == request.input && (rerun.fields ?? [:]) == request.fields
   }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
@@ -378,7 +382,7 @@ final class Navigator {
     return true
   }
 
-  // MARK: Return, arguments and the input
+  // MARK: Return, fields and the input
 
   /// The open command's Markdown body.
   var body: String? { command?.body }
@@ -386,6 +390,16 @@ final class Navigator {
   var viewActions: [RowAction] { command?.viewActions ?? [] }
   /// The open command's name, for the input placeholder and the footer.
   var commandName: String? { command?.descriptor?.name }
+  private var agentOwnsCommandInput: Bool {
+    command != nil && !conversing && command?.descriptor?.inputField == nil
+  }
+  var commandPlaceholder: String? {
+    guard let name = commandName else { return nil }
+    return command?.descriptor?.inputField.map { $0.placeholder ?? name } ?? "Ask about \(name)…"
+  }
+  var returnAsksAgent: Bool {
+    agentOwnsCommandInput && overlay == nil && selectedRow?.row.actions.first == nil
+  }
   /// The open command runs on Return only (`CommandDescriptor.submits`).
   var submits: Bool { command?.descriptor?.submits == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
@@ -393,70 +407,80 @@ final class Navigator {
   /// follow-up.
   var selected: Result? {
     if let row = selectedRow { return row }
-    guard !conversing, let submission = command?.submission(input: input) else { return viewRow }
+    if returnAsksAgent || !conversing && command?.runningAction == true { return nil }
+    guard !conversing, let submission = command?.submission() else { return viewRow }
     return submission
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
   /// sending the follow-up. On a command row it enters the command with what was filled into its
-  /// declared arguments.
+  /// declared fields.
   var returnAction: RowAction? {
+    if arriving?.command?.runningAction == true { return nil }
+    if returnAsksAgent { return RowAction(.ask) }
     guard var action = selected?.row.actions.first else { return conversing ? .send(input) : nil }
     if command == nil, !drafted.isEmpty, case .run(var address) = action.kind {
-      address.arguments = drafted
+      address.fields = drafted
       action.kind = .run(address)
     }
     return action
   }
-  /// The arguments the user can fill in: inside a command its own declared ones, at the root those of
+  /// The fields the user can fill in: inside a command its own declared ones, at the root those of
   /// the selected extension command row. Empty when there are none.
-  var declaredArguments: [ExtensionManifest.Argument] {
+  var fieldSlots: [ExtensionManifest.Field] {
     guard !conversing, overlay == nil else { return [] }
-    if let command { return command.descriptor?.arguments ?? [] }
+    if let command {
+      guard let descriptor = command.descriptor else { return [] }
+      let main = descriptor.inputField?.name
+      return descriptor.fields.filter { $0.inSearchBar && $0.name != main }
+    }
     guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
-    return directory.behavior(of: row.provider)?.descriptor?.arguments ?? []
+    return directory.behavior(of: row.provider)?.descriptor?.fields.filter(\.inSearchBar) ?? []
   }
   /// Values filled in at the root for the selected command row; dropped when the selection moves or
   /// the panel is dismissed. Only the row itself takes them: an action chosen in ⌘K runs as captured.
   private var drafted: [String: String] {
-    command == nil && !conversing && overlay == nil ? base.arguments : [:]
+    command == nil && !conversing && overlay == nil ? base.fields : [:]
   }
-  /// The current values by name: the open command's arguments, or the root draft. Unfilled is absent.
-  var argumentValues: [String: String] { screen.arguments }
-  /// Fills in a declared argument. Inside a command it is an edit like typing: it reruns the command,
+  /// The current values by name: the open command's fields, or the root draft. Unfilled is absent.
+  var fieldValues: [String: String] {
+    if let command, !conversing { return command.request().fields }
+    return screen.fields
+  }
+  /// Fills in a declared field. Inside a command it is an edit like typing: it reruns the command,
   /// or in a submit command waits for Return.
-  func setArgument(_ name: String, to value: String) {
-    guard declaredArguments.contains(where: { $0.name == name }) else { return }
+  func setField(_ name: String, to value: String) {
+    guard fieldSlots.contains(where: { $0.name == name }) else { return }
     guard command != nil else {
       base.fill(name, with: value)
-      return pickArgumentRow()
+      return pickFieldRow()
     }
     command?.screen.fill(name, with: value)
     resetSelection()
     refresh()
   }
-  /// The argument slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
+  /// The field slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
   /// the input takes the keys back when the slots go away. A click into a field sets it too.
-  var focusedArgument: String? {
-    get { focusTarget.flatMap { name in declaredArguments.contains { $0.name == name } ? name : nil } }
+  var focusedField: String? {
+    get { focusTarget.flatMap { name in fieldSlots.contains { $0.name == name } ? name : nil } }
     set {
       focusTarget = newValue
-      if focusedArgument != nil { pickArgumentRow() }
+      if focusedField != nil { pickFieldRow() }
     }
   }
   private var focusTarget: String?
   /// Focusing or filling a slot at the root picks the command row it belongs to (`returnPlan` rule 2):
   /// a pattern arriving no longer takes the selection and the draft with it, and a Return waiting from
   /// before is called off.
-  private func pickArgumentRow() {
+  private func pickFieldRow() {
     if command == nil, let selection { select(selection) }
   }
   /// Tab and Shift+Tab: the input, then each slot in order, round again. False when there are none.
   @discardableResult func moveFocus(_ delta: Int) -> Bool {
-    let names = [nil] + declaredArguments.map(\.name)
+    let names = [nil] + fieldSlots.map(\.name)
     guard names.count > 1 else { return false }
-    let index = names.firstIndex(of: focusedArgument) ?? 0
+    let index = names.firstIndex(of: focusedField) ?? 0
     focusTarget = names[(index + delta + names.count) % names.count]
-    if focusTarget != nil { pickArgumentRow() }
+    if focusTarget != nil { pickFieldRow() }
     return true
   }
   /// Used by the native field, including paste and IME edits that arrive without a shortcut.
@@ -493,7 +517,7 @@ final class Navigator {
   /// What Return does with the selected row, the one place that decides it. At the root:
   ///
   /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
-  /// 2. A row the user picked runs at once; focusing or filling a command row's argument picks it. The
+  /// 2. A row the user picked runs at once; focusing or filling a command row's field picks it. The
   ///    row that takes the place of a picked one that went away (its own pattern answered) is not picked.
   /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
   /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row
@@ -543,11 +567,19 @@ final class Navigator {
   /// and its input. Until it arrives, or `arrivalDeadline` passes, the screen being left stays exactly as
   /// it was, so the panel's content and height change together in one step (`arrive`). Collapsing at once
   /// and growing on arrival was tried and rejected: a command with many items flashed small, then large.
-  private struct Arrival {
+  @MainActor private struct Arrival {
     var command: CommandScreen?
-    let input: String
+    private let rootInput: String
+    var input: String { command?.input ?? rootInput }
     /// Going back (Escape): a second Escape waits for it instead of calling it off.
     var back = false
+
+    init(command: CommandScreen?, input: String, back: Bool = false) {
+      self.command = command
+      self.command?.input = input
+      rootInput = input
+      self.back = back
+    }
   }
   private var arriving: Arrival?
   @ObservationIgnored private var deadline: Task<Void, Never>?
@@ -652,7 +684,7 @@ final class Navigator {
     guard !conversing || arriving != nil else { return }
     let input = arriving?.input ?? self.input
     if let state = target {
-      let request = state.request(input: input)
+      let request = state.request()
       let work = state.behavior.work(for: request)
       guard case .keepView = work else { return answer(work, for: request, typed: typed) }
       showArrival()
@@ -683,7 +715,7 @@ final class Navigator {
       }
       return
     case .deferred(let answered):
-      target?.run()
+      target?.run(request)
       let version = generation
       let visit = target?.visit
       let turn = UUID().uuidString
@@ -796,16 +828,19 @@ final class Navigator {
     case .command(let behavior):
       let reopened = command?.id == behavior.id
       var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
-      state.screen.fill(address.arguments ?? [:])
-      state.enter(submitted: submitted)
-      // Typing replaces the input, and an address without one keeps what is typed in the same command.
-      let input = address.input ?? (reopened ? input : "")
-      guard reopened, !conversing else { return arrive(state, input: input, holding: holding) }
+      state.enter(address, submitted: submitted)
+      guard reopened, !conversing else { return arrive(state, input: state.input, holding: holding) }
       // The same screen: its request reruns in place.
       stopArriving()
       cancelWork()
       command = state
-      self.input = input
+      if submitted, !address.link, address.action != nil {
+        // A repeated Return must not pick the action again from the old view or its replacement.
+        screen.select(Selection(touched: true, reset: false), over: baseTurn)
+      } else {
+        resetSelection()
+      }
+      refresh()
     }
   }
   /// An address from outside the panel: a hotkey's (`LauncherModel.press`), as Return on its item, or an
@@ -858,6 +893,7 @@ final class Navigator {
         go(address, from: result?.provider, submitted: !address.link)
       }
     case .send(let text): send(text)
+    case .ask: askAgent()
     case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
     case .hotkey(let target, record: false): store.bind(nil, to: target)
     case .grant(let permission, let address): grant(permission, then: address)
@@ -997,7 +1033,9 @@ final class Navigator {
     guard !agent.busy, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     // Only a new conversation asked from an extension's command learns what it showed.
     let context =
-      conversing ? (agent.question.isEmpty ? revealContext : nil) : command?.agentContext(typed: true)
+      conversing
+      ? (agent.question.isEmpty ? revealContext : nil)
+      : command?.agentContext(typed: !agentOwnsCommandInput)
     converse {
       agent.ask(
         text, context: context?.text, from: context?.name, settings: questionSettings(keeping: agent.reopened)
@@ -1052,7 +1090,8 @@ final class Navigator {
   /// The extension whose view Cmd+Return would send with the question, for the footer and placeholder.
   var askingAbout: String? {
     if conversing { return agent.question.isEmpty ? revealContext?.name : nil }
-    return command?.asksAbout(typed: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    return command?.asksAbout(
+      typed: !agentOwnsCommandInput && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
   }
   /// The `agent` action: the text becomes the input and nothing is sent. In a conversation the next
   /// Return is the follow-up. Anywhere else an open command is left and an empty conversation opens
@@ -1090,14 +1129,16 @@ final class Navigator {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     guard let id = address.extensionName == nil ? own : address.targetID,
       let program = extensions.commands[id], program.manifest.command != nil,
+      let behavior = directory.behavior(of: id),
       directory.isAvailable(id, in: configuration)
     else { return open(address, from: origin, submitted: true) }
-    let request = ProviderRequest(
-      input: address.input ?? (command?.id == id ? input : ""), arguments: address.arguments ?? [:],
-      submitted: true)
+    var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandScreen(behavior)
+    state.enter(address, submitted: true)
+    let request = state.request().provider
     // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
     // opening for it, since the user is waiting for an effect that will not come.
-    let rerun = Address(id: id, input: request.input, arguments: request.arguments, hidden: true)
+    let rerun = Address(
+      id: id, input: request.input, fields: request.fields, action: request.action, hidden: true)
     if let gate = extensions.permissions.gate(program, rerun: rerun) {
       let present = { [self] in
         if conversing {
@@ -1158,15 +1199,17 @@ final class Navigator {
     guard let behavior = directory.behavior(of: program.id) else { return }
     stopArriving()
     cancelWork()
-    var state = CommandScreen(behavior, arguments: request.arguments)
+    var state = CommandScreen(behavior)
+    state.enter(Address(input: request.input, fields: request.fields), submitted: false)
     state.begin()
     // An arrival sets the input without a rerun.
-    arriving = Arrival(command: state, input: request.input)
+    arriving = Arrival(command: state, input: state.input)
     var page: Page?
     if case .view(let view) = outcome, let body = view.body {
       page = Page(body: body, items: view.items, runs: true)
     }
-    let shown = CommandScreenRequest(input: request.input, arguments: request.arguments, cause: .submission)
+    let shown = CommandScreenRequest(
+      input: request.input, fields: request.fields, action: request.action, cause: .submission)
     if accept(outcome, for: shown, page: page, turn: UUID().uuidString, remembered: true) { publish() }
   }
 }

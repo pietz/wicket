@@ -281,7 +281,7 @@ import Testing
   let folder = try extensionFolder(
     root, name: "weather",
     script: "cat >/dev/null\nprintf '{\"body\":\"## Hamburg\\\\n\(long)\"}'",
-    fields: ["name": "Weather", "submit": true])
+    fields: ["name": "Weather", "submit": true, "fields": []])
   let model = LauncherModel.testing(in: root)
   model.store.update { $0.providers = [.init("extension:weather")] }
   await model.extensions.reload()
@@ -297,7 +297,7 @@ import Testing
   #expect(model.navigator.escape())
   await model.navigator.settled()
 
-  model.navigator.go(Address(id: "weather", input: "Hamburg", arguments: ["view": "day"]))
+  model.navigator.go(Address(id: "weather", input: "Hamburg", fields: ["view": "day"]))
   await model.navigator.settled()
   #expect(model.navigator.body?.hasPrefix("## Hamburg") == true)
   let open = try #require(model.navigator.command?.id)
@@ -309,7 +309,7 @@ import Testing
   let prompt = try #require(fake.prompts.last?.text)
   #expect(
     prompt.hasPrefix(
-      "<context>\nThe user asked from the Weather command (\(path), folder `weather`), input \"Hamburg\", arguments {\"view\":\"day\"}.\nIt showed:\n{\"body\":\"## Hamburg"
+      "<context>\nThe user asked from the Weather command (\(path), folder `weather`), input \"Hamburg\", fields {\"view\":\"day\"}.\nIt showed:\n{\"body\":\"## Hamburg"
     ))
   #expect(prompt.hasSuffix("[cut: the view was longer than this]\n</context>\n\nadd the wind here"))
   #expect(prompt.count < AgentContext.limit + 400)

@@ -122,11 +122,12 @@ private func run(
   let row = try #require(runs.rows(matching: "hamburg").first)
   #expect(
     row.actions == [
-      .run(Address(arguments: ["open": "a"]), title: "Reopen"),
-      .run(Address(arguments: ["delete": "a"]), title: "Delete"),
+      .run(Address(fields: ["id": "a"], action: "open"), title: "Reopen"),
+      .run(Address(fields: ["id": "a"], action: "delete"), title: "Delete"),
     ])
   // Delete is the row's own run action, answered with the updated list; clear empties it.
-  let view = runs.view(for: ProviderRequest(input: "", arguments: ["delete": "a"], submitted: true))
+  let view = runs.view(
+    for: ProviderRequest(input: "", fields: ["id": "a"], action: "delete", submitted: true))
   #expect(view.items.map(\.id) == ["b"] && runs.runs.map(\.id) == ["b"])
   runs.clear()
   #expect(runs.runs.isEmpty && runs.view(for: ProviderRequest(input: "")).items.isEmpty)
@@ -269,8 +270,8 @@ func aSessionTheCLINoLongerHasStartsAfreshWithOneQuietLine(_ claude: Bool) async
   #expect(
     model.navigator.command?.id == "history" && model.navigator.input == "quest"
       && model.navigator.results.count == 1)
-  // An outsider cannot spell the open argument, and an unchosen request never opens anything.
-  model.navigator.go(Address(extensionName: "history", arguments: ["open": "r1"]))
+  // An outsider cannot supply the open action, and an unchosen request never opens anything.
+  model.navigator.go(Address(extensionName: "history", fields: ["id": "r1"], action: "open"))
   await model.navigator.settled()
   #expect(!model.agent.active && model.navigator.command?.id == "history")
   #expect(Address.reserved.contains("history"))

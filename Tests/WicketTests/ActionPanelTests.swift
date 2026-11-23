@@ -24,7 +24,7 @@ private var two: [String: Any] {
         "id": "two", "title": "Two",
         "actions": [
           ["type": "copy", "text": "2"], ["type": "open", "url": "https://example.com"],
-          ["type": "run", "title": "Delete", "arguments": ["delete": "two"]],
+          ["type": "run", "title": "Delete", "fields": ["id": "two"], "action": "delete"],
         ],
       ],
     ]
@@ -104,7 +104,8 @@ private var two: [String: Any] {
   await model.navigator.settled()
   let requests = try String(contentsOf: root.appending(path: "requests"), encoding: .utf8)
     .split(separator: "\n").map { try JSONDecoder().decode(ProviderRequest.self, from: Data($0.utf8)) }
-  #expect(requests.last == ProviderRequest(input: "", arguments: ["delete": "two"], submitted: true))
+  #expect(
+    requests.last == ProviderRequest(input: "", fields: ["id": "two"], action: "delete", submitted: true))
   await model.finish()
 }
 

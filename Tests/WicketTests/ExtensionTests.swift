@@ -11,6 +11,7 @@ func extensionFolder(
   let folder = root.appending(path: "extensions/" + name)
   try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
   var manifest: [String: Any] = ["name": name, "keyword": name, "command": ["/bin/sh", "main.sh"]]
+  manifest["fields"] = [["name": "query", "type": "text", "description": "Search"]]
   manifest.merge(fields) { _, value in value }
   try JSONSerialization.data(withJSONObject: manifest, options: .sortedKeys).write(
     to: folder.appending(path: "wicket.json"))
@@ -31,7 +32,7 @@ func answering(_ title: String) -> String {
     body: "<row label=\"Total\" value=\"42\"/>", items: [Row(id: "more", title: "More", actions: [])],
     actions: [
       .open(URL(string: "https://example.com")!), .copy("42"), .paste("42"),
-      .run(Address(arguments: ["id": "42"]), title: "Refresh"), .agent("Explain 42"),
+      .run(Address(fields: ["id": "42"]), title: "Refresh"), .agent("Explain 42"),
     ])
   #expect(try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(view)) == view)
   for json in [
@@ -126,9 +127,9 @@ func answering(_ title: String) -> String {
       == ProviderView(body: "Hi", actions: [.copy("a")]))
   #expect(
     try decode(#"{"body":"Hi","items":[\#(itemJSON)]}"#) == ProviderView(body: "Hi", items: [item]))
-  // Installed 0.1.x extensions keep working: `type` is ignored, `rows` reads as items, `metadata` is gone.
+  // A rows-only response has no supported content.
   #expect(try decode(#"{"type":"detail","body":"hi"}"#) == ProviderView(body: "hi"))
-  #expect(try decode(#"{"type":"list","rows":[\#(itemJSON)]}"#) == ProviderView(items: [item]))
+  #expect(throws: ProviderView.Empty.self) { try decode(#"{"rows":[\#(itemJSON)]}"#) }
   #expect(
     try decode(#"{"body":"hi","metadata":[{"label":"a","value":"b"}]}"#)
       == ProviderView(body: "hi"))
@@ -201,7 +202,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
     try await ExtensionRunner().run(command(ext), request: .init(input: "hello"))
       == .init(items: [Row(id: "one", title: "Hello", actions: [.copy("Hello")])]))
   try Data(
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['input'],'items':[{'id':'args','title':'/'.join(k+'='+v for k,v in sorted(r['arguments'].items())),'actions':[]}]}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['input'],'items':[{'id':'args','title':'/'.join(k+'='+v for k,v in sorted(r['fields'].items())),'actions':[]}]}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let data = try JSONSerialization.data(withJSONObject: [
@@ -210,7 +211,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   try data.write(to: ext.appending(path: "wicket.json"))
   #expect(
     try await ExtensionRunner().run(
-      command(ext), request: .init(input: "héllo \"世界\"", arguments: ["one": "1", "two": "2"]))
+      command(ext), request: .init(input: "héllo \"世界\"", fields: ["one": "1", "two": "2"]))
       == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one=1/two=2", actions: [])]))
 }
 
@@ -335,7 +336,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.extensions.reload()
   model.navigator.input = ""
   await model.navigator.settled()
-  model.navigator.go(Address(id: "extension:test", arguments: ["view": "all"]))
+  model.navigator.go(Address(id: "extension:test", fields: ["view": "all"]))
   await model.navigator.settled()
   #expect(model.navigator.command?.id == "extension:test")
   model.navigator.dismiss()
@@ -440,12 +441,12 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   #expect(!isRunning(next))
 }
 
-@MainActor @Test func runActionArgumentsPersistAsJSONWhileTypingInsideTheCommand() async throws {
+@MainActor @Test func runActionFieldsPersistAsJSONWhileTypingInsideTheCommand() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["/usr/bin/python3", "echo.py"]])
   try Data(
-    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':'/'.join(r['arguments'].values())+':'+r['input']}))"
+    "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['fields'].get('view','')+':'+r['input']}))"
       .utf8
   ).write(to: ext.appending(path: "echo.py"))
   let model = LauncherModel.testing(in: root)
@@ -455,7 +456,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await model.navigator.settled()
   #expect(model.activateReturn())
   await model.navigator.settled()
-  model.navigator.go(Address(id: "extension:test", arguments: ["view": "one"]))
+  model.navigator.go(Address(id: "extension:test", fields: ["view": "one"]))
   await model.navigator.settled()
   #expect(model.navigator.body == "one:")
   model.navigator.input = "next"

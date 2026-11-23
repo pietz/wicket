@@ -11,6 +11,7 @@ import Testing
   try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
   let manifest: [String: Any] = [
     "name": "Notes", "keyword": "notes",
+    "fields": [["name": "query", "type": "text", "description": "Filter notes"]],
     "items": [
       [
         "id": "alpha", "title": "Alpha note", "detail": "## Alpha\n<row label=\"Owner\" value=\"Ada\"/>",

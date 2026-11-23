@@ -32,8 +32,8 @@ struct Page: Equatable, Sendable {
     let start: Int
   }
 
-  /// `runs` marks an extension's own output, whose items may run that extension with arguments
-  /// (`run="view=day&day=tue"`). An agent's reply never can: there the attribute is ignored. `streaming`
+  /// `runs` marks an extension's own output, whose items may send a named action to that extension
+  /// (`run="show-day?day=tue"`). An agent's reply never can: there the attribute is ignored. `streaming`
   /// says the body is still growing, so a closing fence at its very end may yet become text. Without
   /// `copies`, as beside a list, which takes no clicks, code blocks are only shown.
   init(
@@ -205,10 +205,11 @@ struct Page: Equatable, Sendable {
     case "copy": return .one(.copy(value, title: title))
     case "ask": return .one(.agent(value, title: title))
     default:
-      // Arguments for this extension, as a query string; the input stays what is typed.
-      let items = URLComponents(string: "?" + value)?.queryItems ?? []
-      let arguments = Dictionary(items.map { ($0.name, $0.value ?? "") }) { _, last in last }
-      return .one(.run(Address(arguments: arguments), title: title))
+      let parts = value.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+      guard let action = parts.first?.removingPercentEncoding, !action.isEmpty else { return .refused }
+      let items = parts.count == 2 ? URLComponents(string: "?" + parts[1])?.queryItems : nil
+      let fields = items.map { Dictionary($0.map { ($0.name, $0.value ?? "") }) { _, last in last } }
+      return .one(.run(Address(fields: fields, action: action), title: title))
     }
   }
 

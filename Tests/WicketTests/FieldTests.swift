@@ -7,36 +7,39 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
 }
 
-@Test func aManifestDeclaresArgumentsAndSubmitOnlyWithACommand() throws {
+@Test func aManifestDeclaresTypedFields() throws {
   let caffeinate = try manifest(
-    #"{"name":"Caffeinate","command":["./main.py"],"arguments":[{"name":"hours","placeholder":"hours"},{"name":"minutes"}],"submit":true}"#
+    #"{"name":"Caffeinate","command":["./main.py"],"fields":[{"name":"hours","type":"number","description":"Hours","placeholder":"hours"},{"name":"minutes","type":"number","description":"Minutes"}],"submit":true}"#
   )
-  #expect(caffeinate.submit && caffeinate.arguments.map(\.name) == ["hours", "minutes"])
-  #expect(caffeinate.arguments.map(\.placeholder) == ["hours", nil])
+  #expect(caffeinate.submit && caffeinate.fields.map(\.name) == ["hours", "minutes"])
+  #expect(caffeinate.fields.map(\.placeholder) == ["hours", nil])
   let plain = try manifest(#"{"name":"Plain","command":["./main.py"]}"#)
-  #expect(!plain.submit && plain.arguments.isEmpty)
+  #expect(!plain.submit && plain.fields.isEmpty)
   for invalid in [
-    #"{"name":"A","command":["x"],"arguments":[{"name":""}]}"#,
-    #"{"name":"A","command":["x"],"arguments":[{"name":"a"},{"name":"a"}]}"#,
-    #"{"name":"A","command":["x"],"arguments":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"}]}"#,
-    #"{"name":"A","command":["x"],"arguments":["a"]}"#,
+    #"{"name":"A","command":["x"],"fields":[{"name":"","type":"text","description":"Empty name"}]}"#,
+    #"{"name":"A","command":["x"],"fields":[{"name":"a","type":"text","description":"A"},{"name":"a","type":"text","description":"A"}]}"#,
+    #"{"name":"A","command":["x"],"fields":[{"name":"a","type":"text","description":"A"},{"name":"b","type":"text","description":"B"},{"name":"c","type":"text","description":"C"},{"name":"d","type":"text","description":"D"}]}"#,
+    #"{"name":"A","command":["x"],"fields":["a"]}"#,
     #"{"name":"A","command":["x"],"submit":"yes"}"#,
-    #"{"name":"A","items":[],"arguments":[{"name":"a"}]}"#,
     #"{"name":"A","items":[],"submit":true}"#,
+    #"{"name":"A","items":[],"fields":[{"name":"a","type":"choice","description":"A"}]}"#,
+    #"{"name":"A","items":[],"fields":[{"name":"a","type":"choice","description":"A","options":["x","x"]}]}"#,
+    #"{"name":"A","items":[],"fields":[{"name":"a","type":"widget","description":"A"}]}"#,
+    #"{"name":"A","command":["x"],"arguments":["a"]}"#,
   ] {
     #expect(throws: (any Error).self, Comment(rawValue: invalid)) { try manifest(invalid) }
   }
 }
 
 /// A logging extension: every request is appended to `log.jsonl`, and the view lists one item that
-/// runs with an argument.
+/// runs with a field value.
 @MainActor private func logging(
   _ root: URL, name: String, fields: [String: Any]
 ) throws -> (folder: URL, requests: () throws -> [ProviderRequest]) {
   let script = """
     import json,sys; r=json.load(sys.stdin)
     open('log.jsonl','a').write(json.dumps(r)+'\\n')
-    print(json.dumps({'items':[{'id':'again','title':'Again','actions':[{'type':'run','arguments':{'text':'again'}}]},
+    print(json.dumps({'items':[{'id':'again','title':'Again','actions':[{'type':'run','fields':{'text':'again'}}]},
       {'id':'other','title':'Other','actions':[]}]}))
     """
   var all: [String: Any] = ["name": name, "command": ["/usr/bin/python3", "main.py"]]
@@ -49,62 +52,67 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   )
 }
 
-@MainActor @Test func theModelOffersTheSelectedCommandsArgumentsAndEntersWithTheirValues() async throws {
+@MainActor @Test func theModelOffersTheSelectedCommandsFieldsAndEntersWithTheirValues() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (_, requests) = try logging(
     root, name: "Caffeinate",
-    fields: ["arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]])
-  _ = try extensionFolder(root, name: "caffeine")  // A row without arguments.
+    fields: [
+      "fields": [
+        ["name": "hours", "type": "number", "description": "Hours", "placeholder": "hours"],
+        ["name": "minutes", "type": "number", "description": "Minutes"],
+      ]
+    ])
+  _ = try extensionFolder(root, name: "caffeine", fields: ["fields": []])  // A row without fields.
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
   model.navigator.input = "caff"
   await model.navigator.settled()
-  // The command row is selected, so its arguments are on offer, all unfilled.
+  // The command row is selected, so its fields are on offer, all unfilled.
   let row = try #require(model.navigator.selected)
   #expect(row.row.id == "command" && row.provider == "extension:caffeinate")
   #expect(
-    model.navigator.declaredArguments.map(\.name) == ["hours", "minutes"]
-      && model.navigator.argumentValues.isEmpty)
-  model.navigator.setArgument("hours", to: "4")
-  model.navigator.setArgument("minutes", to: "")
-  model.navigator.setArgument("seconds", to: "9")
-  #expect(model.navigator.argumentValues == ["hours": "4"])
+    model.navigator.fieldSlots.map(\.name) == ["hours", "minutes"]
+      && model.navigator.fieldValues.isEmpty)
+  model.navigator.setField("hours", to: "4")
+  model.navigator.setField("minutes", to: "")
+  model.navigator.setField("seconds", to: "9")
+  #expect(model.navigator.fieldValues == ["hours": "4"])
   #expect(try requests().isEmpty)
   // Another row has none and drops the values; dismissing drops them too.
   let other = try #require(model.navigator.results.first { $0.provider == "extension:caffeine" })
   model.navigator.select(other.id)
-  #expect(model.navigator.declaredArguments.isEmpty && model.navigator.argumentValues.isEmpty)
+  #expect(model.navigator.fieldSlots.isEmpty && model.navigator.fieldValues.isEmpty)
   model.navigator.select(row.id)
-  #expect(model.navigator.argumentValues.isEmpty)
-  model.navigator.setArgument("hours", to: "1")
+  #expect(model.navigator.fieldValues.isEmpty)
+  model.navigator.setField("hours", to: "1")
   model.navigator.dismiss()
   model.navigator.input = "caff"
   await model.navigator.settled()
-  #expect(model.navigator.selected?.id == row.id && model.navigator.argumentValues.isEmpty)
-  // Return enters the command with the filled values as its arguments, in a submitted request.
-  model.navigator.setArgument("hours", to: "4")
-  model.navigator.setArgument("minutes", to: "30")
+  #expect(model.navigator.selected?.id == row.id && model.navigator.fieldValues.isEmpty)
+  // Return enters the command with the filled values as its fields, in a submitted request.
+  model.navigator.setField("hours", to: "4")
+  model.navigator.setField("minutes", to: "30")
   #expect(
     model.navigator.returnAction
-      == .run(Address(id: "extension:caffeinate", input: "", arguments: ["hours": "4", "minutes": "30"])))
+      == .run(Address(id: "extension:caffeinate", input: "", fields: ["hours": "4", "minutes": "30"])))
   #expect(model.activateReturn())
   await model.navigator.settled()
-  #expect(model.navigator.argumentValues == ["hours": "4", "minutes": "30"])
+  #expect(model.navigator.fieldValues == ["hours": "4", "minutes": "30"])
   #expect(try requests().map(\.submitted) == [true])
-  #expect(try requests().last?.arguments == ["hours": "4", "minutes": "30"])
-  // Inside, the same arguments are on offer with the command's values; an edit reruns like typing.
-  #expect(model.navigator.declaredArguments.map(\.name) == ["hours", "minutes"])
-  #expect(model.navigator.argumentValues == ["hours": "4", "minutes": "30"])
-  model.navigator.setArgument("minutes", to: "")
+  #expect(try requests().last?.fields == ["hours": "4", "minutes": "30"])
+  // Inside, the same fields are on offer with the command's values; an edit reruns like typing.
+  #expect(model.navigator.fieldSlots.map(\.name) == ["hours", "minutes"])
+  #expect(model.navigator.fieldValues == ["hours": "4", "minutes": "30"])
+  model.navigator.setField("minutes", to: "")
   await model.navigator.settled()
-  #expect(model.navigator.argumentValues == ["hours": "4"])
-  #expect(try requests().last.map { !$0.submitted && $0.arguments == ["hours": "4"] } == true)
-  // A run action replaces them, as declared arguments are ordinary arguments.
+  #expect(model.navigator.fieldValues == ["hours": "4"])
+  #expect(try requests().last.map { !$0.submitted && $0.fields == ["hours": "4"] } == true)
+  // A run action replaces them, with supplied field values.
   model.navigator.select(try #require(model.navigator.results.first { $0.row.id == "again" }).id)
   #expect(model.activateReturn())
   await model.navigator.settled()
-  #expect(model.navigator.argumentValues == ["text": "again"])
+  #expect(model.navigator.fieldValues == ["text": "again"])
   await model.finish()
 }
 
@@ -112,7 +120,8 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (_, requests) = try logging(
-    root, name: "Note", fields: ["arguments": [["name": "text"]], "submit": true])
+    root, name: "Note",
+    fields: ["fields": [["name": "text", "type": "text", "description": "Text"]], "submit": true])
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: root, transcriber: { fake })
   await model.extensions.reload()
@@ -124,24 +133,23 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(model.navigator.submits && model.navigator.command?.id == "extension:note")
   #expect(try requests().map(\.submitted) == [true])
   #expect(model.navigator.results.count == 2 && model.navigator.selection == nil)
-  // Typing, filling an argument and a refresh run nothing.
+  // Typing and refreshes run nothing.
   model.navigator.input = "draft"
-  model.navigator.setArgument("text", to: "hello")
   model.navigator.refresh()
   model.navigator.sourcesChanged(["extension:note"])
   await model.navigator.settled()
   #expect(try requests().count == 1 && model.navigator.selection == nil)
-  // Return sends one submitted request with the input and the arguments.
+  // Return sends one submitted request with the input and fields.
   #expect(
-    model.navigator.returnAction == .run(Address(input: "draft", arguments: ["text": "hello"]))
+    model.navigator.returnAction == .run(Address(input: "draft"))
       && model.navigator.selected?.provider == "extension:note")
   #expect(model.activateReturn())
   await model.navigator.settled()
   var last = try #require(try requests().last)
   #expect(
     try requests().count == 2 && last.submitted && last.input == "draft"
-      && last.arguments == ["text": "hello"])
-  #expect(model.navigator.input == "draft" && model.navigator.argumentValues == ["text": "hello"])
+      && last.fields == ["text": "draft"])
+  #expect(model.navigator.input == "draft" && model.navigator.fieldValues == ["text": "draft"])
   // An arrow key enters the items and Return runs the selected one; typing and up leave them.
   model.navigator.move(1)
   #expect(model.navigator.selected?.row.id == "again")
@@ -155,7 +163,7 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   #expect(model.activateReturn())
   await model.navigator.settled()
   last = try #require(try requests().last)
-  #expect(try requests().count == 3 && last.submitted && last.arguments == ["text": "again"])
+  #expect(try requests().count == 3 && last.submitted && last.fields == ["text": "again"])
   // Voice fills the input and runs nothing.
   model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
@@ -168,21 +176,21 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await controller.finish()
 }
 
-/// A submit sends the input and the declared arguments. What a run action set under an undeclared name
-/// is sent once, with the choice that set it, and never again with a later Return.
-@MainActor @Test func aSubmitDoesNotSendARunActionsArgumentsAgain() async throws {
+/// Return can submit the fields again without replaying the named action.
+@MainActor @Test func aSubmitNeverReplaysANamedAction() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let script = """
     import json,sys; r=json.load(sys.stdin)
     open('log.jsonl','a').write(json.dumps(r)+'\\n')
     print(json.dumps({'items':[{'id':'3','title':'Note 3','actions':[
-      {'type':'run','title':'Delete','arguments':{'delete':'3'}}]}]}))
+      {'type':'run','title':'Delete','action':'delete','fields':{'id':'3'}}]}]}))
     """
   let folder = try extensionFolder(
     root, name: "notes",
     fields: [
-      "name": "Notes", "command": ["/usr/bin/python3", "main.py"], "arguments": [["name": "text"]],
+      "name": "Notes", "command": ["/usr/bin/python3", "main.py"],
+      "fields": [["name": "text", "type": "text", "description": "Text"]],
       "submit": true,
     ])
   try Data(script.utf8).write(to: folder.appending(path: "main.py"))
@@ -195,47 +203,59 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.navigator.settled()
   model.navigator.move(1)
   #expect(model.activateReturn())
+  #expect(!model.activateReturn())
   await model.navigator.settled()
-  #expect(try requests().last?.arguments == ["delete": "3"])
+  #expect(try requests().last?.action == "delete" && requests().last?.fields == ["id": "3"])
+  #expect(model.activateReturn())
+  await model.navigator.settled()
+  #expect(try requests().last?.action == nil && requests().last?.fields == ["id": "3"])
   // The next note: the Delete is not part of what Return sends.
-  model.navigator.setArgument("text", to: "buy milk")
-  #expect(model.navigator.returnAction == .run(Address(input: "", arguments: ["text": "buy milk"])))
+  model.navigator.input = "buy milk"
+  #expect(model.navigator.returnAction == .run(Address(input: "buy milk")))
   #expect(model.activateReturn())
   await model.navigator.settled()
   let last = try #require(try requests().last)
-  #expect(last.submitted && last.arguments == ["text": "buy milk"])
+  #expect(last.submitted && last.action == nil && last.fields == ["text": "buy milk", "id": "3"])
   // A conversation opened over the command offers no slots.
-  #expect(model.navigator.declaredArguments.map(\.name) == ["text"])
+  model.navigator.input = ""
   model.navigator.askAgent()
-  #expect(model.navigator.declaredArguments.isEmpty && model.navigator.focusedArgument == nil)
+  #expect(model.navigator.fieldSlots.isEmpty && model.navigator.focusedField == nil)
   await model.finish()
 }
 
-/// Headless `--extension` sends the input, the arguments object and `submitted` exactly as given, and
-/// refuses arguments that are not an object of strings.
-@MainActor @Test func headlessExtensionRunsSendTheirArgumentsAndSubmitted() async throws {
+/// Headless `--extension` sends the input, the field values and action and `submitted` exactly as given, and
+/// refuses fields that are not an object of strings.
+@MainActor @Test func headlessExtensionRunsSendFieldsAndOneShotAction() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let (_, requests) = try logging(root, name: "Caffeinate", fields: ["arguments": [["name": "hours"]]])
+  let (_, requests) = try logging(
+    root, name: "Caffeinate",
+    fields: ["fields": [["name": "hours", "type": "number", "description": "Hours"]]])
   let plain = try await cli(root, ["--extension", "caffeinate"])
   #expect(plain.0 == 0 && plain.1["items"].array.count == 2)
   let full = try await cli(
-    root, ["--extension", "caffeinate", "--input", "now", "--arguments", #"{"hours":"2"}"#, "--submitted"])
+    root,
+    [
+      "--extension", "caffeinate", "--input", "now", "--fields", #"{"hours":"2"}"#, "--submitted", "--action",
+      "record",
+    ])
   #expect(full.0 == 0)
   #expect(
-    try requests().map { [$0.input, $0.arguments["hours"] ?? "-", String($0.submitted)] } == [
-      ["", "-", "false"], ["now", "2", "true"],
+    try requests().map { [$0.input, $0.fields["hours"] ?? "-", String($0.submitted), $0.action ?? "-"] } == [
+      ["", "-", "false", "-"], ["now", "2", "true", "record"],
     ])
-  let refused = try await cli(root, ["--extension", "caffeinate", "--arguments", #"["2"]"#, "--submitted"])
+  let refused = try await cli(root, ["--extension", "caffeinate", "--fields", #"["2"]"#, "--submitted"])
   #expect(try refused.0 == 1 && refused.1["error"].string != nil && requests().count == 2)
+  let actionWithoutSubmit = try await cli(root, ["--extension", "caffeinate", "--action", "record"])
+  #expect(try actionWithoutSubmit.0 == 1 && requests().count == 2)
   let help = try await cli(root, ["--help"])
-  #expect(help.1["usage"].string?.contains("--arguments JSON_OBJECT") == true)
+  #expect(help.1["usage"].string?.contains("--fields JSON_OBJECT") == true)
 }
 
 @MainActor @Test func anOpenCommandRerunsOnlyForTheUserOrItsOwnChange() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let (folder, requests) = try logging(root, name: "Password", fields: [:])
+  let (folder, requests) = try logging(root, name: "Password", fields: ["fields": []])
   _ = try extensionFolder(root, name: "other")
   let model = LauncherModel.testing(in: root)
   model.store.start(watching: false)
@@ -298,4 +318,40 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await apps.rescan()
   await apps.rescan()
   #expect(changes == 1)
+}
+
+@MainActor @Test(arguments: [false, true])
+func anUnclaimedCommandInputAsksAboutItsViewWithoutRerunning(submit: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (_, requests) = try logging(
+    root, name: "Calendar",
+    fields: [
+      "fields": [
+        ["name": "days", "type": "number", "description": "Days to show"],
+        ["name": "allDay", "type": "bool", "description": "Show all-day events"],
+        ["name": "layout", "type": "choice", "description": "Layout", "options": ["week", "month"]],
+      ], "submit": submit,
+    ])
+  let model = LauncherModel.testing(in: root)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  await model.extensions.reload()
+  model.navigator.go(Address(id: "calendar", input: "week"))
+  await model.navigator.settled()
+  #expect(model.navigator.presentation.commandPlaceholder == "Ask about Calendar…")
+  #expect(model.navigator.presentation.returnAsksAgent && model.navigator.fieldSlots.map(\.name) == ["days"])
+  #expect(model.navigator.input.isEmpty)
+  #expect(model.activateReturn() && model.agent.active && model.agent.question.isEmpty)
+  #expect(model.navigator.escape())
+
+  model.navigator.editInput("What does this show?")
+  await model.navigator.settled()
+  #expect(try requests().map(\.input) == ["week"])
+  #expect(model.activateReturn())
+  #expect(await eventually { fake.running })
+  #expect(fake.prompts.last?.text.contains("The user asked from the Calendar command") == true)
+  #expect(fake.prompts.last?.text.contains("What does this show?") == true)
+  #expect(try requests().count == 1)
+  await model.finish()
 }

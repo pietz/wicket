@@ -189,7 +189,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.extensions.reload()
   model.navigator.input = "test"
   await model.navigator.settled()
-  model.navigator.go(Address(id: "extension:test", arguments: [:]))
+  model.navigator.go(Address(id: "extension:test", fields: [:]))
   await model.navigator.settled()
   model.navigator.move(1)
   let chosen = model.navigator.selection

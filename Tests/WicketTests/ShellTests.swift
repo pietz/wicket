@@ -7,8 +7,8 @@ import Testing
 // The bundled Shell hands a command to the default terminal. Nothing here opens one: the hand-over runs
 // with a stand-in for `open`, and the `.command` file is run by /bin/sh without a terminal.
 
-private func request(_ input: String, submitted: Bool = false) -> JSON {
-  .object(["input": .string(input), "submitted": .bool(submitted)])
+private func request(_ input: String, submitted: Bool = false, action: String = "") -> JSON {
+  .object(["input": .string(input), "submitted": .bool(submitted), "action": .string(action)])
 }
 
 @Test func onlyAChosenCommandIsHandedToTheTerminal() throws {
@@ -21,26 +21,33 @@ private func request(_ input: String, submitted: Bool = false) -> JSON {
     opened.append(path)
     return true
   }
-  func answered(_ input: String, submitted: Bool = false) -> String {
-    answer(request(input, submitted: submitted), temporary: temporary.path, open: open)
+  func answered(_ input: String, submitted: Bool = false, action: String = "") -> String {
+    answer(request(input, submitted: submitted, action: action), temporary: temporary.path, open: open)
   }
   // Typing, the root and links describe the command; Return on the row runs it with its input.
   let described = try JSONDecoder().decode(ProviderView.self, from: Data(answered("> git status").utf8))
   let row = try #require(described.items.first)
   #expect(row.title == "git status" && row.subtitle == "Open in Terminal")
-  #expect(row.actions.map(\.kind) == [.run(Address(input: "git status", hidden: true))])
+  #expect(
+    row.actions.map(\.kind) == [
+      .run(Address(fields: ["command": "git status"], action: "open-terminal", hidden: true))
+    ])
   // Nothing typed is a hint; chosen with nothing typed it still runs nothing.
   #expect(answered(">", submitted: true).contains("Type a command after >") && opened.isEmpty)
+  #expect(!answered("echo hi", submitted: true).isEmpty && opened.isEmpty)
+  #expect(!answered("echo hi", action: "open-terminal").isEmpty && opened.isEmpty)
   // Chosen: written as the user's own executable file and opened, with nothing to show.
-  #expect(answered("echo hi", submitted: true).isEmpty)
+  #expect(answered("echo hi", submitted: true, action: "open-terminal").isEmpty)
   let file = try #require(opened.first)
   #expect(file.hasPrefix(temporary.path + "/wicket-shell-") && file.hasSuffix(".command"))
   let permissions = try FileManager.default.attributesOfItem(atPath: file)[.posixPermissions] as? Int
   #expect(permissions == 0o700)
   #expect(try String(contentsOfFile: file, encoding: .utf8).contains("-l -c 'echo hi'"))
   // Each hand-over is a new file, and one the terminal could not open is removed; the panel stays.
-  #expect(answered("pwd", submitted: true).isEmpty && Set(opened).count == 2)
-  let refused = answer(request("ls", submitted: true), temporary: temporary.path) { _ in false }
+  #expect(answered("pwd", submitted: true, action: "open-terminal").isEmpty && Set(opened).count == 2)
+  let refused = answer(request("ls", submitted: true, action: "open-terminal"), temporary: temporary.path) {
+    _ in false
+  }
   #expect(refused.contains("Could not open the terminal"))
   #expect(try FileManager.default.contentsOfDirectory(atPath: temporary.path).count == 2)
 }

@@ -91,6 +91,7 @@ struct PalettePresentation: Equatable {
   /// (`Navigator.showsBusy`), and its view's own actions.
   var command: String?
   var commandName: String?
+  var commandPlaceholder: String?
   var problem: String?
   var busy = false
   var showsBusy = false
@@ -104,6 +105,7 @@ struct PalettePresentation: Equatable {
   var offersActions = false
   var returnsOnEscape = false
   var askingAbout: String?
+  var returnAsksAgent = false
   var askingName = ""
   /// A pattern that matched what is typed is still running at the root (`Navigator.awaitsPattern`).
   var awaitsPattern = false
@@ -122,10 +124,12 @@ extension Navigator {
       nearbyPictures: nearbyPictures, actionsTitle: actionsTitle, agent: agentScreen,
       headerHeight: conversationHeaderHeight, confirmationHeight: confirmationHeight,
       permissionPending: permissionPending, command: command?.id, commandName: commandName,
-      problem: command?.problem, busy: command?.busy == true, showsBusy: showsBusy, viewActions: viewActions,
+      commandPlaceholder: commandPlaceholder, problem: command?.problem, busy: command?.busy == true,
+      showsBusy: showsBusy, viewActions: viewActions,
       viewRow: viewRow,
       page: page, pageTurn: pageTurn, inDetail: inDetail, selectedTarget: selectedTarget,
       offersActions: offersActions, returnsOnEscape: returnsOnEscape, askingAbout: askingAbout,
-      askingName: askingName, awaitsPattern: awaitsPattern, refusesReturn: returnPlan() == .refuse)
+      returnAsksAgent: returnAsksAgent, askingName: askingName, awaitsPattern: awaitsPattern,
+      refusesReturn: returnPlan() == .refuse)
   }
 }

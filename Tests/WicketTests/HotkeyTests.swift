@@ -133,24 +133,24 @@ import Testing
   #expect(store.configuration.hotkeys.isEmpty && registered.count == 3)
 }
 
-/// A Window-like extension: manifest items whose hidden `run` sets `move`, and a program that writes each
-/// request it gets to `requests`, fails when `move` is `fail`, is done with nothing to show when it is
+/// A Window-like extension: manifest items whose hidden `run` names an action, and a program that writes each
+/// request it gets to `requests`, fails when its action is `fail`, is done with nothing to show when it is
 /// `left` and otherwise lists `left` under a row saying why nothing moved, as Window does. `show` is a run
 /// that is not hidden and answers once `release` exists; `page` opens the command as a link.
 @MainActor private func windowLike(_ root: URL, scanned: Bool = true) async throws -> (
   LauncherModel, RecordingSurface
 ) {
   let item = { (id: String) -> [String: Any] in
-    ["id": id, "title": id, "actions": [["type": "run", "arguments": ["move": id], "hidden": id != "show"]]]
+    ["id": id, "title": id, "actions": [["type": "run", "action": id, "hidden": id != "show"]]]
   }
   _ = try extensionFolder(
     root, name: "mover",
     script: """
       line=$(cat); echo "$line" >> "\(root.path)/requests"
       case "$line" in
-        *'"move":"fail"'*) echo broke >&2; exit 3;;
-        *'"move":"left"'*) exit;;
-        *'"move":"show"'*) while [ ! -e "\(root.path)/release" ]; do sleep 0.01; done;;
+        *'"action":"fail"'*) echo broke >&2; exit 3;;
+        *'"action":"left"'*) exit;;
+        *'"action":"show"'*) while [ ! -e "\(root.path)/release" ]; do sleep 0.01; done;;
       esac
       echo '{"items":[{"id":"why","title":"Nothing moved","actions":[]},{"id":"left","title":"left","actions":[]}]}'
       """,
@@ -186,7 +186,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   // Not hidden again either, which would restart a kept conversation's time.
   #expect(surface.effects.isEmpty && model.navigator.command == nil)
   let request = try #require(try runs(root).first)
-  #expect(request.submitted && request.arguments == ["move": "left"] && request.input == "")
+  #expect(request.submitted && request.action == "left" && request.input == "")
 }
 
 /// Pressed during the first extension scan, an item's hotkey waits for it and runs the item, not its command.
@@ -199,7 +199,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(await eventually { (try? runs(root))?.count == 1 })
   await model.navigator.settled()
   #expect(surface.shows == 0 && model.navigator.command == nil)
-  #expect(try runs(root).first?.arguments == ["move": "left"])
+  #expect(try runs(root).first?.action == "left")
   await model.finish()
 }
 
@@ -211,7 +211,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   await model.navigator.settled()
   #expect(surface.shows == 1 && model.navigator.command?.id == "extension:mover")
   let problem = try #require(model.navigator.command?.problem)
-  #expect(problem.contains("broke") && problem.contains(#""move":"fail""#))
+  #expect(problem.contains("broke") && problem.contains(#""action":"fail""#))
   // The report is what shows; the program ran once and does not run again.
   await model.navigator.settled()
   #expect(model.navigator.command?.problem != nil)
@@ -375,7 +375,7 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   await model.navigator.settled()
   #expect(model.navigator.results.first?.row.title == "Nothing moved")
   let sent = try runs(root)
-  #expect(sent.count == 1 && sent[0].submitted && sent[0].arguments == ["move": "show"])
+  #expect(sent.count == 1 && sent[0].submitted && sent[0].action == "show")
   // Over the open panel it is followed like a link, which holds the screen shown until it answers.
   model.press(show)
   #expect(await eventually { (try? runs(root).count) == 2 })

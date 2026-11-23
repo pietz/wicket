@@ -130,11 +130,11 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
 
 // MARK: - The program and its documentation
 
-private func windowView(_ arguments: [String: String] = [:], submitted: Bool = false) async throws
+private func windowView(_ action: String? = nil, submitted: Bool = false) async throws
   -> ProviderView
 {
   try await ExtensionRunner().run(
-    bundled("window"), request: ProviderRequest(input: "", arguments: arguments, submitted: submitted))
+    bundled("window"), request: ProviderRequest(input: "", action: action, submitted: submitted))
 }
 
 @Test func theItemsAreTheMovesAndTheProgramListsThemWithoutMoving() async throws {
@@ -146,13 +146,13 @@ private func windowView(_ arguments: [String: String] = [:], submitted: Bool = f
       Issue.record("\(row.id) runs no move")
       continue
     }
-    #expect(address.extensionName == nil && address.arguments == ["move": row.id] && row.actions.count == 1)
+    #expect(address.extensionName == nil && address.action == row.id && row.actions.count == 1)
   }
   // Requests that are not submitted, and the submitted one that enters the command, list the same items.
   #expect(try await windowView().items == rows)
-  #expect(try await windowView(["move": "left"]).items == rows)
+  #expect(try await windowView("left").items == rows)
   #expect(try await windowView(submitted: true).items == rows)
-  #expect(try await windowView(["move": "sideways"], submitted: true).items == rows)
+  #expect(try await windowView("sideways", submitted: true).items == rows)
 }
 
 /// A move that failed answers one row saying why: the whole answer, so no command that matches what is
@@ -173,7 +173,7 @@ private func windowView(_ arguments: [String: String] = [:], submitted: Bool = f
   let host = ExtensionHost(folder: URL(filePath: "/nonexistent"), bundled: bundledExtensions)
   host.permissions = Permissions(status: { _ in .denied }, request: { _ in })
   let view = try await host.view(
-    window, request: ProviderRequest(input: "", arguments: ["move": "left"], submitted: true))
+    window, request: ProviderRequest(input: "", action: "left", submitted: true))
   let row = try #require(view.items.first)
   #expect(view.items.count == 1 && row.title == "Allow Accessibility for Wicket")
   #expect(row.subtitle?.contains("add it again") == true)

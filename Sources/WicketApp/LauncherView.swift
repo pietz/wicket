@@ -3,7 +3,7 @@ import SwiftUI
 import WebKit
 
 /// An AppKit text field, so input methods, paste and editing shortcuts work: the input and each
-/// argument slot. `focused` says whether the model wants it to have the keys; it takes them when that
+/// field slot. `focused` says whether the model wants it to have the keys; it takes them when that
 /// turns true, and reports a click into it through `onFocus`.
 struct SearchField: NSViewRepresentable {
   let text: String
@@ -161,7 +161,7 @@ final class FocusReportingField: NSTextField {
   }
 }
 
-/// The input followed directly by its argument slots, like `Caffeinate [hours] [minutes]`: the input is
+/// The input followed directly by its field slots, like `Caffeinate [hours] [minutes]`: the input is
 /// as wide as its text up to the room the slots leave, so the slots sit where the eyes are and stay
 /// fully visible; past that the input scrolls. Without slots the input takes the whole width. The
 /// input's start never moves.
@@ -229,12 +229,12 @@ struct LauncherView: View {
           ).foregroundStyle(.secondary).frame(width: 24)
           InputBar {
             inputField
-            ForEach(navigator.declaredArguments, id: \.name) { argumentSlot($0) }
+            ForEach(navigator.fieldSlots, id: \.name) { fieldSlot($0) }
           }
           .frame(height: 30)
           // The free space after the slots belongs to the input.
           .contentShape(Rectangle())
-          .onTapGesture { navigator.focusedArgument = nil }
+          .onTapGesture { navigator.focusedField = nil }
           if input.offersVoice {
             Button {
               input.toggle()
@@ -311,11 +311,15 @@ struct LauncherView: View {
               : agent.busy
                 ? "Esc Cancel" : agent.question.isEmpty ? "Esc Discard" : "Esc End conversation")
         } else {
-          if !shown.refusesReturn { Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter")) }
+          let ask = shown.askingAbout.map { "Ask about \($0)" } ?? "Ask agent"
+          if shown.returnAsksAgent {
+            Text("↩ " + ask).lineLimit(1)
+          } else if !shown.refusesReturn {
+            Text("↩ " + (shown.selected?.row.actions.first?.label ?? "Enter"))
+          }
           if shown.offersActions { Text("⌘K Actions").lineLimit(1) }
           // The one hint that may grow with a name: it gives way first.
-          Text("⌘↩ " + (shown.askingAbout.map { "Ask about \($0)" } ?? "Ask agent")).lineLimit(1)
-            .layoutPriority(-1)
+          if !shown.returnAsksAgent { Text("⌘↩ " + ask).lineLimit(1).layoutPriority(-1) }
           Text(shown.command == nil ? "esc Close" : "esc Back")
         }
       }
@@ -336,7 +340,7 @@ struct LauncherView: View {
         $0.question.isEmpty
           ? shown.askingAbout.map { "Ask about \($0)…" } ?? "Ask \(shown.askingName)…"
           : "Ask a follow-up…"
-      } ?? (shown.commandName ?? "Search or ask anything…"))
+      } ?? (shown.commandPlaceholder ?? "Search or ask anything…"))
     return Text(text.isEmpty ? placeholder : String(text.prefix(200)))
       .font(.system(size: 21)).lineLimit(1).hidden()
       .padding(.trailing, 8)  // Room for the caret and the field's own inset.
@@ -344,26 +348,26 @@ struct LauncherView: View {
       .overlay {
         SearchField(
           text: text, edit: { input.edit($0) }, placeholder: placeholder, bleed: 6,
-          focused: navigator.focusedArgument == nil,
-          onFocus: { if navigator.focusedArgument != nil { navigator.focusedArgument = nil } },
+          focused: navigator.focusedField == nil,
+          onFocus: { if navigator.focusedField != nil { navigator.focusedField = nil } },
           // The native panel, weakly: the controller owns this view, so capturing it would keep both alive.
           register: { [weak native = panel.panel] in native?.field = $0 })
       }
   }
-  /// A declared argument's slot after the input's text: as wide as its own text within fixed bounds.
+  /// A declared field's slot after the input's text: as wide as its own text within fixed bounds.
   /// Fixed sizes, like the input.
-  private func argumentSlot(_ argument: ExtensionManifest.Argument) -> some View {
-    let label = argument.placeholder ?? argument.name
-    let value = navigator.argumentValues[argument.name] ?? ""
+  private func fieldSlot(_ field: ExtensionManifest.Field) -> some View {
+    let label = field.placeholder ?? field.name
+    let value = navigator.fieldValues[field.name] ?? ""
     return Text(value.isEmpty ? label : value).font(.system(size: 15)).lineLimit(1).hidden()
       .padding(.trailing, 4)  // Room for the caret.
       .frame(minWidth: 24, maxWidth: 150).fixedSize()
       .overlay {
         SearchField(
-          text: value, edit: { input.edit(argument: argument.name, to: $0.text) }, placeholder: label,
-          size: 15, focused: navigator.focusedArgument == argument.name,
+          text: value, edit: { input.edit(field: field.name, to: $0.text) }, placeholder: label,
+          size: 15, focused: navigator.focusedField == field.name,
           onFocus: {
-            if navigator.focusedArgument != argument.name { navigator.focusedArgument = argument.name }
+            if navigator.focusedField != field.name { navigator.focusedField = field.name }
           })
       }
       .padding(.horizontal, 9).frame(height: 28)
@@ -602,7 +606,7 @@ extension RowAction {
     case .reveal: "Reveal in Finder"
     case .run(let address):
       address.extensionName == nil ? "Run" : address.targetID == "agent" ? "Ask agent…" : "Open"
-    case .send: "Ask"
+    case .send, .ask: "Ask"
     case .detail: "Show details"
     case .clip(_, let paste): paste ? "Paste into previous app" : "Copy"
     case .hotkey(_, let record): record ? "Set Hotkey…" : "Remove Hotkey"
@@ -617,7 +621,7 @@ extension RowAction {
     case .paste: "doc.on.clipboard"
     case .reveal: "folder"
     case .run(let address): address.targetID == "agent" ? "sparkles" : "arrow.right"
-    case .send: "sparkles"
+    case .send, .ask: "sparkles"
     case .detail: "text.page"
     case .hotkey(_, let record): record ? "keyboard" : "xmark.circle"
     case .clip(_, let paste): paste ? "doc.on.clipboard" : "doc.on.doc"

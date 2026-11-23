@@ -32,8 +32,8 @@ private let states =
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
     "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
-    "extension-error", "arguments-empty", "arguments-filled", "arguments-command", "arguments-open",
-    "arguments-long", "arguments-three", "history", "history-reopened", "clipboard", "clipboard-image",
+    "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
+    "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
     "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
     "settings-error",
     "settings-conflict",
@@ -115,12 +115,12 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("extension-error") {
     return ["Extension report", "Invalid extension view", "REPAIR", "Ask agent"]
   }
-  if name.contains("arguments-empty") { return ["caff", "Caffeinate", "hours", "minutes"] }
-  if name.contains("arguments-filled") { return ["caff", "Caffeinate", "12", "30"] }
-  if name.contains("arguments-open") { return ["Caffeinate", "hours", "minutes"] }
-  if name.contains("arguments-long") { return ["hours", "minutes", "Awake"] }
-  if name.contains("arguments-three") { return ["caff", "hours", "minutes", "seconds"] }
-  if name.contains("arguments-command") { return ["Caffeinate", "12", "30", "Awake for 12 h 30 min"] }
+  if name.contains("fields-empty") { return ["caff", "Caffeinate", "hours", "minutes"] }
+  if name.contains("fields-filled") { return ["caff", "Caffeinate", "12", "30"] }
+  if name.contains("fields-open") { return ["Caffeinate", "hours", "minutes"] }
+  if name.contains("fields-long") { return ["hours", "minutes", "Awake"] }
+  if name.contains("fields-three") { return ["caff", "hours", "minutes", "seconds"] }
+  if name.contains("fields-command") { return ["Caffeinate", "12", "30", "Awake for 12 h 30 min"] }
   if name.contains("extension-pattern") {
     return ["6\(ProviderRequest.NumberMarks.current.decimal)2137119", "Copy conversion", "Ask agent"]
   }
@@ -238,7 +238,7 @@ private func reportedExtensions() throws -> URL {
       "items": [
         [
           "id": "left", "title": "Left half",
-          "actions": [["type": "run", "arguments": ["to": "left"], "hidden": true]],
+          "actions": [["type": "run", "action": "left", "hidden": true]],
         ]
       ],
     ], program: Scenario.moverProgram)
@@ -395,7 +395,7 @@ private let installedAgent: Void = {
     case "asking-extension":
       try await configureExtension("extension-detail", model)
       model.navigator.askAgent()
-    case _ where name.hasPrefix("arguments-"): try await configureArguments(name, model)
+    case _ where name.hasPrefix("fields-"): try await configureFields(name, model)
     case "history", "history-reopened":
       let hour: TimeInterval = 3600
       runs.save(
@@ -565,7 +565,7 @@ private let installedAgent: Void = {
           </row>
           <row label="Owner" value="You"/>
           """,
-        actions: [.copy("3 releases"), .run(Address(arguments: ["refresh": "true"]), title: "Refresh")]))
+        actions: [.copy("3 releases"), .run(Address(action: "refresh"), title: "Refresh")]))
     try install(
       "notes",
       [
@@ -582,7 +582,7 @@ private let installedAgent: Void = {
         "items": [
           [
             "id": "left", "title": "Left half",
-            "actions": [["type": "run", "arguments": ["to": "left"], "hidden": true]],
+            "actions": [["type": "run", "action": "left", "hidden": true]],
           ]
         ],
       ],
@@ -628,7 +628,7 @@ private let installedAgent: Void = {
         items: [
           Row(
             id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
-            actions: [.run(Address(arguments: ["view": "hourly"]))]),
+            actions: [.run(Address(fields: ["view": "hourly"]))]),
           Row(
             id: "radar", title: "Rain radar", subtitle: "Deutscher Wetterdienst", icon: "map",
             actions: [.open(URL(string: "https://www.dwd.de")!, title: "Open radar")]),
@@ -656,6 +656,7 @@ private let installedAgent: Void = {
       try JSONSerialization.data(withJSONObject: [
         "name": "Extension report", "keyword": "demo", "command": ["/usr/bin/python3", "main.py"],
         "icon": "doc.text",
+        "fields": [["name": "query", "type": "text", "description": "Search"]],
       ]).write(to: demo.appending(path: "wicket.json"))
       let both = state == "extension-both"
       let view = ProviderView(
@@ -665,13 +666,13 @@ private let installedAgent: Void = {
           ? [
             Row(
               id: "hourly", title: "Hourly forecast", subtitle: "Next 24 hours", icon: "clock",
-              actions: [.run(Address(arguments: ["view": "hourly"]), title: "Hourly")]),
+              actions: [.run(Address(fields: ["view": "hourly"]), title: "Hourly")]),
             Row(
               id: "weekly", title: "Weekly forecast", subtitle: "Next 7 days", icon: "calendar",
-              actions: [.run(Address(arguments: ["view": "weekly"]), title: "Weekly")]),
+              actions: [.run(Address(fields: ["view": "weekly"]), title: "Weekly")]),
           ] : [],
         actions: [
-          .copy("42"), .run(Address(arguments: ["refresh": "true"]), title: "Refresh"),
+          .copy("42"), .run(Address(action: "refresh"), title: "Refresh"),
           .agent("Explain this report"),
         ])
       try JSONEncoder().encode(view).write(to: demo.appending(path: "view.json"))
@@ -702,33 +703,38 @@ private let installedAgent: Void = {
     }
   }
 
-  /// A command with two declared arguments (three in `arguments-three`), as the root row with its slots
+  /// A command with two declared fields (three in `fields-three`), as the root row with its slots
   /// and as the open command: filled, empty, and with a long input pushing the slots to the end.
-  private static func configureArguments(_ state: String, _ model: LauncherModel) async throws {
+  private static func configureFields(_ state: String, _ model: LauncherModel) async throws {
     let folder = model.agent.folder.appending(path: "extensions/caffeinate")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try JSONSerialization.data(withJSONObject: [
       "name": "Caffeinate", "command": ["/usr/bin/python3", "main.py"], "icon": "cup.and.saucer",
-      "arguments": [["name": "hours", "placeholder": "hours"], ["name": "minutes"]]
-        + (state == "arguments-three" ? [["name": "seconds"]] : []),
+      "fields": [
+        ["name": "hours", "type": "number", "description": "Hours", "placeholder": "hours"],
+        ["name": "minutes", "type": "number", "description": "Minutes"],
+      ]
+        + (state == "fields-three"
+          ? [["name": "seconds", "type": "number", "description": "Seconds"]] : [])
+        ,
     ]).write(to: folder.appending(path: "wicket.json"))
     let code = """
-      import json,sys; a=json.load(sys.stdin)['arguments']
+      import json,sys; a=json.load(sys.stdin)['fields']
       print(json.dumps({'items':[{'id':'awake','title':'Awake for %s h %s min' % (a.get('hours','0'), a.get('minutes','0')),'actions':[]}]}))
       """
     try Data(code.utf8).write(to: folder.appending(path: "main.py"))
     await model.extensions.reload()
     model.navigator.input = "caff"
     await model.navigator.settled()
-    if state == "arguments-filled" || state == "arguments-command" {
-      model.navigator.setArgument("hours", to: "12")
-      model.navigator.setArgument("minutes", to: "30")
+    if state == "fields-filled" || state == "fields-command" {
+      model.navigator.setField("hours", to: "12")
+      model.navigator.setField("minutes", to: "30")
     }
-    if ["arguments-command", "arguments-open", "arguments-long"].contains(state) {
+    if ["fields-command", "fields-open", "fields-long"].contains(state) {
       _ = model.activateReturn()
       await model.navigator.settled()
     }
-    if state == "arguments-long" {
+    if state == "fields-long" {
       model.navigator.input = "a long note about why the build server should stay awake through the night"
       await model.navigator.settled()
     }
@@ -974,18 +980,18 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(
       model.navigator.results.count == 9 && model.navigator.selected?.row.title == "10° 7°"
         && model.navigator.selectedTarget == "#2")
-  case "arguments-empty":
-    #expect(model.navigator.declaredArguments.count == 2 && model.navigator.argumentValues.isEmpty)
-  case "arguments-filled":
+  case "fields-empty":
+    #expect(model.navigator.fieldSlots.count == 2 && model.navigator.fieldValues.isEmpty)
+  case "fields-filled":
     #expect(
-      model.navigator.command == nil && model.navigator.argumentValues == ["hours": "12", "minutes": "30"])
-  case "arguments-command":
+      model.navigator.command == nil && model.navigator.fieldValues == ["hours": "12", "minutes": "30"])
+  case "fields-command":
     #expect(
-      model.navigator.argumentValues.count == 2
+      model.navigator.fieldValues.count == 2
         && model.navigator.results.first?.row.title == "Awake for 12 h 30 min")
-  case "arguments-open", "arguments-long":
-    #expect(model.navigator.command != nil && model.navigator.argumentValues.isEmpty)
-  case "arguments-three": #expect(model.navigator.declaredArguments.count == 3)
+  case "fields-open", "fields-long":
+    #expect(model.navigator.command != nil && model.navigator.fieldValues.isEmpty)
+  case "fields-three": #expect(model.navigator.fieldSlots.count == 3)
   case "extension-error": #expect(model.navigator.command?.problem?.contains("REPAIR") == true)
   case "history": #expect(model.navigator.command?.id == "history" && model.navigator.results.count == 2)
   case "clipboard":

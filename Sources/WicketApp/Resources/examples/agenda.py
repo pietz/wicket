@@ -228,14 +228,15 @@ except (OSError, ValueError, http.client.HTTPException) as error:
     print("# Calendar not read\n" + " ".join((str(error) or type(error).__name__).split()))
     sys.exit()
 
-query = request["input"].strip().lower()
+text = request["fields"].get("query", request["input"]).strip()
+query = text.lower()
 events = sorted((event for event in events if upcoming(event)
                  and query in (event.get("title", "") + " " + event.get("place", "")).lower()),
                 key=lambda event: (day(event), timed(event["start"]),
                                    event["start"] if timed(event["start"]) else now))
 note = " · sample events, set your calendar in Settings ▸ Extensions" if not source else ""
 if not events:
-    print((f"# Nothing matches “{request['input'].strip()}”" if query else "# Nothing planned") +
+    print((f"# Nothing matches “{text}”" if query else "# Nothing planned") +
           f"\nNext {DAYS} days{note}")
     sys.exit()
 lines = [f"# {len(events)} event{'' if len(events) == 1 else 's'}", f"Next {DAYS} days{note}"]

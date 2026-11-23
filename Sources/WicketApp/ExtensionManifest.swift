@@ -5,7 +5,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   /// before any other key, so it says which Wicket it needs instead of failing as broken.
   let contract: Int
   /// The contract this Wicket reads. Raise it only for a change an older Wicket would misread.
-  static let currentContract = 1
+  static let currentContract = 2
   let name: String
   /// One line on what it does, for Settings.
   let description: String?
@@ -17,28 +17,54 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let fallback: Bool
   /// A known list read once: name matches at the root, and the command's view when there is no program.
   let items: [Row]?
-  /// Values the user fills in beside the input, sent under their names in `request.arguments`.
-  let arguments: [Argument]
+  let fields: [Field]
+  var inputField: Field? { fields.first { $0.type == .text } }
   /// The command runs on Return with a submitted request, never while typing.
   let submit: Bool
   /// That Return is a hidden run (`Address.hidden`).
   let hidden: Bool
   /// Values the user sets in Settings, kept in config.json and sent in every `request.settings`.
-  let settings: [Argument]
+  let settings: [Field]
   /// The macOS permissions its program needs, which Wicket checks before running it
   /// (`Permissions.gate`).
   let permissions: [Permission]
 
-  /// An argument, or a setting, which may have a `default`.
-  struct Argument: Codable, Sendable, Equatable {
+  struct Field: Codable, Sendable, Equatable {
+    enum Kind: String, Codable, Sendable { case text, number, bool, choice }
     let name: String
-    let placeholder: String?
-    let `default`: String?
+    let type: Kind
+    let description: String
+    var placeholder: String?
+    var options: [String]?
+    var `default`: String?
+
+    var inSearchBar: Bool { type == .text || type == .number }
+    func accepts(_ value: String) -> Bool {
+      switch type {
+      case .text: true
+      case .number: Double(value)?.isFinite == true
+      case .bool: value == "true" || value == "false"
+      case .choice: options?.contains(value) == true
+      }
+    }
+
+    fileprivate var valid: Bool {
+      guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      else { return false }
+      if type == .choice {
+        guard let options, !options.isEmpty, !options.contains(""), Set(options).count == options.count
+        else { return false }
+      } else if options != nil {
+        return false
+      }
+      return self.default.map(accepts) ?? true
+    }
   }
-  static let maxArguments = 3
+  static let maxSearchFields = 3
 
   private enum CodingKeys: String, CodingKey, CaseIterable {
-    case name, description, keyword, command, icon, match, fallback, items, arguments, submit, hidden,
+    case name, description, keyword, command, icon, match, fallback, items, fields, submit, hidden,
       settings, permissions, contract
   }
   /// A manifest for a newer contract than this Wicket reads.
@@ -84,13 +110,13 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     match = try c.decodeIfPresent(String.self, forKey: .match)
     fallback = try c.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
     items = try c.decodeIfPresent([Row].self, forKey: .items)
-    arguments = try c.decodeIfPresent([Argument].self, forKey: .arguments) ?? []
+    fields = try c.decodeIfPresent([Field].self, forKey: .fields) ?? []
     submit = try c.decodeIfPresent(Bool.self, forKey: .submit) ?? false
     hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
     guard submit || !hidden else {
       throw DecodingError.dataCorruptedError(forKey: .hidden, in: c, debugDescription: "hidden needs submit")
     }
-    settings = try c.decodeIfPresent([Argument].self, forKey: .settings) ?? []
+    settings = try c.decodeIfPresent([Field].self, forKey: .settings) ?? []
     let declared = try c.decodeIfPresent([String].self, forKey: .permissions) ?? []
     permissions = declared.compactMap(Permission.init(rawValue:))
     guard permissions.count == declared.count, Set(declared).count == declared.count,
@@ -102,20 +128,24 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
           "permissions need a command and are distinct names from: \(Permission.allCases.map(\.rawValue).joined(separator: ", "))"
       )
     }
-    let names = arguments.map(\.name)
-    guard names.count <= Self.maxArguments, Set(names).count == names.count, !names.contains(""),
-      arguments.allSatisfy({ $0.default == nil })
+    let names = fields.map(\.name)
+    guard fields.filter(\.inSearchBar).count <= Self.maxSearchFields,
+      Set(names).count == names.count, fields.allSatisfy({ $0.valid && $0.default == nil })
     else {
       throw DecodingError.dataCorruptedError(
-        forKey: .arguments, in: c,
-        debugDescription: "At most \(Self.maxArguments) arguments, with nonempty unique names and no default")
+        forKey: .fields, in: c,
+        debugDescription:
+          "Fields need unique names, descriptions and valid type options, with no default and at most \(Self.maxSearchFields) text or number fields"
+      )
     }
     let settingNames = settings.map(\.name)
-    guard Set(settingNames).count == settingNames.count, !settingNames.contains(""),
+    guard Set(settingNames).count == settingNames.count, settings.allSatisfy(\.valid),
       command != nil || settings.isEmpty
     else {
       throw DecodingError.dataCorruptedError(
-        forKey: .settings, in: c, debugDescription: "Settings need a command and nonempty unique names")
+        forKey: .settings, in: c,
+        debugDescription:
+          "Settings need a command, unique names, descriptions and valid type options and defaults")
     }
     guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw DecodingError.dataCorruptedError(forKey: .name, in: c, debugDescription: "Name must be nonempty")
@@ -130,9 +160,9 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
         throw DecodingError.dataCorruptedError(
           forKey: .command, in: c, debugDescription: "A manifest needs a command, items or both")
       }
-      guard match == nil, !fallback, arguments.isEmpty, !submit else {
+      guard match == nil, !fallback, !submit else {
         throw DecodingError.dataCorruptedError(
-          forKey: .command, in: c, debugDescription: "match, fallback, arguments and submit need a command")
+          forKey: .command, in: c, debugDescription: "match, fallback and submit need a command")
       }
     }
     if let items, !Row.validIDs(items) {

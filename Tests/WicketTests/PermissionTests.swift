@@ -20,7 +20,7 @@ import Testing
   }
 }
 
-/// An extension that declares `permissions` and logs each request it gets to `requests`. `move` items are
+/// An extension that declares `permissions` and logs each request it gets to `requests`. Window-style move items are
 /// hidden runs, as the window commands are.
 @MainActor private func gated(
   _ root: URL, _ permissions: [String], fields: [String: Any] = [:]
@@ -30,7 +30,7 @@ import Testing
     "items": [
       [
         "id": "left", "title": "Left",
-        "actions": [["type": "run", "arguments": ["move": "left"], "hidden": true]],
+        "actions": [["type": "run", "action": "left", "hidden": true]],
       ]
     ],
   ]
@@ -39,7 +39,7 @@ import Testing
     root, name: "gated",
     script: """
       line=$(cat); echo "$line" >> "\(root.path)/requests"
-      case "$line" in *'"move"'*) exit;; esac
+      case "$line" in *'"action"'*) exit;; esac
       echo '{"items":[{"id":"ran","title":"Ran","actions":[]}]}'
       """,
     fields: manifest)
@@ -63,7 +63,7 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   // Keys this Wicket does not know are the newer contract's, not misspellings.
-  _ = try extensionFolder(root, name: "future", fields: ["contract": 2, "widgets": ["clock"]])
+  _ = try extensionFolder(root, name: "future", fields: ["contract": 3, "widgets": ["clock"]])
   _ = try extensionFolder(root, name: "current", fields: ["contract": 1, "permissions": ["calendar"]])
   _ = try extensionFolder(root, name: "zero", fields: ["contract": 0])
   _ = try extensionFolder(root, name: "camera", fields: ["permissions": ["camera"]])
@@ -75,7 +75,7 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   #expect(commands["extension:current"]?.manifest.permissions == [.calendar])
   let future = try #require(problems["extension:future"])
   #expect(
-    future.contains("needs a newer Wicket") && future.contains("contract 2") && !future.contains("Invalid"))
+    future.contains("needs a newer Wicket") && future.contains("contract 3") && !future.contains("Invalid"))
   for broken in ["zero", "camera", "twice", "listonly"] {
     #expect(problems["extension:" + broken]?.contains("Invalid wicket.json") == true, "\(broken)")
   }
@@ -171,15 +171,16 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   model.press(HotkeyTarget(target: "extension:gated", item: "left"))
   await model.navigator.settled()
   let gate = try #require(model.navigator.results.first)
+  #expect(model.navigator.selected?.id == gate.id)
   guard case .grant(.calendar, let address) = gate.row.actions[0].kind else {
     Issue.record("The gate does not ask for Calendar")
     return
   }
-  #expect(address.hidden && address.arguments == ["move": "left"])
+  #expect(address.hidden && address.action == "left")
   model.navigator.activate(gate.row.actions[0], from: gate)
   await model.navigator.settled()
   let request = try #require(requests(root).first)
-  #expect(requests(root).count == 1 && request.submitted && request.arguments == ["move": "left"])
+  #expect(requests(root).count == 1 && request.submitted && request.action == "left")
   #expect(surface.effects.contains(.hide))
   await model.finish()
 }

@@ -68,10 +68,10 @@ What the parser needs:
 
 You run in Wicket's working folder, `{{folder}}`. Everything the user can set or do in Wicket is a plain file here, so you can do it for them:
 
-- `{{contract}}`: the extension contract: manifests, requests, views, actions, hotkeys and testing. Read it before writing or changing an extension or a hotkey; it also names the examples and the built-in extensions to learn from.
+- `{{contract}}`: the extension contract: manifests, typed fields, requests, views, actions, hotkeys and testing. Read it before writing or changing an extension or a hotkey; it also names the examples and the built-in extensions to learn from.
 - `{{extensions}}`: one folder per extension, live as soon as it appears.
 - `{{config}}`: Wicket's settings, reloaded live. Set `"compactOnOpen": true` to open with just the search field when the empty root has nothing to report.
 - `{{executable}}`: the Wicket executable, for the contract's headless tests.
 - `instructions.md` and `theme.css` in the working folder: the owner's own standing instructions, appended to these, and the stylesheet that restyles answers and extension pages.
 
-A `<context>` block before a question, when there is one, names the extension that was open, its folder, its input and arguments and what it showed, cut when long: what "this" and "here" mean.
+A `<context>` block before a question, when there is one, names the extension that was open, its folder, its input and fields and what it showed, cut when long: what "this" and "here" mean.

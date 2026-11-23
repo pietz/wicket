@@ -704,7 +704,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
       "items": [
         [
           "id": "left", "title": "Left half",
-          "actions": [["type": "run", "arguments": ["to": "left"], "hidden": true]],
+          "actions": [["type": "run", "action": "left", "hidden": true]],
         ]
       ]
     ])
@@ -722,7 +722,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     surface.shows == 1 && model.navigator.command?.id == "extension:mover"
       && model.navigator.command?.problem?.contains("nope") == true)
   let sent = try logged(root, "mover")
-  #expect(sent.count == 1 && sent[0].submitted && sent[0].arguments == ["to": "left"])
+  #expect(sent.count == 1 && sent[0].submitted && sent[0].action == "left")
   await model.navigator.settled()
   #expect(try logged(root, "mover").count == 1)
   await model.finish()
@@ -953,26 +953,32 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
-    root, name: "caffeinate", fields: ["arguments": [["name": "hours"], ["name": "minutes"]]])
+    root, name: "caffeinate",
+    fields: [
+      "fields": [
+        ["name": "hours", "type": "number", "description": "Hours"],
+        ["name": "minutes", "type": "number", "description": "Minutes"],
+      ]
+    ])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   model.navigator.input = "caffeinate"
   await model.navigator.settled()
-  #expect(model.navigator.selected?.row.id == "command" && model.navigator.declaredArguments.count == 2)
-  model.navigator.setArgument("hours", to: "2")
-  model.navigator.focusedArgument = "hours"
+  #expect(model.navigator.selected?.row.id == "command" && model.navigator.fieldSlots.count == 2)
+  model.navigator.setField("hours", to: "2")
+  model.navigator.focusedField = "hours"
   model.navigator.toggleActions()
-  #expect(model.navigator.actionsTitle == "caffeinate" && model.navigator.declaredArguments.isEmpty)
+  #expect(model.navigator.actionsTitle == "caffeinate" && model.navigator.fieldSlots.isEmpty)
   #expect(model.navigator.escape())
-  #expect(model.navigator.argumentValues == ["hours": "2"] && model.navigator.selected?.row.id == "command")
+  #expect(model.navigator.fieldValues == ["hours": "2"] && model.navigator.selected?.row.id == "command")
   // Return on the row itself enters with the draft; ⌘K runs the row's action as it was captured.
   guard case .run(let entered)? = model.navigator.returnAction?.kind else { throw CancellationError() }
-  #expect(entered.arguments == ["hours": "2"])
+  #expect(entered.fields == ["hours": "2"])
   model.navigator.toggleActions()
   let picked = try #require(model.navigator.pick())
   #expect(picked.from?.row.id == "command" && model.navigator.actionsTitle == nil)
   guard case .run(let captured) = picked.action.kind else { throw CancellationError() }
-  #expect(captured.arguments == nil && model.navigator.argumentValues == ["hours": "2"])
+  #expect(captured.fields == nil && model.navigator.fieldValues == ["hours": "2"])
   await model.finish()
 }
 
@@ -983,7 +989,13 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let json = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
   _ = try extensionFolder(
     root, name: "report", script: "cat >/dev/null\nprintf '%s' '\(json)'",
-    fields: ["submit": true, "arguments": [["name": "format"]]])
+    fields: [
+      "submit": true,
+      "fields": [
+        ["name": "query", "type": "text", "description": "Search"],
+        ["name": "format", "type": "text", "description": "Format"],
+      ],
+    ])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   model.navigator.go(Address(id: "report"), submitted: true)
@@ -999,7 +1011,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
       && model.navigator.selected?.row.id == "submit")
   model.navigator.move(1)
   #expect(model.navigator.returnAction?.kind == .copy("note"))
-  model.navigator.setArgument("format", to: "json")
+  model.navigator.setField("format", to: "json")
   #expect(
     model.navigator.inDetail && model.navigator.selection == nil
       && model.navigator.selected?.row.id == "submit")
@@ -1296,25 +1308,26 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
 @MainActor @Test func aCompositionInASlotIsItsValueWhenCommitted() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  _ = try extensionFolder(root, name: "note", fields: ["arguments": [["name": "title"]]])
+  _ = try extensionFolder(
+    root, name: "note", fields: ["fields": [["name": "title", "type": "text", "description": "Title"]]])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
   model.navigator.input = "note"
   await model.navigator.settled()
-  model.navigator.focusedArgument = "title"
+  model.navigator.focusedField = "title"
   try await update(controller)
   let content = try #require(controller.panel.contentView)
   let slot = try #require(fields(in: content).first { $0 !== controller.panel.field })
   #expect(controller.panel.firstResponder === slot.currentEditor())
   let editor = try compose("か", in: slot)
   try await update(controller)
-  #expect(model.navigator.argumentValues.isEmpty && editor.hasMarkedText() && slot.stringValue == "か")
+  #expect(model.navigator.fieldValues.isEmpty && editor.hasMarkedText() && slot.stringValue == "か")
   commit("か", in: editor)
   try await update(controller)
   #expect(
-    model.navigator.argumentValues == ["title": "か"] && model.navigator.input == "note"
+    model.navigator.fieldValues == ["title": "か"] && model.navigator.input == "note"
       && slot.stringValue == "か")
   controller.hide()
   await model.finish()
@@ -1364,7 +1377,13 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
-    root, name: "caffeinate", fields: ["arguments": [["name": "hours"], ["name": "minutes"]]])
+    root, name: "caffeinate",
+    fields: [
+      "fields": [
+        ["name": "hours", "type": "number", "description": "Hours"],
+        ["name": "minutes", "type": "number", "description": "Minutes"],
+      ]
+    ])
   let model = LauncherModel.testing(in: root, bundled: nil)
   model.agent.connect = { _, _, _ in FakeAgent() }
   await model.extensions.reload()
@@ -1372,15 +1391,15 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.navigator.settled()
   let row = try #require(model.navigator.results.first { $0.provider == "extension:caffeinate" }?.id)
   model.navigator.select(row)
-  model.navigator.setArgument("hours", to: "2")
+  model.navigator.setField("hours", to: "2")
   // The question has its own input, values and selection; Escape finds the root as it was.
   model.navigator.askAgent()
-  #expect(model.agent.active && model.navigator.argumentValues.isEmpty && model.navigator.selection == nil)
+  #expect(model.agent.active && model.navigator.fieldValues.isEmpty && model.navigator.selection == nil)
   model.navigator.editInput("how long")
   #expect(model.navigator.escape())
   #expect(
     model.navigator.input.isEmpty && model.navigator.selection == row
-      && model.navigator.argumentValues == ["hours": "2"])
+      && model.navigator.fieldValues == ["hours": "2"])
   // Sending instead leaves the draft behind with the root.
   model.navigator.askAgent()
   model.navigator.editInput("how long")
@@ -1389,21 +1408,23 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(await eventually { !model.agent.busy })
   #expect(model.navigator.escape())
   await model.navigator.settled()
-  #expect(!model.agent.active && model.navigator.input.isEmpty && model.navigator.argumentValues.isEmpty)
+  #expect(!model.agent.active && model.navigator.input.isEmpty && model.navigator.fieldValues.isEmpty)
   await model.finish()
 }
 
 @MainActor @Test func aCommandRowsDraftStaysUnderAnEmptyQuestionKeptWhileHidden() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  _ = try extensionFolder(root, name: "caffeinate", fields: ["arguments": [["name": "hours"]]])
+  _ = try extensionFolder(
+    root, name: "caffeinate",
+    fields: ["fields": [["name": "hours", "type": "number", "description": "Hours"]]])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   model.navigator.refresh()
   await model.navigator.settled()
   let row = try #require(model.navigator.results.first { $0.provider == "extension:caffeinate" }?.id)
   model.navigator.select(row)
-  model.navigator.setArgument("hours", to: "2")
+  model.navigator.setField("hours", to: "2")
   model.navigator.askAgent()
   model.navigator.editInput("how long")
   // Hidden and shown again, the question is kept, and Escape still finds the root as it was.
@@ -1411,25 +1432,25 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   model.reopen()
   #expect(model.navigator.returnsOnEscape && model.navigator.input == "how long")
   #expect(model.navigator.escape())
-  #expect(model.navigator.selection == row && model.navigator.argumentValues == ["hours": "2"])
+  #expect(model.navigator.selection == row && model.navigator.fieldValues == ["hours": "2"])
   // Leaving the question for the root another way, by a link, starts the root over.
   model.navigator.askAgent()
   model.navigator.go(Address(input: ""))
   await model.navigator.settled()
-  #expect(!model.agent.active && model.navigator.command == nil && model.navigator.argumentValues.isEmpty)
+  #expect(!model.agent.active && model.navigator.command == nil && model.navigator.fieldValues.isEmpty)
   model.navigator.select(row)
-  model.navigator.setArgument("hours", to: "2")
+  model.navigator.setField("hours", to: "2")
   // Hiding the root itself drops them.
   model.navigator.dismiss()
   model.reopen()
-  #expect(model.navigator.argumentValues.isEmpty)
+  #expect(model.navigator.fieldValues.isEmpty)
   // So does the question expiring while hidden: the root starts over.
   model.navigator.select(row)
-  model.navigator.setArgument("hours", to: "3")
+  model.navigator.setField("hours", to: "3")
   model.navigator.askAgent()
   model.navigator.dismiss()
   model.reopen(now: Date().addingTimeInterval(60 * 60))
-  #expect(!model.agent.active && model.navigator.argumentValues.isEmpty)
+  #expect(!model.agent.active && model.navigator.fieldValues.isEmpty)
   await model.finish()
 }
 
@@ -1822,7 +1843,7 @@ private func printing(_ answer: String) -> String {
       "items": [
         [
           "id": "left", "title": "Left half",
-          "actions": [["type": "run", "arguments": ["to": "left"], "hidden": true]],
+          "actions": [["type": "run", "action": "left", "hidden": true]],
         ]
       ]
     ])

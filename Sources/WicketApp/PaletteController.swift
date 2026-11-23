@@ -4,7 +4,7 @@ import SwiftUI
 /// Where the panel's keys go once decided (`PaletteKeyAction.decide`), and what deciding them needs.
 @MainActor protocol PaletteKeyTarget: AnyObject {
   var permissionPending: Bool { get }
-  var hasArguments: Bool { get }
+  var hasFields: Bool { get }
   /// Does what a key means; false leaves it to the panel: AppKit's editing shortcuts and the keys it types.
   func handle(_ action: PaletteKeyAction) -> Bool
 }
@@ -55,7 +55,7 @@ class PalettePanel: NSPanel {
       modifiers: Shortcut.Modifiers(event.modifierFlags),
       hasMarkedText: (firstResponder as? NSTextView)?.hasMarkedText() == true,
       permissionPending: permissionPending, isARepeat: event.isARepeat,
-      hasArguments: target?.hasArguments == true)
+      hasFields: target?.hasFields == true)
     if target?.handle(action) == true { return true }
     switch action {
     case .passThrough: return false
@@ -155,7 +155,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   }
   deinit { footerUpdates?.cancel() }
   var permissionPending: Bool { navigator.permissionPending }
-  var hasArguments: Bool { !navigator.declaredArguments.isEmpty }
+  var hasFields: Bool { !navigator.fieldSlots.isEmpty }
   func handle(_ action: PaletteKeyAction) -> Bool {
     if input.keyPressed(action) { return true }
     switch action {
@@ -341,7 +341,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       hide()
     case .hotkey(let target, record: true):
       recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
-    case .run, .send, .detail, .hotkey, .grant: break
+    case .run, .send, .ask, .detail, .hotkey, .grant: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

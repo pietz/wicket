@@ -1,13 +1,12 @@
-{"name":"Window","description":"Moves the frontmost window: halves, maximize, center, next display, restore.","icon":"macwindow","command":["./main"],"permissions":["accessibility"],
-"settings":[{"name":"gap","placeholder":"Gap (points)","default":"0"},{"name":"almostMaximize","placeholder":"Almost Maximize (percent)","default":"90"}],
+{"name":"Window","description":"Moves the frontmost window: halves, maximize, center, next display, restore.","icon":"macwindow","command":["./main"],"permissions":["accessibility"],"settings":[{"name":"gap","placeholder":"Gap (points)","default":"0","type":"number","description":"Margin between a window and the screen edges"},{"name":"almostMaximize","placeholder":"Almost Maximize (percent)","default":"90","type":"number","description":"Percent of the screen used by Almost Maximize"}],"contract":2,"fields":[{"name":"query","type":"text","description":"Filter window moves"}],
 "items":[
-{"id":"left","title":"Left Half","keywords":["window"],"icon":"rectangle.lefthalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"left"},"hidden":true}]},
-{"id":"right","title":"Right Half","keywords":["window"],"icon":"rectangle.righthalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"right"},"hidden":true}]},
-{"id":"top","title":"Top Half","keywords":["window"],"icon":"rectangle.tophalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"top"},"hidden":true}]},
-{"id":"bottom","title":"Bottom Half","keywords":["window"],"icon":"rectangle.bottomhalf.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"bottom"},"hidden":true}]},
-{"id":"maximize","title":"Maximize","keywords":["window","max"],"icon":"rectangle.inset.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"maximize"},"hidden":true}]},
-{"id":"almost-maximize","title":"Almost Maximize","keywords":["window","almost max"],"icon":"rectangle.center.inset.filled","actions":[{"type":"run","title":"Move Window","arguments":{"move":"almost-maximize"},"hidden":true}]},
-{"id":"center","title":"Center","keywords":["window","centre"],"icon":"rectangle.arrowtriangle.2.inward","actions":[{"type":"run","title":"Move Window","arguments":{"move":"center"},"hidden":true}]},
-{"id":"next-display","title":"Next Display","keywords":["window","monitor","screen"],"icon":"display.2","actions":[{"type":"run","title":"Move Window","arguments":{"move":"next-display"},"hidden":true}]},
-{"id":"restore","title":"Restore","keywords":["window"],"icon":"arrow.uturn.backward","actions":[{"type":"run","title":"Restore Window","arguments":{"move":"restore"},"hidden":true}]}
+{"id":"left","title":"Left Half","keywords":["window"],"icon":"rectangle.lefthalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"left"}]},
+{"id":"right","title":"Right Half","keywords":["window"],"icon":"rectangle.righthalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"right"}]},
+{"id":"top","title":"Top Half","keywords":["window"],"icon":"rectangle.tophalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"top"}]},
+{"id":"bottom","title":"Bottom Half","keywords":["window"],"icon":"rectangle.bottomhalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"bottom"}]},
+{"id":"maximize","title":"Maximize","keywords":["window","max"],"icon":"rectangle.inset.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"maximize"}]},
+{"id":"almost-maximize","title":"Almost Maximize","keywords":["window","almost max"],"icon":"rectangle.center.inset.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"almost-maximize"}]},
+{"id":"center","title":"Center","keywords":["window","centre"],"icon":"rectangle.arrowtriangle.2.inward","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"center"}]},
+{"id":"next-display","title":"Next Display","keywords":["window","monitor","screen"],"icon":"display.2","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"next-display"}]},
+{"id":"restore","title":"Restore","keywords":["window"],"icon":"arrow.uturn.backward","actions":[{"type":"run","title":"Restore Window","hidden":true,"action":"restore"}]}
 ]}

@@ -73,7 +73,7 @@ func format(_ value: Double, decimal: Character) -> String {
 
 let request = JSON.standardInput()
 let decimal = request?["locale"]?["decimal"]?.string?.first ?? "."
-let input = request?["input"]?.string ?? ""
+let input = request?["fields"]?["conversion"]?.string ?? request?["input"]?.string ?? ""
 var items: [String] = []
 if let (amount, source, target) = parse(input, decimal: decimal) {
   if let from = units[source], let to = units[target], from.dimension == to.dimension {

@@ -27,12 +27,12 @@ Coming from 0.0.x: settings do not carry over and old extensions do not run; ask
 | Return | Run the selected result: open an app, copy a calculation, enter a command |
 | ⌘Return | Ask the agent what you typed; with nothing typed, ask about what is on screen |
 | ⌘K | Everything the selected row can do (Reveal in Finder, Copy, Delete, Set Hotkey…), as its right-click menu |
-| Tab / ⇧Tab | Move into and between a command's argument fields |
+| Tab / ⇧Tab | Move into and between a command's fields |
 | Escape | Go back one step: stop voice, cancel a running answer, leave a command or conversation, clear, close |
 
 Results are ordered by how well they match: a calculation or conversion first, then apps, commands and files whose name starts with what you typed (`pass` finds 1Password and Proton Pass), then looser matches. What you pick for a given input rises next time. When nothing matches well, Ask agent is the first row, so Return sends a sentence to the agent.
 
-A click selects a row and a double-click runs it. When a command takes arguments (say Caffeinate's `hours` and `minutes`), they appear as small fields after your text: Tab into them, fill them in and press Return, or click the selected row.
+A click selects a row and a double-click runs it. Tab into the selected command’s fields to fill them in before opening it. Inside a command, the search bar can filter or enter a value. When it says “Ask about …”, Return asks the agent about that command if no action is selected.
 
 Turn on **Open compact** in Settings ▸ General (`"compactOnOpen": true` in `config.json`) to start with just the search field. Typing, pressing ↓, or starting voice shows the card, and clearing the field folds it again when there is nothing else to show. Return still runs the selected result. Problems, notices and screens such as a kept conversation show their card automatically.
 
