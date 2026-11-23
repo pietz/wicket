@@ -1,40 +1,39 @@
 # Known issues
 
-Open problems only, each with what the user sees and the next step. Fixed items are deleted; git has them. Planned work is in [ROADMAP.md](ROADMAP.md); checks that need a person at the Mac are in [docs/manual-checks.md](docs/manual-checks.md).
+Open problems only, with user impact and next step. Delete items once fixed (git keeps history). Planned work is in [ROADMAP.md](ROADMAP.md); manual checks are in [docs/manual-checks.md](docs/manual-checks.md).
 
 ## Product
 
-- **A first calculation after an update can come late.** macOS checks a new binary the first time it runs (40 to 700 ms measured for the bundled calculator), longer than the 30 ms the root waits for a pattern, so the first `12*7` after an update can show a list without its result (Ask agent and an untouched Return wait for it) and the result after it. Next: watch for it in daily use after the refactor; a fix would run each bundled extension once at launch.
-- **Examples go stale.** `examples/` is copied only when a folder is absent, so after an update the installed examples can be older than the app and teach an older shape; the contract itself is rewritten each launch. Next: the examples become catalog entries (ROADMAP step 3).
-- **Pattern runs are invisible.** An enabled extension with a `match` runs on matching keystrokes with the user's access, and nothing shows that it ran; an agent that writes into `extensions/` thereby gets unsandboxed execution on a later keystroke, whatever its permission mode. This is the agreed trust model (AGENTS); a confirmation step was considered and left out ([docs/extensions/README.md](docs/extensions/README.md)). Next: the one notice for a newly enabled extension (ROADMAP step 3).
-- **The 20 root items per extension are picked by fuzzy score alone**, before tier and usage, so in a large list a much-used item can stay out for a short input.
-- **A prompted form loses its edits to a second hotkey.** If a `promptIfEmpty` action opens a command whose view is a canvas form, and the user edits it and then presses another item's hotkey for the same command, the form's values are dropped and overrides are not checked against it (`Navigator.commandState`). No extension combines the two today. Next: keep canvas values and override validation independent of the prompt when one first does.
-- **Model choice offers only the curated tiers**, so a newly advertised model outside them needs a hand edit of `config.json`.
-- **A page entered from another page** briefly shows the new body under the old header while WebKit renders, because one renderer serves every page. Next: only as its own measured change, a separate surface that stages the arriving page.
-- **The cask's `zap` misses current data**: it trashes the 0.0.x `Application Support/Wicket` folder but not `Application Support/app.wicket.Wicket`, where the clipboard and agent history live. Next: the owner decides what an explicit uninstall should remove, then fix it at the next release.
-- **A direct edit of `config.json` can race a Wicket save.** Wicket serializes its writers and retries if it sees a file change before replacement. An editor writing without the lock can still save between that last check and replacement.
-- **A restored `config.json` link target is noticed only after a restart.** While the link dangles, Wicket keeps the launcher hotkey and runs no extension; when the target comes back (a synced folder mounting late), nothing reloads, so extensions stay off until Wicket restarts. Next: watch the link's target folder too, or retry loading when the panel opens.
-- **Convert reads only ASCII digits.** An amount with Arabic-Indic digits gives no row. Normalize digits in the parser and pattern if users ask.
-
+- **First calculation after an update can lag.** macOS checks a new binary on first execution (40–700 ms measured for Calculator), exceeding the 30 ms root pattern hold, so the first `12*7` can briefly show a list before the result arrives (Ask agent and untouched Return wait for it). Next: watch in daily use; fix by pre-running each bundled binary once at launch if needed.
+- **Examples go stale.** `examples/` copies only when absent, so updated apps can leave older examples on disk. Next: move examples to the catalog (ROADMAP step 3).
+- **Pattern runs are invisible.** Enabled `match` extensions run unsandboxed on matching keystrokes with no indicator, so an agent that writes to `extensions/` gains unsandboxed execution on a later keystroke regardless of its permission mode. This is the agreed trust model ([AGENTS.md](AGENTS.md)). Next: show one root notice for newly enabled extensions (ROADMAP step 3).
+- **Root items per extension cap at 20 by fuzzy score alone**, before tier and usage, so a frequently used item in a large list can be excluded on short queries.
+- **A prompted form loses edits to a second hotkey.** If `promptIfEmpty` opens a canvas form, editing it and pressing another item's hotkey for the same command drops those values without checking overrides (`Navigator.commandState`). No extension combines both today. Next: decouple canvas form state from `promptedRun` when one does.
+- **Model picker offers only curated tiers**, so a newly advertised model outside them requires editing `config.json`.
+- **Navigating from one page to another** briefly shows the new body under the old header while WebKit renders, since one renderer serves all pages. Next: stage the arriving page in a separate surface as its own measured change.
+- **Homebrew cask `zap` misses current data:** `Casks/wicket.rb` trashes the 0.0.x `Application Support/Wicket` folder but not `Application Support/app.wicket.Wicket` (clipboard and agent history). Next: owner decides what uninstall should remove, then update at the next release.
+- **Direct edits to `config.json` can race a Wicket save.** Wicket serializes its own writers and retries on change, but an external editor without the lock can still write between the last check and replacement.
+- **A restored `config.json` symlink target needs a restart.** While a link dangles, Wicket keeps the launcher hotkey and disables extensions; when the target returns (e.g. a late-mounting volume), nothing reloads. Next: watch the target's parent directory or retry on panel open.
+- **Convert accepts ASCII digits only.** Non-ASCII digits (e.g. Arabic-Indic) yield no row. Next: normalize digits in Convert's parser and regex if requested.
 
 ## Files
 
-- **Spotlight caps hits at 500 before sorting**, so for a common prefix the best name can be outside the sample.
-- **Loose files directly in the home folder are not searched**: a Spotlight scope must be a folder.
-- **Files on FAT and exFAT volumes** usually carry the executable bit, so Wicket refuses to open them and only reveals them.
+- **Spotlight caps hits at 500 before sorting**, so common prefixes can miss the best filename.
+- **Loose files directly in `~` are excluded**: Spotlight scopes must be folders.
+- **Files on FAT/exFAT volumes** typically have the executable bit set, so Wicket only reveals them.
 
 ## Process I/O
 
-- **No backpressure on a slow consumer.** Pipe reads stop at their byte limit but yield into an unbounded stream, so a fast writer under the limit can pile up read-ahead.
-- **The Settings sign-in check is bounded in time, not bytes**: `claude auth status` and `codex login status` output is read whole within its 8 s limit.
-- **Agent stderr reads are uncapped.** The diagnostic retains only the last 4 KiB, but unread chunks can accumulate if the consumer falls behind. Fold the error path into the transport cleanup.
+- **No backpressure on slow consumers.** Pipe readers stop at their byte cap but yield into an unbounded `AsyncStream`, allowing fast writers under the cap to queue read-ahead.
+- **Settings sign-in check is time-bounded (8 s), not byte-bounded:** `claude auth status` and `codex login status` stdout is read in full.
+- **Agent stderr reads are uncapped.** Only the last 4 KiB is retained, but unread chunks can pile up if the consumer lags. Next: fold into transport cleanup (ROADMAP step 7).
 
 ## Code
 
-- **`Navigator` is still about 970 lines.** It no longer knows command rules, but still holds agent question settings and the staging of header and permission heights. Next: move agent question settings to the agent screen; key header and permission heights to the visit together with measuring before showing.
-- **A successful pattern drops what was typed into a command's field** when its row is replaced. Next: keep the picked command row and its values through ranking.
+- **`Navigator.swift` is about 1,370 lines.** It still holds agent question settings and header/permission height staging. Next: move agent question settings to the agent screen; key heights to the visit alongside measure-before-show.
+- **A successful pattern drops text typed into a command's field** when its row is replaced. Next: preserve the selected command row and field values across ranking.
 
 ## Tests
 
-- **`HeadlessTests` runs `.build/debug/Wicket` from a fixed path** and depends on `Scripts/check.sh` having built it. Next: build the product from the test, or say so where it fails.
-- **`permissionWaitDoesNotUseStartupOrCaptureDeadlines` is disabled**: it raced its 250 ms startup timer under parallel load. Not a product bug. Next: give `VoiceInput` an injectable clock and re-enable it.
+- **`HeadlessTests` invokes `.build/debug/Wicket` at a fixed path** and assumes `Scripts/check.sh` built it. Next: build the target from the test or report clearly if missing.
+- **`permissionWaitDoesNotUseStartupOrCaptureDeadlines` is disabled:** races its 250 ms startup timer under parallel load (not a product bug). Next: inject a clock into `VoiceInput` and re-enable.

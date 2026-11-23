@@ -1,19 +1,7 @@
 # Links & Search
 
-Wicket ships two extensions for browser shortcuts. **Links & Search** (`links-search`) holds site searches and personal bookmarks. **Search the Web** (`web`) is an independently switchable fallback.
+Shipped as two bundled Swift contract 2 extensions with a single `query` text field: **Links & Search** (`Sources/Extensions/links-search/`) for site searches and bookmarks, and **Search the Web** (`Sources/Extensions/web/`, `fallback:true`, `webEngine` setting: `DuckDuckGo` default or `Google`) as an independently switchable web fallback.
 
-| Situation | What to do |
-| --- | --- |
-| Search a site | Type `yt cats`, `wiki new york` or `gh swift` and press Return. Type just the keyword and Tab to fill Query in the root row, or press Return on the bare keyword to open the command at Query. |
-| Browse the starters | Type `links` and press Return. Enter text and press Return to filter the starter list. |
-| Use a hotkey | Choose ⌘K ▸ **Set Hotkey…** on a row. A search hotkey uses its own search definition. It opens Query when it needs text, or runs immediately with a fixed query. A bookmark hotkey opens its destination directly. |
-| Search the web | With a nonempty query and no strong match, choose **Search the Web** just below **Ask agent**. For an explicit search, type `web` followed by the query. ⌘Return asks the agent. |
-| Add a bookmark or site search | Ask the agent to add it to `extensions/links-search/user.json`, or edit that file yourself. You can also ask the agent to turn a browser bookmark export into items. |
-
-Both are contract 2 extensions with a single Query field. The starter searches are manifest items and the root matches them with [keyword arguments](README.md#shared-work) before running any program. The web fallback carries the whole root query. Its `webEngine` setting in `config.json` defaults to DuckDuckGo and also offers Google.
-
-Personal items live in `extensions/links-search/user.json` in the working folder. Create the folder if needed. Wicket uses the bundled manifest and program with those items. Use `open` for ordinary bookmarks and `open-link` with a fixed template for site searches or bookmarks that target an app. Hotkeys use stable addresses such as `wicket://links-search?item=youtube` and `wicket://links-search?user-item=mdn`. See the [extension contract recipes](../../Sources/WicketApp/Resources/extension-contract.md#recipes).
-
-The Swift programs open URLs only after submission. A template fixes the HTTP or HTTPS scheme and host, and can place `{query}` in a path segment or query value. Query text is percent-encoded once. Links & Search rejects user info, invalid URLs, dot-only path segments and placeholders in the authority, query keys or fragment. An optional fixed `bundleID` routes through Launch Services. If the app is missing, Wicket shows how to repair the item and keeps the query. A successful hidden run prints nothing.
-
-Catalog distribution and update verification remain [shared work](README.md#shared-work). Several arguments, such as GitHub owner and repository, await [canvas text fields](../../ROADMAP.md#also-agreed).
+- **Starters & personal items:** Starter searches (`yt`, `wiki`, `gh`) are manifest items matched at the root via keyword arguments before starting a process. Typing `links` browses and filters starters. Personal bookmarks and custom site searches live in `extensions/links-search/user.json` (combined with the bundled manifest/program). Use `open` for plain bookmarks and `open-link` (`promptIfEmpty:true`, `hidden:true`) with fixed `fields.link` or `fields.template` for searches. Hotkeys target `wicket://links-search?item=<id>` or `?user-item=<id>`. See [extension contract recipes](../../Sources/WicketApp/Resources/extension-contract.md#recipes).
+- **URL validation (`SearchURL.swift`) and opening (`BrowserOpener.swift`):** Opens URLs only on `submitted:true`. Templates must fix an `http`/`https` scheme and valid host (no userinfo, invalid port, or forbidden host chars), may place `{query}` only in path segments or query values (percent-encoded once with unreserved characters), and reject dot-only path segments (including percent-encoded dots) and placeholders in authority, query keys, or fragment. Optional fixed `fields.bundleID` routes through Launch Services (missing apps return a repair row and preserve the query). Successful hidden runs print nothing.
+- **Later work:** Catalog distribution ([shared work 10](README.md#shared-work)); multi-argument searches (e.g. GitHub owner + repo) await [canvas text fields](../../ROADMAP.md#also-agreed).

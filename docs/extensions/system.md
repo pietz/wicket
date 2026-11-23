@@ -1,85 +1,73 @@
 # System extension
 
-**Parked.** The owner parked System until its permissions (Automation, and permission checks per action) are discussed; see [Official extensions](README.md). Its shared-work numbers refer to an earlier list.
+**Parked.** Waiting on Automation and per-action permission design; see [Official extensions](README.md). Shared-work numbers below refer to an earlier list (shared work 2 = Automation / per-action permission checks).
 
 ## 1. Summary
 
-System puts macOS actions and Settings panes within a few keystrokes. It is a tier 1 catalog extension under the [official extension decisions](README.md). It reads the state needed for each action on demand. Monitor owns ongoing CPU, memory and network measurements.
+Tier 1 catalog extension for on-demand macOS actions and System Settings panes (ongoing CPU/memory/network metrics belong to Monitor).
 
 ## 2. User experience
 
-| What the user types | What happens |
+| Query | Behavior |
 | --- | --- |
-| `system` | Opens a native list that filters as the user types. Its items are also searchable at the root. |
-| `lock`, `sleep` or `sleep displays` | Return hides Wicket and performs the chosen action. |
-| `restart`, `shut down` or `log out` | Return hands off directly to the native macOS confirmation dialog and any unsaved-work prompts. |
-| `empty trash` | If Finder can count its Trash, open a review that shows the count and requires choosing **Empty Trash**. If the count is unavailable, invoke Finder directly. Finder may show its own warning. |
-| `eject` | Lists eligible devices and their mounted volumes. Choose a device or **Eject All** to eject in one step and see the result per device. |
-| `volume` or `mute` | The Volume canvas shows the current output, a percentage slider and a mute switch. Return advances the slider by 6.25 percentage points (16 steps across the range). Dragging applies on release. **Mute Output** and **Unmute Output** are also root actions. |
-| `appearance` or `dark mode` | Shows Light, Dark or Auto, including the effective style in Auto when known. Offer a Dark mode switch in fixed mode and explicit **Use Dark** or **Use Light** actions in Auto. **Open Appearance Settings** gives access to Auto. |
-| `hidden files` | Shows one row, **Show Hidden Files** or **Hide Hidden Files**, based on Finder's current preference. The subtitle says that relaunching Finder interrupts Finder copies in progress. |
-| `focus` or `dnd` | Shows the active Focus or Off. With the optional Shortcut configured, offer a Do Not Disturb switch when DND is on or no Focus is active. If another Focus is active, name it in the action that replaces it. Turning DND off clears only DND. |
-| `wi-fi` | Shows a Wi-Fi on/off switch and a link to Wi-Fi settings. |
-| `sound settings`, `wifi settings`, `bluetooth settings`, `accessibility settings` | Opens the named pane in macOS System Settings. |
+| `system` | Native filterable list; items are also root-searchable and hotkey-bindable (no default hotkeys). |
+| `lock`, `sleep`, `sleep displays` | Hidden run: hides Wicket and acts. |
+| `restart`, `shut down`, `log out` | Hands off directly to native macOS confirmation dialogs. |
+| `empty trash` | If Finder can count Trash, opens a review showing count + **Empty Trash** action; else invokes Finder directly. |
+| `eject` | Lists eligible external devices/volumes; choose one or **Eject All** and view per-device results. |
+| `volume`, `mute` | Canvas with current output, percentage slider (16 steps of 6.25%, applies on release), and mute switch; **Mute/Unmute Output** also at root. |
+| `appearance`, `dark mode` | Shows Light/Dark/Auto (with effective style); switch in fixed mode or explicit **Use Dark**/**Use Light** in Auto + Settings link. |
+| `hidden files` | Single row (**Show/Hide Hidden Files**) noting that relaunching Finder interrupts copies in progress. |
+| `focus`, `dnd` | Shows active Focus or Off; with optional named Shortcut configured, offers DND toggle (naming any active Focus it would replace; off clears only DND). |
+| `wi-fi` | On/off switch and Wi-Fi settings link. |
+| `<pane> settings` | Opens the matching System Settings pane (`sound`, `wifi`, `bluetooth`, `accessibility`). |
 
-Stateful pages read again on open, Refresh and after a write. When a control is unavailable, say why and offer the relevant Settings pane. Disk results distinguish successes from busy devices and other failures.
-
-Users can bind a manifest item with **Set Hotkey…**. The hotkey does what Return on the item does, including opening a control or review when appropriate. No hotkeys ship preassigned.
-
-For “Turn on my work VPN with Control–Option–V,” the agent writes an item and script in `extensions/work-vpn` and adds a hotkey to `wicket://work-vpn?item=connect` in `config.json`. The script uses the configured VPN's supported CLI or Shortcut.
+Stateful pages reread on open, Refresh, and write; unavailable controls explain why and link to Settings. For custom user automations (e.g. work VPN), the agent writes a separate extension + hotkey rather than modifying System.
 
 ## 3. Design
 
-### Folders and requests
+### Packages and requests
 
-- **`system`** is items only. Settings rows use fixed `open` URLs. The other rows use cross-extension `run` actions into the two programs.
-- **`system-controls`** starts with no permissions and owns Sleep, Sleep Displays, volume, mute and eject. It adds appearance and declares System Events when shared work 2 lands. With a folder-wide gate, this declaration also gates its other controls.
-- **`system-session`** declares `"permissions":["accessibility"]` for Lock and later adds the loginwindow and Finder Automation targets for the session dialogs and Trash. The hidden-files adapter lives here and requires no permission itself.
+- **`system`** (items-only): fixed `open` URLs for Settings panes; cross-extension `run` actions into the two Swift 6 contract 2 programs below.
+- **`system-controls`** (no initial permissions): Sleep, Sleep Displays, volume, mute, eject; adds appearance once Automation lands.
+- **`system-session`** (`"permissions":["accessibility"]`): Lock and hidden files; adds loginwindow/Finder Automation for session dialogs and Trash.
 
-Use Swift 6 programs with contract 2 manifests. Use visible runs for pages and disk results, and hidden runs when the effect provides its own feedback. Effects require `submitted:true`, a recognized named action, and validated fields. Pages use canvas fields for controls. Volume writes use absolute values. If the output changed while the page was open, show the new output before accepting a write. Show the actual percentage beside the slider and initialize the slider on its 6.25-point grid.
-
-Root search and the System list filter indexed manifest rows. Read macOS state only on page entry, Refresh or a targeted action. Measure root latency and time to first usable view when building those paths.
+Gate all effects on `submitted:true`, exact `action`, and validated fields. Volume writes use absolute values and re-check if the default output changed while open. Root search filters static manifest rows only—read macOS state only on open, Refresh, or action.
 
 ### macOS adapters
 
-Use [shared work 2, Permission checks and Automation](README.md#shared-work). Wicket's process calls `AEDeterminePermissionToAutomateTarget` for the target, with `askUserIfNeeded` enabled when the user chooses Allow. [Apple's Automation API guidance](https://developer.apple.com/videos/play/wwdc2019/701/)
+Automation uses `AEDeterminePermissionToAutomateTarget` (with `askUserIfNeeded` on Allow).
 
 | Action | Backend |
 | --- | --- |
-| Sleep | Call `IOPMSleepSystem` as the console user. |
-| Sleep Displays | Run `/usr/bin/pmset displaysleepnow`. No permission is required. |
-| Lock | After Wicket hides, post ⌃⌘Q with Quartz from a `.privateState` event source and set the flags explicitly so held hotkey modifiers cannot carry through. Posting requires Accessibility. |
-| Restart, Shut Down, Log Out | Send loginwindow `rrst`, `rsdn` or `logo` respectively to show the native session dialogs. [Apple's session lifecycle](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/Lifecycle.html) |
-| Empty Trash | Ask Finder to `count items of trash` and use Finder's `empty trash` command when submitted. Finder determines scope and handles its warning and protected or busy items. |
-| Eject | Enumerate mounted volumes on external ejectable media and call `NSWorkspace.unmountAndEjectDevice(at:)` per volume. Group by whole disk for display only because `DADiskCopyWholeDisk` can return the synthesized APFS container. Include eligible Time Machine targets and report a busy failure. Exclude internal and startup media, network mounts and disk images. [NSWorkspace ejection API](https://developer.apple.com/documentation/appkit/nsworkspace/unmountandejectdevice%28at%3A%29) |
-| Volume and mute | Use the settable Core Audio HAL volume and mute properties on the default output. Treat unsupported properties independently. Read back the result. |
-| Appearance | Read and set `dark mode` in System Events' appearance preferences. Verify the global `AppleInterfaceStyleSwitchesAutomatically` preference for identifying Auto. Offer the Appearance pane if the mode is unavailable. |
-| Hidden files | Read Finder's `AppleShowAllFiles` with `CFPreferencesCopyAppValue` for `com.apple.finder`. Write the requested preference and relaunch Finder. Report a write or relaunch failure. No permission is required by this adapter. |
-| Settings panes | Use fixed `x-apple.systempreferences:` URLs and verify each route on supported macOS. Use the parent Settings section if the pane route fails. |
-| Focus | Use one user-imported Shortcut, configured by name, with separate read and set operations through `/usr/bin/shortcuts run`. Check the active Focus before clearing DND or replacing the named Focus. Offer Focus settings if the Shortcut is unavailable. |
-| Wi-Fi | Use `CWInterface.powerOn()` and `setPower(_:)` via `CWWiFiClient`. Apple documents possible administrator authentication for writes and lists no Location requirement for these power APIs. Verify both directions with Location denied on current macOS before deciding where the toggle belongs. [CoreWLAN power API](https://developer.apple.com/documentation/corewlan/cwinterface/setpower%28_%3A%29?language=objc) · [Administrator power setting](https://developer.apple.com/documentation/corewlan/cwconfiguration/requireadministratorforpower) |
+| Sleep | `IOPMSleepSystem` as console user. |
+| Sleep Displays | `/usr/bin/pmset displaysleepnow` (no permission). |
+| Lock | After hiding Wicket, post ⌃⌘Q via Quartz `.privateState` source with explicit flags (needs Accessibility). |
+| Restart / Shut Down / Log Out | Apple Events `rrst`, `rsdn`, `logo` to `loginwindow`. |
+| Empty Trash | Finder `count items of trash` and `empty trash` on submit. |
+| Eject | Enumerate external ejectable volumes, call `NSWorkspace.unmountAndEjectDevice(at:)` per volume; group by whole disk for display only; include Time Machine, exclude internal/startup/network/disk images. |
+| Volume & mute | Core Audio HAL settable volume/mute on default output (independent capability checks, read back). |
+| Appearance | System Events `dark mode` + `AppleInterfaceStyleSwitchesAutomatically` for Auto. |
+| Hidden files | `CFPreferencesCopyAppValue`/`Set` `AppleShowAllFiles` for `com.apple.finder` + relaunch Finder (no permission). |
+| Settings panes | Fixed `x-apple.systempreferences:` URLs (`com.apple.Sound-Settings.extension`, `com.apple.wifi-settings-extension`, `com.apple.BluetoothSettings`, `com.apple.Focus-Settings.extension`, `com.apple.Appearance-Settings.extension`, `com.apple.Network-Settings.extension`, `com.apple.Accessibility-Settings.extension`), falling back to parent section. |
+| Focus | User-configured Shortcut via `/usr/bin/shortcuts run` (read + set). |
+| Wi-Fi | `CWInterface.powerOn()` / `setPower(_:)` via `CWWiFiClient` (verify behavior with Location denied and `requireAdministratorForPower` before placing). |
 
-Candidate Settings pane IDs from installed bundle metadata are `com.apple.Sound-Settings.extension`, `com.apple.wifi-settings-extension`, `com.apple.BluetoothSettings`, `com.apple.Focus-Settings.extension`, `com.apple.Appearance-Settings.extension`, `com.apple.Network-Settings.extension` and `com.apple.Accessibility-Settings.extension`.
+## 4. What exists today & gaps
 
-## 4. What exists today
+- Items-only filtering ([CommandDirectory.swift](../../Sources/WicketApp/CommandDirectory.swift)), canvas fields ([PageField.swift](../../Sources/WicketApp/PageField.swift)), and cross-extension item hotkeys ([LauncherModel.swift](../../Sources/WicketApp/LauncherModel.swift), [Navigator.swift](../../Sources/WicketApp/Navigator.swift)) already work.
+- Gaps: Automation permission gate; real-Mac verification of loginwindow consent and Wi-Fi power permissions.
 
-- [ExtensionScreen](../../Sources/WicketApp/CommandDirectory.swift) filters items-only manifests against the current input. [Canvas fields](../../Sources/WicketApp/PageField.swift) already support switches, fractional slider steps and named actions.
-- [LauncherModel.press](../../Sources/WicketApp/LauncherModel.swift) resolves the item in its owning manifest and passes its first hidden `run` to [Navigator.runHidden](../../Sources/WicketApp/Navigator.swift). An explicit extension target resolves to the destination program, whose enablement and permission gate apply before the submitted run. A hotkey on a `system` item can already run an action in either program.
+## 5. Implementation plan (when unparked)
 
-## 5. Gaps
+1. `system` items + verified Settings links + `system-controls` (Sleep, Sleep Displays, volume, eject).
+2. `system-session` (Lock, hidden files).
+3. Automation gate → session dialogs, Empty Trash, appearance.
+4. Focus.
+5. Wi-Fi (in whichever folder matches verified permissions).
 
-Automation depends on shared work 2. On a signed build on a real Mac, check whether sending the session events to loginwindow prompts for consent at all. Verify the Wi-Fi power read and write requirements before placing the toggle.
+Unit-test effects with `@testable import` and injected closures (like [ShellTests.swift](../../Tests/WicketTests/ShellTests.swift)); run headless only for unsubmitted reads and `--query` with a temporary `WICKET_CONFIG_DIR`.
 
-## 6. Implementation plan
+## 6. Open question
 
-1. Build the `system` items and verify the Settings links. Add `system-controls` with Sleep, Sleep Displays, volume and eject.
-2. Add `system-session` with Lock and hidden files.
-3. Land shared work 2, then add the native session dialogs, Empty Trash and appearance.
-4. Add Focus.
-5. Add Wi-Fi in the folder that fits its verified permission requirements.
-
-Test effects with `@testable import` and injected closures, as [ShellTests](../../Tests/WicketTests/ShellTests.swift) does. Cover submitted-action gating, hotkey dispatch, field values, unavailable controls and partial ejects. Use headless runs only for unsubmitted reads and `--query`, with a temporary `WICKET_CONFIG_DIR`. The owner verifies effects on a real Mac.
-
-## 7. Open questions
-
-Should Lock also try the private `SACLockScreenImmediate` symbol in `login.framework`? A direct call avoids keyboard layout and shortcut delivery issues, but the private symbol may disappear or change on a macOS update. Start with the shortcut. If the owner accepts the private call, resolve it optionally with `dlsym` and fall back to the shortcut when unavailable, following [GlassBlur's rules](../../AGENTS.md).
+Should Lock optionally call private `SACLockScreenImmediate` (`login.framework` via `dlsym`, falling back to ⌃⌘Q under [GlassBlur's private-API rules](../../AGENTS.md))? Start with ⌃⌘Q unless the owner approves the private symbol.

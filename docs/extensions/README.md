@@ -1,70 +1,49 @@
 # Official extensions
 
-The first official extensions, the decisions they share, and the order to build them in. Each extension has its own spec in this folder: the experience it aims for, how it is built, and the gaps in today's framework. Wicket-wide work is in [ROADMAP.md](../../ROADMAP.md); this file owns only what is specific to official extensions. When an extension ships, its spec becomes its README in the catalog and leaves this folder.
+Specs, shared decisions, and status for official extensions. Wicket-wide roadmap lives in [ROADMAP.md](../../ROADMAP.md); extension authoring rules live in the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md). When an extension moves to the catalog, its spec becomes its catalog README and leaves this folder.
 
-## Tier 1: on by default, each can be switched off
+## Tier 1 (on by default, each switchable)
 
-| Extension | Spec | What it is |
-|---|---|---|
-| Calculator | [calculator.md](calculator.md) | Arithmetic as you type at the root. Deliberately an extension, so its behavior can be changed. |
-| Convert | [convert.md](convert.md) | Units and currency, with a rate source the user can replace. Handles single quantities. Typed arithmetic with units and currencies is later work. |
-| Links & Search | [links-search.md](links-search.md) | Shipped in the app. Site searches and bookmarks, with a separately switchable Search the Web fallback. |
-| Window Manager | [window-manager.md](window-manager.md) | A small engine that moves windows, plus layouts the agent writes ("on ⌃⌥1, Safari left two-thirds"). |
-| Calendar | [calendar.md](calendar.md) | Upcoming meetings from macOS Calendar, with details and Join. |
+| Extension | Spec | Status | Summary |
+| --- | --- | --- | --- |
+| Calculator | [calculator.md](calculator.md) | Phase 1 shipped | Arithmetic as you type at the root (`calc` for full grammar); Programmer, date math, and History next. |
+| Convert | [convert.md](convert.md) | Phase 1 shipped | Units offline and ECB/fixed-file currencies; typed arithmetic with units next. |
+| Links & Search | [links-search.md](links-search.md) | Shipped | Site searches and bookmarks (`user.json`), plus switchable Search the Web fallback. |
+| Window Manager | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in `user.json`; multi-window layouts next. |
+| Calendar | [calendar.md](calendar.md) | Waiting on permission checks | Read-only 7-day EventKit agenda with Join and headless read. |
 
-**Parked:** System (macOS actions and settings, [system.md](system.md)). Its permissions need more discussion first: Automation and permission checks per action. Neither is built until System returns.
-
-Tier 2, not yet specified: Snippets, Capture, Processes & Ports, and Monitor. Clipboard History stays in core because it has to watch the clipboard constantly.
+**Parked:** System ([system.md](system.md))—waiting on Automation and per-action permission design.
+**Tier 2 (not yet specified):** Snippets, Capture, Processes & Ports, Monitor. Clipboard History stays in core because it polls the pasteboard continuously.
 
 ## Decisions every spec follows
 
-The user's additions, such as bookmarks, site searches, window layouts or calculator constants, go in `extensions/<name>/user.json` in the working folder. Installed extensions keep `wicket.json` there too. Built-ins use the manifest in the app bundle. Catalog updates replace the extension's own files and never touch `user.json`. Settings stay in Wicket's single `config.json`. An extension that needs a key reads it from the Keychain.
-
-**Existing mechanisms first.** A hotkey, a saved definition or a custom action is a manifest item with a `run` action, `hidden` where its effect is its own feedback. A spec adds a core mechanism only when items, `run`, fields and pages cannot do the job, and only with two real users.
-
-**Native frame, HTML pages.** The search bar, the result list, Settings and the glass shell are native. Every page is an HTML canvas page: agent answers, extension pages, onboarding and the catalog.
-
-**Enabled means trusted.** A new extension is enabled when it appears, with a notice at the root. A confirmation step was considered and left out; it stays an option if real use shows a need.
-
-**Permissions: Wicket holds them, extensions declare them, nobody asks twice.**
-- **Declare, don't ask.** An extension lists what it needs in `permissions` and never prompts from its own program or a helper app.
-- **Wicket holds every grant.** A child process uses Wicket's grant, so extension updates never re-prompt. A Developer ID–signed Wicket keeps its identity across updates. Ad-hoc–signed helpers re-prompt on every rebuild, which is the likely cause of the repeated Calendar prompts.
-- **Ask during onboarding, optionally.** Onboarding (ROADMAP step 4) lists the permissions the picked extensions declare, each with one line on why, and a button: Allow where macOS can ask inline, or open the right System Settings pane and show a check once granted.
-- **Ask in place on first use.** A permission still missing shows Wicket's own Allow row where the user already is.
-- **Three checks on a real Mac** confirm "nobody asks twice" before Calendar builds on it:
-  - a Developer ID release updated to the next release;
-  - an extension the agent wrote in the working folder;
-  - a headless read run from inside the agent's own sandbox.
-
-**Extensions the agent writes run on every Mac.** Without Apple's developer tools, Swift and Python don't work on a Mac. So Wicket ships `wicket-js`, a JavaScript runner on the system's JavaScriptCore, and the agent writes JavaScript by default. Official extensions stay compiled Swift where they need macOS APIs.
+- **User data & settings:** Personal additions go in `extensions/<name>/user.json` (untouched by catalog updates); settings live in `config.json`; API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
+- **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
+- **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md).
+- **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
+  - Extensions declare `permissions` and never prompt themselves or build helper apps.
+  - Child processes inherit Wicket's Developer ID–signed grant, so updates never re-prompt (unlike ad-hoc helper apps whose cdhash changes on rebuild).
+  - Onboarding ([ROADMAP step 4](../../ROADMAP.md#4-onboarding)) offers declared permissions up front; missing grants prompt in place on first use.
+  - Three real-Mac checks confirm "nobody asks twice" before Calendar builds on it: (1) Developer ID update across two releases, (2) agent-written working-folder extension, (3) headless read from inside the agent's sandbox.
+- **JavaScript by default for user extensions:** Wicket bundles [`wicket-js`](../wicket-js.md) so the agent can write extensions without Apple developer tools. Official extensions needing macOS APIs stay compiled Swift.
 
 ## Shared work
 
-Core and contract changes the specs need. The numbers stay fixed because the specs refer to them.
+Fixed numbers referenced by the individual specs:
 
-1. **A private data folder per extension.** Shipped: `WICKET_DATA_DIR`.
-2. **Tab into an item's fields.** Shipped.
-3. **Untrusted text stays inert.** Shipped: unknown tags show as literal text, and a view sent to the agent as context is marked as data.
-4. **Patterns compile once.** Shipped.
-5. **`user.json`.** Shipped. Additions are addressed as `?user-item=`, so they never collide with the extension's own items. For a built-in, the file lives in `extensions/<name>/user.json` in the working folder, alone, and the built-in keeps updating.
-6. **Contract recipes.** Shipped, in the extension contract.
-7. **`wicket-js`.** Shipped. The bundled runner supports JavaScript authoring, data files, HTTP requests and subprocesses. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
-8. **Meeting links.** `open` also accepts a short list of conferencing schemes, such as `zoommtg:` and `msteams:`, behind an explicit action.
-9. **Saving a page's choices to `config.json`**, designed once with onboarding (ROADMAP step 4).
-10. **The extension catalog** (ROADMAP step 3).
-11. **Keyword, space, text.** Shipped. At the root, a command or item keyword followed by a space and text fills the first editable text field. The matching row ranks first and Ask agent stays in the list.
-
-## Where each extension stands
-
-- **Calculator:** phase 1 shipped (exact decimals, root row, `calc`, phone and date screening, locale copy).
-- **Convert:** phase 1 shipped (units, ECB rates refreshed only on submitted requests, home currency, Rate details). Typed arithmetic with units is next.
-- **Window Manager:** phases 1 to 3 shipped (verified moves, saved moves in `user.json`, Capture). Multi-window layouts are next.
-- **Links & Search** ships with site searches and a web fallback. Add personal bookmarks and searches in `extensions/links-search/user.json`.
-- **Calendar:** waits for the permission checks.
-- **System:** parked.
+1. **Private data folder per extension:** Shipped (`WICKET_DATA_DIR`).
+2. **Tab into an item's fields:** Shipped.
+3. **Untrusted text stays inert:** Shipped (unknown tags render literally; `<context>` marked as data).
+4. **Patterns compile once:** Shipped.
+5. **`user.json`:** Shipped (addressed via `?user-item=`; works beside bundled extensions).
+6. **Contract recipes:** Shipped, in the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md#recipes).
+7. **`wicket-js`:** Shipped ([docs/wicket-js.md](../wicket-js.md)).
+8. **Meeting links:** Accept conferencing URL schemes (`zoommtg:`, `msteams:`) in `open` behind an explicit action.
+9. **Saving a page's choices to `config.json`:** Design with onboarding ([ROADMAP step 4](../../ROADMAP.md#4-onboarding)).
+10. **Extension catalog:** [ROADMAP step 3](../../ROADMAP.md#3-extension-catalog).
+11. **Keyword, space, text:** Shipped (root keyword + argument fills first editable text field and ranks first while keeping Ask agent).
 
 ## Next, in order
 
-1. A documentation pass: every agent-facing and project doc checked against the code and made as short as it can be without losing anything the agent needs.
-2. The catalog.
-3. Calendar, once the owner has run the three permission checks on a real Mac.
+1. The catalog ([ROADMAP step 3](../../ROADMAP.md#3-extension-catalog)).
+2. Calendar, once the owner runs the three permission checks on a real Mac.
