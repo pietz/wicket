@@ -68,8 +68,9 @@ func anEmptyCompactRootShowsThePermissionRequestUntilGranted(manuallyRevealed: B
   let foldedHeight = PaletteLayout.panelHeight(card: 0)
   controller.show(orderFront: false, listen: false)
   await model.navigator.settled()
+  let ordinaryRows = controller.presentation.rows
   #expect(controller.presentation.showsCard)
-  #expect(!controller.presentation.rows.contains { $0.row.id == "permission:calendar" })
+  #expect(!ordinaryRows.isEmpty && !ordinaryRows.contains { $0.row.id == "permission:calendar" })
   controller.hide()
 
   model.store.update { $0.resultsOnlyWhenTyping = true }
@@ -78,11 +79,14 @@ func anEmptyCompactRootShowsThePermissionRequestUntilGranted(manuallyRevealed: B
   let shown = controller.presentation
   let gate = try #require(shown.selected)
   #expect(gate.row.title == "Allow Calendar for Wicket")
+  #expect(shown.rows == [gate] && shown.sizedRows == 1)
   #expect(shown.showsCard && shown.pillStatus == nil && controller.panel.frame.height > foldedHeight)
   #expect(model.navigator.command == nil && requests(root).isEmpty && fake.asked.isEmpty)
 
   if manuallyRevealed {
     model.navigator.move(1)
+    #expect(controller.presentation.rows == [gate] + ordinaryRows)
+    #expect(controller.presentation.sizedRows > 1)
     model.navigator.select(gate.id)
   }
   #expect(model.activateReturn())
@@ -226,6 +230,49 @@ func anEmptyCompactRootShowsThePermissionRequestUntilGranted(manuallyRevealed: B
   #expect(gate.row.title == "Allow Accessibility for Wicket")
   #expect(surface.presentation.showsCard && surface.presentation.selected?.id == gate.id)
   #expect(gate.row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
+  await model.finish()
+}
+
+@MainActor @Test(arguments: [false, true])
+func aHiddenHotkeyShowsAnActionablePermissionOverAConversation(kept: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, _, surface) = try await gated(root, ["accessibility"])
+  try await finishTurn(model, "Why?", "Because.")
+  let navigator = model.navigator
+  let draft = "One more question"
+  navigator.editInput(draft)
+  surface.showing = { arriving in
+    model.reopen()
+    arriving()
+    model.agent.seen()
+  }
+  if kept {
+    navigator.dismiss()
+    surface.shown = false
+  }
+
+  let hotkey = HotkeyTarget(target: "extension:gated", item: "left")
+  model.press(hotkey)
+  await navigator.settled()
+  let gate = try #require(surface.presentation.selected)
+  #expect(gate.row.title == "Allow Accessibility for Wicket")
+  #expect(surface.presentation.actionsTitle == "Gated" && surface.presentation.rows == [gate])
+  #expect(surface.presentation.agent?.question == "Why?" && navigator.input == draft)
+  #expect(surface.shows == (kept ? 1 : 0) && surface.effects.isEmpty && requests(root).isEmpty)
+
+  #expect(navigator.escape())
+  #expect(surface.presentation.actionsTitle == nil && surface.presentation.agent?.question == "Why?")
+  #expect(navigator.page?.source.contains("Because.") == true && navigator.input == draft)
+
+  model.press(hotkey)
+  navigator.run()
+  await navigator.settled()
+  let action = try #require(gate.row.actions.first)
+  #expect(action.kind == .open(Permission.accessibility.pane))
+  #expect(surface.effects == [.run(action, from: nil)] && requests(root).isEmpty)
+  #expect(surface.presentation.actionsTitle == nil && surface.presentation.agent?.question == "Why?")
+  #expect(navigator.input == draft)
   await model.finish()
 }
 

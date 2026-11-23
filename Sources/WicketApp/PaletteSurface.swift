@@ -81,7 +81,7 @@ struct PalettePresentation: Equatable {
     let page: Page
     let turn: String
   }
-  /// The row whose actions the action panel lists; nil while it is closed.
+  /// The title of the action panel; nil while it is closed.
   var actionsTitle: String?
   /// The agent's screen, nil while another one shows.
   var agent: AgentPresentation?

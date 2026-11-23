@@ -91,7 +91,7 @@ final class Navigator {
   /// is not: what shows next is drawn once it is there.
   private func agentChanged() {
     guard conversing, agent.active else { return }
-    if !agent.permissions.isEmpty { closeActions() }
+    if !agent.permissions.isEmpty, overlay?.source != nil { closeActions() }
     draw()
   }
   /// Ends the agent's screen, then its session. The caller draws the screen under it.
@@ -139,7 +139,13 @@ final class Navigator {
   /// the list.
   var results: [Result] {
     if let overlay { return overlay.rows }
-    guard let page else { return conversing ? [] : listed }
+    guard let page else {
+      if conversing { return [] }
+      if rootResultsHeld, base.rows.first?.provider == Permissions.rootProvider {
+        return Array(base.rows.prefix { $0.provider == Permissions.rootProvider })
+      }
+      return listed
+    }
     let provider = conversing ? "answer" : command?.id ?? ""
     return page.targets.map { Result(provider: provider, row: $0) }
   }
@@ -199,13 +205,13 @@ final class Navigator {
   private var rootResultsCanBeHidden: Bool {
     configuration.resultsOnlyWhenTyping && command == nil && !conversing && overlay == nil && !inDetail
   }
+  private var rootResultsHeld: Bool { rootResultsCanBeHidden && input.isEmpty && !revealedRootList }
   /// A repair or error row can be below the visible list.
   var rootResultsProblem: String? {
     rootResultsCanBeHidden ? rootListProblem : nil
   }
   var rootResultsHidden: Bool {
-    rootResultsCanBeHidden && input.isEmpty && !revealedRootList
-      && base.rows.first?.provider != Permissions.rootProvider
+    rootResultsHeld && base.rows.first?.provider != Permissions.rootProvider
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -235,8 +241,8 @@ final class Navigator {
     draw()
   }
   private var overlay: ActionPresentation?
-  /// The title of the row whose actions the panel lists; nil while it is closed.
-  var actionsTitle: String? { overlay?.source.row.title }
+  /// The title of the action panel; nil while it is closed.
+  var actionsTitle: String? { overlay?.title }
   /// What can be done with a row: its own actions, then the host's (Set Hotkey…, and Remove Hotkey when
   /// one is set). The context menu and the action panel list exactly these.
   func actions(of result: Result) -> [RowAction] {
@@ -266,8 +272,11 @@ final class Navigator {
         provider: "actions",
         row: Row(id: String(index), title: action.label, icon: action.symbol, actions: [action]))
     }
-    guard let first = rows.first else { return }
-    overlay = ActionPresentation(source: source, rows: rows)
+    showActions(ActionPresentation(title: source.row.title, rows: rows, source: source))
+  }
+  private func showActions(_ panel: ActionPresentation) {
+    guard let first = panel.rows.first else { return }
+    overlay = panel
     focusTarget = nil
     select(first.id)
     sizeList(now: true)
@@ -355,19 +364,14 @@ final class Navigator {
   }
   /// Shows the held-back results, as ↓ does: recording a shortcut draws its prompt in the selected row.
   func revealRootResults() {
-    guard rootResultsHidden else { return }
+    guard rootResultsHeld else { return }
     revealedRootList = true
+    sizeList(now: true)
     draw()
   }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
-    defer {
-      if delta > 0, rootResultsCanBeHidden, input.isEmpty, !revealedRootList {
-        let wasHidden = rootResultsHidden
-        revealedRootList = true
-        if wasHidden { draw() }
-      }
-    }
+    if delta > 0 { revealRootResults() }
     let rows = results
     guard !rows.isEmpty else { return }
     guard let current = rows.firstIndex(where: { $0.id == selection }) else {
@@ -1176,7 +1180,7 @@ final class Navigator {
     draw()
   }
   /// The permission card has the keys: ⌘↩ allows, Escape denies, and Return does nothing.
-  var permissionPending: Bool { conversing && !agent.permissions.isEmpty }
+  var permissionPending: Bool { conversing && overlay == nil && !agent.permissions.isEmpty }
   /// Answers the permission the card asks about.
   func decide(_ allow: Bool) { agent.decide(allow) }
   /// Calls off the running turn.
@@ -1317,14 +1321,18 @@ final class Navigator {
       return open(address, from: origin, submitted: true, pressed: hotkey)
     }
     let request = state.request().provider
-    // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
-    // opening for it, since the user is waiting for an effect that will not come.
+    // Show the gate before hiding or running the program: the user is waiting for an effect.
     let rerun = Address(
       id: id, input: request.input, fields: request.fields, action: request.action, hidden: true)
     if let gate = extensions.permissions.gate(program, rerun: rerun) {
       let present = { [self] in
         if conversing {
-          actionProblem = "\(program.manifest.name): \(gate.items[0].title)"
+          if arriving != nil {
+            stopArriving()
+            cancelWork()
+          }
+          let rows = gate.items.map { Result(provider: "actions", row: $0) }
+          showActions(ActionPresentation(title: program.manifest.name, rows: rows, source: nil))
         } else {
           adopt(program, request: request, outcome: .view(gate))
         }

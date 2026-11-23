@@ -108,11 +108,12 @@ struct Detail {
   var selection = Selection(reset: false)
 }
 
-/// The action panel (⌘K): one row's actions as rows of their own, over the screen it was opened on, with
-/// a selection of its own. The row is captured when the panel opens, and what is chosen runs from it.
+/// The action panel over the current screen, with a selection of its own. When opened with ⌘K,
+/// it captures the source row so the chosen action runs from it.
 struct ActionPresentation {
-  let source: Result
+  let title: String
   let rows: [Result]
+  let source: Result?
   var selection = Selection()
 }
 
