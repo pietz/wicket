@@ -57,12 +57,12 @@ enum PaletteEffect: Equatable {
 /// and the native frame is sized from it (`PaletteLayout.cardHeight`), so both take the same values in
 /// the same turn. What is typed into the input and the slots is the fields' own, read as it is.
 struct PalettePresentation: Equatable {
-  var compactRoot = false
+  var rootResultsHidden = false
   var footerProblem: String?
-  var compactRootProblem: String?
-  var footerMessage: String? { footerProblem ?? compactRootProblem }
+  var rootResultsProblem: String?
+  var footerMessage: String? { footerProblem ?? rootResultsProblem }
   var voiceStatus: String?
-  var showsCard: Bool { !compactRoot }
+  var showsCard: Bool { !rootResultsHidden }
   var pillStatus: String? { showsCard ? nil : voiceStatus ?? footerMessage }
   /// What the arrow keys walk: the action panel's rows, the page's targets, else the list.
   var rows: [Result] = []
@@ -118,7 +118,8 @@ extension Navigator {
   /// The screens as the panel draws them now.
   var presentation: PalettePresentation {
     PalettePresentation(
-      compactRoot: compactRoot, footerProblem: footerProblem(), compactRootProblem: compactRootProblem,
+      rootResultsHidden: rootResultsHidden, footerProblem: footerProblem(),
+      rootResultsProblem: rootResultsProblem,
       voiceStatus: speech?.status,
       rows: results, selection: selection, selected: selected, sizedRows: sizedRows,
       rowHeight: configuration.textSize.rowHeight, prominentFirst: prominentFirst, splits: splits,

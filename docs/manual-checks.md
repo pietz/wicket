@@ -9,7 +9,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 1. Press the shortcut: the panel appears near the top of the screen under the pointer, the first keystroke lands. Press it twice quickly: no flicker.
 2. Click outside: it closes. Escape clears the input, a second Escape closes. Open it on another Space and over a full-screen app.
 3. Type steadily while late results arrive (files, a slow extension): the input row never moves, the list grows at once and shrinks only after a pause.
-4. Turn on Open compact under Settings ▸ General. Type or paste into the empty root, clear the field, then press ↓. The card appears, folds and appears again with the top edge in the same place. Reopen and press Return to run the initial result. With voice on, check that the search pill shows listening and the card appears when dictated text arrives. Clear the field and verify the card folds. Check that a voice error or extension problem appears in the pill while folded. Press ↓ to see the status in the footer and scroll to the repair row if there is one. A kept conversation reopens with its own card.
+4. Turn on **Only show results when typing** under Settings ▸ General. Type or paste into the empty root, clear the field, then press ↓. The card appears, folds and appears again with the top edge in the same place. Reopen and press Return to run the initial result. With voice on, check that the search pill shows listening and the card appears when dictated text arrives. Clear the field and verify the card folds. Check that a voice error or extension problem appears in the pill while folded. Press ↓ to see the status in the footer and scroll to the repair row if there is one. A kept conversation reopens with its own card.
 
 ## 2. Search
 

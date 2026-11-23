@@ -59,6 +59,10 @@ struct ConfigurationFile {
       }
       base["blur"] = current.blur
     }
+    // Carry the 0.6.0 value forward on the next save, dropping the obsolete key.
+    if base.removeValue(forKey: "compactOnOpen") != nil, base["resultsOnlyWhenTyping"] == nil {
+      base["resultsOnlyWhenTyping"] = current.resultsOnlyWhenTyping
+    }
     var object = base
     try change(&object)
     guard !NSDictionary(dictionary: object).isEqual(to: base) else { return (nil, current) }

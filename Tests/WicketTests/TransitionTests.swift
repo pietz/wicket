@@ -61,7 +61,7 @@ import Testing
 private let full = PaletteLayout.rowsHeight(8) + PaletteLayout.footer
 private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 
-@MainActor @Test func compactRootKeepsItsSearchAndReturnAndRevealsTheCard() async throws {
+@MainActor @Test func hiddenRootResultsKeepItsSearchAndReturnAndRevealsTheCard() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let initial = try extensionFolder(
@@ -72,7 +72,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   let apps = GatedApps()
   let model = LauncherModel(
     apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
-  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: model.store.url)
   model.store.load()
   await model.extensions.reload()
   let navigator = model.navigator
@@ -110,11 +110,11 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   await model.finish()
 }
 
-@MainActor @Test func compactRootKeepsProblemsInThePillAndReopensAKeptConversation() async throws {
+@MainActor @Test func hiddenRootResultsKeepProblemsInThePillAndReopensAKeptConversation() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
-  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: model.store.url)
   model.store.load()
   let navigator = model.navigator
   let surface = RecordingSurface()

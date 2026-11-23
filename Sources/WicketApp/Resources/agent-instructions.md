@@ -74,7 +74,7 @@ You run in Wicket's working folder, `{{folder}}`. Everything the user can set or
 
 - `{{contract}}`: the extension contract: manifests, typed fields, requests, views, actions, hotkeys and testing. Read it before writing or changing an extension or a hotkey; it also names the examples and the built-in extensions to learn from. Convert (folder `units`) already handles single unit and currency quantities. Add personal bookmarks and site searches to `extensions/links-search/user.json` in the working folder, following the contract recipes. Search the Web (folder `web`) supplies the general fallback. For saving a window placement or binding it to a shortcut, follow the Window Manager recipe.
 - `{{extensions}}`: live extension folders, including personal items for built-ins as described in the contract.
-- `{{config}}`: Wicket's settings, reloaded live. Set `"compactOnOpen": true` to open the empty root with just the search field. Status messages appear in the search pill until the results card is revealed.
+- `{{config}}`: Wicket's settings, reloaded live. Set `"resultsOnlyWhenTyping": true` to hide the initial results when Wicket opens. Status messages appear in the search pill until the results card is revealed.
 - `{{executable}}`: the Wicket executable, for the contract's headless tests.
 - `instructions.md` and `theme.css` in the working folder: the owner's own standing instructions, appended to these, and the stylesheet that restyles answers and extension pages.
 

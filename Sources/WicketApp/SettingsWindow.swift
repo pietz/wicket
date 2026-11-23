@@ -191,7 +191,7 @@ struct SettingsPane: View {
           Text(size.rawValue.capitalized).tag(size.rawValue)
         }
       }
-      Toggle("Open compact", isOn: binding(config.compactOnOpen, key: "compactOnOpen"))
+      Toggle("Only show results when typing", isOn: resultsOnlyWhenTyping)
     }
     let ids = Set(extensions.ids)
     let unavailable = extensions.unavailableItemHotkeys(config.hotkeys).filter {
@@ -577,6 +577,10 @@ struct SettingsPane: View {
   }
   private static func megabytes(_ bytes: Int) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+  }
+
+  var resultsOnlyWhenTyping: Binding<Bool> {
+    binding(config.resultsOnlyWhenTyping, key: "resultsOnlyWhenTyping")
   }
 
   private func binding<T>(_ value: T, key: String, group: String? = nil) -> Binding<T> {

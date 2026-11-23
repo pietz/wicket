@@ -39,11 +39,11 @@ import Testing
   }
 }
 
-@MainActor @Test func compactRootKeepsVoiceStatusInThePillUntilDictationArrives() async throws {
+@MainActor @Test func hiddenRootResultsKeepVoiceStatusInThePillUntilDictationArrives() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
-  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: model.store.url)
   model.store.load()
   let fake = FakeTranscriber()
   let navigator = model.navigator

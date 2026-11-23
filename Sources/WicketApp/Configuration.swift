@@ -73,7 +73,7 @@ struct Configuration: Codable, Equatable, Sendable {
   /// Each extension's settings by folder name, strings as the manifest declares them: `{"window":{"gap":"8"}}`.
   var extensions: [String: [String: String]] = [:]
   var appearance = Appearance.system
-  var compactOnOpen = false
+  var resultsOnlyWhenTyping = false
   /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
   var backgroundTransparency: Double = 0.5
   /// The defaults of earlier looks, which every new file stored: 0.15 before Liquid Glass (through 0.3.4),
@@ -94,8 +94,9 @@ struct Configuration: Codable, Equatable, Sendable {
   init() {}
   private enum CodingKeys: String, CodingKey {
     case hotkey, hotkeys, appearance, backgroundTransparency, blur, providers, agent, voice, textSize,
-      extensions, compactOnOpen
+      extensions, resultsOnlyWhenTyping
   }
+  private enum LegacyKey: String, CodingKey { case compactOnOpen }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     textSize = try c.decodeIfPresent(TextSize.self, forKey: .textSize) ?? textSize
@@ -105,7 +106,12 @@ struct Configuration: Codable, Equatable, Sendable {
     hotkeys = try c.decodeIfPresent([Hotkey].self, forKey: .hotkeys) ?? hotkeys
     extensions = try c.decodeIfPresent([String: [String: String]].self, forKey: .extensions) ?? extensions
     appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? appearance
-    compactOnOpen = try c.decodeIfPresent(Bool.self, forKey: .compactOnOpen) ?? compactOnOpen
+    resultsOnlyWhenTyping = try c.decodeIfPresent(Bool.self, forKey: .resultsOnlyWhenTyping) ?? false
+    if !c.contains(.resultsOnlyWhenTyping) {
+      let legacy = try decoder.container(keyedBy: LegacyKey.self)
+      // Fall back to the name shipped in 0.6.0 until the next settings edit migrates it.
+      resultsOnlyWhenTyping = try legacy.decodeIfPresent(Bool.self, forKey: .compactOnOpen) ?? false
+    }
     let storedBlur = try c.decodeIfPresent(Double.self, forKey: .blur)
     blur = storedBlur ?? blur
     if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency),

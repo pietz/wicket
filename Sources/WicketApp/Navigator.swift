@@ -80,7 +80,9 @@ final class Navigator {
         if agentOwnsCommandInput { return publish() }
         refresh(typed: changed)
         // The card can change as soon as the input changes, before the new rows arrive.
-        if configuration.compactOnOpen, newValue.isEmpty != previous.isEmpty, search.isSearching { draw() }
+        if configuration.resultsOnlyWhenTyping, newValue.isEmpty != previous.isEmpty, search.isSearching {
+          draw()
+        }
       }
     }
   }
@@ -182,10 +184,10 @@ final class Navigator {
     didSet { if confirmationHeight != oldValue { draw() } }
   }
   /// What the last action could not do, until the next action, the user's next input or the configuration
-  /// changing. Draw it with the conversation or the compact pill.
+  /// changing. Draw it with the conversation or the search pill.
   var actionProblem: String? {
     didSet {
-      if actionProblem != oldValue, conversing || compactRoot {
+      if actionProblem != oldValue, conversing || rootResultsHidden {
         draw()
       }
     }
@@ -194,15 +196,15 @@ final class Navigator {
   /// Down reveals the empty root for this visit. Typing or hiding starts it over.
   private var revealedRootList = false
   private var rootListProblem: String?
-  private var isCompactRootList: Bool {
-    configuration.compactOnOpen && command == nil && !conversing && overlay == nil && !inDetail
+  private var rootResultsCanBeHidden: Bool {
+    configuration.resultsOnlyWhenTyping && command == nil && !conversing && overlay == nil && !inDetail
   }
   /// A repair or error row can be below the visible list.
-  var compactRootProblem: String? {
-    isCompactRootList ? rootListProblem : nil
+  var rootResultsProblem: String? {
+    rootResultsCanBeHidden ? rootListProblem : nil
   }
-  var compactRoot: Bool {
-    isCompactRootList && input.isEmpty && !revealedRootList
+  var rootResultsHidden: Bool {
+    rootResultsCanBeHidden && input.isEmpty && !revealedRootList
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -353,7 +355,7 @@ final class Navigator {
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     defer {
-      if delta > 0, compactRoot {
+      if delta > 0, rootResultsHidden {
         revealedRootList = true
         draw()
       }

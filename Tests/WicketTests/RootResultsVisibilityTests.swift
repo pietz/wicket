@@ -3,10 +3,10 @@ import Testing
 
 @testable import WicketApp
 
-@MainActor @Test func compactPanelAppliesSettingsOnReopenAndLaunch() async throws {
+@MainActor @Test func resultsOnlyWhenTypingAppliesOnReopenAndLaunch() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let model = compactPanelModel(in: root)
+  let model = rootResultsModel(in: root)
   let voice = FakeTranscriber()
   let controller = PaletteController(model: model, drawsGlass: false, transcriber: { voice })
   model.store.start(watching: false)
@@ -14,14 +14,14 @@ import Testing
   await model.navigator.settled()
   #expect(controller.panel.frame.height > searchOnlyHeight)
   controller.input.arm()
-  let nonCompactFeed = try #require(voice.feeds.last)
-  nonCompactFeed.finish(throwing: VoiceError.noMicrophone)
+  let visibleResultsFeed = try #require(voice.feeds.last)
+  visibleResultsFeed.finish(throwing: VoiceError.noMicrophone)
   #expect(await eventually { controller.presentation.voiceStatus == VoiceError.noMicrophone.description })
   #expect(controller.panel.frame.height > searchOnlyHeight)
   #expect(controller.presentation.pillStatus == nil)
 
   controller.hide()
-  try #require(model.store.change { try $0.set("compactOnOpen", to: true) })
+  try #require(model.store.change { try $0.set("resultsOnlyWhenTyping", to: true) })
   controller.show(orderFront: false, listen: false)
   await model.navigator.settled()
   #expect(controller.panel.frame.height == searchOnlyHeight)
@@ -38,11 +38,11 @@ import Testing
   controller.show(orderFront: false)
   #expect(controller.panel.frame.height == searchOnlyHeight)
   #expect(controller.presentation.pillStatus == "Starting voice…")
-  let compactFeed = try #require(voice.feeds.last)
-  compactFeed.yield(.ready)
+  let hiddenResultsFeed = try #require(voice.feeds.last)
+  hiddenResultsFeed.yield(.ready)
   #expect(await eventually { controller.presentation.pillStatus == "Listening…" })
   #expect(controller.panel.frame.height == searchOnlyHeight)
-  compactFeed.yield(.transcript("App"))
+  hiddenResultsFeed.yield(.transcript("App"))
   #expect(await eventually { model.navigator.input == "App" })
   #expect(controller.panel.frame.height > searchOnlyHeight)
   #expect(controller.presentation.pillStatus == nil)
@@ -66,7 +66,7 @@ import Testing
   #expect(controller.presentation.agent?.question == "A question")
   await controller.finish()
 
-  let relaunched = compactPanelModel(in: root)
+  let relaunched = rootResultsModel(in: root)
   let next = PaletteController(model: relaunched, drawsGlass: false)
   relaunched.store.start(watching: false)
   next.showOnLaunch(nil, orderFront: false)
@@ -75,13 +75,13 @@ import Testing
   await next.finish()
 }
 
-@MainActor @Test func compactPanelShowsRepairStatusInThePillAndRevealsItsRow() async throws {
+@MainActor @Test func hiddenRootResultsShowRepairStatusInThePillAndRevealItsRow() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let folder = try extensionFolder(root, name: "broken")
   try Data("{}".utf8).write(to: folder.appending(path: "wicket.json"))
-  let model = compactPanelModel(in: root)
-  try Data(#"{"compactOnOpen":true}"#.utf8).write(to: model.store.url)
+  let model = rootResultsModel(in: root)
+  try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: model.store.url)
   let controller = PaletteController(model: model, drawsGlass: false)
   model.store.start(watching: false)
   controller.showOnLaunch(nil, orderFront: false)
@@ -124,13 +124,13 @@ import Testing
 
 private let searchOnlyHeight = PaletteLayout.panelHeight(card: 0)
 
-@MainActor private func compactPanelModel(in root: URL) -> LauncherModel {
+@MainActor private func rootResultsModel(in root: URL) -> LauncherModel {
   LauncherModel(
-    apps: CompactPanelApps(), history: UsageHistory(url: root.appending(path: "usage.json")),
+    apps: RootResultsApps(), history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root, bundled: nil)
 }
 
-@MainActor private struct CompactPanelApps: Provider {
+@MainActor private struct RootResultsApps: Provider {
   let id = "apps"
   func view(for request: ProviderRequest) async -> ProviderView {
     .init(items: (0..<12).map { row("App \($0)") })

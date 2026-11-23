@@ -34,8 +34,8 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
 
 @Test func settingsWriteEachValueAndSwitchAgentWithoutCarryingOptions() throws {
   try withSettings { file in
-    #expect(try !Configuration.load(at: file.url).compactOnOpen)
-    try file.set("compactOnOpen", to: true)
+    #expect(try !Configuration.load(at: file.url).resultsOnlyWhenTyping)
+    try file.set("resultsOnlyWhenTyping", to: true)
     try file.set("hotkey", to: "ctrl+option+k")
     try file.set("backgroundTransparency", to: 0.65)
     try file.set("enabled", to: false, in: "voice")
@@ -46,7 +46,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     try file.setProvider("files", enabled: false)
     try file.setProvider("extension:new", enabled: true)
     let config = try Configuration.load(at: file.url)
-    #expect(config.compactOnOpen)
+    #expect(config.resultsOnlyWhenTyping)
     #expect(config.hotkey == (try Shortcut("ctrl+option+k")))
     #expect(config.backgroundTransparency == 0.65 && !config.voice.enabled)
     #expect(config.agent.agent == .codex && config.agent.model == "gpt-6")
@@ -60,6 +60,51 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(try Configuration.load(at: file.url).agent.model == nil)
     try file.selectAgent("claude")
     #expect(try Configuration.load(at: file.url).agent == AgentConfiguration())
+  }
+}
+
+@Test(arguments: [
+  (#"{"resultsOnlyWhenTyping":true}"#, true),
+  (#"{"compactOnOpen":true}"#, true),
+  (#"{"compactOnOpen":true,"resultsOnlyWhenTyping":false}"#, false),
+  (#"{"compactOnOpen":false,"resultsOnlyWhenTyping":true}"#, true),
+  (#"{"compactOnOpen":true,"resultsOnlyWhenTyping":null}"#, false),
+])
+func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: String, expected: Bool) throws {
+  try withSettings(json) { file in
+    let configuration = try Configuration.load(at: file.url)
+    #expect(configuration.resultsOnlyWhenTyping == expected)
+  }
+}
+
+@Test func savingSettingsCarriesTheLegacyResultsPreferenceForward() throws {
+  try withSettings(#"{"compactOnOpen":true,"future":42}"#) { file in
+    try file.set("appearance", to: "dark")
+    let written = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
+    #expect(written["resultsOnlyWhenTyping"] as? Bool == true)
+    #expect(written["compactOnOpen"] == nil)
+    #expect(written["future"] as? Int == 42)
+  }
+}
+
+@MainActor @Test func resultsOnlyWhenTypingToggleWritesOnlyTheNewKey() throws {
+  try withSettings(#"{"compactOnOpen":true}"#) { file in
+    let root = file.url.deletingLastPathComponent()
+    let store = ConfigurationStore(url: file.url)
+    store.start(watching: false)
+    let pane = SettingsPane(
+      section: 0, store: store, extensions: ExtensionHost(folder: root, bundled: nil),
+      clipboard: ClipboardHistory(
+        url: root.appending(path: "clipboard.json"), pasteboard: FakePasteboard(), interval: nil),
+      runs: AgentHistory(url: root.appending(path: "runs.json")), updater: nil, pauseHotkey: { _ in })
+    #expect(pane.resultsOnlyWhenTyping.wrappedValue)
+    pane.resultsOnlyWhenTyping.wrappedValue = false
+    #expect(!pane.resultsOnlyWhenTyping.wrappedValue)
+    let written = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
+    #expect(written["resultsOnlyWhenTyping"] as? Bool == false)
+    #expect(written["compactOnOpen"] == nil)
   }
 }
 
@@ -620,7 +665,7 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
           guard releaseFirst.wait(timeout: .now() + .seconds(5)) == .success else {
             throw CocoaError(.fileWriteUnknown)
           }
-          object["compactOnOpen"] = true
+          object["resultsOnlyWhenTyping"] = true
         }
       } catch { Issue.record(error) }
     }
@@ -630,7 +675,7 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
         secondCalling.signal()
         try ConfigurationFile(url: alias).edit { object in
           secondEditing.signal()
-          #expect(object["compactOnOpen"] as? Bool == true)
+          #expect(object["resultsOnlyWhenTyping"] as? Bool == true)
           object["backgroundTransparency"] = 0.75
         }
       } catch { Issue.record(error) }
@@ -640,7 +685,7 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
     releaseFirst.signal()
     try #require(saves.wait(timeout: .now() + .seconds(5)) == .success)
     let updated = try Configuration.load(at: file.url)
-    #expect(updated.compactOnOpen && updated.backgroundTransparency == 0.75)
+    #expect(updated.resultsOnlyWhenTyping && updated.backgroundTransparency == 0.75)
     #expect(try FileManager.default.destinationOfSymbolicLink(atPath: alias.path) == file.url.path)
   }
 }
