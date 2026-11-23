@@ -86,6 +86,8 @@ struct SettingsPane: View {
   @State var selected: String? = "apps"
   @State private var copyProblem: String?
   @State private var confirmingTrash = false
+  /// The local copy as it was when the user asked to trash it.
+  @State private var trashing: ExtensionHost.LocalCopy?
   private var config: Configuration { store.configuration }
 
   var body: some View {
@@ -513,35 +515,38 @@ struct SettingsPane: View {
     let retired = extensions.localCopies[id]?.retired == true
     let usingBundled = extensions.problems[id]?.usingBundled == true
     let item = retired ? "the old copy of “\(title(id))”" : "“\(title(id))”"
-    return Button("Move to Trash…") { confirmingTrash = true }
-      .disabled(store.problem != nil)
-      .confirmationDialog("Move \(item) to the Trash?", isPresented: $confirmingTrash) {
-        Button("Move to Trash", role: .destructive) {
-          let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
-          copyProblem = nil
-          do { try extensions.trash(id) } catch {
-            copyProblem = error.localizedDescription
-            return
-          }
-          guard !restores else { return }
-          store.change { try $0.forget(extension: name) }
-          let index = others.firstIndex(of: id) ?? 0
-          selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
+    return Button("Move to Trash…") {
+      trashing = extensions.localCopies[id]
+      confirmingTrash = true
+    }
+    .disabled(store.problem != nil)
+    .confirmationDialog("Move \(item) to the Trash?", isPresented: $confirmingTrash) {
+      Button("Move to Trash", role: .destructive) {
+        let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
+        copyProblem = nil
+        do { try extensions.trash(id, confirmed: trashing) } catch {
+          copyProblem = error.localizedDescription
+          return
         }
-      } message: {
-        if retired {
-          Text(
-            "The built-in stays active, and any personal items in user.json stay in your extensions folder.")
-        } else if usingBundled {
-          Text("The built-in stays active. To keep any personal items, copy user.json out of the Trash.")
-        } else if restores {
-          Text(
-            "The built-in version comes back in its place, with your settings and hotkeys. You can restore your copy from the Trash."
-          )
-        } else {
-          Text("Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
-        }
+        guard !restores else { return }
+        store.change { try $0.forget(extension: name) }
+        let index = others.firstIndex(of: id) ?? 0
+        selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
       }
+    } message: {
+      if retired {
+        Text(
+          "The built-in stays active, and any personal items in user.json stay in your extensions folder.")
+      } else if usingBundled {
+        Text("The built-in stays active. To keep any personal items, copy user.json out of the Trash.")
+      } else if restores {
+        Text(
+          "The built-in version comes back in its place, with your settings and hotkeys. You can restore your copy from the Trash."
+        )
+      } else {
+        Text("Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
+      }
+    }
   }
   private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
     let keys = config.hotkeys.first { $0.target == target }?.keys

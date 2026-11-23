@@ -365,8 +365,11 @@ final class ExtensionHost {
     let name = command.folder.lastPathComponent
     let copy = folder.appending(path: "extensions/" + name)
     if files.fileExists(atPath: copy.path) {
+      // The folder may already hold user.json and files Finder adds, such as .DS_Store; only the
+      // extension's own files must not be there yet.
+      let incoming = try files.contentsOfDirectory(atPath: command.folder.path)
       guard try files.attributesOfItem(atPath: copy.path)[.type] as? FileAttributeType == .typeDirectory,
-        try files.contentsOfDirectory(atPath: copy.path) == ["user.json"]
+        Set(try files.contentsOfDirectory(atPath: copy.path)).isDisjoint(with: incoming)
       else {
         throw ExtensionFailure("Your extensions folder already has a folder named \(name).")
       }
@@ -407,9 +410,13 @@ final class ExtensionHost {
       ?? false
   }
   /// A retired override can be removed without interrupting its built-in or moving personal items.
-  func trash(_ id: String) throws {
+  /// `confirmed` is the copy the user agreed to remove; if a rescan changed it since, nothing moves.
+  func trash(_ id: String, confirmed: LocalCopy? = nil) throws {
     guard let copy = localCopies[id] else {
       throw ExtensionFailure("Only your own extensions can be moved to the Trash.")
+    }
+    if let confirmed, confirmed != copy {
+      throw ExtensionFailure("The local copy changed. Review it before moving it to the Trash.")
     }
     defer { rescan() }
     if copy.retired {

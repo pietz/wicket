@@ -451,13 +451,16 @@ func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) asy
   if withSavedMove {
     #expect(host.ownFolder(id) == nil)
     #expect(window.items.filter(\.isUserItem).map(\.id) == ["desk"])
-    let other = local.appending(path: ".keep")
+    // A file the copy would install blocks it; unrelated files such as .DS_Store don't.
+    let other = local.appending(path: "main.swift")
     let contents = Data("owner's file".utf8)
     try contents.write(to: other)
+    try Data().write(to: local.appending(path: ".DS_Store"))
     #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
     #expect(try Data(contentsOf: other) == contents)
     #expect(try Data(contentsOf: userFile) == saved)
-    #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == ["user.json", ".keep"])
+    #expect(
+      Set(try files.contentsOfDirectory(atPath: local.path)) == ["user.json", "main.swift", ".DS_Store"])
     try files.removeItem(at: other)
   }
 
@@ -472,7 +475,7 @@ func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) asy
   let bundledEntries = try files.contentsOfDirectory(atPath: window.folder.path)
   #expect(
     Set(try files.contentsOfDirectory(atPath: local.path))
-      == Set(bundledEntries + (withSavedMove ? ["user.json"] : [])))
+      == Set(bundledEntries + (withSavedMove ? ["user.json", ".DS_Store"] : [])))
   #expect(files.isExecutableFile(atPath: mine.folder.appending(path: "main").path))
   if withSavedMove { #expect(try Data(contentsOf: userFile) == saved) }
   #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
@@ -522,7 +525,11 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
   let saved = try JSONEncoder().encode([
     "items": [Row(id: "marathon", title: "Marathon", actions: [.run(Address(input: "42.195 km in mi"))])]
   ])
-  if keepItems { try saved.write(to: userFile) }
+  if keepItems {
+    try saved.write(to: userFile)
+    // Show in Finder leaves one behind; it must not block a fresh copy.
+    try Data().write(to: local.appending(path: ".DS_Store"))
+  }
   let host = ExtensionHost(folder: root, bundled: bundledExtensions)
   let id = "extension:units"
   await host.reload()
@@ -537,7 +544,8 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
     host.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
     #expect(throws: CocoaError.self) { try host.trash(id) }
     #expect(
-      Set(try files.contentsOfDirectory(atPath: local.path)) == ["main.py", "user.json", "wicket.json"])
+      Set(try files.contentsOfDirectory(atPath: local.path))
+        == ["main.py", "user.json", "wicket.json", ".DS_Store"])
     #expect(try Data(contentsOf: userFile) == saved)
   }
   host.moveToTrash = {
@@ -550,7 +558,7 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
   let trashed = trash.appending(path: "units")
   #expect(Set(try files.contentsOfDirectory(atPath: trashed.path)) == ["main.py", "wicket.json"])
   if keepItems {
-    #expect(try files.contentsOfDirectory(atPath: local.path) == ["user.json"])
+    #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == ["user.json", ".DS_Store"])
     #expect(try Data(contentsOf: userFile) == saved)
   } else {
     #expect(!files.fileExists(atPath: local.path))
@@ -562,6 +570,27 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
   #expect(!host.isBundled(mine))
   #expect(mine.manifest == builtIn.manifest && mine.items == builtIn.items)
   if keepItems { #expect(try Data(contentsOf: userFile) == saved) }
+}
+
+@MainActor @Test func trashRefusesACopyThatChangedAfterTheUserConfirmed() async throws {
+  let files = FileManager.default
+  let root = try scratch()
+  defer { try? files.removeItem(at: root) }
+  let local = root.appending(path: "extensions/units")
+  try files.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+  try files.copyItem(at: fixtureURL("retired-units"), to: local)
+  let host = ExtensionHost(folder: root, bundled: bundledExtensions)
+  let id = "extension:units"
+  await host.reload()
+  let confirmed = try #require(host.localCopies[id])
+  #expect(confirmed.retired)
+  // Repaired into a valid override while the dialog was open.
+  try files.removeItem(at: local)
+  try files.copyItem(at: bundledExtensions.appending(path: "units"), to: local)
+  await host.reload()
+  host.moveToTrash = { _ in Issue.record("Nothing should move to the Trash") }
+  #expect(throws: ExtensionFailure.self) { try host.trash(id, confirmed: confirmed) }
+  #expect(files.fileExists(atPath: local.appending(path: "wicket.json").path))
 }
 
 @Test func forgettingAnExtensionRemovesOnlyItsSwitchSettingsAndHotkeys() throws {
