@@ -46,7 +46,7 @@ func answering(_ title: String) -> String {
     #expect(throws: (any Error).self) { try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8)) }
   }
   for manifest in [
-    #"{"contract":2,"name":"Bad","command":[]}"#, #"{"name":"Bad","command":["echo"],"match":"["}"#,
+    #"{"contract":2,"name":"Bad","command":[]}"#,
     // Neither a command nor items; a pattern or fallback without a program; the view's item rule.
     #"{"name":"Bad"}"#, #"{"name":"Bad","items":[],"match":"x"}"#,
     #"{"name":"Bad","items":[],"fallback":true}"#,
@@ -65,6 +65,43 @@ func answering(_ title: String) -> String {
     ExtensionManifest.self,
     from: Data(#"{"contract":2,"name":"Both","command":["echo"],"match":"x","items":[]}"#.utf8))
   #expect(both.command == ["echo"] && both.items == [])
+}
+
+@Test func invalidExtensionPatternsFailAtTheMatchKey() throws {
+  let limit = String(repeating: "é", count: 256)
+  let json = #"{"contract":2,"name":"Pattern","command":["echo"],"match":"\#(limit)"}"#
+  _ = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+  for pattern in ["[", limit + "x"] {
+    let invalid = #"{"contract":2,"name":"Pattern","command":["echo"],"match":"\#(pattern)"}"#
+    do {
+      _ = try JSONDecoder().decode(ExtensionManifest.self, from: Data(invalid.utf8))
+      Issue.record("An invalid pattern decoded")
+    } catch let DecodingError.dataCorrupted(context) {
+      #expect(context.codingPath.map(\.stringValue) == ["match"])
+    }
+  }
+}
+
+@Test func extensionPatternsMatchRepeatedlyAndRespectTheInputLimit() throws {
+  let decoder = JSONDecoder()
+  let data = Data(#"{"contract":2,"name":"Pattern","command":["echo"],"match":"^🌍"}"#.utf8)
+  let manifest = try decoder.decode(ExtensionManifest.self, from: data)
+  let atLimit = String(repeating: "🌍", count: 1024)
+  #expect(manifest.matches(atLimit))
+  #expect(!manifest.matches(atLimit + "!"))
+  #expect(!manifest.matches("hello🌍"))
+  #expect(manifest.matches("🌍hello"))
+
+  let roundTrip = try decoder.decode(ExtensionManifest.self, from: JSONEncoder().encode(manifest))
+  #expect(roundTrip == manifest)
+  #expect(roundTrip.matches("🌍hello"))
+  let differentPattern = try decoder.decode(
+    ExtensionManifest.self,
+    from: Data(#"{"contract":2,"name":"Pattern","command":["echo"],"match":"^x"}"#.utf8))
+  #expect(differentPattern != manifest)
+  let withoutPattern = try decoder.decode(
+    ExtensionManifest.self, from: Data(#"{"contract":2,"name":"Pattern","command":["echo"]}"#.utf8))
+  #expect(!withoutPattern.matches("🌍hello"))
 }
 
 @MainActor @Test func anExtensionWithItemsAndNoCommandIsAnsweredByWicketAndFoundAtTheRoot() async throws {

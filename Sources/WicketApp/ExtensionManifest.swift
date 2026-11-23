@@ -13,7 +13,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   /// The program that answers the command. Without one, Wicket answers it from `items`.
   let command: [String]?
   let icon: String?
-  let match: String?
+  private let match: MatchPattern?
   let fallback: Bool
   /// A known list read once: name matches at the root, and the command's view when there is no program.
   let items: [Row]?
@@ -28,6 +28,19 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   /// The macOS permissions its program needs, which Wicket checks before running it
   /// (`Permissions.gate`).
   let permissions: [Permission]
+
+  private struct MatchPattern: Encodable, Sendable, Equatable {
+    let pattern: String
+    // NSRegularExpression is immutable and thread-safe.
+    let regex: NSRegularExpression
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.pattern == rhs.pattern }
+
+    func encode(to encoder: any Encoder) throws {
+      var container = encoder.singleValueContainer()
+      try container.encode(pattern)
+    }
+  }
 
   struct Field: Codable, Sendable, Equatable {
     enum Kind: String, Codable, Sendable { case text, number, bool, choice }
@@ -111,7 +124,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     description = try c.decodeIfPresent(String.self, forKey: .description)
     keyword = try c.decodeIfPresent(String.self, forKey: .keyword)
     icon = try c.decodeIfPresent(String.self, forKey: .icon)
-    match = try c.decodeIfPresent(String.self, forKey: .match)
+    let pattern = try c.decodeIfPresent(String.self, forKey: .match)
     fallback = try c.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
     items = try c.decodeIfPresent([Row].self, forKey: .items)
     fields = try c.decodeIfPresent([Field].self, forKey: .fields) ?? []
@@ -164,7 +177,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
         throw DecodingError.dataCorruptedError(
           forKey: .command, in: c, debugDescription: "A manifest needs a command, items or both")
       }
-      guard match == nil, !fallback, !submit else {
+      guard pattern == nil, !fallback, !submit else {
         throw DecodingError.dataCorruptedError(
           forKey: .command, in: c, debugDescription: "match, fallback and submit need a command")
       }
@@ -172,18 +185,19 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     if let items, !Row.validIDs(items) {
       throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
     }
-    if let match {
-      guard match.utf8.count <= 512, (try? NSRegularExpression(pattern: match)) != nil else {
+    if let pattern {
+      guard pattern.utf8.count <= 512, let regex = try? NSRegularExpression(pattern: pattern) else {
         throw DecodingError.dataCorruptedError(
           forKey: .match, in: c, debugDescription: "Invalid match regular expression (maximum 512 bytes)")
       }
+      match = MatchPattern(pattern: pattern, regex: regex)
+    } else {
+      match = nil
     }
   }
 
   func matches(_ input: String) -> Bool {
-    guard input.utf8.count <= 4096, let match,
-      let regex = try? NSRegularExpression(pattern: match)
-    else { return false }
+    guard input.utf8.count <= 4096, let regex = match?.regex else { return false }
     var found = false
     let deadline = ContinuousClock.now + .milliseconds(5)
     regex.enumerateMatches(
