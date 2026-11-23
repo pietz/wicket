@@ -478,7 +478,10 @@ struct SettingsPane: View {
       } ?? []
     if !targets.isEmpty {
       Section("Hotkeys") {
-        ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
+        ForEach(targets, id: \.1) { title, target in
+          let conflicted = target.item.map { command?.conflictingItemIDs.contains($0) == true } ?? false
+          hotkeyRow(title, target, conflicted: conflicted)
+        }
         if recorder.target != nil { recorderHint }
         if let rejection = store.rejection, targets.contains(where: { $0.1 == rejection.target }) {
           warning(rejection.problem)
@@ -515,7 +518,7 @@ struct SettingsPane: View {
             : "Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
       }
   }
-  private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
+  private func hotkeyRow(_ title: String, _ target: HotkeyTarget, conflicted: Bool = false) -> some View {
     let keys = config.hotkeys.first { $0.target == target }?.keys
     return LabeledContent(title) {
       if keys != nil {
@@ -525,6 +528,7 @@ struct SettingsPane: View {
       shortcutButton(keys?.symbols ?? "Record Hotkey", recording: recorder.target == target, minWidth: 110) {
         recorder.record(target, store: store, pausing: pauseHotkey)
       }
+      .disabled(conflicted)
     }
   }
   /// A shortcut's button: it shows the keys, and a press starts recording or, while recording, stops it.

@@ -150,3 +150,120 @@ func invalidUserItemIDsRejectTheWholeFile(_ id: String) async throws {
       "Item ids must be nonempty and unique across wicket.json and user.json") == true)
   await model.finish()
 }
+
+@MainActor @Test func aManifestUpdatePausesTheHotkeyForACollidingUserItem() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let script = "cat >> log.jsonl"
+  let folder = try extensionFolder(root, name: "mover", script: script)
+  try Data(
+    #"""
+    {"items":[{"id":"work","title":"My layout","actions":[{"type":"run","action":"my-layout","hidden":true}]}]}
+    """#.utf8
+  ).write(to: folder.appending(path: "user.json"))
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.start(watching: false)
+  let surface = RecordingSurface()
+  surface.shown = false
+  model.navigator.surface = surface
+  await model.extensions.reload()
+
+  let target = HotkeyTarget(target: "extension:mover", item: "work")
+  model.store.bind(try Shortcut("ctrl+option+w"), to: target)
+  #expect(model.configuration.hotkeys.map(\.target) == [target])
+  model.press(target)
+  await model.navigator.settled()
+  #expect(try requests(in: folder).map(\.action) == ["my-layout"])
+  #expect(surface.shows == 0)
+
+  _ = try extensionFolder(
+    root, name: "mover", script: script,
+    fields: [
+      "items": [
+        [
+          "id": "work", "title": "Stock layout",
+          "actions": [["type": "run", "action": "stock-layout", "hidden": true]],
+        ]
+      ]
+    ])
+  await model.extensions.reload()
+  model.press(target)
+  await model.navigator.settled()
+  #expect(try requests(in: folder).map(\.action) == ["my-layout"])
+  #expect(surface.shows == 1)
+  let repair = try #require(model.navigator.results.first { $0.row.id == "discovery-error" })
+  #expect(repair.row.subtitle == "Hotkeys paused for duplicate item IDs")
+
+  model.navigator.input = "Stock layout"
+  await model.navigator.settled()
+  let stock = try #require(model.navigator.results.first { $0.row.id == "item:work" })
+  #expect(model.navigator.hotkeyTarget(of: stock) == nil)
+  model.navigator.select(stock.id)
+  #expect(model.activateReturn())
+  await model.navigator.settled()
+  #expect(try requests(in: folder).map(\.action) == ["my-layout", "stock-layout"])
+  await model.finish()
+}
+
+@MainActor @Test func aProgramRowSharingAUserItemIDNeedsTheSamePrimaryActionToOfferAHotkey() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "agenda",
+    script: #"""
+      echo '{"items":[
+        {"id":"today","title":"From the program","actions":[{"type":"copy","text":"program"}]},
+        {"id":"tomorrow","title":"From both","actions":[{"type":"copy","text":"same","title":"Copy from view"}]}
+      ]}'
+      """#)
+  try Data(
+    #"""
+    {"items":[
+      {"id":"today","title":"Today","actions":[{"type":"copy","text":"user"}]},
+      {"id":"tomorrow","title":"Tomorrow","actions":[{"type":"copy","text":"same"}]}
+    ]}
+    """#.utf8
+  ).write(to: folder.appending(path: "user.json"))
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+
+  let id = "extension:agenda"
+  model.navigator.go(Address(id: id))
+  await model.navigator.settled()
+  let today = try #require(model.navigator.results.first { $0.row.id == "today" })
+  model.navigator.select(today.id)
+  #expect(model.navigator.returnAction == .copy("program"))
+  model.navigator.toggleActions()
+  #expect(model.navigator.results.flatMap(\.row.actions) == [.copy("program")])
+  model.navigator.toggleActions()
+
+  let tomorrow = try #require(model.navigator.results.first { $0.row.id == "tomorrow" })
+  #expect(model.navigator.hotkeyTarget(of: tomorrow) == HotkeyTarget(target: id, item: "tomorrow"))
+  await model.finish()
+}
+
+@MainActor @Test func upgradedUnitsReadsUserItemsFromItsRetiredFolder() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let extensions = root.appending(path: "extensions")
+  try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
+  let units = extensions.appending(path: "units")
+  try FileManager.default.copyItem(at: fixtureURL("retired-units"), to: units)
+  try Data(
+    #"""
+    {"items":[{"id":"marathon","title":"Marathon distance","actions":[{"type":"run","input":"42.195 km to mi"}]}]}
+    """#.utf8
+  ).write(to: units.appending(path: "user.json"))
+  #expect(ExtensionHost.isRetired(units))
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  await model.extensions.reload()
+
+  let command = try #require(model.extensions.commands["extension:units"])
+  #expect(model.extensions.isBundled(command))
+  #expect(command.manifest.command == ["./main"])
+  #expect(model.extensions.problems.isEmpty)
+  model.navigator.input = "Marathon distance"
+  await model.navigator.settled()
+  #expect(model.navigator.results.contains { $0.provider == command.id && $0.row.id == "item:marathon" })
+  await model.finish()
+}

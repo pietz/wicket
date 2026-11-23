@@ -82,19 +82,26 @@ extension HostCommand {
       "\(name(of: id) ?? id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
   }
   /// What a row's hotkey is bound to: an extension's command row, one of its static items (at the root,
-  /// or inside the command when the view lists it by the item's id) or a host command. Nil for a row with
-  /// no address of its own, such as an app, a file or a fallback.
+  /// or inside the command when the view lists it with the same primary action) or a host command.
+  /// Nil for a row with no address of its own, such as an app, a file or a fallback.
   func hotkeyTarget(of result: Result, atRoot: Bool) -> HotkeyTarget? {
     if Self.isRootRow(result) { return HotkeyTarget(target: result.provider) }
     guard let owner = extensions.commands[result.provider] else { return nil }
-    if atRoot, result.row.id == "command" { return HotkeyTarget(target: owner.id) }
+    if atRoot, result.rootExtensionRow == .command { return HotkeyTarget(target: owner.id) }
     var item = result.row.id
     if atRoot {
       // At the root an item's id is prefixed (`ExtensionCommand.rootItems`).
-      guard item.hasPrefix("item:") else { return nil }
+      guard result.rootExtensionRow == .item else { return nil }
       item.removeFirst(5)
     }
-    guard owner.items.contains(where: { $0.id == item }) else { return nil }
+    guard !owner.conflictingItemIDs.contains(item),
+      let staticItem = owner.items.first(where: { $0.id == item })
+    else { return nil }
+    if !atRoot, owner.manifest.command != nil {
+      guard let action = result.row.actions.first, action.kind == staticItem.actions.first?.kind else {
+        return nil
+      }
+    }
     return HotkeyTarget(target: owner.id, item: item)
   }
   /// The host's rows at the root, before ranking: Settings and the host commands available now.

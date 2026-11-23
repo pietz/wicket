@@ -232,7 +232,9 @@ enum Ranking {
             actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
       }
       let repair =
-        if extensions[id] != nil {
+        if problem.contains(ExtensionManifest.UserItemConflict.warning) {
+          ExtensionManifest.UserItemConflict.warning
+        } else if extensions[id] != nil {
           "Invalid user.json"
         } else if problem.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
           "Update the manifest and program to contract 2"

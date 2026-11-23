@@ -152,7 +152,7 @@ import Testing
         *'"action":"left"'*) exit;;
         *'"action":"show"'*) while [ ! -e "\(root.path)/release" ]; do sleep 0.01; done;;
       esac
-      echo '{"items":[{"id":"why","title":"Nothing moved","actions":[]},{"id":"left","title":"left","actions":[]}]}'
+      echo '{"items":[{"id":"why","title":"Nothing moved","actions":[]},{"id":"left","title":"left","actions":[{"type":"run","action":"left","hidden":true}]}]}'
       """,
     fields: [
       "name": "Mover",

@@ -9,20 +9,27 @@ struct ExtensionCommand: Sendable, Equatable {
   let manifest: ExtensionManifest
   /// The manifest's items followed by the user's additions.
   let items: [Row]
+  /// A rejected user item must never send its shortcut to a manifest item with the same ID.
+  let conflictingItemIDs: Set<String>
   private let itemIndex: SearchIndex
   /// At most this many of one extension's items enter the root list for an input, as with file search.
   static let rootItems = 20
 
-  init(id: String, folder: URL, manifest: ExtensionManifest, userItems: [Row] = []) {
+  init(
+    id: String, folder: URL, manifest: ExtensionManifest, userItems: [Row] = [],
+    conflictingItemIDs: Set<String> = []
+  ) {
     self.id = id
     self.folder = folder
     self.manifest = manifest
+    self.conflictingItemIDs = conflictingItemIDs
     items = (manifest.items ?? []) + userItems
     itemIndex = SearchIndex(items)
   }
   /// The index follows from the items.
   static func == (a: Self, b: Self) -> Bool {
     a.id == b.id && a.folder == b.folder && a.manifest == b.manifest && a.items == b.items
+      && a.conflictingItemIDs == b.conflictingItemIDs
   }
   /// What a failed run shows: where the extension is, what it was asked, and why it failed.
   func report(_ request: ProviderRequest, error: any Error) -> String {
@@ -193,7 +200,7 @@ final class ExtensionHost {
     return paths
   }
   /// The bundled extensions, then the user's: a folder of the user's own replaces the bundled one of the
-  /// same name, unless it is an unmodified copy an earlier Wicket installed (`retired`).
+  /// same name. An unmodified copy an earlier Wicket installed (`retired`) supplies only user.json.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
     [String: ExtensionCommand], [String: String]
   ) {
@@ -206,8 +213,13 @@ final class ExtensionHost {
         .filter { FileManager.default.fileExists(atPath: $0.appending(path: "wicket.json").path) }
     }
     let shipped = folders(bundled)
+    let shippedNames = Set(shipped.map(\.lastPathComponent))
+    var retiredFolders: [String: URL] = [:]
     let own = folders(root).filter { folder in
-      !shipped.contains { $0.lastPathComponent == folder.lastPathComponent } || !isRetired(folder)
+      let name = folder.lastPathComponent
+      guard shippedNames.contains(name), isRetired(folder) else { return true }
+      retiredFolders[name] = folder
+      return false
     }
     for folder in shipped + own {
       let id = "extension:" + folder.lastPathComponent
@@ -220,14 +232,22 @@ final class ExtensionHost {
       do {
         let manifest = try JSONDecoder().decode(
           ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
+        let userFolder = retiredFolders[folder.lastPathComponent] ?? folder
+        let userFile = userFolder.appending(path: "user.json")
         var userItems: [Row] = []
+        var conflicts: Set<String> = []
         do {
-          userItems = try manifest.userItems(in: folder)
+          userItems = try manifest.userItems(in: userFile)
         } catch {
-          let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
-          problems[id] = "\(folder.appending(path: "user.json").path)\nInvalid user.json: \(reason)"
+          let conflict = error as? ExtensionManifest.UserItemConflict
+          conflicts = conflict?.ids ?? []
+          let reason =
+            conflict?.description ?? (error as? DecodingError).map { String(describing: $0) }
+            ?? error.localizedDescription
+          problems[id] = "\(userFile.path)\nInvalid user.json: \(reason)"
         }
-        commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
+        commands[id] = ExtensionCommand(
+          id: id, folder: folder, manifest: manifest, userItems: userItems, conflictingItemIDs: conflicts)
       } catch let contract as ExtensionManifest.ContractError {
         problems[id] = "\(folder.path)\n\(contract)"
       } catch { problems[id] = "\(folder.path)\nInvalid wicket.json: \(error)" }
