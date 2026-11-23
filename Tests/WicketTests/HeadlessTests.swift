@@ -305,6 +305,19 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(large.1["items"].array.first?["actions"].array.first?["text"].string == "9007199254740993")
 }
 
+@Test func extensionContractRecipesContainValidJSON() throws {
+  let file = try #require(Bundle.wicket.url(forResource: "extension-contract", withExtension: "md"))
+  let contract = try String(contentsOf: file, encoding: .utf8)
+  let recipes = try #require(contract.components(separatedBy: "\n## Recipes\n").dropFirst().first)
+  let section = try #require(recipes.components(separatedBy: "\n## ").first)
+  let snippets = section.components(separatedBy: "\n```json\n").dropFirst()
+  #expect(!snippets.isEmpty)
+  for snippet in snippets {
+    let end = try #require(snippet.range(of: "\n```"))
+    _ = try JSONSerialization.jsonObject(with: Data(snippet[..<end.lowerBound].utf8))
+  }
+}
+
 @MainActor @Test func theQuicklinksExampleIsItemsOnlyAndHeadlessShowsItsItems() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }

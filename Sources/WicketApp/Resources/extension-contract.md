@@ -1,6 +1,6 @@
 # Wicket extensions
 
-Write a directory under `extensions/` in the Wicket working folder. Read this reference before authoring. Wicket discovers a valid new folder and enables it at once, with no approval step and no build or restart; the owner can switch it off in Settings ▸ Extensions, and a switched-off extension does not appear in the launcher. The program runs from its own folder (the working directory), with the owner's ordinary access, not a sandbox. Wicket sets `WICKET_DATA_DIR` to the absolute path of a writable folder it creates on first run for caches and saved state, outside the watched extension folders. Storage is scoped to the extension ID and Wicket edition, and `WICKET_CONFIG_DIR` keeps scratch runs separate.
+Write a directory under `extensions/` in the Wicket working folder. Read this reference before authoring. Wicket discovers a valid new folder and enables it at once, with no approval step and no build or restart; the owner can switch it off in Settings ▸ Extensions, and a switched-off extension does not appear in the launcher. The program runs from its own folder (the working directory), with the owner's ordinary access, not a sandbox.
 
 You can symlink an extension folder into `extensions/` and edit its manifest in the checkout. Wicket picks up those changes live.
 
@@ -42,11 +42,7 @@ Show the proposed effect on entry if the user should review it first (for exampl
 
 ### Permissions: what macOS must grant
 
-```json
-{"contract":2,"name":"Today","keyword":"today","command":["./main"],"permissions":["calendar"]}
-```
-
-`permissions` names the macOS permissions the program needs: `accessibility` (controlling other apps, such as moving their windows or reading their UI) and `calendar` (full access to Calendar events through EventKit). Wicket holds no other protected access (Contacts, Photos, Location, Automation), so macOS refuses those to every extension for now. macOS grants a permission to Wicket, the app that starts your program, never to the program: once Wicket holds Calendar, every enabled extension and whatever the agent runs has it. Declaring confines nothing, since an enabled extension is trusted; it tells the user and lets Wicket check first. Before running the program, Wicket checks each declared permission and, while one is missing, runs nothing and shows its own row instead (Allow Calendar asks macOS in Wicket's name and then sends the same request; Accessibility opens its pane in System Settings, where only the user can switch it on). At the root, a `match` of such an extension runs nothing until the permission is there; the row shows when the command is entered or run, from a hotkey too. So declare every permission you use, never ask macOS to prompt from your program, and never build a helper app or a separate bundle to hold a permission: it shows up as an unknown entry in Privacy & Security.
+`permissions` recognizes `accessibility` (controlling other apps, such as moving their windows or reading their UI) and `calendar` (full access to Calendar events through EventKit). Wicket holds no other protected access (Contacts, Photos, Location, Automation), so macOS refuses those to every extension for now. macOS grants access to Wicket, and any enabled extension or program the agent runs can use that grant. The declaration tells the user what the extension needs and lets Wicket check before running it. If a permission is missing, root matches skip the program. Entering or running the command, including by hotkey, shows a permission row. Allow Calendar asks macOS in Wicket's name and replays the request after a grant. For Accessibility, the row opens System Settings so the user can grant access.
 
 ### Items: a known list found like apps
 
@@ -59,7 +55,7 @@ Show the proposed effect on entry if the user should review it first (for exampl
 
 Static items use the same schema as items in a view (below). Wicket reads them once and matches them at the root like apps, by title and keywords, with no process while typing. Only the 20 best fuzzy matches per extension join the root ranking for typed input. An item without `icon` shows the manifest's icon. At the root, one without `subtitle` shows the extension name. Without a `command`, choosing the extension lists all its items. Declare a text field to let the user filter that list. With a `command`, the program supplies the command's view and static items are extra root rows, typically `run` actions into the command. Use static items for a known list and `match` for an answer computed from what was typed.
 
-For a user's additions to an official extension, write `user.json` beside its `wicket.json` under `extensions/`. For a built-in, make a copy there first as described under Changing a built-in. If that folder contains unmodified Python-era Units files, Wicket reads its user.json alongside the current bundled Units manifest. Catalog updates preserve this file. Its only key is `items`, for example `{"items":[{"id":"my-docs","title":"My docs","actions":[{"type":"open","url":"https://example.com/docs"}]}]}`. Wicket appends these items to the manifest's list. IDs must be nonempty and unique within `user.json`. User items have their own namespace, so they can reuse IDs from `wicket.json`. If `user.json` is invalid, Wicket shows a repair row and keeps the manifest items available. Settings belong in `config.json`.
+Wicket appends the `items` from `user.json` to the manifest's list. This is its only key. IDs must be nonempty and unique within `user.json` and can reuse IDs from `wicket.json`. An invalid `user.json` shows a repair row while the manifest items stay available. If the folder contains unmodified Python-era Units files, Wicket reads its `user.json` alongside the current bundled Units manifest.
 
 Wicket rereads both files on change. To update items from a request, write the file atomically (a temporary file, then rename) as the last thing the request does. An extension's manifest, items or repair state changing can cancel and rerun its open live command. An open `submit:true` command leaves its current view and pending request alone on refresh while it remains available.
 
@@ -177,9 +173,94 @@ The calculator, the unit converter, Window Manager and the Shell (`> command` op
 
 Calculator's root match accepts symbol arithmetic or an explicit leading `=`. Use `=` in root `input` for functions, constants, scientific notation and `of`. The opened command's `expression` field accepts the full grammar with an optional leading `=`. Unit and currency expressions belong to Convert. Successful results use the stable item ID `result`. The first action copies the number at the shown precision with the request's decimal mark. Grouping and the approximation marker appear only in the title. **Copy Machine Number** uses ASCII digits and a dot and appears when the request's decimal mark differs from a dot. **Use Result** prefills an ungrouped number at the root. The `inputFormat` setting accepts `Locale`, `Dot`, or `Comma`. The `outputFormat` setting accepts `Automatic`, `Fixed`, or `Scientific`. Precision defaults to 15 significant digits or 2 decimal places in Fixed. Set it to 1–34 significant digits or 0–34 decimal places. Automatic shows exact integers in full.
 
+## Recipes
+
+### A hotkey that does one thing
+
+Give a manifest item a first action of type `run`, and set `hidden:true` when the effect is its own feedback. The bundled `window` extension's Left Half item uses this action.
+
+```json
+{"id":"left","title":"Left Half","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"left"}]}
+```
+
+In the working folder's `config.json`, add or update the entry for `wicket://<id>?item=<itemID>` in `hotkeys`. Keep other bindings and settings.
+
+```json
+{"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]}
+```
+
+### A user's addition to an installed extension
+
+Add the item to `extensions/quicklinks/user.json`, beside its manifest. Keep the user's other items. For a built-in, copy the folder first as described under Changing a built-in. Leave `wicket.json` to the extension's author. Bind this item in `hotkeys` with `wicket://quicklinks?user-item=my-docs`.
+
+```json
+{"items":[{"id":"my-docs","title":"My docs","actions":[{"type":"open","url":"https://example.com/docs"}]}]}
+```
+
+### A saved definition
+
+Store the definition in the item's `run.fields` as strings. Add this saved search to the site search's `items` below. Its fixed `query` goes straight to the program on Return.
+
+```json
+{"id":"wiki-berlin","title":"Berlin on Wikipedia","actions":[{"type":"run","title":"Search Wikipedia","hidden":true,"fields":{"query":"Berlin"}}]}
+```
+
+### A site search with a query
+
+Give the item a keyword and let its first action run into a command with a text field. Type `wiki`, select the item, press Tab to fill `query`, then Return. Use the fallback's `main.py` below with `https://en.wikipedia.org/w/index.php?` and the parameter `search`.
+
+```json
+{"contract":2,"name":"Site Searches","command":["/usr/bin/python3","main.py"],"submit":true,"hidden":true,
+ "fields":[{"name":"query","type":"text","description":"Search Wikipedia"}],
+ "items":[{"id":"wiki","title":"Search Wikipedia","keywords":["wiki"],"actions":[{"type":"run","title":"Search Wikipedia","hidden":true}]}]}
+```
+
+### A web fallback
+
+Put the fallback in its own extension folder. When nothing matches strongly, its row submits the root query. Open the encoded search URL on submission and let the browser be the feedback.
+
+```json
+{"contract":2,"name":"Search the Web","command":["/usr/bin/python3","main.py"],"fallback":true,"submit":true,"hidden":true,
+ "fields":[{"name":"query","type":"text","description":"Search the web"}]}
+```
+
+```python
+import json
+import subprocess
+import sys
+from urllib.parse import urlencode
+
+request = json.load(sys.stdin)
+query = request["fields"].get("query", "").strip()
+if request["submitted"] and query:
+    url = "https://www.google.com/search?" + urlencode({"q": query})
+    subprocess.run(["open", url], check=True)
+else:
+    print("Enter a search query.")
+```
+
+### State that persists
+
+Keep caches and saved state in `WICKET_DATA_DIR` and leave the extension folder for code and declarations. Wicket creates this writable directory on first run and scopes it to the extension ID and edition. Scratch runs get their own directory.
+
+```python
+import os
+from pathlib import Path
+
+state = Path(os.environ["WICKET_DATA_DIR"]) / "state.json"
+```
+
+### Something that needs a macOS permission
+
+Declare every permission the program needs in `permissions`. For example, a Calendar reader declares `calendar`. Wicket handles the permission flow. Never prompt from the extension or build a helper app to hold the grant.
+
+```json
+{"contract":2,"name":"Calendar","command":["./main"],"permissions":["calendar"]}
+```
+
 ## Hotkeys
 
-A global hotkey for a command or static item is an entry in `config.json`: `"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]`, keys spelled like `hotkey`, one entry per address, `item` naming an item from `wicket.json`. A user item uses `user-item`, for example `wicket://window?user-item=my-layout`. An item hotkey does what Return on the item does, without recording usage: a hidden `run`, `copy`, `paste`, `open` or `reveal` is done without showing Wicket, and any other `run` or link opens Wicket at once where it leads, with the request it sends there. A hotkey bound to the command itself, or an item of a switched-off extension, opens its command like a link, with `submitted:false`. If a user item disappears, its hotkey shows a message. Settings marks a saved hotkey for a missing manifest or user item as unavailable. Remove the binding there or delete its entry from `hotkeys` in `config.json` to free the keys. `item` and `user-item` resolve only in hotkey configuration. Keep other existing bindings.
+Spell `hotkeys` keys like the launcher `hotkey`, with one entry per address. `item` and `user-item` resolve only in hotkey configuration. An item hotkey does what Return on the item does, without recording usage. A hidden `run`, `copy`, `paste`, `open` or `reveal` happens without showing Wicket, and any other `run` or link opens Wicket where it leads. A hotkey bound to the command itself, or an item of a switched-off extension, opens its command like a link, with `submitted:false`. If a user item disappears, its hotkey shows a message. Settings marks a saved hotkey for a missing manifest or user item as unavailable. Remove the binding there or delete its entry from `hotkeys` to free the keys.
 
 ## Repair
 
