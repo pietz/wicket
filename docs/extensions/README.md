@@ -46,19 +46,26 @@ Core and contract changes the specs need. The numbers stay fixed because the spe
 2. **Tab into an item's fields.** Shipped.
 3. **Untrusted text stays inert.** Shipped: unknown tags show as literal text, and a view sent to the agent as context is marked as data.
 4. **Patterns compile once.** Shipped.
-5. **`user.json`.** Shipped: additions live in the extension's `user.json`, addressed as `?user-item=` so they never collide with the extension's own items.
-6. **Contract recipes.** A short section in the contract showing how existing mechanisms build common things: a custom hotkey action, a saved definition, an addition in `user.json`, a web fallback.
-7. **`wicket-js`.** Abilities beyond computing: its own data folder, fetching from the web (never in a run caused by typing at the root), and starting a command and reading its output. It gets a short design first.
+5. **`user.json`.** Shipped. Additions are addressed as `?user-item=`, so they never collide with the extension's own items. For a built-in, the file lives in `extensions/<name>/user.json` in the working folder, alone, and the built-in keeps updating.
+6. **Contract recipes.** Shipped, in the extension contract.
+7. **`wicket-js`.** Step 1 shipped: the runner, `main(request)`, `wicket.read` and `wicket.write`, `console`. Step 2 adds `wicket.fetch` (method, headers, body; never in a root match), `wicket.run` (argv, `input`, catchable timeout; never in a root match), the Keychain recipe for API keys, and JavaScript as the agent's default. Design: [docs/wicket-js.md](../wicket-js.md).
 8. **Meeting links.** `open` also accepts a short list of conferencing schemes, such as `zoommtg:` and `msteams:`, behind an explicit action.
 9. **Saving a page's choices to `config.json`**, designed once with onboarding (ROADMAP step 4).
 10. **The extension catalog** (ROADMAP step 3).
 11. **Keyword, space, text.** Shipped. At the root, a command or item keyword followed by a space and text fills the first editable text field. The matching row ranks first and Ask agent stays in the list.
 
-## Build order
+## Where each extension stands
 
-1. Convert's review fixes, then Contract recipes.
-2. Links & Search.
-3. Window Manager's Capture and saved layouts in `user.json`.
-4. `wicket-js`.
-5. The catalog.
-6. Calendar, once the permission checks have passed.
+- **Calculator:** phase 1 shipped (exact decimals, root row, `calc`, phone and date screening, locale copy).
+- **Convert:** phase 1 shipped (units, ECB rates refreshed only on submitted requests, home currency, Rate details). Typed arithmetic with units is next.
+- **Window Manager:** phases 1 to 3 shipped (verified moves, saved moves in `user.json`, Capture). Multi-window layouts are next.
+- **Links & Search:** phases 1 and 2 built, landing after review; personal links in `extensions/links-search/user.json`.
+- **Calendar:** waits for the permission checks.
+- **System:** parked.
+
+## Next, in order
+
+1. A documentation pass: every agent-facing and project doc checked against the code and made as short as it can be without losing anything the agent needs.
+2. `wicket-js` step 2.
+3. The catalog.
+4. Calendar, once the owner has run the three permission checks on a real Mac.
