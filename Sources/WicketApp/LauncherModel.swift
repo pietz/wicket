@@ -77,7 +77,7 @@ final class LauncherModel {
 
   // MARK: Hotkeys
 
-  /// A hotkey bound to `target` was pressed: as Return on what it names, with no usage recorded. A manifest
+  /// A hotkey bound to `target` was pressed: as Return on what it names, with no usage recorded. A static
   /// item's first action is done: a hidden run (`Navigator.runHidden`), or a copy, paste, open or reveal,
   /// without the panel unless it has to say why it could not. Anything else shows the panel on its
   /// address (`Navigator.open`): a command, a host command, or an item's `run` action. Pressed before the
@@ -91,7 +91,7 @@ final class LauncherModel {
       return
     }
     let owner = target.target.flatMap { extensions.commands[$0] }
-    let item = target.item.flatMap { id in owner?.manifest.items?.first { $0.id == id } }
+    let item = target.item.flatMap { id in owner?.items.first { $0.id == id } }
     // A switched-off extension's items run nothing: its address shows that it is off.
     guard let owner, let action = item?.actions.first,
       configuration.isEnabled(owner.id, extensions: extensions.ids)

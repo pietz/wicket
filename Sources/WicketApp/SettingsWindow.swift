@@ -474,7 +474,7 @@ struct SettingsPane: View {
       ? [(ClipboardHistory.title, HotkeyTarget(target: id))]
       : command.map { command in
         [(command.manifest.name, HotkeyTarget(target: id))]
-          + (command.manifest.items ?? []).map { ($0.title, HotkeyTarget(target: id, item: $0.id)) }
+          + command.items.map { ($0.title, HotkeyTarget(target: id, item: $0.id)) }
       } ?? []
     if !targets.isEmpty {
       Section("Hotkeys") {

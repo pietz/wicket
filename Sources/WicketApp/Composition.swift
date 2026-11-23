@@ -133,7 +133,7 @@ enum Ranking {
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - running: The pattern extensions that matched the input and have not answered yet.
   ///   - extensions: Manifests of the enabled, valid extensions.
-  ///   - problems: Repair text of the enabled extensions whose manifest is invalid.
+  ///   - problems: Repair text of the enabled extensions with an invalid manifest or user.json.
   ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
   static func compose(
     query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
@@ -223,7 +223,7 @@ enum Ranking {
     let repairs = problems.keys.sorted().map { id in
       let problem = problems[id]!
       // A manifest for a newer contract is not broken: updating Wicket is the fix, in Settings.
-      guard !problem.contains(ExtensionManifest.ContractError.newerPhrase) else {
+      if extensions[id] == nil, problem.contains(ExtensionManifest.ContractError.newerPhrase) {
         return Result(
           provider: id,
           row: Row(
@@ -232,8 +232,13 @@ enum Ranking {
             actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
       }
       let repair =
-        problem.contains(ExtensionManifest.ContractError.olderProgramPhrase)
-        ? "Update the manifest and program to contract 2" : "Invalid extension manifest"
+        if extensions[id] != nil {
+          "Invalid user.json"
+        } else if problem.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
+          "Update the manifest and program to contract 2"
+        } else {
+          "Invalid extension manifest"
+        }
       return Result(
         provider: id,
         row: Row(

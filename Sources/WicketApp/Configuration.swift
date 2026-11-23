@@ -36,7 +36,7 @@ struct Configuration: Codable, Equatable, Sendable {
       enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
   }
-  /// A global hotkey for an address or a manifest item: `{"keys":"ctrl+option+left","address":"wicket://window?item=left"}`.
+  /// A global hotkey for an address or a static item: `{"keys":"ctrl+option+left","address":"wicket://window?item=left"}`.
   struct Hotkey: Codable, Equatable, Sendable {
     var keys: Shortcut
     var target: HotkeyTarget

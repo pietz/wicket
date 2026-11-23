@@ -46,7 +46,7 @@ Core and contract changes the specs need, roughly in build order.
 2. **Tab into an item's fields.** An item whose first action runs into a command offers that command's search-bar fields, and the action's fixed fields win over typed ones.
 3. **Untrusted text stays inert.** Unknown tags show as literal text, and a view sent to the agent as context is marked as data, not instructions.
 4. **Patterns compile once**, not on every keystroke.
-5. **`user.json`.** Wicket reads an extension's `user.json` items beside its manifest's, and the contract tells the agent to write additions there.
+5. **`user.json` (implemented).** Wicket reads an extension's `user.json` items beside its manifest's, and the contract tells the agent to write additions there.
 6. **Contract recipes.** A short section in the contract showing how existing mechanisms build common things: a custom hotkey action, a saved definition, an addition in `user.json`, a web fallback.
 7. **`wicket-js`**, with a few abilities beyond computing: its own data folder, fetching on a submitted request, and perhaps starting a command. It gets its own short design first.
 8. **Meeting links.** `open` also accepts a short list of conferencing schemes, such as `zoommtg:` and `msteams:`, behind an explicit action.
@@ -57,7 +57,7 @@ Core and contract changes the specs need, roughly in build order.
 
 1. Shared work 1 to 4, in progress.
 2. Calculator, then Convert (after the data folder).
-3. `user.json` and contract recipes, then Links & Search, then Window Manager's stock moves and Capture.
+3. Contract recipes, then Links & Search, then Window Manager's stock moves and Capture.
 4. `wicket-js`.
 5. The catalog.
 6. Calendar, once the permission checks have passed.

@@ -7,20 +7,22 @@ struct ExtensionCommand: Sendable, Equatable {
   let id: String
   let folder: URL
   let manifest: ExtensionManifest
-  /// The manifest's items with their search keys, prepared once at discovery.
-  let items: SearchIndex
+  /// The manifest's items followed by the user's additions.
+  let items: [Row]
+  private let itemIndex: SearchIndex
   /// At most this many of one extension's items enter the root list for an input, as with file search.
   static let rootItems = 20
 
-  init(id: String, folder: URL, manifest: ExtensionManifest) {
+  init(id: String, folder: URL, manifest: ExtensionManifest, userItems: [Row] = []) {
     self.id = id
     self.folder = folder
     self.manifest = manifest
-    items = SearchIndex(manifest.items ?? [])
+    items = (manifest.items ?? []) + userItems
+    itemIndex = SearchIndex(items)
   }
-  /// The index follows from the manifest.
+  /// The index follows from the items.
   static func == (a: Self, b: Self) -> Bool {
-    a.id == b.id && a.folder == b.folder && a.manifest == b.manifest
+    a.id == b.id && a.folder == b.folder && a.manifest == b.manifest && a.items == b.items
   }
   /// What a failed run shows: where the extension is, what it was asked, and why it failed.
   func report(_ request: ProviderRequest, error: any Error) -> String {
@@ -29,7 +31,7 @@ struct ExtensionCommand: Sendable, Equatable {
   /// The items that are name matches at the root for this input. They take the extension's name
   /// where they have no subtitle, and their ids never meet the command row's.
   func rootItems(_ input: String) -> [Row] {
-    items.best(input, limit: Self.rootItems).map {
+    itemIndex.best(input, limit: Self.rootItems).map {
       shown($0, id: "item:" + $0.id, subtitle: $0.subtitle ?? manifest.name)
     }
   }
@@ -41,7 +43,7 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// The command's own view when there is no program: its items, filtered by what is typed.
   func ownItems(_ input: String) -> [Row] {
-    items.matches(input).map { shown($0, id: $0.id, subtitle: $0.subtitle) }
+    itemIndex.matches(input).map { shown($0, id: $0.id, subtitle: $0.subtitle) }
   }
   /// An item takes the extension's icon where it has none.
   private func shown(_ row: Row, id: String, subtitle: String?) -> Row {
@@ -56,9 +58,9 @@ struct ExtensionCommand: Sendable, Equatable {
 final class ExtensionHost {
   private(set) var commands: [String: ExtensionCommand] = [:]
   private(set) var problems: [String: String] = [:]
-  /// Every discovered extension ID, including invalid manifests.
-  var ids: [String] { Array(commands.keys) + Array(problems.keys) }
-  /// Called with the IDs whose manifest or problem changed, appeared or went away.
+  /// Every discovered extension ID, including ones with invalid manifests or user items.
+  var ids: [String] { Array(commands.keys) + problems.keys.filter { commands[$0] == nil } }
+  /// Called with the IDs whose command or problem changed, appeared or went away.
   var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
   /// The extensions that ship inside Wicket (calculator, units, window, shell), each a folder like any other with its
@@ -218,7 +220,14 @@ final class ExtensionHost {
       do {
         let manifest = try JSONDecoder().decode(
           ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
-        commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest)
+        var userItems: [Row] = []
+        do {
+          userItems = try manifest.userItems(in: folder)
+        } catch {
+          let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
+          problems[id] = "\(folder.appending(path: "user.json").path)\nInvalid user.json: \(reason)"
+        }
+        commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
       } catch let contract as ExtensionManifest.ContractError {
         problems[id] = "\(folder.path)\n\(contract)"
       } catch { problems[id] = "\(folder.path)\nInvalid wicket.json: \(error)" }

@@ -728,7 +728,7 @@ final class Navigator {
   }
   /// What sources answer changed without the user: the installed apps, the extension catalog or which
   /// sources are on. The root composes again. An open command reruns only when `ids` names it (its
-  /// manifest changed, it went away, or it was switched on or off), which also cancels its running
+  /// manifest or items changed, it went away, or it was switched on or off), which also cancels its running
   /// request; anything else would replace what the user is looking at for no reason of its own.
   func sourcesChanged(_ ids: Set<String>) {
     if let id = target?.id, !ids.contains(id) { return }

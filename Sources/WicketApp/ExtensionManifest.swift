@@ -196,6 +196,36 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     }
   }
 
+  func userItems(in folder: URL) throws -> [Row] {
+    // The catalog's install lock must leave user.json out of its file hashes.
+    let data: Data
+    do {
+      data = try Data(contentsOf: folder.appending(path: "user.json"))
+    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+      return []
+    }
+    let additions = try JSONDecoder().decode(UserItems.self, from: data).items
+    guard Row.validIDs((items ?? []) + additions) else {
+      throw ExtensionFailure("Item ids must be nonempty and unique across wicket.json and user.json")
+    }
+    return additions
+  }
+
+  private struct UserItems: Decodable {
+    let items: [Row]
+
+    init(from decoder: any Decoder) throws {
+      let file = try decoder.container(keyedBy: AnyKey.self)
+      let itemsKey = AnyKey(stringValue: "items")
+      if let key = file.allKeys.first(where: { $0.stringValue != itemsKey.stringValue }) {
+        throw DecodingError.dataCorruptedError(
+          forKey: key, in: file,
+          debugDescription: "Unknown key `\(key.stringValue)`; user.json only holds items")
+      }
+      items = try file.decode([Row].self, forKey: itemsKey)
+    }
+  }
+
   func matches(_ input: String) -> Bool {
     guard input.utf8.count <= 4096, let regex = match?.regex else { return false }
     var found = false

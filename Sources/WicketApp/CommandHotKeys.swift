@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a global hotkey from `hotkeys` in config.json is bound to: an address spelled as a URL
-/// (`wicket://clipboard`, `wicket://weather?input=berlin`), or one of an extension's manifest items, named by
+/// (`wicket://clipboard`, `wicket://weather?input=berlin`), or one of an extension's static items, named by
 /// `item` (`wicket://window?item=left`). The `item` query is read only here: followed as a link, the
 /// address opens the command and ignores it, as it ignores any query item but `input`. Bind the manifest
 /// item's ID so its current action stays owned by the extension and config never stores a stale copy of

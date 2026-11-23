@@ -48,7 +48,7 @@ enum CommandWork {
   case keepView
   /// The command was removed or switched off: why, shown instead of a view.
   case unavailable(String)
-  /// Answered at once, without a process: an extension's manifest items or a host command's list.
+  /// Answered at once, without a process: an extension's static items or a host command's list.
   case immediate(CommandOutcome)
   /// A process answers.
   case deferred(@MainActor () async -> CommandOutcome)
