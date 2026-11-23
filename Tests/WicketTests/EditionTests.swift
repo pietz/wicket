@@ -46,6 +46,28 @@ func explicitlyChoosingTheDefaultWorkingFolderSharesExtensionData(_ edition: Edi
   #expect(otherEdition.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": workingFolder]) != implicit)
 }
 
+@Test func oneFolderUnderTwoSpellingsIsTheSameFolder() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let real = root.appending(path: "Working", directoryHint: .isDirectory)
+  try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+  let alias = root.appending(path: "alias", directoryHint: .isDirectory)
+  try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: real)
+  #expect(Edition.sameFolder(alias, real))
+  #expect(Edition.sameFolder(real.appending(path: "./"), real))
+  let otherCase = root.appending(path: "working", directoryHint: .isDirectory)
+  let caseInsensitive =
+    (try? root.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?
+    .volumeSupportsCaseSensitiveNames == false
+  #expect(Edition.sameFolder(otherCase, real) == caseInsensitive)
+  let other = root.appending(path: "other", directoryHint: .isDirectory)
+  try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+  #expect(!Edition.sameFolder(other, real))
+  // Folders that don't exist yet compare by path.
+  #expect(Edition.sameFolder(root.appending(path: "later/"), root.appending(path: "later")))
+  #expect(!Edition.sameFolder(root.appending(path: "later"), root.appending(path: "sooner")))
+}
+
 /// A folder that already holds the first Wicket's files (settings.json, and from Application Support
 /// voice.json, approvals.json and a usage.json of another shape) must neither crash the app nor lose
 /// a byte of them.

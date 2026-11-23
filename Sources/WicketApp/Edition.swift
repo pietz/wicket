@@ -55,12 +55,23 @@ enum Edition: Equatable {
 
   /// Extension state is a sibling of private history, outside the watched extension folders.
   func extensionDataDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-    let config = configDirectory(environment: environment).standardizedFileURL
-    let scratch = config.path != configFolder.standardizedFileURL.path
+    let scratch = !Self.sameFolder(configDirectory(environment: environment), configFolder)
     let history = privateDirectory(environment: scratch ? environment : [:])
     let suffix = self == .dev && scratch ? "-extension-data.dev" : "-extension-data"
     return history.deletingLastPathComponent().appending(
       path: history.lastPathComponent + suffix, directoryHint: .isDirectory)
+  }
+
+  /// Whether two spellings name one folder. Existing folders compare by file identity, so a symlink alias or
+  /// a different case on a case-insensitive volume is the same folder; others compare by standardized path.
+  static func sameFolder(_ a: URL, _ b: URL) -> Bool {
+    let key: Set<URLResourceKey> = [.fileResourceIdentifierKey]
+    if let first = try? a.resolvingSymlinksInPath().resourceValues(forKeys: key).fileResourceIdentifier,
+      let second = try? b.resolvingSymlinksInPath().resourceValues(forKeys: key).fileResourceIdentifier
+    {
+      return first.isEqual(second)
+    }
+    return a.standardizedFileURL.path == b.standardizedFileURL.path
   }
 }
 
