@@ -30,7 +30,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let runs = AgentHistory(url: Edition.current.privateDirectory().appending(path: "agent-history.json"))
     let model = LauncherModel(
       apps: apps, files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
-      history: history, folder: directory)
+      history: history, folder: directory, extensionDataDirectory: Edition.current.extensionDataDirectory())
     do {
       try AnswerRenderer.installFiles(in: directory)
       try ExtensionHost.installFiles(in: directory)

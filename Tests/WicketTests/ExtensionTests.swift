@@ -238,7 +238,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, script: answering("Hello"))
   #expect(
-    try await ExtensionRunner().run(command(ext), request: .init(input: "hello"))
+    try await ExtensionRunner(dataDirectory: root).run(command(ext), request: .init(input: "hello"))
       == .init(items: [Row(id: "one", title: "Hello", actions: [.copy("Hello")])]))
   try Data(
     "import json,sys; r=json.load(sys.stdin); print(json.dumps({'body':r['input'],'items':[{'id':'args','title':'/'.join(k+'='+v for k,v in sorted(r['fields'].items())),'actions':[]}]}))"
@@ -249,7 +249,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   ])
   try data.write(to: ext.appending(path: "wicket.json"))
   #expect(
-    try await ExtensionRunner().run(
+    try await ExtensionRunner(dataDirectory: root).run(
       command(ext), request: .init(input: "héllo \"世界\"", fields: ["one": "1", "two": "2"]))
       == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one=1/two=2", actions: [])]))
 }
@@ -260,7 +260,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   defer { try? FileManager.default.removeItem(at: root) }
   let ext = try extensionFolder(root, fields: ["command": ["./main.sh"]])
   let error = await #expect(throws: ExtensionFailure.self) {
-    try await ExtensionRunner().run(command(ext), request: .init(input: ""))
+    try await ExtensionRunner(dataDirectory: root).run(command(ext), request: .init(input: ""))
   }
   #expect(error?.message == "./main.sh isn't executable: run chmod +x ./main.sh in its folder")
 }
@@ -272,7 +272,7 @@ func command(_ folder: URL) throws -> ExtensionCommand {
   try Data(
     "import os,json,sys; json.load(sys.stdin); print(json.dumps({'body':os.getcwd()}))".utf8
   ).write(to: ext.appending(path: "cwd.py"))
-  let view = try await ExtensionRunner().run(command(ext), request: .init(input: ""))
+  let view = try await ExtensionRunner(dataDirectory: root).run(command(ext), request: .init(input: ""))
   let cwd = try #require(view.body)
   #expect(URL(fileURLWithPath: cwd).resolvingSymlinksInPath() == ext.resolvingSymlinksInPath())
 }
@@ -287,7 +287,7 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
     "stderr": "yes diagnostic >&2",
   ]
   let ext = try extensionFolder(root, script: scripts[kind]!)
-  var runner = ExtensionRunner()
+  var runner = ExtensionRunner(dataDirectory: root)
   runner.deadline = .milliseconds(200)
   runner.outputLimit = 4096
   runner.stderrLimit = 4096

@@ -36,6 +36,12 @@ func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue
   if case .status(let status) = exit { return (status, value) }
   throw ExtensionFailure("CLI \(exit): \(diagnostic)")
 }
+
+func removeHeadlessScratch(_ root: URL) {
+  let data = Edition.release.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": root.path])
+  for folder in [root, data] { try? FileManager.default.removeItem(at: folder) }
+}
+
 /// Built-ins and bundled extensions the list omits are switched off here, so a test names exactly what
 /// runs and the real disk (file search) never decides a result unless asked.
 func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
@@ -52,9 +58,56 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   try config.save(at: root.appending(path: "config.json"))
 }
 
+@MainActor @Test func panelAndHeadlessShareWritableDataOnlyForTheSameExtensionAndConfig() async throws {
+  let scratch = try scratch()
+  defer { try? FileManager.default.removeItem(at: scratch) }
+  let root = scratch.appending(path: "config")
+  let otherRoot = scratch.appending(path: "other-config")
+  let script = #"""
+    set -eu
+    cat >/dev/null
+    saved=$(cat "$WICKET_DATA_DIR/state" 2>/dev/null || echo first)
+    printf '%s' 'again' > "$WICKET_DATA_DIR/state"
+    printf '{"items":[{"id":"data","title":"%s","subtitle":"%s","actions":[]}]}' "$WICKET_DATA_DIR" "$saved"
+    """#
+  _ = try extensionFolder(root, name: "example", script: script)
+  _ = try extensionFolder(root, name: "peer", script: script)
+  _ = try extensionFolder(otherRoot, name: "example", script: script)
+  let directory = Edition.current.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": root.path])
+  let model = LauncherModel(
+    history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    extensionDataDirectory: directory)
+  await model.extensions.reload()
+  #expect(!FileManager.default.fileExists(atPath: directory.path))
+  model.navigator.go(Address(id: "extension:example"))
+  await model.navigator.settled()
+  let path = directory.appending(path: "example").path
+  #expect(model.navigator.results.first?.row.title == path)
+  #expect(model.navigator.results.first?.row.subtitle == "first")
+  let permissions = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
+  #expect(permissions == 0o700)
+  #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "peer").path))
+  await model.finish()
+
+  let (status, same) = try await cli(root, ["--extension", "example"])
+  #expect(status == 0)
+  #expect(same["items"].array.first?["title"].string == path)
+  #expect(same["items"].array.first?["subtitle"].string == "again")
+  let (peerStatus, peer) = try await cli(root, ["--extension", "peer"])
+  #expect(peerStatus == 0)
+  #expect(peer["items"].array.first?["title"].string == directory.appending(path: "peer").path)
+  #expect(peer["items"].array.first?["subtitle"].string == "first")
+  let (otherStatus, other) = try await cli(otherRoot, ["--extension", "example"])
+  #expect(otherStatus == 0)
+  #expect(
+    other["items"].array.first?["title"].string
+      == scratch.appending(path: "other-config-private-extension-data/example").path)
+  #expect(other["items"].array.first?["subtitle"].string == "first")
+}
+
 @Test func headlessQueryUsesOnlyEnabledSourcesAndExtensionRunsEvenWhenOff() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   let marker = root.appending(path: "ran")
   _ = try extensionFolder(
     root, name: "pattern", script: "touch '\(marker.path)'\n" + answering("Inline cal"),
@@ -89,7 +142,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @Test func headlessFallbackRunsOnlyWhenChosenAndDisappearsForStrongMatches() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   let marker = root.appending(path: "fallback-ran")
   _ = try extensionFolder(
     root, name: "web", script: "touch '\(marker.path)'\n" + answering("Search"), fields: ["fallback": true])
@@ -110,7 +163,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @Test func headlessPatternsLeadByNameWhateverTheConfiguredOrderAndUsageComesFromTheRealFiles() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   _ = try extensionFolder(
     root, name: "inline", script: answering("Inline result"), fields: ["match": "^2\\+2$"])
   for list in [
@@ -136,7 +189,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @Test func headlessEmptyInputNeverShowsAskAgent() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   try saveProviders([], in: root)
   let output = try await cli(root, ["--query", ""])
   #expect(output.0 == 0 && output.1["items"].array.isEmpty)
@@ -146,7 +199,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @Test func headlessUsageStaysWithinTheTypedQuery() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   let a = Row(id: "a", title: "cal a", actions: [])
   let b = Row(id: "b", title: "cal b", actions: [])
   let payload = String(decoding: try JSONEncoder().encode(ProviderView(items: [a, b])), as: UTF8.self)
@@ -180,7 +233,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @MainActor @Test func headlessRankingPutsTheBestMatchFirstOnTheRealMachine() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   let all = [
     Configuration.ProviderEntry("extension:calculator"), .init("apps"), .init("extension:units"),
   ]
@@ -203,7 +256,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @Test func headlessRunsTheBundledExtensionsByName() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   let units = try await cli(root, ["--extension", "units", "--input", "10 km in mi"])
   let decimal = ProviderRequest.NumberMarks.current.decimal
   #expect(units.1["items"].array.first?["title"].string == "6\(decimal)2137119 mi")
@@ -213,7 +266,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @MainActor @Test func theQuicklinksExampleIsItemsOnlyAndHeadlessShowsItsItems() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   try ExtensionHost.installFiles(in: root)
   let example = root.appending(path: "examples/quicklinks")
   #expect(try FileManager.default.contentsOfDirectory(atPath: example.path) == ["wicket.json"])
@@ -231,7 +284,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 
 @MainActor @Test func agendaExamplePrintsAPageOfRowsGroupedByDay() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   try ExtensionHost.installFiles(in: root)
   try FileManager.default.copyItem(
     at: root.appending(path: "examples/agenda"), to: root.appending(path: "extensions/agenda"))
@@ -339,8 +392,9 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
 }
 
 @MainActor @Test func currencyExampleConvertsFromTheDaysCacheAndShowsSourceAndAge() async throws {
-  let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  let scratch = try scratch()
+  defer { try? FileManager.default.removeItem(at: scratch) }
+  let root = scratch.appending(path: "config")
   try ExtensionHost.installFiles(in: root)
   #expect(!FileManager.default.fileExists(atPath: root.appending(path: "extensions/currency").path))
   let folder = root.appending(path: "extensions/currency")
@@ -352,7 +406,9 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   }
   // Fetched today, so no request is made; the rates themselves are two days old.
   let cache = #"{"fetched":"\#(day(0))","date":"\#(day(-2))","rates":{"EUR":1,"USD":1.25,"JPY":160}}"#
-  try Data(cache.utf8).write(to: folder.appending(path: "rates.json"))
+  let data = scratch.appending(path: "config-private-extension-data/currency")
+  try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+  try Data(cache.utf8).write(to: data.appending(path: "rates.json"))
   // The example writes numbers in the request's format, which headless takes from this Mac.
   let marks = ProviderRequest.NumberMarks.current
   func local(_ number: String) -> String {

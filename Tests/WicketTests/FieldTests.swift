@@ -471,7 +471,7 @@ func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async
 /// refuses fields that are not an object of strings.
 @MainActor @Test func headlessExtensionRunsSendFieldsAndOneShotAction() async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  defer { removeHeadlessScratch(root) }
   let (_, requests) = try logging(
     root, name: "Caffeinate",
     fields: ["fields": [["name": "hours", "type": "number", "description": "Hours"]]])

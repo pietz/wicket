@@ -1,9 +1,11 @@
 #!/usr/bin/python3
-"""Currency conversion with the European Central Bank's daily reference rates, cached in rates.json next to
-this file, for input shaped like `100 usd in eur`. Reuse today's successful fetch and fall back to the last
-intact cache offline. Retry a failed download after ten minutes. Amounts and results use the request's
-locale. The cache is not a user-visible effect, so any request may write it."""
+"""Currency conversion with the European Central Bank's daily reference rates, cached in WICKET_DATA_DIR
+for input shaped like `100 usd in eur`. Reuse today's successful fetch and fall back to the last intact
+cache offline. Retry a failed download after ten minutes. Amounts and results use the request's locale.
+The cache is not a user-visible effect, so any request may write it."""
 import datetime, json, os, re, sys, time, urllib.request
+from pathlib import Path
+
 FEED = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
 CURRENCY = r"([a-z]{3}|[€$£¥])"
@@ -28,16 +30,23 @@ def amount(text):
 
 def rates(today):
     """Today's cache, else a fresh download, else yesterday's cache rather than nothing."""
-    try:
-        with open("rates.json") as file:
-            cached = json.load(file)
-    except (OSError, ValueError):
-        cached = None
-    if cached and cached["fetched"] == today:
-        return cached
-    # After a failed download, wait ten minutes before trying again, so typing offline stays fast.
-    if os.path.exists("failed") and time.time() - os.path.getmtime("failed") < 600:
-        return cached
+    directory = os.environ.get("WICKET_DATA_DIR")
+    cached = None
+    if directory:
+        cache = Path(directory) / "rates.json"
+        failed = Path(directory) / "failed"
+        try:
+            cached = json.loads(cache.read_text())
+        except (OSError, ValueError):
+            pass
+        if cached and cached["fetched"] == today:
+            return cached
+        # After a failed download, wait ten minutes before trying again, so typing offline stays fast.
+        try:
+            if time.time() - failed.stat().st_mtime < 600:
+                return cached
+        except FileNotFoundError:
+            pass
     try:
         with urllib.request.urlopen(FEED, timeout=5) as response:
             xml = response.read().decode()
@@ -45,17 +54,17 @@ def rates(today):
                  "rates": {code: float(rate) for code, rate in
                            re.findall(r"currency=['\"]([A-Z]{3})['\"]\s+rate=['\"]([\d.]+)", xml)}}
         fresh["rates"]["EUR"] = 1.0
-        # A new file renamed over the old one, so a run cancelled mid-write leaves the last intact cache.
-        temporary = f"rates.{os.getpid()}.tmp"
-        with open(temporary, "w") as file:
-            json.dump(fresh, file)
-        os.replace(temporary, "rates.json")
-        if os.path.exists("failed"):
-            os.remove("failed")
-        return fresh
     except Exception:
-        open("failed", "w").close()
+        if directory:
+            failed.touch()
         return cached
+    if directory:
+        # A new file renamed over the old one, so a run cancelled mid-write leaves the last intact cache.
+        temporary = cache.with_name(f"rates.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(fresh))
+        temporary.replace(cache)
+        failed.unlink(missing_ok=True)
+    return fresh
 
 
 def local(value, grouped=True):

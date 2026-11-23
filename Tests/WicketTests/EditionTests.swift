@@ -22,6 +22,20 @@ import Testing
   #expect(Edition.release.configDirectory(environment: [:]) == Edition.release.configFolder)
 }
 
+@Test func extensionDataLivesBesideThePrivateDirectoryForEachEdition() {
+  #expect(
+    Edition.release.extensionDataDirectory(environment: [:]).path.hasSuffix(
+      "/Library/Application Support/app.wicket.Wicket-extension-data"))
+  #expect(
+    Edition.dev.extensionDataDirectory(environment: [:]).path.hasSuffix(
+      "/Library/Application Support/app.wicket.Wicket.dev-extension-data"))
+  let scratch = ["WICKET_CONFIG_DIR": "/tmp/w/"]
+  #expect(
+    Edition.release.extensionDataDirectory(environment: scratch).path == "/tmp/w-private-extension-data")
+  #expect(
+    Edition.dev.extensionDataDirectory(environment: scratch).path == "/tmp/w-private-extension-data.dev")
+}
+
 /// A folder that already holds the first Wicket's files (settings.json, and from Application Support
 /// voice.json, approvals.json and a usage.json of another shape) must neither crash the app nor lose
 /// a byte of them.

@@ -34,6 +34,7 @@ private final class ExtensionOutput: Sendable {
 }
 
 struct ExtensionRunner: Sendable {
+  let dataDirectory: URL
   var deadline: Duration = .seconds(10)
   var outputLimit = 1_048_576
   var stderrLimit = 262_144
@@ -62,6 +63,10 @@ struct ExtensionRunner: Sendable {
       }
       executable = found
     }
+    let data = dataDirectory.appending(path: command.folder.lastPathComponent, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+      at: data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    environment["WICKET_DATA_DIR"] = data.path
     let started = try Launch.start(
       executable, Array(argv.dropFirst()), in: command.folder, environment: environment)
     let tree = started.tree

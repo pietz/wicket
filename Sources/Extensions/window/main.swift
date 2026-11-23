@@ -165,24 +165,13 @@ func restoreIndex(_ records: [Record], pid: Int32, frame: CGRect) -> Int? {
   }
 }
 
-/// The last moves, in the user's temporary folder: a window's frames mean nothing after a restart,
-/// and a bundled extension's own folder is inside the signed app.
-let recordsPath: String = {
-  var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-  let length = confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count)
-  let folder =
-    length > 0 ? String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self) : "/tmp/"
-  return folder + "wicket-window-moves.txt"
+let recordsFile: URL = {
+  if let directory = getenv("WICKET_DATA_DIR"), directory.pointee != 0 {
+    return URL(filePath: String(cString: directory), directoryHint: .isDirectory).appending(path: "moves.txt")
+  }
+  return URL.temporaryDirectory.appending(path: "wicket-window-manual-moves.txt")
 }()
 let recordLimit = 50
-
-func saveRecords(_ records: [Record]) {
-  let temporary = recordsPath + ".new"
-  guard let file = fopen(temporary, "w") else { return }
-  fputs(format(records.suffix(recordLimit)), file)
-  fclose(file)
-  rename(temporary, recordsPath)
-}
 
 // MARK: - Accessibility
 
@@ -262,7 +251,7 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
       frame: topDown($0.frame, mainHeight: mainHeight),
       visible: topDown($0.visibleFrame, mainHeight: mainHeight))
   }
-  var records = contents(recordsPath).map { parse(records: String(decoding: $0, as: UTF8.self)) } ?? []
+  var records = contents(recordsFile.path).map { parse(records: String(decoding: $0, as: UTF8.self)) } ?? []
   let destination: CGRect
   if move == .restore {
     guard let index = restoreIndex(records, pid: app.processIdentifier, frame: current) else {
@@ -280,7 +269,7 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
     records.append(
       Record(pid: app.processIdentifier, before: current, after: frame(of: window) ?? destination))
   }
-  saveRecords(records)
+  try? Data(format(records.suffix(recordLimit)).utf8).write(to: recordsFile, options: .atomic)
   return nil
 }
 

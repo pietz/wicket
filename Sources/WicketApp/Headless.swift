@@ -29,7 +29,8 @@ public enum Headless {
     let history = UsageHistory(url: folder.appending(path: "usage.json"))
     let apps = AppsProvider()
     let model = LauncherModel(
-      apps: apps, files: FilesProvider(), history: history, folder: folder)
+      apps: apps, files: FilesProvider(), history: history, folder: folder,
+      extensionDataDirectory: Edition.current.extensionDataDirectory())
     let host = model.extensions
     host.onCatalogChange = nil
     func printJSON<T: Encodable>(_ value: T) throws {

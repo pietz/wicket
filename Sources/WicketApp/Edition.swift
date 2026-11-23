@@ -52,6 +52,15 @@ enum Edition: Equatable {
     return URL.applicationSupportDirectory.appending(
       path: self == .dev ? "app.wicket.Wicket.dev" : "app.wicket.Wicket", directoryHint: .isDirectory)
   }
+
+  /// Extension state is a sibling of private history, outside the watched extension folders.
+  func extensionDataDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    let history = privateDirectory(environment: environment)
+    let sharedConfig = environment["WICKET_CONFIG_DIR"]?.isEmpty == false
+    let suffix = self == .dev && sharedConfig ? "-extension-data.dev" : "-extension-data"
+    return history.deletingLastPathComponent().appending(
+      path: history.lastPathComponent + suffix, directoryHint: .isDirectory)
+  }
 }
 
 extension Bundle {

@@ -24,14 +24,15 @@ final class LauncherModel {
   init(
     apps: (any Provider)? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
     agentHistory: AgentHistory? = nil, history: UsageHistory,
-    folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder
+    folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
+    extensionDataDirectory: URL? = nil
   ) {
     self.clipboard = clipboard
     self.agentHistory = agentHistory
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
-    extensions = ExtensionHost(folder: folder, bundled: bundled)
+    extensions = ExtensionHost(folder: folder, bundled: bundled, dataDirectory: extensionDataDirectory)
     let directory = CommandDirectory(
       extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 },
       store: store)

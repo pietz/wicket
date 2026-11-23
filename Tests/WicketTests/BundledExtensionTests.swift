@@ -43,6 +43,12 @@ func bundled(_ name: String) throws -> ExtensionCommand {
   return command
 }
 
+func runBundled(_ name: String, request: ProviderRequest) async throws -> ProviderView {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  return try await ExtensionRunner(dataDirectory: root).run(bundled(name), request: request)
+}
+
 private let us = ProviderRequest.NumberMarks(decimal: ".", grouping: ",")
 private let de = ProviderRequest.NumberMarks(decimal: ",", grouping: ".")
 
@@ -52,8 +58,7 @@ private struct Answer: Equatable {
 }
 /// The calculator's result for this input, run as Wicket runs it, or nil when it shows none.
 private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = us) async throws -> Answer? {
-  let view = try await ExtensionRunner().run(
-    bundled("calculator"), request: ProviderRequest(input: input, locale: locale))
+  let view = try await runBundled("calculator", request: ProviderRequest(input: input, locale: locale))
   guard let row = view.items.first(where: { $0.id == "result" }) else { return nil }
   guard case .copy(let copy, false) = row.actions.first?.kind, row.prominent == true else {
     throw ExtensionFailure("A result is prominent and copies the number")
@@ -162,8 +167,7 @@ func datesVersionsAndPhonesAreNotMath(input: String) async throws {
   ("", "Try 10 km in mi, 20 c in k or 2 gal to l"),
 ])
 func unitsConvert(input: String, expected: String) async throws {
-  let view = try await ExtensionRunner().run(
-    bundled("units"), request: ProviderRequest(input: input, locale: us))
+  let view = try await runBundled("units", request: ProviderRequest(input: input, locale: us))
   #expect(view.items.map(\.title) == [expected])
   if view.items.first?.id == "result" { #expect(view.items.first?.actions == [.copy(expected)]) }
 }
@@ -174,14 +178,13 @@ func unitsConvert(input: String, expected: String) async throws {
 func unitsReadAndWriteTheDecimalComma(input: String, expected: String) async throws {
   let units = try bundled("units")
   #expect(units.manifest.matches(input))
-  let view = try await ExtensionRunner().run(units, request: ProviderRequest(input: input, locale: de))
+  let view = try await runBundled("units", request: ProviderRequest(input: input, locale: de))
   #expect(view.items.map(\.title) == [expected] && view.items.first?.actions == [.copy(expected)])
 }
 
 @Test(arguments: ["10 km in kg", "1\(String(repeating: "0", count: 400)) km in mm"])
 func unitsWithoutAResultGiveNoRow(input: String) async throws {
-  let view = try await ExtensionRunner().run(
-    bundled("units"), request: ProviderRequest(input: input, locale: us))
+  let view = try await runBundled("units", request: ProviderRequest(input: input, locale: us))
   #expect(view.items.isEmpty)
 }
 

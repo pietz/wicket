@@ -29,7 +29,7 @@ import Testing
   let start = ContinuousClock.now
   let tasks = runs.enumerated().map { i, run in
     Task {
-      var runner = ExtensionRunner()
+      var runner = ExtensionRunner(dataDirectory: root)
       runner.deadline = i.isMultiple(of: 2) ? .milliseconds(120) : .seconds(30)
       do {
         _ = try await runner.run(run, request: .init(input: ""))

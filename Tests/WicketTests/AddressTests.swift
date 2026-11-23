@@ -258,7 +258,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   defer { try? FileManager.default.removeItem(at: root) }
   func run(_ script: String) async throws -> ProviderView {
     let folder = try extensionFolder(root, name: "plain", script: script)
-    return try await ExtensionRunner().run(command(folder), request: .init(input: ""))
+    return try await ExtensionRunner(dataDirectory: root).run(command(folder), request: .init(input: ""))
   }
   let markdown = try await run("printf '## Done\\n<row label=\"Total\" value=\"42\"/>\\n'")
   #expect(markdown.body == "## Done\n<row label=\"Total\" value=\"42\"/>" && markdown.items.isEmpty)

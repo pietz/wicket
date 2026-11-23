@@ -66,7 +66,7 @@ final class ExtensionHost {
   let bundled: URL?
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
-  var runner = ExtensionRunner()
+  private let runner: ExtensionRunner
   /// What macOS grants Wicket, checked before a program that declares permissions runs; tests replace it.
   var permissions = Permissions.system
   /// Moves a folder to the Trash, so it can be put back; tests replace it.
@@ -87,9 +87,11 @@ final class ExtensionHost {
   }
   private var running: [UUID: Task<ProviderView, any Error>] = [:]
 
-  init(folder: URL, bundled: URL? = bundledFolder) {
+  init(folder: URL, bundled: URL? = bundledFolder, dataDirectory: URL? = nil) {
     self.folder = folder
     self.bundled = bundled
+    // A fixture host can keep its data in the same scratch folder as its manifests.
+    runner = ExtensionRunner(dataDirectory: dataDirectory ?? folder.appending(path: "extension-data"))
   }
   func start() {
     watchRoots = watchRoots ?? []

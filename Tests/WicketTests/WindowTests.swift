@@ -133,8 +133,8 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
 private func windowView(_ action: String? = nil, submitted: Bool = false) async throws
   -> ProviderView
 {
-  try await ExtensionRunner().run(
-    bundled("window"), request: ProviderRequest(input: "", action: action, submitted: submitted))
+  try await runBundled(
+    "window", request: ProviderRequest(input: "", action: action, submitted: submitted))
 }
 
 @Test func theItemsAreTheMovesAndTheProgramListsThemWithoutMoving() async throws {
