@@ -8,6 +8,7 @@ import Foundation
   /// Its row at the root, matched by name like an app's.
   nonisolated static var row: Result { get }
   func view(for request: ProviderRequest) -> ProviderView
+  func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView
   /// Whether it is listed at the root and can be opened now.
   nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool
   /// The conversation a submitted request reopens instead of answering with a view (Agent History's
@@ -17,6 +18,9 @@ import Foundation
 
 extension HostCommand {
   func reopened(_ request: ProviderRequest) -> AgentHistory.Run? { nil }
+  func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView {
+    view(for: request)
+  }
 }
 
 /// Where every command address resolves: the root, the agent, the native Settings window, or a command
@@ -154,11 +158,14 @@ struct HostScreen: CommandScreenBehavior {
   }
   func work(for request: CommandScreenRequest) -> CommandWork {
     if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
-    let request = request.provider
-    if let run = host.reopened(request) {
+    let provider = request.provider
+    if let change = request.fieldChange {
+      return .immediate(.view(host.view(for: provider, fieldChange: change)))
+    }
+    if let run = host.reopened(provider) {
       return .immediate(.restore(run))
     }
-    return .immediate(.view(host.view(for: request)))
+    return .immediate(.view(host.view(for: provider)))
   }
   func agentContext(from shown: CommandScreen.Shown) -> AgentContext? { nil }
 }

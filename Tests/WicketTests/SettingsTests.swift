@@ -294,8 +294,10 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "extensions").path).isEmpty)
   #expect(FileManager.default.fileExists(atPath: root.appending(path: "examples/currency/main.py").path))
   #expect(
+    FileManager.default.fileExists(atPath: root.appending(path: "examples/canvas-controls/main.py").path))
+  #expect(
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples").path).sorted() == [
-      "agenda", "currency", "quicklinks", "web-search",
+      "agenda", "canvas-controls", "currency", "quicklinks", "web-search",
     ])
   try FileManager.default.copyItem(at: root.appending(path: "examples/web-search"), to: web)
   let marker = web.appending(path: "user-file")

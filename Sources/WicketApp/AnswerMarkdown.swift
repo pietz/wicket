@@ -3,7 +3,7 @@ import Synchronization
 import cmark_gfm
 import cmark_gfm_extensions
 
-/// cmark owns Markdown; every tag becomes an inert w- element, never an HTML element.
+/// cmark owns Markdown. Only controls resolved from the host's Page can produce interactive HTML.
 enum AnswerMarkdown {
   private static let lock = Mutex(())
   static let tags = try! NSRegularExpression(
@@ -57,10 +57,13 @@ enum AnswerMarkdown {
     lock.withLock { _ in reading(source, streaming: streaming, nonce: "WICKET", render: false) }
   }
   /// `render` also builds the markup of each tag and keeps the tree, for the renderer.
-  private static func reading(_ source: String, streaming: Bool, nonce: String, render: Bool) -> Reading {
+  private static func reading(
+    _ source: String, streaming: Bool, nonce: String, render: Bool, fields: [String: Page.Field] = [:]
+  ) -> Reading {
     // Code needs a backtick, a tilde fence or an indent of four columns: without one, nothing is code.
     if !source.utf8.contains(where: { $0 == 96 || $0 == 126 || $0 == 9 }), !source.contains("    ") {
-      var result = normalize(source, protected: [], nonce: nonce, streaming: streaming, markup: render)
+      var result = normalize(
+        source, protected: [], nonce: nonce, streaming: streaming, markup: render, fields: fields)
       if render { result.tree = Tree(result.text) }
       return result
     }
@@ -72,7 +75,8 @@ enum AnswerMarkdown {
     var parsed = scan(parsedText, streaming: streaming)
     var protected = parsed.code.map { result.original($0.lowerBound)..<result.original($0.upperBound) }
     for _ in 0..<4 {
-      result = normalize(source, protected: protected, nonce: nonce, streaming: streaming, markup: render)
+      result = normalize(
+        source, protected: protected, nonce: nonce, streaming: streaming, markup: render, fields: fields)
       if result.text != parsedText {
         parsedText = result.text
         parsed = scan(parsedText, streaming: streaming)
@@ -207,13 +211,15 @@ enum AnswerMarkdown {
     return false
   }
   /// The page as HTML. `code` names the fenced blocks that get a copy button (`Page.code`).
-  static func html(_ input: String, code: [Page.Code] = [], streaming: Bool = false) -> String {
-    lock.withLock { _ in render(input, code: code, streaming: streaming) }
+  static func html(
+    _ input: String, code: [Page.Code] = [], streaming: Bool = false, fields: [String: Page.Field] = [:]
+  ) -> String {
+    lock.withLock { _ in render(input, code: code, streaming: streaming, fields: fields) }
   }
 
   private static func normalize(
     _ source: String, protected: [Range<Int>], nonce: String, streaming: Bool, inline: Bool = false,
-    markup: Bool = false
+    markup: Bool = false, fields: [String: Page.Field] = [:]
   ) -> Reading {
     let bytes = Array(source.utf8)
     var result = Reading()
@@ -293,6 +299,15 @@ enum AnswerMarkdown {
       // Wicket groups repeated tags itself; an explicit group tag adds nothing.
       if wrappers.contains(name) { continue }
       let key = nonce + "T\(result.tags.count)END"
+      if name == "field", markup {
+        if !streaming, selfClosing, !closing, let name = values.first(where: { $0.0 == "name" })?.1,
+          let field = fields[name]
+        {
+          add("\n\n\(key)\n\n")
+          result.tokens[key] = control(field)
+        }
+        continue
+      }
       add(name == "badge" ? key : "\n\n\(key)\n\n")
       if !selfClosing, ["card", "columns"].contains(name) { result.boxes[key] = closing ? -1 : 1 }
       guard markup else { continue }
@@ -330,9 +345,11 @@ enum AnswerMarkdown {
     return name.first.map { (97...122).contains($0) } ?? true
   }
 
-  private static func render(_ input: String, code: [Page.Code], streaming: Bool) -> String {
+  private static func render(
+    _ input: String, code: [Page.Code], streaming: Bool, fields: [String: Page.Field]
+  ) -> String {
     let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    let reading = reading(input, streaming: streaming, nonce: nonce, render: true)
+    let reading = reading(input, streaming: streaming, nonce: nonce, render: true, fields: fields)
     var tokens = reading.tokens
     let boxes = reading.boxes
     let tree = reading.tree!
@@ -416,6 +433,39 @@ enum AnswerMarkdown {
     pieces.append(ns.substring(from: cursor))
     return group(pieces.joined())
   }
+
+  private static func control(_ field: Page.Field) -> String {
+    let id = escape(field.id)
+    let label = escape(field.label)
+    var caption = "<label for=\"\(id)\">\(label)</label>"
+    let input: String
+    switch field.control {
+    case .toggle:
+      let checked = field.value == "true" ? " checked" : ""
+      input = "<input id=\"\(id)\" type=\"checkbox\" switch tabindex=\"-1\"\(checked)>"
+    case .slider(let min, let max, let step):
+      input = """
+        <input id="\(id)" type="range" tabindex="-1" min="\(min)" max="\(max)" step="\(step)" value="\(field.value)">
+        """
+    case .choice(let options) where options.count <= 4:
+      caption = "<span id=\"\(id)\">\(label)</span>"
+      let segments = options.map { option in
+        let checked = option.value == field.value ? " checked" : ""
+        return """
+          <label><input type="radio" name="\(id)" value="\(escape(option.value))" tabindex="-1"\(checked)>\
+          <span>\(escape(option.label))</span></label>
+          """
+      }.joined()
+      input = "<div class=\"segments\" role=\"radiogroup\" aria-labelledby=\"\(id)\">\(segments)</div>"
+    case .choice(let options):
+      let choices = options.map { option in
+        let selected = option.value == field.value ? " selected" : ""
+        return "<option value=\"\(escape(option.value))\"\(selected)>\(escape(option.label))</option>"
+      }.joined()
+      input = "<select id=\"\(id)\" tabindex=\"-1\">\(choices)</select>"
+    }
+    return "<w-field data-key=\"\(escape(field.name))\" data-target=\"\(id)\">\(caption)\(input)</w-field>"
+  }
   /// A tag's attributes, in the order written.
   static func values(_ tag: String) -> [(String, String)] {
     let ns = tag as NSString
@@ -426,7 +476,7 @@ enum AnswerMarkdown {
   }
 
   /// The tags a run of which Wicket groups, and the element that holds the run.
-  static let groups = ["row": "rows", "progress": "progresses"]
+  static let groups = ["row": "rows", "progress": "progresses", "field": "field-group"]
   /// Group elements: Wicket writes them, so a written one is dropped.
   static let wrappers = Set(groups.values)
 
@@ -434,7 +484,7 @@ enum AnswerMarkdown {
   /// label and a value) never join a list of titled rows, so an extension's properties stay apart from
   /// the JSON items that follow them.
   private static let groupable = try! NSRegularExpression(
-    pattern: #"<w-(row|progress)\b([^>]*)>(?:(?!</w-\1>).)*</w-\1>\s*"#,
+    pattern: #"<w-(row|progress|field)\b([^>]*)>(?:(?!</w-\1>).)*</w-\1>\s*"#,
     options: .dotMatchesLineSeparators)
   /// Wraps each run of adjacent tags of one kind in its group element.
   private static func group(_ html: String) -> String {

@@ -189,3 +189,65 @@ w-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(10
 w-columns:has(> w-card) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 w-columns > * { margin: 0; }
 w-columns > w-card + w-card { margin-top: 0; }
+
+/* Canvas fields share the page's row rhythm and leave the search bar in charge of the keyboard. */
+w-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+w-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--row, 32px);
+  padding: 3px 8px;
+  border-radius: var(--radius-small);
+  color: var(--label);
+}
+w-field[data-selected] { outline: 1px solid var(--accent); outline-offset: -1px; }
+w-field input, w-field select {
+  accent-color: var(--accent);
+  color-scheme: inherit;
+  margin: 0;
+}
+w-field input[type="range"] {
+  width: min(40%, 180px);
+}
+w-field select {
+  max-width: 55%;
+  color: inherit;
+  font: inherit;
+}
+w-field .segments {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-small);
+  background: var(--surface);
+}
+w-field .segments label {
+  position: relative;
+  cursor: pointer;
+}
+w-field .segments input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: inherit;
+}
+w-field .segments span {
+  display: block;
+  padding: 2px 7px;
+  border-radius: calc(var(--radius-small) - 1px);
+  font-size: var(--small);
+}
+w-field .segments input:checked + span {
+  color: AccentColorText;
+  background: var(--accent);
+}

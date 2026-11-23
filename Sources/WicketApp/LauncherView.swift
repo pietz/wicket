@@ -200,19 +200,31 @@ struct InputBar: Layout {
 /// presentation the panel committed (`PaletteController.presentation`), reads what is typed and filled in
 /// as it is, and sends what the user does to the panel (`PaletteController`) or the navigator.
 struct LauncherView: View {
-  unowned let panel: PaletteController
-  var drawsGlass = true
-  private var model: LauncherModel { panel.model }
-  private var navigator: Navigator { panel.navigator }
-  private var input: PanelInput { panel.input }
-  private var recorder: ShortcutRecorder { panel.recorder }
-  private var renderer: AnswerRenderer { panel.renderer }
+  // SwiftUI can finish a deferred update after AppKit has released the panel's controller.
+  private weak var panel: PaletteController?
+  private let drawsGlass: Bool
+  private let model: LauncherModel
+  private let input: PanelInput
+  private let recorder: ShortcutRecorder
+  private let renderer: AnswerRenderer
+  private var navigator: Navigator { model.navigator }
   /// What the screens show, as committed.
-  private var shown: PalettePresentation { panel.presentation }
+  private var shown: PalettePresentation { panel?.presentation ?? PalettePresentation() }
   /// The agent's screen, nil while another one shows.
   private var agent: AgentPresentation? { shown.agent }
   private var textSize: Configuration.TextSize { model.configuration.textSize }
+  init(panel: PaletteController, drawsGlass: Bool) {
+    self.panel = panel
+    self.drawsGlass = drawsGlass
+    model = panel.model
+    input = panel.input
+    recorder = panel.recorder
+    renderer = panel.renderer
+  }
   var body: some View {
+    if panel != nil { content }
+  }
+  private var content: some View {
     ZStack(alignment: .top) {
       VStack(spacing: PaletteLayout.gap) {
         GlassSurface(role: .pill, radius: 28, configuration: model.configuration, drawsGlass: drawsGlass)
@@ -351,7 +363,7 @@ struct LauncherView: View {
           focused: navigator.focusedField == nil,
           onFocus: { if navigator.focusedField != nil { navigator.focusedField = nil } },
           // The native panel, weakly: the controller owns this view, so capturing it would keep both alive.
-          register: { [weak native = panel.panel] in native?.field = $0 })
+          register: { [weak native = panel?.panel] in native?.field = $0 })
       }
   }
   /// A declared field's slot after the input's text: as wide as its own text within fixed bounds.
@@ -457,14 +469,14 @@ struct LauncherView: View {
     .contentShape(Rectangle()).id(result.id)
     .onTapGesture(count: 2) {
       navigator.select(result.id)
-      panel.run()
+      panel?.run()
     }
-    .onTapGesture { if navigator.click(result.id) { panel.run() } }
+    .onTapGesture { if navigator.click(result.id) { panel?.run() } }
     .contextMenu {
       ForEach(Array(navigator.actions(of: result).enumerated()), id: \.offset) { _, action in
         Button(action.label) {
           navigator.select(result.id)
-          panel.run(action)
+          panel?.run(action)
         }
       }
     }
@@ -608,6 +620,7 @@ extension RowAction {
       address.extensionName == nil ? "Run" : address.targetID == "agent" ? "Ask agent…" : "Open"
     case .send, .ask: "Ask"
     case .detail: "Show details"
+    case .field: "Change value"
     case .clip(_, let paste): paste ? "Paste into previous app" : "Copy"
     case .hotkey(_, let record): record ? "Set Hotkey…" : "Remove Hotkey"
     case .grant: "Allow"
@@ -623,6 +636,7 @@ extension RowAction {
     case .run(let address): address.targetID == "agent" ? "sparkles" : "arrow.right"
     case .send, .ask: "sparkles"
     case .detail: "text.page"
+    case .field: "slider.horizontal.3"
     case .hotkey(_, let record): record ? "keyboard" : "xmark.circle"
     case .clip(_, let paste): paste ? "doc.on.clipboard" : "doc.on.doc"
     case .grant: "lock.open"

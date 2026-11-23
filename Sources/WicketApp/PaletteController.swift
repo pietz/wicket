@@ -146,6 +146,12 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       guard let self, navigator.clickTarget(id, turn: turn) else { return }
       run()
     }
+    renderer.onFieldChange = { [weak self] change, turn in self?.navigator.changeField(change, turn: turn) }
+    renderer.onFieldFocus = { [weak self] turn in
+      guard let self, isOpen, turn == navigator.pageTurn, let field = panel.field else { return }
+      navigator.focusedField = nil
+      panel.makeFirstResponder(field)
+    }
     let input = self.input
     footerUpdates = Task { [weak self] in
       for await (problem, voice) in Observations({ (model.problem, input.status) }) {
@@ -153,7 +159,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       }
     }
   }
-  deinit { footerUpdates?.cancel() }
+  isolated deinit {
+    footerUpdates?.cancel()
+    panel.contentView = nil
+  }
   var permissionPending: Bool { navigator.permissionPending }
   var hasFields: Bool { !navigator.fieldSlots.isEmpty }
   func handle(_ action: PaletteKeyAction) -> Bool {
@@ -341,7 +350,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       hide()
     case .hotkey(let target, record: true):
       recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
-    case .run, .send, .ask, .detail, .hotkey, .grant: break
+    case .run, .send, .ask, .detail, .field, .hotkey, .grant: break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

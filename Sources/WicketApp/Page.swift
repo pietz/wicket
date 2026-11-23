@@ -23,6 +23,8 @@ struct Page: Equatable, Sendable {
   /// The complete fenced code blocks the source shows, each with the id of the target that copies it:
   /// the renderer puts a copy button on the block that starts there.
   var code: [Code]
+  /// The controls owned by the command on this page, by name.
+  private(set) var fields: [String: Field]
   /// An image file the host shows at the top of the page (`Row.picture`). Markdown never sets it.
   var picture: URL?
 
@@ -38,7 +40,7 @@ struct Page: Equatable, Sendable {
   /// `copies`, as beside a list, which takes no clicks, code blocks are only shown.
   init(
     body: String, items: [Row] = [], runs: Bool, streaming: Bool = false, picture: URL? = nil,
-    copies: Bool = true
+    copies: Bool = true, fieldSlots: [ExtensionManifest.Field]? = nil
   ) {
     self.picture = picture
     let bytes = Array(body.utf8)
@@ -47,6 +49,8 @@ struct Page: Equatable, Sendable {
     var targets: [Row] = []
     var symbols: [String] = []
     var code: [Code] = []
+    var fields: [String: Field] = [:]
+    let reserved = Set((fieldSlots ?? []).map(\.name))
     var cursor = 0
     // Most replies have no tag or code fence: they skip Markdown's parse.
     let reading =
@@ -55,7 +59,7 @@ struct Page: Equatable, Sendable {
       ? AnswerMarkdown.read(body, streaming: streaming) : nil
     /// The tag whose content is being read, with how deep its own kind nests in it.
     var open: (tag: AnswerMarkdown.Tag, depth: Int)?
-    func nextID() -> String { "#\(targets.count)" }
+    func nextID() -> String { "#\(targets.count - fields.count)" }
     /// The tag the renderer gets, with its icon noted for the stylesheet.
     func tag(_ name: String, _ id: String?, _ values: [(String, String)], icon: String?, close: Bool)
       -> String
@@ -108,6 +112,16 @@ struct Page: Equatable, Sendable {
       }
       source += text(cursor..<current.range.lowerBound)
       cursor = current.range.upperBound
+      if name == "field" {
+        if fieldSlots != nil, !streaming, copies, current.selfClosing, !current.closing,
+          let field = Field(current.values), !reserved.contains(field.name), fields[field.name] == nil
+        {
+          fields[field.name] = field
+          targets.append(Row(id: field.id, title: field.label, actions: [RowAction(.field(field.name))]))
+          source += tag(name, nil, [("name", field.name)], icon: nil, close: true)
+        }
+        continue
+      }
       switch (name, current.closing) {
       case (_, true) where Self.containers.contains(name): source += "</\(name)>"
       case (_, true): break  // A stray closing tag.
@@ -143,6 +157,11 @@ struct Page: Equatable, Sendable {
     self.targets = targets + own
     self.symbols = symbols
     self.code = code
+    self.fields = fields
+  }
+
+  mutating func fill(_ name: String, with value: String) {
+    if let value = fields[name]?.canonical(value) { fields[name]?.value = value }
   }
 
   /// The tags a page reads and what each shows; its icon comes separately. Rows and tiles are items
@@ -150,6 +169,7 @@ struct Page: Equatable, Sendable {
   private static let slots: [String: Set<String>] = [
     "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value"],
     "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": [], "card": [],
+    "field": ["name"],
   ]
   private static let actionable: Set = ["row", "tile"]
   private static let containers: Set = ["columns", "card"]

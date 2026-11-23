@@ -220,6 +220,8 @@ struct RowAction: Codable, Sendable, Equatable {
     /// Host only, never decoded: show this Markdown as its own page, an item's detail, with the item's
     /// own action as a row at its end, exactly as parsed. Escape returns.
     case detail(String, action: Row? = nil)
+    /// Host only: advance a field on the visible command page.
+    case field(String)
     /// Host only, never decoded: copy or paste the clipboard history's image with this ID, read when it runs.
     case clip(String, paste: Bool)
     /// Host only, never decoded: record a row's hotkey (Set Hotkey…), or with `record` false remove it.
@@ -296,6 +298,9 @@ struct RowAction: Codable, Sendable, Equatable {
     case .detail(let text, _):
       try c.encode("detail", forKey: .type)
       try c.encode(text, forKey: .text)
+    case .field(let name):
+      try c.encode("field", forKey: .type)
+      try c.encode(name, forKey: .text)
     case .clip(let id, let paste):
       try c.encode("clip", forKey: .type)
       try c.encode(id, forKey: .text)

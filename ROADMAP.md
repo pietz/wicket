@@ -4,14 +4,6 @@ The work the owner has agreed, in order; what is still being decided is under **
 
 The concept behind these steps: two nouns and one path. A **field** is a typed, named value with one renderer and one wire format, in three scopes: per request in the search bar, per page as a `<field>` tag, and persisted as a setting. An **action** is a one-shot name on a submitted request: Return, a button, a link and a field that acts on change are the same event, never replayed by a rerun. The **path** is the catalog service and the single `config.json` writer, with three faces: headless commands for the agent, a canvas page, and Settings. Onboarding is a host command page on that path, not a feature of its own.
 
-## 1. Canvas fields
-
-- A view declares fields as `<field>` tags with the same types (a grid of switches whose entries aren't known in advance); the look comes from the type: bool a switch, number with min and max a slider, choice segmented up to four options, else a pop-up.
-- Field changes follow today's rules: in a live command a change reruns with `submitted:false`, like typing; in a `submit` command nothing is sent until Return or an action. A field can opt in to make its change an action: one submitted request, so a switch acts at once like a switch in System Settings. A slider previews while dragging and acts on release only. Operations on one item are serialized and the view redraws from the returned state, so a slow response cannot undo a newer choice. Agent answers show no fields, since no program receives them.
-- The page patches by key, not by position (`bridge.js` does today), so a node inserted above a field cannot break its focus, caret or value.
-- Every control is a documented tag in the contract, the agent instructions where it applies, the examples and the tests; there are no app-private components, and onboarding uses only these. Controls look native: a small token-driven control layer in `core.css` (switch, checkbox, slider, segmented choice, pop-up) that `theme.css` can override, judged in offscreen captures.
-- Canvas text fields come last, behind offscreen tests of Tab and Shift-Tab, Japanese IME and caret through a re-render.
-
 The canvas is an HTML (WebKit) page by deliberate decision: it is more flexible to design and theme than a native renderer, and its speed cost is unnoticeable once warm. A keyed-field prototype passed fast typing, a structural re-render and 1,000 rapid updates. If negatives about the HTML canvas pile up, raise it openly.
 
 ## 3. Extension catalog
@@ -25,7 +17,7 @@ Extensions move out of the app into an official GitHub repository, and users ins
 - Whoever installed it (the user, the agent, a file copied into `extensions/`), a newly enabled extension shows one notice at the root.
 - A lock file outside `config.json` records each install's origin and the hashes of the files it installed. An unchanged install updates (official ones automatically); one the user or agent changed is never overwritten and shows that an update exists. Caches and rewritten items don't count as changes.
 - The four bundled extensions become the first entries, still Swift. The update that removes them from the app first copies existing users' extensions locally (tested on a real 0.4.0 working folder), keeps the `retired` recognition, and runs each new compiled binary once to absorb macOS's first-run check. `examples/` becomes catalog entries.
-- Then one catalog screen: a canvas grid page built from step 2's fields, whose switches install and enable or disable (off keeps the files; removal is a named action). Settings ▸ Extensions links to it instead of growing a second catalog UI.
+- Then one catalog screen: a canvas grid page built from canvas fields, whose switches install and enable or disable (off keeps the files; removal is a named action). Settings ▸ Extensions links to it instead of growing a second catalog UI.
 - A `wicket-js` runner on the system JavaScriptCore, when a real extension needs it: its trial (branch `t3/benchmark-javascriptcore-runner`, `tools/js-trial/`) measured 8.5 ms warm against the Swift calculator's 3.4 ms, the same first-run check as any new binary (~170 ms, once for the runner, never for edited scripts), and 8.6 ms after editing a script against 51 ms for a Swift rebuild. Host functions (http, files, processes) wait for a real user.
 
 ## 4. Onboarding
@@ -52,6 +44,7 @@ Not yet ordered; each takes its place after the steps above.
 
 - Add one Run agent entry to ⌘K, available even with no selection.
 - Enforce the answer-tag allowlist. Unknown tags display as literal text.
+- Add canvas text fields after offscreen tests of Tab and Shift-Tab, Japanese IME and caret through a re-render.
 - Ship and update layout and components in `core.css` and allow an advanced user override. Keep user tokens in `theme.css`, migrate existing themes and retain system-derived row and selection colours.
 - Add Allow for this conversation as the third agent permission choice, alongside Allow once and Don't allow.
 - A reusable harness for agents to check the real app on a Mac with an unlocked display: launch Wicket Dev with a scratch config, open the panel, type and press keys, capture screenshots over light, dark and busy backgrounds, and quit cleanly, so no agent rebuilds it each time.

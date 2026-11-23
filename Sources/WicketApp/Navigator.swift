@@ -375,7 +375,7 @@ final class Navigator {
   /// click that raced a new answer or view is ignored. True when the caller should run Return.
   func clickTarget(_ id: String, turn: String) -> Bool {
     guard page != nil, overlay == nil, turn == pageTurn,
-      let target = results.first(where: { $0.row.id == id })
+      let target = results.first(where: { $0.row.id == id }), !id.hasPrefix("#field:")
     else {
       return false
     }
@@ -458,6 +458,13 @@ final class Navigator {
     command?.screen.fill(name, with: value)
     resetSelection()
     refresh()
+  }
+  /// A canvas event counts only on the command page that declared the control.
+  func changeField(_ change: Page.Field.Change, turn: String) {
+    guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn,
+      command?.problem == nil, command?.edit(change) == true
+    else { return }
+    if command?.runningSubmission == true || !advanceCanvasWork() { draw() }
   }
   /// The field slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
   /// the input takes the keys back when the slots go away. A click into a field sets it too.
@@ -604,7 +611,7 @@ final class Navigator {
   var showsBusy: Bool { ranLong && command?.busy == true }
   @ObservationIgnored private var generation = 0
   /// Ends what the screen shown is waiting for: its request, the root's search and a waiting Return.
-  func cancelWork() {
+  func cancelWork(preservingCanvas: Bool = false) {
     returnQueued = false
     generation += 1
     for task in tasks { task.cancel() }
@@ -613,6 +620,7 @@ final class Navigator {
     ranLong = false
     search.cancel()
     command?.stop()
+    if !preservingCanvas { command?.discardPending() }
   }
   /// Stays on the current screen: a switch still waiting for its content is called off.
   private func stopArriving() {
@@ -686,6 +694,10 @@ final class Navigator {
     let input = arriving?.input ?? self.input
     if let state = target {
       let request = state.request()
+      if state.runningSubmission, state.page?.fields.isEmpty == false, state.descriptor?.submits == false {
+        target?.refreshAfterSubmission(typed: typed)
+        return publish()
+      }
       let work = state.behavior.work(for: request)
       guard case .keepView = work else { return answer(work, for: request, typed: typed) }
       showArrival()
@@ -695,12 +707,24 @@ final class Navigator {
     cancelWork()
     search.search(input, speaking: speech?.speaking == true) { [weak self] in self?.show($0) }
   }
+  /// A visit's field submissions run in order, ahead of any deferred live edit.
+  @discardableResult
+  private func advanceCanvasWork() -> Bool {
+    while let (request, typed) = target?.takePending(), let behavior = target?.behavior {
+      let work = behavior.work(for: request)
+      if case .keepView = work { continue }
+      answer(work, for: request, typed: typed)
+      return true
+    }
+    return false
+  }
   /// Answers a command's request as `work` says: what fails or is answered at once shows now, and a
   /// process's answer once it is there, unless another request or visit replaced it meanwhile.
   private func answer(_ work: CommandWork, for request: CommandScreenRequest, typed: Bool) {
     let speaking = speech?.speaking == true
-    cancelWork()
-    target?.begin()
+    cancelWork(preservingCanvas: true)
+    target?.begin(request)
+    let turn = (request.fieldChange == nil ? nil : target?.turn) ?? UUID().uuidString
     // The user did not cause it by typing, so what it shows becomes its context.
     let remembered = !typed || request.cause != .rerun
     switch work {
@@ -711,7 +735,8 @@ final class Navigator {
       sizeList()
       return publish()
     case .immediate(let outcome):
-      if accept(outcome, for: request, page: nil, turn: UUID().uuidString, remembered: remembered) {
+      let page: Page? = if case .view(let view) = outcome { target?.makePage(view) } else { nil }
+      if accept(outcome, for: request, page: page, turn: turn, remembered: remembered) {
         publish()
       }
       return
@@ -719,7 +744,6 @@ final class Navigator {
       target?.run(request)
       let version = generation
       let visit = target?.visit
-      let turn = UUID().uuidString
       tasks.append(
         Task { [weak self] in
           if speaking, (try? await Task.sleep(for: .milliseconds(350))) == nil { return }
@@ -733,10 +757,11 @@ final class Navigator {
             !Task.isCancelled && generation == version && target?.visit == visit
           }
           guard current() else { return }
+          if request.cause == .submission, advanceCanvasWork() { return }
           var page: Page?
           var measured: PageHeight?
-          if case .view(let view) = outcome, let body = view.body {
-            page = Page(body: body, items: view.items, runs: true)
+          if case .view(let view) = outcome {
+            page = target?.makePage(view)
           }
           // Measured for this page's turn: one the renderer measured meanwhile, such as a list's detail
           // on an arrow key, says nothing about this one's height. What failed shows unmeasured at once.
@@ -834,9 +859,18 @@ final class Navigator {
       var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
       state.enter(address, submitted: submitted, replacingFields: replacingFields)
       guard reopened, !conversing else { return arrive(state, input: state.input, holding: holding) }
+      if arriving == nil, state.runningSubmission, state.page?.fields.isEmpty == false,
+        state.next == .submission
+      {
+        state.enqueue(state.request())
+        state.begin()
+        command = state
+        return draw()
+      }
       // The same screen: its request reruns in place.
       stopArriving()
       cancelWork()
+      state.discardPending()
       command = state
       if submitted, !address.link, address.action != nil {
         // A repeated Return must not pick the action again from the old view or its replacement.
@@ -901,6 +935,11 @@ final class Navigator {
     case .send(let text): send(text)
     case .ask: askAgent()
     case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
+    case .field(let name):
+      if let field = page?.fields[name] {
+        let next = field.nextValue()
+        if next != field.value { changeField(.init(name: name, value: next, phase: .commit), turn: pageTurn) }
+      }
     case .hotkey(let target, record: false): store.bind(nil, to: target)
     case .grant(let permission, let address): grant(permission, then: address)
     case .open, .reveal:
@@ -1211,15 +1250,15 @@ final class Navigator {
     cancelWork()
     var state = CommandScreen(behavior)
     state.enter(Address(input: request.input, fields: request.fields), submitted: false)
-    state.begin()
+    let shown = CommandScreenRequest(
+      input: request.input, fields: request.fields, action: request.action, cause: .submission)
+    state.begin(shown)
     // An arrival sets the input without a rerun.
     arriving = Arrival(command: state, input: state.input)
     var page: Page?
-    if case .view(let view) = outcome, let body = view.body {
-      page = Page(body: body, items: view.items, runs: true)
+    if case .view(let view) = outcome {
+      page = state.makePage(view)
     }
-    let shown = CommandScreenRequest(
-      input: request.input, fields: request.fields, action: request.action, cause: .submission)
     if accept(outcome, for: shown, page: page, turn: UUID().uuidString, remembered: true) { publish() }
   }
 }

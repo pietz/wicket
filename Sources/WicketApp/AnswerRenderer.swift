@@ -34,6 +34,26 @@ private final class TargetClicks: NSObject, WKScriptMessageHandler {
   }
 }
 
+private final class FieldMessages: NSObject, WKScriptMessageHandler {
+  let change: @MainActor (Page.Field.Change, String) -> Void
+  let focus: @MainActor (String) -> Void
+  init(
+    change: @escaping @MainActor (Page.Field.Change, String) -> Void,
+    focus: @escaping @MainActor (String) -> Void
+  ) {
+    self.change = change
+    self.focus = focus
+  }
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    if message.name == "fieldFocus", let turn = message.body as? String { return focus(turn) }
+    guard let body = message.body as? [String: String], let name = body["name"], let value = body["value"],
+      let turn = body["turn"], let rawPhase = body["phase"],
+      let phase = Page.Field.Change.Phase(rawValue: rawPhase)
+    else { return }
+    change(.init(name: name, value: value, phase: phase), turn)
+  }
+}
+
 /// Canvas created when the panel opens and released after it stays hidden. Agent text enters only through the safe Markdown adapter.
 @MainActor @Observable
 final class AnswerRenderer {
@@ -43,6 +63,8 @@ final class AnswerRenderer {
   var onHeight: (() -> Void)?
   /// A click on a target: its id and the turn of the page it was made on.
   var onTarget: ((String, String) -> Void)?
+  var onFieldChange: ((Page.Field.Change, String) -> Void)?
+  var onFieldFocus: ((String) -> Void)?
   var cap: Double = PaletteLayout.answerMax
   /// The selected target's id. A change is painted at once, outside the render batch, so an arrow key
   /// never waits for Markdown; every render paints it again.
@@ -74,6 +96,7 @@ final class AnswerRenderer {
   /// The turn of the page last drawn, so a list's detail pane shows only its own pages.
   private(set) var renderedTurn = ""
   private var streaming = false
+  private var renderedStreaming = false
   private var cssRevision = 0
   private var appliedCSS = -1
   private var appliedIcons = ""
@@ -165,6 +188,11 @@ final class AnswerRenderer {
     config.userContentController.add(
       TargetClicks { [weak self] id, turn in self?.onTarget?(id, turn) }, contentWorld: .defaultClient,
       name: "target")
+    let fields = FieldMessages(
+      change: { [weak self] change, turn in self?.onFieldChange?(change, turn) },
+      focus: { [weak self] turn in self?.onFieldFocus?(turn) })
+    config.userContentController.add(fields, contentWorld: .defaultClient, name: "fieldChange")
+    config.userContentController.add(fields, contentWorld: .defaultClient, name: "fieldFocus")
     let page = WebPage(configuration: config, navigationDecider: AnswerNavigation(open: open))
     self.page = page
     watcher = FileWatcher(
@@ -206,10 +234,10 @@ final class AnswerRenderer {
           try Task.checkCancellation()
           let version = revision
           let shown = source
-          let text = shown.source
-          let icons = PageIcons.stylesheet(for: shown) + (await PageIcons.picture(shown.picture))
           let currentTurn = turn
           let isStreaming = streaming
+          let text = shown.source
+          let icons = PageIcons.stylesheet(for: shown) + (await PageIcons.picture(shown.picture))
           let reset = currentTurn != renderedTurn
           // Whether this pass measures a page not shown yet, taken before it suspends: an `update` meanwhile
           // clears `staging`, and the height found then belongs to neither page.
@@ -226,15 +254,20 @@ final class AnswerRenderer {
             appliedCSS = cssVersion
           }
           let code = shown.code
-          let html = await Task.detached { AnswerMarkdown.html(text, code: code, streaming: isStreaming) }
-            .value
+          let fields = shown.fields
+          let html = await Task.detached {
+            AnswerMarkdown.html(text, code: code, streaming: isStreaming, fields: fields)
+          }
+          .value
           try Task.checkCancellation()
+          if currentTurn != turn || (version != revision && !fields.isEmpty) { continue }
           let result = try await page.callJavaScript(
             script,
             arguments: [
               "html": html, "reset": reset, "turn": currentTurn, "selected": selected ?? NSNull(),
               "icons": icons == appliedIcons ? NSNull() : icons,
               "restore": reset ? positions[currentTurn] ?? 0 : NSNull(),
+              "follow": isStreaming || renderedStreaming,
             ], contentWorld: .defaultClient)
           try Task.checkCancellation()
           appliedIcons = icons
@@ -262,6 +295,7 @@ final class AnswerRenderer {
           }
           if measuring, staging == currentTurn, staged == nil { staged = .unmeasured }
           renderedTurn = currentTurn
+          renderedStreaming = isStreaming
           problem = nil
           if version == revision { break }
           try await Task.sleep(for: .milliseconds(40))
@@ -296,6 +330,7 @@ final class AnswerRenderer {
     page = nil
     ready = false
     renderedTurn = ""
+    renderedStreaming = false
     appliedCSS = -1
     appliedIcons = ""
     positions.removeAll()

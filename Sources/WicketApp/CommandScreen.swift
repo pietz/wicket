@@ -32,9 +32,10 @@ struct CommandDescriptor {
 /// A request to a command: the input and fields it was made with, and why it was made.
 struct CommandScreenRequest {
   let input: String
-  let fields: [String: String]
+  var fields: [String: String]
   var action: String? = nil
   let cause: CommandScreen.Cause
+  var fieldChange: Page.Field.Change? = nil
   /// The request as an extension's program and a host command receive it.
   var provider: ProviderRequest {
     ProviderRequest(input: input, fields: fields, action: action, submitted: cause == .submission)
@@ -77,6 +78,7 @@ enum CommandOutcome {
   /// user's activation makes it submitted; every later request is a rerun.
   private(set) var next = Cause.address
   private var action: String?
+  private var replacingFields = false
   /// A link or root pattern can supply a command query while the search bar holds an agent draft.
   private var providerInput = ""
   var input: String {
@@ -104,7 +106,12 @@ enum CommandOutcome {
   private(set) var problem: String?
   private(set) var busy = false
   private(set) var runningAction = false
+  private(set) var runningSubmission = false
   private(set) var turn = UUID().uuidString
+  private var canvasEdits: [String: String] = [:]
+  private var submissions: [CommandScreenRequest] = []
+  private var pendingChange: Page.Field.Change?
+  private var pendingRefresh: Bool?
 
   init(_ behavior: any CommandScreenBehavior) {
     self.behavior = behavior
@@ -115,10 +122,21 @@ enum CommandOutcome {
   mutating func enter(_ address: Address, submitted: Bool, replacingFields: Bool = false) {
     next = submitted && !address.link ? .submission : .address
     action = next == .submission ? address.action : nil
+    self.replacingFields = replacingFields
     let field = descriptor?.inputField
-    if address.link || replacingFields { screen.fill([:]) }
+    if address.link || replacingFields {
+      screen.fill([:])
+      canvasEdits.removeAll()
+    }
     for (name, value) in address.fields ?? [:] where name != field?.name {
-      screen.fill(name, with: value)
+      if next == .submission, !replacingFields, let canvas = page?.fields[name] {
+        if let value = canvas.canonical(value) {
+          page?.fill(name, with: value)
+          canvasEdits[name] = nil
+        }
+      } else {
+        screen.fill(name, with: value)
+      }
     }
     providerInput =
       field.flatMap { address.fields?[$0.name] } ?? address.input ?? (replacingFields ? "" : providerInput)
@@ -127,25 +145,102 @@ enum CommandOutcome {
 
   func request() -> CommandScreenRequest {
     var fields = screen.fields
+    if next != .address, !replacingFields {
+      fields.merge(page?.fields.mapValues(\.value) ?? [:]) { _, canvas in canvas }
+    }
     if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
     return CommandScreenRequest(
       input: providerInput, fields: fields, action: action, cause: next)
   }
+
+  /// Keeps the latest local edit visible and stages only the work this control calls for.
+  mutating func edit(_ change: Page.Field.Change) -> Bool {
+    guard let field = page?.fields[change.name], let value = field.canonical(change.value) else {
+      return false
+    }
+    if change.phase == .preview {
+      guard case .slider = field.control else { return false }
+    }
+    page?.fill(change.name, with: value)
+    canvasEdits[change.name] = value
+    let change = Page.Field.Change(name: change.name, value: value, phase: change.phase)
+    if change.phase == .commit, let action = field.action {
+      let current = request()
+      enqueue(
+        CommandScreenRequest(
+          input: current.input, fields: current.fields, action: action, cause: .submission,
+          fieldChange: change))
+      // The submitted value also answers this field's last deferred preview.
+      if pendingChange?.name == change.name { pendingChange = nil }
+    } else if descriptor?.submits == false {
+      pendingChange = change
+    }
+    return true
+  }
+
+  mutating func enqueue(_ request: CommandScreenRequest) {
+    if let name = request.fieldChange?.name,
+      let index = submissions.indices.reversed().prefix(while: { submissions[$0].fieldChange != nil })
+        .first(where: { submissions[$0].fieldChange?.name == name })
+    {
+      submissions[index] = request
+    } else {
+      submissions.append(request)
+    }
+  }
+
+  mutating func refreshAfterSubmission(typed: Bool) {
+    pendingRefresh = (pendingRefresh ?? true) && typed
+  }
+
+  mutating func takePending() -> (CommandScreenRequest, typed: Bool)? {
+    if !submissions.isEmpty {
+      var request = submissions.removeFirst()
+      if let change = request.fieldChange {
+        request.fields.merge(page?.fields.mapValues(\.value) ?? [:]) { _, latest in latest }
+        request.fields[change.name] = change.value
+      }
+      return (request, false)
+    }
+    guard pendingChange != nil || pendingRefresh != nil else { return nil }
+    var request = request()
+    request.fieldChange = pendingChange
+    let typed = pendingChange == nil && pendingRefresh == true
+    pendingChange = nil
+    pendingRefresh = nil
+    return (request, typed)
+  }
+
+  mutating func discardPending() {
+    submissions.removeAll()
+    pendingChange = nil
+    pendingRefresh = nil
+  }
   /// A request is being answered; every later one is a rerun.
-  mutating func begin() {
+  mutating func begin(_ request: CommandScreenRequest? = nil) {
     next = .rerun
     action = nil
+    replacingFields = false
+    if let request {
+      canvasEdits = canvasEdits.filter { $0.value != request.fields[$0.key] }
+    }
   }
   /// A process answers it.
   mutating func run(_ request: CommandScreenRequest) {
     problem = nil
     busy = true
     runningAction = request.action != nil
+    runningSubmission = request.cause == .submission
   }
   /// Its request stopped: nothing is running.
   mutating func stop() {
     busy = false
     runningAction = false
+    runningSubmission = false
+  }
+
+  func makePage(_ view: ProviderView) -> Page? {
+    view.body.map { Page(body: $0, items: view.items, runs: true, fieldSlots: descriptor?.fields) }
   }
   /// What answered `request`: a list ordered by what is typed, or a page. `remembered`: the user did not
   /// cause the request by typing, so the view becomes its context.
@@ -156,6 +251,12 @@ enum CommandOutcome {
     shown = Shown(view: view, input: request.input, fields: request.fields)
     if remembered { context = shown }
     self.page = page
+    // Edits still waiting for an explicit submit survive another field's reply.
+    canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.canonical(value) != nil }
+    for (name, value) in canvasEdits { self.page?.fill(name, with: value) }
+    if let page {
+      for name in page.fields.keys { screen.fill(name, with: "") }
+    }
     problem = nil
     stop()
     screen.rows = page == nil ? Ranking.order(view.items, provider: id, query: request.input) : []

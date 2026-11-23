@@ -24,6 +24,8 @@ Keep it calm. Each fact appears once, the facts that decide stay on the screen, 
 
 ## Components
 
+Agent answers show no canvas fields.
+
 **Items** are `row` and `tile`. They show only their attributes, in five optional slots drawn alike everywhere: `label` (small grey, first), `icon` (an SF Symbol), `title` (the strongest text), `subtitle` (grey) and `value` (a short figure at the end). Slots hold labels and figures, not sentences: `subtitle="Zoom · 15 min"`, facts joined by ` · `. The rows of one list and the tiles of one `columns` fill the same slots, so they line up.
 
 An item takes at most one action, done on Return and named by `action`:
