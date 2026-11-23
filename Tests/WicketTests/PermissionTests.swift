@@ -136,7 +136,7 @@ func anEmptyCompactRootShowsThePermissionRequestUntilGranted(manuallyRevealed: B
   _ = try extensionFolder(
     root, name: "listonly",
     fields: ["command": NSNull(), "items": [], "permissions": ["calendar"]])
-  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
+  let (commands, problems, _) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
   #expect(commands["extension:current"]?.manifest.permissions == [.calendar])
   let future = try #require(problems["extension:future"])
   #expect(

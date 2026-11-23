@@ -465,7 +465,11 @@ struct SettingsPane: View {
         if let copyProblem { Text(copyProblem).foregroundStyle(.red) }
       }
     } footer: {
-      if bundled, !own { Text("Bundled with Wicket. A valid local copy replaces it.") }
+      if extensions.localCopies[id]?.retired == true {
+        Text("Wicket is using the built-in. Move the old copy to the Trash to make a fresh copy.")
+      } else if bundled, !own {
+        Text("Bundled with Wicket. A valid local copy replaces it.")
+      }
     }
     if id == "clipboard" {
       Section { clipboardRows(enabled: config.isEnabled(id, extensions: [])) }
@@ -506,10 +510,12 @@ struct SettingsPane: View {
   private func trashButton(_ id: String) -> some View {
     let name = String(id.dropFirst("extension:".count))
     let restores = extensions.hasBundled(name)
+    let retired = extensions.localCopies[id]?.retired == true
     let usingBundled = extensions.problems[id]?.usingBundled == true
+    let item = retired ? "the old copy of “\(title(id))”" : "“\(title(id))”"
     return Button("Move to Trash…") { confirmingTrash = true }
       .disabled(store.problem != nil)
-      .confirmationDialog("Move “\(title(id))” to the Trash?", isPresented: $confirmingTrash) {
+      .confirmationDialog("Move \(item) to the Trash?", isPresented: $confirmingTrash) {
         Button("Move to Trash", role: .destructive) {
           let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
           copyProblem = nil
@@ -523,7 +529,10 @@ struct SettingsPane: View {
           selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
         }
       } message: {
-        if usingBundled {
+        if retired {
+          Text(
+            "The built-in stays active, and any personal items in user.json stay in your extensions folder.")
+        } else if usingBundled {
           Text("The built-in stays active. To keep any personal items, copy user.json out of the Trash.")
         } else if restores {
           Text(

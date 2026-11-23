@@ -38,7 +38,7 @@ let bundledExtensions: URL = {
 }()
 
 func bundled(_ name: String) throws -> ExtensionCommand {
-  let (commands, problems) = ExtensionHost.discover(
+  let (commands, problems, _) = ExtensionHost.discover(
     URL(filePath: "/nonexistent"), bundled: bundledExtensions)
   guard let command = commands["extension:" + name] else {
     throw ExtensionFailure(problems["extension:" + name]?.message ?? "No bundled \(name)")
@@ -381,7 +381,7 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   let old = extensions.appending(path: "units")
   try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
   try FileManager.default.copyItem(at: fixtureURL("units-0.3"), to: old)
-  var (commands, problems) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  var (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:units"]) == path(bundledExtensions.appending(path: "units")))
   #expect(commands["extension:units"]?.manifest.command == ["./main"])
   #expect(FileManager.default.fileExists(atPath: old.appending(path: "main.py").path))
@@ -389,7 +389,7 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   // An edited copy needs repair. The bundled command keeps running.
   let program = old.appending(path: "main.py")
   try (Data(contentsOf: program) + Data("# mine\n".utf8)).write(to: program)
-  let (edited, repairs) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  let (edited, repairs, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(edited["extension:units"]) == path(bundledExtensions.appending(path: "units")))
   #expect(repairs["extension:units"]?.usingBundled == true)
   #expect(
@@ -402,13 +402,13 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
   let calculator = extensions.appending(path: "calculator")
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "calculator"), to: calculator)
-  (commands, problems) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:units"]) == path(old))
   #expect(path(commands["extension:calculator"]) == path(calculator))
   #expect(problems.isEmpty)
   try Data("{".utf8).write(to: calculator.appending(path: "wicket.json"))
   try Data("{".utf8).write(to: calculator.appending(path: "user.json"))
-  (commands, problems) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:calculator"]) == path(bundledExtensions.appending(path: "calculator")))
   #expect(problems.count == 1)
   let problem = try #require(problems["extension:calculator"])

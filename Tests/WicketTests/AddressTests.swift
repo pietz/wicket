@@ -301,7 +301,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(root, name: "typo", fields: ["keywords": ["t"]])
   _ = try extensionFolder(root, name: "fine", fields: ["match": "^x", "submit": true, "description": "D"])
-  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
+  let (commands, problems, _) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
   #expect(Set(commands.keys) == ["extension:fine"])
   let problem = try #require(problems["extension:typo"]?.detail)
   #expect(problem.contains("Unknown key `keywords`"))
@@ -314,7 +314,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   for name in ["settings", "Agent", "clipboard", "fine"] {
     _ = try extensionFolder(root, name: name, fields: ["command": ["/usr/bin/true"]])
   }
-  let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
+  let (commands, problems, _) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
   #expect(Set(commands.keys) == ["extension:fine"])
   #expect(problems["extension:settings"]?.detail.contains("reserved") == true)
   #expect(problems["extension:Agent"]?.detail.contains("reserved") == true)

@@ -80,9 +80,14 @@ final class ExtensionHost {
     var usingBundled = false
     var message: String { usingBundled ? detail + "\n" + Self.fallbackMessage : detail }
   }
+  struct LocalCopy: Equatable, Sendable {
+    let folder: URL
+    var retired = false
+  }
 
   private(set) var commands: [String: ExtensionCommand] = [:]
   private(set) var problems: [String: Problem] = [:]
+  private(set) var localCopies: [String: LocalCopy] = [:]
   /// Every discovered extension ID, including ones with invalid manifests or user items.
   var ids: [String] { Array(commands.keys) + problems.keys.filter { commands[$0] == nil } }
   /// Called with the IDs whose command or problem changed, appeared or went away.
@@ -96,7 +101,7 @@ final class ExtensionHost {
   private let runner: ExtensionRunner
   /// What macOS grants Wicket, checked before a program that declares permissions runs; tests replace it.
   var permissions = Permissions.system
-  /// Moves a folder to the Trash, so it can be put back; tests replace it.
+  /// Moves an item to the Trash, so it can be put back; tests replace it.
   var moveToTrash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
   /// The `extensions` of config.json: each folder's saved settings.
   var settings: [String: [String: String]] = [:]
@@ -143,7 +148,7 @@ final class ExtensionHost {
     scan?.cancel()
     scan = Task { [weak self] in
       while !Task.isCancelled {
-        let (paths, (commands, problems)) = await Task.detached {
+        let (paths, (commands, problems, localCopies)) = await Task.detached {
           let paths = watching ? Self.watchPaths(in: root) : nil
           return (paths, Self.discover(root, bundled: bundled))
         }.value
@@ -165,6 +170,8 @@ final class ExtensionHost {
           commands[$0] != self.commands[$0]
         }
         .union(Set(problems.keys).union(self.problems.keys).filter { problems[$0] != self.problems[$0] })
+        // Retired copies affect Settings even when the active command and repair rows stay the same.
+        if self.localCopies != localCopies { self.localCopies = localCopies }
         guard !changed.isEmpty else { return }
         self.commands = commands
         self.problems = problems
@@ -227,10 +234,11 @@ final class ExtensionHost {
   }
   /// Try the local manifest first. User items always come from the working folder.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
-    [String: ExtensionCommand], [String: Problem]
+    [String: ExtensionCommand], [String: Problem], [String: LocalCopy]
   ) {
     var commands: [String: ExtensionCommand] = [:]
     var problems: [String: Problem] = [:]
+    var localCopies: [String: LocalCopy] = [:]
     // Listing does not follow a linked root itself.
     func entries(_ root: URL?) -> [URL] {
       guard let root = root?.resolvingSymlinksInPath() else { return [] }
@@ -254,6 +262,7 @@ final class ExtensionHost {
       let override = local.flatMap { hasManifest($0) ? $0 : nil }
       guard var folder = override ?? builtIns[name] else { continue }
       let id = "extension:" + name
+      if let override { localCopies[id] = LocalCopy(folder: override) }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
         problems[id] = Problem(detail: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
@@ -269,7 +278,9 @@ final class ExtensionHost {
           problems[id] = Problem(detail: detail)
           continue
         }
-        if !isRetired(override) {
+        if retiredFiles(in: override) != nil {
+          localCopies[id]?.retired = true
+        } else {
           problems[id] = Problem(detail: detail, usingBundled: true)
         }
         folder = builtIn
@@ -291,7 +302,7 @@ final class ExtensionHost {
       }
       commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
     }
-    return (commands, problems)
+    return (commands, problems, localCopies)
   }
 
   /// The view the command answers: from its items when it has no program, and nothing runs; Wicket's
@@ -386,28 +397,64 @@ final class ExtensionHost {
     rescan()
   }
 
-  /// The user's extension folder, including a broken override whose built-in is active.
+  /// Local copies have a manifest. A folder holding only personal items can still receive one.
   func ownFolder(_ id: String) -> URL? {
-    if let command = commands[id] {
-      if !isBundled(command) { return command.folder }
-      guard problems[id]?.usingBundled == true else { return nil }
-    } else if problems[id] == nil {
-      return nil
-    }
-    let own = folder.appending(path: "extensions/" + id.dropFirst("extension:".count))
-    return FileManager.default.fileExists(atPath: own.path) ? own : nil
+    localCopies[id]?.folder
   }
   /// Whether a bundled extension has this folder name, so it takes the place of the user's when that goes.
   func hasBundled(_ name: String) -> Bool {
     bundled.map { FileManager.default.fileExists(atPath: $0.appending(path: name + "/wicket.json").path) }
       ?? false
   }
-  /// Moves the user's own folder for this ID to the Trash. The folder watcher then drops it from the list.
+  /// A retired override can be removed without interrupting its built-in or moving personal items.
   func trash(_ id: String) throws {
-    guard let own = ownFolder(id) else {
+    guard let copy = localCopies[id] else {
       throw ExtensionFailure("Only your own extensions can be moved to the Trash.")
     }
-    try moveToTrash(own)
+    defer { rescan() }
+    if copy.retired {
+      guard let code = Self.retiredFiles(in: copy.folder) else {
+        throw ExtensionFailure("The local copy changed. Review it before moving it to the Trash.")
+      }
+      let entries = try FileManager.default.contentsOfDirectory(atPath: copy.folder.path)
+      if !Set(entries).isSubset(of: Set(code)) {
+        try trashRetiredFiles(code, in: copy.folder)
+        return
+      }
+    }
+    try moveToTrash(copy.folder)
+  }
+
+  private func trashRetiredFiles(_ names: [String], in local: URL) throws {
+    let files = FileManager.default
+    let staging = try files.url(
+      for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: local, create: true)
+    let oldCopy = staging.appending(path: local.lastPathComponent)
+    var moved: [String] = []
+    defer {
+      if moved.isEmpty { try? files.removeItem(at: staging) }
+    }
+    do {
+      try files.createDirectory(at: oldCopy, withIntermediateDirectories: false)
+      for name in names {
+        try files.moveItem(at: local.appending(path: name), to: oldCopy.appending(path: name))
+        moved.append(name)
+      }
+      // Keep the old copy together in the Trash and leave user.json at its original path.
+      try moveToTrash(oldCopy)
+      moved.removeAll()
+    } catch {
+      // Restore the manifest last, after its program. Keep anything that cannot be moved back.
+      while let name = moved.last {
+        do {
+          try files.moveItem(at: oldCopy.appending(path: name), to: local.appending(path: name))
+          moved.removeLast()
+        } catch {
+          break
+        }
+      }
+      throw error
+    }
   }
 
   static func installFiles(in folder: URL) throws {
@@ -446,19 +493,21 @@ final class ExtensionHost {
       "e4d81e5982661a10418626a1f84c027fd94e13f9f12c5ad1405be4e37acfad92",  // 0.6.0
     ],
   ]
-  nonisolated private static func isRetired(_ folder: URL) -> Bool {
+  nonisolated private static func retiredFiles(in folder: URL) -> [String]? {
     guard let known = releasedCopies[folder.lastPathComponent],
       let manifest = try? Data(contentsOf: folder.appending(path: "wicket.json")),
       let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
-    else { return false }
+    else { return nil }
     var hash = SHA256()
     hash.update(data: manifest)
     let sources = files.filter { $0.hasSuffix(".swift") }.sorted()
-    for name in sources.isEmpty ? ["main.py"] : sources {
-      guard let source = try? Data(contentsOf: folder.appending(path: name)) else { return false }
+    let program = sources.isEmpty ? ["main.py"] : sources
+    for name in program {
+      guard let source = try? Data(contentsOf: folder.appending(path: name)) else { return nil }
       if !sources.isEmpty { hash.update(data: Data((name + "\0").utf8)) }
       hash.update(data: source)
     }
-    return known.contains(hash.finalize().map { String(format: "%02x", $0) }.joined())
+    guard known.contains(hash.finalize().map { String(format: "%02x", $0) }.joined()) else { return nil }
+    return ["wicket.json"] + program + (files.contains("main") && !sources.isEmpty ? ["main"] : [])
   }
 }

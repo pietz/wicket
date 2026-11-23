@@ -344,7 +344,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   for folder in installed {
     #expect(try String(contentsOf: folder.appending(path: "main.sh"), encoding: .utf8) == "echo keep")
   }
-  let (commands, problems) = ExtensionHost.discover(
+  let (commands, problems, _) = ExtensionHost.discover(
     root.appending(path: "extensions"), bundled: bundledExtensions)
   #expect(problems.isEmpty)
   for name in names + ["units", "links-search", "web"] {
@@ -505,6 +505,63 @@ func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) asy
   #expect(try host.isBundled(#require(host.commands["extension:window"])))
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: trash.path).sorted() == ["broken", "echo", "window"])
+}
+
+@MainActor @Test(arguments: [false, true])
+func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: Bool) async throws {
+  let root = try scratch()
+  let files = FileManager.default
+  defer { try? files.removeItem(at: root) }
+  let extensions = root.appending(path: "extensions")
+  let local = extensions.appending(path: "units")
+  let userFile = local.appending(path: "user.json")
+  let trash = root.appending(path: "Trash")
+  try files.createDirectory(at: extensions, withIntermediateDirectories: true)
+  try files.createDirectory(at: trash, withIntermediateDirectories: true)
+  try files.copyItem(at: fixtureURL("retired-units"), to: local)
+  let saved = try JSONEncoder().encode([
+    "items": [Row(id: "marathon", title: "Marathon", actions: [.run(Address(input: "42.195 km in mi"))])]
+  ])
+  if keepItems { try saved.write(to: userFile) }
+  let host = ExtensionHost(folder: root, bundled: bundledExtensions)
+  let id = "extension:units"
+  await host.reload()
+  let builtIn = try #require(host.commands[id])
+  #expect(host.isBundled(builtIn) && host.problems[id] == nil)
+  #expect(host.localCopies[id]?.retired == true)
+  #expect(
+    host.folderToReveal(builtIn).resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
+  #expect(throws: ExtensionFailure.self) { try host.makeMine(builtIn) }
+
+  if keepItems {
+    host.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
+    #expect(throws: CocoaError.self) { try host.trash(id) }
+    #expect(
+      Set(try files.contentsOfDirectory(atPath: local.path)) == ["main.py", "user.json", "wicket.json"])
+    #expect(try Data(contentsOf: userFile) == saved)
+  }
+  host.moveToTrash = {
+    try files.moveItem(at: $0, to: trash.appending(path: $0.lastPathComponent))
+  }
+  try host.trash(id)
+  await host.reload()
+  #expect(host.ownFolder(id) == nil)
+  #expect(host.commands[id] == builtIn && host.problems[id] == nil)
+  let trashed = trash.appending(path: "units")
+  #expect(Set(try files.contentsOfDirectory(atPath: trashed.path)) == ["main.py", "wicket.json"])
+  if keepItems {
+    #expect(try files.contentsOfDirectory(atPath: local.path) == ["user.json"])
+    #expect(try Data(contentsOf: userFile) == saved)
+  } else {
+    #expect(!files.fileExists(atPath: local.path))
+  }
+
+  try host.makeMine(builtIn)
+  await host.reload()
+  let mine = try #require(host.commands[id])
+  #expect(!host.isBundled(mine))
+  #expect(mine.manifest == builtIn.manifest && mine.items == builtIn.items)
+  if keepItems { #expect(try Data(contentsOf: userFile) == saved) }
 }
 
 @Test func forgettingAnExtensionRemovesOnlyItsSwitchSettingsAndHotkeys() throws {
