@@ -147,7 +147,9 @@ struct Page: Equatable, Sendable {
     var own: [Row] = []
     for item in items {
       // An item's detail opens with Return, as a row's content does; its own actions stay in ⌘K.
-      let detail = item.detail.map { [RowAction(.detail("## \(item.title)\n\n\($0)"))] } ?? []
+      let detail =
+        item.detail.map { [RowAction(.detail(Self.detailBody(title: item.title, content: $0)))] }
+        ?? []
       let row = Row(
         id: item.id.hasPrefix("#") ? "#" + item.id : item.id, title: item.title, subtitle: item.subtitle,
         icon: item.icon, actions: detail + item.actions, keywords: item.keywords, prominent: item.prominent)
@@ -266,12 +268,16 @@ struct Page: Equatable, Sendable {
       let heading = label.map { "\($0) · \(title)" } ?? title
       // The item's own action stands at the end of its detail as a row, named by its title.
       let row = named.map { Row(id: "action", title: $0.title ?? title, icon: icon, actions: [$0]) }
-      actions.insert(RowAction(.detail("## \(heading)\n\n\(detail)", action: row)), at: 0)
+      actions.insert(RowAction(.detail(detailBody(title: heading, content: detail), action: row)), at: 0)
     }
     return .target(
       Row(
         id: id, title: title, subtitle: value("subtitle").flatMap { $0.isEmpty ? nil : $0 }, icon: icon,
         actions: actions))
+  }
+
+  private static func detailBody(title: String, content: String) -> String {
+    "## \(AnswerMarkdown.literal(title))\n\n\(content)"
   }
 
   /// An http, https, mailto or `wicket://` URL, or a file path that is absolute or starts with `~`.

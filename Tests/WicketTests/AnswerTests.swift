@@ -221,6 +221,49 @@ import Testing
   #expect(html.contains("<span data-field=\"title\">\(literal)</span>"))
 }
 
+@Test func unknownTagsInLinksKeepReferencesAndTitles() {
+  let html = AnswerMarkdown.html(
+    """
+    [List<T>] and [List<t>] and [Docs](https://example.com/docs "Using <Button>")
+
+    [List<T>]: https://example.com/list "About <List>"
+    """)
+  #expect(
+    html.contains(#"<a href="https://example.com/list" title="About &lt;List&gt;">List&lt;T&gt;</a>"#))
+  #expect(
+    html.contains(#"<a href="https://example.com/list" title="About &lt;List&gt;">List&lt;t&gt;</a>"#))
+  #expect(html.contains(#"<a href="https://example.com/docs" title="Using &lt;Button&gt;">Docs</a>"#))
+}
+
+@MainActor @Test(arguments: [false, true])
+func openingAnItemsDetailTreatsItsTitleAsText(jsonItem: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let title = #"Planning **today** <row title="Extra" copy="Meeting"/> & notes #"#
+  let detail = "**Agenda**"
+  let view =
+    jsonItem
+    ? ProviderView(body: "## Calendar", items: [Row(id: "event", title: title, actions: [], detail: detail)])
+    : ProviderView(body: "<row title='\(title)'>\n\(detail)\n</row>")
+  let folder = try extensionFolder(root, script: "cat >/dev/null\ncat view.json")
+  try JSONEncoder().encode(view).write(to: folder.appending(path: "view.json"))
+  let model = LauncherModel.testing(in: root)
+  model.store.update { $0.providers = [.init("extension:test")] }
+  await model.extensions.reload()
+  model.navigator.go(Address(id: "test"))
+  await model.navigator.settled()
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.title == title)
+  #expect(model.activateReturn())
+  #expect(model.navigator.inDetail)
+  let page = try #require(model.navigator.page)
+  #expect(page.targets.isEmpty)
+  let html = AnswerMarkdown.html(page.source)
+  #expect(html.contains("<h2>\(AnswerMarkdown.escape(title))</h2>"))
+  #expect(html.contains("<strong>Agenda</strong>"))
+  await model.finish()
+}
+
 /// A tile is an item: its content is its detail, so it is a target where it stands, and a row is never a
 /// tile, in columns or not.
 @Test func aTileIsAnItemAndARowIsNeverATile() {

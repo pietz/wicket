@@ -14,6 +14,19 @@ enum AnswerMarkdown {
     value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
       .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
   }
+  private static let inlineSyntax = CharacterSet(charactersIn: "\r\n!\"#&'()*<>[\\]_`|")
+  /// Embed text within Markdown without letting it change the surrounding syntax.
+  static func literal(_ text: String) -> String {
+    var escaped = ""
+    for scalar in text.unicodeScalars {
+      if inlineSyntax.contains(scalar) {
+        escaped += "&#\(scalar.value);"
+      } else {
+        escaped.unicodeScalars.append(scalar)
+      }
+    }
+    return escaped
+  }
   /// A fenced code block: where it starts (a UTF-8 offset in the source), its text without the final line
   /// break, and whether a closing fence has ended it.
   struct Block {
@@ -29,7 +42,7 @@ enum AnswerMarkdown {
     let closing: Bool
     let selfClosing: Bool
   }
-  /// The source as cmark reads it: each tag outside code is a placeholder token, a paragraph of its own
+  /// The source as cmark reads it: each Wicket tag outside code is a placeholder token, a paragraph of its own
   /// unless it is an inline badge, so a tag line written straight above a fence never holds the fence in
   /// an HTML block. Code, blocks and tags are where that one parse finds them, mapped back to the source,
   /// so `Page` and the renderer agree on what is code.
@@ -285,11 +298,9 @@ enum AnswerMarkdown {
         add(nonce)
         continue
       }
-      // Keep the whole literal intact, including any Markdown punctuation in its attributes.
+      // Keep unknown tags as text so cmark can read them in link labels and titles.
       guard Page.slots[name] != nil else {
-        let key = nonce + "L\(cursor)END"
-        add(key)
-        if markup { result.tokens[key] = escape(original) }
+        add(literal(original))
         continue
       }
       let closing = original.hasPrefix("</")
@@ -437,7 +448,7 @@ enum AnswerMarkdown {
     result = paragraphs.stringByReplacingMatches(
       in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
     let ns = result as NSString
-    let positions = try! NSRegularExpression(pattern: "<[^>]*>|" + nonce + "[LT][0-9]+END")
+    let positions = try! NSRegularExpression(pattern: "<[^>]*>|" + token)
     var pieces: [String] = []
     var cursor = 0
     // Restore text positions only, never tokens inside an HTML attribute produced by cmark.
