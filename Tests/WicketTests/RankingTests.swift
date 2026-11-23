@@ -20,7 +20,7 @@ private func manifest(
 private func compose(
   _ query: String, apps: [Row] = [], files: [Row] = [], items: [String: [Row]] = [:],
   patterns: [String: Ranking.Pattern] = [:],
-  extensions: [String: ExtensionManifest] = [:], problems: [String: String] = [:],
+  extensions: [String: ExtensionManifest] = [:], problems: [String: ExtensionHost.Problem] = [:],
   usage: UsageStore = UsageStore()
 ) -> Ranking.Output {
   Ranking.compose(
@@ -283,7 +283,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "deploy now", apps: [app("Tool to Redeploy Now")],
     patterns: ["extension:deploy": .failed("exit 7")],
     extensions: ["extension:deploy": manifest("Deploy", keyword: "deploy", match: "^deploy")],
-    problems: ["extension:broken": "bad json"])
+    problems: ["extension:broken": .init(detail: "bad json")])
   #expect(
     titles(output) == ["Ask agent", "Tool to Redeploy Now", "Deploy failed", "extension:broken needs repair"])
   #expect(output.results.last?.row.actions == [.agent("Fix this extension. bad json")])

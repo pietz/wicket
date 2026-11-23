@@ -149,6 +149,87 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(item["row"]["id"].string == "user-item:coding")
 }
 
+@MainActor @Test func contractOneCopiesKeepBundledItemsHotkeysAndHeadlessCommandsAvailable() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let units = try extensionFolder(root, name: "units", fields: ["contract": 1])
+  let window = try extensionFolder(root, name: "window", fields: ["contract": 1])
+  let saved = Row(
+    id: "coding", title: "Coding layout", actions: [.run(Address(action: "center", hidden: true))])
+  try JSONEncoder().encode(["items": [saved]]).write(to: window.appending(path: "user.json"))
+  try saveProviders([.init("extension:units"), .init("extension:window")], in: root)
+
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  model.extensions.permissions = Permissions(status: { _ in .denied }, request: { _ in })
+  model.store.start(watching: false)
+  var config = model.configuration
+  config.extensions["units"] = ["rateSource": "off"]
+  try config.save(at: model.store.url)
+  model.store.load()
+  await model.extensions.reload()
+  model.navigator.input = "left half"
+  await model.navigator.settled()
+  #expect(model.navigator.results.contains { $0.provider == "extension:window" && $0.row.id == "item:left" })
+  for local in [units, window] {
+    let id = "extension:" + local.lastPathComponent
+    let command = try #require(model.extensions.commands[id])
+    #expect(model.extensions.isBundled(command))
+    #expect(
+      model.extensions.ownFolder(id)?.resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
+    #expect(model.extensions.folderToReveal(command).path == model.extensions.ownFolder(id)?.path)
+    let repairs = model.navigator.results.filter { $0.provider == id && $0.row.id == "discovery-error" }
+    #expect(repairs.count == 1)
+    let row = try #require(repairs.first?.row)
+    #expect(row.title == id + " needs repair")
+    #expect(row.subtitle == "Built-in in use until the local copy is fixed or removed")
+    guard case .run(let brief)? = row.actions.first?.kind else {
+      Issue.record("Expected a repair brief")
+      return
+    }
+    #expect(brief.input?.contains(local.resolvingSymlinksInPath().path) == true)
+    #expect(brief.input?.contains("uses extension contract 1") == true)
+  }
+
+  let bindings = [
+    ("ctrl+option+1", "wicket://units?item=currency"),
+    ("ctrl+option+2", "wicket://window?item=left"),
+    ("ctrl+option+3", "wicket://window?user-item=coding"),
+  ]
+  for (keys, address) in bindings {
+    model.store.bind(try Shortcut(keys), to: try #require(HotkeyTarget(address)))
+  }
+  #expect(model.configuration.hotkeys.count == bindings.count)
+  #expect(model.extensions.unavailableItemHotkeys(model.configuration.hotkeys).isEmpty)
+  model.press(try #require(HotkeyTarget(bindings[0].1)))
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:units")
+  #expect(model.navigator.results.contains { $0.row.id == "help" })
+  for address in bindings.dropFirst().map(\.1) {
+    model.press(try #require(HotkeyTarget(address)))
+    await model.navigator.settled()
+    #expect(model.navigator.command?.id == "extension:window")
+    #expect(model.navigator.results.first?.row.title == "Allow Accessibility for Wicket")
+  }
+  await model.finish()
+
+  let (conversionStatus, conversion) = try await cli(root, ["--query", "10 km in mi"])
+  #expect(conversionStatus == 0)
+  #expect(conversion["items"].array.contains { $0["row"]["id"].string == "result" })
+  let (windowStatus, windowQuery) = try await cli(root, ["--query", "Coding layout"])
+  #expect(windowStatus == 0)
+  let rows = windowQuery["items"].array.filter { $0["provider"].string == "extension:window" }
+  #expect(rows.contains { $0["row"]["id"].string == "user-item:coding" })
+  #expect(rows.filter { $0["row"]["id"].string == "discovery-error" }.count == 1)
+  let (runStatus, run) = try await cli(root, ["--extension", "window"])
+  if runStatus == 0 {
+    #expect(run["items"].array.contains { $0["id"].string == "left" })
+  } else {
+    #expect(runStatus == 1)
+    #expect(run["error"].string?.contains("Window Manager needs Accessibility") == true)
+    #expect(run["permissions"].array == [.string("accessibility")])
+  }
+}
+
 @Test func headlessQueryUsesOnlyEnabledSourcesAndExtensionRunsEvenWhenOff() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }

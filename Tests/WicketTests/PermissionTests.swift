@@ -140,11 +140,12 @@ func anEmptyCompactRootShowsThePermissionRequestUntilGranted(manuallyRevealed: B
   #expect(commands["extension:current"]?.manifest.permissions == [.calendar])
   let future = try #require(problems["extension:future"])
   #expect(
-    future.contains("needs a newer Wicket") && future.contains("contract 3") && !future.contains("Invalid"))
+    future.detail.contains("needs a newer Wicket") && future.detail.contains("contract 3")
+      && !future.detail.contains("Invalid"))
   for broken in ["zero", "camera", "twice", "listonly"] {
-    #expect(problems["extension:" + broken]?.contains("Invalid wicket.json") == true, "\(broken)")
+    #expect(problems["extension:" + broken]?.detail.contains("Invalid wicket.json") == true, "\(broken)")
   }
-  #expect(problems["extension:camera"]?.contains("accessibility, calendar") == true)
+  #expect(problems["extension:camera"]?.detail.contains("accessibility, calendar") == true)
   // At the root it says so, and leads to Settings, where Wicket updates, rather than to the agent.
   let rows = Ranking.compose(
     query: "", names: [], patterns: [:], extensions: [:],

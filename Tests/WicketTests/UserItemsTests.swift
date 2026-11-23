@@ -152,7 +152,8 @@ func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String, _ 
   let repairs = rows.filter { $0.row.id == "discovery-error" }
   #expect(repairs.count == 1 && repairs.first?.row.subtitle == "Invalid user.json")
   #expect(
-    model.extensions.problems[id]?.contains("/\(root.lastPathComponent)/extensions/links/user.json\n") == true
+    model.extensions.problems[id]?.detail.contains("/\(root.lastPathComponent)/extensions/links/user.json\n")
+      == true
   )
 
   model.navigator.go(Address(id: id))
@@ -230,7 +231,7 @@ func invalidUserItemIDsRejectTheWholeFile(_ id: String) async throws {
   let rows = model.navigator.results.filter { $0.provider == "extension:links" }
   #expect(rows.count == 2 && Set(rows.map(\.row.id)) == ["item:stock", "discovery-error"])
   #expect(rows.first { $0.row.id == "discovery-error" }?.row.subtitle == "Invalid user.json")
-  #expect(model.extensions.problems["extension:links"]?.contains(Row.invalidIDs) == true)
+  #expect(model.extensions.problems["extension:links"]?.detail.contains(Row.invalidIDs) == true)
   await model.finish()
 }
 
@@ -381,7 +382,6 @@ func aRenamedUserItemsHotkeyCanBeRemovedAndReused(_ editConfig: Bool) async thro
     {"items":[{"id":"marathon","title":"Marathon distance","actions":[{"type":"run","input":"42.195 km to mi"}]}]}
     """#.utf8
   ).write(to: units.appending(path: "user.json"))
-  #expect(ExtensionHost.isRetired(units))
   let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   await model.extensions.reload()
 

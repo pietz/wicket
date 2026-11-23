@@ -75,7 +75,7 @@ public enum Headless {
         // Naming an extension runs it, even when it is switched off for the launcher.
         let id = id.hasPrefix("extension:") ? id : "extension:" + id
         guard let command = host.commands[id] else {
-          throw ExtensionFailure(host.problems[id] ?? "No extension found: \(id)")
+          throw ExtensionFailure(host.problems[id]?.message ?? "No extension found: \(id)")
         }
         let fields =
           try value("--fields").map {

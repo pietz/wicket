@@ -303,7 +303,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   _ = try extensionFolder(root, name: "fine", fields: ["match": "^x", "submit": true, "description": "D"])
   let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
   #expect(Set(commands.keys) == ["extension:fine"])
-  let problem = try #require(problems["extension:typo"])
+  let problem = try #require(problems["extension:typo"]?.detail)
   #expect(problem.contains("Unknown key `keywords`"))
   #expect(problem.contains("valid keys: name, description, keyword, command"))
 }
@@ -316,9 +316,9 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   }
   let (commands, problems) = ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
   #expect(Set(commands.keys) == ["extension:fine"])
-  #expect(problems["extension:settings"]?.contains("reserved") == true)
-  #expect(problems["extension:Agent"]?.contains("reserved") == true)
-  #expect(problems["extension:clipboard"]?.contains("reserved") == true)
+  #expect(problems["extension:settings"]?.detail.contains("reserved") == true)
+  #expect(problems["extension:Agent"]?.detail.contains("reserved") == true)
+  #expect(problems["extension:clipboard"]?.detail.contains("reserved") == true)
 }
 
 /// `submitted` is the user activating something: the command and fallback rows, a run action (JSON or the

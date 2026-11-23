@@ -662,11 +662,19 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
   #expect(restore.0 == 0 && restore.1 == .object([:]))
   #expect(try observedFrame() == original)
 
+  let bundled = root.appending(path: "bundled")
+  let bundledWindow = bundled.appending(path: "window")
+  try FileManager.default.createDirectory(at: bundled, withIntermediateDirectories: true)
+  try FileManager.default.moveItem(at: folder, to: bundledWindow)
+  let broken = try extensionFolder(root, name: "window", fields: ["contract": 1])
+  try FileManager.default.moveItem(
+    at: bundledWindow.appending(path: "user.json"), to: broken.appending(path: "user.json"))
   let model = LauncherModel(
-    history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: bundled,
     extensionDataDirectory: history)
   model.store.start(watching: false)
   await model.extensions.reload()
+  #expect(model.extensions.problems["extension:window"]?.usingBundled == true)
   let surface = RecordingSurface()
   surface.shown = false
   model.navigator.surface = surface
@@ -676,5 +684,9 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
   #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
   #expect(try observedFrame() == destination)
   #expect(try moveRecords(in: dataFolder) == [Record(pid: 42, before: original, after: destination)])
+  model.press(try #require(HotkeyTarget("wicket://window?item=restore")))
+  await model.navigator.settled()
+  #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
+  #expect(try observedFrame() == original)
   await model.finish()
 }

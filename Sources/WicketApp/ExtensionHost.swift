@@ -74,15 +74,22 @@ struct ExtensionCommand: Sendable, Equatable {
 /// Discovery and invocation ownership. An extension runs from its own folder when its source is on.
 @MainActor @Observable
 final class ExtensionHost {
+  struct Problem: Equatable, Sendable {
+    static let fallbackMessage = "Built-in in use until the local copy is fixed or removed"
+    var detail: String
+    var usingBundled = false
+    var message: String { usingBundled ? detail + "\n" + Self.fallbackMessage : detail }
+  }
+
   private(set) var commands: [String: ExtensionCommand] = [:]
-  private(set) var problems: [String: String] = [:]
+  private(set) var problems: [String: Problem] = [:]
   /// Every discovered extension ID, including ones with invalid manifests or user items.
   var ids: [String] { Array(commands.keys) + problems.keys.filter { commands[$0] == nil } }
   /// Called with the IDs whose command or problem changed, appeared or went away.
   var onCatalogChange: ((Set<String>) -> Void)?
   let folder: URL
   /// The extensions that ship inside Wicket, each a folder with its binary and source.
-  /// A folder of the user's own with the same name wins.
+  /// A valid local manifest with the same folder name wins.
   let bundled: URL?
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
@@ -218,57 +225,71 @@ final class ExtensionHost {
     paths.insert(directory.path)
     return paths
   }
-  /// A local manifest replaces the bundled one of the same name, except for retired copies.
-  /// User items always come from the working folder.
+  /// Try the local manifest first. User items always come from the working folder.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
-    [String: ExtensionCommand], [String: String]
+    [String: ExtensionCommand], [String: Problem]
   ) {
     var commands: [String: ExtensionCommand] = [:]
-    var problems: [String: String] = [:]
+    var problems: [String: Problem] = [:]
     // Listing does not follow a linked root itself.
     func entries(_ root: URL?) -> [URL] {
       guard let root = root?.resolvingSymlinksInPath() else { return [] }
       return (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
     }
     func hasManifest(_ folder: URL) -> Bool {
-      FileManager.default.fileExists(atPath: folder.appending(path: "wicket.json").path)
+      var info = stat()
+      return lstat(folder.appending(path: "wicket.json").path, &info) == 0
     }
-    var discovered: [String: (folder: URL, userFolder: URL?)] = [:]
-    for folder in entries(bundled) where hasManifest(folder) {
-      discovered[folder.lastPathComponent] = (folder, nil)
+    func readManifest(_ folder: URL) throws -> ExtensionManifest {
+      try JSONDecoder().decode(
+        ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
     }
-    for local in entries(root) {
-      let name = local.lastPathComponent
-      if hasManifest(local), discovered[name] == nil || !isRetired(local) {
-        discovered[name] = (local, local)
-      } else {
-        discovered[name]?.userFolder = local
-      }
-    }
-    for (name, (folder, userFolder)) in discovered {
+    let builtIns = Dictionary(
+      entries(bundled).filter(hasManifest).map { ($0.lastPathComponent, $0) },
+      uniquingKeysWith: { _, last in last })
+    let locals = Dictionary(
+      entries(root).map { ($0.lastPathComponent, $0) }, uniquingKeysWith: { _, last in last })
+    for name in Set(builtIns.keys).union(locals.keys) {
+      let local = locals[name]
+      let override = local.flatMap { hasManifest($0) ? $0 : nil }
+      guard var folder = override ?? builtIns[name] else { continue }
       let id = "extension:" + name
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
-        problems[id] = "\(folder.path)\n\(name) is a reserved name. Rename the folder."
+        problems[id] = Problem(detail: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
         continue
       }
+      let manifest: ExtensionManifest
       do {
-        let manifest = try JSONDecoder().decode(
-          ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
-        var userItems: [Row] = []
-        if let userFile = userFolder?.appending(path: "user.json") {
-          do {
-            userItems = try ExtensionManifest.userItems(in: userFile)
-          } catch {
-            let reason =
-              (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
-            problems[id] = "\(userFile.path)\nInvalid user.json: \(reason)"
+        manifest = try readManifest(folder)
+      } catch {
+        let reason = error is ExtensionManifest.ContractError ? "\(error)" : "Invalid wicket.json: \(error)"
+        let detail = "\(folder.path)\n\(reason)"
+        guard let override, let builtIn = builtIns[name], let fallback = try? readManifest(builtIn) else {
+          problems[id] = Problem(detail: detail)
+          continue
+        }
+        if !isRetired(override) {
+          problems[id] = Problem(detail: detail, usingBundled: true)
+        }
+        folder = builtIn
+        manifest = fallback
+      }
+      var userItems: [Row] = []
+      if let userFile = local?.appending(path: "user.json") {
+        do {
+          userItems = try ExtensionManifest.userItems(in: userFile)
+        } catch {
+          let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
+          let detail = "\(userFile.path)\nInvalid user.json: \(reason)"
+          if problems[id] != nil {
+            problems[id]?.detail += "\n" + detail
+          } else {
+            problems[id] = Problem(detail: detail)
           }
         }
-        commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
-      } catch let contract as ExtensionManifest.ContractError {
-        problems[id] = "\(folder.path)\n\(contract)"
-      } catch { problems[id] = "\(folder.path)\nInvalid wicket.json: \(error)" }
+      }
+      commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
     }
     return (commands, problems)
   }
@@ -315,9 +336,11 @@ final class ExtensionHost {
   }
 
   func isBundled(_ command: ExtensionCommand) -> Bool {
-    command.folder.deletingLastPathComponent().standardizedFileURL.path == bundled?.standardizedFileURL.path
+    command.folder.deletingLastPathComponent().resolvingSymlinksInPath().path
+      == bundled?.resolvingSymlinksInPath().path
   }
   func folderToReveal(_ command: ExtensionCommand) -> URL {
+    if let own = ownFolder(command.id) { return own }
     let local = folder.appending(path: "extensions/" + command.folder.lastPathComponent)
     if isBundled(command), FileManager.default.fileExists(atPath: local.appending(path: "user.json").path) {
       return local
@@ -363,10 +386,14 @@ final class ExtensionHost {
     rescan()
   }
 
-  /// The user's own folder behind a listed ID, a broken one included; nil for a bundled extension.
+  /// The user's extension folder, including a broken override whose built-in is active.
   func ownFolder(_ id: String) -> URL? {
-    if let command = commands[id] { return isBundled(command) ? nil : command.folder }
-    guard problems[id] != nil else { return nil }
+    if let command = commands[id] {
+      if !isBundled(command) { return command.folder }
+      guard problems[id]?.usingBundled == true else { return nil }
+    } else if problems[id] == nil {
+      return nil
+    }
     let own = folder.appending(path: "extensions/" + id.dropFirst("extension:".count))
     return FileManager.default.fileExists(atPath: own.path) ? own : nil
   }
@@ -401,19 +428,37 @@ final class ExtensionHost {
     }
   }
 
-  /// Copies of today's bundled extensions that earlier versions installed into the extensions folder:
-  /// the SHA-256 of `wicket.json` followed by `main.py`, for units as 0.1.0 to 0.1.2 and 0.1.3 to 0.3.4
-  /// shipped it in Python. An unmodified copy stays on disk but no longer hides the bundled extension;
-  /// an edited one is the user's own and wins.
-  nonisolated static let retired = [
-    "2e2fc50d60375a1bbcb2b44473e3770ae54c4a6b653a1989548f8923e616a913",
-    "49c113315f8660efe5ae712bf6dfd0dcf4e70dfd92953242b2209bfbb3a0c1c7",
+  /// Only consult these fingerprints after a local manifest fails to load. Match the shipped sources
+  /// because the executable varies with architecture and signing. Personal items are independent.
+  nonisolated private static let releasedCopies: [String: Set<String>] = [
+    "units": [
+      "2e2fc50d60375a1bbcb2b44473e3770ae54c4a6b653a1989548f8923e616a913",  // 0.1.0–0.1.2 (Python)
+      "49c113315f8660efe5ae712bf6dfd0dcf4e70dfd92953242b2209bfbb3a0c1c7",  // 0.1.3–0.3.4 (Python)
+      "454a37227c89194c6bb31a840e231e5f96fcdbd8ad241e0f8205e79fef46f97c",  // 0.3.5–0.3.10
+      "0233260e83fd192ac1bb286c3ab664d4559345ecc283d6a9300384ab04072409",  // 0.4.0–0.5.1
+      "f994d83ff2c7b75b14032c537c4ee9d0dcd0e84988dcb3639f525acd3ceb3bee",  // 0.6.0
+    ],
+    "window": [
+      "5dc4346c7bc1b75df4acd52020530050b8c88e3edd48bcbb45603dff64a17423",  // 0.3.5–0.3.7
+      "3e3cc69264bb21bcc78b04b72fb8a49850a0010754ee1d539263d9e18d22365a",  // 0.3.8–0.3.10
+      "a244c611e78cb50c66dade79b38b572b1d0cf4f73cd63c485f464855dd00dbe1",  // 0.4.0
+      "6818c51e8eca95ec1c3d6c7509a68f64ee9b6c88b15650b85541fb0036458b6d",  // 0.5.0–0.5.1
+      "e4d81e5982661a10418626a1f84c027fd94e13f9f12c5ad1405be4e37acfad92",  // 0.6.0
+    ],
   ]
-  nonisolated static func isRetired(_ folder: URL) -> Bool {
-    guard let manifest = try? Data(contentsOf: folder.appending(path: "wicket.json")),
-      let program = try? Data(contentsOf: folder.appending(path: "main.py"))
+  nonisolated private static func isRetired(_ folder: URL) -> Bool {
+    guard let known = releasedCopies[folder.lastPathComponent],
+      let manifest = try? Data(contentsOf: folder.appending(path: "wicket.json")),
+      let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
     else { return false }
-    let digest = SHA256.hash(data: manifest + program).map { String(format: "%02x", $0) }.joined()
-    return retired.contains(digest)
+    var hash = SHA256()
+    hash.update(data: manifest)
+    let sources = files.filter { $0.hasSuffix(".swift") }.sorted()
+    for name in sources.isEmpty ? ["main.py"] : sources {
+      guard let source = try? Data(contentsOf: folder.appending(path: name)) else { return false }
+      if !sources.isEmpty { hash.update(data: Data((name + "\0").utf8)) }
+      hash.update(data: source)
+    }
+    return known.contains(hash.finalize().map { String(format: "%02x", $0) }.joined())
   }
 }

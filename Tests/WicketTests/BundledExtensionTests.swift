@@ -41,7 +41,7 @@ func bundled(_ name: String) throws -> ExtensionCommand {
   let (commands, problems) = ExtensionHost.discover(
     URL(filePath: "/nonexistent"), bundled: bundledExtensions)
   guard let command = commands["extension:" + name] else {
-    throw ExtensionFailure(problems["extension:" + name] ?? "No bundled \(name)")
+    throw ExtensionFailure(problems["extension:" + name]?.message ?? "No bundled \(name)")
   }
   return command
 }
@@ -381,16 +381,19 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   let old = extensions.appending(path: "units")
   try FileManager.default.createDirectory(at: extensions, withIntermediateDirectories: true)
   try FileManager.default.copyItem(at: fixtureURL("units-0.3"), to: old)
-  var (commands, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  var (commands, problems) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:units"]) == path(bundledExtensions.appending(path: "units")))
   #expect(commands["extension:units"]?.manifest.command == ["./main"])
   #expect(FileManager.default.fileExists(atPath: old.appending(path: "main.py").path))
-  // Editing the old copy makes it the user's own. Its repair takes the place of bundled units.
+  #expect(problems.isEmpty)
+  // An edited copy needs repair. The bundled command keeps running.
   let program = old.appending(path: "main.py")
   try (Data(contentsOf: program) + Data("# mine\n".utf8)).write(to: program)
   let (edited, repairs) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
-  #expect(edited["extension:units"] == nil)
-  #expect(repairs["extension:units"]?.contains("Update wicket.json and the program to contract 2") == true)
+  #expect(path(edited["extension:units"]) == path(bundledExtensions.appending(path: "units")))
+  #expect(repairs["extension:units"]?.usingBundled == true)
+  #expect(
+    repairs["extension:units"]?.detail.contains("Update wicket.json and the program to contract 2") == true)
   // This program already uses input and items, so updating the manifest is enough.
   let manifestURL = old.appending(path: "wicket.json")
   var manifest = try #require(
@@ -399,12 +402,16 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
   let calculator = extensions.appending(path: "calculator")
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "calculator"), to: calculator)
-  (commands, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
+  (commands, problems) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:units"]) == path(old))
   #expect(path(commands["extension:calculator"]) == path(calculator))
-  // A broken own folder is a repair row, not a silent fallback to the bundled one.
+  #expect(problems.isEmpty)
   try Data("{".utf8).write(to: calculator.appending(path: "wicket.json"))
-  let problems: [String: String]
+  try Data("{".utf8).write(to: calculator.appending(path: "user.json"))
   (commands, problems) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
-  #expect(commands["extension:calculator"] == nil && problems["extension:calculator"] != nil)
+  #expect(path(commands["extension:calculator"]) == path(bundledExtensions.appending(path: "calculator")))
+  #expect(problems.count == 1)
+  let problem = try #require(problems["extension:calculator"])
+  #expect(problem.usingBundled)
+  #expect(problem.detail.contains("Invalid wicket.json") && problem.detail.contains("Invalid user.json"))
 }

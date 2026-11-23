@@ -193,7 +193,7 @@ enum Ranking {
   ///   - hostFields: The fields of an available host command, which a host row or extension item may target.
   static func compose(
     query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
-    extensions: [String: ExtensionManifest], problems: [String: String], hosts: [Result] = [],
+    extensions: [String: ExtensionManifest], problems: [String: ExtensionHost.Problem], hosts: [Result] = [],
     hostFields: (String) -> [ExtensionManifest.Field] = { _ in [] },
     usage: UsageStore, now: Date = Date()
   ) -> Output {
@@ -317,7 +317,7 @@ enum Ranking {
     let repairs = problems.keys.sorted().map { id in
       let problem = problems[id]!
       // A manifest for a newer contract is not broken: updating Wicket is the fix, in Settings.
-      if extensions[id] == nil, problem.contains(ExtensionManifest.ContractError.newerPhrase) {
+      if extensions[id] == nil, problem.detail.contains(ExtensionManifest.ContractError.newerPhrase) {
         return Result(
           provider: id,
           row: Row(
@@ -326,9 +326,11 @@ enum Ranking {
             actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
       }
       let repair =
-        if extensions[id] != nil {
+        if problem.usingBundled {
+          ExtensionHost.Problem.fallbackMessage
+        } else if extensions[id] != nil {
           "Invalid user.json"
-        } else if problem.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
+        } else if problem.detail.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
           "Update the manifest and program to contract 2"
         } else {
           "Invalid extension manifest"
@@ -338,7 +340,9 @@ enum Ranking {
         row: Row(
           id: "discovery-error", title: id + " needs repair", subtitle: repair,
           icon: "exclamationmark.triangle",
-          actions: [.agent("Fix this extension. " + problem.split(separator: "\n").joined(separator: ": "))]))
+          actions: [
+            .agent("Fix this extension. " + problem.detail.split(separator: "\n").joined(separator: ": "))
+          ]))
     }
     let firstProblem = failures.first?.row.title ?? repairs.first?.row.title
     if query.isEmpty {

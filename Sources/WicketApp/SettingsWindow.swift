@@ -444,7 +444,7 @@ struct SettingsPane: View {
         }
       }
       if let problem = extensions.problems[id] {
-        warning(problem).textSelection(.enabled)
+        warning(problem.message).textSelection(.enabled)
       }
       if command != nil || own {
         HStack {
@@ -453,7 +453,7 @@ struct SettingsPane: View {
               NSWorkspace.shared.activateFileViewerSelecting([extensions.folderToReveal(command)])
             }
           }
-          if let command, bundled {
+          if let command, bundled, !own {
             Button("Make It Mine") {
               copyProblem = nil
               do { try extensions.makeMine(command) } catch { copyProblem = error.localizedDescription }
@@ -465,7 +465,7 @@ struct SettingsPane: View {
         if let copyProblem { Text(copyProblem).foregroundStyle(.red) }
       }
     } footer: {
-      if bundled { Text("Bundled with Wicket. A copy made yours replaces it.") }
+      if bundled, !own { Text("Bundled with Wicket. A valid local copy replaces it.") }
     }
     if id == "clipboard" {
       Section { clipboardRows(enabled: config.isEnabled(id, extensions: [])) }
@@ -506,6 +506,7 @@ struct SettingsPane: View {
   private func trashButton(_ id: String) -> some View {
     let name = String(id.dropFirst("extension:".count))
     let restores = extensions.hasBundled(name)
+    let usingBundled = extensions.problems[id]?.usingBundled == true
     return Button("Move to Trash…") { confirmingTrash = true }
       .disabled(store.problem != nil)
       .confirmationDialog("Move “\(title(id))” to the Trash?", isPresented: $confirmingTrash) {
@@ -522,10 +523,15 @@ struct SettingsPane: View {
           selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
         }
       } message: {
-        Text(
-          restores
-            ? "The built-in version comes back in its place, with your settings and hotkeys. You can restore your copy from the Trash."
-            : "Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
+        if usingBundled {
+          Text("The built-in stays active. To keep any personal items, copy user.json out of the Trash.")
+        } else if restores {
+          Text(
+            "The built-in version comes back in its place, with your settings and hotkeys. You can restore your copy from the Trash."
+          )
+        } else {
+          Text("Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
+        }
       }
   }
   private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
