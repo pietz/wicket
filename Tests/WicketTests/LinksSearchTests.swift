@@ -298,6 +298,56 @@ private func fields(_ values: [String: String]) throws -> String {
   await model.finish()
 }
 
+@MainActor @Test func linksReadStandaloneUserItemsForRootSearchAndHotkeys() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let bundled = try await installLinkProbe("links-search", in: root.appending(path: "bundle"))
+  let local = root.appending(path: "extensions/links-search")
+  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+  try Data(
+    #"""
+    {"items":[
+      {"id":"mdn","title":"MDN Web Docs","keywords":["mdn"],"actions":[{"type":"open","url":"https://developer.mozilla.org/"}]},
+      {"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[
+        {"type":"run","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
+    ]}
+    """#.utf8
+  ).write(to: local.appending(path: "user.json"))
+  let model = LauncherModel.testing(in: root, bundled: bundled.deletingLastPathComponent())
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  await model.extensions.reload()
+  let command = try #require(model.extensions.commands[links])
+  #expect(model.extensions.isBundled(command))
+
+  navigator.input = "mdn"
+  await navigator.settled()
+  let bookmark = RowAction.open(try #require(URL(string: "https://developer.mozilla.org/")))
+  #expect(navigator.results.first?.row.id == "user-item:mdn")
+  #expect(navigator.returnAction == bookmark)
+  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=mdn")))
+  #expect(surface.effects.last == .run(bookmark, from: nil))
+
+  navigator.input = "osm New York"
+  await navigator.settled()
+  #expect(navigator.results.first?.row.id == "user-item:osm")
+  #expect(navigator.results.first?.row.subtitle == "Links & Search · New York")
+
+  surface.shown = false
+  navigator.dismiss()
+  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=osm")))
+  await navigator.settled()
+  #expect(surface.shows == 1 && navigator.command?.id == links && navigator.input.isEmpty)
+  try #require(navigator.commandPlaceholder == "Search query" && !didOpenURL(in: bundled))
+  navigator.editInput("New York")
+  navigator.run()
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: bundled) == "https://www.openstreetmap.org/search?query=New%20York")
+  #expect(try FileManager.default.contentsOfDirectory(atPath: local.path) == ["user.json"])
+  await model.finish()
+}
+
 @MainActor @Test func youtubeHotkeyShowsQueryOverAKeptConversation() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }

@@ -195,7 +195,7 @@ In the working folder's `config.json`, add or update the entry for `wicket://<id
 {"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]}
 ```
 
-### A user's addition to an installed extension
+### A personal bookmark
 
 Add the bookmark to `extensions/links-search/user.json` in the working folder. Create `extensions/links-search/` if needed and keep the existing items. The built-in reads the file directly. Bind the bookmark in `hotkeys` with `wicket://links-search?user-item=my-docs`.
 
@@ -205,7 +205,7 @@ Add the bookmark to `extensions/links-search/user.json` in the working folder. C
 
 ### A saved definition
 
-Store the definition in the item's `run.fields` as strings. Add this saved search to Links & Search's `user.json`. Its fixed `query` goes straight to the program on Return.
+Add this saved search to the `items` in `extensions/links-search/user.json`. Store the definition in the item's `run.fields` as strings. Its fixed `query` goes straight to the program on Return.
 
 ```json
 {"id":"wiki-berlin","title":"Berlin on Wikipedia","actions":[{"type":"run","title":"Search Wikipedia","action":"open-link","hidden":true,"fields":{"link":"wikipedia","query":"Berlin"}}]}
@@ -225,7 +225,7 @@ The rectangle is `[x, y, width, height]` as fractions from the top left of the u
 
 ### A site search with a query
 
-Add an item to Links & Search's `user.json` with a keyword and a template. From another extension set `"extension":"links-search"` on the run action. Type `osm Berlin` and press Return, or type `osm` and press Tab to fill Query. Set `promptIfEmpty:true` to open Query when there is no text to search. Starter aliases are `yt`, `wiki` and `gh`.
+Add this search to the `items` in `extensions/links-search/user.json`. Type `osm Berlin` and press Return, or type `osm` and press Tab to fill Query. Bind `wicket://links-search?user-item=osm` in `hotkeys` to open Query. The `promptIfEmpty:true` option opens Query when there is no text to search. From another extension, set `"extension":"links-search"` on the run action.
 
 ```json
 {"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[{"type":"run","title":"Search OpenStreetMap","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
