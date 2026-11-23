@@ -1,6 +1,6 @@
 # Wicket
 
-A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes. There is no spec: the code and its comments say how things work and why. [README.md](README.md) is the user guide, [ROADMAP.md](ROADMAP.md) the agreed work in order, [ISSUES.md](ISSUES.md) the open problems, `Sources/WicketApp/Resources/extension-contract.md` the extension interface (for authors and the in-app agent), [docs/manual-checks.md](docs/manual-checks.md) the hands-on checklist and [docs/release.md](docs/release.md) the release runbook.
+A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes. There is no spec: the code and its comments say how things work and why. [README.md](README.md) is the user guide, [ROADMAP.md](ROADMAP.md) the agreed work in order, [docs/extensions/](docs/extensions/README.md) the official extensions' specs and shared decisions, [ISSUES.md](ISSUES.md) the open problems, `Sources/WicketApp/Resources/extension-contract.md` the extension interface (for authors and the in-app agent), [docs/manual-checks.md](docs/manual-checks.md) the hands-on checklist and [docs/release.md](docs/release.md) the release runbook.
 
 ## Layout
 
