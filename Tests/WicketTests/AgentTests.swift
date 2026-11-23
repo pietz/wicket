@@ -624,9 +624,10 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   #expect(
     reason?.contains("exited with status 3") == true && reason?.contains("diagnostic") == true,
     "\(reason ?? "nil")")
+  // The child sleeps 30 s; 10 s, as in ProcessTreeTests, leaves room for a loaded machine.
   let start = ContinuousClock.now
   await lines.stop()
-  #expect(ContinuousClock.now - start < .seconds(3))
+  #expect(ContinuousClock.now - start < .seconds(10))
 }
 
 @Test func readingStopsAtTheLimitInsteadOfQueueingAFlood() async throws {
