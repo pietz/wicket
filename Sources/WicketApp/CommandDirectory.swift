@@ -88,21 +88,27 @@ extension HostCommand {
     if Self.isRootRow(result) { return HotkeyTarget(target: result.provider) }
     guard let owner = extensions.commands[result.provider] else { return nil }
     if atRoot, result.rootExtensionRow == .command { return HotkeyTarget(target: owner.id) }
-    var item = result.row.id
-    if atRoot {
-      // At the root an item's id is prefixed (`ExtensionCommand.rootItems`).
-      guard result.rootExtensionRow == .item else { return nil }
-      item.removeFirst(5)
+    let row = result.row
+    guard !atRoot || result.rootExtensionRow == .item else { return nil }
+    let programRow = !atRoot && owner.manifest.command != nil
+    var id = row.id
+    if !programRow {
+      let prefix = ExtensionCommand.itemPrefix(row, atRoot: atRoot)
+      guard id.hasPrefix(prefix) else { return nil }
+      id.removeFirst(prefix.count)
     }
-    guard !owner.conflictingItemIDs.contains(item),
-      let staticItem = owner.items.first(where: { $0.id == item })
+    // A program's row can name either static item. The manifest item wins if both actions match.
+    guard
+      let item = owner.items.first(where: { item in
+        guard item.id == id else { return false }
+        if programRow {
+          guard let action = row.actions.first else { return false }
+          return action.kind == item.actions.first?.kind
+        }
+        return item.isUserItem == row.isUserItem
+      })
     else { return nil }
-    if !atRoot, owner.manifest.command != nil {
-      guard let action = result.row.actions.first, action.kind == staticItem.actions.first?.kind else {
-        return nil
-      }
-    }
-    return HotkeyTarget(target: owner.id, item: item)
+    return HotkeyTarget(target: owner.id, item: item.id, isUserItem: item.isUserItem)
   }
   /// The host's rows at the root, before ranking: Settings and the host commands available now.
   func rootRows(_ configuration: Configuration) -> [Result] {

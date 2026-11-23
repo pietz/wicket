@@ -196,7 +196,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     }
   }
 
-  func userItems(in file: URL) throws -> [Row] {
+  static func userItems(in file: URL) throws -> [Row] {
     // The catalog's install lock must leave user.json out of its file hashes.
     let data: Data
     do {
@@ -204,24 +204,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
       return []
     }
-    let additions = try JSONDecoder().decode(UserItems.self, from: data).items
-    let conflicts = Set((items ?? []).map(\.id)).intersection(additions.map(\.id))
-    if !conflicts.isEmpty { throw UserItemConflict(ids: conflicts) }
-    guard Row.validIDs(additions) else {
-      throw ExtensionFailure("Item ids must be nonempty and unique across wicket.json and user.json")
-    }
-    return additions
-  }
-
-  struct UserItemConflict: Error, CustomStringConvertible {
-    let ids: Set<String>
-    static let warning = "Hotkeys paused for duplicate item IDs"
-
-    var description: String {
-      let duplicates = ids.sorted().joined(separator: ", ")
-      return "Item ids must be nonempty and unique across wicket.json and user.json. "
-        + "\(Self.warning): \(duplicates). Remove affected hotkeys in Settings before changing the IDs in user.json."
-    }
+    return try JSONDecoder().decode(UserItems.self, from: data).items
   }
 
   private struct UserItems: Decodable {
@@ -236,6 +219,9 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
           debugDescription: "Unknown key `\(key.stringValue)`; user.json only holds items")
       }
       items = try file.decode([Row].self, forKey: itemsKey)
+      guard Row.validIDs(items) else {
+        throw DecodingError.dataCorruptedError(forKey: itemsKey, in: file, debugDescription: Row.invalidIDs)
+      }
     }
   }
 

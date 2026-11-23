@@ -91,13 +91,16 @@ final class LauncherModel {
       return
     }
     let owner = target.target.flatMap { extensions.commands[$0] }
-    // A switched-off extension's items run nothing: its address shows that it is off.
-    guard let owner, let itemID = target.item, configuration.isEnabled(owner.id, extensions: extensions.ids)
-    else { return navigator.open(target.address, pressed: target) }
-    if owner.conflictingItemIDs.contains(itemID) {
-      return navigator.open(Address(link: true), pressed: target)
+    guard let itemID = target.item else { return navigator.open(target.address, pressed: target) }
+    let item = owner?.items.first { $0.id == itemID && $0.isUserItem == target.isUserItem }
+    if item == nil, target.isUserItem {
+      let name = owner?.manifest.name ?? target.address.extensionName ?? "this extension"
+      return navigator.reportActionProblem("User item “\(itemID)” is no longer available in \(name).")
     }
-    guard let action = owner.items.first(where: { $0.id == itemID })?.actions.first else {
+    // A switched-off extension's items run nothing: its address shows that it is off.
+    guard let owner, configuration.isEnabled(owner.id, extensions: extensions.ids),
+      let action = item?.actions.first
+    else {
       return navigator.open(target.address, pressed: target)
     }
     switch navigator.applyingDraft(to: action, for: target).kind {

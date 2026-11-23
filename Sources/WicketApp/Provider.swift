@@ -91,6 +91,8 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   let detail: String?
   /// Host only, never decoded: an image file the host shows above the detail, such as a copied image.
   var picture: URL? = nil
+  /// Host only, never decoded: whether this static item came from user.json.
+  var isUserItem = false
 
   init(
     id: String, title: String, subtitle: String? = nil, icon: String? = nil, actions: [RowAction],

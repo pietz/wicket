@@ -9,27 +9,26 @@ struct ExtensionCommand: Sendable, Equatable {
   let manifest: ExtensionManifest
   /// The manifest's items followed by the user's additions.
   let items: [Row]
-  /// A rejected user item must never send its shortcut to a manifest item with the same ID.
-  let conflictingItemIDs: Set<String>
   private let itemIndex: SearchIndex
   /// At most this many of one extension's items enter the root list for an input, as with file search.
   static let rootItems = 20
 
-  init(
-    id: String, folder: URL, manifest: ExtensionManifest, userItems: [Row] = [],
-    conflictingItemIDs: Set<String> = []
-  ) {
+  init(id: String, folder: URL, manifest: ExtensionManifest, userItems: [Row] = []) {
     self.id = id
     self.folder = folder
     self.manifest = manifest
-    self.conflictingItemIDs = conflictingItemIDs
-    items = (manifest.items ?? []) + userItems
+    items =
+      (manifest.items ?? [])
+      + userItems.map {
+        var row = $0
+        row.isUserItem = true
+        return row
+      }
     itemIndex = SearchIndex(items)
   }
   /// The index follows from the items.
   static func == (a: Self, b: Self) -> Bool {
     a.id == b.id && a.folder == b.folder && a.manifest == b.manifest && a.items == b.items
-      && a.conflictingItemIDs == b.conflictingItemIDs
   }
   /// What a failed run shows: where the extension is, what it was asked, and why it failed.
   func report(_ request: ProviderRequest, error: any Error) -> String {
@@ -39,8 +38,14 @@ struct ExtensionCommand: Sendable, Equatable {
   /// where they have no subtitle, and their ids never meet the command row's.
   func rootItems(_ input: String) -> [Row] {
     itemIndex.best(input, limit: Self.rootItems).map {
-      shown($0, id: "item:" + $0.id, subtitle: $0.subtitle ?? manifest.name)
+      shown($0, atRoot: true, subtitle: $0.subtitle ?? manifest.name)
     }
+  }
+  /// Keep existing stock IDs inside a command, escaping the prefixes reserved for displayed items.
+  /// The prefix is the same before and after adding it, so the hotkey lookup can strip it again.
+  static func itemPrefix(_ row: Row, atRoot: Bool) -> String {
+    if row.isUserItem { return "user-item:" }
+    return atRoot || row.id.hasPrefix("item:") || row.id.hasPrefix("user-item:") ? "item:" : ""
   }
   /// The manifest's settings: the saved value, else the default; one with neither is left out.
   func settings(_ saved: [String: String]) -> [String: String] {
@@ -50,13 +55,16 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// The command's own view when there is no program: its items, filtered by what is typed.
   func ownItems(_ input: String) -> [Row] {
-    itemIndex.matches(input).map { shown($0, id: $0.id, subtitle: $0.subtitle) }
+    itemIndex.matches(input).map { shown($0, atRoot: false, subtitle: $0.subtitle) }
   }
   /// An item takes the extension's icon where it has none.
-  private func shown(_ row: Row, id: String, subtitle: String?) -> Row {
-    Row(
-      id: id, title: row.title, subtitle: subtitle, icon: row.icon ?? manifest.icon, actions: row.actions,
+  private func shown(_ row: Row, atRoot: Bool, subtitle: String?) -> Row {
+    var shown = Row(
+      id: Self.itemPrefix(row, atRoot: atRoot) + row.id, title: row.title, subtitle: subtitle,
+      icon: row.icon ?? manifest.icon, actions: row.actions,
       keywords: row.keywords, prominent: row.prominent, detail: row.detail)
+    shown.isUserItem = row.isUserItem
+    return shown
   }
 }
 
@@ -235,19 +243,13 @@ final class ExtensionHost {
         let userFolder = retiredFolders[folder.lastPathComponent] ?? folder
         let userFile = userFolder.appending(path: "user.json")
         var userItems: [Row] = []
-        var conflicts: Set<String> = []
         do {
-          userItems = try manifest.userItems(in: userFile)
+          userItems = try ExtensionManifest.userItems(in: userFile)
         } catch {
-          let conflict = error as? ExtensionManifest.UserItemConflict
-          conflicts = conflict?.ids ?? []
-          let reason =
-            conflict?.description ?? (error as? DecodingError).map { String(describing: $0) }
-            ?? error.localizedDescription
+          let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
           problems[id] = "\(userFile.path)\nInvalid user.json: \(reason)"
         }
-        commands[id] = ExtensionCommand(
-          id: id, folder: folder, manifest: manifest, userItems: userItems, conflictingItemIDs: conflicts)
+        commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
       } catch let contract as ExtensionManifest.ContractError {
         problems[id] = "\(folder.path)\n\(contract)"
       } catch { problems[id] = "\(folder.path)\nInvalid wicket.json: \(error)" }

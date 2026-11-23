@@ -427,8 +427,9 @@ final class Navigator {
       case .run(var address) = action.kind, !address.link
     else { return action }
     if let hotkey {
-      guard row.rootExtensionRow == .item, let item = hotkey.item,
-        row.provider == hotkey.target, row.row.id == "item:" + item
+      guard let selected = directory.hotkeyTarget(of: row, atRoot: true),
+        selected.target == hotkey.target, selected.item == hotkey.item,
+        selected.isUserItem == hotkey.isUserItem
       else { return action }
     }
     address.fields = draft.merging(address.fields ?? [:]) { _, fixed in fixed }
@@ -980,6 +981,14 @@ final class Navigator {
     if let surface, !shown { surface.show(arriving: arrive) } else { arrive() }
   }
   @ObservationIgnored private var pressed: (hotkey: HotkeyTarget, generation: Int)?
+  /// Shows an action failure without opening a command or starting a request.
+  func reportActionProblem(_ problem: String) {
+    if let surface, !surface.isShown {
+      surface.show { [self] in actionProblem = problem }
+    } else {
+      actionProblem = problem
+    }
+  }
   /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
   /// panel shows only to say why it could not, such as a paste without Accessibility access.
   func perform(_ action: RowAction) {

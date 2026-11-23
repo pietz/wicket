@@ -2,25 +2,31 @@ import Foundation
 
 /// What a global hotkey from `hotkeys` in config.json is bound to: an address spelled as a URL
 /// (`wicket://clipboard`, `wicket://weather?input=berlin`), or one of an extension's static items, named by
-/// `item` (`wicket://window?item=left`). The `item` query is read only here: followed as a link, the
-/// address opens the command and ignores it, as it ignores any query item but `input`. Bind the manifest
-/// item's ID so its current action stays owned by the extension and config never stores a stale copy of
-/// its field values and action.
+/// `item` for a manifest item (`wicket://window?item=left`) or `user-item` for a user item. These query
+/// keys are read only here. Keeping the item's ID lets its current action stay in the extension.
 struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
   /// `Address.targetID`: a reserved name, an extension ID, or nil for a root query.
   let target: String?
   let input: String?
   let item: String?
+  let isUserItem: Bool
 
-  init(target: String?, input: String? = nil, item: String? = nil) {
+  init(target: String?, input: String? = nil, item: String? = nil, isUserItem: Bool = false) {
     self.target = target
     self.input = input
     self.item = item
+    self.isUserItem = item != nil && isUserItem
   }
   init?(_ spelling: String) {
     guard let url = URL(string: spelling), let address = Address(url: url) else { return nil }
     let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
-    self.init(target: address.targetID, input: address.input, item: query?.first { $0.name == "item" }?.value)
+    let item = query?.first { $0.name == "item" }
+    let userItem = query?.first { $0.name == "user-item" }
+    guard item == nil || userItem == nil else { return nil }
+    if let userItem, userItem.value?.isEmpty != false { return nil }
+    self.init(
+      target: address.targetID, input: address.input, item: userItem?.value ?? item?.value,
+      isUserItem: userItem != nil)
   }
   /// The address that opens it: a link, so its request is never submitted.
   var address: Address {
@@ -33,7 +39,7 @@ struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
     url.scheme = Address.schemes[0]
     url.encodedHost = (address.extensionName ?? "").addingPercentEncoding(
       withAllowedCharacters: .urlHostAllowed)
-    let query = [("input", input), ("item", item)].compactMap { name, value in
+    let query = [("input", input), (isUserItem ? "user-item" : "item", item)].compactMap { name, value in
       value.map { URLQueryItem(name: name, value: $0) }
     }
     url.queryItems = query.isEmpty ? nil : query
