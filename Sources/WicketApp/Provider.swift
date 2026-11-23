@@ -15,6 +15,8 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   let locale: NumberMarks
   /// An extension's settings from config.json over their manifest defaults (`ExtensionHost.view`).
   var settings: [String: String] = [:]
+  /// True for a root pattern run. Omitted from other requests.
+  var rootMatch: Bool?
   struct NumberMarks: Codable, Sendable, Equatable {
     var decimal: String
     /// Empty where the user's numbers have no grouping.

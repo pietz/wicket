@@ -121,6 +121,14 @@ func decimalMarks(input: String, inUS: String, inGermany: String) async throws {
   #expect(try await calculate("١٬٢٣٤٫٥ + 0", arabic) == .init(title: "1٬234٫5", copy: "1234٫5"))
 }
 
+@Test(arguments: [" ", "\u{00A0}", "\u{202F}"])
+func calculatorAcceptsFrenchGroupingSpaces(_ space: String) async throws {
+  let french = ProviderRequest.NumberMarks(decimal: ",", grouping: "\u{202F}")
+  #expect(
+    try await calculate("1\(space)234,50 * 3", french) == .init(title: "3\u{202F}703,5", copy: "3703,5"))
+  #expect(try await calculatorRow("1\(space)2+3", french) == nil)
+}
+
 @Test(arguments: [
   "123", "hello", "2+", "(2+3", "2+3)", "2..3+1", "sqrt(4)", "2;3",
   "2**3", "2(3+4)", "10 usd", "1 2+3", "1,23,456 + 1", "1.2,3.4 + 1", "1, + 2", "1. + 2", "200 of 10%",
@@ -197,9 +205,24 @@ func explicitArithmetic(input: String, expected: String) async throws {
   #expect(try await calculate("1.234567890123455 + 0")?.title == "≈ 1.23456789012346")
 }
 
+@Test func nonterminatingDivisionKeepsDecimalPrecision() async throws {
+  let third = "0." + String(repeating: "3", count: 34)
+  let row = try #require(try await calculatorRow("=1/3", settings: ["precision": "34"]))
+  #expect(row.title == "≈ " + third)
+  #expect(row.actions.first == .copy(third))
+  #expect(
+    try await calculate("=10000000000000000 + 1/3 - 10000000000000000")
+      == .init(title: "≈ 0.333333333333333", copy: "0.333333333333333"))
+  #expect(try await calculate("=-(1/3)*3") == .init(title: "≈ -1", copy: "-1"))
+  #expect(try await calculate("=3^-2")?.copy == "0.111111111111111")
+}
+
 @Test(arguments: [
   ("1/0", "Division by zero"), ("0/0", "Division by zero"), ("=mod(1;0)", "Division by zero"),
   ("2^9999", "Result out of range"), ("=1e400", "Result out of range"),
+  ("=1e-400", "Result out of range"), ("=1e-200*1e-200", "Result out of range"),
+  ("=1/(1e-200*1e-200)", "Result out of range"), ("=1e-200/1e200", "Result out of range"),
+  ("=1e-200^2", "Result out of range"),
   ("=sqrt(-1)", "Undefined for this input"), ("=log(0)", "Undefined for this input"),
   ("=2+", "Finish the expression"), ("=1/0)", "Enter a valid expression"),
   ("=10 km", "Use Convert for units and currencies"),
@@ -269,6 +292,35 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   navigator.input = "=84+1"
   await navigator.settled()
   #expect(navigator.selected?.row.title == "85")
+  await model.finish()
+}
+
+@MainActor @Test func openCalculatorAcceptsFullExpressions() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  await model.extensions.reload()
+
+  let expression = "sqrt(9) + 2^3"
+  for query in [expression, "2026-1-5"] {
+    navigator.input = query
+    await navigator.settled()
+    #expect(!navigator.results.contains { $0.provider == "extension:calculator" })
+  }
+
+  navigator.input = "calc"
+  await navigator.settled()
+  navigator.run()
+  await navigator.settled()
+  #expect(navigator.command?.id == "extension:calculator")
+
+  navigator.input = expression
+  await navigator.settled()
+  #expect(navigator.results.first?.row.title == "11")
+  #expect(navigator.results.first?.row.actions.first == .copy("11"))
   await model.finish()
 }
 

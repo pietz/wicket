@@ -229,7 +229,9 @@ final class ExtensionHost {
   /// The view the command answers: from its items when it has no program, and nothing runs; Wicket's
   /// permission rows while a permission it declares is missing, and nothing runs either; else what its
   /// program printed within the deadline. Cancelling, or `shutdown`, stops the process.
-  func view(_ command: ExtensionCommand, request: ProviderRequest) async throws -> ProviderView {
+  func view(
+    _ command: ExtensionCommand, request: ProviderRequest, rootMatch: Bool = false
+  ) async throws -> ProviderView {
     var request = request
     if let field = command.manifest.inputField {
       var fields = request.fields
@@ -240,6 +242,7 @@ final class ExtensionHost {
         locale: request.locale)
     }
     request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
+    if rootMatch { request.rootMatch = true }
     guard command.manifest.command != nil else { return ProviderView(items: command.ownItems(request.input)) }
     let rerun = Address(
       id: command.id, input: request.input, fields: request.fields, action: request.action,

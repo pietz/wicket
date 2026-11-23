@@ -10,13 +10,16 @@ private enum Format: String {
 private struct Marks {
   let decimal: String
   let grouping: String
+  private let groupingSpace: Character?
   let inputDecimal: Character?
   let format: Format
   let precision: Int
 
   init(_ request: JSON?) {
     decimal = request?["locale"]?["decimal"]?.string ?? "."
-    grouping = request?["locale"]?["grouping"]?.string ?? ","
+    let grouping = request?["locale"]?["grouping"]?.string ?? ","
+    self.grouping = grouping
+    groupingSpace = Self.groupingSpaces.first { String($0) == grouping }
     let settings = request?["settings"]
     switch settings?["inputFormat"]?.string {
     case "Dot": inputDecimal = "."
@@ -29,14 +32,22 @@ private struct Marks {
     precision = proposed.flatMap { (minimum...34).contains($0) ? $0 : nil } ?? (format == .fixed ? 2 : 15)
   }
 
+  private static let groupingSpaces: [Character] = [" ", "\u{00A0}", "\u{202F}"]
+
+  private func groupingMark(_ character: Character) -> Character {
+    if let groupingSpace, Self.groupingSpaces.contains(character) { return groupingSpace }
+    return character
+  }
+
   func isMark(_ character: Character) -> Bool {
-    character == "." || character == "," || String(character) == grouping || String(character) == decimal
+    character == "." || character == "," || String(groupingMark(character)) == grouping
+      || String(character) == decimal
   }
 
   /// A lone dot or comma before three digits is ambiguous. In automatic mode, the locale's grouping
   /// mark wins only if the first group could start a grouped number. With both marks, the last is decimal.
   func mantissa(_ text: ArraySlice<Character>) -> String? {
-    let separators = text.filter { !isDigit($0) }
+    let separators = text.filter { !isDigit($0) }.map(groupingMark)
     guard let last = separators.last else { return String(text) }
     let parts = text.split(omittingEmptySubsequences: false) { !isDigit($0) }
     let leadingGroup = (1...3).contains(parts[0].count) && parts[0].first != "0"
@@ -131,10 +142,22 @@ private struct Decimal {
     scale = normalizedScale
   }
 
-  func adding(_ other: Self) throws -> Self {
+  var significantDigits: Int { String(abs(coefficient)).count }
+
+  func adding(_ other: Self, approximate: Bool) throws -> Self {
     if coefficient == 0 { return other }
     if other.coefficient == 0 { return self }
-    let scale = max(scale, other.scale)
+    do {
+      return try adding(other, at: max(scale, other.scale))
+    } catch is Overflow where approximate {
+      // Keep the sum in decimal when aligning an approximate operand needs extra digits.
+      // Leave one digit for a carry, with as many fractional places as the coefficients allow.
+      let target = min(scale + 37 - significantDigits, other.scale + 37 - other.significantDigits)
+      return try rounded(to: target).adding(other.rounded(to: target), at: target)
+    }
+  }
+
+  private func adding(_ other: Self, at scale: Int) throws -> Self {
     let result = try atScale(scale).addingReportingOverflow(other.atScale(scale))
     guard !result.overflow else { throw Overflow() }
     return try Self(result.partialValue, scale: scale)
@@ -146,7 +169,27 @@ private struct Decimal {
     return try Self(result.partialValue, scale: scale + other.scale)
   }
 
-  func divided(by other: Self) throws -> Self? {
+  func divided(by other: Self) throws -> (value: Self, rounded: Bool) {
+    if let quotient = try terminatingQuotient(dividingBy: other) { return (quotient, false) }
+
+    let divisor = other.coefficient.magnitude
+    var (quotient, remainder) = coefficient.magnitude.quotientAndRemainder(dividingBy: divisor)
+    var places = scale - other.scale
+    // Generate 38 significant digits, leaving guard digits for display rounding at up to 34.
+    let threshold = UInt128(try Self.ten(37))
+    while quotient < threshold {
+      let next = divisor.dividingFullWidth(remainder.multipliedFullWidth(by: 10))
+      quotient = quotient * 10 + next.quotient
+      remainder = next.remainder
+      places += 1
+    }
+    let doubled = remainder * 2
+    if doubled > divisor || (doubled == divisor && !quotient.isMultiple(of: 2)) { quotient += 1 }
+    let signed = (coefficient < 0) == (other.coefficient < 0) ? Int128(quotient) : -Int128(quotient)
+    return (try Self(signed, scale: places), true)
+  }
+
+  private func terminatingQuotient(dividingBy other: Self) throws -> Self? {
     if coefficient == 0 { return self }
     var a = abs(coefficient)
     var b = abs(other.coefficient)
@@ -180,14 +223,19 @@ private struct Decimal {
     return try Self(atScale(scale) % other.atScale(scale), scale: scale)
   }
 
-  func power(_ exponent: Int) throws -> Self? {
+  func power(_ exponent: Int) throws -> (value: Self, rounded: Bool) {
+    guard exponent < 0 else { return (try raised(to: exponent.magnitude), false) }
+    let one = try Self(1)
+    if let inverse = try one.terminatingQuotient(dividingBy: self) {
+      return (try inverse.raised(to: exponent.magnitude), false)
+    }
+    return try one.divided(by: raised(to: exponent.magnitude))
+  }
+
+  private func raised(to exponent: UInt) throws -> Self {
     var base = self
     var result = try Self(1)
-    if exponent < 0 {
-      guard let inverse = try result.divided(by: base) else { return nil }
-      base = inverse
-    }
-    var remaining = exponent.magnitude
+    var remaining = exponent
     while remaining > 0 {
       if remaining % 2 == 1 { result = try result.multiplied(by: base) }
       remaining /= 2
@@ -230,25 +278,25 @@ private struct Decimal {
 }
 
 private enum Number {
-  case exact(Decimal)
-  case approximate(Double)
+  case decimal(Decimal, approximate: Bool = false)
+  case floating(Double)
 
   var double: Double {
     switch self {
-    case .exact(let x): x.double
-    case .approximate(let x): x
+    case .decimal(let x, _): x.double
+    case .floating(let x): x
     }
   }
   var isZero: Bool {
     switch self {
-    case .exact(let x): x.coefficient == 0
-    case .approximate(let x): x == 0
+    case .decimal(let x, _): x.coefficient == 0
+    case .floating(let x): x == 0
     }
   }
   func negated() -> Self {
     switch self {
-    case .exact(let x): .exact(x.negated())
-    case .approximate(let x): .approximate(-x)
+    case .decimal(let x, let approximate): .decimal(x.negated(), approximate: approximate)
+    case .floating(let x): .floating(-x)
     }
   }
 }
@@ -258,20 +306,25 @@ private enum Operation { case add, subtract, multiply, divide, power, mod }
 private func apply(_ op: Operation, _ left: Number, _ right: Number) throws -> Number {
   if right.isZero, op == .divide || op == .mod { throw Issue.zero }
   if left.isZero, op == .power, right.double < 0 { throw Issue.zero }
-  if case .exact(let a) = left, case .exact(let b) = right {
+  if case .decimal(let a, let leftApproximate) = left, case .decimal(let b, let rightApproximate) = right {
+    let approximate = leftApproximate || rightApproximate
     switch op {
-    case .add: return .exact(try a.adding(b))
-    case .subtract: return .exact(try a.adding(b.negated()))
-    case .multiply: return .exact(try a.multiplied(by: b))
+    case .add, .subtract:
+      return .decimal(
+        try a.adding(op == .add ? b : b.negated(), approximate: approximate),
+        approximate: approximate)
+    case .multiply: return .decimal(try a.multiplied(by: b), approximate: approximate)
     case .divide:
-      if let result = try a.divided(by: b) { return .exact(result) }
-    case .mod: return .exact(try a.remainder(dividingBy: b))
+      let (value, rounded) = try a.divided(by: b)
+      return .decimal(value, approximate: approximate || rounded)
+    case .mod: return .decimal(try a.remainder(dividingBy: b), approximate: approximate)
     case .power:
       if b.scale <= 0 {
         guard let exponent = try Int(exactly: b.atScale(0)) else { throw Overflow() }
-        if let result = try a.power(exponent) { return .exact(result) }
+        let (value, rounded) = try a.power(exponent)
+        return .decimal(value, approximate: approximate || rounded)
       } else if a.coefficient < 0 {
-        // A fractional exact exponent may round to an integer when converted to Double.
+        // A fractional decimal exponent may round to an integer when converted to Double.
         throw Issue.domain
       }
     }
@@ -282,28 +335,33 @@ private func apply(_ op: Operation, _ left: Number, _ right: Number) throws -> N
   switch op {
   case .add: result = a + b
   case .subtract: result = a - b
-  case .multiply: result = a * b
-  case .divide: result = a / b
+  case .multiply:
+    result = a * b
+    if result == 0, !left.isZero, !right.isZero { throw Issue.range }
+  case .divide:
+    result = a / b
+    if result == 0, !left.isZero { throw Issue.range }
   case .mod: result = fmod(a, b)
   case .power:
     if a < 0 && b.isFinite && b != b.rounded(.towardZero) { throw Issue.domain }
     result = pow(a, b)
+    if result == 0, !left.isZero { throw Issue.range }
   }
   guard result.isFinite else { throw Issue.range }
-  return .approximate(result)
+  return .floating(result)
 }
 
 private enum Function: String {
   case sqrt, abs, sin, cos, log, round, mod
 
   func apply(_ operand: Number) throws -> Number {
-    if case .exact(let x) = operand {
+    if case .decimal(let x, let approximate) = operand {
       switch self {
       case .sqrt:
         if x.coefficient < 0 { throw Issue.domain }
-        if let root = try x.squareRoot() { return .exact(root) }
-      case .abs: return .exact(x.coefficient < 0 ? x.negated() : x)
-      case .round: return .exact(x.rounded(to: 0))
+        if let root = try x.squareRoot() { return .decimal(root, approximate: approximate) }
+      case .abs: return .decimal(x.coefficient < 0 ? x.negated() : x, approximate: approximate)
+      case .round: return .decimal(x.rounded(to: 0), approximate: approximate)
       default: break
       }
     }
@@ -323,7 +381,7 @@ private enum Function: String {
     case .mod: preconditionFailure("mod requires two arguments")
     }
     guard result.isFinite else { throw Issue.range }
-    return .approximate(result)
+    return .floating(result)
   }
 }
 
@@ -346,12 +404,12 @@ private indirect enum Expression {
   func evaluate(exact: Bool) throws -> Number {
     switch self {
     case .literal(let mantissa, let exponent):
-      if exact { return .exact(try Decimal(mantissa, exponent: exponent)) }
+      if exact { return .decimal(try Decimal(mantissa, exponent: exponent)) }
       guard let value = Double(mantissa + "e" + String(exponent)), value.isFinite,
         value != 0 || !mantissa.contains(where: { "123456789".contains($0) })
       else { throw Issue.range }
-      return .approximate(value)
-    case .constant(let value): return .approximate(value)
+      return .floating(value)
+    case .constant(let value): return .floating(value)
     case .negative(let term): return try term.evaluate(exact: exact).negated()
     case .percent(let term):
       return try apply(.divide, term.evaluate(exact: exact), Self.literal("100").evaluate(exact: exact))
@@ -381,7 +439,7 @@ private func isQuantitySymbol(_ character: Character) -> Bool {
 private struct Parser {
   let characters: [Character]
   let marks: Marks
-  let explicit: Bool
+  let fullGrammar: Bool
   var position = 0
 
   var next: Character? { position < characters.count ? characters[position] : nil }
@@ -438,7 +496,7 @@ private struct Parser {
         left = .binary(.multiply, left, try unary(depth: depth))
       } else if take("/") {
         left = .binary(.divide, left, try unary(depth: depth))
-      } else if explicit && left.isPercent {
+      } else if fullGrammar && left.isPercent {
         let saved = position
         guard readWord() == "of" else {
           position = saved
@@ -473,7 +531,7 @@ private struct Parser {
       return term
     }
     guard let first = next else { throw Issue.incomplete }
-    if explicit, first.isLetter {
+    if fullGrammar, first.isLetter {
       let name = readWord()
       if name == "pi" { return .constant(.pi) }
       if name == "e" { return .constant(M_E) }
@@ -489,7 +547,7 @@ private struct Parser {
       try require(")")
       return .function(function, argument)
     }
-    if explicit, isQuantitySymbol(first) { throw Issue.quantity }
+    if fullGrammar, isQuantitySymbol(first) { throw Issue.quantity }
     return try literal()
   }
 
@@ -512,7 +570,7 @@ private struct Parser {
       let mantissa = marks.mantissa(characters[start..<position])
     else { throw Issue.invalid }
     // The e in a token like 10eur starts a unit suffix. A scientific exponent is contiguous.
-    guard explicit, next == "e" || next == "E",
+    guard fullGrammar, next == "e" || next == "E",
       position + 1 == characters.count || !characters[position + 1].isLetter
     else { return .literal(mantissa) }
     position += 1
@@ -623,11 +681,12 @@ private func decimalPoint(_ digits: Substring, exponent: Int, fixedPlaces: Int? 
 
 private func render(_ number: Number, marks: Marks) -> (machine: String, approximate: Bool) {
   switch number {
-  case .exact(let value):
-    let digits = String(abs(value.coefficient)).count
+  case .decimal(let value, let approximate):
+    let digits = value.significantDigits
     let target: Int
     switch marks.format {
-    case .automatic: target = value.scale <= 0 ? value.scale : marks.precision - digits + value.scale
+    case .automatic:
+      target = !approximate && value.scale <= 0 ? value.scale : marks.precision - digits + value.scale
     case .fixed: target = marks.precision
     case .scientific: target = marks.precision - digits + value.scale
     }
@@ -640,10 +699,9 @@ private func render(_ number: Number, marks: Marks) -> (machine: String, approxi
     let sign = rounded.coefficient < 0 ? "-" : ""
     return (
       sign + text + (scientific ? "e" + String(exponent) : ""),
-      rounded.coefficient != value.coefficient
-        || rounded.scale != value.scale
+      approximate || rounded.coefficient != value.coefficient || rounded.scale != value.scale
     )
-  case .approximate(let value):
+  case .floating(let value):
     let places = marks.format == .fixed ? marks.precision : marks.precision - 1
     let pattern = marks.format == .fixed ? "%.*f" : "%.*e"
     var buffer = [CChar](repeating: 0, count: 384)
@@ -698,26 +756,27 @@ private func result(_ expression: Expression, marks: Marks) throws -> String {
     #"{"id":"result","title":\#(title),"subtitle":"Copy result","icon":"equal","prominent":true,"actions":[\#(actions.joined(separator: ","))]}"#
 }
 
-private func row(_ input: String, marks: Marks) -> String? {
-  let explicit = input.drop(while: \.isWhitespace).first == "="
-  guard input.utf8.count <= 512 else { return explicit ? status(.limit) : nil }
+private func row(_ input: String, marks: Marks, inCommand: Bool) -> String? {
+  let hasPrefix = input.drop(while: \.isWhitespace).first == "="
+  let fullGrammar = inCommand || hasPrefix
+  guard input.utf8.count <= 512 else { return fullGrammar ? status(.limit) : nil }
   var text = input.map(normalized)[...]
   while text.first?.isWhitespace == true { text = text.dropFirst() }
   while text.last?.isWhitespace == true { text = text.dropLast() }
-  if explicit {
+  if hasPrefix {
     text = text.dropFirst()
   } else if text.isEmpty {
     return #"{"id":"help","title":"Type a calculation, like 200 + 10% or =sqrt(9)","actions":[]}"#
-  } else if !isBareCalculation(text, marks: marks) {
+  } else if !fullGrammar, !isBareCalculation(text, marks: marks) {
     return nil
   }
-  var parser = Parser(characters: Array(text), marks: marks, explicit: explicit)
+  var parser = Parser(characters: Array(text), marks: marks, fullGrammar: fullGrammar)
   do {
     return try result(parser.parse(), marks: marks)
   } catch let issue as Issue {
     switch issue {
     case .zero, .domain, .range: return status(issue)
-    default: return explicit ? status(issue) : nil
+    default: return fullGrammar ? status(issue) : nil
     }
   } catch {
     return status(.range)
@@ -729,5 +788,8 @@ private func status(_ issue: Issue) -> String {
 }
 
 let request = JSON.standardInput()
-let input = request?["fields"]?["expression"]?.string ?? request?["input"]?.string ?? ""
-print(#"{"items":[\#(row(input, marks: Marks(request)) ?? "")]}"#)
+let expression = request?["fields"]?["expression"]?.string
+let input = expression ?? request?["input"]?.string ?? ""
+let inCommand = if case .bool(true)? = request?["rootMatch"] { false } else { expression != nil }
+let item = row(input, marks: Marks(request), inCommand: inCommand)
+print(#"{"items":[\#(item ?? "")]}"#)

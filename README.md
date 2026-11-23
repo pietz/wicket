@@ -38,7 +38,9 @@ Turn on **Open compact** in Settings ▸ General (`"compactOnOpen": true` in `co
 
 **Files** come from Spotlight, from two characters: each word you type must start a word of the file name. Wicket searches the visible folders in your home folder, iCloud Drive, cloud storage and mounted volumes, and skips hidden, Library, build and cache folders. Return opens a file; ⌘K also reveals it. Scripts and installers can only be revealed.
 
-**Calculator** shows a result as you type arithmetic such as `12*7` or `200 + 10%`. Start with `=` for functions, constants, scientific notation and expressions such as `=sqrt(9) + 2^3` or `=10% of 200`. Bare phone and date shapes stay in search. Use `=555-1234` or add spaces around the minus sign for subtraction. Search for `calc` to open Calculator. Use ⌘Return for spoken operators such as “12 times 7.”
+**Calculator** shows a result as you type arithmetic such as `12*7` or `200 + 10%`. At the root, start with `=` for functions, constants, scientific notation and expressions such as `=sqrt(9) + 2^3` or `=10% of 200`. Bare phone and date shapes stay in search. Use `=555-1234` or add spaces around the minus sign for subtraction. Search for `calc` to open Calculator and enter expressions such as `sqrt(9) + 2^3` directly. Use ⌘Return for spoken operators such as “12 times 7.”
+
+Calculator uses base-10 `log`, radians for trigonometry, and a signed remainder for `mod`.
 
 Results use your number format and show `≈` when rounded or approximate. Return copies the displayed precision with your decimal mark and without grouping. ⌘K offers **Paste Result**, **Use Result** to continue the calculation at the root, and **Copy Machine Number** when your decimal mark differs from a dot. Settings ▸ Extensions ▸ Calculator lets you choose an input decimal mark, an output format and precision. With locale input, `1,000` is a thousand only where the comma groups thousands.
 

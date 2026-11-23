@@ -143,7 +143,7 @@ import Foundation
         Task { [weak self] in
           do {
             if speaking { try await Task.sleep(for: .milliseconds(350)) }
-            let view = try await host.view(command, request: request)
+            let view = try await host.view(command, request: request, rootMatch: true)
             guard let self, !Task.isCancelled, generation == current else { return }
             // At the root a pattern result only contributes items; a body is entered like a detail.
             patterns[entry.id] =
