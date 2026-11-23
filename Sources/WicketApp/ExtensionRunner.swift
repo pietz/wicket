@@ -77,6 +77,12 @@ struct ExtensionRunner: Sendable {
     try Self.preparePrivateDirectory(dataDirectory)
     try Self.preparePrivateDirectory(data)
     environment["WICKET_DATA_DIR"] = data.path
+    if argv[0] == "wicket-js" {
+      // Let a capped host call throw before the outer timeout stops the interpreter.
+      let budget = max(.zero, deadline - .milliseconds(100))
+      environment["WICKET_JS_DEADLINE_NS"] = String(
+        DispatchTime.now().uptimeNanoseconds + UInt64(budget / .nanoseconds(1)))
+    }
     let started = try Launch.start(
       executable, Array(argv.dropFirst()), in: command.folder, environment: environment)
     let tree = started.tree

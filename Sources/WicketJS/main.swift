@@ -8,7 +8,7 @@ struct Failure: LocalizedError {
   var errorDescription: String? { message }
 }
 
-private func withJSString<T>(_ text: String, _ body: (JSStringRef) throws -> T) rethrows -> T {
+func withJSString<T>(_ text: String, _ body: (JSStringRef) throws -> T) rethrows -> T {
   let ref = Array(text.utf16).withUnsafeBufferPointer {
     JSStringCreateWithCharacters($0.baseAddress, $0.count)!
   }
@@ -16,7 +16,7 @@ private func withJSString<T>(_ text: String, _ body: (JSStringRef) throws -> T) 
   return try body(ref)
 }
 
-private func swiftString(_ ref: JSStringRef) -> String {
+func swiftString(_ ref: JSStringRef) -> String {
   String(
     decoding: UnsafeBufferPointer(start: JSStringGetCharactersPtr(ref), count: JSStringGetLength(ref)),
     as: UTF16.self)
@@ -26,7 +26,7 @@ private func textValue(_ context: JSContextRef, _ text: String) -> JSValueRef {
   withJSString(text) { JSValueMakeString(context, $0) }
 }
 
-private func text(
+func text(
   _ context: JSContextRef, _ value: JSValueRef, _ exception: UnsafeMutablePointer<JSValueRef?>? = nil
 )
   -> String?
@@ -36,14 +36,14 @@ private func text(
   return swiftString(ref)
 }
 
-private func property(
+func property(
   _ context: JSContextRef, _ object: JSObjectRef, _ name: String,
   _ exception: UnsafeMutablePointer<JSValueRef?>? = nil
 ) -> JSValueRef? {
   withJSString(name) { JSObjectGetProperty(context, object, $0, exception) }
 }
 
-private func reporting<T>(_ context: JSContextRef, _ perform: (inout JSValueRef?) -> T) throws -> T {
+func reporting<T>(_ context: JSContextRef, _ perform: (inout JSValueRef?) -> T) throws -> T {
   var exception: JSValueRef?
   let result = perform(&exception)
   if let exception {
@@ -90,7 +90,7 @@ private func storage(
   _ context: JSContextRef, _ operation: String, _ count: Int,
   _ arguments: UnsafePointer<JSValueRef?>?, _ exception: UnsafeMutablePointer<JSValueRef?>?
 ) -> JSValueRef? {
-  do {
+  hostResult(context, operation, exception) {
     let writing = operation == "write"
     guard count == (writing ? 2 : 1), let arguments, let nameValue = arguments[0],
       JSValueIsString(context, nameValue), let name = text(context, nameValue)
@@ -103,7 +103,14 @@ private func storage(
       return JSValueMakeUndefined(context)
     }
     return try readData(from: file).map { textValue(context, $0) } ?? JSValueMakeNull(context)
-  } catch {
+  }
+}
+
+func hostResult(
+  _ context: JSContextRef, _ operation: String, _ exception: UnsafeMutablePointer<JSValueRef?>?,
+  _ perform: () throws -> JSValueRef?
+) -> JSValueRef? {
+  do { return try perform() } catch {
     var message: JSValueRef? = textValue(context, "wicket.\(operation): \(error.localizedDescription)")
     exception?.pointee = JSObjectMakeError(context, 1, &message, nil)
     return nil
@@ -123,6 +130,7 @@ private func scriptURL(_ path: String) throws -> URL {
 }
 
 private func run(_ path: String) throws {
+  _ = RequestBudget.deadline
   let context = JSGlobalContextCreate(nil)!
   defer { JSGlobalContextRelease(context) }
   guard let input = try FileHandle.standardInput.readToEnd(), let json = String(data: input, encoding: .utf8),
@@ -131,6 +139,7 @@ private func run(_ path: String) throws {
   else { throw Failure("expected a UTF-8 JSON request object on stdin") }
   JSValueProtect(context, request)
   defer { JSValueUnprotect(context, request) }
+  let rootMatch = property(context, request, "rootMatch").map { JSValueToBoolean(context, $0) } ?? false
 
   let promise = property(context, JSContextGetGlobalObject(context), "Promise")!
   JSValueProtect(context, promise)
@@ -141,6 +150,8 @@ private func run(_ path: String) throws {
     [
       ("read", { context, _, _, count, args, error in storage(context!, "read", count, args, error) }),
       ("write", { context, _, _, count, args, error in storage(context!, "write", count, args, error) }),
+      ("fetch", rootMatch ? blockedFetch : fetchCallback),
+      ("run", rootMatch ? blockedRun : runCallback),
     ])
 
   let script = try scriptURL(path)
@@ -175,7 +186,7 @@ private func run(_ path: String) throws {
       throw Failure("main must return a view object, a Markdown string, or undefined")
     }
     if try reporting(context, { JSValueIsInstanceOfConstructor(context, result, promise, &$0) }) {
-      throw Failure("main must be synchronous")
+      throw Failure("main must be synchronous; wicket.fetch returns directly")
     }
     guard !JSValueIsArray(context, result),
       let serialized = try reporting(context, { JSValueCreateJSONString(context, result, 0, &$0) })

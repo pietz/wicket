@@ -1,13 +1,13 @@
 # Wicket extensions
 
-Write a directory under `extensions/` in the Wicket working folder. Read this reference before authoring. Wicket discovers a valid new folder and enables it at once, with no approval step and no build or restart; the owner can switch it off in Settings ▸ Extensions, and a switched-off extension does not appear in the launcher. The program runs from its own folder (the working directory), with the owner's ordinary access, not a sandbox.
+Write a directory under `extensions/` in the Wicket working folder. Read this reference before authoring. Use JavaScript with the bundled `wicket-js` runner by default. Official extensions that need macOS APIs stay in Swift. Wicket discovers a valid new folder and enables it at once, with no approval step and no build or restart; the owner can switch it off in Settings ▸ Extensions, and a switched-off extension does not appear in the launcher. The program runs from its own folder (the working directory), with the owner's ordinary access, not a sandbox.
 
 You can symlink an extension folder into `extensions/` and edit its manifest in the checkout. Wicket picks up those changes live.
 
 ## Manifest: wicket.json
 
 ```json
-{"contract":2,"name":"Weather","keyword":"weather","command":["./main.py"],"icon":"cloud.sun"}
+{"contract":2,"name":"Weather","keyword":"weather","command":["wicket-js","main.js"],"icon":"cloud.sun"}
 ```
 
 A nonempty `name` and a nonempty `command` argv array, `items` or both are required. `description` (one line on what it does, shown in Settings), `keyword`, SF Symbol `icon`, regex `match`, boolean `fallback` (default false), `fields`, boolean `submit` (default false), boolean `hidden` (default false, needs `submit`), `settings`, `permissions` and integer `contract` are recognized; all but `description`, `keyword`, `icon`, `fields` and `contract` need a `command`. Any other key is an error naming it, shown as a repair row.
@@ -25,7 +25,7 @@ Wicket orders the root by match quality. Exact keywords with field text come fir
 ### Fields and settings
 
 ```json
-{"contract":2,"name":"Weather","command":["./main.py"],"fields":[{"name":"city","type":"text","description":"Search for a city","placeholder":"City"},{"name":"days","type":"number","description":"Days in the forecast"}],"settings":[{"name":"alerts","type":"bool","description":"Show weather alerts","default":"true"},{"name":"scale","type":"choice","description":"Temperature scale","options":["Celsius","Fahrenheit"],"default":"Celsius"}]}
+{"contract":2,"name":"Weather","command":["wicket-js","main.js"],"fields":[{"name":"city","type":"text","description":"Search for a city","placeholder":"City"},{"name":"days","type":"number","description":"Days in the forecast"}],"settings":[{"name":"alerts","type":"bool","description":"Show weather alerts","default":"true"},{"name":"scale","type":"choice","description":"Temperature scale","options":["Celsius","Fahrenheit"],"default":"Celsius"}]}
 ```
 
 Both arrays use the same definition: `name`, `type`, `description` and an optional `placeholder`. Names are nonempty and unique within each array. Types are `text`, `number`, `bool` and `choice`. A choice has an `options` array of distinct nonempty strings. All values travel as strings. A boolean is `"true"` or `"false"`. Number settings use a decimal point. Programs parse and check the values they use.
@@ -169,7 +169,7 @@ Slots hold labels and figures, never sentences; an explanation or steps stay Mar
 
 ## An answer as an extension
 
-When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from local data or an API, so the same page appears without the agent, with a detail or a `run` on every item with more to show, since the arrow keys skip an item with neither. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. A lookup is too slow for every keystroke, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
+When the owner asks to make an answer an extension, return the same body and tags from local data or an API. For an API that needs a key, use the Keychain recipe. Give each item with more to show a detail or a `run` so the arrow keys can reach it. Use the subject of the question (a city, a ticker, a route) as input. Default empty input to the subject already asked about and show a one-line body for an unknown subject. Put lookups behind a `keyword` command with `submit:true`. Test empty input, another valid input and a bad one, then reply in a sentence with one row that opens the extension.
 
 ## Changing a built-in
 
@@ -211,6 +211,14 @@ Add this saved search to the `items` in `extensions/links-search/user.json`. Sto
 {"id":"wiki-berlin","title":"Berlin on Wikipedia","actions":[{"type":"run","title":"Search Wikipedia","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"link":"wikipedia","query":"Berlin"}}]}
 ```
 
+For a custom search, use a fixed HTTP(S) scheme and host. Put `{query}` in a path segment or query value and let Links & Search encode it. Omit the fixed `query` field to prompt for text. Bind this example with `wicket://links-search?user-item=osm`.
+
+```json
+{"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[{"type":"run","title":"Search OpenStreetMap","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
+```
+
+To target an installed app, set `bundleID` in the fixed action fields and name the app in the item's `subtitle`.
+
 ### A saved window move
 
 For the current window's placement, run `Wicket --extension window --submitted --action capture`. Parse the view's `body` as a JSON array of entries with `bundleID`, `display` (UUID), `rect` and `focused` (boolean). Use the entry marked `focused: true` and save its display and rect with zero gap. If no entry is marked, ask the owner to focus a standard window that fits within one display and try again.
@@ -225,17 +233,25 @@ The rectangle is `[x, y, width, height]` as fractions from the top left of the u
 
 ### A site search with a query
 
-Add this search to the `items` in `extensions/links-search/user.json`. Type `osm Berlin` and press Return, or type `osm` and press Tab to fill Query. Bind `wicket://links-search?user-item=osm` in `hotkeys` to open Query. The `promptIfEmpty:true` option opens Query when there is no text to search. From another extension, set `"extension":"links-search"` on the run action.
+For a standalone search, put this manifest and `main.js` in `extensions/osm/`. Type `osm Berlin` and press Return, or type `osm` and use its Query field.
 
 ```json
-{"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[{"type":"run","title":"Search OpenStreetMap","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
+{"contract":2,"name":"Search OpenStreetMap","keyword":"osm","command":["wicket-js","main.js"],"submit":true,"hidden":true,"fields":[{"name":"query","type":"text","description":"Search query","placeholder":"Query"}]}
 ```
 
-Use a fixed HTTP or HTTPS scheme and host. Place `{query}` in a path segment or a query value. Links & Search percent-encodes the query once and rejects user info, dot-only path segments and placeholders anywhere else. To target an installed app, set `bundleID` in the fixed action fields and name the app in the item's `subtitle`. A fixed template without a placeholder opens a static URL with that app.
+```js
+function main({ submitted, input }) {
+  if (!submitted || !input.trim()) return { body: "Enter a search query." };
+  const url = "https://www.openstreetmap.org/search?query=" + encodeURIComponent(input);
+  if (wicket.run(["/usr/bin/open", url]).status !== 0) throw new Error("Could not open search.");
+}
+```
+
+For a personal addition to Links & Search, use the saved definition recipe.
 
 ### A web fallback
 
-The bundled `web` extension already supplies a general fallback. Its `webEngine` setting accepts `DuckDuckGo` (the default) or `Google`. To build another fallback, give it a separate folder with `fallback:true`, `submit:true`, `hidden:true` and one text field. When nothing matches strongly, its row submits the full root query. Encode the query for its URL component and open the URL only on submission. Print nothing on a successful open.
+The bundled `web` extension already supplies a general fallback. Its `webEngine` setting accepts `DuckDuckGo` (the default) or `Google`. To build another fallback, use the site search manifest and script in a separate folder. Set `fallback:true`, choose your search engine's URL and keep the submitted guard, `encodeURIComponent(input)` and the `wicket.run(["/usr/bin/open", url])` call. When nothing matches strongly, the fallback row submits the full root query.
 
 ### A JavaScript command
 
@@ -251,20 +267,27 @@ function main(request) {
 }
 ```
 
-Keep `main` synchronous. Return a view object, a Markdown string, or `undefined` for silence from a hidden run. Use `console.log` and `console.error` for stderr diagnostics.
+Keep `main` synchronous because `wicket.fetch` returns directly. Return a view object, a Markdown string, or `undefined` for silence from a hidden run. Use `console.log` and `console.error` for stderr diagnostics.
+
+- `wicket.fetch(url[, {method, headers, body, timeoutMs}])` takes an HTTP(S) URL (GET by default), optional string headers and a string body. It returns `{status, headers, body}` with lowercase header names and UTF-8 body text, including for HTTP errors. It throws on a network failure, a timeout (default 5,000 ms), a response body over 1 MiB or more than five redirects.
+- `wicket.run(argv[, {input, timeoutMs, maxBytes}])` starts a program with literal arguments. Bare names use Wicket's PATH, and relative paths use the extension folder. Pass a string as `input` for stdin. It returns `{status, signal, stdout, stderr}` with UTF-8 text and either a numeric exit status or a numeric signal, with the other field `null`. A nonzero exit is a result. Timeout and combined output default to 2,000 ms and 256 KiB, with maxima of 5,000 ms and 1 MiB. Exceeding either limit kills the direct child and throws.
+
+Both throw during root matches and share the request's 10-second deadline. Use `submit:true` for slow lookups, and check `submitted` and any required action before performing effects.
+
+```js
+function main({ submitted, input }) {
+  if (!submitted) return { body: "Enter a query and press Return." };
+  const response = wicket.fetch("https://example.com/api/search?q=" + encodeURIComponent(input));
+  if (response.status !== 200) return { body: `Search returned HTTP ${response.status}.` };
+  return { body: response.body.replaceAll("<", "&lt;") };
+}
+```
 
 ### State that persists
 
 Keep caches and saved state in `WICKET_DATA_DIR` and leave the extension folder for code and declarations. Wicket creates this writable directory on first run and scopes it to the extension ID and edition. Scratch runs get their own directory.
 
-```python
-import os
-from pathlib import Path
-
-state = Path(os.environ["WICKET_DATA_DIR"]) / "state.json"
-```
-
-For JavaScript, `wicket.read(name)` returns UTF-8 text or `null` when missing, and `wicket.write(name, text)` replaces it atomically. Use one filename in `WICKET_DATA_DIR` and up to 1 MiB per file. Symlinks and non-regular files raise errors.
+`wicket.read(name)` returns UTF-8 text or `null` when missing, and `wicket.write(name, text)` replaces it atomically. Use one filename in `WICKET_DATA_DIR` and up to 1 MiB per file. Symlinks and non-regular files raise errors.
 
 ```js
 function main(request) {
@@ -279,7 +302,8 @@ function main(request) {
 
 ### An API that needs a key
 
-Have the user store the key once in Keychain with `security add-generic-password` under service `wicket.<id>`, without pasting it into chat. For a program that calls other executables, read the key by running `/usr/bin/security find-generic-password -s wicket.<id> -w`, then trim stdout.
+Have the user store the key once in Keychain with `security add-generic-password` under service `wicket.<id>`, without pasting it into chat.
+After submission, read it with `wicket.run(["/usr/bin/security", "find-generic-password", "-s", "wicket.<id>", "-w"])`. Check `status === 0` and use `stdout.trim()` for the API call.
 
 ### Something that needs a macOS permission
 

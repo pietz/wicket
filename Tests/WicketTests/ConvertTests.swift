@@ -180,51 +180,36 @@ private func convert(
 
 /// The actual curl transport is exercised against a local server that logs the path and can go offline
 /// without changing the extension or its snapshot.
-private func serveRates(in folder: URL) throws -> (Process, String) {
-  let server = Process()
-  server.executableURL = URL(filePath: "/usr/bin/python3")
-  server.currentDirectoryURL = folder
-  server.arguments = [
-    "-u", "-c",
-    """
-    from http.server import BaseHTTPRequestHandler, HTTPServer
-    from pathlib import Path
-    class Rates(BaseHTTPRequestHandler):
-        def do_GET(self):
-            with open("requests", "a") as log:
-                print(self.path, file=log)
-            path = Path("rates.xml")
-            self.send_response(200 if path.exists() else 503)
-            self.end_headers()
-            if path.exists():
-                self.wfile.write(path.read_bytes())
-        def log_message(self, *args):
-            pass
-    with HTTPServer(("127.0.0.1", 0), Rates) as server:
-        print(server.server_port)
-        server.serve_forever()
-    """,
-  ]
-  let output = Pipe()
-  server.standardOutput = output
-  try server.run()
-  let port = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self)
-    .trimmingCharacters(in: .whitespacesAndNewlines)
-  guard UInt16(port) != nil else {
-    if server.isRunning { server.terminate() }
-    throw ExtensionFailure("Fixture rate server did not report a port")
-  }
-  return (server, "http://127.0.0.1:\(port)/daily.xml")
+private func serveRates(in folder: URL) async throws -> (Process, String) {
+  let (server, base) = try await serveHTTPFixture(
+    in: folder,
+    source:
+      """
+      from http.server import BaseHTTPRequestHandler, HTTPServer
+      from pathlib import Path
+      class Rates(BaseHTTPRequestHandler):
+          def do_GET(self):
+              with open("requests", "a") as log:
+                  print(self.path, file=log)
+              path = Path("rates.xml")
+              self.send_response(200 if path.exists() else 503)
+              self.end_headers()
+              if path.exists():
+                  self.wfile.write(path.read_bytes())
+          def log_message(self, *args):
+              pass
+      with HTTPServer(("127.0.0.1", 0), Rates) as server:
+          print(server.server_port)
+          server.serve_forever()
+      """)
+  return (server, base + "/daily.xml")
 }
 
 @MainActor @Test func convertRefreshesOnlyOnSubmittedRequestsAndKeepsRateDetails() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let (server, url) = try serveRates(in: folder)
-  defer {
-    server.terminate()
-    server.waitUntilExit()
-  }
+  let (server, url) = try await serveRates(in: folder)
+  defer { server.terminate() }
   let command = try bundled("units")
   let local = folder.appending(path: "extensions/units")
   try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)

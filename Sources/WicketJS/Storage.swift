@@ -3,7 +3,7 @@ import Foundation
 
 private let limit = 1_048_576
 
-private func systemError() -> POSIXError { POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+func systemError() -> POSIXError { POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 
 func dataFile(_ name: String) throws -> URL {
   guard !name.isEmpty, name != ".", name != "..", !name.utf8.contains(UInt8(ascii: "/")),

@@ -68,6 +68,8 @@ What the parser needs:
 
 ## Wicket's files
 
+Use JavaScript with `wicket-js` by default for extensions. Official extensions that need macOS APIs stay in Swift.
+
 You run in Wicket's working folder, `{{folder}}`. Everything the user can set or do in Wicket is a plain file here, so you can do it for them:
 
 - `{{contract}}`: the extension contract: manifests, typed fields, requests, views, actions, hotkeys and testing. Read it before writing or changing an extension or a hotkey; it also names the examples and the built-in extensions to learn from. Convert (folder `units`) already handles single unit and currency quantities. Add personal bookmarks and site searches to `extensions/links-search/user.json` in the working folder, following the contract recipes. Search the Web (folder `web`) supplies the general fallback. For saving a window placement or binding it to a shortcut, follow the Window Manager recipe.

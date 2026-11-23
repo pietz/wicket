@@ -133,3 +133,26 @@ extension AnswerRenderer {
     await settled()
   }
 }
+
+/// Starts a loopback HTTP fixture whose first stdout line is its assigned port.
+func serveHTTPFixture(in folder: URL, source: String) async throws -> (Process, String) {
+  let server = Process()
+  server.executableURL = URL(filePath: "/usr/bin/python3")
+  server.currentDirectoryURL = folder
+  server.arguments = ["-u", "-c", source]
+  let output = Pipe()
+  server.standardOutput = output
+  try server.run()
+  let portLine = await withCheckedContinuation { continuation in
+    DispatchQueue.global().async {
+      continuation.resume(returning: output.fileHandleForReading.availableData)
+    }
+  }
+  let port = String(decoding: portLine, as: UTF8.self)
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+  guard UInt16(port) != nil else {
+    if server.isRunning { server.terminate() }
+    throw ExtensionFailure("HTTP fixture did not report a port")
+  }
+  return (server, "http://127.0.0.1:\(port)")
+}

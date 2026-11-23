@@ -128,9 +128,12 @@ private func installScript(
 @Test(arguments: [
   (
     "async function main() { return {body: 'bad'}; }",
-    "main must be synchronous"
+    "main must be synchronous; wicket.fetch returns directly"
   ),
-  ("function main() { return Promise.resolve({body: 'bad'}); }", "main must be synchronous"),
+  (
+    "function main() { return Promise.resolve({body: 'bad'}); }",
+    "main must be synchronous; wicket.fetch returns directly"
+  ),
   ("function main() { const view = {}; view.loop = view; return view; }", "cyclic"),
   ("function main() { return null; }", "main must return"),
   ("const count = 42;", "define a top-level main(request)"),
@@ -202,4 +205,262 @@ func javaScriptReportsInvalidMainAndReturnValues(source: String, diagnostic: Str
   let result = try #require(query["items"].array.first)
   #expect(result["provider"].string == "extension:javascript")
   #expect(result["row"]["title"].string == "Matched jstest 42")
+}
+
+private func serveJavaScriptHTTP(in folder: URL) async throws -> (Process, String) {
+  try await serveHTTPFixture(
+    in: folder,
+    source: """
+      from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+      from time import sleep
+
+      class Handler(BaseHTTPRequestHandler):
+          def reply(self, status, body=b"", headers={}):
+              self.send_response(status)
+              self.send_header("Content-Length", str(len(body)))
+              for key, value in headers.items():
+                  self.send_header(key, value)
+              self.end_headers()
+              self.wfile.write(body)
+          def do_GET(self):
+              with open("requests", "a") as log:
+                  print(self.path, file=log)
+              if self.path == "/timeout":
+                  sleep(30)
+              elif self.path == "/disconnect":
+                  self.close_connection = True
+              elif self.path == "/overflow":
+                  self.reply(200, b"x" * 1048577)
+              elif self.path.startswith("/redirect/"):
+                  remaining = int(self.path.split("/")[-1])
+                  if remaining:
+                      self.reply(302, headers={"Location": f"/redirect/{remaining - 1}"})
+                  else:
+                      self.reply(200, b"redirected")
+              elif self.path == "/bad-redirect":
+                  self.reply(302, headers={"Location": "file:///dev/null"})
+              elif self.path == "/get":
+                  self.reply(200, "café".encode(), {"X-Fixture": "present"})
+              else:
+                  self.reply(404, b"missing")
+          def do_POST(self):
+              body = self.rfile.read(int(self.headers["Content-Length"]))
+              self.reply(201, body, {"X-Fixture": self.headers["X-Fixture"]})
+          def log_message(self, *args):
+              pass
+
+      with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+          print(server.server_port)
+          server.serve_forever()
+      """)
+}
+
+// Each case launches Wicket and some start a fixture server. Keep those launches out of each other’s way.
+@Suite(.serialized) struct JavaScriptHostTests {
+  @Test func javaScriptFetchReturnsStatusHeadersAndBody() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let (server, base) = try await serveJavaScriptHTTP(in: root)
+    defer { server.terminate() }
+    _ = try installScript(
+      """
+      function main({ input }) {
+        const get = wicket.fetch(input + "/get");
+        const post = wicket.fetch(input + "/post", {
+          method: "POST", headers: {"X-Fixture": "from JavaScript"}, body: "café"
+        });
+        const missing = wicket.fetch(input + "/not-found");
+        return {body: [get.status, get.headers["x-fixture"], get.body,
+          post.status, post.headers["x-fixture"], post.body, missing.status, missing.body].join("\\n")};
+      }
+      """, in: root)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted", "--input", base])
+    #expect(status == 0)
+    #expect(view["body"].string == "200\npresent\ncafé\n201\nfrom JavaScript\ncafé\n404\nmissing")
+  }
+
+  @Test func javaScriptFetchThrowsOnTimeoutTransportErrorAndOverflow() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let (server, base) = try await serveJavaScriptHTTP(in: root)
+    defer { server.terminate() }
+    _ = try installScript(
+      #"""
+      function main({input}) {
+        const messages = [];
+        for (const path of ["/timeout", "/disconnect", "/overflow"]) {
+          try { wicket.fetch(input + path, {timeoutMs: path === "/timeout" ? 50 : 2000}); }
+          catch (error) { if (error instanceof Error) messages.push(error.message); }
+        }
+        return {body: messages.join("\n")};
+      }
+      """#, in: root)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted", "--input", base])
+    let messages = try #require(view["body"].string).components(separatedBy: "\n")
+    #expect(status == 0)
+    #expect(messages.count == 3)
+    #expect(messages.first == "wicket.fetch: timed out")
+    #expect(messages.dropFirst().first?.hasPrefix("wicket.fetch: ") == true)
+    #expect(messages.last == "wicket.fetch: response body exceeds 1 MiB")
+  }
+
+  @Test func javaScriptFetchAllowsFiveHTTPRedirects() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let (server, base) = try await serveJavaScriptHTTP(in: root)
+    defer { server.terminate() }
+    _ = try installScript(
+      #"""
+      function main({input}) {
+        return {body: wicket.fetch(input).body};
+      }
+      """#, in: root)
+    let args = ["--extension", "javascript", "--submitted", "--input"]
+    let (success, view) = try await cli(root, args + [base + "/redirect/5"])
+    #expect(success == 0 && view["body"].string == "redirected")
+    let (limit, limitRepair) = try await cli(root, args + [base + "/redirect/6"])
+    #expect(limit == 1 && limitRepair["error"].string?.contains("wicket.fetch: too many redirects") == true)
+    let (scheme, schemeRepair) = try await cli(root, args + [base + "/bad-redirect"])
+    #expect(scheme == 1 && schemeRepair["error"].string?.contains("wicket.fetch:") == true)
+  }
+
+  @Test func javaScriptRootMatchesBlockIOEvenBeforeMainAndAfterEditingTheRequest() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let (server, base) = try await serveJavaScriptHTTP(in: root)
+    defer { server.terminate() }
+    let folder = try installScript(
+      """
+      const messages = [];
+      function attemptIO() {
+        for (const call of [() => wicket.fetch("\(base)/get"), () => wicket.run(["touch", "started"])]) {
+          try { call(); } catch (error) { if (error instanceof Error) messages.push(error.message); }
+        }
+      }
+      attemptIO();
+      function main(request) {
+        request.rootMatch = false;
+        request.submitted = true;
+        attemptIO();
+        return {items: [{id: "result", title: messages.join("|"), actions: []}]};
+      }
+      """, in: root, manifest: ["match": "^jstest$"])
+    try saveProviders([.init("extension:javascript")], in: root)
+    let (status, query) = try await cli(root, ["--query", "jstest"])
+    let result = try #require(query["items"].array.first)
+    let messages = try #require(result["row"]["title"].string).components(separatedBy: "|")
+    let expected = [
+      "wicket.fetch: unavailable during a root match", "wicket.run: unavailable during a root match",
+    ]
+    #expect(status == 0 && messages == expected + expected)
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "requests").path))
+    #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "started").path))
+  }
+
+  @Test func javaScriptRunUsesLiteralArgumentsAndReturnsBothStreamsAndExitStatus() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let folder = try installScript(
+      #"""
+      function main() {
+        const input = "café\n".repeat(15000);
+        const cat = wicket.run(["cat"], {input});
+        const literal = wicket.run(["printf", "%s", "$(touch started); * \"'"]);
+        const program = wicket.run(["./fixture"]);
+        const terminated = wicket.run(["/bin/sh", "-c", "kill -TERM $$"]);
+        return {body: JSON.stringify([cat.stdout === input, cat.status, cat.signal,
+          literal.stdout, program.stdout, program.stderr, program.status, program.signal,
+          terminated.status, terminated.signal])};
+      }
+      """#, in: root)
+    let program = folder.appending(path: "fixture")
+    try Data(
+      #"""
+      #!/bin/sh
+      if [ -d "$WICKET_DATA_DIR" ] && [ -f main.js ]; then printf 'in extension'; fi
+      printf 'error' >&2
+      exit 7
+      """#.utf8
+    ).write(to: program)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: program.path)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted"])
+    #expect(status == 0)
+    #expect(
+      view["body"].string == #"[true,0,null,"$(touch started); * \"'","in extension","error",7,null,null,15]"#
+    )
+    #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "started").path))
+  }
+
+  @Test func javaScriptRunThrowsOnTimeoutAndCombinedOutputOverflow() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    _ = try installScript(
+      #"""
+      function main() {
+        const failures = [];
+        for (const call of [
+          () => wicket.run(["/bin/sleep", "30"], {input: "x".repeat(100000), timeoutMs: 50}),
+          () => wicket.run(["/bin/sh", "-c", "printf 12345; printf 67890 >&2"], {maxBytes: 9}),
+          () => wicket.run(["/usr/bin/yes"]),
+          () => wicket.run(["/bin/echo"], {maxBytes: 1048577}),
+          () => wicket.run(["/bin/echo"], {timeoutMs: 5001}),
+        ]) {
+          try { call(); } catch (error) { if (error instanceof Error) failures.push(error.message); }
+        }
+        return {body: failures.join("\n")};
+      }
+      """#, in: root)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted"])
+    #expect(status == 0)
+    #expect(
+      view["body"].string?.components(separatedBy: "\n") == [
+        "wicket.run: timed out", "wicket.run: combined output exceeds 9 bytes",
+        "wicket.run: combined output exceeds 262144 bytes", "wicket.run: invalid maxBytes",
+        "wicket.run: invalid timeoutMs",
+      ])
+  }
+
+  @Test(arguments: ["fetch", "run"])
+  func javaScriptHostCallsUseTheRemainingRequestBudget(operation: String) async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let (server, base) = try await serveJavaScriptHTTP(in: root)
+    defer { server.terminate() }
+    let call =
+      operation == "fetch"
+      ? "wicket.fetch(input + '/timeout', {timeoutMs: 5000})"
+      : "wicket.run(['/bin/sleep', '30'], {timeoutMs: 5000})"
+    _ = try installScript(
+      """
+      function main({input}) {
+        wicket.run(["/bin/sleep", "4"], {timeoutMs: 5000});
+        wicket.run(["/bin/sleep", "3"], {timeoutMs: 5000});
+        try { \(call); } catch (error) { return {body: error.message}; }
+      }
+      """, in: root)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted", "--input", base])
+    #expect(status == 0 && view["body"].string == "wicket.\(operation): timed out", "\(view)")
+  }
+
+  @Test func javaScriptRunLeavesDescendantCleanupToTheRequest() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let folder = try installScript(
+      #"""
+      function main() {
+        try {
+          wicket.run(["/bin/sh", "-c", "/bin/sleep 30 & echo $! > descendant; wait"], {timeoutMs: 500});
+        } catch (error) {
+          return {body: error.message};
+        }
+      }
+      """#, in: root)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted"])
+    #expect(status == 0 && view["body"].string == "wicket.run: timed out")
+    let pid = try #require(
+      Int32(
+        String(contentsOf: folder.appending(path: "descendant"), encoding: .utf8)
+          .trimmingCharacters(in: .whitespacesAndNewlines)))
+    #expect(!isRunning(pid))
+  }
 }
