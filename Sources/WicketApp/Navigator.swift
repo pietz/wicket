@@ -815,7 +815,10 @@ final class Navigator {
   /// that omits its target names; any provider that is not a command means the root. An empty target
   /// is always the root. `submitted` marks the user activating a run action, which the first request says.
   /// `holding`: the screen being left stays until the new one has its content (`arrive`).
-  func go(_ address: Address, from origin: String? = nil, submitted: Bool = false, holding: Bool = true) {
+  func go(
+    _ address: Address, from origin: String? = nil, submitted: Bool = false, holding: Bool = true,
+    replacingFields: Bool = false
+  ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
     guard let destination = directory.destination(target) else {
@@ -829,7 +832,7 @@ final class Navigator {
     case .command(let behavior):
       let reopened = command?.id == behavior.id
       var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
-      state.enter(address, submitted: submitted)
+      state.enter(address, submitted: submitted, replacingFields: replacingFields)
       guard reopened, !conversing else { return arrive(state, input: state.input, holding: holding) }
       // The same screen: its request reruns in place.
       stopArriving()
@@ -852,12 +855,13 @@ final class Navigator {
   /// no request replaced that one since (`generation`), such as one typing sent.
   func open(
     _ address: Address, from origin: String? = nil, submitted: Bool = false,
-    pressed hotkey: HotkeyTarget? = nil
+    pressed hotkey: HotkeyTarget? = nil, replacingFields: Bool = false
   ) {
     guard extensions.scanned else {
       Task { [weak self] in
         await self?.extensions.firstScan()
-        self?.open(address, from: origin, submitted: submitted, pressed: hotkey)
+        self?.open(
+          address, from: origin, submitted: submitted, pressed: hotkey, replacingFields: replacingFields)
       }
       return
     }
@@ -865,7 +869,8 @@ final class Navigator {
     if shown, let hotkey, let pressed, pressed == (hotkey, generation), target?.busy == true { return }
     actionProblem = nil
     func arrive() {
-      go(address, from: origin, submitted: submitted, holding: shown)
+      go(
+        address, from: origin, submitted: submitted, holding: shown, replacingFields: replacingFields)
       pressed = hotkey.map { ($0, generation) }
     }
     if let surface, !shown { surface.show(arriving: arrive) } else { arrive() }
@@ -1126,15 +1131,15 @@ final class Navigator {
   /// command, as if Return had run it, without running again; while the panel is up, or over a
   /// conversation kept for when it shows, it is one line instead, so the screen the user is on stays. An
   /// address without an enabled program to run is followed as usual, which says why.
-  func runHidden(_ address: Address, from origin: String?) {
+  func runHidden(_ address: Address, from origin: String?, replacingFields: Bool = false) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     guard let id = address.extensionName == nil ? own : address.targetID,
       let program = extensions.commands[id], program.manifest.command != nil,
       let behavior = directory.behavior(of: id),
       directory.isAvailable(id, in: configuration)
-    else { return open(address, from: origin, submitted: true) }
+    else { return open(address, from: origin, submitted: true, replacingFields: replacingFields) }
     var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandScreen(behavior)
-    state.enter(address, submitted: true)
+    state.enter(address, submitted: true, replacingFields: replacingFields)
     let request = state.request().provider
     // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
     // opening for it, since the user is waiting for an effect that will not come.
@@ -1190,7 +1195,11 @@ final class Navigator {
       await extensions.permissions.request(permission)
       guard let self else { return }
       hiddenRuns[id] = nil
-      if address.hidden { runHidden(address, from: nil) } else { open(address, submitted: !address.link) }
+      if address.hidden {
+        runHidden(address, from: nil, replacingFields: true)
+      } else {
+        open(address, submitted: !address.link, replacingFields: true)
+      }
     }
   }
   /// Hidden runs and permission requests on their way, which `settled` waits for too.

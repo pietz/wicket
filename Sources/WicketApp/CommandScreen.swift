@@ -110,16 +110,18 @@ enum CommandOutcome {
     self.behavior = behavior
   }
 
-  /// Applies an address to this visit.
-  mutating func enter(_ address: Address, submitted: Bool) {
+  /// Applies an address to this visit. `replacingFields` restores the address's exact field set (used when
+  /// replaying a permission-gated request so edits made while the gate was visible do not leak in).
+  mutating func enter(_ address: Address, submitted: Bool, replacingFields: Bool = false) {
     next = submitted && !address.link ? .submission : .address
     action = next == .submission ? address.action : nil
     let field = descriptor?.inputField
-    if address.link { screen.fill([:]) }
+    if address.link || replacingFields { screen.fill([:]) }
     for (name, value) in address.fields ?? [:] where name != field?.name {
       screen.fill(name, with: value)
     }
-    providerInput = field.flatMap { address.fields?[$0.name] } ?? address.input ?? providerInput
+    providerInput =
+      field.flatMap { address.fields?[$0.name] } ?? address.input ?? (replacingFields ? "" : providerInput)
     if let field { screen.fill(field.name, with: "") }
   }
 

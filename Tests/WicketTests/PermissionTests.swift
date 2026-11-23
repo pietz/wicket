@@ -249,3 +249,36 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   #expect(permissions.asked.isEmpty && requests(root).isEmpty)
   await model.finish()
 }
+
+/// Replaying a permission-gated request restores the saved field set instead of merging fields filled
+/// while the gate was visible.
+@MainActor @Test func replayingAGatedRequestRestoresTheOriginalFields() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(
+    root, ["calendar"],
+    fields: [
+      "submit": true,
+      "fields": [
+        ["name": "query", "type": "text", "description": "Search query"],
+        ["name": "days", "type": "number", "description": "Number of days"],
+      ],
+    ])
+  model.navigator.go(Address(extensionName: "gated", fields: ["query": "today"]), submitted: true)
+  await model.navigator.settled()
+  #expect(requests(root).isEmpty && model.navigator.selected?.row.id == "permission:calendar")
+
+  // Fill the previously empty optional field while the gate is up, then explicitly select the gate.
+  model.navigator.setField("days", to: "7")
+  model.navigator.move(1)
+  #expect(model.navigator.selected?.row.id == "permission:calendar")
+  #expect(model.activateReturn())
+  await model.navigator.settled()
+
+  #expect(fake.asked == [.calendar])
+  let request = try #require(requests(root).first)
+  #expect(requests(root).count == 1 && request.submitted)
+  #expect(request.fields == ["query": "today"])
+  #expect(model.navigator.fieldValues["days"] == nil)
+  await model.finish()
+}
