@@ -438,6 +438,66 @@ import WebKit
   await model.finish()
 }
 
+@MainActor @Test func hiddenItemHotkeysValidateOverridesAndKeepOtherCanvasValues() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in *'"submitted":true'*) exit 0 ;; esac
+      cat <<'PAGE'
+      <field name="environment" type="choice" options="staging=Staging&production=Production"/>
+      <field name="confirm" type="bool"/>
+      PAGE
+      """,
+    fields: [
+      "submit": true,
+      "items": [
+        [
+          "id": "invalid", "title": "Deploy to unknown environment",
+          "actions": [
+            [
+              "type": "run", "action": "deploy", "hidden": true, "input": "",
+              "fields": ["environment": "bad"],
+            ]
+          ],
+        ],
+        [
+          "id": "deploy", "title": "Deploy to production",
+          "actions": [
+            [
+              "type": "run", "action": "deploy", "hidden": true, "input": "",
+              "fields": ["environment": "production"],
+            ]
+          ],
+        ],
+      ],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  await model.extensions.reload()
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  navigator.changeField(.init(name: "confirm", value: "true", phase: .commit), turn: navigator.pageTurn)
+  try #require(navigator.fieldValues["confirm"] == "true")
+
+  model.press(HotkeyTarget(target: "extension:test", item: "invalid"))
+  await navigator.settled()
+  #expect(surface.isShown && surface.presentation.footerProblem == "Invalid value for environment")
+  #expect(try requests(in: folder).count == 1)
+
+  model.press(HotkeyTarget(target: "extension:test", item: "deploy"))
+  await navigator.settled()
+  let sent = try requests(in: folder)
+  #expect(!surface.isShown && sent.map(\.action) == [nil, "deploy"])
+  #expect(sent.last?.fields == ["environment": "production", "confirm": "true"])
+  await model.finish()
+}
+
 @MainActor @Test func canvasOverridesIgnoreAFormThatAFailureReplaced() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

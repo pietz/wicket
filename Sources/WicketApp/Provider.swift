@@ -155,10 +155,12 @@ struct Address: Codable, Sendable, Equatable {
   /// The run's effect is its own feedback, such as a moved window: the panel hides at once and shows
   /// only for a failure or a view with something in it (`Navigator.runHidden`). A link never is.
   var hidden = false
+  /// Start a hidden run with only the supplied values and show the command when its text field is blank.
+  var promptIfEmpty = false
 
   private enum CodingKeys: String, CodingKey {
     case extensionName = "extension"
-    case input, fields, action, hidden
+    case input, fields, action, hidden, promptIfEmpty
   }
   static let schemes = ["wicket", "wicket-dev"]
   static let reserved = ["agent", "settings", "clipboard", "history"]
@@ -167,7 +169,7 @@ struct Address: Codable, Sendable, Equatable {
     extensionName: String? = nil, input: String? = nil, fields: [String: String]? = nil,
     action: String? = nil,
     link: Bool = false,
-    hidden: Bool = false
+    hidden: Bool = false, promptIfEmpty: Bool = false
   ) {
     self.extensionName = extensionName
     self.input = input
@@ -175,6 +177,7 @@ struct Address: Codable, Sendable, Equatable {
     self.action = action
     self.link = link
     self.hidden = hidden
+    self.promptIfEmpty = promptIfEmpty
   }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -183,7 +186,8 @@ struct Address: Codable, Sendable, Equatable {
       input: try c.decodeIfPresent(String.self, forKey: .input),
       fields: try c.decodeIfPresent([String: String].self, forKey: .fields),
       action: try c.decodeIfPresent(String.self, forKey: .action),
-      hidden: try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false)
+      hidden: try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false,
+      promptIfEmpty: try c.decodeIfPresent(Bool.self, forKey: .promptIfEmpty) ?? false)
   }
   func encode(to encoder: any Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
@@ -192,6 +196,7 @@ struct Address: Codable, Sendable, Equatable {
     try c.encodeIfPresent(fields, forKey: .fields)
     try c.encodeIfPresent(action, forKey: .action)
     if hidden { try c.encode(true, forKey: .hidden) }
+    if promptIfEmpty { try c.encode(true, forKey: .promptIfEmpty) }
   }
   /// The address of an extension by its ID, `extension:weather`.
   init(

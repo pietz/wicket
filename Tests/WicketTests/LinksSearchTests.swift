@@ -23,7 +23,8 @@ func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query
   let action = try #require(row["actions"].array.first)
   #expect(status == 0 && output["input"].string == input)
   #expect(first["provider"].string == links && row["id"].string == "item:" + id)
-  #expect(row["subtitle"].string == query)
+  #expect(row["subtitle"].string == "Links & Search · " + query)
+  #expect(action["promptIfEmpty"] == .bool(true))
   #expect(action["action"].string == "open-link")
   #expect(action["fields"]["query"].string == query && action["fields"]["link"].string == id)
   #expect(!rows.contains { $0["row"]["id"].string == "fallback" })
@@ -210,9 +211,9 @@ private func fields(_ values: [String: String]) throws -> String {
     {"items":[
       {"id":"mdn","title":"MDN Web Docs","keywords":["mdn"],"actions":[{"type":"open","url":"https://developer.mozilla.org/"}]},
       {"id":"docs","title":"Search Docs","keywords":["docs"],"subtitle":"Test Browser","actions":[
-        {"type":"run","action":"open-link","input":"","fields":{"template":"https://example.com/search?q={query}","bundleID":"test.browser"},"hidden":true}]},
+        {"type":"run","action":"open-link","promptIfEmpty":true,"fields":{"template":"https://example.com/search?q={query}","bundleID":"test.browser"},"hidden":true}]},
       {"id":"missing","title":"Search Archive","keywords":["archive"],"actions":[
-        {"type":"run","action":"open-link","input":"","fields":{"template":"https://example.com/search?q={query}","bundleID":"missing.browser"},"hidden":true}]},
+        {"type":"run","action":"open-link","promptIfEmpty":true,"fields":{"template":"https://example.com/search?q={query}","bundleID":"missing.browser"},"hidden":true}]},
       {"id":"fixed","title":"Saved Search","keywords":["fixed"],"actions":[
         {"type":"run","action":"open-link","input":"","fields":{"template":"https://example.com/search?q={query}","query":"fixed value"},"hidden":true}]}
     ]}
@@ -267,6 +268,7 @@ private func fields(_ values: [String: String]) throws -> String {
 
   await type("docs swift ui")
   #expect(navigator.results.first?.row.id == "user-item:docs")
+  #expect(navigator.results.first?.row.subtitle == "Test Browser · swift ui")
   navigator.run()
   await navigator.settled()
   #expect(try takeOpenedURL(in: folder) == "https://example.com/search?q=swift%20ui\n/Probe.app")
@@ -293,5 +295,33 @@ private func fields(_ values: [String: String]) throws -> String {
   #expect(surface.effects.last == .run(action, from: bookmark))
   model.press(HotkeyTarget(target: links, item: "mdn", isUserItem: true))
   #expect(surface.effects.last == .run(action, from: nil))
+  await model.finish()
+}
+
+@MainActor @Test func youtubeHotkeyShowsQueryOverAKeptConversation() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let folder = try await installLinkProbe("links-search", in: root)
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  surface.onEffect = { if $0 == .hide { navigator.dismiss() } }
+  await model.extensions.reload()
+  try await finishTurn(model, "Question", "Answer")
+  navigator.editInput("Unsent follow-up")
+  surface.perform(.hide)
+  try #require(model.agent.active && !surface.isShown)
+
+  model.press(HotkeyTarget(target: links, item: "youtube"))
+  #expect(surface.shows == 1 && navigator.commandPlaceholder == "Search query" && !model.agent.active)
+  await navigator.settled()
+  #expect(navigator.input.isEmpty && navigator.results.first?.row.title == "Enter a search query.")
+  #expect(!didOpenURL(in: folder))
+
+  navigator.editInput("swift")
+  navigator.run()
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: folder) == "https://www.youtube.com/results?search_query=swift")
   await model.finish()
 }

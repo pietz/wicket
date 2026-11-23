@@ -10,13 +10,13 @@
   "fields": [{"name":"query","type":"text","description":"Query","placeholder":"Search query"}],
   "items": [
     {"id":"youtube","title":"Search YouTube","keywords":["yt"],"actions":[
-      {"type":"run","title":"Search YouTube","action":"open-link","input":"","fields":{"link":"youtube"},"hidden":true}
+      {"type":"run","title":"Search YouTube","action":"open-link","promptIfEmpty":true,"fields":{"link":"youtube"},"hidden":true}
     ]},
     {"id":"wikipedia","title":"Search Wikipedia","keywords":["wiki"],"actions":[
-      {"type":"run","title":"Search Wikipedia","action":"open-link","input":"","fields":{"link":"wikipedia"},"hidden":true}
+      {"type":"run","title":"Search Wikipedia","action":"open-link","promptIfEmpty":true,"fields":{"link":"wikipedia"},"hidden":true}
     ]},
     {"id":"github","title":"Search GitHub","keywords":["gh"],"actions":[
-      {"type":"run","title":"Search GitHub","action":"open-link","input":"","fields":{"link":"github"},"hidden":true}
+      {"type":"run","title":"Search GitHub","action":"open-link","promptIfEmpty":true,"fields":{"link":"github"},"hidden":true}
     ]}
   ]
 }

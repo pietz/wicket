@@ -306,7 +306,7 @@ func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(userItem: Bool) async th
   await nav.settled()
   #expect(surface.presentation.selected?.row.id == (userItem ? "user-item:youtube" : "item:youtube"))
   #expect(surface.presentation.selected?.row.title == "Search YouTube")
-  #expect(surface.presentation.selected?.row.subtitle == "cats")
+  #expect(surface.presentation.selected?.row.subtitle == "links · cats")
   #expect(nav.fieldValues == ["query": "cats"] && !nav.moveFocus(1))
   #expect(try requests(in: folder).isEmpty)
 

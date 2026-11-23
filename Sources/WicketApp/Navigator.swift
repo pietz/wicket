@@ -1258,19 +1258,26 @@ final class Navigator {
   /// command, as if Return had run it, without running again; while the panel is up, or over a
   /// conversation kept for when it shows, it is one line instead, so the screen the user is on stays. An
   /// address without an enabled program to run is followed as usual, which says why.
-  func runHidden(_ address: Address, from origin: String?, replacingFields: Bool = false) {
+  func runHidden(
+    _ address: Address, from origin: String?, pressed hotkey: HotkeyTarget? = nil,
+    replacingFields: Bool = false
+  ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     guard let id = address.extensionName == nil ? own : address.targetID,
       let program = extensions.commands[id], program.manifest.command != nil,
       let behavior = directory.behavior(of: id),
       directory.isAvailable(id, in: configuration)
     else { return open(address, from: origin, submitted: true, replacingFields: replacingFields) }
+    let prompts = address.promptIfEmpty && behavior.descriptor?.inputField != nil
     var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandScreen(behavior)
-    if let invalid = state.enter(address, submitted: true, replacingFields: replacingFields) {
+    if let invalid = state.enter(address, submitted: true, replacingFields: prompts || replacingFields) {
       actionProblem = "Invalid value for \(invalid)"
       return draw()
     }
     let request = state.request().provider
+    if prompts, request.input.allSatisfy(\.isWhitespace) {
+      return open(address, from: origin, submitted: true, pressed: hotkey, replacingFields: true)
+    }
     // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
     // opening for it, since the user is waiting for an effect that will not come.
     let rerun = Address(

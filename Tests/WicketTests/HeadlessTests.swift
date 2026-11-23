@@ -308,7 +308,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let first = try #require(output["items"].array.first)
   let row = first["row"]
   #expect(status == 0 && first["provider"].string == selected.provider)
-  #expect(row["id"].string == selected.row.id && row["subtitle"].string == "invoice")
+  #expect(row["id"].string == selected.row.id && row["subtitle"].string == "shortcuts · invoice")
   let action = try #require(row["actions"].array.first)
   #expect(action["extension"].string == "history" && action["fields"]["query"].string == "invoice")
 

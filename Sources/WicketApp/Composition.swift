@@ -237,7 +237,11 @@ enum Ranking {
           })
       {
         var row = result.row
-        row.subtitle = argument.text
+        if kind == .item, let subtitle = row.subtitle, !subtitle.isEmpty {
+          row.subtitle = subtitle + " · " + argument.text
+        } else {
+          row.subtitle = argument.text
+        }
         address.fields = (address.fields ?? [:]).merging([argument.field: argument.text]) { fixed, _ in fixed
         }
         row.actions[0].kind = .run(address)
