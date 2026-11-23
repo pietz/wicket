@@ -59,6 +59,67 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   }
 }
 
+@MainActor @Test(arguments: [false, true])
+func anEmptyCompactRootShowsThePermissionRequestUntilGranted(manuallyRevealed: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(root, ["calendar"])
+  let controller = PaletteController(model: model, drawsGlass: false)
+  let foldedHeight = PaletteLayout.panelHeight(card: 0)
+  controller.show(orderFront: false, listen: false)
+  await model.navigator.settled()
+  #expect(controller.presentation.showsCard)
+  #expect(!controller.presentation.rows.contains { $0.row.id == "permission:calendar" })
+  controller.hide()
+
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  controller.show(orderFront: false, listen: false)
+  await model.navigator.settled()
+  let shown = controller.presentation
+  let gate = try #require(shown.selected)
+  #expect(gate.row.title == "Allow Calendar for Wicket")
+  #expect(shown.showsCard && shown.pillStatus == nil && controller.panel.frame.height > foldedHeight)
+  #expect(model.navigator.command == nil && requests(root).isEmpty && fake.asked.isEmpty)
+
+  if manuallyRevealed {
+    model.navigator.move(1)
+    model.navigator.select(gate.id)
+  }
+  #expect(model.activateReturn())
+  await model.navigator.settled()
+  #expect(fake.asked == [.calendar] && requests(root).isEmpty)
+  #expect(model.navigator.input.isEmpty && model.navigator.command == nil)
+  #expect(!controller.presentation.rows.contains { $0.id == gate.id })
+  #expect(controller.presentation.showsCard == manuallyRevealed)
+  #expect((controller.panel.frame.height > foldedHeight) == manuallyRevealed)
+  await controller.finish()
+}
+
+@MainActor @Test func anExtensionEnabledWhileTheRootIsFoldedShowsItsPermissionRequest() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, _) = try await gated(root, ["accessibility"])
+  let controller = PaletteController(model: model, drawsGlass: false)
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  try #require(model.store.change { try $0.setProvider("extension:gated", enabled: false) })
+  controller.show(orderFront: false, listen: false)
+  await model.navigator.settled()
+  #expect(!controller.presentation.showsCard)
+
+  try #require(model.store.change { try $0.setProvider("extension:gated", enabled: true) })
+  await model.navigator.settled()
+  let gate = try #require(controller.presentation.selected)
+  #expect(controller.presentation.showsCard && gate.row.title == "Allow Accessibility for Wicket")
+  #expect(gate.row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
+
+  controller.hide()
+  fake.granted.insert(.accessibility)
+  controller.show(orderFront: false, listen: false)
+  await model.navigator.settled()
+  #expect(!controller.presentation.showsCard && fake.asked.isEmpty)
+  await controller.finish()
+}
+
 @Test func aNewerContractNeedsANewerWicketInsteadOfARepair() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -97,12 +158,15 @@ private func requests(_ root: URL) -> [ProviderRequest] {
 @MainActor @Test func aMissingPermissionShowsWicketsRowAndAllowingRunsTheRequest() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let (model, fake, _) = try await gated(root, ["calendar"])
+  let (model, fake, surface) = try await gated(root, ["calendar"])
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  await model.navigator.settled()
   model.navigator.go(Address(extensionName: "gated", input: "today"), submitted: true)
   await model.navigator.settled()
   #expect(requests(root).isEmpty && fake.asked.isEmpty)
   let gate = try #require(model.navigator.results.first)
   #expect(model.navigator.results.count == 1 && gate.row.title == "Allow Calendar for Wicket")
+  #expect(surface.presentation.showsCard && surface.presentation.selected?.id == gate.id)
   #expect(gate.row.subtitle == "Gated needs it")
 
   model.navigator.activate(gate.row.actions[0], from: gate)
@@ -151,6 +215,8 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, _, surface) = try await gated(root, ["accessibility"])
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  await model.navigator.settled()
   surface.shown = false
   model.press(HotkeyTarget(target: "extension:gated", item: "left"))
   await model.navigator.settled()
@@ -158,6 +224,7 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   #expect(model.navigator.command?.id == "extension:gated")
   let gate = try #require(model.navigator.results.first)
   #expect(gate.row.title == "Allow Accessibility for Wicket")
+  #expect(surface.presentation.showsCard && surface.presentation.selected?.id == gate.id)
   #expect(gate.row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
   await model.finish()
 }
@@ -172,7 +239,7 @@ private func requests(_ root: URL) -> [ProviderRequest] {
   await model.navigator.settled()
   let gate = try #require(model.navigator.results.first)
   #expect(model.navigator.selected?.id == gate.id)
-  guard case .grant(.calendar, let address) = gate.row.actions[0].kind else {
+  guard case .grant(.calendar, let address?) = gate.row.actions[0].kind else {
     Issue.record("The gate does not ask for Calendar")
     return
   }

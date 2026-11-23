@@ -205,6 +205,7 @@ final class Navigator {
   }
   var rootResultsHidden: Bool {
     rootResultsCanBeHidden && input.isEmpty && !revealedRootList
+      && base.rows.first?.provider != Permissions.rootProvider
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -348,7 +349,7 @@ final class Navigator {
   private var gateIsCurrent: Bool {
     guard let command, !conversing, Permissions.isGate(results) else { return false }
     if agentOwnsCommandInput, !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
-    guard case .grant(_, let rerun)? = results.first?.row.actions.first?.kind else { return true }
+    guard case .grant(_, let rerun?)? = results.first?.row.actions.first?.kind else { return true }
     let request = command.request()
     return rerun.input == request.input && (rerun.fields ?? [:]) == request.fields
   }
@@ -361,9 +362,10 @@ final class Navigator {
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     defer {
-      if delta > 0, rootResultsHidden {
+      if delta > 0, rootResultsCanBeHidden, input.isEmpty, !revealedRootList {
+        let wasHidden = rootResultsHidden
         revealedRootList = true
-        draw()
+        if wasHidden { draw() }
       }
     }
     let rows = results
@@ -900,7 +902,18 @@ final class Navigator {
   /// The root's list for what is typed.
   private func show(_ output: RootCommand.Output) {
     showArrival()
-    listed = output.results
+    var requests: [Result] = []
+    if configuration.resultsOnlyWhenTyping, output.input.isEmpty {
+      let enabled = configuration.sources(extensions: extensions.ids).filter(\.enabled)
+      let commands = enabled.compactMap { extensions.commands[$0.id] }.sorted { $0.id < $1.id }
+      requests = extensions.permissions.rootRequests(for: commands)
+      if requests.contains(where: { request in !base.rows.contains { $0.id == request.id } }) {
+        // A Return made before the prompt appeared must never answer it.
+        pendingReturn = nil
+        resetSelection()
+      }
+    }
+    listed = requests.isEmpty ? output.results : requests + output.results
     composedInput = output.input
     rootListProblem = output.firstProblem
     publish()
@@ -1350,14 +1363,17 @@ final class Navigator {
       }
     }
   }
-  /// Asks macOS for a permission from Wicket itself (its prompt may hide the panel), then sends the
-  /// request the gate held back again, as it was: a hidden run hidden, any other on its command.
-  private func grant(_ permission: Permission, then address: Address) {
+  /// Asks macOS from Wicket itself, then refreshes the root prompt or replays the request the gate held.
+  private func grant(_ permission: Permission, then address: Address?) {
     let id = UUID()
     hiddenRuns[id] = Task { [weak self, extensions] in
       await extensions.permissions.request(permission)
       guard let self else { return }
       hiddenRuns[id] = nil
+      guard let address else {
+        if command == nil, !conversing, arriving == nil { refresh() }
+        return
+      }
       if address.hidden {
         runHidden(address, from: nil, replacingFields: true)
       } else {

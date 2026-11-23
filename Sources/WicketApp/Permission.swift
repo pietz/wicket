@@ -54,34 +54,49 @@ struct Permissions: Sendable {
     rows.first?.row.id.hasPrefix(rowPrefix) == true
   }
   private static let rowPrefix = "permission:"
+  static let rootProvider = "permissions"
+
+  /// One request per system grant, even if several enabled extensions need it.
+  @MainActor func rootRequests(for commands: [ExtensionCommand]) -> [Result] {
+    Permission.allCases.compactMap { permission in
+      guard let command = commands.first(where: { $0.manifest.permissions.contains(permission) }),
+        let row = requestRow(permission, neededBy: command.manifest.name, rerun: nil)
+      else { return nil }
+      return Result(provider: Self.rootProvider, row: row)
+    }
+  }
 
   /// Wicket's own rows in place of the program's view while a declared permission is missing: one per
   /// permission, which asks for it where macOS lets Wicket ask, else opens its pane. `rerun` is the
   /// request the program did not get, which a Calendar grant follows. Nil when nothing is missing.
   @MainActor func gate(_ command: ExtensionCommand, rerun: Address) -> ProviderView? {
-    let missing = missing(command)
-    guard !missing.isEmpty else { return nil }
-    return ProviderView(
-      items: missing.map { permission in
-        let open = RowAction.open(permission.pane, title: "Open Privacy & Security")
-        let row = { (subtitle: String, action: RowAction) in
-          Row(
-            id: Self.rowPrefix + permission.rawValue, title: "Allow \(permission.title) for Wicket",
-            subtitle: subtitle, icon: permission == .accessibility ? "lock" : "calendar", actions: [action])
-        }
-        switch (permission, status(permission)) {
-        case (.accessibility, _):
-          // A grant made for an older copy of Wicket (an update, a rebuild) still shows its switch on but
-          // no longer applies.
-          return row(
-            "\(command.manifest.name) needs it. Already on? Remove Wicket there and add it again", open)
-        case (.calendar, .askable):
-          return row(
-            "\(command.manifest.name) needs it",
-            RowAction(.grant(.calendar, then: rerun), title: "Allow Calendar Access"))
-        case (.calendar, _):
-          return row("\(command.manifest.name) needs it. Turn on Wicket under Calendars", open)
-        }
-      })
+    let rows = command.manifest.permissions.compactMap {
+      requestRow($0, neededBy: command.manifest.name, rerun: rerun)
+    }
+    return rows.isEmpty ? nil : ProviderView(items: rows)
+  }
+
+  @MainActor private func requestRow(_ permission: Permission, neededBy name: String, rerun: Address?)
+    -> Row?
+  {
+    let open = RowAction.open(permission.pane, title: "Open Privacy & Security")
+    let subtitle: String
+    let action: RowAction
+    switch (permission, status(permission)) {
+    case (_, .granted): return nil
+    case (.accessibility, _):
+      // An older grant can still show its switch on after an update or rebuild.
+      subtitle = "\(name) needs it. Already on? Remove Wicket there and add it again"
+      action = open
+    case (.calendar, .askable):
+      subtitle = "\(name) needs it"
+      action = RowAction(.grant(.calendar, then: rerun), title: "Allow Calendar Access")
+    case (.calendar, .denied):
+      subtitle = "\(name) needs it. Turn on Wicket under Calendars"
+      action = open
+    }
+    return Row(
+      id: Self.rowPrefix + permission.rawValue, title: "Allow \(permission.title) for Wicket",
+      subtitle: subtitle, icon: permission == .accessibility ? "lock" : "calendar", actions: [action])
   }
 }

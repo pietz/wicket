@@ -45,7 +45,7 @@ Gate user-visible effects on `submitted:true`. For effects the user should revie
 
 ### Permissions
 
-`permissions` recognizes `accessibility` (controlling other apps/windows) and `calendar` (full EventKit access). Wicket holds no other protected macOS grants, so macOS refuses Contacts, Photos, Location, and Automation. macOS grants access to Wicket itself, shared by all enabled extensions and agent subprocesses. Declaring permissions lets Wicket check before launch: missing grants skip root matches and show a permission row on command entry or hotkey (Calendar prompts inline and replays the request; Accessibility opens System Settings).
+`permissions` recognizes `accessibility` (controlling other apps/windows) and `calendar` (full EventKit access). Wicket holds no other protected macOS grants, so macOS refuses Contacts, Photos, Location, and Automation. macOS grants access to Wicket itself, shared by all enabled extensions and agent subprocesses. Declaring permissions lets Wicket check before launch: missing grants skip root matches and show a permission row on command entry or hotkey (Calendar prompts inline and replays the request; Accessibility opens System Settings). With **Only show results when typing** enabled, the empty root also offers missing permissions for enabled extensions, and granting one there runs no command.
 
 ### Static items and `user.json`
 

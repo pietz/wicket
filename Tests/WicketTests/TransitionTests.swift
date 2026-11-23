@@ -1584,8 +1584,10 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.update { $0.resultsOnlyWhenTyping = true }
   let controller = PaletteController(model: model, panel: RoutingPanel())
   controller.show(orderFront: false, listen: false)
+  #expect(!controller.presentation.showsCard)
   let fake = FakeAgent()
   model.agent.connect = { _, _, _ in fake }
   model.navigator.send("Update the weather extension")
@@ -1598,6 +1600,7 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   #expect(model.agent.permissions.count == 1 && fake.decisions.isEmpty)
   controller.show(orderFront: false, listen: false)
   // The card is what shows: ⌘K waits, Return decides nothing, ⌘↩ allows.
+  #expect(controller.presentation.showsCard && controller.presentation.permissionPending)
   #expect(model.agent.active && model.agent.permissions.count == 1 && model.navigator.actionsTitle == nil)
   #expect(controller.panel.route(voiceKey(40, "k", .command)) && model.navigator.actionsTitle == nil)
   #expect(controller.panel.route(voiceKey(36, "\r")) && fake.decisions.isEmpty)
