@@ -699,16 +699,22 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
     script: """
       IFS= read -r request
       case "$request" in
-        *'"input":"12*77"'*|*'"input":"broken"'*)
+        *'"input":"12*77"'*|*'"input":"broken"'*|*'"input":"replacement"'*|*'"input":"reranked"'*)
           touch rerunning
           while [ ! -e release ]; do sleep 0.01; done ;;
       esac
+      id=result
       case "$request" in
+        *'"input":"reranked"'*)
+          printf '%s' '{"items":[{"id":"first","title":"reranked","actions":[{"type":"copy","text":"42"}]},'
+          printf '%s' '{"id":"result","title":"Updated","actions":[{"type":"copy","text":"924"}]}]}'
+          exit ;;
+        *'"input":"replacement"'*) id=replacement; result=42 ;;
         *'"input":"broken"'*) echo 'Calculation failed' >&2; exit 1 ;;
         *'"input":"12*77"'*) result=924 ;;
         *) result=84 ;;
       esac
-      printf '{"items":[{"id":"result","title":"%s","actions":[{"type":"copy","text":"%s"}]}]}\n' "$result" "$result"
+      printf '{"items":[{"id":"%s","title":"%s","actions":[{"type":"copy","text":"%s"}]}]}\n' "$id" "$result" "$result"
       """)
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
@@ -761,6 +767,50 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(!navigator.returnQueued && navigator.returnPlan() != .wait)
   #expect(surface.presentation.problem?.contains("Calculation failed") == true)
   #expect(surface.effects.isEmpty && !model.agent.active)
+  await model.finish()
+}
+
+@MainActor @Test(arguments: [false, true])
+func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await liveReturnCommand(in: root)
+  let navigator = model.navigator
+  let clicked = try #require(surface.presentation.selected)
+  navigator.editInput("replacement")
+  if doubleClick {
+    navigator.runRow(clicked)
+    #expect(surface.effects == [.run(.copy("84"), from: clicked)])
+  } else {
+    navigator.select(clicked.id)
+    navigator.run()
+    #expect(navigator.returnQueued && surface.effects.isEmpty)
+  }
+
+  try release(root)
+  await navigator.settled()
+  #expect(surface.presentation.selected?.row.id == "replacement")
+  #expect(!navigator.returnQueued)
+  navigator.runRow(clicked)
+  #expect(surface.effects == (doubleClick ? [.run(.copy("84"), from: clicked)] : []))
+  await model.finish()
+}
+
+@MainActor @Test func liveReturnFollowsThePickedItemWhenItMoves() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, surface) = try await liveReturnCommand(in: root)
+  let navigator = model.navigator
+  let picked = try #require(surface.presentation.selected)
+  navigator.editInput("reranked")
+  navigator.select(picked.id)
+  navigator.run()
+
+  try release(root)
+  await navigator.settled()
+  #expect(surface.presentation.rows.first?.row.id == "first")
+  #expect(surface.presentation.selected?.id == picked.id)
+  #expect(surface.effects == [.run(.copy("924"), from: surface.presentation.selected)])
   await model.finish()
 }
 

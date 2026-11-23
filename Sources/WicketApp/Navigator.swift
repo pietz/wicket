@@ -70,7 +70,7 @@ final class Navigator {
       let changed = newValue != previous
       if !conversing, command != nil { command?.input = newValue } else { screen.input = newValue }
       if changed {
-        returnQueued = false
+        pendingReturn = nil
         if command == nil, !conversing { revealedRootList = false }
         resetSelection()
         // Typing in a conversation goes back to the follow-up: Return no longer runs an item.
@@ -301,7 +301,7 @@ final class Navigator {
   }
   var selection: String? { current.id }
   func select(_ id: String?) {
-    returnQueued = false
+    pendingReturn = nil
     let repicked = id == current.id && !current.picked
     current.pick(id)
     // Same row, so the setter draws nothing, but Return may now act on it: the footer shows its hint.
@@ -372,14 +372,14 @@ final class Navigator {
     return false
   }
   /// A click on a page's target selects it and runs it. It counts only on the page it was made on, so a
-  /// click that raced a new answer or view is ignored. True when the caller should run Return.
-  func clickTarget(_ id: String, revision: String) -> Bool {
+  /// click that raced a new answer or view is ignored.
+  @discardableResult func clickTarget(_ id: String, revision: String) -> Bool {
     guard let page, overlay == nil, revision == (page.targetRevision ?? pageTurn),
       let target = results.first(where: { $0.row.id == id }), !id.hasPrefix("#field:")
     else {
       return false
     }
-    select(target.id)
+    runRow(target)
     return true
   }
 
@@ -418,12 +418,15 @@ final class Navigator {
   var returnAction: RowAction? {
     if arriving?.command?.runningAction == true { return nil }
     if returnAsksAgent { return RowAction(.ask) }
-    guard var action = selected?.row.actions.first else { return conversing ? .send(input) : nil }
-    if command == nil, !drafted.isEmpty, case .run(var address) = action.kind {
-      address.fields = drafted
-      action.kind = .run(address)
-    }
-    return action
+    guard let action = selected?.row.actions.first else { return conversing ? .send(input) : nil }
+    return applyingDraft(to: action)
+  }
+  private func applyingDraft(to action: RowAction) -> RowAction {
+    guard command == nil, !drafted.isEmpty, case .run(var address) = action.kind else { return action }
+    address.fields = drafted
+    var draftedAction = action
+    draftedAction.kind = .run(address)
+    return draftedAction
   }
   /// The fields the user can fill in: inside a command its own declared ones, at the root those of
   /// the selected extension command row. Empty when there are none.
@@ -456,7 +459,7 @@ final class Navigator {
       return pickFieldRow()
     }
     command?.screen.fill(name, with: value)
-    returnQueued = false
+    pendingReturn = nil
     resetSelection()
     refresh()
   }
@@ -465,7 +468,7 @@ final class Navigator {
     guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn,
       command?.problem == nil, command?.edit(change) == true
     else { return }
-    returnQueued = false
+    pendingReturn = nil
     actionProblem = nil
     if command?.runningSubmission == true || !advanceCanvasWork() { draw() }
   }
@@ -525,7 +528,7 @@ final class Navigator {
   /// The input the root's rows were composed for. Until the rows of an edit are there (normally after
   /// `RootCommand.patternHold`), the previous ones still show.
   private var composedInput = ""
-  /// What Return does with the selected row, the one place that decides it. At the root:
+  /// What keyboard Return does with the selected row. At the root:
   ///
   /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
   /// 2. A row the user picked runs at once; focusing or filling a command row's field picks it. The
@@ -539,8 +542,9 @@ final class Navigator {
   ///    runs it; ⌘↩, or picking Ask agent or the error row, still acts.
   /// 6. Else the selected row runs.
   ///
-  /// A live command also waits for a pending rerun. If the rerun fails or shows a permission gate,
-  /// the queued Return is dropped. Submit commands, conversations, switches and overlays run at once.
+  /// A live command also waits for a pending rerun. If the rerun fails, shows a permission gate, or
+  /// removes the picked item, the queued Return is dropped. Clicks on items and Return that sends an
+  /// agent draft run at once, as do submit commands, conversations, switches and overlays.
   /// A waiting Return is decided again when results arrive, as a `replay`: rules 3 and 5 tell it from a
   /// press, since nobody saw the row it would run. An edit, a pick, a switch or hiding calls it off.
   /// ⌘↩ never waits: it asks the agent with what is typed.
@@ -549,6 +553,7 @@ final class Navigator {
     guard !conversing, arriving == nil, overlay == nil else { return .run }
     if let command {
       guard !inDetail, !submits else { return .run }
+      if !replay, returnAsksAgent { return .run }
       if command.awaitsRerun { return .wait }
       if replay, command.problem != nil || Permissions.isGate(results) { return .refuse }
       return .run
@@ -563,17 +568,44 @@ final class Navigator {
   /// A pattern that matched what is typed is still running at the root, so the list has no Ask agent yet
   /// and an empty list is not "No results".
   var awaitsPattern: Bool { command == nil && !conversing && !search.runningPatterns.isEmpty }
-  /// A Return that waits (`returnPlan`).
-  private(set) var returnQueued = false
+  private enum PendingReturn {
+    case automatic
+    case picked(Result, positional: Bool)
+  }
+  private var pendingReturn: PendingReturn?
+  var returnQueued: Bool { pendingReturn != nil }
+
+  /// A click runs the row and action the user saw, even if a replacement view is on its way.
+  func runRow(_ result: Result, action chosen: RowAction? = nil) {
+    guard let row = results.first(where: { $0.id == result.id }),
+      let action = chosen ?? result.row.actions.first
+    else { return }
+    if chosen != nil {
+      guard actions(of: row).contains(action) else { return }
+    } else {
+      guard row.row.actions.first == action, arriving?.command?.runningAction != true else { return }
+    }
+    select(row.id)
+    run(chosen ?? applyingDraft(to: action))
+  }
   /// Return, a button or a menu item: the action chosen, else what Return does (`returnPlan`), from the
   /// row it belongs to. What is not the screens' goes to the panel.
   func run(_ chosen: RowAction? = nil) {
     // What runs takes the input from dictation first, so a later transcript cannot rewrite it.
     speech?.stop(.run)
     let plan = chosen == nil ? returnPlan() : .run
-    returnQueued = plan == .wait
-    guard plan == .run else { return }
-    guard let (action, result) = pick(chosen), !activate(action, from: result) else { return }
+    if plan == .wait {
+      if command != nil, current.picked, let row = selectedRow {
+        // Markdown targets have positional IDs that a new page can give to another row.
+        let positional = page != nil && row.row.id.hasPrefix("#") && !row.row.id.hasPrefix("##")
+        pendingReturn = .picked(row, positional: positional)
+      } else {
+        pendingReturn = .automatic
+      }
+      return
+    }
+    pendingReturn = nil
+    guard plan == .run, let (action, result) = pick(chosen), !activate(action, from: result) else { return }
     surface?.perform(.run(action, from: result))
   }
 
@@ -621,7 +653,7 @@ final class Navigator {
   /// Stops the screen's request and the root's search. When advancing work on the same command,
   /// its queued edits and Return stay pending.
   func cancelWork(preservingPending: Bool = false) {
-    if !preservingPending { returnQueued = false }
+    if !preservingPending { pendingReturn = nil }
     generation += 1
     for task in tasks { task.cancel() }
     tasks.removeAll()
@@ -842,12 +874,18 @@ final class Navigator {
     replayReturn()
   }
   private func replayReturn() {
-    guard returnQueued else { return }
+    guard let pendingReturn else { return }
     switch returnPlan(replay: true) {
     case .wait: break
-    case .refuse: returnQueued = false
+    case .refuse: self.pendingReturn = nil
     case .run:
-      returnQueued = false
+      self.pendingReturn = nil
+      if case .picked(let picked, let positional) = pendingReturn {
+        guard let row = results.first(where: { $0.id == picked.id }), !positional || row == picked else {
+          return
+        }
+        select(row.id)
+      }
       run()
     }
   }
@@ -880,7 +918,7 @@ final class Navigator {
       if arriving == nil, state.runningSubmission, state.page?.fields.isEmpty == false,
         state.next == .submission
       {
-        returnQueued = false
+        pendingReturn = nil
         state.enqueue(state.request())
         state.begin()
         command = state
@@ -1137,7 +1175,7 @@ final class Navigator {
       stopArriving()
       cancelWork()
     }
-    returnQueued = false
+    pendingReturn = nil
     conversation = AgentScreen(back: .reveal(command?.agentContext(typed: false)))
     agent.open(settings: configuration.agent)
     clearSelection()

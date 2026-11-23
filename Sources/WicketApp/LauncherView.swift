@@ -467,16 +467,12 @@ struct LauncherView: View {
       }
     }
     .contentShape(Rectangle()).id(result.id)
-    .onTapGesture(count: 2) {
-      navigator.select(result.id)
-      panel?.run()
-    }
-    .onTapGesture { if navigator.click(result.id) { panel?.run() } }
+    .onTapGesture(count: 2) { navigator.runRow(result) }
+    .onTapGesture { if navigator.click(result.id) { navigator.runRow(result) } }
     .contextMenu {
       ForEach(Array(navigator.actions(of: result).enumerated()), id: \.offset) { _, action in
         Button(action.label) {
-          navigator.select(result.id)
-          panel?.run(action)
+          navigator.runRow(result, action: action)
         }
       }
     }

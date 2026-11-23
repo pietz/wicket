@@ -296,7 +296,6 @@ import WebKit
   #expect(navigator.returnAction?.kind == .ask)
   let revision = try #require(surface.presentation.page?.targetRevision)
   #expect(navigator.clickTarget("#0", revision: revision))
-  navigator.run()
   await navigator.settled()
   #expect(try requests(in: folder).last?.action == "submit")
   #expect(try requests(in: folder).last?.fields["draft"] == "true")
@@ -361,19 +360,20 @@ import WebKit
 @MainActor @Test func canvasRejectsClicksFromBeforeRowsReordered() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  _ = try extensionFolder(
+  let folder = try extensionFolder(
     root,
     script: """
       IFS= read -r request
       cat <<'PAGE'
-      <field name="reverse" type="bool" act="true"/>
+      <field name="reverse" type="bool"/>
       PAGE
       case "$request" in
-        *'"action":"set-reverse"'*)
+        *'"reverse":"true"'*)
+          while [ ! -e release ]; do sleep 0.01; done
           printf '%s\n' '<row title="Second" copy="second"/>' '<row title="First" copy="first"/>' ;;
         *) printf '%s\n' '<row title="First" copy="first"/>' '<row title="Second" copy="second"/>' ;;
       esac
-      """, fields: ["fields": [], "submit": true])
+      """, fields: ["fields": []])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   let navigator = model.navigator
@@ -386,14 +386,17 @@ import WebKit
   let oldRevision = try #require(old.page?.targetRevision)
 
   navigator.changeField(.init(name: "reverse", value: "true", phase: .commit), turn: old.pageTurn)
+  #expect(navigator.clickTarget("#0", revision: oldRevision))
+  #expect(surface.effects == [.run(.copy("first"), from: surface.presentation.selected)])
+  surface.effects.removeAll()
+  try Data().write(to: folder.appending(path: "release"))
   await navigator.settled()
   #expect(surface.presentation.pageTurn == old.pageTurn)
   #expect(surface.presentation.rows.first { $0.row.id == "#0" }?.row.title == "Second")
-  if navigator.clickTarget("#0", revision: oldRevision) { navigator.run() }
+  #expect(!navigator.clickTarget("#0", revision: oldRevision))
   #expect(surface.effects.isEmpty)
   let revision = try #require(surface.presentation.page?.targetRevision)
   try #require(navigator.clickTarget("#0", revision: revision))
-  navigator.run()
   #expect(surface.effects == [.run(.copy("second"), from: surface.presentation.selected)])
   await model.finish()
 }
@@ -423,7 +426,6 @@ import WebKit
   let page = try #require(surface.presentation.page)
   let revision = try #require(page.targetRevision)
   try #require(navigator.clickTarget("#0", revision: revision))
-  navigator.run()
   await navigator.settled()
 
   #expect(try requests(in: folder).map(\.action) == [nil])
@@ -431,7 +433,6 @@ import WebKit
   #expect(navigator.fieldValues == ["environment": "production", "confirm": "false"])
   #expect(surface.presentation.footerProblem?.contains("environment") == true)
   try #require(navigator.clickTarget("#1", revision: revision))
-  navigator.run()
   await navigator.settled()
   #expect(try requests(in: folder).last?.fields == ["environment": "production", "confirm": "true"])
   await model.finish()
@@ -460,7 +461,6 @@ import WebKit
   await navigator.settled()
   let revision = try #require(surface.presentation.page?.targetRevision)
   try #require(navigator.clickTarget("#0", revision: revision))
-  navigator.run()
   await navigator.settled()
   try #require(surface.presentation.page == nil)
 
@@ -584,7 +584,6 @@ import WebKit
   await navigator.settled()
   let revision = try #require(surface.presentation.page?.targetRevision)
   try #require(navigator.clickTarget("#0", revision: revision))
-  navigator.run()
   await navigator.settled()
   try #require(surface.presentation.problem != nil)
 
@@ -652,6 +651,47 @@ import WebKit
   await navigator.settled()
   #expect(!navigator.returnQueued)
   #expect(surface.effects == [.run(.copy("new"), from: surface.presentation.viewRow)])
+  await model.finish()
+}
+
+@MainActor @Test func agentDraftSendsWhileALiveCanvasRefreshIsPending() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      case "$request" in
+        *'"enabled":"true"'*)
+          touch rerunning
+          while [ ! -e release ]; do sleep 0.01; done
+          echo 'Refresh failed' >&2
+          exit 1 ;;
+      esac
+      echo '<field name="enabled" type="bool"/>'
+      """, fields: ["fields": []])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let fake = FakeAgent()
+  model.agent.connect = { _, _, _ in fake }
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  navigator.changeField(
+    .init(name: "enabled", value: "true", phase: .commit), turn: surface.presentation.pageTurn)
+  #expect(
+    await eventually { FileManager.default.fileExists(atPath: folder.appending(path: "rerunning").path) })
+
+  let question = "What does this switch do?"
+  navigator.editInput(question)
+  #expect(surface.presentation.returnAsksAgent && surface.presentation.busy)
+  navigator.run()
+  #expect(!navigator.returnQueued && model.agent.question == question)
+  try release(root, "test")
+  await navigator.settled()
+  #expect(surface.presentation.agent?.question == question)
   await model.finish()
 }
 
