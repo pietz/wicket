@@ -74,6 +74,10 @@ extension HostCommand {
     }
     return extensions.commands[id] != nil && configuration.isEnabled(id, extensions: extensions.ids)
   }
+  func availableFields(_ id: String, in configuration: Configuration) -> [ExtensionManifest.Field] {
+    guard isAvailable(id, in: configuration) else { return [] }
+    return behavior(of: id)?.descriptor?.fields ?? []
+  }
   /// Why the command cannot run now, shown instead of its view; nil while it may.
   func unavailability(of id: String) -> String? {
     guard isCommand(id) else { return "This extension was removed. Press Esc to go back." }

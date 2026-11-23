@@ -367,7 +367,7 @@ final class Navigator {
   /// A click on a row: selects it, or on the selected root row with a filled draft, runs it like
   /// Return. True when the caller should run Return.
   func click(_ id: String) -> Bool {
-    if command == nil, id == selection, !drafted.isEmpty { return true }
+    if command == nil, overlay == nil, !conversing, id == selection, !base.fields.isEmpty { return true }
     select(id)
     return false
   }
@@ -446,24 +446,27 @@ final class Navigator {
       let main = descriptor.inputField?.name
       return descriptor.fields.filter { $0.inSearchBar && $0.name != main }
     }
-    guard let row = selectedRow, let origin = row.rootExtensionRow,
-      case .run(let address)? = row.row.actions.first?.kind, !address.link,
-      let target = address.extensionName == nil ? row.provider : address.targetID,
-      origin == .command || directory.isAvailable(target, in: configuration)
-    else { return [] }
-    return directory.behavior(of: target)?.descriptor?.fields.filter {
-      $0.inSearchBar && address.fields?[$0.name] == nil
-    } ?? []
+    guard let row = selectedRow, let origin = row.rootExtensionRow else { return [] }
+    return row.row.editableRootFields(from: row.provider) { target in
+      if origin == .command { return directory.behavior(of: target)?.descriptor?.fields ?? [] }
+      return directory.availableFields(target, in: configuration)
+    }
+  }
+  private var keywordArgument: KeywordQuery.Argument? {
+    composedInput == input ? selectedRow?.keywordArgument : nil
   }
   /// Values filled in at the root for the selected row; dropped when the selection moves or
   /// the panel is dismissed. Only the row itself takes them: an action chosen in ⌘K runs as captured.
   private var drafted: [String: String] {
-    command == nil && !conversing && overlay == nil ? base.fields : [:]
+    guard command == nil, !conversing, overlay == nil else { return [:] }
+    var fields = base.fields
+    if let keywordArgument { fields[keywordArgument.field] = keywordArgument.text }
+    return fields
   }
   /// The current values by name: the open command's fields, or the root draft. Unfilled is absent.
   var fieldValues: [String: String] {
     if let command, !conversing { return command.request().fields }
-    return screen.fields
+    return conversing || overlay != nil ? screen.fields : drafted
   }
   /// Fills in a declared field. Inside a command it is an edit like typing: it reruns the command,
   /// or in a submit command waits for Return.
@@ -548,7 +551,8 @@ final class Navigator {
   /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
   /// 2. A row the user picked runs at once; focusing or filling a row's field picks it. The
   ///    row that takes the place of a picked one that went away (its own pattern answered) is not picked.
-  /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
+  /// 3. A keyword with an argument runs at once. A pattern's result on screen when Return is
+  ///    pressed runs at once too: the user sees what it runs.
   /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row
   ///    (`RootCommand.outranked`): what is typed was meant for it.
   /// 5. After a pattern that matched failed, Return is refused (nothing runs, nothing waits) on Ask agent
@@ -574,7 +578,7 @@ final class Navigator {
       return .run
     }
     if composedInput != input { return .wait }
-    if current.picked || !replay && search.isPatternResult(selected) { return .run }
+    if current.picked || keywordArgument != nil || !replay && search.isPatternResult(selected) { return .run }
     if search.outranked(selected) { return .wait }
     guard search.failedPattern else { return .run }
     let standIn = replay ? !search.isPatternResult(selected) : selected?.provider == "agent"

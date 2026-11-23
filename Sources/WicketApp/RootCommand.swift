@@ -60,11 +60,10 @@ import Foundation
     guard let result, case .items(let rows) = patterns[result.provider] else { return false }
     return rows.contains(result.row)
   }
-  /// Whether a pattern still running would list its rows above `result`: above every row but a pattern
-  /// result, and above one of those when its extension comes first by name (`Ranking.compose`).
+  /// Whether a pattern still running would list its rows above `result` (`Ranking.compose`).
   func outranked(_ result: Result?) -> Bool {
     let running = runningPatterns
-    guard !running.isEmpty else { return false }
+    guard !running.isEmpty, result?.keywordArgument == nil else { return false }
     guard let result, isPatternResult(result) else { return true }
     let ids = running.union([result.provider])
     let manifests = ids.reduce(into: [String: ExtensionManifest]()) {
@@ -91,8 +90,19 @@ import Foundation
     patterns.removeAll()
     let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
     // Extension items are in memory: matched once per input, not on every batch that recomposes.
-    itemRows = active.compactMap { extensions.commands[$0.id] }.map {
-      Ranking.Names(provider: $0.id, kind: .item, rows: $0.rootItems(input))
+    let keyword = KeywordQuery(input)
+    itemRows = active.compactMap { extensions.commands[$0.id] }.map { command in
+      let exact = keyword.map { keyword in
+        { (row: Row) in
+          keyword.argument(
+            for: row, from: command.id,
+            fieldsFor: {
+              self.directory.availableFields($0, in: configuration)
+            }) != nil
+        }
+      }
+      return Ranking.Names(
+        provider: command.id, kind: .item, rows: command.rootItems(input, including: exact))
     }
     // The previous file rows stay until the first batch for this input replaces them, so files do not
     // vanish and return on every keystroke; ranking drops those the new input no longer matches.
@@ -222,6 +232,8 @@ import Foundation
       query: input, names: names, patterns: patterns, running: runningPatterns,
       extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
-      hosts: directory.rootRows(configuration), usage: history.store, now: Date())
+      hosts: directory.rootRows(configuration),
+      hostFields: { directory.availableFields($0, in: configuration) },
+      usage: history.store, now: Date())
   }
 }

@@ -13,20 +13,24 @@ struct SearchIndex: Sendable {
     guard !query.isEmpty else { return entries.map(\.row) }
     return entries.filter { $0.keys.contains { FuzzyMatcher.score(query, $0) != nil } }.map(\.row)
   }
-  /// At most `limit` matching rows, the best fuzzy scores first; none for empty input, which has no best.
-  func best(_ input: String, limit: Int) -> [Row] {
+  /// Keep every exact keyword-with-argument match and at most `limit` fuzzy matches.
+  func best(_ input: String, limit: Int, including exact: ((Row) -> Bool)? = nil) -> [Row] {
     let query = Fold.query(input)
     guard !query.isEmpty else { return [] }
+    var exactRows: [Row] = []
     var scored: [(row: Row, score: Int)] = []
     for entry in entries {
-      if let score = entry.keys.compactMap({ FuzzyMatcher.score(query, $0) }).max() {
+      if exact?(entry.row) == true {
+        exactRows.append(entry.row)
+      } else if let score = entry.keys.compactMap({ FuzzyMatcher.score(query, $0) }).max() {
         scored.append((entry.row, score))
       }
     }
     // A stable sort keeps the manifest's order among equal scores.
-    return scored.enumerated().sorted { a, b in
-      a.element.score == b.element.score ? a.offset < b.offset : a.element.score > b.element.score
-    }.prefix(limit).map(\.element.row)
+    return exactRows
+      + scored.enumerated().sorted { a, b in
+        a.element.score == b.element.score ? a.offset < b.offset : a.element.score > b.element.score
+      }.prefix(limit).map(\.element.row)
   }
 }
 

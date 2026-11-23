@@ -32,7 +32,7 @@ Coming from 0.0.x: settings do not carry over and old extensions do not run; ask
 
 Results are ordered by how well they match: a calculation or conversion first, then apps, commands and files whose name starts with what you typed (`pass` finds 1Password and Proton Pass), then looser matches. What you pick for a given input rises next time. When nothing matches well, Ask agent is the first row, so Return sends a sentence to the agent.
 
-A click selects a row and a double-click runs it. Tab into the selected command’s fields to fill them in before opening it. Inside a command, the search bar can filter or enter a value. When it says “Ask about …”, Return asks the agent about that command if no action is selected.
+A click selects a row and a double-click runs it. At the root, type a command or item keyword, a space and text to fill its first editable text field. The matching row shows the text and moves to the top. Press Return to run it, Tab to fill more fields or ⌘Return to ask the agent with what you typed. Tab also reaches fields when you select a row by name or type a keyword on its own. Inside a command, the search bar can filter or enter a value. When it says “Ask about …”, Return asks the agent about that command if no action is selected.
 
 Turn on **Open compact** in Settings ▸ General (`"compactOnOpen": true` in `config.json`) to start with just the search field. Typing, pressing ↓, or starting voice shows the card, and clearing the field folds it again when there is nothing else to show. Return still runs the selected result. Problems, notices and screens such as a kept conversation show their card automatically.
 

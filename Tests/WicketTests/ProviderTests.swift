@@ -148,7 +148,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   await model.navigator.settled()
   #expect(model.navigator.selection == chosen.id)
   try FileManager.default.removeItem(at: gate)
-  model.navigator.input = "weather tomorrow"
+  model.navigator.input = "tomorrow weather"
   #expect(await eventually { !model.root.isSearching })
   #expect(
     model.navigator.selection == model.navigator.results.first?.id
@@ -162,7 +162,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   try FileManager.default.removeItem(at: gate)
   model.navigator.move(2)
   model.navigator.input = "other"
-  model.navigator.input = "weather tomorrow"
+  model.navigator.input = "tomorrow weather"
   #expect(await eventually { !model.root.isSearching })
   #expect(model.navigator.selection == model.navigator.results.first?.id)
   try Data().write(to: gate)

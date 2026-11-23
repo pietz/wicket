@@ -214,6 +214,142 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   await model.finish()
 }
 
+@MainActor @Test func rootKeywordFillsACommandAndTabReachesItsNextField() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (_, requests) = try logging(
+    root, name: "Search",
+    fields: [
+      "keyword": "kw",
+      "fields": [
+        ["name": "query", "type": "text", "description": "Query"],
+        ["name": "scope", "type": "text", "description": "Scope"],
+      ],
+    ])
+  _ = try extensionFolder(
+    root, name: "other", fields: ["name": "KW Café + cats", "keyword": "k Café + cats"])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+
+  nav.editInput("kw")
+  await nav.settled()
+  #expect(nav.fieldValues.isEmpty && nav.fieldSlots.map(\.name) == ["query", "scope"])
+  nav.editInput("kw   ")
+  await nav.settled()
+  #expect(nav.fieldValues.isEmpty && nav.fieldSlots.map(\.name) == ["query", "scope"])
+  nav.editInput("k Café + cats")
+  await nav.settled()
+  #expect(surface.presentation.selected?.provider == "extension:other" && nav.fieldValues.isEmpty)
+
+  let input = "KW Café + cats"
+  nav.editInput(input)
+  await nav.settled()
+  #expect(surface.presentation.rows.first?.provider == "extension:search")
+  #expect(surface.presentation.selected?.row.title == "Search")
+  #expect(surface.presentation.selected?.row.subtitle == "Café + cats")
+  #expect(surface.presentation.rows.contains { $0.row.actions.first == .send(input) })
+  #expect(nav.fieldValues == ["query": "Café + cats"] && nav.focusedField == nil)
+  #expect(nav.moveFocus(1) && nav.focusedField == "scope")
+  nav.setField("scope", to: "videos")
+  #expect(nav.input == input && nav.fieldValues == ["query": "Café + cats", "scope": "videos"])
+  #expect(try requests().isEmpty)
+
+  nav.run()
+  await nav.settled()
+  let sent = try #require(try requests().first)
+  #expect(try requests().count == 1 && sent.submitted && sent.input == "Café + cats")
+  #expect(sent.fields == ["query": "Café + cats", "scope": "videos"])
+  await model.finish()
+}
+
+@MainActor @Test(arguments: [false, true])
+func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(userItem: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "search",
+    script: """
+      cat >> log.jsonl
+      """,
+    fields: [
+      "fields": [
+        ["name": "site", "type": "text", "description": "Site"],
+        ["name": "query", "type": "text", "description": "Query"],
+        ["name": "limit", "type": "number", "description": "Limit"],
+      ]
+    ])
+  let item: [String: Any] = [
+    "id": "youtube", "title": "Search YouTube", "keywords": ["yt"],
+    "actions": [
+      [
+        "type": "run", "extension": "search", "hidden": true, "action": "open-link",
+        "fields": ["site": "youtube", "limit": "10"],
+      ]
+    ],
+  ]
+  let owner = try extensionFolder(
+    root, name: "links", fields: ["command": NSNull(), "fields": [], "items": userItem ? [] : [item]])
+  if userItem {
+    try JSONSerialization.data(withJSONObject: ["items": [item]]).write(
+      to: owner.appending(path: "user.json"))
+  }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+
+  nav.editInput("yt cats")
+  await nav.settled()
+  #expect(surface.presentation.selected?.row.id == (userItem ? "user-item:youtube" : "item:youtube"))
+  #expect(surface.presentation.selected?.row.title == "Search YouTube")
+  #expect(surface.presentation.selected?.row.subtitle == "cats")
+  #expect(nav.fieldValues == ["query": "cats"] && !nav.moveFocus(1))
+  #expect(try requests(in: folder).isEmpty)
+
+  nav.run()
+  await nav.settled()
+  let sent = try requests(in: folder)
+  let request = try #require(sent.first)
+  #expect(sent.count == 1 && request.submitted && request.action == "open-link")
+  #expect(request.fields == ["site": "youtube", "query": "cats", "limit": "10"])
+  #expect(surface.effects == [.hide])
+  await model.finish()
+}
+
+@MainActor @Test func rootKeywordKeepsPatternResultsAndUsesTheUsualTieBreaks() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "pattern",
+    script: """
+      cat >> log.jsonl
+      echo '{"items":[{"id":"match","title":"Pattern result","actions":[]}]}'
+      """,
+    fields: [
+      "keyword": "kw", "match": "^kw ",
+      "items": [["id": "a", "title": "A shortcut", "keywords": ["kw"], "actions": [["type": "run"]]]],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("kw cats")
+  await nav.settled()
+  #expect(surface.presentation.rows.map(\.row.id) == ["command", "item:a", "match", "ask"])
+  #expect(try requests(in: folder).map(\.submitted) == [false])
+
+  nav.run()
+  await nav.settled()
+  let sent = try requests(in: folder)
+  #expect(sent.map(\.submitted) == [false, true] && sent.last?.fields == ["query": "cats"])
+  await model.finish()
+}
+
 @MainActor @Test func aRootItemTargetingASwitchedOffCommandHasNoFields() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -290,7 +426,9 @@ func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async
         cat >> log.jsonl
         echo '{"items":[]}'
         """,
-      fields: ["items": [["id": "web", "title": "Search the Web", "actions": [action]]]])
+      fields: [
+        "keyword": "lookup", "items": [["id": "web", "title": "Search the Web", "actions": [action]]],
+      ])
   }
   let folder = try writeManifest(["type": "run"])
   let model = LauncherModel.testing(in: root, bundled: nil)

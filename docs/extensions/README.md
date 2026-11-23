@@ -8,7 +8,7 @@ The first official extensions, the decisions they share, and the order to build 
 |---|---|---|
 | Calculator | [calculator.md](calculator.md) | Arithmetic as you type at the root. Deliberately an extension, so its behavior can be changed. |
 | Convert | [convert.md](convert.md) | Units and currency, with a rate source the user can replace. Handles single quantities. Typed arithmetic with units and currencies is later work. |
-| Links & Search | [links-search.md](links-search.md) | A keyword or hotkey, Tab into the query, and the site opens. The agent adds a new search in one sentence. |
+| Links & Search | [links-search.md](links-search.md) | Type a keyword and query to open a site search. The agent adds a new search in one sentence. |
 | Window Manager | [window-manager.md](window-manager.md) | A small engine that moves windows, plus layouts the agent writes ("on ⌃⌥1, Safari left two-thirds"). |
 | Calendar | [calendar.md](calendar.md) | Upcoming meetings from macOS Calendar, with details and Join. |
 
@@ -52,12 +52,12 @@ Core and contract changes the specs need. The numbers stay fixed because the spe
 8. **Meeting links.** `open` also accepts a short list of conferencing schemes, such as `zoommtg:` and `msteams:`, behind an explicit action.
 9. **Saving a page's choices to `config.json`**, designed once with onboarding (ROADMAP step 4).
 10. **The extension catalog** (ROADMAP step 3).
-11. **Keyword, space, text.** Typing an item's or command's keyword, a space and text at the root fills its first text field: `yt cats` ⏎ searches YouTube for cats, with no Tab. Tab still moves through named fields, which matter when there is more than one input. This is one host rule for every keyword, not a pattern in each extension. A keyword that is also a common word takes over text that starts with it, and Ask agent stays in the list.
+11. **Keyword, space, text.** Shipped. At the root, a command or item keyword followed by a space and text fills the first editable text field. The matching row ranks first and Ask agent stays in the list.
 
 ## Build order
 
 1. Convert's review fixes, then Contract recipes.
-2. Links & Search, with keyword, space, text.
+2. Links & Search.
 3. Window Manager's Capture and saved layouts in `user.json`.
 4. `wicket-js`.
 5. The catalog.

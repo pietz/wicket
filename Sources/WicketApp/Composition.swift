@@ -7,14 +7,67 @@ struct Result: Identifiable, Sendable, Equatable {
   let provider: String
   let row: Row
   let rootExtensionRow: RootExtensionRow?
+  let keywordArgument: KeywordQuery.Argument?
   var id: String {
     provider.hasPrefix("extension:") ? "\(provider.utf8.count):" + provider + row.id : provider + ":" + row.id
   }
 
-  init(provider: String, row: Row, rootExtensionRow: RootExtensionRow? = nil) {
+  init(
+    provider: String, row: Row, rootExtensionRow: RootExtensionRow? = nil,
+    keywordArgument: KeywordQuery.Argument? = nil
+  ) {
     self.provider = provider
     self.row = row
     self.rootExtensionRow = rootExtensionRow
+    self.keywordArgument = keywordArgument
+  }
+}
+
+/// The literal keyword and space belong to search. The rest is passed through as field text.
+struct KeywordQuery {
+  struct Argument: Sendable, Equatable {
+    let field: String
+    let text: String
+  }
+
+  private let input: String
+  private let lastText: String.Index
+
+  init?(_ input: String) {
+    guard let space = input.firstIndex(of: " "), let last = input.lastIndex(where: { !$0.isWhitespace }),
+      space < last
+    else { return nil }
+    self.input = input
+    lastText = last
+  }
+
+  func argument(for row: Row, from provider: String, fieldsFor: (String) -> [ExtensionManifest.Field])
+    -> Argument?
+  {
+    guard
+      let start = row.keywords?.compactMap({ keyword -> String.Index? in
+        guard !keyword.isEmpty,
+          let end = input.range(of: keyword + " ", options: [.anchored, .caseInsensitive])?.upperBound,
+          end <= lastText
+        else { return nil }
+        return end
+      }).max(),
+      let field = row.editableRootFields(from: provider, fieldsFor: fieldsFor).first(where: {
+        $0.type == .text
+      })
+    else { return nil }
+    return Argument(field: field.name, text: String(input[start...]))
+  }
+}
+
+extension Row {
+  func editableRootFields(from provider: String, fieldsFor: (String) -> [ExtensionManifest.Field])
+    -> [ExtensionManifest.Field]
+  {
+    guard case .run(let address)? = actions.first?.kind, !address.link,
+      let target = address.extensionName == nil ? provider : address.targetID
+    else { return [] }
+    return fieldsFor(target).filter { $0.inSearchBar && address.fields?[$0.name] == nil }
   }
 }
 
@@ -110,21 +163,21 @@ enum Ranking {
 
   /// The whole list at the root of the launcher, best first:
   ///
-  /// 1. Pattern extension results, one extension after another by name, each in its own order.
-  /// 2. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
+  /// 1. Exact keywords with text for an editable field, using the name matches' tie-breaks.
+  /// 2. Pattern extension results, one extension after another by name, each in its own order.
+  /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
   ///    History, and Clipboard History when it is on: `hosts`) and files, by tier, then usage for this exact input, then
   ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
   ///    never crosses a tier.
-  /// 3. Ask agent, only when nothing is strong, and then on top.
-  /// 4. Fallback extensions, only when nothing is strong, right after Ask agent.
+  /// 4. Ask agent, on top when nothing is strong and below the results for a keyword with text.
+  /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
   ///
-  /// Ask agent and fallbacks also wait while a pattern extension that matched the input is still
-  /// running (`running`): the input was meant for it, and its rows, strong when it answers any, would
-  /// replace them a moment later. Once it answers nothing or fails they show.
-  /// 5. Error and repair rows.
+  /// Without a keyword argument, Ask agent and fallbacks wait while a matched pattern extension is
+  /// running (`running`). Once it answers nothing or fails they show.
+  /// 6. Error and repair rows.
   ///
-  /// Strong means a nonempty successful pattern result or a name match with tier 1
-  /// or 2. Empty input lists at most `emptyApps` apps, by their use under any input and then by name,
+  /// Strong means a nonempty successful pattern result or a name match with a positive tier.
+  /// Empty input lists at most `emptyApps` apps, by their use under any input and then by name,
   /// then extension commands, and never offers Ask agent or fallbacks.
   ///
   /// - Parameters:
@@ -135,13 +188,16 @@ enum Ranking {
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions with an invalid manifest or user.json.
   ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
+  ///   - hostFields: The fields of an available host command, which an extension item may target.
   static func compose(
     query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
     extensions: [String: ExtensionManifest], problems: [String: String], hosts: [Result] = [],
+    hostFields: (String) -> [ExtensionManifest.Field] = { _ in [] },
     usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)
     let words = Fold.words(input)
+    let keyword = KeywordQuery(input)
     func named(_ ids: some Sequence<String>) -> [String] { byName(ids, extensions) }
 
     // Pattern results and failures.
@@ -169,7 +225,28 @@ enum Ranking {
     // Name matches. Every row matches by its title and keywords; empty input matches everything given.
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
     let totals = query.isEmpty ? usage.totals(now: now) : [:]
-    func candidate(_ result: Result, _ kind: Kind) -> Candidate? {
+    func candidate(_ result: Result, _ kind: Kind, onlyKeyword: Bool = false) -> Candidate? {
+      if result.rootExtensionRow != nil,
+        case .run(var address)? = result.row.actions.first?.kind,
+        let argument = keyword?.argument(
+          for: result.row, from: result.provider,
+          fieldsFor: {
+            extensions[$0]?.fields ?? hostFields($0)
+          })
+      {
+        var row = result.row
+        row.subtitle = argument.text
+        address.fields = (address.fields ?? [:]).merging([argument.field: argument.text]) { fixed, _ in fixed
+        }
+        row.actions[0].kind = .run(address)
+        let match = Result(
+          provider: result.provider, row: row, rootExtensionRow: result.rootExtensionRow,
+          keywordArgument: argument)
+        return Candidate(
+          result: match, kind: kind, tier: 3, usage: usage.frecency(result.id, query: input, now: now),
+          score: 0)
+      }
+      if onlyKeyword { return nil }
       var score = 0
       var tier = 0
       if !query.isEmpty {
@@ -192,13 +269,16 @@ enum Ranking {
           source.kind)
       }
     }
-    for id in extensions.keys where !answered.contains(id) {
+    for id in extensions.keys where keyword != nil || !answered.contains(id) {
       let manifest = extensions[id]!
       let row = Row(
         id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon,
         actions: [.run(Address(id: id, input: "", hidden: manifest.hidden))],
         keywords: manifest.keyword.map { [$0] })
-      if let found = candidate(Result(provider: id, row: row, rootExtensionRow: .command), .command) {
+      if let found = candidate(
+        Result(provider: id, row: row, rootExtensionRow: .command), .command,
+        onlyKeyword: answered.contains(id))
+      {
         candidates.append(found)
       }
     }
@@ -213,7 +293,10 @@ enum Ranking {
       let order = a.result.row.title.localizedStandardCompare(b.result.row.title)
       return order == .orderedSame ? a.result.id < b.result.id : order == .orderedAscending
     }
-    if reason == nil, let first = candidates.first, first.tier >= 1 {
+    let keywordRows = candidates.prefix { $0.result.keywordArgument != nil }
+    if let first = keywordRows.first {
+      reason = "keyword with argument: " + first.result.id
+    } else if reason == nil, let first = candidates.first, first.tier >= 1 {
       reason = "title prefix: " + first.result.id
     }
 
@@ -253,6 +336,15 @@ enum Ranking {
       return Output(
         results: patternRows + (apps + rest).map(\.result) + failures + repairs,
         strongReason: "empty input lists apps first", hasProblems: hasProblems)
+    }
+    if !keywordRows.isEmpty {
+      let matches = keywordRows.map(\.result)
+      let ids = Set(matches.map(\.id))
+      let ordered =
+        matches + patternRows.filter { !ids.contains($0.id) }
+        + candidates.dropFirst(matches.count).map(\.result)
+      return Output(
+        results: ordered + [ask] + failures + repairs, strongReason: reason, hasProblems: hasProblems)
     }
 
     // Fallbacks replace their extension's own command row when nothing is strong.

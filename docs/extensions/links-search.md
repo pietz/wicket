@@ -2,16 +2,16 @@
 
 ## 1. Summary
 
-`links-search` ships shortcuts for site searches. Type a keyword, Tab to Query and press Return. A hotkey can take you straight to a site's Query field or open a bookmark. `web` is a separate extension for general web search, with its own switch in Settings ▸ Extensions.
+`links-search` ships shortcuts for site searches. Type a keyword, a space and a query, then press Return. A hotkey can take you straight to a site's Query field or open a bookmark. `web` is a separate extension for general web search, with its own switch in Settings ▸ Extensions.
 
 ## 2. User experience
 
 | Situation | What the user does and sees |
 | --- | --- |
-| Search a site | Type `yt`, select **Search YouTube**, then Tab, type `cats` and press Return. The root keyword stays in the search bar while the Query slot has focus. Return on the row without a query opens the command with Query ready. Escape returns to the root. |
+| Search a site | Type `yt cats` and press Return on **Search YouTube**. With just `yt` typed, Tab reaches Query and Return opens the command with Query ready. Escape returns to the root. |
 | Use a hotkey | On the row, choose ⌘K ▸ **Set Hotkey…**. A search hotkey opens a fresh Query field. A bookmark hotkey opens its destination directly. |
 | Open a bookmark | Type `mdn` or **MDN Web Docs** and press Return. A static bookmark can also offer **Copy Link**. A link configured for a particular app shows that app in its subtitle. |
-| Search the web | When a nonempty root query has no strong match, **Search the Web** appears just below **Ask agent**. Select it and press Return once to search for the root text. For an explicit search, type `web`, Tab to Query, type and press Return. ⌘Return still asks the agent. |
+| Search the web | When a nonempty root query has no strong match, **Search the Web** appears just below **Ask agent**. Select it and press Return once to search for the root text. For an explicit search, type `web`, a space and the query, then press Return. ⌘Return asks the agent. |
 | Add a personal link | Ask the agent to add a bookmark or a keyword for a site search. The agent edits `links-search`'s `user.json` and checks the new row headlessly. To bring bookmarks from a browser export, ask the agent to write them into that file as a one-off task. |
 
 Raycast Quicklinks pairs URL arguments with an app choice. Alfred offers fallback searches. Wicket combines keyword-selected rows, a separate Query slot and one independently switchable official fallback. [Raycast Quicklinks](https://manual.raycast.com/quicklinks) · [Alfred fallback searches](https://www.alfredapp.com/help/features/default-results/fallback-searches/)
@@ -26,7 +26,7 @@ Both folders use contract 2 and ship Swift executables. `links-search` has the `
 {"type":"run","action":"open-link","input":"","fields":{"link":"youtube"},"hidden":true}
 ```
 
-A search action with an empty query returns a prompt on the command and carries its fixed fields into that visit. In the open command, Return submits the current query and retained fields. A named action applies once, so the program accepts both the named item action and the ordinary Query submission for the selected link. The direct root flow uses [shared work 2, Tab into an item's fields](README.md#shared-work).
+A search action with an empty query returns a prompt on the command and carries its fixed fields into that visit. In the open command, Return submits the current query and retained fields. A named action applies once, so the program accepts both the named item action and the ordinary Query submission for the selected link. The direct root flow uses [shared work 2 and 11](README.md#shared-work).
 
 `web` has its own folder, the name **Search the Web**, the keyword `web`, one `query` text field, and `fallback:true`, `submit:true` and `hidden:true`. A submitted request with a query opens the configured engine. Its `webEngine` setting belongs to `web` in `config.json`. An empty query opens the command at Query. Use shared work 6, contract recipes, for the fallback authoring recipe. [Shared work](README.md#shared-work)
 
@@ -38,7 +38,7 @@ Follow [Official extensions](README.md#decisions-every-spec-follows). The offici
 {"type":"run","extension":"links-search","action":"open-link","input":"","fields":{"template":"https://en.wikipedia.org/w/index.php?search={query}"},"hidden":true}
 ```
 
-Return on that cross-extension item opens the command's Query field. Inline Tab applies to items that run into their own command. Hotkeys bind stable item IDs through the existing local resolver, for example `wicket://links-search?item=youtube`. Public `wicket://` addresses open views and keep `?input=` unchanged as an unsubmitted text prefill. [Extension contract](../../Sources/WicketApp/Resources/extension-contract.md)
+Return on that item opens the command's Query field when the query is empty. Keyword text and Tab both fill Query for items that run into an enabled command, including across extensions. Hotkeys bind stable item IDs through the existing local resolver, for example `wicket://links-search?item=youtube`. Public `wicket://` addresses open views and keep `?input=` unchanged as an unsubmitted text prefill. [Extension contract](../../Sources/WicketApp/Resources/extension-contract.md)
 
 ### Opening URLs
 
@@ -56,7 +56,6 @@ For an explicit app target, pass a fixed `bundleID` to `open-link`. The template
 
 | Gap | Work |
 | --- | --- |
-| Root item rows lack command field slots | Apply [shared work 2, Tab into an item's fields](README.md#shared-work), when a manifest item's first action is a `run` into its own command. `returnAction` currently assigns `address.fields = drafted`. Merge the draft and action fields so fixed values such as `{"link":"youtube"}` win. [Navigator.swift](../../Sources/WicketApp/Navigator.swift#L413) |
 | App-target routing | Implement the bundle-ID opener in the extension. |
 | Several arguments | Defer forms such as GitHub owner and repository until [canvas text fields](../../ROADMAP.md#also-agreed) exist. |
 | Distribution | Use [shared work 10, the extension catalog](README.md#shared-work). |
@@ -64,9 +63,8 @@ For an explicit app target, pass a fixed `bundleID` to `open-link`. The template
 ## 6. Implementation plan
 
 1. **Two folders on contract 2.** Build `links-search` and `web` with the current host. The starter rows open the shared Query field on Return. The web fallback opens directly. In a scratch `WICKET_CONFIG_DIR`, test `--extension links-search --submitted --action open-link --fields …` and the submitted `web` query with an inert opener. Cover encoding, empty input and malformed templates. Use `--query` to verify exact aliases and fallback placement for weak, strong and empty input, including with `web` disabled.
-2. **Tab into item fields and route to an app.** Land shared work 2. Check that the typed query reaches the right link, fixed fields win, and search and bookmark hotkeys behave as described. Check bundle-ID resolution and missing-app handling behind a fake opener. Measure root query latency and hotkey-to-visible for the changed path.
+2. **Route to an app.** Check that keyword text and Tab submit the query to the right link, fixed fields win, and search and bookmark hotkeys behave as described. Check bundle-ID resolution and missing-app handling behind a fake opener. Measure root query latency and hotkey-to-visible for the changed path.
 3. **Catalog.** Publish both folders through the catalog (shared work 10). Verify that `user.json` still opens its bookmarks and runs its searches after an official update.
-4. **Keyword, space, text.** `yt cats` ⏎ at the root searches YouTube directly, through shared work 11, a host rule rather than a pattern here. Multi-argument forms wait for canvas text fields. Live suggestions belong in a separate future spec.
 
 ## 7. Open questions
 

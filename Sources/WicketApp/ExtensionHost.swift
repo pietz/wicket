@@ -39,8 +39,8 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// The items that are name matches at the root for this input. They take the extension's name
   /// where they have no subtitle, and their ids never meet the command row's.
-  func rootItems(_ input: String) -> [Row] {
-    itemIndex.best(input, limit: Self.rootItems).map {
+  func rootItems(_ input: String, including exact: ((Row) -> Bool)? = nil) -> [Row] {
+    itemIndex.best(input, limit: Self.rootItems, including: exact).map {
       shown($0, atRoot: true, subtitle: $0.subtitle ?? manifest.name)
     }
   }

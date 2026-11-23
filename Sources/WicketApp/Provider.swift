@@ -98,10 +98,10 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   /// Stable within a provider; the host namespaces this for selection and usage.
   let id: String
   let title: String
-  let subtitle: String?
+  var subtitle: String?
   /// An SF Symbol name. App icons are resolved from open actions by the native renderer.
   let icon: String?
-  let actions: [RowAction]
+  var actions: [RowAction]
   let keywords: [String]?
   let prominent: Bool?
   /// Markdown with the six tags, like a tag row's content: in a command's list it shows beside the list
