@@ -34,7 +34,7 @@ enum AnswerMarkdown {
     let text: String
     let closed: Bool
   }
-  /// A Wicket tag outside code: its range in the source (UTF-8 offsets), name and attributes.
+  /// A Wicket tag in the document: its range in the source (UTF-8 offsets), name and attributes.
   struct Tag {
     let range: Range<Int>
     let name: String
@@ -42,9 +42,9 @@ enum AnswerMarkdown {
     let closing: Bool
     let selfClosing: Bool
   }
-  /// The source as cmark reads it: each Wicket tag outside code is a placeholder token, a paragraph of its own
-  /// unless it is an inline badge, so a tag line written straight above a fence never holds the fence in
-  /// an HTML block. Code, blocks and tags are where that one parse finds them, mapped back to the source,
+  /// The source as cmark reads it: each Wicket tag is a placeholder token, a paragraph of its own unless
+  /// it is an inline badge, so a tag line written straight above a fence never holds the fence in an HTML
+  /// block. Code, blocks and tags are where that one parse finds them, mapped back to the source,
   /// so `Page` and the renderer agree on what is code.
   struct Reading {
     var text = ""
@@ -252,6 +252,13 @@ enum AnswerMarkdown {
     var code = 0
     // Bound each candidate before invoking regex, and emit unchanged spans only once.
     while i < bytes.count {
+      let backslash = bytes[i] == 92 && i + 1 < bytes.count
+      if backslash, bytes[i + 1] == 92 {
+        i += 2
+        continue
+      }
+      let escaped = backslash && bytes[i + 1] == 60
+      if escaped { i += 1 }
       guard bytes[i] == 60 else {
         i += 1
         continue
@@ -259,6 +266,12 @@ enum AnswerMarkdown {
       while code < protected.count, protected[code].upperBound <= i { code += 1 }
       if code < protected.count, protected[code].contains(i) {
         i = min(bytes.count, protected[code].upperBound)
+        continue
+      }
+      // Leave the comment intact so cmark's raw HTML node can be escaped as written.
+      if !escaped, bytes[i...].starts(with: "<!--".utf8) {
+        while i < bytes.count, !bytes[i...].starts(with: "-->".utf8) { i += 1 }
+        i = min(bytes.count, i + 3)
         continue
       }
       var end = i + 1
@@ -275,7 +288,7 @@ enum AnswerMarkdown {
         end += 1
       }
       // A tag still being written, quotes and all, waits: nothing from its `<` on is page yet.
-      if streaming, end == bytes.count, partial(bytes[(i + 1)...]) {
+      if streaming, !escaped, end == bytes.count, partial(bytes[(i + 1)...]) {
         keep(cursor..<i)
         return result
       }
@@ -290,7 +303,8 @@ enum AnswerMarkdown {
         continue
       }
       let name = ns.substring(with: match.range(at: 1))
-      keep(cursor..<i)
+      // An escaped opener becomes part of the literal, so leave its backslash out of the Markdown.
+      keep(cursor..<(escaped ? i - 1 : i))
       cursor = end + 1
       i = cursor
       // To find the code, a word in the tag's place, which breaks no code span, is enough.
@@ -298,8 +312,8 @@ enum AnswerMarkdown {
         add(nonce)
         continue
       }
-      // Keep unknown tags as text so cmark can read them in link labels and titles.
-      guard Page.slots[name] != nil else {
+      // Keep literal tags as text so cmark can read them in link labels and titles.
+      guard !escaped, Page.slots[name] != nil else {
         add(literal(original))
         continue
       }
