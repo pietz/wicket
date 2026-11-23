@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import Testing
@@ -5,8 +6,7 @@ import Testing
 @testable import WicketApp
 @testable import window
 
-// The bundled window extension. Its geometry and restore records are pure functions tested here; the
-// program itself runs only for requests that list, since a submitted move would move a real window.
+// The bundled program only receives list requests here. Moves and Restore use fake Accessibility.
 
 /// A 1512 × 982 main display whose menu bar takes 33 points and Dock 90, as NSScreen reports it (bottom
 /// up), and a 1920 × 1080 display to its right, 298 points higher, with a 25-point menu bar.
@@ -128,6 +128,136 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
   #expect(records == [other])
 }
 
+// MARK: - Frame writes
+
+private final class FakeWindowAccessibility: WindowAccessibility {
+  enum Event: Equatable {
+    case readFrame
+    case enhanced(Bool)
+    case size, position
+  }
+
+  static let original = CGRect(x: 100, y: 200, width: 640, height: 480)
+  var current = original
+  var enhanced = false
+  var applyPosition = true
+  var applySize = true
+  var positionError = AXError.success
+  var sizeError = AXError.success
+  var focusError = AXError.success
+  var readbackError = AXError.success
+  var events: [Event] = []
+
+  func focusedWindow() -> (AXError, Int?) {
+    (focusError, focusError == .success ? 1 : nil)
+  }
+  func isFullScreen(_ window: Int) -> (AXError, Bool) { (.success, false) }
+  func frame(_ window: Int) -> (AXError, CGRect?) {
+    let error = events.contains(.position) ? readbackError : .success
+    events.append(.readFrame)
+    return (error, error == .success ? current : nil)
+  }
+  func enhancedUserInterface() -> (AXError, Bool) { (.success, enhanced) }
+  func setEnhancedUserInterface(_ enabled: Bool) -> AXError {
+    events.append(.enhanced(enabled))
+    enhanced = enabled
+    return .success
+  }
+  func setPosition(_ position: CGPoint, of window: Int) -> AXError {
+    events.append(.position)
+    if !enhanced, applyPosition, positionError == .success { current.origin = position }
+    return positionError
+  }
+  func setSize(_ size: CGSize, of window: Int) -> AXError {
+    events.append(.size)
+    if !enhanced, applySize, sizeError == .success { current.size = size }
+    return sizeError
+  }
+
+  func move(_ move: Move, in folder: URL, commandName: String = "Window Manager") throws -> Row? {
+    let failure = perform(
+      move, layout: Layout(), pid: 42, name: "Test App", commandName: commandName, displays: [laptop],
+      recordsFile: folder.appending(path: "moves.txt"), ax: self)
+    guard let failure else { return nil }
+    return try JSONDecoder().decode(Row.self, from: Data(failure.utf8))
+  }
+}
+
+private func moveRecords(in folder: URL) throws -> [Record] {
+  window.parse(records: try String(contentsOf: folder.appending(path: "moves.txt"), encoding: .utf8))
+}
+
+@Test func settersThatSilentlyIgnoreTheMoveGiveAFailureAndNoRecord() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  ax.applyPosition = false
+  ax.applySize = false
+  #expect(try ax.move(.left, in: folder)?.title == "Test App's window can't be moved")
+  #expect(ax.events == [.readFrame, .size, .position, .size, .readFrame])
+  #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "moves.txt").path))
+}
+
+@Test func anOverlappingMoveLeavesTheFirstMovesAccessibilityStateAlone() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let lock = open(folder.appending(path: "moves.txt.lock").path, O_RDWR | O_CREAT, 0o600)
+  try #require(lock >= 0)
+  defer { close(lock) }
+  try #require(flock(lock, LOCK_EX | LOCK_NB) == 0)
+  let ax = FakeWindowAccessibility()
+  ax.enhanced = true
+  #expect(try ax.move(.left, in: folder)?.title == "Another window move is in progress")
+  #expect(ax.events.isEmpty && ax.enhanced)
+}
+
+@Test(arguments: [false, true])
+func enhancedInterfaceStaysOffThroughReadbackAndIsRestoredAfterward(failReadback: Bool) throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  ax.enhanced = true
+  if failReadback { ax.readbackError = .cannotComplete }
+  let result = try ax.move(.left, in: folder)
+  #expect((result != nil) == failReadback)
+  #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop]))
+  #expect(ax.enhanced)
+  #expect(ax.events == [.readFrame, .enhanced(false), .size, .position, .size, .readFrame, .enhanced(true)])
+  if failReadback {
+    #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "moves.txt").path))
+  }
+}
+
+@Test func restoreUsesTheObservedPartialMoveAndCanRetryAPartialRestore() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = ax.current
+  ax.positionError = .cannotComplete
+  #expect(try ax.move(.left, in: folder)?.title == "Test App's window only moved partway")
+  #expect(ax.events.last == .readFrame)
+  let partial = ax.current
+  #expect(partial.origin == original.origin && partial.size != original.size)
+  let history = try String(contentsOf: folder.appending(path: "moves.txt"), encoding: .utf8)
+  try #require(
+    window.parse(records: history) == [Record(pid: 42, before: original, after: partial)], "\(history)")
+
+  ax.positionError = .success
+  #expect(try ax.move(.maximize, in: folder) == nil)
+  ax.sizeError = .failure
+  #expect(try ax.move(.restore, in: folder)?.subtitle == "Try Restore again")
+  #expect(ax.current.origin == partial.origin && ax.current.size != partial.size)
+  #expect(try moveRecords(in: folder).last == Record(pid: 42, before: partial, after: ax.current))
+
+  ax.sizeError = .success
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == partial)
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == original)
+  #expect(try moveRecords(in: folder).isEmpty)
+  #expect(try ax.move(.restore, in: folder)?.title == "Nothing to restore")
+}
+
 // MARK: - The program and its documentation
 
 private func windowView(_ action: String? = nil, submitted: Bool = false) async throws
@@ -139,6 +269,8 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
 
 @Test func theItemsAreTheMovesAndTheProgramListsThemWithoutMoving() async throws {
   let manifest = try bundled("window").manifest
+  #expect(manifest.name == "Window Manager" && manifest.keyword == "window")
+  #expect(!manifest.matches("window"))
   let rows = try #require(manifest.items)
   #expect(rows.map(\.id) == Move.allCases.map(\.rawValue))
   for row in rows {
@@ -178,6 +310,29 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
   #expect(view.items.count == 1 && row.title == "Allow Accessibility for Wicket")
   #expect(row.subtitle?.contains("add it again") == true)
   #expect(row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
+}
+
+@MainActor @Test(arguments: [false, true])
+func apiDisabledOffersTheSameRecoveryAsTheHost(duringWrite: Bool) throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  if duringWrite {
+    ax.enhanced = true
+    ax.positionError = .apiDisabled
+  } else {
+    ax.focusError = .apiDisabled
+  }
+  let command = try bundled("window")
+  let permissions = Permissions(status: { _ in .denied }, request: { _ in })
+  let gate = try #require(permissions.gate(command, rerun: Address(extensionName: "window")))
+  let hostRow = try #require(gate.items.first)
+  let row = try #require(try ax.move(.left, in: folder, commandName: command.manifest.name))
+  #expect(row.title == hostRow.title && row.subtitle == hostRow.subtitle)
+  #expect(row.actions == hostRow.actions)
+  if duringWrite {
+    #expect(ax.events.suffix(2) == [.readFrame, .enhanced(true)])
+  }
 }
 
 @Test func theDocsNameEveryWindowCommand() throws {

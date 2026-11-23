@@ -71,7 +71,7 @@ The manifest declares `accessibility`. On a missing grant the host already shows
 
 ## 4. What exists today
 
-- The bundled manifest already indexes nine stock rows with hidden actions. The Swift program supplies the browse list, display geometry, scalar settings and bounded PID/frame restore history. Its frame writer reports success when either the move or final resize succeeds. [Window manifest](../../Sources/Extensions/window/wicket.json), [Swift engine](../../Sources/Extensions/window/main.swift), [Window tests](../../Tests/WicketTests/WindowTests.swift)
+- The bundled Window Manager manifest indexes nine stock rows with hidden actions. The Swift program supplies the browse list, display geometry, scalar settings and bounded PID/frame restore history. Stock moves and Restore allow one point of difference in each frame component. Larger adjustments are reported as partial moves when the frame changes and are available to Restore. The child offers the host's Accessibility recovery action when the API refuses access. [Window manifest](../../Sources/Extensions/window/wicket.json), [Swift engine](../../Sources/Extensions/window/main.swift), [Window tests](../../Tests/WicketTests/WindowTests.swift)
 - Cross-extension item hotkeys already work. `LauncherModel.press` finds the first action in the enabled owning manifest, even when that folder has only items. `Navigator.runHidden` resolves the explicit destination, checks its availability and permissions, and submits the action with its fields to that program. [LauncherModel](../../Sources/WicketApp/LauncherModel.swift), [Navigator](../../Sources/WicketApp/Navigator.swift)
 - The headless runner already accepts an explicit submitted action and prints the decoded view. [Headless](../../Sources/WicketApp/Headless.swift)
 
@@ -79,15 +79,13 @@ The manifest declares `accessibility`. On a missing grant the host already shows
 
 | Gap | Change |
 | --- | --- |
-| AX writes can partially succeed or read back too early | Verify the actual frame and bracket the write with the `AXEnhancedUserInterface` workaround. |
-| The child's `.apiDisabled` row has no action | Open the Accessibility pane from the problem row. |
 | The engine handles only stock moves | Add custom placement validation, Capture, layout replay and grouped Restore in the extension. |
 
 ## 6. Implementation plan
 
 Each phase is testable headlessly with an injectable AX adapter.
 
-1. **Harden stock moves.** Cover readback after a failed setter, restoration of `AXEnhancedUserInterface` and the actionable recovery row.
+1. **Harden stock moves.** The fake adapter tests cover readback after a failed setter, restoration of `AXEnhancedUserInterface` and the actionable recovery row.
 2. **Add custom moves once `user.json` lands.** Verify that an item in `user.json` is searchable without starting a process and that its hotkey submits the current definition to `window`.
 3. **Add Capture.** Verify eligibility, fractional coordinates and the JSON the agent uses to save the item.
 4. **Replay layouts of existing windows with Restore.** Cover ambiguous or missing targets, disconnected displays, partial moves and a manual move after replay.

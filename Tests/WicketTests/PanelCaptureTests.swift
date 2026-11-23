@@ -52,10 +52,12 @@ private let transitions = [
 private func expectedText(_ name: String) -> [String] {
   if let text = transitionText[name] { return text }
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
-  if name.contains("settings-extensions") { return ["Built in", "Clipboard History", "Weather", "Window"] }
+  if name.contains("settings-extensions") {
+    return ["Built in", "Clipboard History", "Weather", "Window Manager"]
+  }
   if name.contains("settings-window") {
     return [
-      "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Window",
+      "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Window Manager",
     ]
   }
   if name.contains("settings-") { return [] }

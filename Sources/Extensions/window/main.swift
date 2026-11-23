@@ -156,13 +156,12 @@ func format(_ records: [Record]) -> String {
 /// The latest move of this window: one of its app's that left a window where this one still is (within
 /// a point). Restoring it takes it off, so restoring again goes back one more move.
 func restoreIndex(_ records: [Record], pid: Int32, frame: CGRect) -> Int? {
-  records.lastIndex { record in
-    record.pid == pid
-      && [
-        (record.after.minX, frame.minX), (record.after.minY, frame.minY),
-        (record.after.width, frame.width), (record.after.height, frame.height),
-      ].allSatisfy { abs($0 - $1) <= 1 }
-  }
+  records.lastIndex { $0.pid == pid && framesMatch($0.after, frame) }
+}
+
+private func framesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+  abs(lhs.minX - rhs.minX) <= 1 && abs(lhs.minY - rhs.minY) <= 1
+    && abs(lhs.width - rhs.width) <= 1 && abs(lhs.height - rhs.height) <= 1
 }
 
 let recordsFile: URL = {
@@ -171,40 +170,102 @@ let recordsFile: URL = {
   }
   return URL.temporaryDirectory.appending(path: "wicket-window-manual-moves.txt")
 }()
-let recordLimit = 50
 
 // MARK: - Accessibility
 
-func attribute(_ element: AXUIElement, _ name: String) -> (AXError, CFTypeRef?) {
-  var value: CFTypeRef?
-  let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
-  return (error, value)
+protocol WindowAccessibility {
+  associatedtype Window
+  func focusedWindow() -> (AXError, Window?)
+  func isFullScreen(_ window: Window) -> (AXError, Bool)
+  func frame(_ window: Window) -> (AXError, CGRect?)
+  func enhancedUserInterface() -> (AXError, Bool)
+  func setEnhancedUserInterface(_ enabled: Bool) -> AXError
+  func setPosition(_ position: CGPoint, of window: Window) -> AXError
+  func setSize(_ size: CGSize, of window: Window) -> AXError
 }
 
-func frame(of window: AXUIElement) -> CGRect? {
-  var origin = CGPoint.zero
-  var size = CGSize.zero
-  guard case (.success, let position?) = attribute(window, kAXPositionAttribute),
-    case (.success, let extent?) = attribute(window, kAXSizeAttribute),
-    CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(extent) == AXValueGetTypeID(),
-    AXValueGetValue(position as! AXValue, .cgPoint, &origin),
-    AXValueGetValue(extent as! AXValue, .cgSize, &size)
-  else { return nil }
-  return CGRect(origin: origin, size: size)
-}
+private struct SystemWindowAccessibility: WindowAccessibility {
+  private let app: AXUIElement
+  private let enhancedAttribute = "AXEnhancedUserInterface"
 
-/// Sets size, then position, then size again: a window going to a smaller display is shrunk before it
-/// moves and sized again once there, where the first size may not have fit.
-func setFrame(_ window: AXUIElement, _ rect: CGRect) -> Bool {
-  var origin = rect.origin
-  var size = rect.size
-  guard let position = AXValueCreate(.cgPoint, &origin), let extent = AXValueCreate(.cgSize, &size) else {
-    return false
+  init(pid: pid_t) {
+    app = AXUIElementCreateApplication(pid)
+    // A hung app would otherwise hold the request for the API's default six seconds.
+    AXUIElementSetMessagingTimeout(app, 1)
   }
-  _ = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent)
-  let moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
-  let sized = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent)
-  return moved == .success || sized == .success
+
+  private func attribute(_ element: AXUIElement, _ name: String) -> (AXError, CFTypeRef?) {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+    return (error, value)
+  }
+
+  func focusedWindow() -> (AXError, AXUIElement?) {
+    var (error, value) = attribute(app, kAXFocusedWindowAttribute)
+    if value == nil, error != .apiDisabled { (error, value) = attribute(app, kAXMainWindowAttribute) }
+    guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return (error, nil) }
+    let window = value as! AXUIElement
+    AXUIElementSetMessagingTimeout(window, 1)
+    return (error, window)
+  }
+
+  func isFullScreen(_ window: AXUIElement) -> (AXError, Bool) {
+    let (error, value) = attribute(window, "AXFullScreen")
+    return (error, error == .success && (value as? Bool) == true)
+  }
+
+  func frame(_ window: AXUIElement) -> (AXError, CGRect?) {
+    let (positionError, position) = attribute(window, kAXPositionAttribute)
+    let (sizeError, extent) = attribute(window, kAXSizeAttribute)
+    if positionError == .apiDisabled || sizeError == .apiDisabled { return (.apiDisabled, nil) }
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    guard positionError == .success, sizeError == .success, let position, let extent,
+      CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(extent) == AXValueGetTypeID(),
+      AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+      AXValueGetValue(extent as! AXValue, .cgSize, &size)
+    else { return (.failure, nil) }
+    return (.success, CGRect(origin: origin, size: size))
+  }
+
+  func enhancedUserInterface() -> (AXError, Bool) {
+    let (error, value) = attribute(app, enhancedAttribute)
+    return (error, error == .success && (value as? Bool) == true)
+  }
+
+  func setEnhancedUserInterface(_ enabled: Bool) -> AXError {
+    AXUIElementSetAttributeValue(
+      app, enhancedAttribute as CFString, enabled ? kCFBooleanTrue : kCFBooleanFalse)
+  }
+
+  func setPosition(_ position: CGPoint, of window: AXUIElement) -> AXError {
+    var position = position
+    guard let value = AXValueCreate(.cgPoint, &position) else { return .failure }
+    return AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value)
+  }
+
+  func setSize(_ size: CGSize, of window: AXUIElement) -> AXError {
+    var size = size
+    guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
+    return AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value)
+  }
+}
+
+private func writeFrame<AX: WindowAccessibility>(
+  _ destination: CGRect, to window: AX.Window, using ax: AX
+) -> (denied: Bool, actual: CGRect?) {
+  let (error, enhanced) = ax.enhancedUserInterface()
+  if error == .apiDisabled { return (true, nil) }
+  // Chromium and Electron can defer geometry changes while Enhanced User Interface is on.
+  defer { if enhanced { _ = ax.setEnhancedUserInterface(true) } }
+  if enhanced, ax.setEnhancedUserInterface(false) == .apiDisabled { return (true, nil) }
+
+  // Shrink before moving to a smaller display and size again there, where the first size may not have fit.
+  let firstSize = ax.setSize(destination.size, of: window)
+  let position = ax.setPosition(destination.origin, of: window)
+  let finalSize = ax.setSize(destination.size, of: window)
+  let (readback, actual) = ax.frame(window)
+  return ([firstSize, position, finalSize, readback].contains(.apiDisabled), actual)
 }
 
 // MARK: - Main
@@ -219,58 +280,106 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
   row(title, icon: "exclamationmark.triangle", subtitle: subtitle)
 }
 
-/// Does the move on the frontmost app's focused window: nil when it moved, else a row that says why not.
-@MainActor func perform(_ move: Move, layout: Layout) -> String? {
-  // The panel does not activate Wicket, so the app the user came from is still frontmost.
-  guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getppid() else {
-    return problem("No window to move", "Switch to the window, then open Wicket")
-  }
-  let name = app.localizedName ?? "the app"
-  let element = AXUIElementCreateApplication(app.processIdentifier)
-  // A hung app would otherwise hold the request for the API's default six seconds (set on each element).
-  AXUIElementSetMessagingTimeout(element, 1)
-  var (error, value) = attribute(element, kAXFocusedWindowAttribute)
-  if value == nil, error != .apiDisabled { (error, value) = attribute(element, kAXMainWindowAttribute) }
-  // Wicket checked the grant before starting this; the API can still refuse an app.
-  if error == .apiDisabled {
-    return problem("\(name) refused Accessibility", "Remove Wicket in Privacy & Security and add it again")
-  }
-  guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+// Keep the recovery wording and action in step with the host's Accessibility gate.
+private func accessibilityProblem(_ commandName: String) -> String {
+  row(
+    "Allow Accessibility for Wicket", icon: "lock",
+    subtitle: "\(commandName) needs it. Already on? Remove Wicket there and add it again",
+    actions:
+      #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
+  )
+}
+
+/// Returns a problem row when the requested frame could not be verified.
+func perform<AX: WindowAccessibility>(
+  _ move: Move, layout: Layout, pid: Int32, name: String, commandName: String,
+  displays: @autoclosure () -> [Display], recordsFile: URL, ax: AX
+) -> String? {
+  let (windowError, window) = ax.focusedWindow()
+  if windowError == .apiDisabled { return accessibilityProblem(commandName) }
+  guard let window else {
     return problem("\(name) has no window to move")
   }
-  let window = value as! AXUIElement
-  AXUIElementSetMessagingTimeout(window, 1)
-  if case (.success, let full?) = attribute(window, "AXFullScreen"), (full as? Bool) == true {
+  let (fullScreenError, fullScreen) = ax.isFullScreen(window)
+  if fullScreenError == .apiDisabled { return accessibilityProblem(commandName) }
+  if fullScreen {
     return problem("\(name) is in full screen", "Leave full screen to move its window")
   }
-  guard let current = frame(of: window) else { return problem("\(name)'s window has no frame to move") }
-  let screens = NSScreen.screens
-  let mainHeight = screens.first?.frame.height ?? 0
-  let displays = screens.map {
-    Display(
-      frame: topDown($0.frame, mainHeight: mainHeight),
-      visible: topDown($0.visibleFrame, mainHeight: mainHeight))
-  }
+
+  // Overlapping hotkeys could re-enable Enhanced User Interface during another frame write.
+  let lock = open(
+    recordsFile.appendingPathExtension("lock").path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+  guard lock >= 0 else { return problem("Window Manager can't open its move history") }
+  defer { close(lock) }
+  guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { return problem("Another window move is in progress") }
+
+  let (frameError, current) = ax.frame(window)
+  if frameError == .apiDisabled { return accessibilityProblem(commandName) }
+  guard let current else { return problem("\(name)'s window has no frame to move") }
+
   var records = contents(recordsFile.path).map { parse(records: String(decoding: $0, as: UTF8.self)) } ?? []
+  var restore: Int?
   let destination: CGRect
   if move == .restore {
-    guard let index = restoreIndex(records, pid: app.processIdentifier, frame: current) else {
+    guard let index = restoreIndex(records, pid: pid, frame: current) else {
       return problem("Nothing to restore", "Wicket has not moved this window, or it moved since")
     }
-    destination = records.remove(at: index).before
+    restore = index
+    destination = records[index].before
   } else {
-    guard let rect = target(move, window: current, displays: displays, layout: layout) else {
+    guard let rect = target(move, window: current, displays: displays(), layout: layout) else {
       return problem("Only one display")
     }
     destination = rect
   }
-  guard setFrame(window, destination) else { return problem("\(name)'s window can't be moved") }
-  if move != .restore {
-    records.append(
-      Record(pid: app.processIdentifier, before: current, after: frame(of: window) ?? destination))
+
+  let (denied, actual) = writeFrame(destination, to: window, using: ax)
+  let failed = "\(name)'s window can't be moved"
+  guard let actual else { return denied ? accessibilityProblem(commandName) : problem(failed) }
+  let applied = framesMatch(actual, destination)
+  let changed = actual != current
+  if let restore, applied {
+    records.remove(at: restore)
+  } else if changed {
+    if let restore {
+      // A partial Restore can be retried from the verified frame it left behind.
+      records[restore].after = actual
+    } else {
+      records.append(Record(pid: pid, before: current, after: actual))
+    }
   }
-  try? Data(format(records.suffix(recordLimit)).utf8).write(to: recordsFile, options: .atomic)
-  return nil
+  if changed || (restore != nil && applied) {
+    let recordLimit = 50
+    try? Data(format(records.suffix(recordLimit)).utf8).write(to: recordsFile, options: .atomic)
+  }
+  if denied { return accessibilityProblem(commandName) }
+  if applied { return nil }
+  if changed {
+    let next = restore == nil ? "Use Restore to undo the change" : "Try Restore again"
+    return problem("\(name)'s window only moved partway", next)
+  }
+  return problem(failed)
+}
+
+@MainActor private func screenDisplays() -> [Display] {
+  let screens = NSScreen.screens
+  let mainHeight = screens.first?.frame.height ?? 0
+  return screens.map {
+    Display(
+      frame: topDown($0.frame, mainHeight: mainHeight),
+      visible: topDown($0.visibleFrame, mainHeight: mainHeight))
+  }
+}
+
+@MainActor private func perform(_ move: Move, layout: Layout, commandName: String) -> String? {
+  // The panel does not activate Wicket, so the app the user came from is still frontmost.
+  guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getppid() else {
+    return problem("No window to move", "Switch to the window, then open Wicket")
+  }
+  let pid = app.processIdentifier
+  return perform(
+    move, layout: layout, pid: pid, name: app.localizedName ?? "the app", commandName: commandName,
+    displays: screenDisplays(), recordsFile: recordsFile, ax: SystemWindowAccessibility(pid: pid))
 }
 
 /// What the program prints: a problem alone, since the panel orders a command's items by what is typed
@@ -278,12 +387,13 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
 func answer(problem: String?, commands: String) -> String { #"{"items":["# + (problem ?? commands) + "]}" }
 
 let request = JSON.standardInput()
-let manifest = contents("wicket.json") ?? []
+let manifestBytes = contents("wicket.json") ?? []
 var position = 0
+let manifest = JSON.read(manifestBytes, &position)
 var commands = ""
-if case .array(let range)? = JSON.read(manifest, &position)?["items"] {
+if case .array(let range)? = manifest?["items"] {
   // The manifest's items without their brackets: the commands, written once.
-  commands = String(String(decoding: manifest[range], as: UTF8.self).dropFirst().dropLast())
+  commands = String(String(decoding: manifestBytes[range], as: UTF8.self).dropFirst().dropLast())
 }
 // Only the user's choice moves a window; every other request is the list. A move that worked prints
 // nothing, since the window moving is the feedback (the items' runs are hidden); one that did not shows
@@ -294,7 +404,7 @@ if case .bool(true)? = request?["submitted"],
 {
   let settings = request?["settings"]
   let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
-  failure = perform(move, layout: layout)
+  failure = perform(move, layout: layout, commandName: manifest?["name"]?.string ?? "Window Manager")
   if failure == nil { exit(0) }
 }
 print(answer(problem: failure, commands: commands))
