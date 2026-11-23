@@ -594,6 +594,61 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await host.shutdown()
 }
 
+@MainActor @Test func linkedExtensionTargetsStayWatchedThroughRetargetingAndRecreation() async throws {
+  let root = try scratch().resolvingSymlinksInPath()
+  let files = FileManager.default
+  defer { try? files.removeItem(at: root) }
+  let extensions = root.appending(path: "extensions")
+  let checkouts = root.appending(path: "checkouts")
+  let first = checkouts.appending(path: "first")
+  let second = checkouts.appending(path: "second")
+  let link = extensions.appending(path: "weather")
+  for folder in [extensions, first, second] {
+    try files.createDirectory(at: folder, withIntermediateDirectories: true)
+  }
+  try files.createSymbolicLink(atPath: link.path, withDestinationPath: "../checkouts/first")
+
+  func writeManifest(_ json: String, in folder: URL) throws {
+    try Data(json.utf8).write(to: folder.appending(path: "wicket.json"), options: .atomic)
+  }
+
+  let host = ExtensionHost(folder: root, bundled: nil)
+  let id = "extension:weather"
+  var changes: [Set<String>] = []
+  host.onCatalogChange = { changes.append($0) }
+  host.start()
+  await host.firstScan()
+  #expect(host.watchRoots == [extensions.path, first.path])
+  #expect(host.ids.isEmpty)
+
+  try writeManifest("{", in: first)
+  #expect(await eventually(within: .seconds(3)) { host.problems[id] != nil })
+  try writeManifest(#"{"name":"Weather","items":[]}"#, in: first)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Weather" })
+  let identical = #"{"name":"Forecast","items":[]}"#
+  try writeManifest(identical, in: first)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Forecast" })
+
+  try writeManifest(identical, in: second)
+  let replacement = root.appending(path: "replacement")
+  try files.createSymbolicLink(at: replacement, withDestinationURL: second)
+  let beforeRetarget = changes
+  try #require(rename(replacement.path, link.path) == 0)
+  #expect(await eventually(within: .seconds(3)) { host.watchRoots == [extensions.path, second.path] })
+  #expect(changes == beforeRetarget)
+  try writeManifest(#"{"name":"Local forecast","items":[]}"#, in: second)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Local forecast" })
+
+  try files.removeItem(at: second)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id] == nil })
+  #expect(host.watchRoots == [extensions.path, checkouts.path])
+  try files.createDirectory(at: second, withIntermediateDirectories: false)
+  try writeManifest(identical, in: second)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Forecast" })
+  #expect(host.watchRoots == [extensions.path, second.path])
+  await host.shutdown()
+}
+
 @MainActor @Test func contractOneProgramsShowMigrationRepairsWhileItemsOnlyManifestsStillWork() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

@@ -2,6 +2,8 @@
 
 Write a directory under `extensions/` in the Wicket working folder. Read this reference before authoring. Wicket discovers a valid new folder and enables it at once, with no approval step and no build or restart; the owner can switch it off in Settings ▸ Extensions, and a switched-off extension does not appear in the launcher. The program runs from its own folder (the working directory), with the owner's ordinary access, not a sandbox. Use normal absolute user data paths for anything that must persist.
 
+You can symlink an extension folder into `extensions/` and edit its manifest in the checkout. Wicket picks up those changes live.
+
 ## Manifest: wicket.json
 
 ```json

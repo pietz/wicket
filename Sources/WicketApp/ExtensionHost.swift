@@ -73,6 +73,8 @@ final class ExtensionHost {
   /// The `extensions` of config.json: each folder's saved settings.
   var settings: [String: [String: String]] = [:]
   private var watcher: FileWatcher?
+  /// Nil when watching is off, empty before the first subscription.
+  private(set) var watchRoots: Set<String>?
   private var scan: Task<Void, Never>?
   /// The catalog was read at least once. Until then an unknown name may still be on its way.
   private(set) var scanned = false
@@ -89,10 +91,8 @@ final class ExtensionHost {
     self.bundled = bundled
   }
   func start() {
+    watchRoots = watchRoots ?? []
     rescan()
-    watcher = FileWatcher(paths: [folder.appending(path: "extensions").path], latency: 0.2) { [weak self] _ in
-      self?.rescan()
-    }
   }
   func reload() async {
     rescan()
@@ -101,24 +101,73 @@ final class ExtensionHost {
   func rescan() {
     let root = folder.appending(path: "extensions")
     let bundled = bundled
+    let watching = watchRoots != nil
     scan?.cancel()
     scan = Task { [weak self] in
-      let (commands, problems) = await Task.detached { Self.discover(root, bundled: bundled) }.value
-      guard let self, !Task.isCancelled else { return }
-      defer {
-        scanned = true
-        for waiter in scanWaiters { waiter.resume() }
-        scanWaiters = []
-      }
-      // FSEvents also report an extension's own cache and log writes. An unchanged catalog must not
-      // restart the launcher's work, or an extension that writes in its folder cancels itself.
-      let changed = Set(commands.keys).union(self.commands.keys).filter { commands[$0] != self.commands[$0] }
+      while !Task.isCancelled {
+        let (paths, (commands, problems)) = await Task.detached {
+          let paths = watching ? Self.watchPaths(in: root) : nil
+          return (paths, Self.discover(root, bundled: bundled))
+        }.value
+        guard let self, !Task.isCancelled else { return }
+        if let paths, paths != watchRoots {
+          watcher = FileWatcher(paths: paths.sorted(), latency: 0.2) { [weak self] _ in self?.rescan() }
+          watchRoots = paths
+          // Read again after subscribing, in case a change arrived before the stream started.
+          continue
+        }
+        defer {
+          scanned = true
+          for waiter in scanWaiters { waiter.resume() }
+          scanWaiters = []
+        }
+        // FSEvents also report an extension's own cache and log writes. An unchanged catalog must not
+        // restart the launcher's work, or an extension that writes in its folder cancels itself.
+        let changed = Set(commands.keys).union(self.commands.keys).filter {
+          commands[$0] != self.commands[$0]
+        }
         .union(Set(problems.keys).union(self.problems.keys).filter { problems[$0] != self.problems[$0] })
-      guard !changed.isEmpty else { return }
-      self.commands = commands
-      self.problems = problems
-      onCatalogChange?(changed)
+        guard !changed.isEmpty else { return }
+        self.commands = commands
+        self.problems = problems
+        onCatalogChange?(changed)
+        return
+      }
     }
+  }
+
+  nonisolated private static func watchPaths(in root: URL) -> Set<String> {
+    let files = FileManager.default
+    let root = root.resolvingSymlinksInPath()
+    let keys: Set<URLResourceKey> = [.isSymbolicLinkKey]
+    let children = (try? files.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys))) ?? []
+    var paths: Set<String> = [root.path]
+    for child in children where (try? child.resourceValues(forKeys: keys).isSymbolicLink) == true {
+      guard let path = watchPath(for: child), !path.hasPrefix(root.path + "/") else { continue }
+      paths.insert(path)
+    }
+    return paths
+  }
+
+  nonisolated private static func watchPath(for link: URL) -> String? {
+    let files = FileManager.default
+    var directory: ObjCBool = false
+    if files.fileExists(atPath: link.path, isDirectory: &directory) {
+      return directory.boolValue ? link.resolvingSymlinksInPath().path : nil
+    }
+    // Foundation leaves a dangling link unresolved. Follow its destination to find the immediate parent.
+    var target = link
+    var seen: Set<String> = []
+    while let destination = try? files.destinationOfSymbolicLink(atPath: target.path) {
+      guard seen.insert(target.path).inserted else { return nil }
+      target = URL(filePath: destination, relativeTo: target.deletingLastPathComponent()).absoluteURL
+    }
+    guard target != link else { return nil }
+    let parent = target.deletingLastPathComponent().resolvingSymlinksInPath().path
+    guard parent != "/Volumes", files.fileExists(atPath: parent, isDirectory: &directory),
+      directory.boolValue
+    else { return nil }
+    return parent
   }
   /// The bundled extensions, then the user's: a folder of the user's own replaces the bundled one of the
   /// same name, unless it is an unmodified copy an earlier Wicket installed (`retired`).
@@ -187,6 +236,7 @@ final class ExtensionHost {
   }
   func shutdown() async {
     watcher = nil
+    watchRoots = nil
     scan?.cancel()
     let tasks = Array(running.values)
     for task in tasks { task.cancel() }
