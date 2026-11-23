@@ -67,6 +67,22 @@ private func convert(
   #expect(try await convert("100 usd * 3", in: folder) == nil)
 }
 
+@Test func convertUsesIndianGroupingForAmountsAndDisplayedRates() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  try writeCache(
+    convertSnapshot(observedOn: day(1), rates: rateFixture.merging(["INR": "100"]) { $1 }), in: folder)
+  let indian = ProviderRequest.NumberMarks.localized(Locale(identifier: "en_IN"))
+  let input = "1,00,000 INR to USD"
+  #expect(try bundled("units").manifest.matches(input))
+  #expect(try await convert(input, in: folder, marks: indian)?.title == "1,250.00 USD")
+  let result = try #require(await convert("1,00,00,000 INR to USD", in: folder, marks: indian))
+  #expect(result.title == "1,25,000.00 USD")
+  #expect(result.actions.first == .copy("125000.00 USD"))
+  #expect(try await convert("10000000 INR to USD", in: folder, marks: indian)?.title == result.title)
+  #expect(try await convert("10,000,000 INR to USD", in: folder, marks: indian) == nil)
+}
+
 @Test func convertHomeCurrencyResolvesAnOmittedTargetAndCurrencySymbols() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -226,16 +242,23 @@ private func serveRates(in folder: URL) throws -> (Process, String) {
   let nav = model.navigator
   let date = day(3)
   let payload = folder.appending(path: "rates.xml")
-  let xml = Data(
+  func feed(_ table: String) -> Data {
+    Data(
+      """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01"
+        xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">
+        <gesmes:subject>Reference rates</gesmes:subject>
+        <gesmes:Sender><gesmes:name>European Central Bank</gesmes:name></gesmes:Sender>
+        <Cube>\(table)</Cube>
+      </gesmes:Envelope>
+      """.utf8
+    )
+  }
+  let xml = feed(
     """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01">
-      <Cube><Cube time='\(date)'>
-      <Cube currency='USD' rate='1.25'/><Cube currency="JPY" rate="160"/>
-      </Cube></Cube>
-    </gesmes:Envelope>
-    """.utf8
-  )
+    <Cube time='\(date)'><Cube currency='USD' rate='1.25'/><Cube currency="JPY" rate="160"/></Cube>
+    """)
   try xml.write(to: payload)
   func requests() -> [String] {
     let log = try? String(contentsOf: folder.appending(path: "requests"), encoding: .utf8)
@@ -298,10 +321,14 @@ private func serveRates(in folder: URL) throws -> (Process, String) {
 
   nav.input = "100 usd to eur"
   await nav.settled()
-  nav.toggleActions()
-  let details = try #require(nav.results.first { $0.row.title == "Rate details" })
-  nav.runRow(details)
-  await nav.settled()
+  func openDetails() async throws {
+    nav.toggleActions()
+    let details = try #require(nav.results.first { $0.row.title == "Rate details" })
+    nav.runRow(details)
+    await nav.settled()
+  }
+  let conversion = try #require(nav.results.first?.row)
+  try await openDetails()
   let body = try #require(nav.body)
   let pair = try #require(body.range(of: "USD → EUR"))
   let usd = try #require(body.range(of: #"label="USD""#))
@@ -321,6 +348,27 @@ private func serveRates(in folder: URL) throws -> (Process, String) {
   #expect(nav.body?.contains("Could not download valid rates") == true)
   #expect(nav.body?.contains("USD → EUR") == true)
   #expect(try Data(contentsOf: cacheURL(in: folder)) == before)
+  let changedUSD = "<Cube currency='USD' rate='2.5'/>"
+  for (entries, trailing) in [
+    (changedUSD + "<Cube currency='JPY' rate='160'/", ""),
+    (changedUSD + "<Cube currency='JPY'/>", ""),
+    (changedUSD + changedUSD, ""),
+    (changedUSD, "<Cube time='\(date)'><Cube currency='JPY' rate='160'/></Cube>"),
+  ] {
+    try feed("<Cube time='\(date)'>\(entries)</Cube>\(trailing)").write(to: payload)
+    nav.run(refresh)
+    await nav.settled()
+    #expect(nav.body?.contains("Could not download valid rates") == true, "\(entries)\(trailing)")
+    #expect(nav.body?.contains(#"label="JPY""#) == true)
+    #expect(try Data(contentsOf: cacheURL(in: folder)) == before)
+  }
+  #expect(requests().count == 8)
+  #expect(nav.escape())
+  await nav.settled()
+  #expect(nav.body == nil && nav.input == "100 usd to eur")
+  #expect(nav.results.first?.row == conversion)
+  #expect(requests().count == 8)
+  try await openDetails()
   let back = try #require(nav.viewActions.first { $0.title == "Back to conversions" })
   nav.run(back)
   await nav.settled()

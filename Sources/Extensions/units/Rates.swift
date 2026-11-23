@@ -1,4 +1,5 @@
 import Darwin
+import libxml2
 
 private let byteLimit = 128 * 1024
 
@@ -139,57 +140,74 @@ struct RateSnapshot {
     return written == bytes.count && closed == 0 && rename(temporary, path) == 0
   }
 
-  /// The ECB feed has one dated Cube containing self-closing currency Cubes.
+  /// Parse the whole feed before reading its single dated rate table.
   static func ecbXML(_ bytes: [UInt8], at now: time_t, currencies: [String: Int]) -> Self? {
-    guard let xml = String(validating: bytes, as: UTF8.self),
-      xml.reversed().drop(while: \.isWhitespace).starts(with: "</gesmes:Envelope>".reversed())
+    let options = XML_PARSE_NONET.rawValue | XML_PARSE_NOERROR.rawValue | XML_PARSE_NOWARNING.rawValue
+    guard !bytes.contains(0), let parser = xmlNewParserCtxt() else { return nil }
+    defer { xmlFreeParserCtxt(parser) }
+    guard
+      let document = bytes.withUnsafeBytes({ raw in
+        xmlCtxtReadMemory(
+          parser, raw.bindMemory(to: CChar.self).baseAddress, Int32(raw.count), nil, "UTF-8", Int32(options))
+      })
     else { return nil }
-    func attribute(_ name: String, in text: inout Substring) -> String? {
-      guard text.first?.isWhitespace == true else { return nil }
-      text = text.drop(while: \.isWhitespace)
-      guard text.starts(with: name) else { return nil }
-      text = text.dropFirst(name.count).drop(while: \.isWhitespace)
-      guard text.first == "=" else { return nil }
-      text = text.dropFirst().drop(while: \.isWhitespace)
-      guard let quote = text.first, quote == "'" || quote == "\"",
-        let end = text.dropFirst().firstIndex(of: quote)
-      else { return nil }
-      let value = String(text.dropFirst()[..<end])
-      text = text[text.index(after: end)...]
-      return value
-    }
+    defer { xmlFreeDoc(document) }
+    guard parser.pointee.wellFormed == 1, parser.pointee.nsWellFormed == 1,
+      xmlGetIntSubset(document) == nil, let root = xmlDocGetRootElement(document)
+    else { return nil }
 
-    var date: String?
-    var rates: [String: Double] = [:]
-    var depth = 0
-    var closed = false
-    for part in xml.split(separator: "<") {
-      guard let end = part.firstIndex(of: ">") else { continue }
-      let tag = part[..<end]
-      guard tag.hasPrefix("Cube") || tag == "/Cube" else { continue }
-      if tag == "Cube", depth == 0, !closed {
-        depth = 1
-      } else if tag == "/Cube", depth > 0 {
-        depth -= 1
-        closed = depth == 0
-      } else {
-        var attributes = tag.dropFirst(4)
-        if depth == 1, date == nil, let day = attribute("time", in: &attributes),
-          attributes.allSatisfy(\.isWhitespace)
-        {
-          date = day
-          depth = 2
-        } else if depth == 2, let code = attribute("currency", in: &attributes), code != "EUR",
-          rates[code] == nil, let text = attribute("rate", in: &attributes), let value = rate(text),
-          attributes.drop(while: \.isWhitespace) == "/"
-        {
-          rates[code] = value
-        } else {
+    func namespace(_ node: xmlNodePtr) -> String? {
+      node.pointee.ns?.pointee.href.map { String(cString: $0) }
+    }
+    func name(_ node: xmlNodePtr) -> String { String(cString: node.pointee.name) }
+    func elements(in parent: xmlNodePtr) -> [xmlNodePtr]? {
+      var elements: [xmlNodePtr] = []
+      var child = parent.pointee.children
+      while let node = child {
+        child = node.pointee.next
+        if node.pointee.type == XML_ELEMENT_NODE {
+          elements.append(node)
+        } else if node.pointee.type != XML_COMMENT_NODE, xmlIsBlankNode(node) == 0 {
           return nil
         }
       }
+      return elements
     }
-    guard let date, closed else { return nil }
+    func attributes(of node: xmlNodePtr) -> [String: String]? {
+      var attributes: [String: String] = [:]
+      var next = node.pointee.properties
+      while let attribute = next {
+        next = attribute.pointee.next
+        guard attribute.pointee.ns == nil, let value = attribute.pointee.children,
+          value.pointee.type == XML_TEXT_NODE, value.pointee.next == nil, let text = value.pointee.content
+        else { return nil }
+        attributes[String(cString: attribute.pointee.name)] = String(cString: text)
+      }
+      return attributes
+    }
+
+    let gesmes = "http://www.gesmes.org/xml/2002-08-01"
+    guard name(root) == "Envelope", namespace(root) == gesmes, let children = elements(in: root) else {
+      return nil
+    }
+    let tables = children.filter { namespace($0) != gesmes || !["subject", "Sender"].contains(name($0)) }
+    guard tables.count == 1, let table = tables.first, name(table) == "Cube",
+      namespace(table) == nil || namespace(table) == "http://www.ecb.int/vocabulary/2002-08-01/eurofxref",
+      table.pointee.properties == nil, let days = elements(in: table), days.count == 1,
+      let day = days.first, name(day) == "Cube", namespace(day) == namespace(table),
+      let dateFields = attributes(of: day), dateFields.count == 1, let date = dateFields["time"],
+      let entries = elements(in: day)
+    else { return nil }
+
+    var rates: [String: Double] = [:]
+    for entry in entries {
+      guard name(entry) == "Cube", namespace(entry) == namespace(table),
+        elements(in: entry)?.isEmpty == true, let fields = attributes(of: entry), fields.count == 2,
+        let code = fields["currency"], code != "EUR", rates[code] == nil,
+        let text = fields["rate"], let value = rate(text)
+      else { return nil }
+      rates[code] = value
+    }
     return Self(label: ecb, base: "EUR", date: date, rates: rates, checked: now, currencies: currencies)
   }
 }

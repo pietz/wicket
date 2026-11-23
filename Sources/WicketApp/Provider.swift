@@ -21,9 +21,21 @@ struct ProviderRequest: Codable, Sendable, Equatable {
     var decimal: String
     /// Empty where the user's numbers have no grouping.
     var grouping: String
-    static var current: Self {
-      let locale = Locale.autoupdatingCurrent
-      return Self(decimal: locale.decimalSeparator ?? ".", grouping: locale.groupingSeparator ?? "")
+    var groupingSize: Int? = 3
+    var secondaryGroupingSize: Int? = 3
+
+    static var current: Self { localized(.autoupdatingCurrent) }
+
+    static func localized(_ locale: Locale) -> Self {
+      // FormatStyle does not expose the locale’s two grouping sizes.
+      let formatter = NumberFormatter()
+      formatter.locale = locale
+      formatter.numberStyle = .decimal
+      let primary = formatter.groupingSize
+      let secondary = formatter.secondaryGroupingSize
+      return Self(
+        decimal: locale.decimalSeparator ?? ".", grouping: locale.groupingSeparator ?? "",
+        groupingSize: primary, secondaryGroupingSize: secondary > 0 ? secondary : primary)
     }
   }
   init(
@@ -51,17 +63,20 @@ struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
   var actions: [RowAction]
+  /// Escape from this page reruns the same command with these field overrides.
+  var back: [String: String]?
 
-  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = []) {
+  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = [], back: [String: String]? = nil) {
     self.body = body
     self.items = items
     self.actions = actions
+    self.back = back
   }
 
   /// A JSON object with neither body nor items: nothing to show, which only a hidden run may answer
   /// (`Address.hidden`).
   struct Empty: Error {}
-  private enum CodingKeys: String, CodingKey { case body, items, actions }
+  private enum CodingKeys: String, CodingKey { case body, items, actions, back }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let body = try c.decodeIfPresent(String.self, forKey: .body)
@@ -71,7 +86,9 @@ struct ProviderView: Codable, Sendable, Equatable {
       throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
     }
     self.init(
-      body: body, items: items ?? [], actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? []
+      body: body, items: items ?? [],
+      actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [],
+      back: try c.decodeIfPresent([String: String].self, forKey: .back)
     )
   }
 }

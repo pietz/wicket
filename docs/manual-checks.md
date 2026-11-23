@@ -21,7 +21,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 ## 3. Calculator, Convert and Shell
 
 1. `12*7` shows 84 first with the rest of the list, Return copies it. `200 + 10%` is 220, `1,000 + 1` follows the locale, `1.2.3` shows no row. The first calculation after installing an update may lag once.
-2. `10 km to mi` and `20 c to k` convert. Search for `fx` to open Convert. With ECB rates available, `100 usd to eur` shows the observation date. Return copies the amount and code. Use ⌘K to open Rate details and refresh there. Back to conversions restores the amount.
+2. `10 km to mi` and `20 c to k` convert. Search for `fx` to open Convert. With ECB rates available, `100 usd to eur` shows the observation date. Return copies the amount and code. Use ⌘K to open Rate details and refresh there. Escape and Back to conversions both restore the list with the amount and query.
 3. `> touch /tmp/wicket-shell-test` shows one row and creates nothing until Return. Return on `> ls -la` closes Wicket and opens the default terminal in the home folder with a shell left open. `>` alone shows a hint and Return does nothing.
 
 ## 4. The agent

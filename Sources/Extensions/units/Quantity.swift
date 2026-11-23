@@ -30,10 +30,18 @@ func letter(_ character: Character) -> Bool {
 struct NumberMarks {
   let decimal: Character
   let grouping: Character?
+  private let groupingSize: Int
+  private let secondaryGroupingSize: Int
 
   init(_ locale: JSON?) {
+    func size(_ key: String) -> Int? {
+      guard case .number(let text)? = locale?[key], let value = Int(text), value > 0 else { return nil }
+      return value
+    }
     decimal = locale?["decimal"]?.string?.first ?? "."
     grouping = locale?["grouping"]?.string?.first
+    groupingSize = size("groupingSize") ?? 3
+    secondaryGroupingSize = size("secondaryGroupingSize") ?? groupingSize
   }
 
   func read(_ text: [Character]) -> Double? {
@@ -43,8 +51,9 @@ struct NumberMarks {
       let groups = grouping.map { whole.split(separator: $0, omittingEmptySubsequences: false) } ?? [whole]
       guard groups.allSatisfy({ $0.allSatisfy(digit) }) else { return nil }
       if groups.count > 1 {
-        guard let first = groups.first, (1...3).contains(first.count), first.first != "0",
-          groups.dropFirst().allSatisfy({ $0.count == 3 })
+        guard let first = groups.first, (1...secondaryGroupingSize).contains(first.count),
+          first.first != "0", groups.last?.count == groupingSize,
+          groups.dropFirst().dropLast().allSatisfy({ $0.count == secondaryGroupingSize })
         else { return nil }
       }
       if parts.count == 1 {
@@ -71,8 +80,9 @@ struct NumberMarks {
     let groups = grouped && !text.contains("e")
     var result = ""
     for (offset, character) in text.enumerated() {
-      if groups, let grouping, offset > start, offset < whole.count,
-        (whole.count - offset).isMultiple(of: 3)
+      let remaining = whole.count - offset
+      if groups, let grouping, offset > start, remaining >= groupingSize,
+        (remaining - groupingSize).isMultiple(of: secondaryGroupingSize)
       {
         result.append(grouping)
       }

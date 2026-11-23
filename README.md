@@ -44,7 +44,7 @@ Calculator uses base-10 `log`, radians for trigonometry, and a signed remainder 
 
 Results use your number format and show `≈` when rounded or approximate. Return copies the displayed precision with your decimal mark and without grouping. ⌘K offers **Paste Result**, **Use Result** to continue the calculation at the root, and **Copy Machine Number** when your decimal mark differs from a dot. Settings ▸ Extensions ▸ Calculator lets you choose an input decimal mark, an output format and precision. With locale input, `1,000` is a thousand only where the comma groups thousands.
 
-**Convert** length, mass, volume, speed and temperature work offline (`10 km in mi`). Currency conversions such as `100 usd to eur` use saved rates and show their source and date. Return copies a result with its unit or currency code, in your number format without grouping.
+**Convert** handles length, mass, volume, speed and temperature offline (`10 km in mi`). Currency conversions such as `100 usd to eur` use saved rates and show their source and date. Return copies a result with its unit or currency code, in your number format without grouping.
 
 Find Convert by name, `currency` or `fx`. Choose **Download exchange rates** when no rates are saved. Entering by name checks for updates if the last successful check was more than two days ago. Use ⌘K for **Rate details** and **Refresh rates**. In Settings ▸ Extensions ▸ Convert, set your home currency for queries like `100 usd` and symbols such as `$` and `¥`. Choose `file` and provide a [fixed rates JSON file](docs/extensions/convert.md#settings-and-rates), or choose `off` to use units only.
 

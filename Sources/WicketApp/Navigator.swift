@@ -1105,6 +1105,10 @@ final class Navigator {
       if agent.busy { agent.cancel() } else { arrive(command, input: "", back: true) }
       return true
     }
+    if let command, command.body != nil, let back = command.shown.view.back {
+      go(Address(fields: back), from: command.id)
+      return true
+    }
     if command != nil {
       arrive(nil, input: "", back: true)
       return true

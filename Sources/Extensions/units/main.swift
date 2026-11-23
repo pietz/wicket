@@ -185,7 +185,7 @@ struct Convert {
   }
 
   func page(_ lines: [String], actions: [String]) -> String {
-    #"{"body":\#(quoted(lines.joined(separator: "\n"))),"actions":[\#(actions.joined(separator: ","))]}"#
+    #"{"body":\#(quoted(lines.joined(separator: "\n"))),"actions":[\#(actions.joined(separator: ","))],"back":{"view":""}}"#
   }
 }
 
