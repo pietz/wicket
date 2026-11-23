@@ -377,22 +377,60 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   #expect(request.settings == ["gap": "8", "percent": "90", "enabled": "true", "layout": "left"])
 }
 
-@MainActor @Test func makeItMineCopiesABundledExtensionThatThenShadowsIt() async throws {
+@MainActor @Test(arguments: [false, true])
+func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) async throws {
   let root = try scratch()
-  defer { try? FileManager.default.removeItem(at: root) }
+  let files = FileManager.default
+  defer { try? files.removeItem(at: root) }
+  let local = root.appending(path: "extensions/window")
+  let userFile = local.appending(path: "user.json")
+  let move = Row(
+    id: "desk", title: "Desk",
+    actions: [
+      .run(
+        Address(
+          id: "extension:window",
+          fields: ["definition": #"{"kind":"move","placement":{"display":"current","rect":[0,0,0.5,1]}}"#],
+          action: "apply-definition", hidden: true))
+    ])
+  let saved = try JSONEncoder().encode(["items": [move]])
+  if withSavedMove {
+    try files.createDirectory(at: local, withIntermediateDirectories: true)
+    try saved.write(to: userFile)
+  }
   let host = ExtensionHost(folder: root, bundled: bundledExtensions)
   await host.reload()
-  let window = try #require(host.commands["extension:window"])
+  let id = "extension:window"
+  let window = try #require(host.commands[id])
   #expect(host.isBundled(window))
+  #expect(host.folderToReveal(window).path == (withSavedMove ? local : window.folder).path)
+  if withSavedMove {
+    #expect(host.ownFolder(id) == nil)
+    #expect(window.items.filter(\.isUserItem).map(\.id) == ["desk"])
+    let other = local.appending(path: ".keep")
+    let contents = Data("owner's file".utf8)
+    try contents.write(to: other)
+    #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
+    #expect(try Data(contentsOf: other) == contents)
+    #expect(try Data(contentsOf: userFile) == saved)
+    #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == ["user.json", ".keep"])
+    try files.removeItem(at: other)
+  }
+
   try host.makeMine(window)
   await host.reload()
-  let mine = try #require(host.commands["extension:window"])
+  let mine = try #require(host.commands[id])
+  #expect(!host.isBundled(mine))
+  #expect(mine.folder.resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
+  #expect(host.folderToReveal(mine) == mine.folder)
+  #expect(mine.manifest == window.manifest)
+  #expect(mine.items == window.items)
+  let bundledEntries = try files.contentsOfDirectory(atPath: window.folder.path)
   #expect(
-    !host.isBundled(mine)
-      && mine.folder.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path)
-      && mine.manifest == window.manifest)
-  #expect(FileManager.default.isExecutableFile(atPath: mine.folder.appending(path: "main").path))
-  // A folder of that name is never replaced.
+    Set(try files.contentsOfDirectory(atPath: local.path))
+      == Set(bundledEntries + (withSavedMove ? ["user.json"] : [])))
+  #expect(files.isExecutableFile(atPath: mine.folder.appending(path: "main").path))
+  if withSavedMove { #expect(try Data(contentsOf: userFile) == saved) }
   #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
 }
 

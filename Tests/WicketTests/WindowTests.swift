@@ -456,16 +456,33 @@ func apiDisabledOffersTheSameRecoveryAsTheHost(duringWrite: Bool) throws {
 @Test(
   arguments: [
     (nil, "Set fields.definition"),
-    (#"{"kind":"layout","placement":{"display":"current","rect":[0,0,1,1]}}"#, "kind to move"),
-    (#"{"kind":"move","placement":{"display":"primary","rect":[0,0,1,1]}}"#, "display UUID"),
+    ("{", "Set fields.definition"),
+    (#"{"placement":{}}"#, "Set kind to move"),
+    (#"{"kind":42}"#, "Set kind to move"),
+    (#"{"kind":"layout","placement":{}}"#, "Set kind to move"),
+    (#"{"kind":"move"}"#, "Set placement to an object"),
+    (#"{"kind":"move","placement":[]}"#, "Set placement to an object"),
     (
-      #"{"kind":"move","placement":{"display":"main","fallback":"primary","rect":[0,0,1,1]}}"#, "for fallback"
+      #"{"kind":"move","placement":{"rect":[0,0,1,1]}}"#,
+      "Set placement.display to current, main, next, or a display UUID"
     ),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1,1],"gap":-1}}"#, "0 to 200 points"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1]}}"#, "four fractions"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0.5,0,0.6,1]}}"#, "four fractions"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,0,1]}}"#, "positive sizes"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1e309,1]}}"#, "Set fields.definition"),
+    (#"{"kind":"move","placement":{"display":1,"rect":[0,0,1,1]}}"#, "Set placement.display"),
+    (#"{"kind":"move","placement":{"display":"primary","rect":[0,0,1,1]}}"#, "Set placement.display"),
+    (
+      #"{"kind":"move","placement":{"display":"main","fallback":1,"rect":[0,0,1,1]}}"#,
+      "Set placement.fallback"
+    ),
+    (
+      #"{"kind":"move","placement":{"display":"main","fallback":"primary","rect":[0,0,1,1]}}"#,
+      "Set placement.fallback"
+    ),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1,1],"gap":-1}}"#, "Set placement.gap"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1,1],"gap":"8"}}"#, "Set placement.gap"),
+    (#"{"kind":"move","placement":{"display":"main"}}"#, "Set placement.rect"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1]}}"#, "Set placement.rect"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0.5,0,0.6,1]}}"#, "Set placement.rect"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,0,1]}}"#, "Set placement.rect"),
+    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1e309,1]}}"#, "Set placement.rect"),
   ] as [(String?, String)])
 func invalidWindowDefinitionsGiveAClearRowWithoutTouchingWindows(definition: String?, hint: String) throws {
   let request = window.JSON.object([
@@ -524,6 +541,25 @@ func invalidWindowDefinitionsGiveAClearRowWithoutTouchingWindows(definition: Str
     .destination(for: current, displays: displays, defaultGap: 9).get()
   #expect(top.maxY == bottom.minY)
   #expect(top.union(bottom) == laptop.visible.insetBy(dx: 9, dy: 9))
+}
+
+@Test func unavailableWindowDisplaysNameBothSelectorsInTheFailureRow() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let primary = "01234567-89AB-CDEF-0123-456789ABCDEF"
+  let fallback = "FEDCBA98-7654-3210-FEDC-BA9876543210"
+  let placement = try Placement.decode(
+    #"{"kind":"move","placement":{"display":"\#(primary)","fallback":"\#(fallback)","rect":[0,0,1,1]}}"#
+  ).get()
+  let ax = FakeWindowAccessibility()
+  let failure = try #require(
+    perform(
+      .custom(placement), layout: Layout(), pid: 42, name: "Test App", commandName: "Window Manager",
+      displays: [laptop], recordsFile: folder.appending(path: "moves.txt"), ax: ax))
+  let row = try JSONDecoder().decode(Row.self, from: Data(failure.utf8))
+  #expect(row.title == "Can't apply window move")
+  #expect(row.subtitle == "Display \(primary) and fallback \(fallback) are unavailable")
+  #expect(ax.events == [.readFrame])
 }
 
 /// Use the same request dispatcher and move engine in the spawned child, with an in-memory AX adapter.

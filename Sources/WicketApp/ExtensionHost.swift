@@ -317,17 +317,49 @@ final class ExtensionHost {
   func isBundled(_ command: ExtensionCommand) -> Bool {
     command.folder.deletingLastPathComponent().standardizedFileURL.path == bundled?.standardizedFileURL.path
   }
-  /// Copies a bundled extension into the user's extensions folder, where it replaces the bundled one by
-  /// name. Refuses when a folder of that name is there.
+  func folderToReveal(_ command: ExtensionCommand) -> URL {
+    let local = folder.appending(path: "extensions/" + command.folder.lastPathComponent)
+    if isBundled(command), FileManager.default.fileExists(atPath: local.appending(path: "user.json").path) {
+      return local
+    }
+    return command.folder
+  }
+
+  /// Copies a bundled extension into the user's extensions folder, preserving any personal items.
   func makeMine(_ command: ExtensionCommand) throws {
+    let files = FileManager.default
     let name = command.folder.lastPathComponent
     let copy = folder.appending(path: "extensions/" + name)
-    guard !FileManager.default.fileExists(atPath: copy.path) else {
-      throw ExtensionFailure("Your extensions folder already has a folder named \(name).")
+    if files.fileExists(atPath: copy.path) {
+      guard try files.attributesOfItem(atPath: copy.path)[.type] as? FileAttributeType == .typeDirectory,
+        try files.contentsOfDirectory(atPath: copy.path) == ["user.json"]
+      else {
+        throw ExtensionFailure("Your extensions folder already has a folder named \(name).")
+      }
+
+      let staging = try files.url(
+        for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: copy, create: true)
+      defer { try? files.removeItem(at: staging) }
+      let staged = staging.appending(path: name)
+      try files.copyItem(at: command.folder, to: staged)
+      let entries = try files.contentsOfDirectory(at: staged, includingPropertiesForKeys: nil)
+      // Discovery switches to the local extension as soon as the manifest appears.
+      let manifest = staged.appending(path: "wicket.json")
+      var installed: [URL] = []
+      do {
+        for entry in entries.filter({ $0.lastPathComponent != "wicket.json" }) + [manifest] {
+          let destination = copy.appending(path: entry.lastPathComponent)
+          try files.moveItem(at: entry, to: destination)
+          installed.append(destination)
+        }
+      } catch {
+        for entry in installed { try? files.removeItem(at: entry) }
+        throw error
+      }
+    } else {
+      try files.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try files.copyItem(at: command.folder, to: copy)
     }
-    try FileManager.default.createDirectory(
-      at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try FileManager.default.copyItem(at: command.folder, to: copy)
     rescan()
   }
 

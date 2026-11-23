@@ -449,7 +449,9 @@ struct SettingsPane: View {
       if command != nil || own {
         HStack {
           if let command {
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([command.folder]) }
+            Button("Show in Finder") {
+              NSWorkspace.shared.activateFileViewerSelecting([extensions.folderToReveal(command)])
+            }
           }
           if let command, bundled {
             Button("Make It Mine") {
