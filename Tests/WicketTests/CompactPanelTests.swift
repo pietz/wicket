@@ -13,6 +13,12 @@ import Testing
   controller.showOnLaunch(nil, orderFront: false)
   await model.navigator.settled()
   #expect(controller.panel.frame.height > searchOnlyHeight)
+  controller.input.arm()
+  let nonCompactFeed = try #require(voice.feeds.last)
+  nonCompactFeed.finish(throwing: VoiceError.noMicrophone)
+  #expect(await eventually { controller.presentation.voiceStatus == VoiceError.noMicrophone.description })
+  #expect(controller.panel.frame.height > searchOnlyHeight)
+  #expect(controller.presentation.pillStatus == nil)
 
   controller.hide()
   try #require(model.store.change { try $0.set("compactOnOpen", to: true) })
@@ -30,10 +36,28 @@ import Testing
 
   controller.hide()
   controller.show(orderFront: false)
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  #expect(controller.presentation.pillStatus == "Starting voice…")
+  let compactFeed = try #require(voice.feeds.last)
+  compactFeed.yield(.ready)
+  #expect(await eventually { controller.presentation.pillStatus == "Listening…" })
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  compactFeed.yield(.transcript("App"))
+  #expect(await eventually { model.navigator.input == "App" })
   #expect(controller.panel.frame.height > searchOnlyHeight)
-  #expect(controller.presentation.voiceStatus == "Starting voice…")
-  voice.feeds.first?.finish()
-  #expect(await eventually { controller.panel.frame.height == searchOnlyHeight })
+  #expect(controller.presentation.pillStatus == nil)
+  controller.input.edit("")
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+
+  controller.input.arm()
+  let failedFeed = try #require(voice.feeds.last)
+  failedFeed.finish(throwing: VoiceError.noMicrophone)
+  #expect(await eventually { controller.presentation.pillStatus == VoiceError.noMicrophone.description })
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  _ = controller.handle(.move(1))
+  #expect(controller.panel.frame.height > searchOnlyHeight)
+  #expect(controller.presentation.pillStatus == nil)
+  #expect(controller.presentation.voiceStatus == VoiceError.noMicrophone.description)
 
   try await finishTurn(model, "A question", "An answer")
   controller.hide()
@@ -51,7 +75,7 @@ import Testing
   await next.finish()
 }
 
-@MainActor @Test func compactPanelExplainsARepairRowBelowTheVisibleApps() async throws {
+@MainActor @Test func compactPanelShowsRepairStatusInThePillAndRevealsItsRow() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let folder = try extensionFolder(root, name: "broken")
@@ -65,21 +89,35 @@ import Testing
   await model.extensions.reload()
   await model.navigator.settled()
 
+  let repair = "extension:broken needs repair"
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  #expect(controller.presentation.pillStatus == repair)
+
+  model.installProblem = "Could not install helper"
+  #expect(await eventually { controller.presentation.pillStatus == "Could not install helper" })
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  model.installProblem = nil
+  #expect(await eventually { controller.presentation.pillStatus == repair })
+
+  _ = controller.handle(.move(1))
   let shown = controller.presentation
   #expect(controller.panel.frame.height > searchOnlyHeight)
+  #expect(shown.pillStatus == nil && shown.footerMessage == repair)
   #expect(shown.rows.prefix(shown.sizedRows).allSatisfy { $0.provider == "apps" })
   #expect(shown.rows.last?.row.id == "discovery-error")
-  #expect(shown.footerMessage == "extension:broken needs repair")
-
-  // A live footer update must still leave the reason visible when its message clears.
-  model.installProblem = "Could not install helper"
-  #expect(await eventually { controller.presentation.footerMessage == "Could not install helper" })
-  model.installProblem = nil
-  #expect(await eventually { controller.presentation.footerMessage == "extension:broken needs repair" })
+  controller.input.edit("App")
+  await model.navigator.settled()
+  #expect(controller.panel.frame.height > searchOnlyHeight)
+  #expect(controller.presentation.rows.last?.row.id == "discovery-error")
+  #expect(controller.presentation.footerMessage == repair)
+  controller.input.edit("")
+  await model.navigator.settled()
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  #expect(controller.presentation.pillStatus == repair)
 
   try #require(model.store.change { try $0.setProvider("extension:broken", enabled: false) })
   await model.navigator.settled()
-  #expect(controller.presentation.footerMessage == nil)
+  #expect(controller.presentation.pillStatus == nil)
   #expect(controller.panel.frame.height == searchOnlyHeight)
   await controller.finish()
 }

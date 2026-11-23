@@ -247,6 +247,11 @@ struct LauncherView: View {
           // The free space after the slots belongs to the input.
           .contentShape(Rectangle())
           .onTapGesture { navigator.focusedField = nil }
+          if let status = shown.pillStatus {
+            Text(status).font(.system(size: 12)).foregroundStyle(.secondary)
+              .lineLimit(1).frame(maxWidth: PaletteLayout.width / 2, alignment: .trailing).fixedSize()
+              .help(status)
+          }
           if input.offersVoice {
             Button {
               input.toggle()

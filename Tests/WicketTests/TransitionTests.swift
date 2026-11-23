@@ -110,7 +110,7 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   await model.finish()
 }
 
-@MainActor @Test func compactRootShowsProblemsAndReopensAKeptConversation() async throws {
+@MainActor @Test func compactRootKeepsProblemsInThePillAndReopensAKeptConversation() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -123,15 +123,20 @@ private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
   #expect(!surface.presentation.showsCard)
 
   navigator.go(Address(id: "missing"))
-  #expect(
-    surface.presentation.showsCard && surface.presentation.footerProblem == "No extension named missing")
-  navigator.editInput("")
   #expect(!surface.presentation.showsCard)
+  #expect(surface.presentation.pillStatus == "No extension named missing")
+  navigator.editInput("")
+  #expect(!surface.presentation.showsCard && surface.presentation.pillStatus == nil)
 
   _ = try extensionFolder(root, name: "broken", script: "exit 1", fields: ["match": "^$"])
   await model.extensions.reload()
   await navigator.settled()
-  #expect(surface.presentation.showsCard && surface.presentation.rows.contains { $0.row.id == "error" })
+  #expect(!surface.presentation.showsCard)
+  #expect(surface.presentation.pillStatus?.hasSuffix(" failed") == true)
+  navigator.move(1)
+  #expect(surface.presentation.showsCard && surface.presentation.pillStatus == nil)
+  #expect(surface.presentation.rows.contains { $0.row.id == "error" })
+  navigator.dismiss()
   try FileManager.default.removeItem(at: root.appending(path: "extensions/broken"))
   await model.extensions.reload()
   await navigator.settled()

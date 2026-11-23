@@ -201,12 +201,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// A footer update can arrive without a screen change, even while the next page is being measured.
   private func updateFooter(_ problem: String?, voice: String?) {
     guard isOpen, problem != presentation.footerProblem || voice != presentation.voiceStatus else { return }
-    let showedCard = presentation.showsCard
     var updated = presentation
     updated.footerProblem = problem
     updated.voiceStatus = voice
     presentation = updated
-    if showedCard != updated.showsCard { resize() }
   }
   func prepare(_ page: Page, turn: String) async -> PageMeasurement {
     guard isOpen else { return .unmeasured }

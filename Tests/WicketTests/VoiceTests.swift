@@ -39,7 +39,7 @@ import Testing
   }
 }
 
-@MainActor @Test func compactRootShowsVoiceStatusAndDictatedInput() async throws {
+@MainActor @Test func compactRootKeepsVoiceStatusInThePillUntilDictationArrives() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -52,17 +52,22 @@ import Testing
     transcriber: { fake }, permissionFinished: {})
   #expect(!navigator.presentation.showsCard)
   input.arm()
-  #expect(navigator.presentation.showsCard && navigator.presentation.voiceStatus == "Starting voice…")
+  #expect(!navigator.presentation.showsCard && navigator.presentation.pillStatus == "Starting voice…")
+  fake.feeds[0].yield(.ready)
+  #expect(await eventually { navigator.presentation.pillStatus == "Listening…" })
+  #expect(!navigator.presentation.showsCard)
   fake.feeds[0].yield(.transcript("Search"))
   #expect(await eventually { navigator.input == "Search" })
+  #expect(navigator.presentation.showsCard && navigator.presentation.pillStatus == nil)
+  #expect(navigator.presentation.voiceStatus == "Listening…")
   input.stop(.key)
   #expect(navigator.presentation.showsCard && navigator.presentation.voiceStatus == nil)
   navigator.editInput("")
   #expect(!navigator.presentation.showsCard)
   input.arm()
   fake.feeds[1].finish(throwing: VoiceError.noMicrophone)
-  #expect(await eventually { navigator.presentation.voiceStatus == VoiceError.noMicrophone.description })
-  #expect(!input.speaking && navigator.presentation.showsCard)
+  #expect(await eventually { navigator.presentation.pillStatus == VoiceError.noMicrophone.description })
+  #expect(!input.speaking && !navigator.presentation.showsCard)
   await input.finish()
   await model.finish()
 }

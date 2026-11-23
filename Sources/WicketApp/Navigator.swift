@@ -182,10 +182,10 @@ final class Navigator {
     didSet { if confirmationHeight != oldValue { draw() } }
   }
   /// What the last action could not do, until the next action, the user's next input or the configuration
-  /// changing. Over a conversation it is the footer's line (`AgentPresentation.footer`), so it is drawn.
+  /// changing. Draw it with the conversation or the compact pill.
   var actionProblem: String? {
     didSet {
-      if actionProblem != oldValue, conversing || (actionProblem != nil && compactRoot) {
+      if actionProblem != oldValue, conversing || compactRoot {
         draw()
       }
     }
@@ -194,15 +194,15 @@ final class Navigator {
   /// Down reveals the empty root for this visit. Typing or hiding starts it over.
   private var revealedRootList = false
   private var rootListProblem: String?
-  private var wantsCompactRoot: Bool {
-    configuration.compactOnOpen && command == nil && !conversing && input.isEmpty
+  private var isCompactRootList: Bool {
+    configuration.compactOnOpen && command == nil && !conversing && overlay == nil && !inDetail
   }
-  /// A repair or error row can be below the visible list. Say why the empty root stayed open.
+  /// A repair or error row can be below the visible list.
   var compactRootProblem: String? {
-    wantsCompactRoot && composedInput.isEmpty ? rootListProblem : nil
+    isCompactRootList ? rootListProblem : nil
   }
   var compactRoot: Bool {
-    wantsCompactRoot && !revealedRootList && compactRootProblem == nil
+    isCompactRootList && input.isEmpty && !revealedRootList
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -353,7 +353,7 @@ final class Navigator {
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     defer {
-      if delta > 0, overlay == nil, !inDetail, compactRoot {
+      if delta > 0, compactRoot {
         revealedRootList = true
         draw()
       }

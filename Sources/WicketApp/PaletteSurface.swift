@@ -62,9 +62,8 @@ struct PalettePresentation: Equatable {
   var compactRootProblem: String?
   var footerMessage: String? { footerProblem ?? compactRootProblem }
   var voiceStatus: String?
-  var showsCard: Bool {
-    !compactRoot || footerProblem != nil || voiceStatus != nil || page != nil || actionsTitle != nil
-  }
+  var showsCard: Bool { !compactRoot }
+  var pillStatus: String? { showsCard ? nil : voiceStatus ?? footerMessage }
   /// What the arrow keys walk: the action panel's rows, the page's targets, else the list.
   var rows: [Result] = []
   var selection: String?
