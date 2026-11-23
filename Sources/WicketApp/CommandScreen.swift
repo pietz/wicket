@@ -104,6 +104,9 @@ enum CommandOutcome {
   /// The view's body as a page, with its items after it; nil for a list.
   private(set) var page: Page?
   private(set) var problem: String?
+  /// The page whose fields count: a failure keeps `page` for the next view but no longer shows its form,
+  /// so its fields neither check nor fill a request made from the error.
+  private var form: Page? { problem == nil ? page : nil }
   private(set) var busy = false
   private(set) var runningAction = false
   private(set) var runningSubmission = false
@@ -128,7 +131,7 @@ enum CommandOutcome {
     let overrides = address.fields ?? [:]
     if submitting, !replacingFields,
       let invalid = overrides.first(where: { name, value in
-        guard let field = page?.fields[name] else { return false }
+        guard let field = form?.fields[name] else { return false }
         return field.canonical(value) == nil
       })
     {
@@ -143,7 +146,7 @@ enum CommandOutcome {
       canvasEdits.removeAll()
     }
     for (name, value) in overrides where name != field?.name {
-      if submitting, !replacingFields, page?.fields[name] != nil {
+      if submitting, !replacingFields, form?.fields[name] != nil {
         page?.fill(name, with: value)
         canvasEdits[name] = nil
       } else {
@@ -159,7 +162,7 @@ enum CommandOutcome {
   func request() -> CommandScreenRequest {
     var fields = screen.fields
     if next != .address, !replacingFields {
-      fields.merge(page?.fields.mapValues(\.value) ?? [:]) { _, canvas in canvas }
+      fields.merge(form?.fields.mapValues(\.value) ?? [:]) { _, canvas in canvas }
     }
     if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
     return CommandScreenRequest(

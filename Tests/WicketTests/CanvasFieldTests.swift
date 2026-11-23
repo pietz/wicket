@@ -437,6 +437,44 @@ import WebKit
   await model.finish()
 }
 
+@MainActor @Test func canvasOverridesIgnoreAFormThatAFailureReplaced() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in *'"action":"break"'*) exit 7 ;; esac
+      cat <<'PAGE'
+      <field name="environment" type="choice" options="production=Production"/>
+      <row title="Break" run="break"/>
+      PAGE
+      """, fields: ["fields": [], "submit": true])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  let revision = try #require(surface.presentation.page?.targetRevision)
+  try #require(navigator.clickTarget("#0", revision: revision))
+  navigator.run()
+  await navigator.settled()
+  try #require(surface.presentation.page == nil)
+
+  // An item's hotkey for the same command: the form it would have checked is no longer shown.
+  navigator.open(
+    Address(extensionName: "test", fields: ["environment": "staging"], action: "deploy"), from: "test",
+    submitted: true)
+  await navigator.settled()
+  let last = try #require(try requests(in: folder).last)
+  #expect(last.action == "deploy")
+  #expect(last.fields["environment"] == "staging")
+  await model.finish()
+}
+
 @MainActor @Test func canvasSameCommandLinkCancelsTheSaveAndRunsImmediately() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
