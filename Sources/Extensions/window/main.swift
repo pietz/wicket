@@ -122,6 +122,16 @@ func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = 
   }
 }
 
+private func placementMatches(_ actual: CGRect, _ destination: CGRect) -> Bool {
+  // Allow a few character cells or a modest minimum size without accepting a misplaced window.
+  let horizontal = min(24, destination.width * 0.05)
+  let vertical = min(24, destination.height * 0.05)
+  return abs(actual.minX - destination.minX) <= horizontal
+    && abs(actual.maxX - destination.maxX) <= horizontal
+    && abs(actual.minY - destination.minY) <= vertical
+    && abs(actual.maxY - destination.maxY) <= vertical
+}
+
 // MARK: - Restore
 
 /// A move Wicket made: the app, the window's frame before and where it ended up (which the app may have
@@ -216,11 +226,12 @@ private struct SystemWindowAccessibility: WindowAccessibility {
 
   func frame(_ window: AXUIElement) -> (AXError, CGRect?) {
     let (positionError, position) = attribute(window, kAXPositionAttribute)
+    guard positionError == .success else { return (positionError, nil) }
     let (sizeError, extent) = attribute(window, kAXSizeAttribute)
-    if positionError == .apiDisabled || sizeError == .apiDisabled { return (.apiDisabled, nil) }
+    guard sizeError == .success else { return (sizeError, nil) }
     var origin = CGPoint.zero
     var size = CGSize.zero
-    guard positionError == .success, sizeError == .success, let position, let extent,
+    guard let position, let extent,
       CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(extent) == AXValueGetTypeID(),
       AXValueGetValue(position as! AXValue, .cgPoint, &origin),
       AXValueGetValue(extent as! AXValue, .cgSize, &size)
@@ -253,24 +264,30 @@ private struct SystemWindowAccessibility: WindowAccessibility {
 
 private func writeFrame<AX: WindowAccessibility>(
   _ destination: CGRect, to window: AX.Window, using ax: AX
-) -> (denied: Bool, actual: CGRect?) {
+) -> (denied: Bool, actual: CGRect?, cleanupError: AXError) {
   let (error, enhanced) = ax.enhancedUserInterface()
-  if error == .apiDisabled { return (true, nil) }
+  if error == .apiDisabled { return (true, nil, .success) }
   // Chromium and Electron can defer geometry changes while Enhanced User Interface is on.
-  defer { if enhanced { _ = ax.setEnhancedUserInterface(true) } }
-  if enhanced, ax.setEnhancedUserInterface(false) == .apiDisabled { return (true, nil) }
+  if enhanced, ax.setEnhancedUserInterface(false) == .apiDisabled { return (true, nil, .success) }
 
   // Shrink before moving to a smaller display and size again there, where the first size may not have fit.
   let firstSize = ax.setSize(destination.size, of: window)
   let position = ax.setPosition(destination.origin, of: window)
   let finalSize = ax.setSize(destination.size, of: window)
-  let (readback, actual) = ax.frame(window)
-  return ([firstSize, position, finalSize, readback].contains(.apiDisabled), actual)
+  var (readback, actual) = ax.frame(window)
+  if readback != .success, readback != .apiDisabled { (readback, actual) = ax.frame(window) }
+
+  var cleanupError = AXError.success
+  if enhanced {
+    cleanupError = ax.setEnhancedUserInterface(true)
+    if cleanupError == .cannotComplete { cleanupError = ax.setEnhancedUserInterface(true) }
+  }
+  return ([firstSize, position, finalSize, readback].contains(.apiDisabled), actual, cleanupError)
 }
 
 // MARK: - Main
 
-/// A row as JSON: why nothing moved.
+/// A status row as JSON.
 func row(_ title: String, icon: String, subtitle: String? = nil, actions: String = "[]") -> String {
   #"{"id":"status","title":\#(quoted(title)),"#
     + (subtitle.map { #""subtitle":\#(quoted($0)),"# } ?? "")
@@ -281,16 +298,18 @@ func problem(_ title: String, _ subtitle: String? = nil) -> String {
 }
 
 // Keep the recovery wording and action in step with the host's Accessibility gate.
-private func accessibilityProblem(_ commandName: String) -> String {
+private func accessibilityProblem(
+  _ commandName: String, title: String = "Allow Accessibility for Wicket"
+) -> String {
   row(
-    "Allow Accessibility for Wicket", icon: "lock",
+    title, icon: "lock",
     subtitle: "\(commandName) needs it. Already on? Remove Wicket there and add it again",
     actions:
       #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
   )
 }
 
-/// Returns a problem row when the requested frame could not be verified.
+/// Returns a problem row if placement or Accessibility cleanup needs attention.
 func perform<AX: WindowAccessibility>(
   _ move: Move, layout: Layout, pid: Int32, name: String, commandName: String,
   displays: @autoclosure () -> [Display], recordsFile: URL, ax: AX
@@ -312,6 +331,8 @@ func perform<AX: WindowAccessibility>(
   guard lock >= 0 else { return problem("Window Manager can't open its move history") }
   defer { close(lock) }
   guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { return problem("Another window move is in progress") }
+  // A fork can briefly inherit the descriptor even with O_CLOEXEC.
+  defer { flock(lock, LOCK_UN) }
 
   let (frameError, current) = ax.frame(window)
   if frameError == .apiDisabled { return accessibilityProblem(commandName) }
@@ -333,10 +354,20 @@ func perform<AX: WindowAccessibility>(
     destination = rect
   }
 
-  let (denied, actual) = writeFrame(destination, to: window, using: ax)
-  let failed = "\(name)'s window can't be moved"
-  guard let actual else { return denied ? accessibilityProblem(commandName) : problem(failed) }
-  let applied = framesMatch(actual, destination)
+  let (denied, actual, cleanupError) = writeFrame(destination, to: window, using: ax)
+  var cleanupWarning: String?
+  if cleanupError != .success {
+    let warning = "Couldn't re-enable Enhanced User Interface for \(name)"
+    cleanupWarning =
+      cleanupError == .apiDisabled || denied
+      ? accessibilityProblem(commandName, title: warning) : problem(warning)
+  }
+  guard let actual else {
+    return cleanupWarning
+      ?? (denied
+        ? accessibilityProblem(commandName) : problem("Couldn't verify \(name)'s final window position"))
+  }
+  let applied = move == .restore ? framesMatch(actual, destination) : placementMatches(actual, destination)
   let changed = actual != current
   if let restore, applied {
     records.remove(at: restore)
@@ -352,13 +383,14 @@ func perform<AX: WindowAccessibility>(
     let recordLimit = 50
     try? Data(format(records.suffix(recordLimit)).utf8).write(to: recordsFile, options: .atomic)
   }
+  if let cleanupWarning { return cleanupWarning }
   if denied { return accessibilityProblem(commandName) }
   if applied { return nil }
   if changed {
     let next = restore == nil ? "Use Restore to undo the change" : "Try Restore again"
     return problem("\(name)'s window only moved partway", next)
   }
-  return problem(failed)
+  return problem("\(name)'s window can't be moved")
 }
 
 @MainActor private func screenDisplays() -> [Display] {
@@ -395,9 +427,8 @@ if case .array(let range)? = manifest?["items"] {
   // The manifest's items without their brackets: the commands, written once.
   commands = String(String(decoding: manifestBytes[range], as: UTF8.self).dropFirst().dropLast())
 }
-// Only the user's choice moves a window; every other request is the list. A move that worked prints
-// nothing, since the window moving is the feedback (the items' runs are hidden); one that did not shows
-// why, which filtering the command replaces with the list again.
+// Only the user's choice moves a window; every other request is the list. The hidden run prints
+// nothing when the move and cleanup succeed, and otherwise shows a status row.
 var failure: String?
 if case .bool(true)? = request?["submitted"],
   let move = request?["action"]?.string.flatMap(Move.init(rawValue:))

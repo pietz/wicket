@@ -142,10 +142,12 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   var enhanced = false
   var applyPosition = true
   var applySize = true
+  var adjustedSize: CGSize?
   var positionError = AXError.success
   var sizeError = AXError.success
   var focusError = AXError.success
-  var readbackError = AXError.success
+  var readbackErrors: [AXError] = []
+  var reenableErrors: [AXError] = []
   var events: [Event] = []
 
   func focusedWindow() -> (AXError, Int?) {
@@ -153,15 +155,17 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   }
   func isFullScreen(_ window: Int) -> (AXError, Bool) { (.success, false) }
   func frame(_ window: Int) -> (AXError, CGRect?) {
-    let error = events.contains(.position) ? readbackError : .success
+    let error =
+      events.contains(.position) && !readbackErrors.isEmpty ? readbackErrors.removeFirst() : .success
     events.append(.readFrame)
     return (error, error == .success ? current : nil)
   }
   func enhancedUserInterface() -> (AXError, Bool) { (.success, enhanced) }
   func setEnhancedUserInterface(_ enabled: Bool) -> AXError {
     events.append(.enhanced(enabled))
-    enhanced = enabled
-    return .success
+    let error = enabled && !reenableErrors.isEmpty ? reenableErrors.removeFirst() : .success
+    if error == .success { enhanced = enabled }
+    return error
   }
   func setPosition(_ position: CGPoint, of window: Int) -> AXError {
     events.append(.position)
@@ -170,11 +174,12 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   }
   func setSize(_ size: CGSize, of window: Int) -> AXError {
     events.append(.size)
-    if !enhanced, applySize, sizeError == .success { current.size = size }
+    if !enhanced, applySize, sizeError == .success { current.size = adjustedSize ?? size }
     return sizeError
   }
 
   func move(_ move: Move, in folder: URL, commandName: String = "Window Manager") throws -> Row? {
+    events.removeAll()
     let failure = perform(
       move, layout: Layout(), pid: 42, name: "Test App", commandName: commandName, displays: [laptop],
       recordsFile: folder.appending(path: "moves.txt"), ax: self)
@@ -211,21 +216,92 @@ private func moveRecords(in folder: URL) throws -> [Record] {
   #expect(ax.events.isEmpty && ax.enhanced)
 }
 
-@Test(arguments: [false, true])
-func enhancedInterfaceStaysOffThroughReadbackAndIsRestoredAfterward(failReadback: Bool) throws {
+@Test(arguments: [752, 776])
+func stockMovesAcceptGridSnappingAndModestMinimumWidths(width: Int) throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  // Left Half asks for 756 points. A terminal can snap to 752, or an app can require 776.
+  let adjusted = CGRect(x: 0, y: 33, width: width, height: 859)
+  ax.adjustedSize = adjusted.size
+  let first = try ax.move(.left, in: folder)
+  #expect(first == nil, "\(first?.title ?? "")")
+  #expect(ax.current == adjusted)
+  let repeated = try ax.move(.left, in: folder)
+  #expect(repeated == nil, "\(repeated?.title ?? "")")
+  #expect(
+    try moveRecords(in: folder) == [
+      Record(pid: 42, before: FakeWindowAccessibility.original, after: adjusted)
+    ])
+
+  ax.adjustedSize = nil
+  let restored = try ax.move(.restore, in: folder)
+  #expect(restored == nil, "\(restored?.title ?? "")")
+  #expect(ax.current == FakeWindowAccessibility.original)
+}
+
+@Test func aRefusedResizeThatLeavesAnEdgeFarFromTheTargetIsPartial() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = CGRect(x: 100, y: 33, width: 900, height: 859)
+  ax.current = original
+  ax.applySize = false
+  #expect(try ax.move(.left, in: folder)?.title == "Test App's window only moved partway")
+  let partial = CGRect(x: 0, y: 33, width: 900, height: 859)
+  #expect(ax.current == partial)
+  #expect(try ax.move(.left, in: folder)?.title == "Test App's window can't be moved")
+  #expect(try moveRecords(in: folder) == [Record(pid: 42, before: original, after: partial)])
+}
+
+@Test(arguments: [0, 1, 2])
+func enhancedInterfaceStaysOffThroughReadbackAndIsRestoredAfterward(readbackFailures: Int) throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let ax = FakeWindowAccessibility()
   ax.enhanced = true
-  if failReadback { ax.readbackError = .cannotComplete }
+  ax.readbackErrors = Array(repeating: .cannotComplete, count: readbackFailures)
   let result = try ax.move(.left, in: folder)
-  #expect((result != nil) == failReadback)
   #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop]))
   #expect(ax.enhanced)
-  #expect(ax.events == [.readFrame, .enhanced(false), .size, .position, .size, .readFrame, .enhanced(true)])
-  if failReadback {
+  let reads: [FakeWindowAccessibility.Event] =
+    readbackFailures == 0 ? [.readFrame] : [.readFrame, .readFrame]
+  #expect(ax.events == [.readFrame, .enhanced(false), .size, .position, .size] + reads + [.enhanced(true)])
+  if readbackFailures == 2 {
+    #expect(result?.title == "Couldn't verify Test App's final window position")
     #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "moves.txt").path))
+  } else {
+    #expect(result == nil)
+    #expect(
+      try moveRecords(in: folder) == [
+        Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current)
+      ])
   }
+}
+
+@Test(arguments: [AXError.success, .cannotComplete, .apiDisabled])
+func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXError) throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  ax.enhanced = true
+  ax.reenableErrors = [.cannotComplete, resultOfRetry]
+  let result = try ax.move(.left, in: folder)
+  #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop]))
+  #expect(ax.events.suffix(3) == [.readFrame, .enhanced(true), .enhanced(true)])
+  #expect(ax.enhanced == (resultOfRetry == .success))
+  if resultOfRetry == .success {
+    #expect(result == nil)
+  } else {
+    #expect(result?.title == "Couldn't re-enable Enhanced User Interface for Test App")
+    if resultOfRetry == .apiDisabled {
+      #expect(result?.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
+    }
+  }
+  #expect(
+    try moveRecords(in: folder) == [
+      Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current)
+    ])
 }
 
 @Test func restoreUsesTheObservedPartialMoveAndCanRetryAPartialRestore() throws {
