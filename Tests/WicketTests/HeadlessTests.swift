@@ -130,6 +130,24 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(Set(bundledData).isSubset(of: Set(data)))
 }
 
+@Test func headlessQueryFindsUserItemsForABundledExtensionWithoutAManifest() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let local = root.appending(path: "extensions/window")
+  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+  try Data(
+    #"""
+    {"items":[{"id":"coding","title":"Coding layout","actions":[{"type":"run","action":"left","hidden":true}]}]}
+    """#.utf8
+  ).write(to: local.appending(path: "user.json"))
+  try saveProviders([.init("extension:window")], in: root)
+
+  let (status, result) = try await cli(root, ["--query", "Coding layout"])
+  #expect(status == 0)
+  let item = try #require(result["items"].array.first { $0["provider"].string == "extension:window" })
+  #expect(item["row"]["id"].string == "user-item:coding")
+}
+
 @Test func headlessQueryUsesOnlyEnabledSourcesAndExtensionRunsEvenWhenOff() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }

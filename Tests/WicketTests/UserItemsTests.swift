@@ -79,17 +79,24 @@ private let userLayout =
   {"items":[{"id":"work","title":"My layout","actions":[{"type":"run","action":"my-layout","hidden":true}]}]}
   """#
 
-@MainActor @Test func stockAndUserItemsWithTheSameIDKeepSeparateRowsAndHotkeys() async throws {
+@MainActor @Test(arguments: [false, true])
+func stockAndUserItemsWithTheSameIDKeepSeparateRowsAndHotkeys(_ builtIn: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let folder = try mover(in: root)
-  try Data(userLayout.utf8).write(to: folder.appending(path: "user.json"))
-  let model = LauncherModel.testing(in: root, bundled: nil)
+  let folder = try mover(in: builtIn ? root.appending(path: "bundle") : root)
+  let local = root.appending(path: "extensions/mover")
+  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+  try Data(userLayout.utf8).write(to: local.appending(path: "user.json"))
+  let model = LauncherModel.testing(in: root, bundled: builtIn ? folder.deletingLastPathComponent() : nil)
   model.store.start(watching: false)
   let surface = RecordingSurface()
   surface.shown = false
   model.navigator.surface = surface
   await model.extensions.reload()
+  let command = try #require(model.extensions.commands["extension:mover"])
+  #expect(model.extensions.ids == [command.id])
+  #expect(model.extensions.isBundled(command) == builtIn)
+  #expect((model.extensions.ownFolder(command.id) == nil) == builtIn)
 
   model.navigator.input = "layout"
   await model.navigator.settled()
@@ -122,12 +129,18 @@ private let userLayout =
   await model.finish()
 }
 
-@MainActor @Test(arguments: ["{", #"{"items":[],"settings":{}}"#, #"{"items":null}"#])
-func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String) async throws {
+@MainActor @Test(arguments: ["{", #"{"items":[],"settings":{}}"#, #"{"items":null}"#], [false, true])
+func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String, _ builtIn: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  try Data(json.utf8).write(to: links(in: root))
-  let model = LauncherModel.testing(in: root, bundled: nil)
+  let stock = builtIn ? root.appending(path: "bundle") : root
+  _ = try links(in: stock)
+  let local = root.appending(path: "extensions/links")
+  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+  let userFile = local.appending(path: "user.json")
+  try Data(json.utf8).write(to: userFile)
+  let model = LauncherModel.testing(
+    in: root, bundled: builtIn ? stock.appending(path: "extensions") : nil)
   await model.extensions.reload()
 
   let id = "extension:links"
@@ -138,7 +151,9 @@ func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String) as
   #expect(Set(rows.map(\.row.id)) == ["item:stock", "discovery-error"])
   let repairs = rows.filter { $0.row.id == "discovery-error" }
   #expect(repairs.count == 1 && repairs.first?.row.subtitle == "Invalid user.json")
-  #expect(model.extensions.problems[id]?.contains("/links/user.json") == true)
+  #expect(
+    model.extensions.problems[id]?.contains("/\(root.lastPathComponent)/extensions/links/user.json\n") == true
+  )
 
   model.navigator.go(Address(id: id))
   await model.navigator.settled()
@@ -147,11 +162,18 @@ func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String) as
   await model.finish()
 }
 
-@MainActor @Test func watchingUserItemsRefreshesTheRootAndAnOpenCommand() async throws {
+@MainActor @Test(arguments: [false, true])
+func watchingUserItemsRefreshesTheRootAndAnOpenCommand(_ builtIn: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let userFile = try links(in: root)
-  let model = LauncherModel.testing(in: root, bundled: nil)
+  let stock = builtIn ? root.appending(path: "bundle") : root
+  _ = try links(in: stock)
+  let local = root.appending(path: "extensions/links")
+  try FileManager.default.createDirectory(
+    at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+  let userFile = local.appending(path: "user.json")
+  let model = LauncherModel.testing(
+    in: root, bundled: builtIn ? stock.appending(path: "extensions") : nil)
   model.extensions.start()
   await model.extensions.firstScan()
 
@@ -159,6 +181,7 @@ func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String) as
   await model.navigator.settled()
   #expect(model.extensions.problems.isEmpty)
   #expect(model.navigator.results.contains { $0.row.id == "item:stock" })
+  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
   try savedBookmark().write(to: userFile, options: .atomic)
   #expect(
     await eventually(within: .seconds(3)) {
@@ -166,12 +189,27 @@ func invalidUserItemsShowOneRepairWhileManifestItemsStillWork(_ json: String) as
     })
 
   model.navigator.go(Address(id: "extension:links"))
-  try savedBookmark(title: "New bookmark").write(to: userFile, options: .atomic)
+  try savedBookmark(title: "New bookmark").write(to: userFile)
   #expect(await eventually(within: .seconds(3)) { model.navigator.results.last?.row.title == "New bookmark" })
   try FileManager.default.removeItem(at: userFile)
   #expect(await eventually(within: .seconds(3)) { model.navigator.results.map(\.row.id) == ["stock"] })
   #expect(model.extensions.problems.isEmpty)
   await model.finish()
+}
+
+@MainActor @Test func aLocalManifestReplacesTheBundledManifestAndKeepsTheUserItems() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let bundledRoot = root.appending(path: "bundle")
+  _ = try links(in: bundledRoot)
+  try savedBookmark().write(to: links(in: root, stockID: "local"))
+  let host = ExtensionHost(folder: root, bundled: bundledRoot.appending(path: "extensions"))
+  await host.reload()
+
+  let command = try #require(host.commands["extension:links"])
+  #expect(!host.isBundled(command))
+  #expect(command.items.map(\.id) == ["local", "saved"])
+  #expect(host.problems.isEmpty)
 }
 
 @MainActor @Test(arguments: ["saved", ""])

@@ -71,7 +71,7 @@ What the parser needs:
 You run in Wicket's working folder, `{{folder}}`. Everything the user can set or do in Wicket is a plain file here, so you can do it for them:
 
 - `{{contract}}`: the extension contract: manifests, typed fields, requests, views, actions, hotkeys and testing. Read it before writing or changing an extension or a hotkey; it also names the examples and the built-in extensions to learn from. Convert (folder `units`) already handles single unit and currency quantities. For saving a window placement or binding it to a shortcut, follow the Window Manager recipe.
-- `{{extensions}}`: one folder per extension, live as soon as it appears.
+- `{{extensions}}`: live extension folders, including personal items for built-ins as described in the contract.
 - `{{config}}`: Wicket's settings, reloaded live. Set `"compactOnOpen": true` to open with just the search field when the empty root has nothing to report.
 - `{{executable}}`: the Wicket executable, for the contract's headless tests.
 - `instructions.md` and `theme.css` in the working folder: the owner's own standing instructions, appended to these, and the stylesheet that restyles answers and extension pages.

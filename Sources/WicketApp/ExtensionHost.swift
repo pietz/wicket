@@ -218,47 +218,52 @@ final class ExtensionHost {
     paths.insert(directory.path)
     return paths
   }
-  /// The bundled extensions, then the user's: a folder of the user's own replaces the bundled one of the
-  /// same name. An unmodified copy an earlier Wicket installed (`retired`) supplies only user.json.
+  /// A local manifest replaces the bundled one of the same name, except for retired copies.
+  /// User items always come from the working folder.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
     [String: ExtensionCommand], [String: String]
   ) {
     var commands: [String: ExtensionCommand] = [:]
     var problems: [String: String] = [:]
-    // The folders holding a wicket.json, linked ones too. Listing does not follow a linked root itself.
-    func folders(_ root: URL?) -> [URL] {
+    // Listing does not follow a linked root itself.
+    func entries(_ root: URL?) -> [URL] {
       guard let root = root?.resolvingSymlinksInPath() else { return [] }
-      return ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
-        .filter { FileManager.default.fileExists(atPath: $0.appending(path: "wicket.json").path) }
+      return (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
     }
-    let shipped = folders(bundled)
-    let shippedNames = Set(shipped.map(\.lastPathComponent))
-    var retiredFolders: [String: URL] = [:]
-    let own = folders(root).filter { folder in
-      let name = folder.lastPathComponent
-      guard shippedNames.contains(name), isRetired(folder) else { return true }
-      retiredFolders[name] = folder
-      return false
+    func hasManifest(_ folder: URL) -> Bool {
+      FileManager.default.fileExists(atPath: folder.appending(path: "wicket.json").path)
     }
-    for folder in shipped + own {
-      let id = "extension:" + folder.lastPathComponent
-      (commands[id], problems[id]) = (nil, nil)
+    var discovered: [String: (folder: URL, userFolder: URL?)] = [:]
+    for folder in entries(bundled) where hasManifest(folder) {
+      discovered[folder.lastPathComponent] = (folder, nil)
+    }
+    for local in entries(root) {
+      let name = local.lastPathComponent
+      if hasManifest(local), discovered[name] == nil || !isRetired(local) {
+        discovered[name] = (local, local)
+      } else {
+        discovered[name]?.userFolder = local
+      }
+    }
+    for (name, (folder, userFolder)) in discovered {
+      let id = "extension:" + name
       // Addresses name these host targets, so a folder of that name could never be reached.
-      if Address.reserved.contains(folder.lastPathComponent.lowercased()) {
-        problems[id] = "\(folder.path)\n\(folder.lastPathComponent) is a reserved name. Rename the folder."
+      if Address.reserved.contains(name.lowercased()) {
+        problems[id] = "\(folder.path)\n\(name) is a reserved name. Rename the folder."
         continue
       }
       do {
         let manifest = try JSONDecoder().decode(
           ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
-        let userFolder = retiredFolders[folder.lastPathComponent] ?? folder
-        let userFile = userFolder.appending(path: "user.json")
         var userItems: [Row] = []
-        do {
-          userItems = try ExtensionManifest.userItems(in: userFile)
-        } catch {
-          let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
-          problems[id] = "\(userFile.path)\nInvalid user.json: \(reason)"
+        if let userFile = userFolder?.appending(path: "user.json") {
+          do {
+            userItems = try ExtensionManifest.userItems(in: userFile)
+          } catch {
+            let reason =
+              (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
+            problems[id] = "\(userFile.path)\nInvalid user.json: \(reason)"
+          }
         }
         commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
       } catch let contract as ExtensionManifest.ContractError {

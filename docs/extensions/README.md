@@ -18,7 +18,7 @@ Tier 2, not yet specified: Snippets, Capture, Processes & Ports, and Monitor. Cl
 
 ## Decisions every spec follows
 
-**Everything about an extension lives in its folder.** The user's additions, such as bookmarks, site searches, window layouts or calculator constants, go in a `user.json` beside the extension's `wicket.json`. Wicket reads both. Catalog updates replace the extension's own files and never touch `user.json`, and the agent always knows where to write. Settings stay in Wicket's single `config.json`; `user.json` holds content, never settings. Secrets never go in either file: an extension that needs a key reads it from the Keychain.
+The user's additions, such as bookmarks, site searches, window layouts or calculator constants, go in `extensions/<name>/user.json` in the working folder. Installed extensions keep `wicket.json` there too. Built-ins use the manifest in the app bundle. Catalog updates replace the extension's own files and never touch `user.json`. Settings stay in Wicket's single `config.json`. An extension that needs a key reads it from the Keychain.
 
 **Existing mechanisms first.** A hotkey, a saved definition or a custom action is a manifest item with a `run` action, `hidden` where its effect is its own feedback. A spec adds a core mechanism only when items, `run`, fields and pages cannot do the job, and only with two real users.
 
