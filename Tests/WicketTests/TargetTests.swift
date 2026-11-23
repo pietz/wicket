@@ -161,7 +161,9 @@ import Testing
     html.contains(##"<div data-target="#2""##) && html.components(separatedBy: "</pre>\n</div>").count == 3)
   // Without the page's ids the same Markdown has no button; an author's own tags never make one.
   #expect(!AnswerMarkdown.html(page.source).contains("<div"))
-  #expect(AnswerMarkdown.html(##"<div target="#0"><button>x</button></div>"##).contains("<w-div"))
+  #expect(
+    AnswerMarkdown.html(##"<div target="#0"><button>x</button></div>"##)
+      .contains("&lt;div target=&quot;#0&quot;&gt;&lt;button&gt;x&lt;/button&gt;&lt;/div&gt;"))
   // Still streaming, a block is no target; beside a list, none is.
   #expect(Page(body: "```sh\ndu -ah", runs: false).targets.isEmpty)
   #expect(Page(body: "```sh\nls\n```", runs: false, copies: false).targets.isEmpty)

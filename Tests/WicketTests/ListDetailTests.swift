@@ -105,14 +105,14 @@ import Testing
       decoding: try JSONEncoder().encode(
         Row(id: "b", title: "B", actions: [], picture: URL(filePath: "/tmp/b.png"))), as: UTF8.self
     ).contains("picture"))
-  // Markdown images and HTML images in a detail never reach the page.
+  // Markdown images are omitted and HTML image tags display as text.
   let detail =
     "![x](data:image/png;base64,iVBORw0KGgo=)\n\n<img src=\"data:image/png;base64,iVBORw0KGgo=\">\n\n<row title=\"T\" icon=\"url(data:x)\"/>"
   let page = Page(body: detail, runs: true)
   #expect(page.picture == nil)
   let html = AnswerMarkdown.html(page.source, streaming: false)
-  // Raw HTML becomes an inert element whose attributes are data.
-  #expect(!html.contains("<img") && !html.contains(" src="))
+  #expect(!html.contains("<img"))
+  #expect(html.contains("&lt;img src=&quot;data:image/png;base64,iVBORw0KGgo=&quot;&gt;"))
   #expect(!PageIcons.stylesheet(for: page).contains("data:image/png;base64,iVBOR"))
   #expect(await PageIcons.picture(page.picture) == "")
 }

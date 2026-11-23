@@ -43,7 +43,6 @@ Take these cuts, in this order: one voice failure category with its OS code and 
 Not yet ordered; each takes its place after the steps above.
 
 - Add one Run agent entry to ⌘K, available even with no selection.
-- Enforce the answer-tag allowlist. Unknown tags display as literal text.
 - Add canvas text fields after offscreen tests of Tab and Shift-Tab, Japanese IME and caret through a re-render.
 - Ship and update layout and components in `core.css` and allow an advanced user override. Keep user tokens in `theme.css`, migrate existing themes and retain system-derived row and selection colours.
 - Add Allow for this conversation as the third agent permission choice, alongside Allow once and Don't allow.

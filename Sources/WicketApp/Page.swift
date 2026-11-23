@@ -168,7 +168,7 @@ struct Page: Equatable, Sendable {
 
   /// The tags a page reads and what each shows; its icon comes separately. Rows and tiles are items
   /// that can be targets, bars and badges are items that only show, and columns and cards contain.
-  private static let slots: [String: Set<String>] = [
+  static let slots: [String: Set<String>] = [
     "row": ["label", "title", "subtitle", "value"], "tile": ["label", "title", "subtitle", "value"],
     "progress": ["label", "value", "percent"], "badge": ["label", "tone"], "columns": [], "card": [],
     "field": ["name"],

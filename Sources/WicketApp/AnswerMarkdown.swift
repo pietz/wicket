@@ -6,8 +6,8 @@ import cmark_gfm_extensions
 /// cmark owns Markdown. Only controls resolved from the host's Page can produce interactive HTML.
 enum AnswerMarkdown {
   private static let lock = Mutex(())
-  static let tags = try! NSRegularExpression(
-    pattern: #"^</?([a-z][a-z0-9-]{0,63})(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?/?>$"#)
+  private static let tags = try! NSRegularExpression(
+    pattern: #"^</?([A-Za-z][A-Za-z0-9_-]*)(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?/?>$"#)
   static let attributes = try! NSRegularExpression(
     pattern: #"([a-z][a-z0-9-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>]+))"#)
   static func escape(_ value: String) -> String {
@@ -21,7 +21,7 @@ enum AnswerMarkdown {
     let text: String
     let closed: Bool
   }
-  /// A tag outside code: where it stands in the source (UTF-8 offsets), its name and its attributes.
+  /// A Wicket tag outside code: its range in the source (UTF-8 offsets), name and attributes.
   struct Tag {
     let range: Range<Int>
     let name: String
@@ -277,16 +277,19 @@ enum AnswerMarkdown {
         continue
       }
       let name = ns.substring(with: match.range(at: 1))
-      guard !name.hasPrefix("w-") else {
-        i = end + 1
-        continue
-      }
       keep(cursor..<i)
       cursor = end + 1
       i = cursor
       // To find the code, a word in the tag's place, which breaks no code span, is enough.
       if inline {
         add(nonce)
+        continue
+      }
+      // Keep the whole literal intact, including any Markdown punctuation in its attributes.
+      guard Page.slots[name] != nil else {
+        let key = nonce + "L\(cursor)END"
+        add(key)
+        if markup { result.tokens[key] = escape(original) }
         continue
       }
       let closing = original.hasPrefix("</")
@@ -296,8 +299,6 @@ enum AnswerMarkdown {
         Tag(
           range: (cursor - original.utf8.count)..<cursor, name: name, values: values, closing: closing,
           selfClosing: selfClosing))
-      // Wicket groups repeated tags itself; an explicit group tag adds nothing.
-      if wrappers.contains(name) { continue }
       let key = nonce + "T\(result.tags.count)END"
       if name == "field", markup {
         if !streaming, selfClosing, !closing, let name = values.first(where: { $0.0 == "name" })?.1,
@@ -367,10 +368,14 @@ enum AnswerMarkdown {
     var breaks: [UnsafeMutablePointer<cmark_node>] = []
     let copies = Dictionary(code.map { ($0.start, $0.id) }) { first, _ in first }
     var copied: [(node: UnsafeMutablePointer<cmark_node>, id: String)] = []
+    var rawHTML: [(node: UnsafeMutablePointer<cmark_node>, block: Bool)] = []
     while cmark_iter_next(iterator) != CMARK_EVENT_DONE {
       guard cmark_iter_get_event_type(iterator) == CMARK_EVENT_ENTER, let node = cmark_iter_get_node(iterator)
       else { continue }
       let type = cmark_node_get_type(node)
+      if type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE {
+        rawHTML.append((node, type == CMARK_NODE_HTML_BLOCK))
+      }
       if type == CMARK_NODE_IMAGE { cmark_node_set_url(node, "") }
       if type == CMARK_NODE_LINK, !AnswerLink.allowed(URL(string: String(cString: cmark_node_get_url(node))))
       {
@@ -392,6 +397,19 @@ enum AnswerMarkdown {
       cmark_node_insert_before(soft, cmark_node_new(CMARK_NODE_LINEBREAK))
       cmark_node_free(soft)
     }
+    // cmark can still find raw HTML outside our tag syntax or beyond the tag size limit.
+    for (node, block) in rawHTML {
+      let literal = cmark_node_new(CMARK_NODE_TEXT)!
+      cmark_node_set_literal(literal, cmark_node_get_literal(node))
+      if block {
+        let paragraph = cmark_node_new(CMARK_NODE_PARAGRAPH)!
+        cmark_node_append_child(paragraph, literal)
+        cmark_node_replace(node, paragraph)
+      } else {
+        cmark_node_replace(node, literal)
+      }
+      cmark_node_free(node)
+    }
     /// A paragraph holding only a token, which the paragraph rule below unwraps.
     func paragraph(_ markup: String) -> UnsafeMutablePointer<cmark_node> {
       let paragraph = cmark_node_new(CMARK_NODE_PARAGRAPH)!
@@ -400,8 +418,7 @@ enum AnswerMarkdown {
       cmark_node_append_child(paragraph, text)
       return paragraph
     }
-    // A code target is the block in a box with the copy button, which only the host writes: an author's
-    // tags all become w- elements, so no tag can make a div or a button.
+    // A code target is the block in a box with the copy button, which only the host writes.
     for (node, id) in copied {
       cmark_node_insert_before(
         node,
@@ -420,7 +437,7 @@ enum AnswerMarkdown {
     result = paragraphs.stringByReplacingMatches(
       in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
     let ns = result as NSString
-    let positions = try! NSRegularExpression(pattern: "<[^>]*>|" + token)
+    let positions = try! NSRegularExpression(pattern: "<[^>]*>|" + nonce + "[LT][0-9]+END")
     var pieces: [String] = []
     var cursor = 0
     // Restore text positions only, never tokens inside an HTML attribute produced by cmark.
@@ -477,8 +494,6 @@ enum AnswerMarkdown {
 
   /// The tags a run of which Wicket groups, and the element that holds the run.
   static let groups = ["row": "rows", "progress": "progresses", "field": "field-group"]
-  /// Group elements: Wicket writes them, so a written one is dropped.
-  static let wrappers = Set(groups.values)
 
   /// One row or progress tag; a run of the same kind is one group. Rows without a title (properties, a
   /// label and a value) never join a list of titled rows, so an extension's properties stay apart from

@@ -7,7 +7,7 @@ A small .ics reader: it repeats events by daily, weekly (on BYDAY), monthly and 
 UNTIL, COUNT, EXDATE and moved occurrences (RECURRENCE-ID); a rule with other parts, such as BYMONTHDAY or
 "the second Tuesday", shows only its first occurrence. Weeks start on Monday whatever WKST says, and a time
 within the hour a clock change skips or repeats can show an hour off."""
-import datetime as dt, http.client, itertools, json, os, re, signal, sys, urllib.parse, urllib.request, zoneinfo
+import datetime as dt, html, http.client, itertools, json, os, re, signal, sys, urllib.parse, urllib.request, zoneinfo
 DAYS = 7
 TAG_BYTES = 1000  # Wicket reads a tag of up to 1,024 bytes; a longer one loses its detail.
 WEEKDAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
@@ -211,7 +211,8 @@ def row(event):
     if place:
         detail.append(f'<row label="Where" value="{attribute(place)}"/>')
     if event.get("notes"):
-        detail += ["", event["notes"].replace("&", "&amp;").replace("<", "&lt;")]
+        # Invitation notes can contain Wicket tags as well as ordinary HTML.
+        detail += ["", html.escape(event["notes"], quote=False)]
     return tag + link + ">\n" + "\n".join(detail) + "\n</row>"
 
 
