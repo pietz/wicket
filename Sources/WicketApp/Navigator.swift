@@ -364,7 +364,7 @@ final class Navigator {
     }
     select(rows[min(max(current + delta, 0), rows.count - 1)].id)
   }
-  /// A click on a row: selects it, or on the selected command row with a filled draft, enters it like
+  /// A click on a row: selects it, or on the selected root row with a filled draft, runs it like
   /// Return. True when the caller should run Return.
   func click(_ id: String) -> Bool {
     if command == nil, id == selection, !drafted.isEmpty { return true }
@@ -413,23 +413,29 @@ final class Navigator {
     return submission
   }
   /// What Return does: the selected row's first action, or in a conversation with nothing selected,
-  /// sending the follow-up. On a command row it enters the command with what was filled into its
-  /// declared fields.
+  /// sending the follow-up. At the root it includes the filled fields for the selected row.
   var returnAction: RowAction? {
     if arriving?.command?.runningAction == true { return nil }
     if returnAsksAgent { return RowAction(.ask) }
     guard let action = selected?.row.actions.first else { return conversing ? .send(input) : nil }
     return applyingDraft(to: action)
   }
-  private func applyingDraft(to action: RowAction) -> RowAction {
-    guard command == nil, !drafted.isEmpty, case .run(var address) = action.kind else { return action }
-    address.fields = drafted
+  /// A hotkey uses the draft only when it names the item being filled in.
+  func applyingDraft(to action: RowAction, for hotkey: HotkeyTarget? = nil) -> RowAction {
+    let draft = drafted
+    guard !draft.isEmpty, case .run(var address) = action.kind else { return action }
+    if let hotkey {
+      guard let item = hotkey.item, let row = selectedRow,
+        row.provider == hotkey.target, row.row.id == "item:" + item
+      else { return action }
+    }
+    address.fields = draft.merging(address.fields ?? [:]) { _, fixed in fixed }
     var draftedAction = action
     draftedAction.kind = .run(address)
     return draftedAction
   }
   /// The fields the user can fill in: inside a command its own declared ones, at the root those of
-  /// the selected extension command row. Empty when there are none.
+  /// the command the selected extension row runs. Empty when there are none.
   var fieldSlots: [ExtensionManifest.Field] {
     guard !conversing, overlay == nil else { return [] }
     if let command {
@@ -437,10 +443,20 @@ final class Navigator {
       let main = descriptor.inputField?.name
       return descriptor.fields.filter { $0.inSearchBar && $0.name != main }
     }
-    guard let row = results.first(where: { $0.id == selection }), row.row.id == "command" else { return [] }
-    return directory.behavior(of: row.provider)?.descriptor?.fields.filter(\.inSearchBar) ?? []
+    guard let row = selectedRow else { return [] }
+    let target: String
+    if row.row.id == "command" {
+      target = row.provider
+    } else {
+      guard row.row.id.hasPrefix("item:"), case .run(let address)? = row.row.actions.first?.kind,
+        !address.link,
+        let id = address.extensionName == nil ? row.provider : address.targetID
+      else { return [] }
+      target = id
+    }
+    return directory.behavior(of: target)?.descriptor?.fields.filter(\.inSearchBar) ?? []
   }
-  /// Values filled in at the root for the selected command row; dropped when the selection moves or
+  /// Values filled in at the root for the selected row; dropped when the selection moves or
   /// the panel is dismissed. Only the row itself takes them: an action chosen in ⌘K runs as captured.
   private var drafted: [String: String] {
     command == nil && !conversing && overlay == nil ? base.fields : [:]
@@ -482,7 +498,7 @@ final class Navigator {
     }
   }
   private var focusTarget: String?
-  /// Focusing or filling a slot at the root picks the command row it belongs to (`returnPlan` rule 2):
+  /// Focusing or filling a slot at the root picks the row it belongs to (`returnPlan` rule 2):
   /// a pattern arriving no longer takes the selection and the draft with it, and a Return waiting from
   /// before is called off.
   private func pickFieldRow() {
@@ -531,7 +547,7 @@ final class Navigator {
   /// What keyboard Return does with the selected row. At the root:
   ///
   /// 1. It waits for the rows composed for what is typed, so it never runs a row made for an earlier input.
-  /// 2. A row the user picked runs at once; focusing or filling a command row's field picks it. The
+  /// 2. A row the user picked runs at once; focusing or filling a row's field picks it. The
   ///    row that takes the place of a picked one that went away (its own pattern answered) is not picked.
   /// 3. A pattern's result on screen when Return is pressed runs at once: the user sees what it runs.
   /// 4. Otherwise it waits while a pattern still running would list its rows above the selected row

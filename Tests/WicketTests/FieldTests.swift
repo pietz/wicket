@@ -116,6 +116,107 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   await model.finish()
 }
 
+@MainActor @Test(arguments: [false, true], [false, true])
+func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  var run: [String: Any] = [
+    "type": "run", "action": "search", "input": "", "fields": ["link": "youtube", "limit": "10"],
+    "hidden": crossExtension,
+  ]
+  if crossExtension { run["extension"] = "search" }
+  let item: [String: Any] = ["id": "yt", "title": "Search YouTube", "keywords": ["yt"], "actions": [run]]
+  if crossExtension {
+    _ = try extensionFolder(
+      root, name: "personal", fields: ["command": NSNull(), "fields": [], "items": [item]])
+  }
+  let folder = try extensionFolder(
+    root, name: "search",
+    script: """
+      cat >> log.jsonl
+      \(crossExtension ? "" : "echo '{\"items\":[]}'")
+      """,
+    fields: [
+      "items": crossExtension ? [] : [item],
+      "fields": [
+        ["name": "query", "type": "text", "description": "Query"],
+        ["name": "limit", "type": "number", "description": "Limit"],
+        ["name": "link", "type": "choice", "description": "Site", "options": ["youtube", "vimeo"]],
+      ],
+    ])
+  let model = LauncherModel.testing(in: root)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("yt")
+  await nav.settled()
+  let owner = crossExtension ? "extension:personal" : "extension:search"
+  #expect(nav.selected?.provider == owner && nav.selected?.row.id == "item:yt")
+  #expect(nav.fieldSlots.map(\.name) == ["query", "limit"])
+  #expect(nav.moveFocus(1) && nav.focusedField == "query")
+  nav.setField("query", to: "cats")
+  #expect(nav.moveFocus(1) && nav.focusedField == "limit")
+  nav.setField("limit", to: "2")
+  await nav.settled()
+  #expect(nav.input == "yt" && nav.fieldValues == ["query": "cats", "limit": "2"])
+  #expect(try requests(in: folder).isEmpty)
+
+  if byHotkey {
+    model.press(HotkeyTarget(target: owner, item: "yt"))
+  } else {
+    nav.run()
+  }
+  await nav.settled()
+  let sent = try requests(in: folder)
+  let request = try #require(sent.first)
+  #expect(sent.count == 1 && request.submitted && request.action == "search" && request.input == "cats")
+  #expect(request.fields == ["query": "cats", "link": "youtube", "limit": "10"])
+  if crossExtension {
+    #expect(surface.effects == [.hide] && !surface.isShown && nav.command == nil)
+  } else {
+    #expect(surface.effects.isEmpty && surface.isShown && nav.command?.id == "extension:search")
+  }
+  await model.finish()
+}
+
+@MainActor @Test func aRootItemWithoutSearchBarFieldsKeepsItsFirstAction() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "links",
+    fields: [
+      "items": [
+        [
+          "id": "bookmark", "title": "Bookmark",
+          "actions": [["type": "copy", "text": "https://example.com"], ["type": "run"]],
+        ],
+        [
+          "id": "folder", "title": "Folder",
+          "actions": [["type": "open", "url": "wicket://links?input=bookmark"]],
+        ],
+      ]
+    ])
+  let model = LauncherModel.testing(in: root)
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  await model.extensions.reload()
+  nav.editInput("bookmark")
+  await nav.settled()
+  let row = try #require(nav.selected)
+  #expect(row.row.id == "item:bookmark")
+  #expect(nav.fieldSlots.isEmpty && !nav.moveFocus(1))
+  nav.run()
+  #expect(surface.effects == [.run(.copy("https://example.com"), from: row)])
+  nav.editInput("folder")
+  await nav.settled()
+  #expect(nav.selected?.row.id == "item:folder")
+  #expect(nav.fieldSlots.isEmpty && !nav.moveFocus(1))
+  #expect(nav.returnAction == .run(Address(extensionName: "links", input: "bookmark", link: true)))
+  await model.finish()
+}
+
 @MainActor @Test func aSubmitCommandRunsOnlyWhenEnteredAndOnReturn() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
