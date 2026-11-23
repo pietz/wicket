@@ -208,8 +208,8 @@ struct Address: Codable, Sendable, Equatable {
 struct RowAction: Codable, Sendable, Equatable {
   enum Kind: Sendable, Equatable {
     case open(URL)
-    case copy(String)
-    case paste(String)
+    case copy(String, concealed: Bool = false)
+    case paste(String, concealed: Bool = false)
     case run(Address)
     /// Show an existing file or folder in Finder. Nothing is opened or run.
     case reveal(URL)
@@ -246,17 +246,20 @@ struct RowAction: Codable, Sendable, Equatable {
     .run(Address(extensionName: "agent", input: text), title: title)
   }
 
-  private enum CodingKeys: String, CodingKey { case type, url, text, title, paste }
+  private enum CodingKeys: String, CodingKey { case type, url, text, title, paste, concealed }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     title = try c.decodeIfPresent(String.self, forKey: .title)
-    switch try c.decode(String.self, forKey: .type) {
+    let type = try c.decode(String.self, forKey: .type)
+    switch type {
     case "open":
       let url = try c.decode(URL.self, forKey: .url)
       kind = Address(url: url).map(Kind.run) ?? .open(url)
     case "reveal": kind = .reveal(try c.decode(URL.self, forKey: .url))
-    case "copy": kind = .copy(try c.decode(String.self, forKey: .text))
-    case "paste": kind = .paste(OpenPolicy.paste(try c.decode(String.self, forKey: .text)))
+    case "copy", "paste":
+      let text = try c.decode(String.self, forKey: .text)
+      let concealed = try c.decodeIfPresent(Bool.self, forKey: .concealed) ?? false
+      kind = type == "copy" ? .copy(text, concealed: concealed) : .paste(text, concealed: concealed)
     case "run": kind = .run(try Address(from: decoder))
     case "agent": kind = Self.agent(try c.decode(String.self, forKey: .text)).kind
     default:
@@ -274,12 +277,14 @@ struct RowAction: Codable, Sendable, Equatable {
     case .reveal(let url):
       try c.encode("reveal", forKey: .type)
       try c.encode(url, forKey: .url)
-    case .copy(let text):
-      try c.encode("copy", forKey: .type)
+    case .copy(let text, let concealed), .paste(let text, let concealed):
+      if case .copy = kind {
+        try c.encode("copy", forKey: .type)
+      } else {
+        try c.encode("paste", forKey: .type)
+      }
       try c.encode(text, forKey: .text)
-    case .paste(let text):
-      try c.encode("paste", forKey: .type)
-      try c.encode(text, forKey: .text)
+      if concealed { try c.encode(true, forKey: .concealed) }
     case .run(let address):
       try c.encode("run", forKey: .type)
       try address.encode(to: encoder)
@@ -340,5 +345,4 @@ enum OpenPolicy {
     }
   }
   private static let missing = "This file no longer exists"
-  static func paste(_ text: String) -> String { text.components(separatedBy: .newlines).joined() }
 }

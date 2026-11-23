@@ -62,9 +62,3 @@ import Testing
     #expect(model.navigator.actionProblem?.contains(problem) == true, "\(action)")
   }
 }
-
-@Test func pasteHasNoNewlines() throws {
-  #expect(
-    try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"paste","text":"a\r\nb\nc\u2028d"}"#.utf8))
-      == .paste("abcd"))
-}

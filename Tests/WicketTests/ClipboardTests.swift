@@ -199,9 +199,49 @@ func testImage(_ width: Int, _ height: Int, seed: Int = 0, as type: NSBitmapImag
       .paste("Grüße aus Berlin\nzweite Zeile"), .copy("Grüße aus Berlin\nzweite Zeile"),
       .run(Address(fields: ["id": row.id], action: "delete"), title: "Delete"),
     ])
-  // An extension's paste still loses its newlines when decoded.
-  let decoded = try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"paste","text":"a\nb"}"#.utf8))
-  #expect(decoded == .paste("ab"))
+}
+
+@MainActor @Test(arguments: ["copy", "paste"])
+func extensionTextActionsWriteExactTextAndKeepConcealedTextOutOfHistory(type: String) async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let pasteboard = NSPasteboard.withUniqueName()
+  defer { pasteboard.releaseGlobally() }
+  let history = ClipboardHistory(
+    url: folder.appending(path: "clipboard-history.json"), pasteboard: pasteboard, interval: nil)
+  history.configure(enabled: true)
+  let model = LauncherModel(
+    clipboard: history, history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let marker = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+
+  var expectedHistory: [String] = []
+  let flags: [Bool?] = [true, nil, false]
+  for (index, flag) in flags.enumerated() {
+    let text = "\(index): a\r\nb\nc\u{2028}d\r\n\n"
+    var json: [String: Any] = ["type": type, "text": text]
+    json["concealed"] = flag
+    let action = try JSONDecoder().decode(RowAction.self, from: JSONSerialization.data(withJSONObject: json))
+    let concealed = flag == true
+    #expect(
+      action.kind == (type == "copy" ? .copy(text, concealed: concealed) : .paste(text, concealed: concealed))
+    )
+    let encoded = try JSONEncoder().encode(action)
+    let fields = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(fields["concealed"] as? Bool == (concealed ? true : nil))
+    #expect(try JSONDecoder().decode(RowAction.self, from: encoded) == action)
+
+    #expect(controller.writePasteboard(action.kind, to: pasteboard))
+    let item = try #require(pasteboard.pasteboardItems?.first)
+    #expect(pasteboard.pasteboardItems?.count == 1)
+    #expect(item.string(forType: .string) == text)
+    #expect(item.types.contains(marker) == concealed)
+    #expect(item.data(forType: marker) == (concealed ? Data() : nil))
+    history.poll()
+    if !concealed { expectedHistory.insert(text, at: 0) }
+    #expect(history.clips.map(\.text) == expectedHistory)
+  }
+  await model.finish()
 }
 
 @MainActor @Test func theHistoryAnswersRequestsLikeAnExtension() throws {

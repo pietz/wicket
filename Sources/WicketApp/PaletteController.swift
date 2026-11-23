@@ -355,8 +355,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
           "Paste requires Accessibility access for Wicket and a previous app. Enable it in System Settings, then reopen Wicket."
         return
       }
-      // An extension's paste lost its newlines when it was decoded; the host's own, such as a clipboard
-      // history entry, pastes exactly what was copied.
       guard writePasteboard(action.kind) else { return }
       record()
       hide()
@@ -392,9 +390,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   }
   /// Writes a copy or paste action's content: its text, or a kept image resolved from its ID now. False, with
   /// the reason shown, when the image is gone.
-  func writePasteboard(_ kind: RowAction.Kind) -> Bool {
+  func writePasteboard(_ kind: RowAction.Kind, to pasteboard: NSPasteboard = .general) -> Bool {
     switch kind {
-    case .copy(let text), .paste(let text): Pasteboard.write(text)
+    case .copy(let text, let concealed), .paste(let text, let concealed):
+      Pasteboard.write(text, concealed: concealed, to: pasteboard)
     case .clip(let id, _):
       guard model.clipboard?.write(id) == true else {
         navigator.actionProblem = "This image is no longer in the clipboard history"
@@ -423,8 +422,18 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
 
 /// Every pasteboard write of Wicket's text: its copy and paste actions, and a report's Copy.
 @MainActor enum Pasteboard {
-  static func write(_ text: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
+  nonisolated static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+
+  static func write(_ text: String, concealed: Bool = false, to pasteboard: NSPasteboard = .general) {
+    if concealed {
+      let item = NSPasteboardItem()
+      item.setString(text, forType: .string)
+      item.setData(Data(), forType: concealedType)
+      pasteboard.prepareForNewContents(with: .currentHostOnly)
+      pasteboard.writeObjects([item])
+    } else {
+      pasteboard.clearContents()
+      pasteboard.setString(text, forType: .string)
+    }
   }
 }

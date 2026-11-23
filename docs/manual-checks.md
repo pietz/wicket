@@ -85,6 +85,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 
 1. Switch it on in Settings ▸ Extensions. Copy a multi-line text, a screenshot (⌃⇧⌘4) and an image from Preview. `clip` lists them, newest selected with its preview beside it; arrowing feels immediate. Return pastes into the previous app, the image too.
 2. A password copied from Apple Passwords or 1Password is not kept. If macOS asks before Wicket reads the clipboard, the Settings hint names Paste from Other Apps.
+3. Use an extension item with `copy` and `paste` actions containing several lines and a trailing newline. Paste into a plain-text editor and check the line breaks and the trailing blank line. Repeat with fresh sample text and `"concealed":true` on each action. The new text should be available to paste on this Mac, absent from `clip`, and unavailable to paste on another device with Universal Clipboard enabled.
 
 ## Feedback
 

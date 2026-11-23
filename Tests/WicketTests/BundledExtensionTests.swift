@@ -55,7 +55,7 @@ private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = 
   let view = try await ExtensionRunner().run(
     bundled("calculator"), request: ProviderRequest(input: input, locale: locale))
   guard let row = view.items.first(where: { $0.id == "result" }) else { return nil }
-  guard case .copy(let copy) = row.actions.first?.kind, row.prominent == true else {
+  guard case .copy(let copy, false) = row.actions.first?.kind, row.prominent == true else {
     throw ExtensionFailure("A result is prominent and copies the number")
   }
   return Answer(title: row.title, copy: copy)
