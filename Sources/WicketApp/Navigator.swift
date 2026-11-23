@@ -577,15 +577,15 @@ final class Navigator {
 
   /// A click runs the row and action the user saw, even if a replacement view is on its way.
   func runRow(_ result: Result, action chosen: RowAction? = nil) {
-    guard let row = results.first(where: { $0.id == result.id }),
-      let action = chosen ?? result.row.actions.first
-    else { return }
+    guard let row = results.first(where: { $0.id == result.id }) else { return }
+    // A row with nothing to run is still picked, so its detail shows.
+    select(row.id)
+    guard let action = chosen ?? result.row.actions.first else { return }
     if chosen != nil {
       guard actions(of: row).contains(action) else { return }
     } else {
       guard row.row.actions.first == action, arriving?.command?.runningAction != true else { return }
     }
-    select(row.id)
     run(chosen ?? applyingDraft(to: action))
   }
   /// Return, a button or a menu item: the action chosen, else what Return does (`returnPlan`), from the

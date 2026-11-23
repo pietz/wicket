@@ -197,3 +197,17 @@ import Testing
   controller.hide()
   await model.finish()
 }
+
+@MainActor @Test func doubleClickingARowWithNothingToRunStillShowsItsDetail() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = try await notes(in: root)
+  model.navigator.go(Address(id: "notes"))
+  await model.navigator.settled()
+  try #require(model.navigator.selected?.row.id == "alpha")
+  let gamma = try #require(model.navigator.results.first { $0.row.id == "gamma" })
+  model.navigator.runRow(gamma)
+  #expect(model.navigator.selected?.row.id == "gamma")
+  #expect(model.navigator.preview?.page.source == "Gamma body")
+  await model.finish()
+}
