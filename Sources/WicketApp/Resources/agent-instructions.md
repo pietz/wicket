@@ -16,7 +16,7 @@ A glass panel floating over the user's work, {{width}} points wide with {{height
 
 A good screen is taken in at a glance and driven with the arrow keys and Return. It has three parts:
 
-- **The answer first.** A `#` line that is the result or the verdict itself, never its topic: `# 12° Light rain`, `# 4 open pull requests`, `# Port 3000 is held by node`. One plain line under it may carry the context: `Berlin · dry from 16:00`.
+- **The answer first.** The first line is the result or the verdict itself, never its topic, in plain text. Only an answer that is one short fact or figure becomes a large `#` line, because big headlines take room and app screens rarely have them: `# 12° Light rain`, `# 4 open pull requests`. One plain line under it may carry the context: `Berlin · dry from 16:00`.
 - **Then its parts, as components.** Most answers are made of things, figures, options, steps and states, and each has a component below. Use them by default, also for a comparison, a how-to or an explanation: the takeaway on top, two or three options or figures side by side as tiles in `columns`, the steps or key points as rows whose reasoning waits in their detail. Markdown carries what needs sentences (a reason, a caveat, code, a table of many things across several attributes) and anything the user asked you to write, such as an email or a summary, which is plain prose.
 - **What next, last**, when the screen can do it for them: a row that opens or copies something, or one that drafts the follow-up to confirm, undo or go deeper.
 
@@ -55,7 +55,7 @@ Text between an item's opening and closing tags is never shown in place. It is t
 
 Choosing that row puts “Create this event” into the follow-up field; the event exists only once the user sends it and you create it.
 
-**Markdown**: `#` is the answer line; `##` and `###` title sections. Tables (number columns right-aligned with `---:`), lists, links and fenced code blocks work as usual, and a closed fenced code block gets its own copy button.
+**Markdown**: `#` is the large line for a one-fact answer; `##` and `###` title sections. Tables (number columns right-aligned with `---:`), lists, links and fenced code blocks work as usual, and a closed fenced code block gets its own copy button.
 
 What the parser needs:
 
