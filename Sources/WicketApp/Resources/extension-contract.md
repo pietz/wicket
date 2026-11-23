@@ -16,11 +16,11 @@ Use `"contract":2` for every manifest with a program. An omitted version is 1. A
 
 ### Triggers: when the program runs
 
-- **Name and keyword** offer the command while typing. An exact keyword (case-insensitive) followed by a space and text fills the first editable text field. The same rule applies to the `keywords` of items in the manifest or `user.json` whose first action runs an enabled command with an editable text field. These matches rank first, show the field text and still offer Ask agent. Keyword matching itself starts no process. Choosing the row runs one **submitted** request with the filled fields.
-- **`match`**, a regex checked inside Wicket, runs the program for root input it matches. Matching patterns run before selection and can arrive after the initial results. A nonempty successful result is a strong match and leads the list. A body produces a single Show details row, even if the view also includes items. Activating that row or a pattern-error row reruns with the root input and `submitted:false`. New typing cancels the old run. The regex limit is 512 UTF-8 bytes, and input over 4,096 bytes is skipped. Wicket checks the 5 ms deadline at regex progress callbacks: prefer anchored, simple patterns. A pattern may match empty input, so an app-index extension can supply the initial list. This also runs with Open compact enabled, and Return can choose the selected row while the card is hidden.
+- **Name and keyword** offer the command while typing. An exact keyword (case-insensitive) followed by a space and text fills the first editable text field. The same rule applies to the `keywords` of items in the manifest or `user.json` whose first action runs an enabled command with an editable text field. These matches show the field text and still offer Ask agent. Keyword matching itself starts no process. Choosing the row runs one **submitted** request with the filled fields.
+- **`match`**, a regex checked inside Wicket, runs the program for root input it matches. Matching patterns run before selection and can arrive after the initial results. A nonempty successful result is a strong match. A body produces a single Show details row, even if the view also includes items. Activating that row or a pattern-error row reruns with the root input and `submitted:false`. New typing cancels the old run. The regex limit is 512 UTF-8 bytes, and input over 4,096 bytes is skipped. Wicket checks the 5 ms deadline at regex progress callbacks: prefer anchored, simple patterns. A pattern may match empty input, so an app-index extension can supply the initial list. This also runs with Open compact enabled, and Return can choose the selected row while the card is hidden.
 - **`fallback:true`**: a fallback row appears just after Ask agent when a nonempty root query has no strong match and no matching pattern is still running. Its activation is submitted with the root query. The same extension can still match by name or keyword.
 
-Wicket orders the root by match quality; there is no source order to configure. Pattern rows group by extension and sort by title/alias tier, then usage for that query, then returned order, so put the best row first. Command lists use tier and returned order. Manifest items compete with other name matches.
+Wicket orders the root by match quality. Exact keywords with field text come first, longest keyword first. Equal-length keywords use the usual name-match tie-breaks, starting with usage for that input. Nonempty successful pattern results come next, followed by name matches. Pattern rows group by extension and sort by title/alias tier, then usage for that query, then returned order, so put the best row first. Command lists use tier and returned order. Manifest items compete with other name matches. Return runs the selected row.
 
 ### Fields and settings
 
@@ -211,7 +211,7 @@ Store the definition in the item's `run.fields` as strings. Add this saved searc
 
 ### A site search with a query
 
-Give the item a keyword and let its first action run into a command with a text field. Type `wiki`, select the item, press Tab to fill `query`, then Return. Use the fallback's `main.py` below with `https://en.wikipedia.org/w/index.php?` and the parameter `search`.
+Give the item a keyword and let its first action run into a command with a text field. Type `wiki Saturn` to fill `query` with `Saturn`, then press Return. Use the fallback's `main.py` below with `https://en.wikipedia.org/w/index.php?` and the parameter `search`.
 
 ```json
 {"contract":2,"name":"Site Searches","command":["/usr/bin/python3","main.py"],"submit":true,"hidden":true,

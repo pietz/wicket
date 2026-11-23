@@ -7,6 +7,7 @@ import Foundation
   nonisolated static var title: String { get }
   /// Its row at the root, matched by name like an app's.
   nonisolated static var row: Result { get }
+  nonisolated static var descriptor: CommandDescriptor { get }
   func view(for request: ProviderRequest) -> ProviderView
   func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView
   /// Whether it is listed at the root and can be opened now.
@@ -17,6 +18,11 @@ import Foundation
 }
 
 extension HostCommand {
+  nonisolated static var descriptor: CommandDescriptor {
+    CommandDescriptor(
+      name: title, fields: [.init(name: "query", type: .text, description: "Filter history")],
+      submits: false, asksAbout: false)
+  }
   func reopened(_ request: ProviderRequest) -> AgentHistory.Run? { nil }
   func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView {
     view(for: request)
@@ -61,6 +67,9 @@ extension HostCommand {
     return host(id).map { HostScreen(host: $0, directory: self) }
   }
   func host(_ id: String?) -> (any HostCommand)? { hosts.first { $0.id == id } }
+  private func hostType(_ id: String) -> (any HostCommand.Type)? {
+    host(id).map { type(of: $0) } ?? Self.registered.first { $0.row.provider == id }
+  }
   /// Whether requests to `id` have something to answer them: an extension's command or a host command.
   func isCommand(_ id: String) -> Bool { extensions.commands[id] != nil || host(id) != nil }
   /// The command's name.
@@ -69,14 +78,14 @@ extension HostCommand {
   }
   /// Whether the command may run: an extension or Clipboard History while switched on.
   func isAvailable(_ id: String, in configuration: Configuration) -> Bool {
-    if let host = host(id) {
-      return type(of: host).isAvailable(in: configuration, extensions: extensions.ids)
+    if let host = hostType(id) {
+      return host.isAvailable(in: configuration, extensions: extensions.ids)
     }
     return extensions.commands[id] != nil && configuration.isEnabled(id, extensions: extensions.ids)
   }
   func availableFields(_ id: String, in configuration: Configuration) -> [ExtensionManifest.Field] {
     guard isAvailable(id, in: configuration) else { return [] }
-    return behavior(of: id)?.descriptor?.fields ?? []
+    return extensions.commands[id]?.manifest.fields ?? hostType(id)?.descriptor.fields ?? []
   }
   /// Why the command cannot run now, shown instead of its view; nil while it may.
   func unavailability(of id: String) -> String? {
@@ -167,12 +176,7 @@ struct HostScreen: CommandScreenBehavior {
   let host: any HostCommand
   let directory: CommandDirectory
   var id: String { host.id }
-  var descriptor: CommandDescriptor? {
-    CommandDescriptor(
-      name: type(of: host).title,
-      fields: [.init(name: "query", type: .text, description: "Filter history")],
-      submits: false, asksAbout: false)
-  }
+  var descriptor: CommandDescriptor? { type(of: host).descriptor }
   func work(for request: CommandScreenRequest) -> CommandWork {
     if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
     let provider = request.provider

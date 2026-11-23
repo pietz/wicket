@@ -258,6 +258,29 @@ func extensionTextActionsWriteExactTextAndKeepConcealedTextOutOfHistory(type: St
   #expect(view.items.map(\.title) == ["beta two"] && history.clips.map(\.text) == ["beta two"])
 }
 
+@MainActor @Test func clipboardKeywordOpensFilteredHistory() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let (clipboard, _) = makeHistory(folder)
+  let model = LauncherModel(
+    clipboard: clipboard, history: UsageHistory(url: folder.appending(path: "usage.json")),
+    folder: folder, bundled: nil)
+  model.store.update { $0.providers = [.init("clipboard")] }
+  clipboard.capture("Invoice due Friday")
+  clipboard.capture("Meeting notes")
+  let nav = model.navigator
+  nav.editInput("pasteboard invoice")
+  await nav.settled()
+  #expect(nav.selected?.provider == "clipboard" && nav.selected?.row.subtitle == "invoice")
+  #expect(nav.fieldValues == ["query": "invoice"])
+
+  nav.run()
+  await nav.settled()
+  #expect(nav.command?.id == "clipboard" && nav.input == "invoice")
+  #expect(nav.results.map(\.row.title) == ["Invoice due Friday"])
+  await model.finish()
+}
+
 @MainActor @Test func panelOpensTheHistoryFiltersDeletesAndClears() async throws {
   let folder = try scratch()
   let (history, _) = makeHistory(folder, enabled: false)

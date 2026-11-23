@@ -256,6 +256,49 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   }
 }
 
+@MainActor @Test func rootItemKeywordTargetingAgentHistoryMatchesInPanelAndHeadless() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  _ = try extensionFolder(
+    root, name: "shortcuts",
+    fields: [
+      "command": NSNull(), "fields": [],
+      "items": [
+        [
+          "id": "recent", "title": "Recent conversations", "keywords": ["recent"],
+          "actions": [["type": "run", "extension": "history"]],
+        ]
+      ],
+    ])
+  try saveProviders([.init("extension:shortcuts")], in: root)
+  let runs = AgentHistory(url: root.appending(path: "agent-history.json"))
+  let model = LauncherModel(
+    agentHistory: runs, history: UsageHistory(url: root.appending(path: "usage.json")),
+    folder: root, bundled: nil)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let nav = model.navigator
+  let input = "recent invoice"
+  nav.editInput(input)
+  await nav.settled()
+  let selected = try #require(nav.selected)
+  #expect(selected.provider == "extension:shortcuts" && selected.row.id == "item:recent")
+  #expect(nav.fieldValues == ["query": "invoice"])
+
+  let (status, output) = try await cli(root, ["--query", input])
+  let first = try #require(output["items"].array.first)
+  let row = first["row"]
+  #expect(status == 0 && first["provider"].string == selected.provider)
+  #expect(row["id"].string == selected.row.id && row["subtitle"].string == "invoice")
+  let action = try #require(row["actions"].array.first)
+  #expect(action["extension"].string == "history" && action["fields"]["query"].string == "invoice")
+
+  nav.run()
+  await nav.settled()
+  #expect(nav.command?.id == "history" && nav.input == "invoice")
+  await model.finish()
+}
+
 @MainActor @Test func headlessRankingPutsTheBestMatchFirstOnTheRealMachine() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }

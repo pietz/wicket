@@ -350,6 +350,36 @@ func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(userItem: Bool) async th
   await model.finish()
 }
 
+@MainActor @Test func theLongestRootKeywordWinsOverUsageAndCommandOrder() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "git", script: "cat >> log.jsonl",
+    fields: [
+      "items": [
+        ["id": "issue", "title": "Find a Git issue", "keywords": ["git issue"], "actions": [["type": "run"]]]
+      ]
+    ])
+  let input = "git issue 123"
+  let usage = UsageHistory(url: root.appending(path: "usage.json"))
+  usage.record(
+    Result(provider: "extension:git", row: Row(id: "command", title: "Git", actions: [])).id,
+    input: input)
+  let model = LauncherModel(history: usage, folder: root, bundled: nil)
+  await model.extensions.reload()
+  let nav = model.navigator
+  nav.editInput(input)
+  await nav.settled()
+  #expect(nav.results.prefix(2).map(\.row.id) == ["item:issue", "command"])
+  #expect(nav.selected?.row.id == "item:issue" && nav.fieldValues == ["query": "123"])
+
+  nav.run()
+  await nav.settled()
+  let sent = try requests(in: folder)
+  #expect(sent.count == 1 && sent.first?.submitted == true && sent.first?.fields == ["query": "123"])
+  await model.finish()
+}
+
 @MainActor @Test func aRootItemTargetingASwitchedOffCommandHasNoFields() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

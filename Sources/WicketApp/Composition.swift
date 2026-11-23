@@ -28,6 +28,7 @@ struct KeywordQuery {
   struct Argument: Sendable, Equatable {
     let field: String
     let text: String
+    let keywordLength: Int
   }
 
   private let input: String
@@ -56,7 +57,8 @@ struct KeywordQuery {
         $0.type == .text
       })
     else { return nil }
-    return Argument(field: field.name, text: String(input[start...]))
+    return Argument(
+      field: field.name, text: String(input[start...]), keywordLength: start.utf16Offset(in: input) - 1)
   }
 }
 
@@ -163,7 +165,7 @@ enum Ranking {
 
   /// The whole list at the root of the launcher, best first:
   ///
-  /// 1. Exact keywords with text for an editable field, using the name matches' tie-breaks.
+  /// 1. Exact keywords with text for an editable field, longest keyword first, then the name matches' tie-breaks.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
   /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
   ///    History, and Clipboard History when it is on: `hosts`) and files, by tier, then usage for this exact input, then
@@ -188,7 +190,7 @@ enum Ranking {
   ///   - extensions: Manifests of the enabled, valid extensions.
   ///   - problems: Repair text of the enabled extensions with an invalid manifest or user.json.
   ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
-  ///   - hostFields: The fields of an available host command, which an extension item may target.
+  ///   - hostFields: The fields of an available host command, which a host row or extension item may target.
   static func compose(
     query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
     extensions: [String: ExtensionManifest], problems: [String: String], hosts: [Result] = [],
@@ -226,7 +228,7 @@ enum Ranking {
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
     let totals = query.isEmpty ? usage.totals(now: now) : [:]
     func candidate(_ result: Result, _ kind: Kind, onlyKeyword: Bool = false) -> Candidate? {
-      if result.rootExtensionRow != nil,
+      if kind == .host || result.rootExtensionRow != nil,
         case .run(var address)? = result.row.actions.first?.kind,
         let argument = keyword?.argument(
           for: result.row, from: result.provider,
@@ -285,6 +287,11 @@ enum Ranking {
     if !query.isEmpty { candidates += hosts.compactMap { candidate($0, .host) } }
     candidates.sort { a, b in
       if a.tier != b.tier { return a.tier > b.tier }
+      if let a = a.result.keywordArgument, let b = b.result.keywordArgument,
+        a.keywordLength != b.keywordLength
+      {
+        return a.keywordLength > b.keywordLength
+      }
       if query.isEmpty, a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
       if a.usage != b.usage { return a.usage > b.usage }
       if (a.kind == .file) != (b.kind == .file) { return b.kind == .file }
