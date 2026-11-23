@@ -1,1 +1,12 @@
-{"name":"Convert units","description":"Converts lengths, weights, volumes, speeds and temperatures, such as 10 km to mi.","keyword":"units","command":["./main"],"icon":"ruler","match":"(?i)^\\s*-?\\d+(?:[.,]\\d+)?\\s*(?:mm|cm|m|km|in|ft|yd|mi|g|kg|oz|lb|ml|l|gal|kmh|mph|c|f|k)\\s+(?:in|to)\\s+(?:mm|cm|m|km|in|ft|yd|mi|g|kg|oz|lb|ml|l|gal|kmh|mph|c|f|k)\\s*$","contract":2,"fields":[{"name":"conversion","type":"text","description":"Convert a quantity"}]}
+{
+  "name": "Convert",
+  "description": "Converts units and currencies, such as 10 km in mi or 100 usd to eur.",
+  "keyword": "units",
+  "command": ["./main"],
+  "icon": "ruler",
+  "match": "(?i)^\\s*(?:[+−-]?[€$£¥]\\s*[+−-]?(?:[0-9]+(?:[.,٫٬'’\\p{Zs}][0-9]+)*|[.,٫][0-9]+)|[+−-]?(?:[0-9]+(?:[.,٫٬'’\\p{Zs}][0-9]+)*|[.,٫][0-9]+)\\s*(?:[a-z]+(?:/[a-z]+)?|°[cf]|[€$£¥]))(?:\\s+(?:in|to)\\s+(?:[a-z]+(?:/[a-z]+)?|°[cf]|[€$£¥]))?(?:\\s*[+−*/×÷^\\-]\\s*[+−-]?[0-9].*)?\\s*$",
+  "contract": 2,
+  "fields": [{"name": "conversion", "type": "text", "description": "Convert a quantity", "placeholder": "10 km in mi or 100 usd to eur"}],
+  "items": [{"id": "currency", "title": "Currency conversion", "keywords": ["currency", "fx"], "icon": "banknote", "actions": [{"type": "run", "extension": "units"}]}],
+  "settings": [{"name": "rateSource", "type": "choice", "description": "Currency rate source", "options": ["ecb", "file", "off"], "default": "ecb"}, {"name": "homeCurrency", "type": "choice", "description": "Home currency", "options": ["AED", "AFN", "ALL", "AMD", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BHD", "BIF", "BMD", "BND", "BOB", "BOV", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD", "CDF", "CHE", "CHF", "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD", "JPY", "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT", "LAK", "LBP", "LKR", "LRD", "LSL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU", "MUR", "MVR", "MWK", "MXN", "MXV", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SOS", "SRD", "SSP", "STN", "SVC", "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "USN", "UYI", "UYU", "UYW", "UZS", "VED", "VES", "VND", "VUV", "WST", "XAD", "XAF", "XCD", "XCG", "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWG"], "default": "USD"}, {"name": "ratesFile", "type": "text", "description": "Fixed rates JSON file path"}]
+}

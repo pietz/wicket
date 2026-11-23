@@ -2,14 +2,14 @@
 // Foundation, which would cost about 10 ms per run. Each extension's folder holds a copy of this file
 // beside its `main.swift`; after editing, build one with `swiftc -O *.swift -o main`.
 
-/// What an extension reads of a JSON value: strings, booleans and objects. An array keeps the bytes it
-/// spans, so it can be passed on as written; anything else is `other`.
+/// An array keeps the bytes it spans, so it can be passed on as written.
 enum JSON {
   case string(String)
   case bool(Bool)
+  case number(String)
   case object([String: JSON])
   case array(Range<Int>)
-  case other
+  case null
 
   subscript(key: String) -> JSON? {
     if case .object(let members) = self { members[key] } else { nil }
@@ -27,8 +27,9 @@ enum JSON {
   }
 
   /// Reads one value from the UTF-8 at `at` and moves past it; nil for malformed JSON.
-  static func read(_ bytes: [UInt8], _ at: inout Int) -> JSON? {
-    func skipSpace() { while at < bytes.count, bytes[at] <= 32 { at += 1 } }
+  static func read(_ bytes: [UInt8], _ at: inout Int, depth: Int = 0) -> JSON? {
+    guard depth < 32 else { return nil }
+    func skipSpace() { while at < bytes.count, [9, 10, 13, 32].contains(bytes[at]) { at += 1 } }
     func take(_ byte: Character) -> Bool {
       skipSpace()
       guard at < bytes.count, bytes[at] == byte.asciiValue! else { return false }
@@ -48,7 +49,9 @@ enum JSON {
       var members: [String: JSON] = [:]
       if take("}") { return .object(members) }
       repeat {
-        guard case .string(let key)? = read(bytes, &at), take(":"), let member = read(bytes, &at) else {
+        guard case .string(let key)? = read(bytes, &at, depth: depth + 1), members[key] == nil,
+          take(":"), let member = read(bytes, &at, depth: depth + 1)
+        else {
           return nil
         }
         members[key] = member
@@ -57,23 +60,45 @@ enum JSON {
     }
     if take("[") {
       if take("]") { return .array(start..<at) }
-      repeat { guard read(bytes, &at) != nil else { return nil } } while take(",")
+      repeat { guard read(bytes, &at, depth: depth + 1) != nil else { return nil } } while take(",")
       return take("]") ? .array(start..<at) : nil
     }
     guard take("\"") else {
-      while at < bytes.count, bytes[at] > 32, !",]}".utf8.contains(bytes[at]) { at += 1 }
-      let word = String(decoding: bytes[start..<at], as: UTF8.self)
-      return word == "true" ? .bool(true) : word == "false" ? .bool(false) : at > start ? .other : nil
+      for (word, value) in [("true", JSON.bool(true)), ("false", .bool(false)), ("null", .null)]
+      where bytes[at...].starts(with: word.utf8) {
+        at += word.utf8.count
+        return value
+      }
+      func consume(_ byte: UInt8) -> Bool {
+        guard at < bytes.count, bytes[at] == byte else { return false }
+        at += 1
+        return true
+      }
+      func digits() -> Bool {
+        let first = at
+        while at < bytes.count, (48...57).contains(bytes[at]) { at += 1 }
+        return at > first
+      }
+      _ = consume(45)
+      guard consume(48) || digits() else { return nil }
+      if consume(46), !digits() { return nil }
+      if consume(101) || consume(69) {
+        _ = consume(43) || consume(45)
+        guard digits() else { return nil }
+      }
+      return .number(String(decoding: bytes[start..<at], as: UTF8.self))
     }
     var text: [UInt8] = []
     while at < bytes.count {
       let byte = bytes[at]
       at += 1
-      if byte == UInt8(ascii: "\"") { return .string(String(decoding: text, as: UTF8.self)) }
-      guard byte == UInt8(ascii: "\\"), at < bytes.count else {
+      if byte == UInt8(ascii: "\"") { return String(validating: text, as: UTF8.self).map(JSON.string) }
+      guard byte >= 32 else { return nil }
+      guard byte == UInt8(ascii: "\\") else {
         text.append(byte)
         continue
       }
+      guard at < bytes.count else { return nil }
       let escape = bytes[at]
       at += 1
       switch escape {
@@ -90,8 +115,10 @@ enum JSON {
           guard let low = hex(), (0xDC00..<0xE000).contains(low) else { return nil }
           scalar = 0x10000 + (scalar - 0xD800) << 10 + (low - 0xDC00)
         }
-        text += Array(String(Character(Unicode.Scalar(scalar) ?? "\u{FFFD}")).utf8)
-      default: text.append(escape)
+        guard let character = Unicode.Scalar(scalar) else { return nil }
+        text += String(character).utf8
+      case 34, 47, 92: text.append(escape)
+      default: return nil
       }
     }
     return nil

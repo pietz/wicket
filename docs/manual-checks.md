@@ -18,10 +18,10 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 3. Files from Spotlight: icons and folder subtitles; Return opens a document, a folder and an iCloud Drive file; ⌘K reveals; a script only reveals; results from `~/Library/CloudStorage` and a mounted volume.
 4. Return right after typing, before files arrive, runs what was first then.
 
-## 3. Calculator, units and Shell
+## 3. Calculator, Convert and Shell
 
 1. `12*7` shows 84 first with the rest of the list, Return copies it. `200 + 10%` is 220, `1,000 + 1` follows the locale, `1.2.3` shows no row. The first calculation after installing an update may lag once.
-2. `10 km to mi`, `20 c to k` convert.
+2. `10 km to mi` and `20 c to k` convert. Search for `fx` to open Convert. With ECB rates available, `100 usd to eur` shows the observation date. Return copies the amount and code. Use ⌘K to open Rate details and refresh there. Back to conversions restores the amount.
 3. `> touch /tmp/wicket-shell-test` shows one row and creates nothing until Return. Return on `> ls -la` closes Wicket and opens the default terminal in the home folder with a shell left open. `>` alone shows a hint and Return does nothing.
 
 ## 4. The agent
@@ -51,7 +51,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 
 ## 7. Extensions
 
-1. Settings ▸ Extensions lists Built in and Extensions with switches; units off stops `10 km to mi`. Copy `examples/web-search` into `extensions/`: listed within a second, enabled. A broken `wicket.json` shows a warning and its problem.
+1. Settings ▸ Extensions lists Built in and Extensions with switches. Turning Convert off stops `10 km to mi`. Copy `examples/web-search` into `extensions/`: listed within a second, enabled. A broken `wicket.json` shows a warning and its problem.
 2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: the fields follow the typed text; Tab and ⇧Tab move through them; Return or a click on the selected row runs with the values; Japanese IME, paste and ⌘A work in a field; an arrow off the row returns the keys to the input. With VoiceOver, check the field labels.
 3. In Window Manager settings, Gap 8 and Almost Maximize 80 save on Return and on focus loss. Emptying restores the defaults. In an extension with a bool and a choice setting, verify that the switch and picker save their string values and show the saved choices when reopened.
 4. Choose Make It Mine on Window Manager and verify that `extensions/window` appears with `wicket.json`, `main`, `main.swift` and `JSON.swift`, and still works. On Calculator with `extensions/calculator` already there: refused. Move to Trash on your copy: confirmation, the bundled one returns.

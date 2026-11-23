@@ -7,7 +7,7 @@ The first official extensions, the decisions they share, and the order to build 
 | Extension | Spec | What it is |
 |---|---|---|
 | Calculator | [calculator.md](calculator.md) | Arithmetic as you type at the root. Deliberately an extension, so its behavior can be changed. |
-| Convert | [convert.md](convert.md) | Units and currency, with a rate source the user can replace. Owns every expression that contains a unit or currency. |
+| Convert | [convert.md](convert.md) | Units and currency, with a rate source the user can replace. Handles single quantities. Typed arithmetic with units and currencies is later work. |
 | Links & Search | [links-search.md](links-search.md) | A keyword or hotkey, Tab into the query, and the site opens. The agent adds a new search in one sentence. |
 | Window Manager | [window-manager.md](window-manager.md) | A small engine that moves windows, plus layouts the agent writes ("on ⌃⌥1, Safari left two-thirds"). |
 | Calendar | [calendar.md](calendar.md) | Upcoming meetings from macOS Calendar, with details and Join. |

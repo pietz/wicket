@@ -13,7 +13,7 @@ Open problems only, each with what the user sees and the next step. Fixed items 
 - **The cask's `zap` misses current data**: it trashes the 0.0.x `Application Support/Wicket` folder but not `Application Support/app.wicket.Wicket`, where the clipboard and agent history live. Next: the owner decides what an explicit uninstall should remove, then fix it at the next release.
 - **A direct edit of `config.json` can race a Wicket save.** Wicket serializes its writers and retries if it sees a file change before replacement. An editor writing without the lock can still save between that last check and replacement.
 - **A restored `config.json` link target is noticed only after a restart.** While the link dangles, Wicket keeps the launcher hotkey and runs no extension; when the target comes back (a synced folder mounting late), nothing reloads, so extensions stay off until Wicket restarts. Next: watch the link's target folder too, or retry loading when the panel opens.
-- **Units read only ASCII digits and the point or comma**: an amount in other digits (Arabic-Indic) or with another decimal mark (`٫`) gives no row. Next: normalise digits and the locale's decimal separator in the units parser and pattern if users ask.
+- **Convert reads only ASCII digits.** An amount with Arabic-Indic digits gives no row. Normalize digits in the parser and pattern if users ask.
 
 
 ## Files

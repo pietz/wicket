@@ -5,17 +5,28 @@ import Testing
 @testable import WicketApp
 
 /// Opt-in, for work on the root's hot path: `WICKET_MEASURE=1 swift test -c release -Xswiftc
-/// -enable-testing --filter queryLatency`. Prints how long a calculation takes from the keystroke to the
-/// first list for it and to the first list that shows it, the first time (the bundled calculator may be a
-/// binary macOS has not run yet, which can outlast `RootCommand.patternHold`) and then, after the process
-/// started a few times, typical, also while typing fast. No list ever shows Ask agent before the result.
+/// -enable-testing --filter queryLatency`. Times Calculator and Convert from the keystroke to the first
+/// result, also during rapid edits, and times immediate Return while a pattern checks unrelated text.
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))
 func queryLatency() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let model = LauncherModel.testing(
-    in: folder,
-    bundled: bundledExtensions)
+  // A name match that can stand in for a file or app when the generic conversion pattern declines.
+  _ = try extensionFolder(
+    folder, name: "return-probe",
+    fields: [
+      "name": "Launcher Probe",
+      "items": [
+        [
+          "id": "frogs", "title": "10 frogs",
+          "actions": [
+            ["type": "copy", "text": "probe"]
+          ],
+        ]
+      ],
+    ])
+  let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
+  try writeCache(convertSnapshot(observedOn: "2025-01-01"), in: folder)
   await model.extensions.reload()
   var published: [(input: String, first: String?, asks: Bool, at: ContinuousClock.Instant)] = []
   let surface = RecordingSurface()
@@ -28,18 +39,21 @@ func queryLatency() async throws {
       ))
   }
   func milliseconds(_ from: ContinuousClock.Instant, _ to: ContinuousClock.Instant) -> Double {
-    Double((to - from).components.attoseconds) / 1e15
+    let elapsed = (to - from).components
+    return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
   }
   /// From setting the input: milliseconds to the first list for it and its first row, and to the first
   /// list with a calculation first, if any. No list for it before that one offers Ask agent.
-  func type(_ input: String) async -> (first: Double, row: String?, result: Double?) {
+  func type(_ input: String, provider: String = "extension:calculator") async -> (
+    first: Double, row: String?, result: Double?
+  ) {
     published.removeAll()
     let start = ContinuousClock.now
     model.navigator.input = input
     while !published.contains(where: { $0.input == input }) { await Task.yield() }
     await model.navigator.settled()
     let lists = published.filter { $0.input == input }
-    let result = lists.firstIndex { $0.first == "extension:calculator" }
+    let result = lists.firstIndex { $0.first == provider }
     if let result { #expect(!lists[..<result].contains { $0.asks }, "no Ask agent before the result") }
     return (
       milliseconds(start, lists[0].at), lists[0].first, result.map { milliseconds(start, lists[$0].at) }
@@ -58,9 +72,8 @@ func queryLatency() async throws {
   var warm: [Double] = []
   for n in 0..<60 {
     _ = await type("x")
-    let (time, first, _) = await type("12*\(n)")
-    #expect(first == "extension:calculator")
-    warm.append(time)
+    let (_, _, result) = await type("12*\(n)")
+    warm.append(try #require(result))
   }
   // Fast typing: every keystroke cancels the run before it.
   var fast: [Double] = []
@@ -75,12 +88,52 @@ func queryLatency() async throws {
     }
     await model.navigator.settled()
     let shown = published.filter { $0.input == "12*7" }
-    #expect(shown.first?.first == "extension:calculator", "the result in the first list")
-    if let at = shown.first?.at { fast.append(milliseconds(start, at)) }
+    let firstResult = try #require(shown.firstIndex { $0.first == "extension:calculator" })
+    #expect(!shown[..<firstResult].contains { $0.asks })
+    fast.append(milliseconds(start, shown[firstResult].at))
   }
   print(
     "queryLatency: first list \(String(format: "%.2f", cold.first)) ms, first result \(String(format: "%.2f", cold.result ?? .nan)) ms; warm \(summary(warm)); typing \(summary(fast))"
   )
+
+  let units = try bundled("units").manifest
+  for query in ["10 km in mi", "100 usd to eur"] where units.matches(query) {
+    var times: [Double] = []
+    var rapid: [Double] = []
+    _ = await type(query, provider: "extension:units")
+    for _ in 0..<60 {
+      _ = await type("x")
+      let (_, _, result) = await type(query, provider: "extension:units")
+      times.append(try #require(result))
+    }
+    for _ in 0..<20 {
+      _ = await type("x")
+      for count in (query.count - 3)..<query.count {
+        model.navigator.input = String(query.prefix(count))
+        try await Task.sleep(for: .milliseconds(4))
+      }
+      let (_, _, result) = await type(query, provider: "extension:units")
+      rapid.append(try #require(result))
+    }
+    print("queryLatency: \(query), warm \(summary(times)); typing \(summary(rapid))")
+  }
+
+  var returns: [Double] = []
+  var returned: ContinuousClock.Instant?
+  surface.onEffect = { effect in
+    if case .run(let action, _) = effect, action == .copy("probe") { returned = .now }
+  }
+  for _ in 0..<60 {
+    _ = await type("x")
+    returned = nil
+    let start = ContinuousClock.now
+    model.navigator.input = "10 frogs"
+    model.navigator.run()
+    await model.navigator.settled()
+    returns.append(milliseconds(start, try #require(returned)))
+  }
+  print("queryLatency: immediate Return on 10 frogs, \(summary(returns))")
+
 }
 
 /// Opt-in like `queryLatency`: what `hotkeys` cost the launcher's hotkey-to-visible path. The press itself is

@@ -289,20 +289,22 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   #expect(!FileManager.default.fileExists(atPath: web.path))
   #expect(
     FileManager.default.fileExists(atPath: root.appending(path: "examples/web-search/wicket.json").path))
-  // Units ships inside the app now (`ExtensionHost.bundled`), so nothing is installed into extensions.
+  // Convert ships inside the app (`ExtensionHost.bundled`), so nothing is installed into extensions.
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "extensions").path).isEmpty)
-  #expect(FileManager.default.fileExists(atPath: root.appending(path: "examples/currency/main.py").path))
   #expect(
     FileManager.default.fileExists(atPath: root.appending(path: "examples/canvas-controls/main.py").path))
   #expect(
     try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "examples").path).sorted() == [
-      "agenda", "canvas-controls", "currency", "quicklinks", "web-search",
+      "agenda", "canvas-controls", "quicklinks", "web-search",
     ])
   try FileManager.default.copyItem(at: root.appending(path: "examples/web-search"), to: web)
   let marker = web.appending(path: "user-file")
   try Data("keep".utf8).write(to: marker)
+  let old = try extensionFolder(root, name: "currency", script: "echo keep")
+  let program = old.appending(path: "main.sh")
   try ExtensionHost.installFiles(in: root)
+  #expect(try String(contentsOf: program, encoding: .utf8) == "echo keep")
   #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
 }
 

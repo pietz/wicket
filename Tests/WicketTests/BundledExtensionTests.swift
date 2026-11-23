@@ -21,12 +21,15 @@ let bundledExtensions: URL = {
     let target = folder.appending(path: name)
     try! fm.createDirectory(at: target, withIntermediateDirectories: true)
     // Only what changed: macOS checks a new binary on its first run, which takes 70 ms and more.
-    for (source, file) in [
-      (root.appending(path: "Sources/Extensions/\(name)/wicket.json"), "wicket.json"),
-      (root.appending(path: "Sources/Extensions/\(name)/main.swift"), "main.swift"),
-      (root.appending(path: "Sources/Extensions/Shared/JSON.swift"), "JSON.swift"),
-      (products.appending(path: name), "main"),
-    ] where !fm.contentsEqual(atPath: source.path, andPath: target.appending(path: file).path) {
+    let directory = root.appending(path: "Sources/Extensions/" + name)
+    let sources = try! fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).filter {
+      $0.pathExtension == "swift" || $0.lastPathComponent == "wicket.json"
+    }
+    let files =
+      sources.map { ($0.resolvingSymlinksInPath(), $0.lastPathComponent) }
+      + [(products.appending(path: name), "main")]
+    for (source, file) in files
+    where !fm.contentsEqual(atPath: source.path, andPath: target.appending(path: file).path) {
       try? fm.removeItem(at: target.appending(path: file))
       try! fm.copyItem(at: source, to: target.appending(path: file))
     }
@@ -337,9 +340,8 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   ("250 ml in l", "0.25 l"), ("1.5 l to ml", "1500 ml"), ("1 gal to ml", "3785.4118 ml"),
   ("60 mph in kmh", "96.56064 kmh"), ("-40 f in c", "-40 °C"), ("0 k to c", "-273.15 °C"),
   ("-3 C in F", "26.6 °F"), (" 1000000 mm in km ", "1 km"), ("123456789 km in mm", "1.2345679e+14 mm"),
-  ("10 KM TO MI", "6.2137119 mi"), ("abc", "Try 10 km in mi, 20 c in k or 2 gal to l"),
-  ("1e5 km in mi", "Try 10 km in mi, 20 c in k or 2 gal to l"),
-  ("", "Try 10 km in mi, 20 c in k or 2 gal to l"),
+  ("10 KM TO MI", "6.2137119 mi"), ("+1,500.50km to m", "1500500 m"),
+  ("1 km/h to mph", "0.62137119 mph"), ("−10 °C to °F", "14 °F"), (".5km to m", "500 m"),
 ])
 func unitsConvert(input: String, expected: String) async throws {
   let view = try await runBundled("units", request: ProviderRequest(input: input, locale: us))
@@ -357,7 +359,10 @@ func unitsReadAndWriteTheDecimalComma(input: String, expected: String) async thr
   #expect(view.items.map(\.title) == [expected] && view.items.first?.actions == [.copy(expected)])
 }
 
-@Test(arguments: ["10 km in kg", "1\(String(repeating: "0", count: 400)) km in mm"])
+@Test(arguments: [
+  "10 km", "10 km in kg", "1\(String(repeating: "0", count: 400)) km in mm",
+  "1e5 km in mi", "abc", "10 km in", "10 km to frogs", "10 km + 5 mi",
+])
 func unitsWithoutAResultGiveNoRow(input: String) async throws {
   let view = try await runBundled("units", request: ProviderRequest(input: input, locale: us))
   #expect(view.items.isEmpty)
