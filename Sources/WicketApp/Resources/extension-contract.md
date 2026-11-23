@@ -69,7 +69,7 @@ Wicket rereads both files on change. To update items from a request, write the f
 
 `submitted` is true for a command or fallback row activation, a `run` action (including an eligible item hotkey), Return in a submit command, or a canvas field that acts on change. `action` is the optional name carried by a submitted `run`, a canvas field's commit or an explicit headless invocation. Typing, refreshes, matches, links and pattern detail or error rows carry no action and send `submitted:false`. Only submitted requests may perform user-visible effects. A bounded local cache may be updated on any request.
 
-Each request starts one process and writes one UTF-8 JSON line, then closes stdin. Read one value or read to EOF. Bare executable names resolve on Wicket's PATH, which includes Homebrew and local bin paths. Use stderr for diagnostics. Print the view and exit successfully within 10 seconds. Stdout ≤1 MiB; stderr ≤256 KiB, its last 4 KiB shown on failure. Wicket cleans up descendants after normal exit as well as cancellation, timeout and quit; do not daemonize. Stdout that starts with `{` after leading whitespace is a JSON view and fails with the decoding path if it is not one; no logs or fences around it. Anything else is Markdown, the body of the view, with the tags below: `print("## Done")`. Empty output is an error, except from a hidden run.
+Each request starts one process and writes one UTF-8 JSON line, then closes stdin. Read one value or read to EOF. Wicket resolves the bare name `wicket-js` to its bundled JavaScript runner. Other bare executable names resolve on Wicket's PATH, which includes Homebrew and local bin paths. Use stderr for diagnostics. Print the view and exit successfully within 10 seconds. Stdout ≤1 MiB; stderr ≤256 KiB, its last 4 KiB shown on failure. Wicket cleans up descendants after normal exit as well as cancellation, timeout and quit; do not daemonize. Stdout that starts with `{` after leading whitespace is a JSON view and fails with the decoding path if it is not one; no logs or fences around it. Anything else is Markdown, the body of the view, with the tags below: `print("## Done")`. Empty output is an error, except from a hidden run.
 
 ## The view
 
@@ -167,7 +167,7 @@ Slots hold labels and figures, never sentences; an explanation or steps stay Mar
 
 ## An answer as an extension
 
-When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from local data or a public API that needs no key, so the same page appears without the agent, with a detail or a `run` on every item with more to show, since the arrow keys skip an item with neither. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. A lookup is too slow for every keystroke, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
+When the owner asks to make an answer an extension, the command prints that answer's body with the same tags, built from local data or an API, so the same page appears without the agent, with a detail or a `run` on every item with more to show, since the arrow keys skip an item with neither. The subject of the question (a city, a ticker, a route) is the input, and empty input means the one that was asked about; an unknown one is a one-line body. A lookup is too slow for every keystroke, so it is a `keyword` command with `submit:true`, not a `match` pattern. Test the empty input, another real one and a bad one; then reply in a sentence with one row that opens it.
 
 ## Changing a built-in
 
@@ -243,6 +243,22 @@ else:
     print("Enter a search query.")
 ```
 
+### A JavaScript command
+
+Put `main.js` in the extension folder. The command names the bundled runner and one relative script path.
+
+```json
+{"contract":2,"name":"Count characters","command":["wicket-js","main.js"]}
+```
+
+```js
+function main(request) {
+  return { body: `# ${request.input.length} characters` };
+}
+```
+
+Keep `main` synchronous. Return a view object, a Markdown string, or `undefined` for silence from a hidden run. Use `console.log` and `console.error` for stderr diagnostics.
+
 ### State that persists
 
 Keep caches and saved state in `WICKET_DATA_DIR` and leave the extension folder for code and declarations. Wicket creates this writable directory on first run and scopes it to the extension ID and edition. Scratch runs get their own directory.
@@ -253,6 +269,23 @@ from pathlib import Path
 
 state = Path(os.environ["WICKET_DATA_DIR"]) / "state.json"
 ```
+
+For JavaScript, `wicket.read(name)` returns UTF-8 text or `null` when missing, and `wicket.write(name, text)` replaces it atomically. Use one filename in `WICKET_DATA_DIR` and up to 1 MiB per file. Symlinks and non-regular files raise errors.
+
+```js
+function main(request) {
+  const state = JSON.parse(wicket.read("state.json") ?? '{"count":0}');
+  if (request.submitted) {
+    state.count += 1;
+    wicket.write("state.json", JSON.stringify(state));
+  }
+  return { body: `Saved count: ${state.count}` };
+}
+```
+
+### An API that needs a key
+
+Have the user store the key once in Keychain with `security add-generic-password` under service `wicket.<id>`, without pasting it into chat. For a program that calls other executables, read the key by running `/usr/bin/security find-generic-password -s wicket.<id> -w`, then trim stdout.
 
 ### Something that needs a macOS permission
 

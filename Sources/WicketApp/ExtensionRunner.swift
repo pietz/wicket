@@ -50,7 +50,15 @@ struct ExtensionRunner: Sendable {
     var environment = Launch.environment()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     let executable: URL
-    if argv[0].contains("/") {
+    if argv[0] == "wicket-js" {
+      guard let helper = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "wicket-js"),
+        FileManager.default.isExecutableFile(atPath: helper.path)
+      else {
+        throw ExtensionFailure(
+          "Bundled wicket-js is missing or not executable. Reinstall Wicket to repair it.")
+      }
+      executable = helper
+    } else if argv[0].contains("/") {
       executable =
         argv[0].hasPrefix("/") ? URL(fileURLWithPath: argv[0]) : command.folder.appending(path: argv[0])
       // Process reports a file without its execute bit as missing, which sends a repair the wrong way.

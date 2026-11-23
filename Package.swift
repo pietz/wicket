@@ -22,6 +22,7 @@ let package = Package(
     // Catches the Objective-C exceptions private key-value calls can raise (`GlassBlur`).
     .target(name: "ObjCBoundary"),
     .executableTarget(name: "Wicket", dependencies: ["WicketApp"]),
+    .executableTarget(name: "wicket-js", path: "Sources/WicketJS"),
     // The bundled extensions: plain Swift without Foundation, one process per request. build-app.sh
     // copies each binary into the app with its manifest and source.
     .executableTarget(name: "calculator", path: "Sources/Extensions/calculator", exclude: ["wicket.json"]),

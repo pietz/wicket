@@ -21,7 +21,7 @@ case "${1:-}" in
   *) echo "usage: Scripts/build-app.sh [debug | --release]" >&2; exit 2 ;;
 esac
 
-# Every product: Wicket and the bundled extensions.
+# Every product: Wicket, the JavaScript runner and the bundled extensions.
 swift build -c "$config" -Xswiftc -warnings-as-errors
 bin="$(swift build -c "$config" --show-bin-path)"
 
@@ -45,6 +45,7 @@ runtime=(--options runtime)
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$bin/Wicket" "$app/Contents/MacOS/Wicket"
+cp "$bin/wicket-js" "$app/Contents/MacOS/wicket-js"
 # Wicket's own resources, found through Bundle.wicket. Not "*.bundle": a stale .build can hold the
 # test targets' bundles of an earlier layout.
 ditto "$bin/Wicket_WicketApp.bundle" "$app/Contents/Resources/Wicket_WicketApp.bundle"
@@ -83,6 +84,7 @@ fi
 # the framework, then the app. Downloader.xpc keeps its own entitlements.
 sign() { codesign --force --sign "$identity" $runtime $timestamp "$@" >/dev/null; }
 for name in $extensions; do sign "$app/Contents/Resources/Extensions/$name/main"; done
+sign "$app/Contents/MacOS/wicket-js"
 sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
 sign "$sparkle/XPCServices/Installer.xpc"
 sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
