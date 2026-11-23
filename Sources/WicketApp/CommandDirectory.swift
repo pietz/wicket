@@ -151,9 +151,8 @@ struct ExtensionScreen: CommandScreenBehavior {
   func work(for request: CommandScreenRequest) -> CommandWork {
     if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
     guard let command else { return .keepView }
-    // A submit command runs only when an address is followed, Return included: typing, voice and
-    // refreshes leave its view and a running request alone, and nothing stays selected.
-    if request.cause == .rerun, command.manifest.submit == true { return .keepView }
+    // Typing, voice and refreshes leave submit commands and prompts waiting for Return.
+    if request.cause == .rerun, request.prompting || command.manifest.submit { return .keepView }
     if command.manifest.command == nil {
       return .immediate(.view(ProviderView(items: command.ownItems(request.input))))
     }

@@ -36,6 +36,7 @@ struct CommandScreenRequest {
   var action: String? = nil
   let cause: CommandScreen.Cause
   var fieldChange: Page.Field.Change? = nil
+  var prompting = false
   /// The request as an extension's program and a host command receive it.
   var provider: ProviderRequest {
     ProviderRequest(input: input, fields: fields, action: action, submitted: cause == .submission)
@@ -73,11 +74,14 @@ enum CommandOutcome {
   let visit = UUID()
   var id: String { behavior.id }
   var descriptor: CommandDescriptor? { behavior.descriptor }
+  var submits: Bool { promptedRun != nil || descriptor?.submits == true }
   var screen = Screen()
   /// What the next request answers. Going to an address runs it even in a submit command, and the
   /// user's activation makes it submitted; every later request is a rerun.
   private(set) var next = Cause.address
   private var action: String?
+  /// The hidden run waiting for its text, kept beyond the request that shows the prompt.
+  private(set) var promptedRun: Address?
   private var replacingFields = false
   /// A link or root pattern can supply a command query while the search bar holds an agent draft.
   private var providerInput = ""
@@ -133,6 +137,9 @@ enum CommandOutcome {
     _ address: Address, submitted: Bool, replacingFields: Bool = false
   ) -> String? {
     let submitting = submitted && !address.link
+    let field = descriptor?.inputField
+    let prompts = submitting && address.hidden && address.promptIfEmpty && field != nil
+    let replacingFields = replacingFields || prompts
     let overrides = address.fields ?? [:]
     if submitting, !replacingFields,
       let invalid = overrides.first(where: { name, value in
@@ -145,7 +152,6 @@ enum CommandOutcome {
     next = submitting ? .submission : .address
     action = next == .submission ? address.action : nil
     self.replacingFields = replacingFields
-    let field = descriptor?.inputField
     if address.link || replacingFields {
       screen.fill([:])
       canvasEdits.removeAll()
@@ -163,6 +169,7 @@ enum CommandOutcome {
     }
     providerInput =
       field.flatMap { overrides[$0.name] } ?? address.input ?? (replacingFields ? "" : providerInput)
+    promptedRun = prompts && providerInput.allSatisfy(\.isWhitespace) ? address : nil
     if let field { screen.fill(field.name, with: "") }
     return nil
   }
@@ -174,7 +181,7 @@ enum CommandOutcome {
     }
     if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
     return CommandScreenRequest(
-      input: providerInput, fields: fields, action: action, cause: next)
+      input: providerInput, fields: fields, action: action, cause: next, prompting: promptedRun != nil)
   }
 
   /// Keeps the latest local edit visible and stages only the work this control calls for.
@@ -319,14 +326,12 @@ enum CommandOutcome {
   var viewActions: [RowAction] { body == nil ? [] : shown.view.actions }
   /// With nothing selected, Return can submit the current fields when the command owns the input.
   func submission() -> Result? {
-    guard let descriptor, descriptor.submits, descriptor.inputField != nil else { return nil }
+    guard let descriptor, submits, descriptor.inputField != nil else { return nil }
+    var address = promptedRun ?? Address(hidden: descriptor.hidden)
+    address.input = providerInput
+    if promptedRun != nil { address.fields = request().fields }
     return Result(
-      provider: id,
-      row: Row(
-        id: "submit", title: descriptor.name,
-        actions: [
-          .run(Address(input: providerInput, hidden: descriptor.hidden))
-        ]))
+      provider: id, row: Row(id: "submit", title: descriptor.name, actions: [.run(address)]))
   }
   /// What goes with a question asked from here: for a typed question its `context`, else what it shows
   /// unless that is an error.

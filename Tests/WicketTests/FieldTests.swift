@@ -588,6 +588,67 @@ func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async
   await controller.finish()
 }
 
+@MainActor @Test(arguments: [false, true])
+func aPromptedActionSubmitsItsOwnOperationAndHides(submit: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root, name: "notes",
+    fields: [
+      "name": "Notes", "command": ["/usr/bin/python3", "main.py"], "submit": submit,
+      "fields": [["name": "query", "type": "text", "description": "Query"]],
+      "items": [
+        [
+          "id": "archive", "title": "Archive Note",
+          "actions": [["type": "run", "action": "archive", "hidden": true, "promptIfEmpty": true]],
+        ]
+      ],
+    ])
+  let script = """
+    import json,sys; r=json.load(sys.stdin)
+    open('log.jsonl','a').write(json.dumps(r)+'\\n')
+    if r.get('action') != 'archive':
+      print(json.dumps({'items':[{'id':'preview','title':'Preview Notes','actions':[]}]}))
+    elif not r['input'].strip():
+      print(json.dumps({'items':[{'id':'prompt','title':'Enter a note to archive','actions':[]}]}))
+    else:
+      open('archived','w').write(r['input'])
+    """
+  try Data(script.utf8).write(to: folder.appending(path: "main.py"))
+  let model = LauncherModel.testing(in: root)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  surface.shown = false
+  navigator.surface = surface
+  surface.onEffect = { if $0 == .hide { navigator.dismiss() } }
+  await model.extensions.reload()
+
+  let target = "extension:notes"
+  model.press(HotkeyTarget(target: target))
+  await navigator.settled()
+  #expect(navigator.results.first?.row.title == "Preview Notes")
+
+  model.press(HotkeyTarget(target: target, item: "archive"))
+  await navigator.settled()
+  #expect(surface.isShown && navigator.results.first?.row.title == "Enter a note to archive")
+  #expect(try requests(in: folder).last?.action == "archive")
+  #expect(model.activateReturn())
+  await navigator.settled()
+  #expect(surface.isShown && surface.count(.hide) == 0)
+  #expect(navigator.results.first?.row.title == "Enter a note to archive")
+
+  navigator.editInput("Wicket")
+  await navigator.settled()
+  #expect(try requests(in: folder).map(\.input) == ["", "", ""])
+  #expect(model.activateReturn())
+  await navigator.settled()
+  let sent = try #require(try requests(in: folder).last)
+  #expect(sent.submitted && sent.action == "archive" && sent.fields == ["query": "Wicket"])
+  #expect(surface.count(.hide) == 1 && !surface.isShown)
+  #expect(try String(contentsOf: folder.appending(path: "archived"), encoding: .utf8) == "Wicket")
+  await model.finish()
+}
+
 /// Return can submit the fields again without replaying the named action.
 @MainActor @Test func aSubmitNeverReplaysANamedAction() async throws {
   let root = try scratch()

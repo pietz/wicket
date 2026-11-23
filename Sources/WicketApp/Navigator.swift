@@ -401,8 +401,8 @@ final class Navigator {
   var returnAsksAgent: Bool {
     agentOwnsCommandInput && overlay == nil && selectedRow?.row.actions.first == nil
   }
-  /// The open command runs on Return only (`CommandDescriptor.submits`).
-  var submits: Bool { command?.descriptor?.submits == true }
+  /// The open command or action prompt waits for Return.
+  var submits: Bool { command?.submits == true }
   /// Return runs the selected item. With none selected, a submit command sends what is typed and
   /// filled in as a submitted request, a page runs the view's own actions, and a conversation sends the
   /// follow-up.
@@ -1268,16 +1268,15 @@ final class Navigator {
       let behavior = directory.behavior(of: id),
       directory.isAvailable(id, in: configuration)
     else { return open(address, from: origin, submitted: true, replacingFields: replacingFields) }
-    let prompts = address.promptIfEmpty && behavior.descriptor?.inputField != nil
     var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandScreen(behavior)
-    if let invalid = state.enter(address, submitted: true, replacingFields: prompts || replacingFields) {
+    if let invalid = state.enter(address, submitted: true, replacingFields: replacingFields) {
       actionProblem = "Invalid value for \(invalid)"
       return draw()
     }
-    let request = state.request().provider
-    if prompts, request.input.allSatisfy(\.isWhitespace) {
-      return open(address, from: origin, submitted: true, pressed: hotkey, replacingFields: true)
+    if state.promptedRun != nil {
+      return open(address, from: origin, submitted: true, pressed: hotkey)
     }
+    let request = state.request().provider
     // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
     // opening for it, since the user is waiting for an effect that will not come.
     let rerun = Address(

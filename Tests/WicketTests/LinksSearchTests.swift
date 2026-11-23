@@ -348,6 +348,41 @@ private func fields(_ values: [String: String]) throws -> String {
   await model.finish()
 }
 
+@MainActor @Test(arguments: [false, true])
+func aSavedSearchHotkeyUsesItsOwnSiteFromAnotherQueryPrompt(documented: Bool) async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let folder = try await installLinkProbe("links-search", in: root)
+  let contractURL = try #require(Bundle.wicket.url(forResource: "extension-contract", withExtension: "md"))
+  let contract = try String(contentsOf: contractURL, encoding: .utf8)
+  let osm = try #require(contract.split(separator: "\n").first { $0.hasPrefix(#"{"id":"osm","#) })
+  let wiki = try #require(contract.split(separator: "\n").first { $0.hasPrefix(#"{"id":"wiki-berlin","#) })
+  #expect(wiki.contains(#""promptIfEmpty":true"#))
+  // Existing items may still use the original recipe without promptIfEmpty.
+  let saved = documented ? String(wiki) : wiki.replacingOccurrences(of: #""promptIfEmpty":true,"#, with: "")
+  let items = #"{"items":["# + "\(osm),\(saved)]}"
+  try Data(items.utf8).write(to: folder.appending(path: "user.json"))
+
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  surface.shown = false
+  navigator.surface = surface
+  await model.extensions.reload()
+
+  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=osm")))
+  await navigator.settled()
+  try #require(surface.isShown && navigator.command?.id == links && navigator.input.isEmpty)
+  #expect(navigator.results.first?.row.title == "Enter a search query.")
+  #expect(!didOpenURL(in: folder))
+
+  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=wiki-berlin")))
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: folder) == "https://en.wikipedia.org/w/index.php?search=Berlin")
+  #expect(surface.count(.hide) == 1 && surface.shows == 1)
+  await model.finish()
+}
+
 @MainActor @Test func youtubeHotkeyShowsQueryOverAKeptConversation() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
