@@ -55,9 +55,10 @@ enum Edition: Equatable {
 
   /// Extension state is a sibling of private history, outside the watched extension folders.
   func extensionDataDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-    let history = privateDirectory(environment: environment)
-    let sharedConfig = environment["WICKET_CONFIG_DIR"]?.isEmpty == false
-    let suffix = self == .dev && sharedConfig ? "-extension-data.dev" : "-extension-data"
+    let config = configDirectory(environment: environment).standardizedFileURL
+    let scratch = config.path != configFolder.standardizedFileURL.path
+    let history = privateDirectory(environment: scratch ? environment : [:])
+    let suffix = self == .dev && scratch ? "-extension-data.dev" : "-extension-data"
     return history.deletingLastPathComponent().appending(
       path: history.lastPathComponent + suffix, directoryHint: .isDirectory)
   }

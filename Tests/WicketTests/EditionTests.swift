@@ -36,6 +36,16 @@ import Testing
     Edition.dev.extensionDataDirectory(environment: scratch).path == "/tmp/w-private-extension-data.dev")
 }
 
+@Test(arguments: [Edition.release, .dev])
+func explicitlyChoosingTheDefaultWorkingFolderSharesExtensionData(_ edition: Edition) {
+  let implicit = edition.extensionDataDirectory(environment: [:])
+  let workingFolder = edition.configFolder.path
+  let explicit = edition.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": workingFolder + "/./"])
+  #expect(implicit == explicit)
+  let otherEdition: Edition = edition == .release ? .dev : .release
+  #expect(otherEdition.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": workingFolder]) != implicit)
+}
+
 /// A folder that already holds the first Wicket's files (settings.json, and from Application Support
 /// voice.json, approvals.json and a usage.json of another shape) must neither crash the app nor lose
 /// a byte of them.

@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import Foundation
 import Synchronization
 
@@ -63,9 +65,9 @@ struct ExtensionRunner: Sendable {
       }
       executable = found
     }
-    let data = dataDirectory.appending(path: command.folder.lastPathComponent, directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(
-      at: data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let data = dataDirectory(for: command.id)
+    try Self.preparePrivateDirectory(dataDirectory)
+    try Self.preparePrivateDirectory(data)
     environment["WICKET_DATA_DIR"] = data.path
     let started = try Launch.start(
       executable, Array(argv.dropFirst()), in: command.folder, environment: environment)
@@ -108,6 +110,30 @@ struct ExtensionRunner: Sendable {
       stop()
     }
   }
+  func dataDirectory(for id: String) -> URL {
+    // A fixed-length lowercase name preserves case distinctions on case-insensitive volumes.
+    let digest = SHA256.hash(data: Data(id.precomposedStringWithCanonicalMapping.utf8))
+    let name = digest.map { String(format: "%02x", $0) }.joined()
+    return dataDirectory.appending(path: name, directoryHint: .isDirectory)
+  }
+
+  private static func preparePrivateDirectory(_ directory: URL) throws {
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    // Creation leaves existing permissions alone. Check the actual directory without following a link.
+    let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    guard fd >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    defer { close(fd) }
+    var info = stat()
+    guard fstat(fd, &info) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    guard info.st_uid == geteuid() else {
+      throw ExtensionFailure("Extension data directory is owned by another user: \(directory.path)")
+    }
+    if info.st_mode & 0o7777 != 0o700, fchmod(fd, 0o700) != 0 {
+      throw POSIXError(.init(rawValue: errno) ?? .EIO)
+    }
+  }
+
   private static func decodingMessage(_ error: any Error) -> String {
     let context: DecodingError.Context
     let reason: String

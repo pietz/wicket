@@ -254,6 +254,24 @@ func command(_ folder: URL) throws -> ExtensionCommand {
       == ProviderView(body: "héllo \"世界\"", items: [Row(id: "args", title: "one=1/two=2", actions: [])]))
 }
 
+@Test func existingExtensionDataDirectoriesArePrivateBeforeTheProgramRuns() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let ext = try extensionFolder(
+    root, script: #"cat >/dev/null; /usr/bin/stat -f %Lp "$WICKET_DATA_DIR/.." "$WICKET_DATA_DIR""#)
+  let data = root.appending(path: "data")
+  let runner = ExtensionRunner(dataDirectory: data)
+  let command = try command(ext)
+  let child = runner.dataDirectory(for: command.id)
+  let files = FileManager.default
+  for folder in [data, child] {
+    try files.createDirectory(at: folder, withIntermediateDirectories: false)
+    try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+  }
+  let view = try await runner.run(command, request: .init(input: ""))
+  #expect(view.body == "700\n700")
+}
+
 /// `./main.py` without its execute bit is not "missing": the repair brief says what is wrong.
 @Test func aProgramWithoutItsExecuteBitSaysSo() async throws {
   let root = try scratch()

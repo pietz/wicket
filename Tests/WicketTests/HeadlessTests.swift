@@ -81,12 +81,13 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(!FileManager.default.fileExists(atPath: directory.path))
   model.navigator.go(Address(id: "extension:example"))
   await model.navigator.settled()
-  let path = directory.appending(path: "example").path
-  #expect(model.navigator.results.first?.row.title == path)
+  let path = try #require(model.navigator.results.first?.row.title)
+  let child = URL(fileURLWithPath: path, isDirectory: true)
+  #expect(child.deletingLastPathComponent().path == directory.path)
   #expect(model.navigator.results.first?.row.subtitle == "first")
   let permissions = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
   #expect(permissions == 0o700)
-  #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "peer").path))
+  #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [child.lastPathComponent])
   await model.finish()
 
   let (status, same) = try await cli(root, ["--extension", "example"])
@@ -95,14 +96,38 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(same["items"].array.first?["subtitle"].string == "again")
   let (peerStatus, peer) = try await cli(root, ["--extension", "peer"])
   #expect(peerStatus == 0)
-  #expect(peer["items"].array.first?["title"].string == directory.appending(path: "peer").path)
+  let peerPath = try #require(peer["items"].array.first?["title"].string)
+  #expect(
+    URL(fileURLWithPath: peerPath, isDirectory: true).deletingLastPathComponent().path == directory.path)
+  #expect(peerPath != path)
   #expect(peer["items"].array.first?["subtitle"].string == "first")
   let (otherStatus, other) = try await cli(otherRoot, ["--extension", "example"])
   #expect(otherStatus == 0)
+  let otherPath = try #require(other["items"].array.first?["title"].string)
   #expect(
-    other["items"].array.first?["title"].string
-      == scratch.appending(path: "other-config-private-extension-data/example").path)
+    URL(fileURLWithPath: otherPath, isDirectory: true).deletingLastPathComponent().path
+      == scratch.appending(path: "other-config-private-extension-data").path)
   #expect(other["items"].array.first?["subtitle"].string == "first")
+}
+
+@Test func bundledUnitsAndUserUnitsHaveDistinctDataFolders() async throws {
+  let scratch = try scratch()
+  defer { try? FileManager.default.removeItem(at: scratch) }
+  let config = scratch.appending(path: "config")
+  _ = try extensionFolder(config, name: "Units", script: answering("User units"))
+  let directory = Edition.release.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": config.path])
+
+  let (bundledStatus, conversion) = try await cli(config, ["--extension", "units", "--input", "10 km in mi"])
+  #expect(bundledStatus == 0 && conversion["items"].array.first != nil)
+  let bundledData = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+  #expect(bundledData.count == 1)
+
+  let (userStatus, user) = try await cli(config, ["--extension", "Units"])
+  #expect(userStatus == 0 && user["items"].array.first?["title"].string == "User units")
+  let data = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+  #expect(data.count == 2)
+  #expect(Set(data.map { $0.lowercased() }).count == 2)
+  #expect(Set(bundledData).isSubset(of: Set(data)))
 }
 
 @Test func headlessQueryUsesOnlyEnabledSourcesAndExtensionRunsEvenWhenOff() async throws {
@@ -406,7 +431,8 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   }
   // Fetched today, so no request is made; the rates themselves are two days old.
   let cache = #"{"fetched":"\#(day(0))","date":"\#(day(-2))","rates":{"EUR":1,"USD":1.25,"JPY":160}}"#
-  let data = scratch.appending(path: "config-private-extension-data/currency")
+  let directory = Edition.release.extensionDataDirectory(environment: ["WICKET_CONFIG_DIR": root.path])
+  let data = ExtensionRunner(dataDirectory: directory).dataDirectory(for: "extension:currency")
   try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
   try Data(cache.utf8).write(to: data.appending(path: "rates.json"))
   // The example writes numbers in the request's format, which headless takes from this Mac.

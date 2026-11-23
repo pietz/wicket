@@ -39,12 +39,14 @@ echo "== Wicket $version ($build)"
 Scripts/build-app.sh --release
 # The app must run without this checkout, so start it headless with the build folder unreadable; only
 # the exit status counts.
-check=$(mktemp -d)
-WICKET_CONFIG_DIR="$check" sandbox-exec -p "(version 1)(allow default)(deny file-read* (subpath \"$PWD/.build\"))" \
-  build/Wicket.app/Contents/MacOS/Wicket --query 1+1 >/dev/null || {
-  echo "build/Wicket.app does not run without .build" >&2; exit 1
-}
-rm -rf "$check" "$check-private"
+(
+  check=$(mktemp -d)
+  trap 'rm -rf "$check"' EXIT
+  WICKET_CONFIG_DIR="$check/config" sandbox-exec -p "(version 1)(allow default)(deny file-read* (subpath \"$PWD/.build\"))" \
+    build/Wicket.app/Contents/MacOS/Wicket --query 1+1 >/dev/null || {
+    echo "build/Wicket.app does not run without .build" >&2; exit 1
+  }
+)
 identity=$(security find-identity -v -p codesigning | awk '/Developer ID Application:.*34MWWCL4H2/ {print $2; exit}')  # by hash: names with non-ASCII letters don't round-trip
 
 # A plain drag-to-Applications disk image: the app and a link to /Applications.
