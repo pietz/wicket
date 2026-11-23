@@ -2,20 +2,9 @@
 
 The work the owner has agreed, in order; what is still being decided is under **To decide** at the end. Open problems are in [ISSUES.md](ISSUES.md). When a step ships, delete it here and update the code comments, README, contract and agent instructions it changes.
 
-The concept behind steps 1 to 4: two nouns and one path. A **field** is a typed, named value with one renderer and one wire format, in three scopes: per request in the search bar, per page as a `<field>` tag, and persisted as a setting. An **action** is a one-shot name on a submitted request: Return, a button, a link and a field that acts on change are the same event, never replayed by a rerun. The **path** is the catalog service and the single `config.json` writer, with three faces: headless commands for the agent, a canvas page, and Settings. Onboarding is a host command page on that path, not a feature of its own.
+The concept behind these steps: two nouns and one path. A **field** is a typed, named value with one renderer and one wire format, in three scopes: per request in the search bar, per page as a `<field>` tag, and persisted as a setting. An **action** is a one-shot name on a submitted request: Return, a button, a link and a field that acts on change are the same event, never replayed by a rerun. The **path** is the catalog service and the single `config.json` writer, with three faces: headless commands for the agent, a canvas page, and Settings. Onboarding is a host command page on that path, not a feature of its own.
 
-## 1. Fields and actions
-
-One coordinated contract change, with the contract, agent instructions, examples, bundled extensions and tests updated together:
-
-- Manifest `fields` (`text`, `number`, `bool`, `choice`, each with a `description`; `date` later) replace the string `arguments`, and settings become the same fields persisted in `config.json`, so Settings draws a bool setting as a switch instead of a text field. Values stay strings on the wire; one declaration serves the search bar, the page, Settings and the agent's view of the extension (and later step 6's tool schemas).
-- Every request carries all current field values plus a one-shot `action`. It replaces verbs passed through arguments (Agent History's `open` and `delete`, Clipboard History's, the window's `move`) and the confirmation-in-an-undeclared-argument convention, and settles the double-Return issue: a rerun never carries an action.
-- The search bar shows text and number fields only.
-- Inside a command the input belongs to the agent unless the command claims it by declaring a search-bar text field (to filter, to look up, or to write something it sends). Unclaimed, the placeholder reads "Ask about <name>…", typing starts no process, and Return asks the agent about the screen, with the footer saying so; ⌘Return keeps asking anywhere. A forgotten declaration falls back to the agent, never to a dead Return. The root is unchanged: `match` patterns read what is typed there. The owner found Return dead on an agent-written Calendar page; Fable's challenge agreed that the extension declares and Wicket never guesses.
-- Legacy `rows` decoding goes.
-- The `config.json` writer merges instead of overwriting the whole file, so a Settings save no longer loses an edit the agent just made; the remote control and onboarding rely on it.
-
-## 2. Canvas fields
+## 1. Canvas fields
 
 - A view declares fields as `<field>` tags with the same types (a grid of switches whose entries aren't known in advance); the look comes from the type: bool a switch, number with min and max a slider, choice segmented up to four options, else a pop-up.
 - Field changes follow today's rules: in a live command a change reruns with `submitted:false`, like typing; in a `submit` command nothing is sent until Return or an action. A field can opt in to make its change an action: one submitted request, so a switch acts at once like a switch in System Settings. A slider previews while dragging and acts on release only. Operations on one item are serialized and the view redraws from the returned state, so a slow response cannot undo a newer choice. Agent answers show no fields, since no program receives them.
