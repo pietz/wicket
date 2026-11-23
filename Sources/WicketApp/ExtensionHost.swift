@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import Observation
 
@@ -141,33 +142,51 @@ final class ExtensionHost {
     let root = root.resolvingSymlinksInPath()
     let keys: Set<URLResourceKey> = [.isSymbolicLinkKey]
     let children = (try? files.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys))) ?? []
-    var paths: Set<String> = [root.path]
+    var paths: Set<String> = []
     for child in children where (try? child.resourceValues(forKeys: keys).isSymbolicLink) == true {
-      guard let path = watchPath(for: child), !path.hasPrefix(root.path + "/") else { continue }
-      paths.insert(path)
+      paths.formUnion(watchPaths(for: child))
     }
-    return paths
+    let resolved = paths.lazy.map { URL(filePath: $0).resolvingSymlinksInPath().path }
+    return Set(resolved.filter { $0 != "/" && !$0.hasPrefix(root.path + "/") }).union([root.path])
   }
 
-  nonisolated private static func watchPath(for link: URL) -> String? {
+  nonisolated private static func watchPaths(for link: URL) -> Set<String> {
     let files = FileManager.default
-    var directory: ObjCBool = false
-    if files.fileExists(atPath: link.path, isDirectory: &directory) {
-      return directory.boolValue ? link.resolvingSymlinksInPath().path : nil
+    let root = URL(filePath: "/", directoryHint: .isDirectory)
+    var directory = root
+    var remaining = link.path.split(separator: "/")[...]
+    var linksLeft = MAXSYMLINKS
+    var paths: Set<String> = []
+    // Walk components so a change to any link in the chain can trigger discovery.
+    while let component = remaining.popFirst() {
+      if component == "." { continue }
+      if component == ".." {
+        directory = directory.deletingLastPathComponent()
+        continue
+      }
+      let entry = directory.appending(path: String(component), directoryHint: .isDirectory)
+      var info = stat()
+      guard lstat(entry.path, &info) == 0 else {
+        // The last directory reached will see the missing subtree return. Skip the volume mount directory.
+        if directory.path != "/Volumes" { paths.insert(directory.path) }
+        return paths
+      }
+      switch info.st_mode & S_IFMT {
+      case S_IFDIR:
+        directory = entry
+      case S_IFLNK:
+        paths.insert(directory.path)
+        guard linksLeft > 0, let destination = try? files.destinationOfSymbolicLink(atPath: entry.path)
+        else { return paths }
+        linksLeft -= 1
+        if destination.hasPrefix("/") { directory = root }
+        remaining = (destination.split(separator: "/") + remaining)[...]
+      default:
+        return paths
+      }
     }
-    // Foundation leaves a dangling link unresolved. Follow its destination to find the immediate parent.
-    var target = link
-    var seen: Set<String> = []
-    while let destination = try? files.destinationOfSymbolicLink(atPath: target.path) {
-      guard seen.insert(target.path).inserted else { return nil }
-      target = URL(filePath: destination, relativeTo: target.deletingLastPathComponent()).absoluteURL
-    }
-    guard target != link else { return nil }
-    let parent = target.deletingLastPathComponent().resolvingSymlinksInPath().path
-    guard parent != "/Volumes", files.fileExists(atPath: parent, isDirectory: &directory),
-      directory.boolValue
-    else { return nil }
-    return parent
+    paths.insert(directory.path)
+    return paths
   }
   /// The bundled extensions, then the user's: a folder of the user's own replaces the bundled one of the
   /// same name, unless it is an unmodified copy an earlier Wicket installed (`retired`).

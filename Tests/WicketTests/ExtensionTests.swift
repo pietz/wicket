@@ -649,6 +649,73 @@ func runnerFailuresAreBoundedAndKeepStderr(_ kind: String) async throws {
   await host.shutdown()
 }
 
+@MainActor @Test func linkedExtensionReturnsWhenItsWholeCheckoutIsRestored() async throws {
+  let root = try scratch().resolvingSymlinksInPath()
+  let files = FileManager.default
+  defer { try? files.removeItem(at: root) }
+  let extensions = root.appending(path: "extensions")
+  let repos = root.appending(path: "repos")
+  let checkout = repos.appending(path: "checkout")
+  let target = checkout.appending(path: "weather")
+  for folder in [extensions, target] {
+    try files.createDirectory(at: folder, withIntermediateDirectories: true)
+  }
+  try Data(#"{"name":"Weather","items":[]}"#.utf8).write(to: target.appending(path: "wicket.json"))
+  try files.createSymbolicLink(at: extensions.appending(path: "weather"), withDestinationURL: target)
+
+  let host = ExtensionHost(folder: root, bundled: nil)
+  let id = "extension:weather"
+  host.start()
+  await host.firstScan()
+  #expect(host.commands[id]?.manifest.name == "Weather")
+  #expect(host.watchRoots == [extensions.path, target.path])
+
+  let moved = root.appending(path: "moved")
+  try files.moveItem(at: checkout, to: moved)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id] == nil })
+  #expect(host.watchRoots == [extensions.path, repos.path])
+  try files.moveItem(at: moved, to: checkout)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Weather" })
+  #expect(host.watchRoots == [extensions.path, target.path])
+  await host.shutdown()
+}
+
+@MainActor @Test func linkedExtensionFollowsAnIntermediateSymlinkRetarget() async throws {
+  let root = try scratch().resolvingSymlinksInPath()
+  let files = FileManager.default
+  defer { try? files.removeItem(at: root) }
+  let extensions = root.appending(path: "extensions")
+  let releases = root.appending(path: "releases")
+  let current = releases.appending(path: "current")
+  let first = root.appending(path: "versions/first/weather")
+  let second = root.appending(path: "versions/second/weather")
+  for folder in [extensions, releases, first, second] {
+    try files.createDirectory(at: folder, withIntermediateDirectories: true)
+  }
+  let nextManifest = second.appending(path: "wicket.json")
+  try Data(#"{"name":"First","items":[]}"#.utf8).write(to: first.appending(path: "wicket.json"))
+  try Data(#"{"name":"Second","items":[]}"#.utf8).write(to: nextManifest)
+  try files.createSymbolicLink(atPath: current.path, withDestinationPath: "../versions/first")
+  try files.createSymbolicLink(
+    atPath: extensions.appending(path: "weather").path, withDestinationPath: "../releases/current/weather")
+
+  let host = ExtensionHost(folder: root, bundled: nil)
+  let id = "extension:weather"
+  host.start()
+  await host.firstScan()
+  #expect(host.commands[id]?.manifest.name == "First")
+  #expect(host.watchRoots == [extensions.path, releases.path, first.path])
+
+  let replacement = root.appending(path: "replacement")
+  try files.createSymbolicLink(atPath: replacement.path, withDestinationPath: "../versions/second")
+  try #require(rename(replacement.path, current.path) == 0)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Second" })
+  #expect(host.watchRoots == [extensions.path, releases.path, second.path])
+  try Data(#"{"name":"Edited","items":[]}"#.utf8).write(to: nextManifest, options: .atomic)
+  #expect(await eventually(within: .seconds(3)) { host.commands[id]?.manifest.name == "Edited" })
+  await host.shutdown()
+}
+
 @MainActor @Test func contractOneProgramsShowMigrationRepairsWhileItemsOnlyManifestsStillWork() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
