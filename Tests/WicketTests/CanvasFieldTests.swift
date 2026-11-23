@@ -68,13 +68,13 @@ import WebKit
   defer { renderer.release() }
   var changes: [Page.Field.Change] = []
   var turns: [String] = []
-  var clicks: [String] = []
+  var clicks: [[String]] = []
   var focus: [String] = []
   renderer.onFieldChange = {
     changes.append($0)
     turns.append($1)
   }
-  renderer.onTarget = { id, _ in clicks.append(id) }
+  renderer.onTarget = { clicks.append([$0, $1]) }
   renderer.onFieldFocus = { focus.append($0) }
   let range = #"<field name="range" type="number" min="0" max="10" value="3"/>"#
   let toggle = #"<field name="switch" type="bool" value="true"/>"#
@@ -112,9 +112,22 @@ import WebKit
     ])
   #expect(turns == ["controls", "controls", "controls"] && clicks.isEmpty)
   #expect(focus == ["controls", "controls"])
-  let next = Page(
-    body: "# Inserted\n\n\(toggle)\n\(segments)\n\nAn inserted paragraph.\n\n\(select)\n\(range)\n\n\(lines)",
+  var next = Page(
+    body: """
+      # Inserted
+
+      \(toggle)
+      \(segments)
+
+      <row title="Copy" copy="text"/>
+
+      \(select)
+      \(range)
+
+      \(lines)
+      """,
     runs: true, fieldSlots: [])
+  next.targetRevision = "rendered reply"
   await renderer.render(next, turn: "controls")
   #expect(
     try await run(
@@ -125,10 +138,12 @@ import WebKit
       """) as? Bool == true)
   _ = try await run(
     """
+    document.querySelector('w-row').click();
     inputs[0].dispatchEvent(new Event('change', {bubbles: true}));
     globalThis.dragging = null;
     """)
   #expect(await eventually { changes.last == .init(name: "range", value: "9", phase: .commit) })
+  #expect(clicks == [["#0", "rendered reply"]] && turns.last == "controls")
   await renderer.render(next, turn: "controls")
   #expect(try await run("return inputs[0].value;") as? String == "3")
   await renderer.render(next, turn: "another")
@@ -279,7 +294,8 @@ import WebKit
   #expect(navigator.body?.hasPrefix("Settled") == true && navigator.pageTurn == turn)
   #expect(navigator.fieldValues == ["dial": "4", "switch": "false", "draft": "true"])
   #expect(navigator.returnAction?.kind == .ask)
-  #expect(navigator.clickTarget("#0", turn: turn))
+  let revision = try #require(surface.presentation.page?.targetRevision)
+  #expect(navigator.clickTarget("#0", revision: revision))
   navigator.run()
   await navigator.settled()
   #expect(try requests(in: folder).last?.action == "submit")
@@ -339,5 +355,180 @@ import WebKit
   #expect(log.map(\.action) == [nil, nil, "save", nil])
   #expect(log.map { $0.fields["level"] } == [nil, "1", "2", "4"])
   #expect(navigator.pageTurn == turn)
+  await model.finish()
+}
+
+@MainActor @Test func canvasRejectsClicksFromBeforeRowsReordered() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      cat <<'PAGE'
+      <field name="reverse" type="bool" act="true"/>
+      PAGE
+      case "$request" in
+        *'"action":"set-reverse"'*)
+          printf '%s\n' '<row title="Second" copy="second"/>' '<row title="First" copy="first"/>' ;;
+        *) printf '%s\n' '<row title="First" copy="first"/>' '<row title="Second" copy="second"/>' ;;
+      esac
+      """, fields: ["fields": [], "submit": true])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  let old = surface.presentation
+  #expect(old.rows.first { $0.row.id == "#0" }?.row.title == "First")
+  let oldRevision = try #require(old.page?.targetRevision)
+
+  navigator.changeField(.init(name: "reverse", value: "true", phase: .commit), turn: old.pageTurn)
+  await navigator.settled()
+  #expect(surface.presentation.pageTurn == old.pageTurn)
+  #expect(surface.presentation.rows.first { $0.row.id == "#0" }?.row.title == "Second")
+  if navigator.clickTarget("#0", revision: oldRevision) { navigator.run() }
+  #expect(surface.effects.isEmpty)
+  let revision = try #require(surface.presentation.page?.targetRevision)
+  try #require(navigator.clickTarget("#0", revision: revision))
+  navigator.run()
+  #expect(surface.effects == [.run(.copy("second"), from: surface.presentation.selected)])
+  await model.finish()
+}
+
+@MainActor @Test func canvasRejectsAnEntireRunWithAnInvalidOverride() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      cat <<'PAGE'
+      <field name="environment" type="choice" options="production=Production"/>
+      <field name="confirm" type="bool"/>
+      <row title="Deploy to staging" run="deploy?environment=staging&confirm=true"/>
+      <row title="Deploy to production" run="deploy?environment=production&confirm=true"/>
+      PAGE
+      """, fields: ["fields": [], "submit": true])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  let page = try #require(surface.presentation.page)
+  let revision = try #require(page.targetRevision)
+  try #require(navigator.clickTarget("#0", revision: revision))
+  navigator.run()
+  await navigator.settled()
+
+  #expect(try requests(in: folder).map(\.action) == [nil])
+  #expect(surface.presentation.page == page)
+  #expect(navigator.fieldValues == ["environment": "production", "confirm": "false"])
+  #expect(surface.presentation.footerProblem?.contains("environment") == true)
+  try #require(navigator.clickTarget("#1", revision: revision))
+  navigator.run()
+  await navigator.settled()
+  #expect(try requests(in: folder).last?.fields == ["environment": "production", "confirm": "true"])
+  await model.finish()
+}
+
+@MainActor @Test func canvasSameCommandLinkCancelsTheSaveAndRunsImmediately() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in
+        *'"action":"set-enabled"'*)
+          if [ ! -e saving ]; then
+            touch saving
+            while [ ! -e release ]; do sleep 0.02; done
+          fi ;;
+      esac
+      printf '%s\n' '<field name="enabled" type="bool" act="true"/>'
+      """)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  navigator.changeField(
+    .init(name: "enabled", value: "true", phase: .commit), turn: surface.presentation.pageTurn)
+  try #require(
+    await eventually(within: .seconds(5)) {
+      FileManager.default.fileExists(atPath: folder.appending(path: "saving").path)
+    })
+  try #require(surface.presentation.busy)
+
+  let url = try #require(URL(string: "wicket://test?input=linked"))
+  navigator.open(try #require(Address(url: url)))
+  await navigator.settled()
+
+  let log = try requests(in: folder)
+  #expect(log.map(\.input) == ["", "", "linked"])
+  #expect(log.map(\.submitted) == [false, true, false])
+  #expect(surface.presentation.page?.fields["enabled"]?.value == "false")
+  #expect(!surface.presentation.busy)
+  try Data().write(to: folder.appending(path: "release"))
+  navigator.changeField(
+    .init(name: "enabled", value: "true", phase: .commit), turn: surface.presentation.pageTurn)
+  await navigator.settled()
+  #expect(try requests(in: folder).map(\.action) == [nil, "set-enabled", nil, "set-enabled"])
+  await model.finish()
+}
+
+@MainActor @Test func canvasFailedSaveRemainsVisibleWhileTheNextEditRunsAndAfterItSucceeds() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in
+        *'"action":"set-first"'*)
+          while [ ! -e release ]; do sleep 0.02; done
+          exit 12 ;;
+        *'"action":"set-second"'*)
+          while [ ! -e finish ]; do sleep 0.02; done ;;
+      esac
+      cat <<'PAGE'
+      <field name="first" type="bool" act="true"/>
+      <field name="second" type="bool" act="true"/>
+      PAGE
+      """, fields: ["fields": [], "submit": true])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  let turn = surface.presentation.pageTurn
+  navigator.changeField(.init(name: "first", value: "true", phase: .commit), turn: turn)
+  try #require(await eventually(within: .seconds(5)) { (try? requests(in: folder).count) == 2 })
+  navigator.changeField(.init(name: "second", value: "true", phase: .commit), turn: turn)
+  try Data().write(to: folder.appending(path: "release"))
+  try #require(await eventually(within: .seconds(5)) { (try? requests(in: folder).count) == 3 })
+  #expect(surface.presentation.busy)
+  #expect(surface.presentation.footerProblem?.contains("12") == true)
+  try Data().write(to: folder.appending(path: "finish"))
+  await navigator.settled()
+
+  #expect(try requests(in: folder).map(\.action) == [nil, "set-first", "set-second"])
+  #expect(surface.presentation.page != nil && !surface.presentation.busy)
+  #expect(surface.presentation.footerProblem?.contains("12") == true)
+  navigator.changeField(.init(name: "second", value: "true", phase: .commit), turn: turn)
+  await navigator.settled()
+  #expect(surface.presentation.footerProblem == nil)
   await model.finish()
 }

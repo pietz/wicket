@@ -136,7 +136,7 @@ struct ExtensionScreen: CommandScreenBehavior {
       do {
         return .view(try await extensions.view(command, request: request.provider))
       } catch {
-        return .problem(command.report(request.provider, error: error))
+        return .problem(command.report(request.provider, error: error), summary: error.localizedDescription)
       }
     }
   }

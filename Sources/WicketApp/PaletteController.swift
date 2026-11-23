@@ -142,8 +142,8 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     panel.contentView = root
     renderer.onHeight = { [weak self] in self?.resize() }
     // A click on a page's target is Return on it, if it was made on the page shown now.
-    renderer.onTarget = { [weak self] id, turn in
-      guard let self, navigator.clickTarget(id, turn: turn) else { return }
+    renderer.onTarget = { [weak self] id, revision in
+      guard let self, navigator.clickTarget(id, revision: revision) else { return }
       run()
     }
     renderer.onFieldChange = { [weak self] change, turn in self?.navigator.changeField(change, turn: turn) }

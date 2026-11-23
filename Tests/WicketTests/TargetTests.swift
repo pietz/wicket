@@ -399,9 +399,9 @@ import Testing
   // A click from another page, or on a target this page does not have, does nothing.
   let turn = model.navigator.pageTurn
   #expect(
-    !model.navigator.clickTarget("#2", turn: "an older answer") && model.navigator.selectedTarget == "#0")
-  #expect(!model.navigator.clickTarget("#7", turn: turn) && model.navigator.selectedTarget == "#0")
-  #expect(model.navigator.clickTarget("#2", turn: turn) && model.navigator.selectedTarget == "#2")
+    !model.navigator.clickTarget("#2", revision: "an older answer") && model.navigator.selectedTarget == "#0")
+  #expect(!model.navigator.clickTarget("#7", revision: turn) && model.navigator.selectedTarget == "#0")
+  #expect(model.navigator.clickTarget("#2", revision: turn) && model.navigator.selectedTarget == "#2")
   #expect(model.navigator.returnAction == .copy("3"))
   fake.end()
   await model.finish()
@@ -430,7 +430,7 @@ import Testing
   #expect(fake.prompts.count == 1 && model.agent.previous.isEmpty)
   #expect(model.navigator.results.map(\.row.title) == ["Radar"])
   // A click from the page under it no longer counts.
-  #expect(!model.navigator.clickTarget("#0", turn: base))
+  #expect(!model.navigator.clickTarget("#0", revision: base))
   model.navigator.move(1)
   #expect(model.navigator.returnAction == .open(URL(string: "https://example.com/radar")!))
   // Escape goes back to the answer with the same target selected, and only then ends the conversation.

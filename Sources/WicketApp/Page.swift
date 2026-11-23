@@ -25,6 +25,8 @@ struct Page: Equatable, Sendable {
   var code: [Code]
   /// The controls owned by the command on this page, by name.
   private(set) var fields: [String: Field]
+  /// Command replies can keep their turn for DOM patching while replacing positional click targets.
+  var targetRevision: String?
   /// An image file the host shows at the top of the page (`Row.picture`). Markdown never sets it.
   var picture: URL?
 

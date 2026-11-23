@@ -146,8 +146,7 @@ final class Navigator {
     if conversing { return agent.question.isEmpty ? nil : agent.page }
     return command?.problem == nil ? command?.page : nil
   }
-  /// Which page is shown, for the renderer (a new one starts at its top) and for clicks, which count
-  /// only on the page they were made on.
+  /// Which page is shown, for the renderer (a new one starts at its top) and its keyed controls.
   var pageTurn: String { openDetails.last?.turn ?? baseTurn }
   /// A command's list whose items carry a `detail` shows the selected one's beside it (`preview`). Not at
   /// the root, in a conversation, on a page or under the action panel. Keep split previews out of root
@@ -373,8 +372,8 @@ final class Navigator {
   }
   /// A click on a page's target selects it and runs it. It counts only on the page it was made on, so a
   /// click that raced a new answer or view is ignored. True when the caller should run Return.
-  func clickTarget(_ id: String, turn: String) -> Bool {
-    guard page != nil, overlay == nil, turn == pageTurn,
+  func clickTarget(_ id: String, revision: String) -> Bool {
+    guard let page, overlay == nil, revision == (page.targetRevision ?? pageTurn),
       let target = results.first(where: { $0.row.id == id }), !id.hasPrefix("#field:")
     else {
       return false
@@ -464,6 +463,7 @@ final class Navigator {
     guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn,
       command?.problem == nil, command?.edit(change) == true
     else { return }
+    actionProblem = nil
     if command?.runningSubmission == true || !advanceCanvasWork() { draw() }
   }
   /// The field slot that has the keyboard, by name; nil is the input. Only a declared name counts, so
@@ -709,10 +709,11 @@ final class Navigator {
   }
   /// A visit's field submissions run in order, ahead of any deferred live edit.
   @discardableResult
-  private func advanceCanvasWork() -> Bool {
+  private func advanceCanvasWork(after problem: String? = nil) -> Bool {
     while let (request, typed) = target?.takePending(), let behavior = target?.behavior {
       let work = behavior.work(for: request)
       if case .keepView = work { continue }
+      if let problem { actionProblem = problem }
       answer(work, for: request, typed: typed)
       return true
     }
@@ -757,7 +758,13 @@ final class Navigator {
             !Task.isCancelled && generation == version && target?.visit == visit
           }
           guard current() else { return }
-          if request.cause == .submission, advanceCanvasWork() { return }
+          if request.cause == .submission {
+            let problem: String? =
+              if case .problem(_, let summary) = outcome {
+                request.action.map { "\($0) failed. \(summary)" } ?? summary
+              } else { nil }
+            if advanceCanvasWork(after: problem) { return }
+          }
           var page: Page?
           var measured: PageHeight?
           if case .view(let view) = outcome {
@@ -801,7 +808,7 @@ final class Navigator {
     case .view(let view):
       showArrival()
       command?.show(view, page: page, for: request, turn: turn, remembered: remembered)
-    case .problem(let problem):
+    case .problem(let problem, _):
       showArrival()
       command?.fail(problem, remembered: remembered)
     case .restore(let run):
@@ -857,7 +864,10 @@ final class Navigator {
     case .command(let behavior):
       let reopened = command?.id == behavior.id
       var state = command.flatMap { $0.id == behavior.id ? $0 : nil } ?? CommandScreen(behavior)
-      state.enter(address, submitted: submitted, replacingFields: replacingFields)
+      if let invalid = state.enter(address, submitted: submitted, replacingFields: replacingFields) {
+        actionProblem = "Invalid value for \(invalid)"
+        return draw()
+      }
       guard reopened, !conversing else { return arrive(state, input: state.input, holding: holding) }
       if arriving == nil, state.runningSubmission, state.page?.fields.isEmpty == false,
         state.next == .submission
@@ -869,9 +879,8 @@ final class Navigator {
       }
       // The same screen: its request reruns in place.
       stopArriving()
-      cancelWork()
-      state.discardPending()
       command = state
+      cancelWork()
       if submitted, !address.link, address.action != nil {
         // A repeated Return must not pick the action again from the old view or its replacement.
         screen.select(Selection(touched: true, reset: false), over: baseTurn)
@@ -1178,7 +1187,10 @@ final class Navigator {
       directory.isAvailable(id, in: configuration)
     else { return open(address, from: origin, submitted: true, replacingFields: replacingFields) }
     var state = command.flatMap { $0.id == id ? $0 : nil } ?? CommandScreen(behavior)
-    state.enter(address, submitted: true, replacingFields: replacingFields)
+    if let invalid = state.enter(address, submitted: true, replacingFields: replacingFields) {
+      actionProblem = "Invalid value for \(invalid)"
+      return draw()
+    }
     let request = state.request().provider
     // A missing permission runs nothing and hides nothing: Wicket's row shows on the command, the panel
     // opening for it, since the user is waiting for an effect that will not come.
@@ -1210,7 +1222,7 @@ final class Navigator {
       } catch let failure as ExtensionFailure where failure.nothingShown {
       } catch is CancellationError {
       } catch {
-        outcome = .problem(program.report(request, error: error))
+        outcome = .problem(program.report(request, error: error), summary: error.localizedDescription)
         line = String(error.localizedDescription.prefix { $0 != "\n" })
       }
       guard let self else { return }

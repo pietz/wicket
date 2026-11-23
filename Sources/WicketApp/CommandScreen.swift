@@ -58,8 +58,8 @@ enum CommandWork {
 enum CommandOutcome {
   /// A list, or a page with its items after its body.
   case view(ProviderView)
-  /// Why it failed, shown instead of a view.
-  case problem(String)
+  /// A full report in place of a view, or a summary in the footer while queued work continues.
+  case problem(String, summary: String)
   /// A run from Agent History opens as a conversation over the screen, which Escape returns to.
   case restore(AgentHistory.Run)
 }
@@ -119,8 +119,22 @@ enum CommandOutcome {
 
   /// Applies an address to this visit. `replacingFields` restores the address's exact field set (used when
   /// replaying a permission-gated request so edits made while the gate was visible do not leak in).
-  mutating func enter(_ address: Address, submitted: Bool, replacingFields: Bool = false) {
-    next = submitted && !address.link ? .submission : .address
+  /// Returns the name of an invalid canvas override, leaving the visit as it was.
+  @discardableResult
+  mutating func enter(
+    _ address: Address, submitted: Bool, replacingFields: Bool = false
+  ) -> String? {
+    let submitting = submitted && !address.link
+    let overrides = address.fields ?? [:]
+    if submitting, !replacingFields,
+      let invalid = overrides.first(where: { name, value in
+        guard let field = page?.fields[name] else { return false }
+        return field.canonical(value) == nil
+      })
+    {
+      return invalid.key
+    }
+    next = submitting ? .submission : .address
     action = next == .submission ? address.action : nil
     self.replacingFields = replacingFields
     let field = descriptor?.inputField
@@ -128,19 +142,18 @@ enum CommandOutcome {
       screen.fill([:])
       canvasEdits.removeAll()
     }
-    for (name, value) in address.fields ?? [:] where name != field?.name {
-      if next == .submission, !replacingFields, let canvas = page?.fields[name] {
-        if let value = canvas.canonical(value) {
-          page?.fill(name, with: value)
-          canvasEdits[name] = nil
-        }
+    for (name, value) in overrides where name != field?.name {
+      if submitting, !replacingFields, page?.fields[name] != nil {
+        page?.fill(name, with: value)
+        canvasEdits[name] = nil
       } else {
         screen.fill(name, with: value)
       }
     }
     providerInput =
-      field.flatMap { address.fields?[$0.name] } ?? address.input ?? (replacingFields ? "" : providerInput)
+      field.flatMap { overrides[$0.name] } ?? address.input ?? (replacingFields ? "" : providerInput)
     if let field { screen.fill(field.name, with: "") }
+    return nil
   }
 
   func request() -> CommandScreenRequest {
@@ -240,7 +253,10 @@ enum CommandOutcome {
   }
 
   func makePage(_ view: ProviderView) -> Page? {
-    view.body.map { Page(body: $0, items: view.items, runs: true, fieldSlots: descriptor?.fields) }
+    guard let body = view.body else { return nil }
+    var page = Page(body: body, items: view.items, runs: true, fieldSlots: descriptor?.fields)
+    page.targetRevision = UUID().uuidString
+    return page
   }
   /// What answered `request`: a list ordered by what is typed, or a page. `remembered`: the user did not
   /// cause the request by typing, so the view becomes its context.

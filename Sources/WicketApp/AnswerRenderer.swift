@@ -22,15 +22,15 @@ struct AnswerNavigation: WebPage.NavigationDeciding {
 }
 
 /// Receives the bridge's clicks on targets from the isolated world. Page scripts cannot reach it, and
-/// it passes on only an id and the turn of the page it was made on; Swift decides what that means.
+/// it passes on only an id and the revision of the view it was made on; Swift decides what that means.
 private final class TargetClicks: NSObject, WKScriptMessageHandler {
   let receive: @MainActor (String, String) -> Void
   init(_ receive: @escaping @MainActor (String, String) -> Void) { self.receive = receive }
   func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
     guard let body = message.body as? [String: Any], let id = body["id"] as? String,
-      let turn = body["turn"] as? String
+      let revision = body["revision"] as? String
     else { return }
-    receive(id, turn)
+    receive(id, revision)
   }
 }
 
@@ -61,7 +61,7 @@ final class AnswerRenderer {
   private(set) var height: Double = PaletteLayout.answerMin
   private(set) var problem: String?
   var onHeight: (() -> Void)?
-  /// A click on a target: its id and the turn of the page it was made on.
+  /// A click on a target: its id and the revision of the view it was made on.
   var onTarget: ((String, String) -> Void)?
   var onFieldChange: ((Page.Field.Change, String) -> Void)?
   var onFieldFocus: ((String) -> Void)?
@@ -186,7 +186,8 @@ final class AnswerRenderer {
     config.loadsSubresources = false
     config.deviceSensorAuthorization = .init(decision: .deny)
     config.userContentController.add(
-      TargetClicks { [weak self] id, turn in self?.onTarget?(id, turn) }, contentWorld: .defaultClient,
+      TargetClicks { [weak self] id, revision in self?.onTarget?(id, revision) },
+      contentWorld: .defaultClient,
       name: "target")
     let fields = FieldMessages(
       change: { [weak self] change, turn in self?.onFieldChange?(change, turn) },
@@ -265,6 +266,7 @@ final class AnswerRenderer {
             script,
             arguments: [
               "html": html, "reset": reset, "turn": currentTurn, "selected": selected ?? NSNull(),
+              "targetRevision": shown.targetRevision ?? currentTurn,
               "icons": icons == appliedIcons ? NSNull() : icons,
               "restore": reset ? positions[currentTurn] ?? 0 : NSNull(),
               "follow": isStreaming || renderedStreaming,

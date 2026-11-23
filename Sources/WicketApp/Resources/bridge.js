@@ -1,5 +1,5 @@
 // Trusted host code, executed only in WKContentWorld.defaultClient. No agent script.
-// Arguments: html (null only paints the selection), reset, turn, selected, icons (null: unchanged),
+// Arguments: html (null only paints the selection), reset, turn, targetRevision, selected, icons (null: unchanged),
 // restore (where a page that comes back was scrolled), follow (keep following a stream).
 const scrolling = document.scrollingElement;
 const fields = 'w-field[data-key]';
@@ -58,7 +58,7 @@ if (!globalThis.listening) {
     if (event.target.closest('a') || !getSelection().isCollapsed) return;
     const target = event.target.closest(targets);
     if (target && (target.localName !== 'div' || event.target.closest('button'))) {
-      webkit.messageHandlers.target.postMessage({id: target.dataset.target, turn: globalThis.turn});
+      webkit.messageHandlers.target.postMessage({id: target.dataset.target, revision: globalThis.targetRevision});
     }
   });
 }
@@ -126,6 +126,7 @@ if (reset) {
   }
 }
 globalThis.turn = turn;
+globalThis.targetRevision = targetRevision;
 paint(false);
 if (reset) scrollTo(0, restore);
 else if (follow && following && selected === null) scrollTo(0, scrolling.scrollHeight);
