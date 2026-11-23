@@ -237,6 +237,13 @@ private func serveJavaScriptHTTP(in folder: URL) async throws -> (Process, Strin
                       self.reply(302, headers={"Location": f"/redirect/{remaining - 1}"})
                   else:
                       self.reply(200, b"redirected")
+              elif self.path == "/auth":
+                  self.reply(200, (self.headers.get("Authorization") or "none").encode())
+              elif self.path == "/auth-redirect":
+                  self.reply(302, headers={"Location": "/auth"})
+              elif self.path == "/auth-cross-redirect":
+                  port = self.server.server_address[1]
+                  self.reply(302, headers={"Location": f"http://localhost:{port}/auth"})
               elif self.path == "/bad-redirect":
                   self.reply(302, headers={"Location": "file:///dev/null"})
               elif self.path == "/get":
@@ -322,6 +329,24 @@ private func serveJavaScriptHTTP(in folder: URL) async throws -> (Process, Strin
     #expect(limit == 1 && limitRepair["error"].string?.contains("wicket.fetch: too many redirects") == true)
     let (scheme, schemeRepair) = try await cli(root, args + [base + "/bad-redirect"])
     #expect(scheme == 1 && schemeRepair["error"].string?.contains("wicket.fetch:") == true)
+  }
+
+  @Test func javaScriptFetchKeepsAuthorizationOnlyOnSameOriginRedirects() async throws {
+    let root = try scratch()
+    defer { removeHeadlessScratch(root) }
+    let (server, base) = try await serveJavaScriptHTTP(in: root)
+    defer { server.terminate() }
+    _ = try installScript(
+      #"""
+      function main({input}) {
+        const headers = {Authorization: "Bearer key"};
+        return {body: [wicket.fetch(input + "/auth-redirect", {headers}).body,
+          wicket.fetch(input + "/auth-cross-redirect", {headers}).body].join("\n")};
+      }
+      """#, in: root)
+    let (status, view) = try await cli(root, ["--extension", "javascript", "--submitted", "--input", base])
+    #expect(status == 0)
+    #expect(view["body"].string == "Bearer key\nnone")
   }
 
   @Test func javaScriptRootMatchesBlockIOEvenBeforeMainAndAfterEditingTheRequest() async throws {

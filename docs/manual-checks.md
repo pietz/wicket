@@ -61,7 +61,7 @@ Diagnostics: agent runs in `~/Library/Logs/Wicket Dev/agent.log`; why voice stop
 8. On a Mac without Apple's developer tools, install or update the signed app and copy the contract's Echo into `extensions/`. The first run takes about 0.2 s and the next about 10 ms, with no install prompt. Edit `main.js` and check that the next run shows the edit at warm speed.
 9. Search with `yt cats` and with `yt`, Tab, `cats`, Return. Both open the same YouTube search. With Wicket closed, press a hotkey set on Search YouTube. Query is ready for text, and Escape returns to the root. Type an unrelated sentence and choose Search the Web below Ask agent. Change the search engine in Settings and repeat. Switch Search the Web off and check that site keywords still work.
 10. Install the contract's JavaScript site search and a fallback based on it. Type a query containing spaces, `&` and non-ASCII text. The browser opens only on Return, with the complete query, and Wicket closes on success. Repeat through the fallback row.
-11. Store a throwaway Keychain value under `wicket.<id>` and submit a scratch extension using the contract's Keychain recipe. If macOS prompts, allow access and verify the extension reports a match without showing the value. Remove the scratch item afterward.
+11. Store a throwaway Keychain value under `wicket.<id>`, read it once in Terminal as the contract's Keychain recipe says (choose Always Allow if macOS asks), then submit a scratch extension using the recipe. It reports a match at once, without a prompt and without showing the value. Remove the scratch item afterward.
 
 ## 8. Settings
 

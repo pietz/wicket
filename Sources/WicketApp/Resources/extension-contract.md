@@ -302,7 +302,7 @@ function main(request) {
 
 ### An API that needs a key
 
-Have the user store the key once in Keychain with `security add-generic-password` under service `wicket.<id>`, without pasting it into chat.
+Have the user store the key once in Keychain with `security add-generic-password` under service `wicket.<id>`, without pasting it into chat, then read it once in Terminal with `security find-generic-password -s wicket.<id> -w > /dev/null` and choose Always Allow if macOS asks, so the extension's own read never waits on a prompt.
 After submission, read it with `wicket.run(["/usr/bin/security", "find-generic-password", "-s", "wicket.<id>", "-w"])`. Check `status === 0` and use `stdout.trim()` for the API call.
 
 ### Something that needs a macOS permission

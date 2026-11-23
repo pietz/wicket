@@ -56,6 +56,15 @@ private final class FetchTransfer: NSObject, URLSessionDataDelegate {
     _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
   ) {
+    var request = request
+    // URLSession drops Authorization on every redirect; an API that redirects to its canonical path on the
+    // same origin still needs it. A different scheme, host or port never gets it.
+    if request.value(forHTTPHeaderField: "Authorization") == nil,
+      let authorization = task.currentRequest?.value(forHTTPHeaderField: "Authorization"),
+      let from = response.url, let to = request.url, sameOrigin(from, to)
+    {
+      request.setValue(authorization, forHTTPHeaderField: "Authorization")
+    }
     let allowed = state.withLock { state in
       guard let url = request.url, isHTTP(url) else {
         state.failure = Failure("redirect requires an HTTP(S) URL")
@@ -69,6 +78,12 @@ private final class FetchTransfer: NSObject, URLSessionDataDelegate {
       return true
     }
     completionHandler(allowed ? request : nil)
+  }
+
+  private func sameOrigin(_ a: URL, _ b: URL) -> Bool {
+    func port(_ url: URL) -> Int? { url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80) }
+    return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+      && port(a) == port(b)
   }
 
   func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
