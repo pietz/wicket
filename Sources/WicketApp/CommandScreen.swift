@@ -106,6 +106,8 @@ enum CommandOutcome {
   private(set) var problem: String?
   /// A failed form leaves its values for retries until the command returns a new view.
   private var failedCanvasValues: [String: String] = [:]
+  /// A link or replay cleared the shown form's values; if its request fails, a retry must not restore them.
+  private var canvasCleared = false
   private(set) var busy = false
   private(set) var runningAction = false
   private(set) var runningSubmission = false
@@ -144,6 +146,7 @@ enum CommandOutcome {
       screen.fill([:])
       canvasEdits.removeAll()
       failedCanvasValues.removeAll()
+      canvasCleared = true
     }
     for (name, value) in overrides where name != field?.name {
       if submitting, !replacingFields, page?.fields[name] != nil {
@@ -272,6 +275,7 @@ enum CommandOutcome {
     if remembered { context = shown }
     self.page = page
     failedCanvasValues.removeAll()
+    canvasCleared = false
     // Edits still waiting for an explicit submit survive another field's reply.
     canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.canonical(value) != nil }
     for (name, value) in canvasEdits { self.page?.fill(name, with: value) }
@@ -293,7 +297,7 @@ enum CommandOutcome {
   mutating func fail(_ problem: String, remembered: Bool) {
     if remembered { context = nil }
     if let fields = page?.fields, !fields.isEmpty {
-      failedCanvasValues = fields.mapValues(\.value)
+      failedCanvasValues = canvasCleared ? [:] : fields.mapValues(\.value)
       page = nil
     }
     self.problem = problem

@@ -512,6 +512,42 @@ import WebKit
   await model.finish()
 }
 
+@MainActor @Test func canvasRetryAfterAFailedLinkKeepsTheFieldsTheLinkCleared() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      case "$request" in
+        *'"input":"linked"'*)
+          if [ ! -e failed ]; then touch failed; exit 7; fi ;;
+      esac
+      printf '%s\n' '<field name="environment" type="choice" options="production=Production&staging=Staging"/>'
+      """, fields: ["submit": true])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
+  try #require(surface.presentation.page?.fields["environment"] != nil)
+
+  let url = try #require(URL(string: "wicket://test?input=linked"))
+  navigator.open(try #require(Address(url: url)))
+  await navigator.settled()
+  try #require(surface.presentation.problem != nil)
+  navigator.run()
+  await navigator.settled()
+
+  let linked = try requests(in: folder).filter { $0.input == "linked" }
+  #expect(linked.map(\.submitted) == [false, true])
+  #expect(linked.map { $0.fields["environment"] } == [nil, nil])
+  await model.finish()
+}
+
 @MainActor @Test func canvasFailedFormStaysInactiveDuringALiveRerun() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
