@@ -30,6 +30,9 @@ struct ExtensionCommand: Sendable, Equatable {
   static func == (a: Self, b: Self) -> Bool {
     a.id == b.id && a.folder == b.folder && a.manifest == b.manifest && a.items == b.items
   }
+  func item(for target: HotkeyTarget) -> Row? {
+    items.first { $0.id == target.item && $0.isUserItem == target.isUserItem }
+  }
   /// What a failed run shows: where the extension is, what it was asked, and why it failed.
   func report(_ request: ProviderRequest, error: any Error) -> String {
     "Extension: \(folder.path)\nCommand: \(manifest.command ?? [])\nRequest: \(String(decoding: (try? JSONEncoder().encode(request)) ?? Data(), as: UTF8.self))\n\n\(error.localizedDescription)"
@@ -96,6 +99,14 @@ final class ExtensionHost {
   private var scan: Task<Void, Never>?
   /// The catalog was read at least once. Until then an unknown name may still be on its way.
   private(set) var scanned = false
+  func unavailableItemHotkeys(_ hotkeys: [Configuration.Hotkey]) -> [Configuration.Hotkey] {
+    guard scanned else { return [] }
+    return hotkeys.filter { binding in
+      let target = binding.target
+      guard let id = target.target, id.hasPrefix("extension:"), target.item != nil else { return false }
+      return commands[id]?.item(for: target) == nil
+    }
+  }
   private var scanWaiters: [CheckedContinuation<Void, Never>] = []
   /// Returns once the catalog was read at least once.
   func firstScan() async {

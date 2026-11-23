@@ -248,6 +248,47 @@ func aRenamedOrRemovedUserItemLeavesItsHotkeyInert(_ rename: Bool) async throws 
   await model.finish()
 }
 
+@MainActor @Test(arguments: [false, true])
+func aRenamedUserItemsHotkeyCanBeRemovedAndReused(_ editConfig: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let userFile = try links(in: root, stockID: "saved")
+  try savedBookmark().write(to: userFile)
+  let host = ExtensionHost(folder: root, bundled: nil)
+  await host.reload()
+  let store = ConfigurationStore(url: root.appending(path: "config.json"))
+  let registrations = CommandHotKeys { _, _ in Handle() }
+  store.onChange = { storeConfig in
+    #expect(registrations.apply(storeConfig.hotkeys, launcher: storeConfig.hotkey) == nil)
+  }
+  store.applyBinding = { registrations.set($0, for: $1, launcher: nil) }
+  store.start(watching: editConfig)
+
+  let old = try #require(HotkeyTarget("wicket://links?user-item=saved"))
+  let renamed = try #require(HotkeyTarget("wicket://links?user-item=renamed"))
+  let keys = try Shortcut("ctrl+option+b")
+  store.bind(keys, to: old)
+  #expect(host.unavailableItemHotkeys(store.configuration.hotkeys).isEmpty)
+  try savedBookmark(id: "renamed", title: "Renamed bookmark").write(to: userFile)
+  await host.reload()
+  let unavailable = try #require(host.unavailableItemHotkeys(store.configuration.hotkeys).first)
+  #expect(unavailable.target == old && unavailable.keys == keys)
+  store.bind(keys, to: renamed)
+  #expect(store.rejection?.target == renamed)
+
+  if editConfig {
+    try ConfigurationFile(url: store.url).bind(nil, to: old)
+    try #require(await eventually { store.configuration.hotkeys.isEmpty })
+  } else {
+    store.bind(nil, to: unavailable.target)
+  }
+  #expect(registrations.inEffect(old) == nil)
+  store.bind(keys, to: renamed)
+  #expect(registrations.inEffect(renamed) == keys)
+  #expect(store.configuration.hotkeys == [.init(keys: keys, target: renamed)])
+  #expect(host.unavailableItemHotkeys(store.configuration.hotkeys).isEmpty)
+}
+
 @MainActor @Test func aProgramRowSharingAUserItemIDNeedsTheSamePrimaryActionToOfferAHotkey() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

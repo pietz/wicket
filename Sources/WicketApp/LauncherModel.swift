@@ -92,7 +92,7 @@ final class LauncherModel {
     }
     let owner = target.target.flatMap { extensions.commands[$0] }
     guard let itemID = target.item else { return navigator.open(target.address, pressed: target) }
-    let item = owner?.items.first { $0.id == itemID && $0.isUserItem == target.isUserItem }
+    let item = owner?.item(for: target)
     if item == nil, target.isUserItem {
       let name = owner?.manifest.name ?? target.address.extensionName ?? "this extension"
       return navigator.reportActionProblem("User item “\(itemID)” is no longer available in \(name).")

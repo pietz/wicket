@@ -193,6 +193,15 @@ struct SettingsPane: View {
       }
       Toggle("Open compact", isOn: binding(config.compactOnOpen, key: "compactOnOpen"))
     }
+    let ids = Set(extensions.ids)
+    let unavailable = extensions.unavailableItemHotkeys(config.hotkeys).filter {
+      $0.target.target.map(ids.contains) != true
+    }
+    if !unavailable.isEmpty {
+      Section("Hotkeys") {
+        ForEach(unavailable, id: \.target, content: unavailableHotkeyRow)
+      }
+    }
     Section {
       Toggle(
         "Launch at login",
@@ -476,9 +485,11 @@ struct SettingsPane: View {
         [(command.manifest.name, HotkeyTarget(target: id))]
           + command.items.map { ($0.title, HotkeyTarget(target: id, item: $0.id, isUserItem: $0.isUserItem)) }
       } ?? []
-    if !targets.isEmpty {
+    let unavailable = extensions.unavailableItemHotkeys(config.hotkeys).filter { $0.target.target == id }
+    if !targets.isEmpty || !unavailable.isEmpty {
       Section("Hotkeys") {
         ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
+        ForEach(unavailable, id: \.target, content: unavailableHotkeyRow)
         if recorder.target != nil { recorderHint }
         if let rejection = store.rejection, targets.contains(where: { $0.1 == rejection.target }) {
           warning(rejection.problem)
@@ -525,6 +536,12 @@ struct SettingsPane: View {
       shortcutButton(keys?.symbols ?? "Record Hotkey", recording: recorder.target == target, minWidth: 110) {
         recorder.record(target, store: store, pausing: pauseHotkey)
       }
+    }
+  }
+  private func unavailableHotkeyRow(_ binding: Configuration.Hotkey) -> some View {
+    LabeledContent("Unavailable: \(binding.target.description)") {
+      Text(binding.keys.symbols)
+      Button("Remove") { store.bind(nil, to: binding.target) }
     }
   }
   /// A shortcut's button: it shows the keys, and a press starts recording or, while recording, stops it.
