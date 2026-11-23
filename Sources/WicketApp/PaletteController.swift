@@ -345,6 +345,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
       record()
       hide()
     case .hotkey(let target, record: true):
+      navigator.revealRootResults()
       recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
     case .run, .send, .ask, .detail, .field, .hotkey, .grant: break
     case .reveal(let url):

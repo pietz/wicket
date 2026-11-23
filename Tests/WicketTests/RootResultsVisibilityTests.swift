@@ -122,6 +122,23 @@ import Testing
   await controller.finish()
 }
 
+@MainActor @Test func recordingAShortcutRevealsHeldBackResultsSoItsPromptShows() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = rootResultsModel(in: root)
+  try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: model.store.url)
+  let controller = PaletteController(model: model, drawsGlass: false)
+  model.store.start(watching: false)
+  controller.showOnLaunch(nil, orderFront: false)
+  await model.navigator.settled()
+  #expect(controller.panel.frame.height == searchOnlyHeight)
+  // Set Hotkey… draws "Press a shortcut" in the selected row, so the card has to show.
+  model.navigator.revealRootResults()
+  #expect(controller.presentation.showsCard)
+  #expect(controller.panel.frame.height > searchOnlyHeight)
+  await controller.finish()
+}
+
 private let searchOnlyHeight = PaletteLayout.panelHeight(card: 0)
 
 @MainActor private func rootResultsModel(in root: URL) -> LauncherModel {

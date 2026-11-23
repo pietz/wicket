@@ -352,6 +352,12 @@ final class Navigator {
     let request = command.request()
     return rerun.input == request.input && (rerun.fields ?? [:]) == request.fields
   }
+  /// Shows the held-back results, as ↓ does: recording a shortcut draws its prompt in the selected row.
+  func revealRootResults() {
+    guard rootResultsHidden else { return }
+    revealedRootList = true
+    draw()
+  }
   /// Arrow keys: the first press enters the items under the input, and up from the first leaves them.
   func move(_ delta: Int) {
     defer {
