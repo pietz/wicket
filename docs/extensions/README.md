@@ -19,7 +19,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 
 - **User data & settings:** Personal additions go in `extensions/<name>/user.json` (untouched by catalog updates); settings live in `config.json`; API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
-- **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md).
+- **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
   - Extensions declare `permissions` and never prompt themselves or build helper apps.
   - Child processes inherit Wicket's Developer ID–signed grant, so updates never re-prompt (unlike ad-hoc helper apps whose cdhash changes on rebuild).

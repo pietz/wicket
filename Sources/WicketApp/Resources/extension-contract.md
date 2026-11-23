@@ -15,7 +15,7 @@ Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `f
 
 Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; a contract 1 program does not run and shows migration instructions (use typed `fields`/`settings`, read `request.fields`/`request.action`, return `items`/`body`, then set `"contract":2`). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
 
-`command` performs no shell expansion. Use `"wicket-js"`, a relative executable (with execute bit and shebang; resolved in the extension folder), or a bare/absolute executable on Wicket's PATH.
+`command` performs no shell expansion. Use `"wicket-js"`, a relative executable (with execute bit and shebang; resolved in the extension folder), a bare executable on Wicket's PATH, or an absolute executable / installed interpreter, e.g. `["/usr/bin/python3","main.py"]`.
 
 ### Triggers and ranking
 
@@ -56,7 +56,7 @@ Gate user-visible effects on `submitted:true`. For effects the user should revie
 ]}
 ```
 
-Static items use the view `items` schema and match at the root without running a process (top 20 fuzzy matches by title/keywords per extension, plus any exact keyword-with-argument matches). Omitted `icon` falls back to the manifest icon; omitted `subtitle` shows the extension name during ordinary root search. Without `command`, entering the extension lists its items (declare a text field to filter). With `command`, the program renders the command view and static items add root rows (typically `run` actions).
+Static items use the view `items` schema and match at the root without running a process (top 20 fuzzy matches by title/keywords per extension, plus any exact keyword-with-argument matches). Omitted `icon` falls back to the manifest icon; omitted `subtitle` shows the extension name during ordinary root search. Without `command`, entering the extension lists its items (declare a text field to filter). With `command`, the program renders the command view and static items add root rows (typically `run` actions). Use static items for a known list and `match` for an answer computed from what was typed.
 
 Personal additions live in `extensions/<name>/user.json` in the working folder (`{"items":[...]}`—`items` is its only key; IDs nonempty and unique within `user.json`, may reuse manifest IDs). For a built-in, create the folder if needed and write only `user.json`; Wicket combines it with the bundled manifest and program. A local `wicket.json` replaces a bundled extension (except unmodified legacy Python Units files). An invalid `user.json` shows a repair row while manifest items remain available.
 
@@ -115,7 +115,7 @@ Optional `title` names the action in ⌘K and menus (defaults to action kind; `r
   - `"promptIfEmpty":true`: for hidden actions needing text. Starts with supplied values and any item draft; if the first text field is blank, opens the command for that request (return a prompt view). Filling the field and pressing Return submits the same action as a hidden run.
 - **`wicket://` URLs:** `wicket://<folder>?input=…`, `wicket://agent?input=…`, `wicket://settings`, `wicket://clipboard?input=…`, `wicket://history?input=…`, `wicket://?input=…` (root). Percent-encode `input`. Always unsubmitted with no `action` and empty non-main fields. Usable in `open`, Markdown links, and `<row open="…"/>`.
 - **`open`:** Accepts `http`, `https`, `mailto`, `wicket://`, `x-apple.systempreferences:…`, and existing `file://` URLs for apps, folders, and nonexecutable documents. Opening an app hides Wicket immediately (showing an error in the panel on failure). Refuses executables, scripts, workflows, and installers (`.command`, `.pkg`, `.mpkg`, `.dmg`, `.sh`, `.bash`, `.zsh`, `.py`, `.js`, `.scpt`, `.applescript`, `.workflow`), including symlink targets. **`reveal`** selects any existing file/folder in Finder and closes Wicket. Both are validated at activation time.
-- **`copy`** / **`paste`:** `copy` copies and closes. `paste` writes verbatim to pasteboard, restores the previous app, and posts ⌘V if Accessibility is granted (otherwise explains how to enable it without prompting). Trailing newlines are preserved verbatim. Add `"concealed":true` to keep text on this Mac and out of Clipboard History.
+- **`copy`** / **`paste`:** `copy` copies and closes. `paste` writes verbatim to pasteboard, restores the previous app, and posts ⌘V if Accessibility is granted (otherwise explains how to enable it without prompting). Trailing newlines are preserved verbatim; pasting into a terminal may act on pasted newlines. Add `"concealed":true` to keep text on this Mac and out of Clipboard History.
 - **`agent`:** Prefills the agent input without sending (leaving an open command to start an empty conversation if needed).
 
 Errors show selectable text with Copy and Ask agent actions carrying folder, command, request, error, and stderr tail.
@@ -130,7 +130,7 @@ Markdown plus six tags (same language as agent answers):
   - `<progress label="Done" value="7 of 10" percent="70"/>` and `<badge label="Ready" tone="positive"/>` (`positive`/`warning`/`negative`). Self-closing, no detail.
 - **Containers:** `<columns>` places tiles/cards side by side; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
 - **Item actions:** At most one of `open`, `copy`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`.
-- **Limits & safety:** ≤1,024 UTF-8 bytes per tag. Closed fenced code blocks get a copy button; right-align numeric table columns with `---:`. Unsupported tags render literally; escape `<` as `&lt;` in external text (or use backticks). JS, images, remote loads, and navigation are disabled. Clicked links route through Wicket. `theme.css` restyles page content; native list and frame are not themeable.
+- **Limits & safety:** ≤1,024 UTF-8 bytes per tag. Closed fenced code blocks get a copy button; right-align numeric table columns with `---:`. Show each thing once: what the user acts on carries its action where it stands. Unsupported tags render literally; escape `<` as `&lt;` in external text (or use backticks). JS, images, remote loads, and navigation are disabled. Clicked links route through Wicket. `theme.css` restyles page content; native list and frame are not themeable.
 
 ### Canvas fields
 
@@ -145,7 +145,7 @@ Invalid fields, duplicate names, and names colliding with manifest `fields` are 
 
 `run` overrides targeting a visible canvas field are validated—an invalid override rejects the action and keeps current values. By default, changes rerun live commands with `submitted:false`; `submit:true` commands keep local edits until submitted (add a target like `<row title="Submit" run="submit"/>` when there is no search-bar text field). On request failure, retries/reruns keep last canvas values (explicit overrides take precedence) until a new form arrives.
 
-Add `act="true"` (submits one-shot `set-<name>`) or `act="<percent-encoded-action>"` to submit on commit with the new value in `fields[name]`. Slider drag previews unsubmitted in live commands and submits on release. Submitted page changes run serially (queued updates to the same field coalesce in place; different fields keep order), preserving local edits and scroll position. Arrow keys navigate fields; Return toggles switches, steps sliders, or cycles choices.
+Add `act="true"` (submits one-shot `set-<name>`) or `act="<percent-encoded-action>"` to submit on commit with the new value in `fields[name]`. Slider drag previews unsubmitted in live commands and submits on release. Gate effects on the submitted action name and validate its value, including for headless requests. Submitted page changes run serially (queued updates to the same field coalesce in place; different fields keep order), preserving local edits and scroll position. Arrow keys navigate fields; Return toggles switches, steps sliders, or cycles choices.
 
 ## What a good page looks like
 
@@ -179,8 +179,8 @@ When asked to turn an answer into an extension, emit the same body/tags from loc
 
 Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `links-search`, `web`, `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`, preserving any `user.json`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator, Convert (`libxml2` for ECB XML), and Shell avoid Foundation for speed; Window Manager links AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
 
-- **Calculator (`calculator`):** Root match accepts bare symbol arithmetic or leading `=` (needed at root for functions, constants, scientific notation, and `of`); inside the command, `expression` takes the full grammar with optional `=`. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (1–34 significant digits, default 15; or 0–34 decimal places in Fixed, default 2). Automatic prints exact integers in full.
-- **Convert (`units`, `wicket://units`):** Single unit or currency quantities. ECB snapshots live in `WICKET_DATA_DIR` and download only on submitted requests. Settings: `homeCurrency` (ISO code for omitted target and ambiguous `$`/`¥`), `rateSource` (`ecb`, `file`, `off`), `ratesFile` (JSON: `schemaVersion: 1`, `sourceLabel`, `base`, `observedOn` `YYYY-MM-DD`, `rates` map of ISO codes to positive decimal strings per 1 base unit).
+- **Calculator (`calculator`):** Root match accepts bare symbol arithmetic or leading `=` (needed at root for functions, constants, scientific notation, and `of`); inside the command, `expression` takes the full grammar with optional `=`. Unit and currency expressions belong to Convert. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (1–34 significant digits, default 15; or 0–34 decimal places in Fixed, default 2). Automatic prints exact integers in full.
+- **Convert (`units`, `wicket://units`):** Single unit or currency quantities. ECB snapshots live in `WICKET_DATA_DIR` and download only on submitted requests. Settings: `homeCurrency` (ISO code for omitted target and ambiguous `$`/`¥`), `rateSource` (`ecb`, `file`, `off`), `ratesFile` (JSON: `schemaVersion: 1`, `sourceLabel`, `base`, `observedOn` `YYYY-MM-DD`, `rates` map of ISO codes to positive decimal strings per 1 base unit). The `off` rate source leaves unit conversions available.
 
 ## Recipes
 
@@ -224,7 +224,7 @@ Bind this prompting example with `wicket://links-search?user-item=osm`:
 
 Capture the current window with `Wicket --extension window --submitted --action capture` and parse `body` as a JSON array of `{bundleID, display, rect, focused}`. Take the entry with `focused: true` and save its display UUID and rect with `gap: 0` (if none is focused, ask the owner to focus a standard window wholly inside one display).
 
-Write the item to `extensions/window/user.json` and bind with `wicket://window?user-item=coding`:
+Write the item to `extensions/window/user.json` and bind with `wicket://window?user-item=coding` (a saved window move acts on the window focused when the shortcut is used):
 
 ```json
 {"items":[{"id":"coding","title":"Coding","keywords":["window"],"actions":[{"type":"run","extension":"window","action":"apply-definition","hidden":true,"fields":{"definition":"{\"kind\":\"move\",\"placement\":{\"display\":\"current\",\"rect\":[0,0,0.667,1],\"gap\":8}}"}}]}]}
@@ -315,7 +315,7 @@ Declare needed permissions in `permissions` (e.g. `calendar`); Wicket handles th
 
 ## Hotkeys
 
-Spell `hotkeys` like `hotkey`, one entry per address. `item` and `user-item` query keys resolve only in `hotkeys`. Item hotkeys do not record usage. A submitted item run starts with supplied fields plus any root draft for that item; if the destination command already owns canvas form values, it keeps them and validates overrides. Hidden `run`, `copy`, `paste`, `open`, and `reveal` run without showing Wicket; other runs/links open Wicket there. A hotkey on a command itself, or an item of a switched-off extension, opens the command unsubmitted (`submitted:false`). Missing user items show a message; Settings marks unavailable item hotkeys for removal.
+Spell `hotkeys` like `hotkey`, one entry per address. `item` and `user-item` query keys resolve only in `hotkeys`. Item hotkeys do not record usage. A submitted item run starts with supplied fields plus any root draft for that item; if the destination command already owns canvas form values, it keeps them and validates overrides. Hidden `run`, `copy`, `paste`, `open`, and `reveal` run without showing Wicket; other runs/links open Wicket there. A hotkey on a command itself, or an item of a switched-off extension, opens the command unsubmitted (`submitted:false`). Missing user items show a message; Settings marks unavailable item hotkeys—remove the binding there or delete its entry from `hotkeys` to free the keys.
 
 ## Repair
 
@@ -325,13 +325,13 @@ This contract is rewritten on every launch. Optional examples live in `examples/
 
 ## Testing with the real pipeline
 
-Put `--extension` or `--query` first after the executable, with `WICKET_CONFIG_DIR` pointing at the working folder holding `extensions/`:
+Put `--extension` or `--query` first after the executable (using the binary path from the agent instructions), with `WICKET_CONFIG_DIR` pointing at the working folder holding `extensions/`. Run `--extension` first on valid and invalid input, then run `--query` once with a representative **root** query for the extension:
 
 ```sh
 WICKET_CONFIG_DIR=/path/to/wicket Wicket --extension weather --input 'berlin' --fields '{"view":"hourly"}'
 ```
 
 - **`--extension <folder|extension:name>`:** Runs even if switched off. Optional `--input`, `--fields` (JSON string map), `--submitted`, `--action NAME` (requires `--submitted`). Prints decoded view JSON (without running its actions), `{}` for silent output (valid only for hidden runs), or `{"error":…}` with exit 1 (`{"error":…,"permissions":[…]}` if a declared permission is missing—only the owner can grant it in the panel). Pointing `WICKET_CONFIG_DIR` at the normal working folder shares `WICKET_DATA_DIR` with the panel; a scratch folder isolates data. Isolate real side effects with inert fixtures.
-- **`--query TEXT`:** Runs root search (enabled apps, files, and matching patterns; failed patterns appear as error rows) and prints `items` (`{provider,row}`) plus `askAgent:{shown,reason}`. Creates no window, hotkey, or status item.
+- **`--query TEXT`:** Runs root search (enabled apps, files, and matching patterns; failed patterns appear as error rows) and prints `items` (`{provider,row}`) plus `askAgent:{shown,reason}` (whether Ask agent leads, and `reason`: the strong-match reason, the empty-input reason, or `no strong match`). Creates no window, hotkey, or status item.
 
 After building an extension, end your reply with a row that opens it: `wicket://<folder>?input=<percent-encoded input>`.

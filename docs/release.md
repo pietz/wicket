@@ -28,7 +28,7 @@ Wicket ships as a notarized DMG on GitHub Releases, updates via Sparkle, and ins
 
 ## Cutting a release
 
-Run `Scripts/check.sh` on a clean working tree (`release.sh` refuses tracked or untracked changes). Signing and notarization require an unlocked macOS login session and login keychain. If the Sparkle key was imported (`-f`) rather than generated locally, the first `sign_update` prompts in the UI—click **Always Allow** once. To sign without the keychain (e.g. headless Mac), export to a private file outside the checkout, run `SPARKLE_KEY_FILE=<file> Scripts/release.sh <version>` (uses `sign_update --ed-key-file`), and delete the file afterward. `WICKET_SIGN_IDENTITY` overrides the identity for `build-app.sh`; `release.sh` always signs the DMG with the team's Developer ID.
+Run `Scripts/check.sh` on a clean working tree (`release.sh` refuses tracked or untracked changes). Signing and notarization require an unlocked macOS login session and login keychain—do not start a release while the session is locked or from an unattended run; unlock and retry if Keychain access stalls. If the Sparkle key was imported (`-f`) rather than generated locally, the first `sign_update` prompts in the UI—click **Always Allow** once, or the release stops after notarization. To sign without the keychain (e.g. headless Mac), export to a private file outside the checkout, run `SPARKLE_KEY_FILE=<file> Scripts/release.sh <version>` (uses `sign_update --ed-key-file`), and delete the file afterward. `WICKET_SIGN_IDENTITY` overrides the identity for `build-app.sh`; `release.sh` always signs the DMG with the team's Developer ID.
 
 ```sh
 Scripts/release.sh <version>
@@ -61,7 +61,7 @@ The cask sets `auto_updates true`, so Homebrew hands updates to Sparkle; push `C
 - `Contents/Resources/Extensions/<name>/` (`wicket.json`, `main`, Swift sources)
 - `Contents/Frameworks/Sparkle.framework`
 
-It strips absolute `.build` `LC_RPATH` entries from `Wicket` and adds `@executable_path/../Frameworks`. Signing runs inside out (never `--deep`): extension `main` binaries, `wicket-js`, Sparkle's `Installer.xpc`, `Downloader.xpc` (`--preserve-metadata=entitlements`), `Autoupdate`, `Updater.app`, `Sparkle.framework`, then the app with `Resources/Wicket.entitlements` (audio input + calendars). `Info.plist` carries microphone/calendar usage strings, URL scheme (`wicket://` vs `wicket-dev://`), and Sparkle keys (stripped in Dev).
+It strips absolute `.build` `LC_RPATH` entries from `Wicket` and adds `@executable_path/../Frameworks`. Signing runs inside out (never `--deep`): extension `main` binaries, `wicket-js`, Sparkle's `Installer.xpc`, `Downloader.xpc` (`--preserve-metadata=entitlements`), `Autoupdate`, `Updater.app`, `Sparkle.framework`, then the app with `Resources/Wicket.entitlements` (audio input + calendars). `Info.plist` carries microphone/calendar usage strings, URL scheme (`wicket://` vs `wicket-dev://`), and Sparkle keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`—dropped in Dev).
 
 Non-launching bundle checks:
 - `codesign --verify --deep --strict --verbose=2 build/Wicket.app`

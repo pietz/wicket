@@ -62,7 +62,7 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 
 1. Settings ▸ Extensions lists Built in and Extensions with switches. Switching Convert off stops `10 km to mi`. Copy `examples/agenda` into `extensions/`: appears enabled within a second. Invalid `wicket.json` shows a warning and reason.
 2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: fields follow typed text; Tab/⇧Tab navigate; Return or click runs with values; Japanese IME, paste, and ⌘A work in fields; arrowing off returns keys to input. Check field labels with VoiceOver.
-3. Window Manager settings: Gap 8 and Almost Maximize 80 save on Return and blur; clearing restores defaults. Verify bool switches and choice pickers save and reload their string values.
+3. Window Manager settings: Gap 8 and Almost Maximize 80 save on Return and blur; clearing restores defaults. In an extension with a bool and a choice setting, verify that the switch and picker save and reload their string values.
 4. With only `extensions/window/user.json`, **Show in Finder** selects `extensions/window`. **Make It Mine** copies `wicket.json`, `main`, and Swift sources beside `user.json` while the saved move still works. On Calculator with an empty `extensions/calculator/`, **Make It Mine** reports a collision. **Move to Trash** on your Window Manager copy confirms and restores the bundled version.
 5. `open "wicket-dev://weather?input=berlin"` (closed and open) targets Wicket Dev only, never installed Wicket. `wicket://` links in answers work too.
 6. Calendar (check on first release build too): run `tccutil reset Calendar app.wicket.Wicket.dev`, then ask the agent for a Today EventKit extension declaring `"permissions":["calendar"]` (no helper app). Entering shows "Allow Calendar for Wicket" without running; Return shows macOS's prompt naming Wicket Dev ("Wicket extensions you enable can read your calendar…"); Allow lists events immediately. On denial, the row opens Privacy & Security ▸ Calendars. A manifest with `"contract":3` shows "needs a newer Wicket" (not "needs repair") at root and in Settings.
@@ -86,7 +86,7 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 3. Restore after Left Half then Maximize steps back one move at a time, then says "Nothing to restore." Manually moved windows report nothing to restore.
 4. Next Display across two differently sized displays preserves relative place and size; single display reports unavailability.
 5. Check left/hidden Dock and notched display visible frames. Full-screen window, windowless Finder, and Wicket Settings show a refusal row and move nothing else.
-6. Set `AXEnhancedUserInterface` true on Chrome/Electron via Accessibility Inspector, focus a resizable window, and alternate Left Half, Right Half, and Maximize: each lands accurately, Wicket stays closed, attribute stays true, and Restore returns the prior frame.
+6. Set `AXEnhancedUserInterface` true on Chrome/Electron via Accessibility Inspector, focus a resizable window whose minimum size fits either half of the display, and alternate Left Half, Right Half, and Maximize: each lands accurately, Wicket stays closed, attribute stays true, and Restore returns the prior frame.
 7. Focus a window inside a display's usable area and ask “save my current window as Coding on ⌃⌥1”. Move/resize manually, press ⌃⌥1 with Wicket closed: restores the saved placement silently; Restore returns the pre-shortcut frame.
 
 ## 10. Hotkeys and the action panel

@@ -23,7 +23,7 @@ Move extensions out of the app bundle into an official GitHub repository so user
 
 A first-launch host command page in the canvas: catalog grid, agent and model picker, permissions declared by chosen extensions (especially Accessibility, which cannot prompt inline—each with a System Settings button and live granted check), and appearance sliders that preview live and save on release. When offline or the catalog is unreachable, skip the grid cleanly and offer it later.
 
-Design requirements: a calm dedicated frame (title, page, Continue—no search field, Actions header, or Ask agent hint), thin accent-ring keyboard selection instead of a grey box, verified over real glass on screen.
+The onboarding trial (branch `t3/canvas-onboarding-trial`, `tools/canvas-trial/`) showed the canvas handles it with about 90 lines of CSS and no app code. Design requirements: a calm dedicated frame (title, page, Continue—no search field, Actions header, or Ask agent hint), thin accent-ring keyboard selection instead of a grey box, verified over real glass on screen.
 
 ## 5. Drafts
 

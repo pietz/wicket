@@ -14,8 +14,8 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 
 ## Rules
 
-- Stack: Swift 6, AppKit + SwiftUI, macOS 26+. Dependencies: `swift-cmark` and `Sparkle` (exact 2.10.1). No WebViews beyond the answer renderer; no new dependencies without a concrete need. Prefer modern Apple APIs (SwiftUI, Observation, Liquid Glass, Swift Testing); document why whenever using older APIs.
-- Concise code, clean architecture, no remains: delete superseded code, settings, tests, docs, and comments in the same change. Prefer deleting to adding; an abstraction needs two real users. Comment only the non-obvious *why*.
+- Stack: Swift 6, AppKit + SwiftUI, macOS 26+. Dependencies: `swift-cmark` and `Sparkle` (exact 2.10.1). No WebViews beyond the answer renderer; no new dependencies without a concrete need. Prefer modern Apple APIs (SwiftUI, Observation, Liquid Glass, Swift Testing); use older APIs only where nothing modern works, with a comment saying why.
+- Concise code, clean architecture, no remains: delete superseded code, settings, tests, docs, and comments in the same change. Prefer deleting to adding; an abstraction needs two real users. Comment only the non-obvious *why*, especially where a reader would otherwise "fix" something deliberate.
 - Core owns what must stay alive between keystrokes, hold a macOS permission, or be the frame (panel, input, voice, Settings, agent harness, extension host, and apps/files/clipboard sources). Everything that turns input into a screen is an extension.
 - Fast path never waits: typing never starts a model, root typing starts a process only for matching `match` patterns, and nothing reruns an open command behind the user's back.
 - Results rank by match quality, never user-set source order; learned usage breaks ties only within a tier. One ranking function serves panel and headless mode.
@@ -32,7 +32,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - Product & review workflow: challenge new user-facing work unanchored first. Every decision brought to the owner carries an independent opinion from Gemini 4 Neon (high thought) alongside the lead's recommendation. Design first, then compare with other launchers on merit; never copy their code. GPT-6.2 Sol (high effort) implements one topic at a time; GPT-6.2 Astra independently reviews every landed change, reporting only bugs with a plausible real-world path (everything else is a non-blocking note).
 - `GlassBlur` patches one private Core Animation filter input (`inputBlurRadius` on `glassBackground` inside `NSGlassEffectView`). Keep every step optional so any missing class/filter/key/value leaves plain clear glass with no crash and no logging. Route all KVC calls on the private filter through `Sources/ObjCBoundary`. Recheck on each new macOS.
 - Never log query text, file paths, or AI content with `privacy: .public`; counts and timings only.
-- Stage files by name (`git add <paths>`), never `git commit -a` or `git add -A`.
+- Stage files by name (`git add <paths>`), never `git commit -a` or `git add -A`: the owner may have uncommitted work in the tree.
 - Docs state only what is true now or agreed next, one owner per fact. Rewrite or delete superseded text in the same change; no dated narratives (history lives in git). Behavior changes update `agent-instructions.md`, `extension-contract.md`, examples, and tests together.
 
 ## Commands
@@ -42,7 +42,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - Test: `swift test`. Opt-in tests document how to run at their definitions: `panelCapture`, `replyCapture`, `liveAgentScratchConversation`, `queryLatency`.
 - Land a branch: `Scripts/land.sh <commits>` (cherry-picks and runs full check).
 - Build: `Scripts/build-app.sh` → `build/Wicket Dev.app` (⌃⌥Space, `~/.config/wicket-dev`, no updates); `--release` → signed `build/Wicket.app` for `Scripts/release.sh` ([docs/release.md](docs/release.md)). Never push, tag, or release without the owner.
-- Headless: `Wicket --extension ID --input TEXT` or `Wicket --query TEXT` with `WICKET_CONFIG_DIR` pointing at a temporary folder.
+- Headless: `Wicket --extension ID --input TEXT` or `Wicket --query TEXT` inside a bundle, with `WICKET_CONFIG_DIR` pointing at a temporary folder.
 - Perf log: `/usr/bin/log stream --predicate 'subsystem == "app.wicket"'` (`log` is a zsh builtin).
 - Builders never launch the app (`swift run Wicket` or opening a bundle), show windows, play audio, open the mic, take screenshots, or send synthetic input. The owner runs hands-on checks via [docs/manual-checks.md](docs/manual-checks.md).
 - Never touch `~/.config/wicket*`, `~/Library/Application Support/*Wicket*`, `/Applications/Wicket.app`, or running Wicket processes while testing.
