@@ -56,18 +56,14 @@ struct ExtensionCommand: Sendable, Equatable {
       values[field.name] = saved[field.name].flatMap { field.accepts($0) ? $0 : nil } ?? field.default
     }
   }
-  /// Quicklinks only needs its program once a search link is selected.
+  /// An opted-in program handles named actions and fields beyond the text used to filter the list.
   func staticView(for request: ProviderRequest) -> ProviderView? {
-    let browsingLinks =
-      id == Quicklink.extensionID && !manifest.submit && request.action == nil
-      && request.fields["template"] == nil && request.fields["link"] == nil
-    guard manifest.command == nil || browsingLinks else { return nil }
-    if browsingLinks, items.isEmpty {
-      return ProviderView(items: [
-        Row(
-          id: "help", title: "Add quicklinks in extensions/links-search/user.json",
-          subtitle: "Or ask the agent to add a YouTube quicklink with keyword yt.", actions: [])
-      ])
+    let browsing =
+      manifest.itemList != nil && request.rootMatch != true && request.action == nil
+      && request.fields.keys.allSatisfy { $0 == manifest.inputField?.name }
+    guard manifest.command == nil || browsing else { return nil }
+    if items.isEmpty, let empty = manifest.itemList?.empty {
+      return ProviderView(items: [empty])
     }
     return ProviderView(
       items: itemIndex.matches(request.input).map { shown($0, atRoot: false, subtitle: $0.subtitle) })

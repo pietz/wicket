@@ -10,13 +10,15 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   /// One line on what it does, for Settings.
   let description: String?
   let keyword: String?
-  /// The program that answers the command. Without one, Wicket answers it from `items`.
+  /// The program that answers the command.
   let command: [String]?
   let icon: String?
   private let match: MatchPattern?
   let fallback: Bool
-  /// A known list read once: name matches at the root, and the command's view when there is no program.
+  /// A known list read once for name matches at the root and static command views.
   let items: [Row]?
+  /// Use the indexed items for the command's default view, even when it has a program.
+  let itemList: ItemList?
   let fields: [Field]
   var inputField: Field? { fields.first { $0.type == .text } }
   /// The command runs on Return with a submitted request, never while typing.
@@ -40,6 +42,10 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
       var container = encoder.singleValueContainer()
       try container.encode(pattern)
     }
+  }
+
+  struct ItemList: Codable, Sendable, Equatable {
+    let empty: Row?
   }
 
   struct Field: Codable, Sendable, Equatable {
@@ -77,7 +83,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   static let maxSearchFields = 3
 
   private enum CodingKeys: String, CodingKey, CaseIterable {
-    case name, description, keyword, command, icon, match, fallback, items, fields, submit, hidden,
+    case name, description, keyword, command, icon, match, fallback, items, itemList, fields, submit, hidden,
       settings, permissions, contract
   }
   enum ContractError: Error, CustomStringConvertible {
@@ -127,6 +133,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     let pattern = try c.decodeIfPresent(String.self, forKey: .match)
     fallback = try c.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
     items = try c.decodeIfPresent([Row].self, forKey: .items)
+    itemList = try c.decodeIfPresent(ItemList.self, forKey: .itemList)
     fields = try c.decodeIfPresent([Field].self, forKey: .fields) ?? []
     submit = try c.decodeIfPresent(Bool.self, forKey: .submit) ?? false
     hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false

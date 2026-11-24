@@ -11,7 +11,7 @@ Symlinked extension folders in `extensions/` are watched live, including edits t
 ```
 
 Required: nonempty `name` and at least one of nonempty `command` (argv array) or `items`.
-Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `fields`, integer `contract`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), `settings`, and `permissions`. Any other key triggers a repair row naming it.
+Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `fields`, `itemList`, integer `contract`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), `settings`, and `permissions`. Any other key triggers a repair row naming it.
 
 Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; a contract 1 program does not run and shows migration instructions (use typed `fields`/`settings`, read `request.fields`/`request.action`, return `items`/`body`, then set `"contract":2`). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
 
@@ -57,6 +57,8 @@ Gate user-visible effects on `submitted:true`. For effects the user should revie
 ```
 
 Static items use the view `items` schema and match at the root without running a process (top 20 fuzzy matches by title/keywords per extension, plus any exact keyword-with-argument matches). Omitted `icon` falls back to the manifest icon; omitted `subtitle` shows the extension name during ordinary root search. Without `command`, entering the extension lists its items (declare a text field to filter). With `command`, the program renders the command view and static items add root rows (typically `run` actions). Use static items for a known list and `match` for an answer computed from what was typed.
+
+A live command can set `"itemList":{}` to use its indexed items as its default view, as Quicklinks does. Set `itemList.empty` to a row shown when there are no items. Root pattern runs, named actions, and requests with fields beyond the main text filter go to the program. Remove `itemList` from a local Quicklinks manifest to have its program render the default view.
 
 Personal additions live in `extensions/<name>/user.json` in the working folder (`{"items":[...]}`—`items` is its only key; IDs nonempty and unique within `user.json`, may reuse manifest IDs). For a built-in, create the folder if needed and write only `user.json`. Wicket combines these items with the active manifest, including when a broken local override falls back to the built-in. An invalid `user.json` shows a repair row while manifest items remain available. See [Changing a built-in](#changing-a-built-in) for override behavior.
 
@@ -214,7 +216,7 @@ Add entries to `items` in `extensions/links-search/user.json`. Create the folder
 }
 ```
 
-Choose a stable, unique `id` and a display `title`. The optional `keyword` is a shortcut at the root. Use an absolute URL for a bookmark. A search template fixes the HTTP(S) host and puts `{query}` in a path segment or query value. Quicklinks encodes the supplied query before opening that URL.
+Choose a stable, unique `id` and a display `title`. The optional `keyword` is a shortcut at the root. Use an absolute URL for a bookmark, including a host for HTTP(S). A search template fixes the HTTP(S) host and puts `{query}` in a path segment or query value. Quicklinks encodes the supplied query before opening that URL.
 
 To bind a shortcut, add the item address to `config.json`'s `hotkeys`, preserving existing entries. This binding opens the query prompt. Use the address of a bookmark to open it directly.
 

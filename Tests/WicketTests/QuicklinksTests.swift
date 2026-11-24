@@ -52,6 +52,58 @@ func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query
   #expect(filtered.1["items"].array.map { $0["id"].string } == ["user-item:youtube"])
 }
 
+@MainActor @Test(arguments: [false, true])
+func aLocalQuicklinksProgramRendersItsOwnView(makeMine: Bool) async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  let navigator = model.navigator
+  await model.extensions.reload()
+
+  if makeMine {
+    try model.extensions.makeMine(try #require(model.extensions.commands[links]))
+    await model.extensions.reload()
+    navigator.go(Address(id: links, link: true))
+    await navigator.settled()
+    #expect(navigator.results.first?.row.id == "help")
+    navigator.dismiss()
+  }
+
+  let title = "My Quicklinks view"
+  _ = try extensionFolder(root, name: "links-search", script: answering(title))
+  await model.extensions.reload()
+  navigator.go(Address(id: links, link: true))
+  await navigator.settled()
+  #expect(navigator.results.map(\.row.title) == [title])
+  let (status, output) = try await cli(root, ["--extension", "links-search"])
+  #expect(status == 0 && output["items"].array.first?["title"].string == title)
+  await model.finish()
+}
+
+@Test(arguments: [
+  ("https://", false), ("https:///docs", false), ("https://example.com", true),
+  ("mailto:hello@example.com", true),
+])
+func quicklinkBookmarksRequireAHostForHTTP(_ url: String, valid: Bool) throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let local = root.appending(path: "extensions/links-search")
+  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+  let file = local.appending(path: "user.json")
+  try JSONEncoder().encode(["items": [["id": "test", "title": "My link", "url": url]]]).write(to: file)
+
+  let (commands, problems, _) = ExtensionHost.discover(
+    local.deletingLastPathComponent(), bundled: bundledExtensions)
+  let command = try #require(commands[links])
+  if valid {
+    #expect(problems[links] == nil)
+    #expect(command.items.first?.actions == [.open(try #require(URL(string: url)))])
+  } else {
+    #expect(command.items.isEmpty)
+    #expect(problems[links]?.userItems?.contains("Enter a URL with a host") == true)
+  }
+}
+
 func writeQuicklinks(in root: URL) throws {
   let folder = root.appending(path: "extensions/links-search")
   try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

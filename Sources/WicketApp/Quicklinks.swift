@@ -25,10 +25,15 @@ struct Quicklink: Decodable {
       action = .run(
         Address(fields: ["template": url], action: "open-link", hidden: true, promptIfEmpty: true))
     } else {
-      guard let destination = URL(string: url, encodingInvalidCharacters: false), destination.scheme != nil
+      guard let destination = URL(string: url, encodingInvalidCharacters: false),
+        let scheme = destination.scheme?.lowercased()
       else {
         throw DecodingError.dataCorruptedError(
           forKey: .url, in: link, debugDescription: "Enter an absolute URL")
+      }
+      if scheme == "http" || scheme == "https", (destination.host() ?? "").isEmpty {
+        throw DecodingError.dataCorruptedError(
+          forKey: .url, in: link, debugDescription: "Enter a URL with a host")
       }
       action = Address(url: destination).map { .run($0) } ?? .open(destination)
     }

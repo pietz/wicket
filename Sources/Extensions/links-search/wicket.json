@@ -5,5 +5,13 @@
   "keyword": "links",
   "command": ["./main"],
   "icon": "link",
+  "itemList": {
+    "empty": {
+      "id": "help",
+      "title": "Add quicklinks in extensions/links-search/user.json",
+      "subtitle": "Or ask the agent to add a YouTube quicklink with keyword yt.",
+      "actions": []
+    }
+  },
   "fields": [{"name":"query","type":"text","description":"Query","placeholder":"Search query"}]
 }
