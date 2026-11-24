@@ -1,10 +1,10 @@
+import Darwin
 import Foundation
 import Security
 
 /// Read-only inventory. Only the app can report whether macOS accepted a global shortcut.
 @MainActor
 enum Diagnostics {
-  static let agentEnvironmentKey = "WICKET_DIAGNOSE_FROM_AGENT"
   private static let unreadableConfig = "unknown (config.json could not be read)"
 
   private struct App: Encodable {
@@ -13,6 +13,7 @@ enum Diagnostics {
     let build: String?
     let bundleID: String?
     let bundlePath: String
+    let executablePath: String?
     let signing: Signing
     let note =
       "macOS grants permissions per signed copy. A different path or signature from the copy in System Settings can explain a switch that looks on."
@@ -63,6 +64,7 @@ enum Diagnostics {
   private struct PermissionReport: Encodable {
     let live: [String: Permission.Status]
     let recorded: [String: RuntimeRecord.PermissionCheck]?
+    let discrepancy: String?
     let note: String
   }
   private struct Config: Encodable {
@@ -148,7 +150,8 @@ enum Diagnostics {
   static func report(
     folder: URL, bundled: URL? = ExtensionHost.bundledFolder, permissions: Permissions = .system,
     edition: Edition = .current, environment: [String: String] = ProcessInfo.processInfo.environment,
-    process: (Int32) -> RuntimeRecord.ProcessIdentity? = RuntimeRecord.ProcessIdentity.read
+    process: (Int32) -> RuntimeRecord.ProcessIdentity? = RuntimeRecord.ProcessIdentity.read,
+    parent: (Int32) -> Int32? = ProcessTree.parent
   ) async throws -> Data {
     let store = ConfigurationStore(url: folder.appending(path: "config.json"))
     store.load()
@@ -158,27 +161,47 @@ enum Diagnostics {
     let configuration = store.problem == nil ? store.configuration : nil
     let log = AgentLog.standard(edition: edition, environment: environment)
     let (runtime, reason) = readRuntime(beside: log)
+    let bundle = Bundle.main
+    let matchesCopy = runtime.map { matches($0, bundle: bundle) } == true
     let runtimeIsLive = runtime.map { $0.isLive(process: process) }
-    let running = runtimeIsLive == true ? runtime : nil
+    let running = matchesCopy && runtimeIsLive == true ? runtime : nil
+    let recorded = matchesCopy ? runtime?.permissions : nil
+    let liveMatchesCopy = running.map { hasAncestor($0.pid, parent: parent) } == true
     let live = await Task.detached { permissions.snapshot() }.value
     func permissionStatus(_ permission: Permission) -> Permission.Status {
-      running?.permissions[permission.rawValue]?.status ?? live[permission.rawValue] ?? .denied
+      let key = permission.rawValue
+      if !liveMatchesCopy, let status = running?.permissions[key]?.status { return status }
+      return live[key] ?? .denied
     }
-    let attribution =
-      environment[agentEnvironmentKey] == "1"
-      ? "This command was run from Wicket's agent, so macOS normally attributes permission checks to Wicket."
-      : "This command was run outside Wicket's agent. macOS normally attributes checks to the launching app, such as Terminal."
     let permissionSource: String
-    if running?.permissions.isEmpty == false {
+    if liveMatchesCopy {
       permissionSource =
-        "Extension and hotkey checks use the running app's recorded permissions where available."
-    } else if runtimeIsLive == false, runtime?.permissions.isEmpty == false {
+        "This command was launched by this running copy of Wicket. Extension and hotkey checks use live permissions."
+    } else if running?.permissions.isEmpty == false {
       permissionSource =
-        "Recorded permissions come from a copy of Wicket that is no longer running. Extension and hotkey checks use live permissions."
+        "Live permissions may reflect the launching app. Extension and hotkey checks use this copy's recorded permissions where available."
+    } else if recorded?.isEmpty == false {
+      permissionSource =
+        "Recorded permissions are from an earlier run of this copy. Extension and hotkey checks use live permissions, which may reflect the launching app."
     } else {
-      permissionSource = "Extension and hotkey checks use live permissions."
+      permissionSource =
+        "Recorded permissions for this copy are unavailable. Extension and hotkey checks use live permissions, which may reflect the launching app."
     }
-    let bundle = Bundle.main
+    let discrepancies = live.keys.sorted().compactMap { key -> String? in
+      guard let check = recorded?[key], let status = live[key], check.status != status else { return nil }
+      return
+        "\(key) was recorded as \(check.status.rawValue) at \(check.checkedAt.ISO8601Format()). The live check returned \(status.rawValue)."
+    }
+    let runtimeReason: String?
+    if !matchesCopy, let writerPath = runtime?.bundlePath ?? runtime?.executablePath {
+      let state = runtimeIsLive == true ? "is running" : "could not be verified as running"
+      runtimeReason =
+        "runtime.json was written by another copy of Wicket at \(writerPath). Its writer \(state)."
+    } else if runtimeIsLive == false {
+      runtimeReason = "The writer of runtime.json could not be verified as running."
+    } else {
+      runtimeReason = reason
+    }
     let signingTarget =
       bundle.bundleURL.pathExtension == "app"
       ? bundle.bundleURL : bundle.executableURL ?? bundle.bundleURL
@@ -186,9 +209,12 @@ enum Diagnostics {
       app: App(
         edition: edition.name, version: bundle.infoDictionary?["CFBundleShortVersionString"] as? String,
         build: bundle.infoDictionary?["CFBundleVersion"] as? String, bundleID: bundle.bundleIdentifier,
-        bundlePath: bundle.bundleURL.path, signing: Signing(signingTarget)),
+        bundlePath: bundle.bundleURL.path, executablePath: bundle.executableURL?.path,
+        signing: Signing(signingTarget)),
       permissions: PermissionReport(
-        live: live, recorded: runtime?.permissions, note: attribution + " " + permissionSource),
+        live: live, recorded: recorded,
+        discrepancy: discrepancies.isEmpty ? nil : discrepancies.joined(separator: " "),
+        note: permissionSource),
       config: Config(
         problem: store.problem, workingFolder: folder.path,
         resultsOnlyWhenTyping: configuration?.resultsOnlyWhenTyping, agent: configuration?.agent.agent,
@@ -203,13 +229,30 @@ enum Diagnostics {
       hotkeys: hotkeyReport(
         directory, configuration: configuration, recorded: running?.registrations,
         permissionStatus: permissionStatus),
-      runtime: runtime, runtimeIsLive: runtimeIsLive,
-      runtimeReason: runtimeIsLive == false
-        ? "runtime.json is from a copy of Wicket that is no longer running." : reason)
+      runtime: runtime, runtimeIsLive: runtimeIsLive, runtimeReason: runtimeReason)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     encoder.dateEncodingStrategy = .iso8601
     return try encoder.encode(report)
+  }
+
+  private static func matches(_ runtime: RuntimeRecord, bundle: Bundle) -> Bool {
+    guard let bundlePath = runtime.bundlePath, let executablePath = runtime.executablePath,
+      let executable = bundle.executableURL
+    else { return false }
+    return Edition.sameFolder(URL(fileURLWithPath: bundlePath), bundle.bundleURL)
+      && URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().path
+        == executable.resolvingSymlinksInPath().path
+  }
+
+  private static func hasAncestor(_ ancestor: Int32, parent: (Int32) -> Int32?) -> Bool {
+    var pid = getpid()
+    for _ in 0..<64 {
+      guard let next = parent(pid), next > 1, next != pid else { return false }
+      if next == ancestor { return true }
+      pid = next
+    }
+    return false
   }
 
   private static func readRuntime(beside log: AgentLog) -> (RuntimeRecord?, String?) {

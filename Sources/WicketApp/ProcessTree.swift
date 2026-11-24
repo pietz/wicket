@@ -211,12 +211,21 @@ final class ProcessTree: Sendable {
 
   /// Kernel start time in microseconds since the Unix epoch, for a live process.
   static func startTime(of pid: pid_t) -> UInt64? {
+    guard let info = bsdInfo(of: pid) else { return nil }
+    return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
+  }
+
+  static func parent(of pid: pid_t) -> pid_t? {
+    bsdInfo(of: pid).map { pid_t($0.pbi_ppid) }
+  }
+
+  private static func bsdInfo(of pid: pid_t) -> proc_bsdinfo? {
     guard pid > 0 else { return nil }
     var info = proc_bsdinfo()
     let size = Int32(MemoryLayout<proc_bsdinfo>.size)
     guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_status != SZOMB
     else { return nil }
-    return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
+    return info
   }
 
   static func children(of pid: pid_t) -> [pid_t] {

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -44,7 +45,7 @@ private let deniedPermissions = Permissions(
     .init(keys: try Shortcut($0.0), target: try #require(HotkeyTarget($0.1)))
   }
   try config.save(at: root.appending(path: "config.json"))
-  let env = ["WICKET_CONFIG_DIR": root.path, Diagnostics.agentEnvironmentKey: "1"]
+  let env = ["WICKET_CONFIG_DIR": root.path]
   let url = RuntimeRecord.url(beside: AgentLog.standard(environment: env))
   let recorder = RuntimeRecorder(url: url)
   let launcher = HotKeyRegistration { _ in NSObject() }
@@ -95,7 +96,7 @@ private let deniedPermissions = Permissions(
   #expect(report["permissions"]["live"]["microphone"] == .string("granted"))
   #expect(report["permissions"]["recorded"]["calendar"]["status"] == .string("askable"))
   #expect(report["permissions"]["recorded"]["calendar"]["checkedAt"].string != nil)
-  #expect(report["permissions"]["note"].string?.contains("from Wicket's agent") == true)
+  #expect(report["permissions"]["note"].string?.contains("use this copy's recorded permissions") == true)
   #expect(report["runtimeIsLive"] == .bool(true))
   #expect(report["runtime"]["bundlePath"] == .string(Bundle.main.bundleURL.path))
   #expect(report["runtime"]["executablePath"].string != nil)
@@ -214,14 +215,102 @@ private func diagnosticsKeepsStaleRuntimeHistory(_ writer: OldRuntimeWriter) asy
     })
   let report = try JSONDecoder().decode(JSONValue.self, from: data)
   #expect(report["runtimeIsLive"] == .bool(false))
-  #expect(report["runtimeReason"].string?.contains("no longer running") == true)
+  #expect(report["runtimeReason"].string?.contains("could not be verified as running") == true)
   #expect(report["runtime"]["bundlePath"].string == record.bundlePath)
   #expect(report["runtime"]["executablePath"].string == record.executablePath)
   #expect(report["runtime"]["recentFailures"].array.first?["message"] == .string("Fixture failure"))
-  #expect(report["permissions"]["recorded"]["accessibility"]["status"] == .string("granted"))
+  #expect(report["runtime"]["permissions"]["accessibility"]["status"] == .string("granted"))
+  #expect(report["permissions"]["recorded"] == .null)
   #expect(report["permissions"]["note"].string?.contains("checks use live permissions") == true)
   #expect(report["hotkeys"]["launcher"]["registration"] == .string("unknown"))
   #expect(report["hotkeys"]["launcher"]["inEffect"] == .null)
+}
+
+private enum DiagnosticWriter: CaseIterable {
+  case descendant, unrelated, otherBundle, otherExecutable, unverified, deepAncestry
+}
+
+@MainActor @Test(arguments: DiagnosticWriter.allCases)
+private func diagnosticsAttributesPermissionChecksAndRegistrations(_ writer: DiagnosticWriter) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "calendar", script: "exit 1", fields: ["permissions": ["calendar"]])
+  var config = Configuration()
+  config.hotkeys = [
+    .init(keys: try Shortcut("ctrl+1"), target: try #require(HotkeyTarget("wicket://calendar")))
+  ]
+  try config.save(at: root.appending(path: "config.json"))
+  let env = ["WICKET_CONFIG_DIR": root.path]
+  let url = RuntimeRecord.url(beside: AgentLog.standard(environment: env))
+  let bundlePath = Bundle.main.bundleURL.path
+  let executablePath = try #require(Bundle.main.executableURL?.path)
+  let pid = Int32.max
+  let checkedAt = Date(timeIntervalSince1970: 0)
+  let record = RuntimeRecord(
+    pid: pid, executablePath: writer == .otherExecutable ? executablePath + "-other" : executablePath,
+    bundlePath: writer == .otherBundle ? "/Other/Wicket.app" : bundlePath,
+    processStartTimeMicroseconds: 10, updatedAt: checkedAt,
+    permissions: [
+      "accessibility": .init(status: .granted, checkedAt: checkedAt),
+      "calendar": .init(status: .denied, checkedAt: checkedAt),
+    ],
+    registrations: .init(
+      launcher: .init(shortcut: config.hotkey.description, inEffect: config.hotkey.description),
+      bindings: []))
+  let encoder = JSONEncoder()
+  encoder.dateEncodingStrategy = .iso8601
+  try encoder.encode(record).write(to: url)
+  let livePermissions = Permissions(
+    status: { $0 == .calendar ? .granted : .denied }, request: deniedPermissions.request,
+    microphone: deniedPermissions.microphone)
+
+  let data = try await Diagnostics.report(
+    folder: root, bundled: nil, permissions: livePermissions, environment: env,
+    process: { candidate in
+      #expect(candidate == pid)
+      guard writer != .unverified, let path = record.executablePath else { return nil }
+      return .init(executablePath: path, startTimeMicroseconds: 10)
+    },
+    parent: { child in
+      #expect(writer != .otherBundle && writer != .otherExecutable && writer != .unverified)
+      if writer == .unrelated { return 1 }
+      if writer == .deepAncestry { return child == getpid() ? pid - 100 : child + 1 }
+      return child == getpid() ? pid - 1 : pid
+    })
+  let report = try JSONDecoder().decode(JSONValue.self, from: data)
+  let otherCopy = writer == .otherBundle || writer == .otherExecutable
+  let usesRecord = writer == .unrelated || writer == .deepAncestry
+  #expect(report["app"]["bundlePath"].string == bundlePath)
+  #expect(report["app"]["executablePath"].string == executablePath)
+  #expect(report["runtime"]["bundlePath"].string == record.bundlePath)
+  #expect(report["runtime"]["executablePath"].string == record.executablePath)
+  #expect(report["runtimeIsLive"] == .bool(writer != .unverified))
+  #expect(
+    report["hotkeys"]["launcher"]["registration"]
+      == .string(otherCopy || writer == .unverified ? "unknown" : "registered"))
+  #expect(
+    report["extensions"].array.first?["missingPermissions"]
+      == .array(usesRecord ? [.string("calendar")] : []))
+  #expect(
+    report["hotkeys"]["bindings"].array.first?["resolution"]
+      == .string(usesRecord ? "missing permission" : "ok"))
+  let permissions = report["permissions"]
+  #expect(permissions["live"]["calendar"] == .string("granted"))
+  if otherCopy {
+    let reason = try #require(report["runtimeReason"].string)
+    #expect(reason.contains("another copy of Wicket"))
+    #expect(reason.contains("Its writer is running"))
+    #expect(permissions["recorded"] == .null)
+    #expect(
+      permissions["note"].string?.contains("Recorded permissions for this copy are unavailable") == true)
+    #expect(permissions["discrepancy"] == .null)
+  } else {
+    #expect(permissions["recorded"]["calendar"]["status"] == .string("denied"))
+    let discrepancy = try #require(permissions["discrepancy"].string)
+    #expect(discrepancy.contains("calendar was recorded as denied at 1970-01-01T00:00:00Z"))
+    #expect(discrepancy.contains("The live check returned granted"))
+  }
 }
 
 @MainActor @Test func reopeningCollectsPermissionSnapshotsOffMain() async throws {
