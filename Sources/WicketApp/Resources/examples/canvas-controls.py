@@ -20,10 +20,17 @@ status = ("Grid shown." if grid == "true" else "Grid hidden.") if confirmed else
 body = f"""# {periods[period]} chart
 {status}
 
-<field name="grid" label="Grid lines" type="bool" value="{grid}" act="true"/>
-<field name="labels" label="Axis labels" type="bool" value="{labels}"/>
-<field name="opacity" label="Opacity" type="number" min="0" max="100" step="5" value="{opacity}"/>
-<field name="period" label="Group by" type="choice" options="day=Day&week=Week&month=Month" value="{period}"/>
+<field name="grid"/>
+<field name="labels"/>
+<field name="opacity"/>
+<field name="period"/>
 
 <progress label="Opacity" value="{opacity}%" percent="{opacity}"/>"""
-print(json.dumps({"body": body}))
+print(json.dumps({"body": body, "fields": [
+    {"name": "grid", "description": "Grid lines", "type": "bool", "value": grid == "true", "action": True},
+    {"name": "labels", "description": "Axis labels", "type": "bool", "value": labels == "true"},
+    {"name": "opacity", "description": "Opacity", "type": "number", "min": 0, "max": 100, "step": 5,
+     "value": int(opacity)},
+    {"name": "period", "description": "Group by", "type": "choice", "value": period,
+     "options": [{"value": key, "label": key.title()} for key in periods]},
+]}))

@@ -31,6 +31,30 @@ private func manifest(_ json: String) throws -> ExtensionManifest {
   }
 }
 
+@Test func searchArgumentsAndListEntriesUseTheSameChoiceAndNumberRules() throws {
+  let fields = """
+    [
+      {"name":"scale","type":"choice","description":"Scale","options":["plain",{"value":"log","label":"Logarithmic"}]},
+      {"name":"size","type":"number","description":"Size","min":0.5,"max":2,"step":0.25}
+    ]
+    """
+  let command = try manifest(
+    """
+    {"contract":2,"name":"Chart","command":["./chart"],"fields":\(fields),
+     "settings":[{"name":"presets","description":"Presets","type":"list","fields":\(fields)}]}
+    """)
+  let list = try #require(command.settings.first?.list)
+  #expect(list.fields == command.fields)
+  #expect(list.fields[0].options == [.init("plain"), .init("log", label: "Logarithmic")])
+  #expect(list.accepts(["scale": "log", "size": "1.250"]))
+  #expect(!list.accepts(["scale": "Logarithmic", "size": "1.25"]))
+  #expect(!list.accepts(["scale": "plain", "size": "1.2"]))
+  #expect(!list.accepts(["scale": "log", "size": "2.25"]))
+  #expect(command.fields[1].canonical("1.250") == "1.25")
+  let roundTrip = try JSONDecoder().decode(ExtensionManifest.self, from: JSONEncoder().encode(command))
+  #expect(roundTrip == command)
+}
+
 /// A logging extension: every request is appended to `log.jsonl`, and the view lists one item that
 /// runs with a field value.
 @MainActor private func logging(

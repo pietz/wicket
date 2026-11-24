@@ -373,7 +373,7 @@ struct LauncherView: View {
   }
   /// A declared field's slot after the input's text: as wide as its own text within fixed bounds.
   /// Fixed sizes, like the input.
-  private func fieldSlot(_ field: ExtensionManifest.Field) -> some View {
+  private func fieldSlot(_ field: Field) -> some View {
     let label = field.placeholder ?? field.name
     let value = navigator.fieldValues[field.name] ?? ""
     return Text(value.isEmpty ? label : value).font(.system(size: 15)).lineLimit(1).hidden()

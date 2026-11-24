@@ -59,45 +59,90 @@ protocol Provider {
 
 /// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows
 /// after the body on a page) and `actions` for the header. At least one of body and items is present on
-/// the wire.
+/// the wire, unless the view consists of page fields.
 struct ProviderView: Codable, Sendable, Equatable {
   var body: String?
   var items: [Row]
   var actions: [RowAction]
   /// Escape from this page reruns the same command with these field overrides.
   var back: [String: String]?
+  let fields: [Field]?
+  func pageControls(reservedFields: [Field] = []) -> [Page.Control] {
+    guard let fields, !fields.isEmpty else { return [] }
+    let reserved = Set(reservedFields.map(\.name))
+    let counts = Dictionary(grouping: fields, by: \.name).mapValues(\.count)
+    return fields.compactMap { field in
+      guard counts[field.name] == 1, !reserved.contains(field.name) else { return nil }
+      return Page.Control(field)
+    }
+  }
+  func pageBody(reservedFields: [Field] = []) -> String? {
+    body ?? (pageControls(reservedFields: reservedFields).isEmpty ? nil : "")
+  }
 
-  init(body: String? = nil, items: [Row] = [], actions: [RowAction] = [], back: [String: String]? = nil) {
+  init(
+    body: String? = nil, items: [Row] = [], actions: [RowAction] = [], back: [String: String]? = nil,
+    fields: [Field]? = nil
+  ) {
     self.body = body
+    self.fields = fields
     self.items = items
     self.actions = actions
     self.back = back
   }
 
   /// A submitted command can hand off directly to the native editor.
-  var saveAction: RowAction? {
-    guard body == nil, items.isEmpty, actions.count == 1, let action = actions.first,
-      case .save = action.kind
+  func saveAction(reservedFields: [Field] = []) -> RowAction? {
+    guard pageBody(reservedFields: reservedFields) == nil, items.isEmpty, actions.count == 1,
+      let action = actions.first, case .save = action.kind
     else { return nil }
     return action
   }
 
-  /// A JSON object with neither body nor items: nothing to show, which only a hidden run may answer
+  /// A JSON object without a body, items or fields: nothing to show, which only a hidden run may answer
   /// (`Address.hidden`).
   struct Empty: Error {}
-  private enum CodingKeys: String, CodingKey { case body, items, actions, back }
+  private struct FieldEntry: Decodable {
+    let name: String?
+    let field: Field?
+    private enum NameKey: String, CodingKey { case name }
+    init(from decoder: any Decoder) throws {
+      name = try? decoder.container(keyedBy: NameKey.self).decode(String.self, forKey: .name)
+      field = try? Field(from: decoder)
+    }
+  }
+  private enum CodingKeys: String, CodingKey { case body, items, actions, back, fields }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let body = try c.decodeIfPresent(String.self, forKey: .body)
     let items = try c.decodeIfPresent([Row].self, forKey: .items)
-    guard body != nil || items != nil else { throw Empty() }
+    var fields: [Field]?
+    if c.contains(.fields), try !c.decodeNil(forKey: .fields) {
+      var declarations = try c.nestedUnkeyedContainer(forKey: .fields)
+      var entries: [FieldEntry] = []
+      // A malformed declaration should leave the body and the other controls usable, while still
+      // counting its name so a duplicate valid sibling is dropped too.
+      while !declarations.isAtEnd {
+        let declaration = try declarations.superDecoder()
+        if let entry = try? FieldEntry(from: declaration) { entries.append(entry) }
+      }
+      var nameCounts: [String: Int] = [:]
+      for entry in entries {
+        if let name = entry.name { nameCounts[name, default: 0] += 1 }
+      }
+      fields = entries.compactMap { entry in
+        guard let field = entry.field, nameCounts[field.name] == 1 else { return nil }
+        return field
+      }
+    }
+    guard body != nil || items != nil || fields?.isEmpty == false else { throw Empty() }
     guard Row.validIDs(items ?? []) else {
       throw DecodingError.dataCorruptedError(forKey: .items, in: c, debugDescription: Row.invalidIDs)
     }
     self.init(
       body: body, items: items ?? [],
       actions: try c.decodeIfPresent([RowAction].self, forKey: .actions) ?? [],
-      back: try c.decodeIfPresent([String: String].self, forKey: .back)
+      back: try c.decodeIfPresent([String: String].self, forKey: .back), fields: fields
     )
   }
 }

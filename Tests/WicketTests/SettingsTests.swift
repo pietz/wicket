@@ -403,12 +403,15 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     fields: [
       "settings": [
         ["name": "gap", "type": "number", "description": "Gap", "default": "0"],
-        ["name": "percent", "type": "number", "description": "Percent", "default": "90"],
+        [
+          "name": "percent", "type": "number", "description": "Percent", "min": 0, "max": 100, "step": 5,
+          "default": 90,
+        ],
         ["name": "label", "type": "text", "description": "Label"],
         ["name": "enabled", "type": "bool", "description": "Enabled", "default": "false"],
         [
-          "name": "layout", "type": "choice", "description": "Layout", "options": ["left", "right"],
-          "default": "left",
+          "name": "layout", "type": "choice", "description": "Layout",
+          "options": ["left", ["value": "right", "label": "Right side"]], "default": "left",
         ],
       ]
     ])
@@ -417,7 +420,8 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   model.store.change { try $0.set("gap", to: "8", forExtension: "echo") }
   model.store.change { try $0.set("stale", to: "x", forExtension: "echo") }
   model.store.change { try $0.set("enabled", to: "true", forExtension: "echo") }
-  model.store.change { try $0.set("layout", to: "invalid", forExtension: "echo") }
+  model.store.change { try $0.set("layout", to: "right", forExtension: "echo") }
+  model.store.change { try $0.set("percent", to: "92", forExtension: "echo") }
   await model.extensions.reload()
   let echo = try #require(model.extensions.commands["extension:echo"])
   _ = try await model.extensions.view(echo, request: ProviderRequest(input: ""))
@@ -425,7 +429,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     ProviderRequest.self, from: Data(contentsOf: root.appending(path: "request")))
   #expect(
     request.settings == [
-      "gap": .string("8"), "percent": .string("90"), "enabled": .string("true"), "layout": .string("left"),
+      "gap": .string("8"), "percent": .string("90"), "enabled": .string("true"), "layout": .string("right"),
     ])
 }
 

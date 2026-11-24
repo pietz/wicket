@@ -18,8 +18,8 @@ import Foundation
 struct CommandDescriptor {
   /// For the input's placeholder and the footer.
   let name: String
-  let fields: [ExtensionManifest.Field]
-  var inputField: ExtensionManifest.Field? { fields.first { $0.type == .text } }
+  let fields: [Field]
+  var inputField: Field? { fields.first { $0.type == .text } }
   /// It runs on Return only (`submit` in its manifest): typing, voice and refreshes leave its view alone,
   /// the input has the first say, and Return sends what is typed and filled in.
   let submits: Bool
@@ -35,7 +35,7 @@ struct CommandScreenRequest {
   var fields: [String: String]
   var action: String? = nil
   let cause: CommandScreen.Cause
-  var fieldChange: Page.Field.Change? = nil
+  var fieldChange: Page.Control.Change? = nil
   var prompting = false
   var trigger: RuntimeRecord.Trigger = .command
   /// The request as an extension's program and a host command receive it.
@@ -122,7 +122,7 @@ enum CommandOutcome {
   private(set) var turn = UUID().uuidString
   private var canvasEdits: [String: String] = [:]
   private var submissions: [CommandScreenRequest] = []
-  private var pendingChange: Page.Field.Change?
+  private var pendingChange: Page.Control.Change?
   private var pendingRefresh: Bool?
   var awaitsRerun: Bool {
     runningCause == .rerun || runningSubmission && (pendingChange != nil || pendingRefresh != nil)
@@ -148,7 +148,7 @@ enum CommandOutcome {
     if submitting, !replacingFields,
       let invalid = overrides.first(where: { name, value in
         guard let field = page?.fields[name] else { return false }
-        return field.canonical(value) == nil
+        return field.definition.canonical(value) == nil
       })
     {
       return invalid.key
@@ -191,8 +191,8 @@ enum CommandOutcome {
   }
 
   /// Keeps the latest local edit visible and stages only the work this control calls for.
-  mutating func edit(_ change: Page.Field.Change) -> Bool {
-    guard let field = page?.fields[change.name], let value = field.canonical(change.value) else {
+  mutating func edit(_ change: Page.Control.Change) -> Bool {
+    guard let field = page?.fields[change.name], let value = field.definition.canonical(change.value) else {
       return false
     }
     if change.phase == .preview {
@@ -200,7 +200,7 @@ enum CommandOutcome {
     }
     page?.fill(change.name, with: value)
     canvasEdits[change.name] = value
-    let change = Page.Field.Change(name: change.name, value: value, phase: change.phase)
+    let change = Page.Control.Change(name: change.name, value: value, phase: change.phase)
     if change.phase == .commit, let action = field.action {
       let current = request()
       enqueue(
@@ -276,8 +276,10 @@ enum CommandOutcome {
   }
 
   func makePage(_ view: ProviderView) -> Page? {
-    guard let body = view.body else { return nil }
-    var page = Page(body: body, items: view.items, runs: true, fieldSlots: descriptor?.fields)
+    guard let body = view.pageBody(reservedFields: descriptor?.fields ?? []) else { return nil }
+    var page = Page(
+      body: body, items: view.items, runs: true, declaredFields: descriptor == nil ? [] : view.fields ?? [],
+      reservedFields: descriptor?.fields ?? [])
     page.targetRevision = UUID().uuidString
     return page
   }
@@ -293,7 +295,7 @@ enum CommandOutcome {
     failedCanvasValues.removeAll()
     canvasCleared = false
     // Edits still waiting for an explicit submit survive another field's reply.
-    canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.canonical(value) != nil }
+    canvasEdits = canvasEdits.filter { name, value in page?.fields[name]?.definition.canonical(value) != nil }
     for (name, value) in canvasEdits { self.page?.fill(name, with: value) }
     if let page {
       for name in page.fields.keys { screen.fill(name, with: "") }
@@ -328,7 +330,9 @@ enum CommandOutcome {
   }
 
   /// Its visible Markdown body.
-  var body: String? { problem == nil && page != nil ? shown.view.body : nil }
+  var body: String? {
+    problem == nil && page != nil ? shown.view.pageBody(reservedFields: descriptor?.fields ?? []) : nil
+  }
   /// The view's own actions, in the header beside the body.
   var viewActions: [RowAction] { body == nil ? [] : shown.view.actions }
   /// With nothing selected, Return can submit the current fields when the command owns the input.
@@ -370,8 +374,9 @@ struct AgentContext {
     struct Content: Encodable {
       let body: String?
       let items: [Row]
+      let fields: [Field]?
     }
-    var view = json(Content(body: shown.view.body, items: shown.view.items))
+    var view = json(Content(body: shown.view.body, items: shown.view.items, fields: shown.view.fields))
     if view.count > Self.limit {
       view = String(view.prefix(Self.limit)) + "\n[cut: the view was longer than this]"
     }

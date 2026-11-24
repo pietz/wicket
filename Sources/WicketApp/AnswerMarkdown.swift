@@ -33,6 +33,7 @@ enum AnswerMarkdown {
     let start: Int
     let text: String
     let closed: Bool
+    let closingFence: String?
   }
   /// A Wicket tag in the document: its range in the source (UTF-8 offsets), name and attributes.
   struct Tag {
@@ -71,7 +72,7 @@ enum AnswerMarkdown {
   }
   /// `render` also builds the markup of each tag and keeps the tree, for the renderer.
   private static func reading(
-    _ source: String, streaming: Bool, nonce: String, render: Bool, fields: [String: Page.Field] = [:]
+    _ source: String, streaming: Bool, nonce: String, render: Bool, fields: [String: Page.Control] = [:]
   ) -> Reading {
     // Code needs a backtick, a tilde fence or an indent of four columns: without one, nothing is code.
     if !source.utf8.contains(where: { $0 == 96 || $0 == 126 || $0 == 9 }), !source.contains("    ") {
@@ -97,7 +98,8 @@ enum AnswerMarkdown {
       result.tree = parsed.tree
       result.code = parsed.code.map { result.original($0.lowerBound)..<result.original($0.upperBound) }
       result.blocks = parsed.blocks.map {
-        Block(start: result.original($0.start), text: $0.text, closed: $0.closed)
+        Block(
+          start: result.original($0.start), text: $0.text, closed: $0.closed, closingFence: $0.closingFence)
       }
       if result.code == protected { break }
       protected = result.code
@@ -181,7 +183,10 @@ enum AnswerMarkdown {
       code.append(start..<max(start, end(last)))
       // Without its final line break, which would run a pasted command at once.
       let text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
-      blocks.append(Block(start: start, text: text, closed: closed))
+      let closingFence =
+        !closed && cmark_node_parent(node) == tree.root
+        ? String(repeating: String(UnicodeScalar(UInt8(bitPattern: character))), count: Int(length)) : nil
+      blocks.append(Block(start: start, text: text, closed: closed, closingFence: closingFence))
     }
     return (tree, code, blocks)
   }
@@ -225,14 +230,14 @@ enum AnswerMarkdown {
   }
   /// The page as HTML. `code` names the fenced blocks that get a copy button (`Page.code`).
   static func html(
-    _ input: String, code: [Page.Code] = [], streaming: Bool = false, fields: [String: Page.Field] = [:]
+    _ input: String, code: [Page.Code] = [], streaming: Bool = false, fields: [String: Page.Control] = [:]
   ) -> String {
     lock.withLock { _ in render(input, code: code, streaming: streaming, fields: fields) }
   }
 
   private static func normalize(
     _ source: String, protected: [Range<Int>], nonce: String, streaming: Bool, inline: Bool = false,
-    markup: Bool = false, fields: [String: Page.Field] = [:]
+    markup: Bool = false, fields: [String: Page.Control] = [:]
   ) -> Reading {
     let bytes = Array(source.utf8)
     var result = Reading()
@@ -372,7 +377,7 @@ enum AnswerMarkdown {
   }
 
   private static func render(
-    _ input: String, code: [Page.Code], streaming: Bool, fields: [String: Page.Field]
+    _ input: String, code: [Page.Code], streaming: Bool, fields: [String: Page.Control]
   ) -> String {
     let nonce = "WICKET" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
     let reading = reading(input, streaming: streaming, nonce: nonce, render: true, fields: fields)
@@ -476,7 +481,7 @@ enum AnswerMarkdown {
     return group(pieces.joined())
   }
 
-  private static func control(_ field: Page.Field) -> String {
+  private static func control(_ field: Page.Control) -> String {
     let id = escape(field.id)
     let label = escape(field.label)
     var caption = "<label for=\"\(id)\">\(label)</label>"

@@ -42,7 +42,7 @@ struct KeywordQuery {
     lastText = last
   }
 
-  func argument(for row: Row, from provider: String, fieldsFor: (String) -> [ExtensionManifest.Field])
+  func argument(for row: Row, from provider: String, fieldsFor: (String) -> [Field])
     -> Argument?
   {
     guard
@@ -63,8 +63,8 @@ struct KeywordQuery {
 }
 
 extension Row {
-  func editableRootFields(from provider: String, fieldsFor: (String) -> [ExtensionManifest.Field])
-    -> [ExtensionManifest.Field]
+  func editableRootFields(from provider: String, fieldsFor: (String) -> [Field])
+    -> [Field]
   {
     guard case .run(let address)? = actions.first?.kind, !address.link,
       let target = address.extensionName == nil ? provider : address.targetID
@@ -224,7 +224,7 @@ enum Ranking {
   static func compose(
     query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
     extensions: [String: ExtensionManifest], problems: [String: ExtensionHost.Problem], hosts: [Result] = [],
-    hostFields: (String) -> [ExtensionManifest.Field] = { _ in [] },
+    hostFields: (String) -> [Field] = { _ in [] },
     usage: UsageStore, now: Date = Date()
   ) -> Output {
     let query = Fold.query(input)

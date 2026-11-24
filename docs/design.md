@@ -10,7 +10,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 4. **Item.** A row with an id, a title, and actions, from core sources (apps, files, clipboard), a manifest, a list, or a program's view. *Why:* stable ids make rows bindable to hotkeys, selectable across updates, and learnable by usage.
 5. **Action.** What an item does: `open`, `reveal`, `copy`, `paste`, `run`, `agent`, `save`. `run` sends a request to an extension. *Why:* effects happen only on a submitted request; effects worth reviewing need a named action.
 6. **Address.** A `wicket://` link to the root, an extension, an item, the agent, or Settings; it opens a view and never acts. *Why:* hotkeys, links, and the agent's follow-up rows all point at places the same way.
-7. **View.** A program's answer: `items` (native list) and/or `body` (one HTML page in the page language). Agent answers use the same page language. *Why:* native frame for keys and focus, HTML for freely designed content.
+7. **View.** A program's answer: `items` (native list), `body` (one HTML page in the page language), and/or `fields` (interactive page controls). Agent answers use the same page language. *Why:* native frame for keys and focus, HTML for freely designed content.
 8. **Setting.** A persisted value an extension declares: a field or a list of entries. Wicket draws it in Settings, stores it in `config.json`, and sends it with every request. *Why:* the extension declares, Wicket draws and saves.
 9. **Hotkey.** Keys bound to an address. *Why:* any item or command, one keystroke away, without a running process.
 10. **Permission.** Declared by an extension, held by Wicket. *Why:* macOS grants to the app, so only Wicket can hold one; declaring lets it check before launch.
@@ -32,5 +32,4 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 
 ## Where the map doesn't fit yet
 
-- **Three dialects of fields.** Search-bar fields, page fields, and settings share types but not rules.
 - **Small flags on items and actions** (`itemList`, `promptIfEmpty`, `hidden`, `submit`). Each solved a real case; together they are hard to learn. Check each against the blocks above.

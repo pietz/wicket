@@ -48,41 +48,6 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     let empty: Row?
   }
 
-  struct Field: Codable, Sendable, Equatable {
-    enum Kind: String, Codable, Sendable { case text, number, bool, choice }
-    let name: String
-    let type: Kind
-    let description: String
-    var placeholder: String?
-    var options: [String]?
-    var `default`: String?
-    var optional: Bool?
-    var multiline: Bool?
-    var hidden: Bool?
-
-    var inSearchBar: Bool { type == .text || type == .number }
-    func accepts(_ value: String) -> Bool {
-      switch type {
-      case .text: true
-      case .number: Double(value)?.isFinite == true
-      case .bool: value == "true" || value == "false"
-      case .choice: options?.contains(value) == true
-      }
-    }
-
-    var valid: Bool {
-      guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-        !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      else { return false }
-      if type == .choice {
-        guard let options, !options.isEmpty, !options.contains(""), Set(options).count == options.count
-        else { return false }
-      } else if options != nil {
-        return false
-      }
-      return self.default.map(accepts) ?? true
-    }
-  }
   static let maxSearchFields = 3
 
   private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -159,7 +124,8 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     guard fields.filter(\.inSearchBar).count <= Self.maxSearchFields,
       Set(names).count == names.count,
       fields.allSatisfy({
-        $0.valid && $0.default == nil && $0.optional == nil && $0.multiline == nil && $0.hidden == nil
+        $0.validInManifest && $0.default == nil && $0.optional == nil && $0.multiline == nil
+          && $0.hidden == nil
       })
     else {
       throw DecodingError.dataCorruptedError(

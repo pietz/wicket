@@ -9,7 +9,7 @@ import Foundation
   nonisolated static var row: Result { get }
   nonisolated static var descriptor: CommandDescriptor { get }
   func view(for request: ProviderRequest) -> ProviderView
-  func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView
+  func view(for request: ProviderRequest, fieldChange: Page.Control.Change) -> ProviderView
   /// Whether it is listed at the root and can be opened now.
   nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool
   /// The conversation a submitted request reopens instead of answering with a view (Agent History's
@@ -24,7 +24,7 @@ extension HostCommand {
       submits: false, asksAbout: false)
   }
   func reopened(_ request: ProviderRequest) -> AgentHistory.Run? { nil }
-  func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView {
+  func view(for request: ProviderRequest, fieldChange: Page.Control.Change) -> ProviderView {
     view(for: request)
   }
 }
@@ -83,7 +83,7 @@ extension HostCommand {
     }
     return extensions.commands[id] != nil && configuration.isEnabled(id, extensions: extensions.ids)
   }
-  func availableFields(_ id: String, in configuration: Configuration) -> [ExtensionManifest.Field] {
+  func availableFields(_ id: String, in configuration: Configuration) -> [Field] {
     guard isAvailable(id, in: configuration) else { return [] }
     return extensions.commands[id]?.manifest.fields ?? hostType(id)?.descriptor.fields ?? []
   }

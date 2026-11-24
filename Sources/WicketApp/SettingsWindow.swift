@@ -707,7 +707,7 @@ struct SettingsPane: View {
 /// One of an extension's settings: saved on Return or when the field loses focus, and removed when emptied,
 /// so the manifest's default, shown as the prompt, applies again.
 private struct SettingField: View {
-  let setting: ExtensionManifest.Field
+  let setting: Field
   let saved: String?
   let save: (String?) -> Void
   @State private var draft: String?
@@ -723,25 +723,28 @@ private struct SettingField: View {
       .onSubmit(commit)
       .onChange(of: focused) { if !focused { commit() } }
       .onDisappear(perform: commit)
-    if let draft, !draft.isEmpty, !setting.accepts(draft) {
-      Text("Enter a number using a decimal point.").foregroundStyle(.red)
+    if let draft, !draft.isEmpty, setting.canonical(draft) == nil {
+      Text(
+        setting.min == nil && setting.max == nil && setting.step == nil
+          ? "Enter a number using a decimal point." : "Enter a number within the allowed range and step."
+      ).foregroundStyle(.red)
     }
   }
   private func commit() {
-    guard let value = draft, value.isEmpty || setting.accepts(value) else { return }
+    guard let value = draft, value.isEmpty || setting.canonical(value) != nil else { return }
     draft = nil
     if value != saved ?? "" { save(value.isEmpty ? nil : value) }
   }
 }
 
 private struct SettingControl: View {
-  let field: ExtensionManifest.Field
+  let field: Field
   @Binding var value: String?
   var editingEntry = false
-  private var label: String { field.placeholder ?? field.description }
+  private var label: String { field.title }
   private var text: Binding<String> { Binding(get: { value ?? "" }, set: { value = $0 }) }
   private var choice: Binding<String?> {
-    Binding(get: { value.flatMap { field.accepts($0) ? $0 : nil } }, set: { value = $0 })
+    Binding(get: { value.flatMap { field.canonical($0) != nil ? $0 : nil } }, set: { value = $0 })
   }
 
   var body: some View {
@@ -763,8 +766,10 @@ private struct SettingControl: View {
         ).toggleStyle(.switch)
       case .choice:
         Picker(label, selection: choice) {
-          Text(field.default.map { "Default (\($0))" } ?? "Unset").tag(nil as String?)
-          ForEach(field.options ?? [], id: \.self) { Text($0).tag(Optional($0)) }
+          let options = field.options ?? []
+          let defaultLabel = options.first { $0.value == field.default }?.label
+          Text(defaultLabel.map { "Default (\($0))" } ?? "Unset").tag(nil as String?)
+          ForEach(options, id: \.value) { Text($0.label).tag(Optional($0.value)) }
         }
       case .text where field.multiline == true:
         VStack(alignment: .leading, spacing: 4) {
@@ -785,7 +790,7 @@ private struct SettingControl: View {
         }
       }
     }
-    .help(field.description)
+    .help(field.description ?? "")
   }
 }
 
@@ -859,8 +864,8 @@ struct SettingsEntryEditor: View {
                 get: { values[field.name] },
                 set: { values[field.name] = $0?.isEmpty == false ? $0 : nil }
               ), editingEntry: true)
-            if let label = field.placeholder, label != field.description {
-              Text(field.description).font(.callout).foregroundStyle(.secondary)
+            if let description = field.description, description != field.title {
+              Text(description).font(.callout).foregroundStyle(.secondary)
             }
           }
         }

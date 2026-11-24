@@ -35,10 +35,10 @@ private final class TargetClicks: NSObject, WKScriptMessageHandler {
 }
 
 private final class FieldMessages: NSObject, WKScriptMessageHandler {
-  let change: @MainActor (Page.Field.Change, String) -> Void
+  let change: @MainActor (Page.Control.Change, String) -> Void
   let focus: @MainActor (String) -> Void
   init(
-    change: @escaping @MainActor (Page.Field.Change, String) -> Void,
+    change: @escaping @MainActor (Page.Control.Change, String) -> Void,
     focus: @escaping @MainActor (String) -> Void
   ) {
     self.change = change
@@ -48,7 +48,7 @@ private final class FieldMessages: NSObject, WKScriptMessageHandler {
     if message.name == "fieldFocus", let turn = message.body as? String { return focus(turn) }
     guard let body = message.body as? [String: String], let name = body["name"], let value = body["value"],
       let turn = body["turn"], let rawPhase = body["phase"],
-      let phase = Page.Field.Change.Phase(rawValue: rawPhase)
+      let phase = Page.Control.Change.Phase(rawValue: rawPhase)
     else { return }
     change(.init(name: name, value: value, phase: phase), turn)
   }
@@ -63,7 +63,7 @@ final class AnswerRenderer {
   var onHeight: (() -> Void)?
   /// A click on a target: its id and the revision of the view it was made on.
   var onTarget: ((String, String) -> Void)?
-  var onFieldChange: ((Page.Field.Change, String) -> Void)?
+  var onFieldChange: ((Page.Control.Change, String) -> Void)?
   var onFieldFocus: ((String) -> Void)?
   var cap: Double = PaletteLayout.answerMax
   /// The selected target's id. A change is painted at once, outside the render batch, so an arrow key

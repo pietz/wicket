@@ -157,7 +157,7 @@ import Foundation
             guard let self, !Task.isCancelled, generation == current else { return }
             // At the root a pattern result only contributes items; a body is entered like a detail.
             patterns[entry.id] =
-              view.body == nil
+              view.pageBody(reservedFields: command.manifest.fields) == nil
               ? .items(view.items)
               : .items([
                 Row(

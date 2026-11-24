@@ -1,7 +1,7 @@
 import Foundation
 
 enum ExtensionSetting: Codable, Sendable, Equatable {
-  case field(ExtensionManifest.Field)
+  case field(Field)
   case entries(SettingList)
 
   private enum Key: String, CodingKey { case type }
@@ -10,7 +10,7 @@ enum ExtensionSetting: Codable, Sendable, Equatable {
     if try container.decode(String.self, forKey: .type) == "list" {
       self = .entries(try SettingList(from: decoder))
     } else {
-      self = .field(try ExtensionManifest.Field(from: decoder))
+      self = .field(try Field(from: decoder))
     }
   }
   func encode(to encoder: any Encoder) throws {
@@ -29,7 +29,7 @@ enum ExtensionSetting: Codable, Sendable, Equatable {
   var valid: Bool {
     switch self {
     case .field(let field):
-      field.valid && field.optional == nil && field.multiline == nil && field.hidden == nil
+      field.validInManifest && field.optional == nil && field.multiline == nil && field.hidden == nil
     case .entries(let list): list.valid
     }
   }
@@ -39,12 +39,12 @@ struct SettingList: Codable, Sendable, Equatable {
   let type: String
   let name: String
   let description: String
-  let fields: [ExtensionManifest.Field]
+  let fields: [Field]
   let item: JSONValue?
   var editable: Bool?
   var itemName: String?
   var entryName: String { itemName ?? "Entry" }
-  var editableFields: [ExtensionManifest.Field] { fields.filter { $0.hidden != true } }
+  var editableFields: [Field] { fields.filter { $0.hidden != true } }
   /// Hidden values only come from a program's `save`, so a required one rules out adding by hand.
   var addable: Bool { editable != false && !fields.contains { $0.hidden == true && $0.optional != true } }
   /// The required hidden values `values` lacks or gets wrong; Settings can't supply them.
@@ -52,7 +52,7 @@ struct SettingList: Codable, Sendable, Equatable {
     fields.filter { field in
       guard field.hidden == true, field.optional != true else { return false }
       guard let value = values[field.name], !value.allSatisfy(\.isWhitespace) else { return true }
-      return !field.accepts(value)
+      return field.canonical(value) == nil
     }.map(\.name)
   }
 
@@ -61,7 +61,9 @@ struct SettingList: Codable, Sendable, Equatable {
     guard !name.allSatisfy(\.isWhitespace), !name.contains("/"), !description.allSatisfy(\.isWhitespace),
       itemName?.allSatisfy(\.isWhitespace) != true, !fields.isEmpty, !names.contains("id"),
       Set(names).count == names.count,
-      fields.allSatisfy({ $0.valid && $0.default == nil && ($0.multiline == nil || $0.type == .text) })
+      fields.allSatisfy({
+        $0.validInManifest && $0.default == nil && ($0.multiline == nil || $0.type == .text)
+      })
     else { return false }
     let sample = Dictionary(uniqueKeysWithValues: names.map { ($0, "example") } + [("id", "example")])
     return item == nil || makeRow(sample) != nil
@@ -72,7 +74,7 @@ struct SettingList: Codable, Sendable, Equatable {
       guard let value = values[field.name], !value.isEmpty else {
         return field.optional == true
       }
-      return field.accepts(value) && (field.optional == true || !value.allSatisfy(\.isWhitespace))
+      return field.canonical(value) != nil && (field.optional == true || !value.allSatisfy(\.isWhitespace))
     }
   }
 

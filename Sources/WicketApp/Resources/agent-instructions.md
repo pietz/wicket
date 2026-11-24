@@ -59,7 +59,7 @@ Delete the old key once the server answers with the new one.
 
 ## Components
 
-Agent answers show no `<field/>` controls.
+Use text or rows for choices in agent answers. Interactive fields belong to extension command views.
 
 **Items** (`row`, `tile`) show only their attributes in five optional slots: `label` (small grey, first), `icon` (SF Symbol), `title` (primary), `subtitle` (grey), `value` (short trailing figure). Put labels and figures in slots, never sentences (`subtitle="Zoom · 15 min"`, joined by ` · `). Fill the same slots across siblings so they align.
 

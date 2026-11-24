@@ -71,7 +71,8 @@ struct ExtensionCommand: Sendable, Equatable {
     manifest.settings.reduce(into: [:]) { values, setting in
       switch setting {
       case .field(let field):
-        let scalar = saved?[field.name].string.flatMap { field.accepts($0) ? $0 : nil } ?? field.default
+        let scalar =
+          saved?[field.name].string.flatMap { field.canonical($0) != nil ? $0 : nil } ?? field.default
         values[field.name] = scalar.map(JSONValue.string)
       case .entries(let list):
         let entries = list.read(saved?[list.name] ?? .null).entries
@@ -450,7 +451,7 @@ final class ExtensionHost {
     return try await withTaskCancellationHandler {
       do {
         var view = try await task.value
-        if view.body == nil, request.action == nil, !rootMatch,
+        if view.pageBody(reservedFields: command.manifest.fields) == nil, request.action == nil, !rootMatch,
           command.manifest.settings.contains(where: { $0.list?.item != nil }),
           request.fields.keys.allSatisfy({ $0 == command.manifest.inputField?.name })
         {

@@ -24,7 +24,7 @@ struct Page: Equatable, Sendable {
   /// the renderer puts a copy button on the block that starts there.
   var code: [Code]
   /// The controls owned by the command on this page, by name.
-  private(set) var fields: [String: Field]
+  private(set) var fields: [String: Control]
   /// Command replies can keep their turn for DOM patching while replacing positional click targets.
   var targetRevision: String?
   /// An image file the host shows at the top of the page (`Row.picture`). Markdown never sets it.
@@ -42,7 +42,7 @@ struct Page: Equatable, Sendable {
   /// `copies`, as beside a list, which takes no clicks, code blocks are only shown.
   init(
     body: String, items: [Row] = [], runs: Bool, streaming: Bool = false, picture: URL? = nil,
-    copies: Bool = true, fieldSlots: [ExtensionManifest.Field]? = nil
+    copies: Bool = true, declaredFields: [Field] = [], reservedFields: [Field] = []
   ) {
     self.picture = picture
     let bytes = Array(body.utf8)
@@ -51,8 +51,19 @@ struct Page: Equatable, Sendable {
     var targets: [Row] = []
     var symbols: [String] = []
     var code: [Code] = []
-    var fields: [String: Field] = [:]
-    let reserved = Set((fieldSlots ?? []).map(\.name))
+    var fields: [String: Control] = [:]
+    let controls: [Control]
+    if runs, !streaming, copies, !declaredFields.isEmpty {
+      let reserved = Set(reservedFields.map(\.name))
+      let declarations = Dictionary(grouping: declaredFields, by: \.name)
+      controls = declaredFields.compactMap { field in
+        guard declarations[field.name]?.count == 1, !reserved.contains(field.name) else { return nil }
+        return Control(field)
+      }
+    } else {
+      controls = []
+    }
+    let byName = Dictionary(uniqueKeysWithValues: controls.map { ($0.name, $0) })
     var cursor = 0
     // Most replies have no tag or code fence: they skip Markdown's parse.
     let reading =
@@ -68,6 +79,11 @@ struct Page: Equatable, Sendable {
     {
       if let icon, !symbols.contains(icon) { symbols.append(icon) }
       return Self.tag(name, id, values, icon: icon, close: close)
+    }
+    func placeControl(_ field: Control) -> String {
+      fields[field.name] = field
+      targets.append(Row(id: field.id, title: field.label, actions: [RowAction(.field(field.name))]))
+      return tag("field", nil, [("name", field.name)], icon: nil, close: true)
     }
     /// An item's canonical tag, a target's with its id; empty when it is dropped. A bar or a badge has
     /// no detail: what it holds is dropped.
@@ -115,12 +131,11 @@ struct Page: Equatable, Sendable {
       source += text(cursor..<current.range.lowerBound)
       cursor = current.range.upperBound
       if name == "field" {
-        if fieldSlots != nil, !streaming, copies, current.selfClosing, !current.closing,
-          let field = Field(current.values), !reserved.contains(field.name), fields[field.name] == nil
+        let names = current.values.filter { $0.0 == "name" }
+        if current.selfClosing, !current.closing, names.count == 1,
+          let field = byName[names[0].1], fields[field.name] == nil
         {
-          fields[field.name] = field
-          targets.append(Row(id: field.id, title: field.label, actions: [RowAction(.field(field.name))]))
-          source += tag(name, nil, [("name", field.name)], icon: nil, close: true)
+          source += placeControl(field)
         }
         continue
       }
@@ -144,6 +159,12 @@ struct Page: Equatable, Sendable {
     } else {
       source += text(cursor..<bytes.count)
     }
+    let unplaced = controls.filter { fields[$0.name] == nil }
+    if !unplaced.isEmpty {
+      // A final unclosed top-level fence would swallow the controls as code.
+      if open == nil, let fence = reading?.blocks.last?.closingFence { source += "\n" + fence }
+      source += "\n\n" + unplaced.map(placeControl).joined(separator: "\n")
+    }
     var own: [Row] = []
     for item in items {
       // An item's detail opens with Return, as a row's content does; its own actions stay in ⌘K.
@@ -165,7 +186,7 @@ struct Page: Equatable, Sendable {
   }
 
   mutating func fill(_ name: String, with value: String) {
-    if let value = fields[name]?.canonical(value) { fields[name]?.value = value }
+    if let value = fields[name]?.definition.canonical(value) { fields[name]?.value = value }
   }
 
   /// The tags a page reads and what each shows; its icon comes separately. Rows and tiles are items

@@ -5,57 +5,93 @@ import WebKit
 @testable import WicketApp
 
 @Test func canvasFieldDeclarationsAreCanonicalAndLimitedToCommandBodies() throws {
+  let json = #"""
+    {
+      "fields": [
+        {"name":"toggle","description":"A & <b>","type":"bool","value":true,"action":true},
+        {"name":"dial","type":"number","min":-0.5,"max":1.5,"step":0.25,"default":"5e-1","action":"set dial"},
+        {"name":"when","type":"choice","options":["day",{"value":"this&that","label":"This=that"}],"value":"this&that"},
+        {"name":"popup","type":"choice","options":[{"value":"a","label":"A"},"b","c","d","e"],"action":false},
+        {"name":"overlap","type":"bool"},
+        {"name":"duplicate","type":"bool","action":true},
+        {"name":"duplicate","type":"bool","action":"other"},
+        {"name":"noBounds","type":"number","min":0},
+        {"name":"backwards","type":"number","min":2,"max":1},
+        {"name":"noStep","type":"number","min":0,"max":1,"step":0},
+        {"name":"offGrid","type":"number","min":0,"max":1,"step":0.25,"value":0.2},
+        {"name":"nonfinite","type":"number","min":0,"max":1e1000},
+        {"name":"comma","type":"number","min":0,"max":1,"value":"0,5"},
+        {"name":"badBool","type":"bool","value":"yes"},
+        {"name":"badOption","type":"choice","options":["a",{"value":"a","label":"Again"}]},
+        {"name":"badShape","type":"choice","options":[{"value":"a"}]},
+        {"name":"unknownValue","type":"choice","options":["a"],"value":"b"},
+        {"name":"freeform","type":"text"},
+        {"name":"invalid name","type":"bool"},
+        {"name":"defaultStep","type":"number","min":0,"max":1,"value":0.5},
+        {"name":"unplaced","type":"bool"},
+        {"name":"last","type":"bool","placeholder":"Last control"}
+      ]
+    }
+    """#
+  let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
   let body = """
-    <field name="toggle" label="A & <b>" type="bool" value="true" act="true" target="forged"/>
-    <row title="More"><field name="nested" type="bool"/></row>
-    <field name="toggle" type="bool" value="false"/>
-    <field name="dial" type="number" min="-0.5" max="1.5" step=".25" value="5e-1" act="set%20dial"/>
-    <field name="when" type="choice" options="day=Day%20view&this%26that=This%3Dthat" value="this&that"/>
-    <field name="popup" type="choice" options="a=A&b=B&c=C&d=D&e=E"/>
-    <field name="overlap" type="bool"/>
-    <field name="noBounds" type="number" min="0"/>
-    <field name="backwards" type="number" min="2" max="1"/>
-    <field name="noStep" type="number" min="0" max="1" step="0"/>
-    <field name="offGrid" type="number" min="0" max="1" step=".25" value=".2"/>
-    <field name="nonfinite" type="number" min="0" max="inf"/>
-    <field name="comma" type="number" min="0" max="1" value="0,5"/>
-    <field name="badBool" type="bool" value="yes"/>
-    <field name="badOption" type="choice" options="a=A&a=Again"/>
-    <field name="undecodable" type="choice" options="a=%FA"/>
-    <field name="unknownValue" type="choice" options="a=A" value="b"/>
-    <field name="freeform" type="text"/>
-    <field name="pair" type="bool"></field>
+    <field name="toggle" type="number" act="forged" target="forged"/>
+    <row title="More"><field name="nested"/></row>
+    <field name="toggle"/>
+    <field name="dial"/>
+    <field name="when"/>
+    <field name="popup"/>
+    <field name="overlap"/>
+    <field name="duplicate"/>
+    <field name="legacy" type="bool"/>
 
-    `<field name="code" type="bool"/>`
+    # End
+
+    `<field name="code"/>`
+
+    ~~~
+    Code at the end
     """
+  let fields = try #require(view.fields)
   let page = Page(
-    body: body, runs: true, fieldSlots: [.init(name: "overlap", type: .bool, description: "Overlap")])
-  #expect(page.targets.map(\.id) == ["#field:toggle", "#0", "#field:dial", "#field:when", "#field:popup"])
+    body: body, runs: true, declaredFields: fields,
+    reservedFields: [.init(name: "overlap", type: .bool, description: "Overlap")])
   #expect(
-    page.fields.mapValues(\.value) == ["toggle": "true", "dial": "0.5", "when": "this&that", "popup": "a"])
+    page.targets.map(\.id) == [
+      "#field:toggle", "#0", "#field:dial", "#field:when", "#field:popup", "#field:unplaced", "#field:last",
+    ])
+  #expect(
+    page.fields.mapValues(\.value) == [
+      "toggle": "true", "dial": "0.5", "when": "this&that", "popup": "a", "unplaced": "false",
+      "last": "false",
+    ])
   #expect(page.fields["toggle"]?.action == "set-toggle")
+  #expect(page.fields["popup"]?.action == nil)
   let dial = try #require(page.fields["dial"])
   #expect(dial.action == "set dial")
-  #expect(dial.canonical("1.50") == "1.5")
+  #expect(dial.definition.canonical("1.50") == "1.5")
   #expect(dial.nextValue() == "0.75")
-  for bad in ["nan", "1.25e1000", "0x1p0", "1.51", "1.4"] { #expect(dial.canonical(bad) == nil) }
+  for bad in ["nan", "1.25e1000", "0x1p0", "1.51", "1.4"] { #expect(dial.definition.canonical(bad) == nil) }
   let html = AnswerMarkdown.html(page.source, fields: page.fields)
   #expect(html.contains("type=\"checkbox\" switch"))
   #expect(html.contains("A &amp; &lt;b&gt;"))
   #expect(html.contains("type=\"range\"") && html.contains("value=\"0.5\""))
-  #expect(html.contains("role=\"radiogroup\"") && html.contains("this&amp;that"))
+  #expect(html.contains("role=\"radiogroup\"") && html.contains("This=that"))
   #expect(html.contains("<select") && html.contains("<option value=\"a\" selected>A"))
   #expect(html.contains("</w-field><w-field data-key=\"when\""))
   #expect(!html.contains("forged") && !html.contains("set-toggle") && !html.contains("nested"))
   #expect(html.contains("&lt;field name=&quot;code&quot;"))
+  #expect(html.contains("</w-field><w-field data-key=\"last\""))
+  #expect(html.contains("Last control"))
+  #expect(html.contains("<pre><code>Code at the end\n</code></pre>"))
   if case .detail(let detail, _)? = page.targets[1].actions.first?.kind {
     #expect(Page(body: detail, runs: true).fields.isEmpty)
   } else {
     Issue.record("Expected an item detail")
   }
-  #expect(Page(body: body, runs: false).fields.isEmpty)
-  #expect(Page(body: body, runs: true, copies: false, fieldSlots: []).fields.isEmpty)
-  #expect(Page(body: body, runs: true, streaming: true, fieldSlots: []).fields.isEmpty)
+  #expect(Page(body: body, runs: false, declaredFields: fields).fields.isEmpty)
+  #expect(Page(body: body, runs: true, copies: false, declaredFields: fields).fields.isEmpty)
+  #expect(Page(body: body, runs: true, streaming: true, declaredFields: fields).fields.isEmpty)
   #expect(!AnswerMarkdown.html(body).contains("data-key="))
 }
 
@@ -66,7 +102,7 @@ import WebKit
   defer { try? FileManager.default.removeItem(at: folder) }
   let renderer = AnswerRenderer(folder: folder) { _ in }
   defer { renderer.release() }
-  var changes: [Page.Field.Change] = []
+  var changes: [Page.Control.Change] = []
   var turns: [String] = []
   var clicks: [[String]] = []
   var focus: [String] = []
@@ -76,13 +112,21 @@ import WebKit
   }
   renderer.onTarget = { clicks.append([$0, $1]) }
   renderer.onFieldFocus = { focus.append($0) }
-  let range = #"<field name="range" type="number" min="0" max="10" value="3"/>"#
-  let toggle = #"<field name="switch" type="bool" value="true"/>"#
-  let select = #"<field name="popup" type="choice" options="a=A&b=B&c=C&d=D&e=E" value="b"/>"#
-  let segments = #"<field name="radio" type="choice" options="a=A&b=B" value="a"/>"#
+  let range = #"<field name="range"/>"#
+  let toggle = #"<field name="switch"/>"#
+  let select = #"<field name="popup"/>"#
+  let segments = #"<field name="radio"/>"#
+  let fields: [Field] = [
+    .init(name: "range", type: .number, min: 0, max: 10, value: "3"),
+    .init(name: "switch", type: .bool, value: "true"),
+    .init(
+      name: "popup", type: .choice, options: [.init("a"), .init("b"), .init("c"), .init("d"), .init("e")],
+      value: "b"),
+    .init(name: "radio", type: .choice, options: [.init("a"), .init("b")], value: "a"),
+  ]
   let lines = (0..<80).map { "Line \($0)" }.joined(separator: "\n\n")
   let first = Page(
-    body: "\(range)\n\(toggle)\n\(select)\n\(segments)\n\n\(lines)", runs: true, fieldSlots: [])
+    body: "\(range)\n\(toggle)\n\(select)\n\(segments)\n\n\(lines)", runs: true, declaredFields: fields)
   await renderer.render(first, turn: "controls")
   let web = try #require(renderer.page)
   func run(_ script: String) async throws -> Any? {
@@ -126,7 +170,7 @@ import WebKit
 
       \(lines)
       """,
-    runs: true, fieldSlots: [])
+    runs: true, declaredFields: fields)
   next.targetRevision = "rendered reply"
   await renderer.render(next, turn: "controls")
   #expect(
@@ -155,9 +199,9 @@ import WebKit
   nonisolated static let title = "Canvas Test"
   nonisolated static let row = Ranking.host("history", title, icon: "slider.horizontal.3")
   nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool { true }
-  var changes: [Page.Field.Change] = []
+  var changes: [Page.Control.Change] = []
   var requests: [ProviderRequest] = []
-  func view(for request: ProviderRequest, fieldChange: Page.Field.Change) -> ProviderView {
+  func view(for request: ProviderRequest, fieldChange: Page.Control.Change) -> ProviderView {
     changes.append(fieldChange)
     requests.append(request)
     return view(for: request)
@@ -168,11 +212,16 @@ import WebKit
     let choice = request.fields["choice"] ?? "a"
     return .init(
       body: """
-        <field name="level" type="number" min="0" max="1" step="0.1" value="\(level)" act="save"/>
-        <field name="toggle" type="bool" value="\(toggle)"/>
-        <row title="Details">Read more. <field name="nested" type="bool"/></row>
-        <field name="choice" type="choice" options="a=A&b=B" value="\(choice)"/>
-        """)
+        <field name="level"/>
+        <field name="toggle"/>
+        <row title="Details">Read more. <field name="nested"/></row>
+        <field name="choice"/>
+        """,
+      fields: [
+        .init(name: "level", type: .number, min: 0, max: 1, step: 0.1, value: level, action: .named("save")),
+        .init(name: "toggle", type: .bool, value: toggle),
+        .init(name: "choice", type: .choice, options: [.init("a"), .init("b")], value: choice),
+      ])
   }
 }
 
@@ -221,14 +270,22 @@ import WebKit
 {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let fields = """
-    <field name="dial" type="number" min="0" max="5" act="true"/>
-    <field name="switch" type="bool" act="save-switch"/>
-    <field name="draft" type="bool"/>
+  let body = """
+    <field name="dial"/>
+    <field name="switch"/>
+    <field name="draft"/>
     <row title="Submit" run="submit"/>
     """
-  func reply(_ body: String) throws -> String {
-    String(decoding: try JSONEncoder().encode(ProviderView(body: body)), as: UTF8.self)
+  let fields: [Field] = [
+    .init(name: "dial", type: .number, min: 0, max: 5, action: .automatic(true)),
+    .init(name: "switch", type: .bool, action: .named("save-switch")),
+    .init(name: "draft", type: .bool),
+  ]
+  func reply(_ body: String, dial: String? = nil) throws -> String {
+    var declarations = fields
+    declarations[0].value = dial
+    return String(
+      decoding: try JSONEncoder().encode(ProviderView(body: body, fields: declarations)), as: UTF8.self)
   }
   let folder = try extensionFolder(
     root,
@@ -241,12 +298,12 @@ import WebKit
             touch first
             while [ ! -e release ]; do sleep 0.02; done
           fi
-          printf '%s' '\(try reply("Intermediate\n\n" + fields))' ;;
+          printf '%s' '\(try reply("Intermediate\n\n" + body))' ;;
         *'"action":"save-switch"'*)
           touch final
           while [ ! -e finish ]; do sleep 0.02; done
-          printf '%s' '\(try reply("Settled\n\n" + fields.replacingOccurrences(of: "max=\"5\"", with: "max=\"5\" value=\"4\"")))' ;;
-        *) printf '%s' '\(try reply(fields))' ;;
+          printf '%s' '\(try reply("Settled\n\n" + body, dial: "4"))' ;;
+        *) printf '%s' '\(try reply(body))' ;;
       esac
       """, fields: ["fields": [], "submit": true])
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -259,7 +316,7 @@ import WebKit
   navigator.go(Address(id: "test"))
   await navigator.settled()
   let turn = navigator.pageTurn
-  func change(_ name: String, _ value: String, _ phase: Page.Field.Change.Phase = .commit) {
+  func change(_ name: String, _ value: String, _ phase: Page.Control.Change.Phase = .commit) {
     navigator.changeField(.init(name: name, value: value, phase: phase), turn: turn)
   }
 
@@ -307,8 +364,10 @@ import WebKit
 {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let fields = #"<field name="level" type="number" min="0" max="5" act="save"/>"#
-  let response = String(decoding: try JSONEncoder().encode(ProviderView(body: fields)), as: UTF8.self)
+  let view = ProviderView(fields: [
+    .init(name: "level", type: .number, min: 0, max: 5, action: .named("save"))
+  ])
+  let response = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
   let folder = try extensionFolder(
     root,
     script: """
@@ -329,7 +388,7 @@ import WebKit
   navigator.go(Address(id: "test"))
   await navigator.settled()
   let turn = navigator.pageTurn
-  func change(_ value: String, _ phase: Page.Field.Change.Phase) {
+  func change(_ value: String, _ phase: Page.Control.Change.Phase) {
     navigator.changeField(.init(name: "level", value: value, phase: phase), turn: turn)
   }
   func exists(_ marker: String) async -> Bool {
@@ -364,15 +423,14 @@ import WebKit
     root,
     script: """
       IFS= read -r request
-      cat <<'PAGE'
-      <field name="reverse" type="bool"/>
-      PAGE
+      printf '%s' '{"fields":[{"name":"reverse","type":"bool"}],"body":"<field name=\\"reverse\\"/>\\n'
       case "$request" in
         *'"reverse":"true"'*)
           while [ ! -e release ]; do sleep 0.01; done
-          printf '%s\n' '<row title="Second" copy="second"/>' '<row title="First" copy="first"/>' ;;
-        *) printf '%s\n' '<row title="First" copy="first"/>' '<row title="Second" copy="second"/>' ;;
+          printf '%s' '<row title=\\"Second\\" copy=\\"second\\"/>\\n<row title=\\"First\\" copy=\\"first\\"/>' ;;
+        *) printf '%s' '<row title=\\"First\\" copy=\\"first\\"/>\\n<row title=\\"Second\\" copy=\\"second\\"/>' ;;
       esac
+      printf '%s' '"}'
       """, fields: ["fields": []])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
@@ -410,10 +468,7 @@ import WebKit
       IFS= read -r request
       printf '%s\n' "$request" >>log.jsonl
       cat <<'PAGE'
-      <field name="environment" type="choice" options="production=Production"/>
-      <field name="confirm" type="bool"/>
-      <row title="Deploy to staging" run="deploy?environment=staging&confirm=true"/>
-      <row title="Deploy to production" run="deploy?environment=production&confirm=true"/>
+      {"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"}]},{"name":"confirm","type":"bool"}],"body":"<field name=\\"environment\\"/>\\n<field name=\\"confirm\\"/>\\n<row title=\\"Deploy to staging\\" run=\\"deploy?environment=staging&confirm=true\\"/>\\n<row title=\\"Deploy to production\\" run=\\"deploy?environment=production&confirm=true\\"/>"}
       PAGE
       """, fields: ["fields": [], "submit": true])
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -448,8 +503,7 @@ import WebKit
       printf '%s\n' "$request" >>log.jsonl
       case "$request" in *'"submitted":true'*) exit 0 ;; esac
       cat <<'PAGE'
-      <field name="environment" type="choice" options="staging=Staging&production=Production"/>
-      <field name="confirm" type="bool"/>
+      {"fields":[{"name":"environment","type":"choice","options":[{"value":"staging","label":"Staging"},{"value":"production","label":"Production"}]},{"name":"confirm","type":"bool"}]}
       PAGE
       """,
     fields: [
@@ -508,8 +562,7 @@ import WebKit
       printf '%s\n' "$request" >>log.jsonl
       case "$request" in *'"action":"break"'*) exit 7 ;; esac
       cat <<'PAGE'
-      <field name="environment" type="choice" options="production=Production"/>
-      <row title="Break" run="break"/>
+      {"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"}]}],"body":"<field name=\\"environment\\"/>\\n<row title=\\"Break\\" run=\\"break\\"/>"}
       PAGE
       """, fields: ["fields": [], "submit": true])
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -547,7 +600,7 @@ import WebKit
         *'"submitted":true'*)
           if [ ! -e failed ]; then touch failed; exit 7; fi ;;
       esac
-      printf '%s\n' '<field name="environment" type="choice" options="production=Production&staging=Staging"/>'
+      printf '%s\n' '{"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"},{"value":"staging","label":"Staging"}]}]}'
       """, fields: ["submit": true])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
@@ -584,7 +637,7 @@ import WebKit
         *'"input":"linked"'*)
           if [ ! -e failed ]; then touch failed; exit 7; fi ;;
       esac
-      printf '%s\n' '<field name="environment" type="choice" options="production=Production&staging=Staging"/>'
+      printf '%s\n' '{"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"},{"value":"staging","label":"Staging"}]}]}'
       """, fields: ["submit": true])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
@@ -622,9 +675,7 @@ import WebKit
         *'"input":"slow"'*) while [ ! -e release ]; do sleep 0.02; done ;;
       esac
       cat <<'PAGE'
-      <field name="environment" type="choice" options="production=Production"/>
-      <field name="confirm" type="bool"/>
-      <row title="Break" run="break"/>
+      {"fields":[{"name":"environment","type":"choice","options":[{"value":"production","label":"Production"}]},{"name":"confirm","type":"bool"}],"body":"<field name=\\"environment\\"/>\\n<field name=\\"confirm\\"/>\\n<row title=\\"Break\\" run=\\"break\\"/>"}
       PAGE
       """,
     fields: [
@@ -684,7 +735,7 @@ import WebKit
           while [ ! -e release-rerun ]; do sleep 0.01; done
           text=new ;;
       esac
-      printf '%s' '{"body":"<field name=\\"enabled\\" type=\\"bool\\" act=\\"true\\"/>",'
+      printf '%s' '{"fields":[{"name":"enabled","type":"bool","action":true}],'
       printf '"actions":[{"type":"copy","text":"%s"}]}' "$text"
       """)
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -728,7 +779,7 @@ import WebKit
           echo 'Refresh failed' >&2
           exit 1 ;;
       esac
-      echo '<field name="enabled" type="bool"/>'
+      echo '{"fields":[{"name":"enabled","type":"bool"}]}'
       """, fields: ["fields": []])
   let model = LauncherModel.testing(in: root, bundled: nil)
   let fake = FakeAgent()
@@ -770,7 +821,7 @@ import WebKit
             while [ ! -e release ]; do sleep 0.02; done
           fi ;;
       esac
-      printf '%s\n' '<field name="enabled" type="bool" act="true"/>'
+      printf '%s\n' '{"fields":[{"name":"enabled","type":"bool","action":true}]}'
       """)
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
@@ -820,8 +871,7 @@ import WebKit
           while [ ! -e finish ]; do sleep 0.02; done ;;
       esac
       cat <<'PAGE'
-      <field name="first" type="bool" act="true"/>
-      <field name="second" type="bool" act="true"/>
+      {"fields":[{"name":"first","type":"bool","action":true},{"name":"second","type":"bool","action":true}]}
       PAGE
       """, fields: ["fields": [], "submit": true])
   let model = LauncherModel.testing(in: root, bundled: nil)
@@ -849,4 +899,78 @@ import WebKit
   await navigator.settled()
   #expect(surface.presentation.footerProblem == nil)
   await model.finish()
+}
+
+@Test func manifestChoiceAllowsControlCharsWhileCanvasRejectsThem() throws {
+  let manifestJSON = """
+    {
+      "contract": 2,
+      "name": "CSV",
+      "command": ["./main"],
+      "settings": [
+        {"name": "delimiter", "type": "choice", "description": "Delimiter", "options": [",", "\\t"], "default": "\\t"}
+      ]
+    }
+    """
+  let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(manifestJSON.utf8))
+  guard case .field(let setting)? = manifest.settings.first else {
+    Issue.record("Expected scalar field setting")
+    return
+  }
+  #expect(setting.canonical("\t") == "\t")
+  #expect(Page.Control(setting) == nil)
+}
+
+@Test func largeDecimalStepGridValidatesAccurately() {
+  let field = Field(name: "ts", type: .number, min: 1_700_000_000, max: 1_700_000_001, step: 0.001)
+  #expect(field.valid)
+  #expect(field.canonical("1700000000.001") == "1700000000.001")
+  #expect(field.canonical("1700000000.0015") == nil)
+
+  let bytes = Field(name: "size", type: .number, min: 0, max: 10_485_760, step: 1_048_576)
+  #expect(bytes.valid)
+  #expect(bytes.canonical("1048576") == "1048576")
+  #expect(bytes.canonical("1048577") == nil)
+}
+
+@Test func malformedDuplicateFieldDropsValidSibling() throws {
+  let json = """
+    {
+      "body": "Status\\n<field name=\\"sync\\"/>",
+      "fields": [
+        {"name": "sync", "type": "bool", "action": true},
+        {"name": "sync", "type": "choice", "options": 42}
+      ]
+    }
+    """
+  let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
+  #expect(view.fields?.isEmpty == true)
+  let page = Page(body: view.body ?? "", runs: true, declaredFields: view.fields ?? [])
+  #expect(page.fields.isEmpty)
+}
+
+@Test func unrenderableFieldsKeepListViewAsList() throws {
+  let json = """
+    {
+      "items": [{"id": "a", "title": "Row A", "actions": []}],
+      "fields": [{"name": "query", "type": "text"}]
+    }
+    """
+  let view = try JSONDecoder().decode(ProviderView.self, from: Data(json.utf8))
+  #expect(view.pageBody() == nil)
+  let colliding = try JSONDecoder().decode(
+    ProviderView.self,
+    from: Data(
+      """
+      {
+        "items": [{"id": "a", "title": "Row A", "actions": []}],
+        "fields": [{"name": "query", "type": "bool"}]
+      }
+      """.utf8))
+  let manifestFields = [Field(name: "query", type: .text, description: "Query")]
+  #expect(colliding.pageBody(reservedFields: manifestFields) == nil)
+  let saveView = ProviderView(
+    items: [], actions: [RowAction(.save(setting: "links", values: ["title": "Docs"]))],
+    fields: [Field(name: "query", type: .bool)])
+  #expect(saveView.saveAction(reservedFields: manifestFields) != nil)
 }

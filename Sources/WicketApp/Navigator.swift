@@ -473,7 +473,7 @@ final class Navigator {
   }
   /// The fields the user can fill in: inside a command its own declared ones, at the root those of
   /// the command the selected extension row runs. Empty when there are none.
-  var fieldSlots: [ExtensionManifest.Field] {
+  var fieldSlots: [Field] {
     guard !conversing, overlay == nil else { return [] }
     if let command {
       guard let descriptor = command.descriptor else { return [] }
@@ -516,7 +516,7 @@ final class Navigator {
     refresh()
   }
   /// A canvas event counts only on the command page that declared the control.
-  func changeField(_ change: Page.Field.Change, turn: String) {
+  func changeField(_ change: Page.Control.Change, turn: String) {
     guard arriving == nil, !conversing, !inDetail, overlay == nil, turn == pageTurn,
       command?.problem == nil, command?.edit(change) == true
     else { return }
@@ -898,7 +898,8 @@ final class Navigator {
     case .view(let view):
       let id = target?.id
       showArrival()
-      if request.cause == .submission, let action = view.saveAction,
+      if request.cause == .submission,
+        let action = view.saveAction(reservedFields: command?.descriptor?.fields ?? []),
         case .save(let setting, let values) = action.kind
       {
         saveEntry(setting, values: values, from: id)
@@ -1457,7 +1458,8 @@ final class Navigator {
       guard let self else { return }
       hiddenRuns[run] = nil
       guard let outcome else { return }
-      if case .view(let view) = outcome, let action = view.saveAction,
+      if case .view(let view) = outcome,
+        let action = view.saveAction(reservedFields: program.manifest.fields),
         case .save(let setting, let values) = action.kind
       {
         saveEntry(setting, values: values, from: id)

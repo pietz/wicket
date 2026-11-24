@@ -33,11 +33,15 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; 
 {"contract":2,"name":"Weather","command":["wicket-js","main.js"],"fields":[{"name":"city","type":"text","description":"Search for a city","placeholder":"City"},{"name":"days","type":"number","description":"Days in the forecast"}],"settings":[{"name":"alerts","type":"bool","description":"Show weather alerts","default":"true"},{"name":"scale","type":"choice","description":"Temperature scale","options":["Celsius","Fahrenheit"],"default":"Celsius"}]}
 ```
 
-Search-bar fields and scalar settings use `{name, type, description, placeholder?}` (`name` and `description` nonempty; names unique per array). Types: `text`, `number`, `bool`, `choice` (`options`: distinct nonempty strings). All values travel as strings (`"true"`/`"false"` for bool; decimal point for numbers). Programs validate the values they use. Scalar settings require a command and may declare `default`.
+Search-bar fields, scalar settings, list-entry fields, and canvas fields share one schema. Declare a unique `name` within each array and a `type` from `text`, `number`, `bool`, and `choice`. Manifest fields also require a nonempty `description`. An optional `placeholder` gives the field a short display label.
+
+- A `choice` needs a nonempty `options` array. Each option is a string or an object such as `{"value":"metric","label":"Metric units"}`. Values must be distinct and nonempty. A string serves as both value and label.
+- A `number` can set numeric `min`, `max`, and `step`. Bounds are inclusive. Supply `min < max` when using both bounds. A positive `step` defines a grid starting at `min` or at zero when `min` is omitted.
+- Declared `default` and `value` can be strings, or JSON booleans for `bool` and JSON numbers for `number`. Requests and saved settings use strings, with `"true"` or `"false"` for booleans and a decimal point for numbers. Programs validate the values they use, including search-bar input and values supplied via actions or headless runs.
 
 **Search bar:** Supports up to 3 `text`/`number` fields. The first `text` field claims the main input inside the command; Tab moves through remaining `text`/`number` slots (and from the root into a selected command or item whose first action is `run` into an enabled command, including cross-extension). Fields fixed by the action are skipped; filled and fixed values travel together on Return or hotkey. `bool`/`choice` fields receive values from actions or headless runs. Empty search-bar fields are omitted. Commands without a text field show "Ask about `<name>`…", where Return with no selection asks the agent.
 
-**Settings:** Rendered in Settings ▸ Extensions and saved in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text/number setting restores its default.
+**Settings:** Scalar settings require a command and may declare `default`. Rendered in Settings ▸ Extensions and saved in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text/number setting restores its default.
 
 **List settings:** A setting with `"type":"list"` declares a name, a description used as its Settings section label, and a nonempty `fields` array. Fields are one level deep. Each field uses one of the four types above and can set `"optional":true`. Text fields can also set `"multiline":true`. A field with `"hidden":true` stays out of the sheet. Supply its value through a program’s `save` action or in config.json. It still follows type and required-field validation and travels in requests. Field names are unique and `id` is reserved. List names cannot contain a slash. An optional singular `itemName` supplies the sheet title, such as **Add Bookmark**. In the sheet, use `placeholder` for a short field label and `description` for help below it. Without `placeholder`, the description serves as the label.
 
@@ -88,7 +92,7 @@ Programs can render their own command views. Wicket adds indexed list entries to
 - `rootMatch`: `true` on root `match` runs (omitted otherwise). Root `match` checks raw typed input.
 - `locale`: all strings—`decimal`, `grouping` (empty if ungrouped), `groupingSize` (rightmost whole-number group), `secondaryGroupingSize` (groups to its left, e.g. 3 and 2 for `1,00,000`; default 3 if omitted).
 - `settings`: declared scalar settings (saved or default) and lists (arrays of entry string maps).
-- `submitted`: `true` for command/fallback activation, `run` actions (including item hotkeys), Return in a `submit` command, or canvas fields with `act`. `false` for typing, refreshes, root matches, links, and pattern detail/error rows. Only submitted requests may perform user-visible effects; bounded local caches may update on any request.
+- `submitted`: `true` for command/fallback activation, `run` actions (including item hotkeys), Return in a `submit` command, or canvas fields with a submit-on-commit `action`. `false` for typing, refreshes, root matches, links, and pattern detail/error rows. Only submitted requests may perform user-visible effects; bounded local caches may update on any request.
 - `action`: optional one-shot name from a submitted `run`, canvas field commit, or headless `--action`.
 
 One process per request: Wicket writes one UTF-8 JSON line to stdin and closes it. Resolve bare `wicket-js` to the bundled runner; other bare names resolve on Wicket's PATH (includes Homebrew and local bin paths). Write diagnostics to stderr. Exit 0 within **10 s**. Limits: stdout ≤1 MiB, stderr ≤256 KiB (last 4 KiB shown on failure). Wicket kills process trees on exit, cancellation, timeout, and quit—never daemonize.
@@ -97,7 +101,7 @@ Stdout starting with `{` (after leading whitespace) is decoded as a JSON view (i
 
 ## The view
 
-JSON object with at least one of `body` or `items` (`{"items":[]}` is an empty list), plus optional `actions` and `back`:
+A JSON view contains `body`, `items`, or a nonempty `fields` array. It can also include `actions` and `back`. `{"items":[]}` is an empty list.
 
 ```json
 {"items":[{"id":"result","title":"6.21 mi","subtitle":"Copy value","icon":"ruler","actions":[{"type":"copy","text":"6.21"}]}]}
@@ -106,8 +110,8 @@ JSON object with at least one of `body` or `items` (`{"items":[]}` is an empty l
 ```
 
 - **Items only:** Native list; the only shape whose rows appear directly at the root from a `match`.
-- **Body only:** HTML page (Markdown + body tags) under a native header with command name and view `actions`.
-- **Body + items:** Items render after the body as native-styled rows. Pages start unselected. With nothing selected, Return asks the agent if input is unclaimed; otherwise submits (`submit:true`) or runs the first view-level action (live command). Keep confirmation-worthy actions on a labelled target, not the default Return action. Without `body`, view `actions` are used only for a submitted `save` response.
+- **Page:** `body` supplies Markdown and body tags, and `fields` declares optional controls. A view with only `fields` also opens a page. The native header shows the command name and view `actions`.
+- **Page + items:** Items render after the body and any appended controls as native-styled rows. Pages start unselected. With nothing selected, Return asks the agent if input is unclaimed; otherwise submits (`submit:true`) or runs the first view-level action (live command). Keep confirmation-worthy actions on a labelled target, not the default Return action. A list-only view uses view `actions` only for a submitted `save` response.
 - **`back`:** Optional field override map (e.g. `"back":{"view":""}`) so Escape reruns the command unsubmitted with those overrides (omitted keys kept, `""` clears).
 
 **Item schema:** Required: nonempty unique `id`, `title`, `actions` array (may be empty). Optional: `subtitle`, SF Symbol `icon`, `keywords`, `prominent:true` (calculator-sized first row), `detail` (Markdown + body tags). Keep IDs stable across updates so selection sticks. File `open`/`reveal` actions get native file icons. Return runs the first action; ⌘K and right-click list all actions (or view `actions` on an unselected page). Unknown action types, wrong types, missing required fields, and duplicate IDs fail; extra keys are ignored.
@@ -151,18 +155,21 @@ Markdown plus six tags (same language as agent answers):
 
 ### Canvas fields
 
-Self-closing `<field/>` controls in a command's `body` (consecutive fields group):
+Declare controls in the view's JSON `fields` array. Use a self-closing `<field name="…"/>` in `body` to place a control. Unplaced controls appear together after the body in declaration order. Consecutive controls group together. (Older inline `<field …/>` attribute definitions are ignored—move their definitions into JSON `fields` and keep only `<field name="…"/>` in `body`.)
 
-- Unique `name` (`[A-Za-z][A-Za-z0-9_.-]{0,63}`), optional `label` (defaults to `name`), current `value` returned in every view.
-- `type="bool"`: switch, `"true"`/`"false"` (default `"false"`).
-- `type="number"`: slider, finite `min < max` required, positive `step` (default `1`), `value` (default `min`) on step grid from `min`. Wire format: decimal point, no grouping.
-- `type="choice"`: `options="val1=Label1&val2=Label2"` (percent-encode values and labels individually; unique nonempty values; default first). ≤4 options = segmented control; ≥5 = pop-up menu.
+```json
+{"body":"# Chart\n<field name=\"opacity\"/>","fields":[{"name":"opacity","type":"number","description":"Opacity","min":0,"max":100,"step":5,"value":75,"action":"set-opacity"},{"name":"grid","type":"bool","default":true}]}
+```
 
-Invalid fields, duplicate names, and names colliding with manifest `fields` are dropped. No controls appear in agent answers, details, list previews, or streaming content. Text fields belong in the search bar.
+- A page field needs only `name` and `type` when its type needs no additional data. Names match `[A-Za-z][A-Za-z0-9_.-]{0,63}`. The label uses `placeholder`, then `description`, then `name`.
+- A `bool` draws a switch. A `number` draws a slider and requires both bounds, with `step` defaulting to `1`. A `choice` with up to four options draws a segmented control. Five or more options draw a pop-up menu. Text entry belongs in the search bar.
+- Return the current `value` with each view. Without it, Wicket uses `default`, then `false` for a switch, `min` for a slider, or the first option for a choice.
+
+Wicket drops invalid declarations, duplicate declaration names, and names that collide with the manifest's search-bar fields. An undeclared marker is dropped, and a repeated marker places its control once. Markers accept only a field name for placement. Agent answers, item details, list previews, and streaming content show no controls.
 
 `run` overrides targeting a visible canvas field are validated—an invalid override rejects the action and keeps current values. By default, changes rerun live commands with `submitted:false`; `submit:true` commands keep local edits until submitted (add a target like `<row title="Submit" run="submit"/>` when there is no search-bar text field). On request failure, retries/reruns keep last canvas values (explicit overrides take precedence) until a new form arrives.
 
-Add `act="true"` (submits one-shot `set-<name>`) or `act="<percent-encoded-action>"` to submit on commit with the new value in `fields[name]`. Slider drag previews unsubmitted in live commands and submits on release. Gate effects on the submitted action name and validate its value, including for headless requests. Submitted page changes run serially (queued updates to the same field coalesce in place; different fields keep order), preserving local edits and scroll position. Arrow keys navigate fields; Return toggles switches, steps sliders, or cycles choices.
+Set `"action":true` to submit the one-shot action `set-<name>` on commit, or supply an action name such as `"action":"set-opacity"`. The submitted request carries the new value in `fields[name]`. Slider drag previews unsubmitted in live commands and submits on release. Gate effects on the submitted action name and validate its value, including for headless requests. Submitted page changes run serially (queued updates to the same field coalesce in place; different fields keep order), preserving local edits and scroll position. Arrow keys navigate fields; Return toggles switches, steps sliders, or cycles choices.
 
 ## What a good page looks like
 
