@@ -6,6 +6,26 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.2</title>
+      <pubDate>Tue, 24 Nov 2026 08:55:33 +0000</pubDate>
+      <sparkle:version>43</sparkle:version>
+      <sparkle:shortVersionString>0.7.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Updates inside Wicket
+
+- When an update is available, opening Wicket with nothing typed shows **Update Wicket to …**. Press Return to see what's new and install, or choose ⌘K ▸ Dismiss to hide it until Wicket restarts.
+- The menu-bar icon shows a dot and its menu offers **Update to …** while an update waits.
+- Wicket now checks for updates every 6 hours instead of once a day.
+
+## Permission requests where they belong
+
+- Permission requests no longer appear on the empty launcher. They show when you use the extension that needs them.
+- A shortcut whose extension can't be found now shows its own problem, not another extension's permission request.
+- The Accessibility request now says which extension needs it and what to do if the switch already looks on.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.2</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.2/Wicket-0.7.2.dmg" type="application/octet-stream" sparkle:edSignature="8MHPOgarDLROnTzqyogl3KQ2SewLNsVQwxtJ/QP6tqiau3JuDS70B5H7aUV+2MmEeecIxPCpe1jXovoppw7XAA==" length="4205332"/>
+    </item>
+    <item>
       <title>Wicket 0.7.1</title>
       <pubDate>Mon, 23 Nov 2026 17:16:46 +0000</pubDate>
       <sparkle:version>42</sparkle:version>
