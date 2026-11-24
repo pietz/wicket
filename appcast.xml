@@ -6,6 +6,20 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.3</title>
+      <pubDate>Tue, 24 Nov 2026 10:06:57 +0000</pubDate>
+      <sparkle:version>44</sparkle:version>
+      <sparkle:shortVersionString>0.7.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Wicket can diagnose itself
+
+- Ask Wicket's agent why something doesn't work (an extension, a shortcut, a permission, voice). It now runs `Wicket --diagnose` first and answers from facts.
+- The report shows Wicket's version and signature, permissions as Wicket sees them, every extension (built-in, yours, or yours replacing a built-in; problems; missing permissions), and every shortcut with whether it works or why not.
+- Wicket keeps a small private record of the last 10 extension failures and the last voice failure, so they're still there after you close the panel. It never contains what you type, clipboard contents, transcripts or conversations.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.3</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.3/Wicket-0.7.3.dmg" type="application/octet-stream" sparkle:edSignature="/2nj2O507bksk+1Nt93E9sDs6C+e9wQ4E1BdQ1LZ+NhuPHz1soqw5L9RVt8h2xAUHr3BMoilZ+AeeCYs/0HHAg==" length="4323091"/>
+    </item>
+    <item>
       <title>Wicket 0.7.2</title>
       <pubDate>Tue, 24 Nov 2026 08:55:33 +0000</pubDate>
       <sparkle:version>43</sparkle:version>
