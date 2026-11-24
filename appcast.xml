@@ -6,6 +6,19 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.6</title>
+      <pubDate>Tue, 24 Nov 2026 17:06:44 +0000</pubDate>
+      <sparkle:version>47</sparkle:version>
+      <sparkle:shortVersionString>0.7.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Weather while you type
+
+- Type `weather` and a city: the current weather appears as you type, from the fourth letter. Results are remembered for 10 minutes, so typing on or going back doesn't ask again.
+- Press Return for the new forecast page: the next 12 hours in 2-hour steps and the next 5 days, all in one view without scrolling.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.6</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.6/Wicket-0.7.6.dmg" type="application/octet-stream" sparkle:edSignature="Lk4PiCzvjI736dIDwHfjibFZxlBoZM/Gy7VtU6vXd3UUMh7W/85ypGoRNQe095Lwi4AwbJYgqPqKYDgVZsalAA==" length="4347155"/>
+    </item>
+    <item>
       <title>Wicket 0.7.5</title>
       <pubDate>Tue, 24 Nov 2026 15:01:18 +0000</pubDate>
       <sparkle:version>46</sparkle:version>
