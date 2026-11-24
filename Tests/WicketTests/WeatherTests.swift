@@ -21,14 +21,15 @@ private let forecast = #"""
 private func view(
   _ input: String, fields: [String: String] = [:], submitted: Bool = false,
   action: String? = nil, root: Bool = false, settings: [String: String] = [:],
-  fetch: @escaping (URL) async throws -> Data
+  cacheDirectory: URL? = nil, fetch: @escaping (URL) async throws -> Data
 ) async throws -> ProviderView {
   var request = ProviderRequest(input: input, fields: fields, action: action, submitted: submitted)
   request.rootMatch = root ? true : nil
   request.settings = settings
   let bytes = try Array(JSONEncoder().encode(request))
   var position = 0
-  let output = await weatherView(weather.JSON.read(bytes, &position), fetch: fetch)
+  let output = await weatherView(
+    weather.JSON.read(bytes, &position), cacheDirectory: cacheDirectory, fetch: fetch)
   return try JSONDecoder().decode(ProviderView.self, from: Data(output.utf8))
 }
 
@@ -67,7 +68,10 @@ private func weatherFixture(
   let row = try #require(result.results.first)
   #expect(row.provider == command.id && row.row.title == "Weather")
   #expect(row.keywordArgument?.field == "city" && row.keywordArgument?.text == "Berlin")
-  for input in ["weather B", "weather Be", "weather Ber", "weather Berlin"] {
+  for input in ["weather Berlin", "weather in Berlin", "  WEATHER  In Salah"] {
+    #expect(command.manifest.matches(input))
+  }
+  for input in ["weather", "weather  ", "weather in", " WEATHER   IN  ", "tomorrow weather Berlin"] {
     #expect(!command.manifest.matches(input))
   }
 }
@@ -160,18 +164,86 @@ func weatherForecastRendersTilesAndUpcomingLocalHours(_ fahrenheit: Bool) async 
   #expect(!html.contains("<strong>Town</strong>") && !html.contains("data-copy"))
 }
 
-@Test func weatherUnsubmittedAndRootRequestsSkipBothAPIs() async throws {
-  func unexpectedFetch(_ url: URL) throws -> Data {
-    Issue.record("A prompt or root request must not call Open-Meteo")
-    throw URLError(.badURL)
+@Test func weatherRootFetchesImmediatelyAndOffersTheForecast() async throws {
+  let start = ContinuousClock.now
+  let result = try await view("weather Berl", root: true) { url in
+    #expect(ContinuousClock.now - start < .milliseconds(400))
+    return try weatherFixture(city: "Berl")(url)
   }
+  #expect(result.body == nil && result.items.count == 1)
+  let row = try #require(result.items.first)
+  #expect(row.title == "Berlin · 12°C, partly cloudy" && row.subtitle == "H: 15° L: 8°")
+  #expect(row.prominent == true && row.icon == "cloud.sun")
+  #expect(row.actions == [.run(Address(fields: ["city": "Berl"]), title: "Show Forecast")])
+}
 
+@Test func weatherCachesNormalizedQueriesAndReusesForecastsForTheSamePlace() async throws {
+  let cache = try scratch()
+  defer { try? FileManager.default.removeItem(at: cache) }
+  let first = try await view(
+    "weather Berl", root: true, cacheDirectory: cache, fetch: weatherFixture(city: "Berl"))
+  #expect(first.items.count == 1)
+
+  for city in ["Berli", "Berlin"] {
+    let nearby = berlin.replacingOccurrences(of: "52.52", with: "52.52001")
+    let result = try await view("weather \(city)", root: true, cacheDirectory: cache) { url in
+      guard url.host == "geocoding-api.open-meteo.com" else { return try unexpectedFetch(url) }
+      return try weatherFixture(city: city, place: nearby)(url)
+    }
+    #expect(result.items.count == 1)
+  }
+  for city in ["BERLIN", "berli", "Berl"] {
+    let cached = try await view("weather \(city)", root: true, cacheDirectory: cache, fetch: unexpectedFetch)
+    #expect(cached.items.first?.title == first.items.first?.title)
+  }
+  let command = try await view("Berlin", submitted: true, cacheDirectory: cache, fetch: unexpectedFetch)
+  #expect(command.body?.contains("Next hours") == true)
+}
+
+@Test func weatherCacheKeepsOnlyThe50MostRecentEntries() async throws {
+  let directory = try scratch()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let cache = WeatherCache<String>(file: directory.appending(path: "test.json"))
+  for index in 0...50 {
+    let key = String(index)
+    _ = try await cache.value(for: key) { key }
+  }
+  #expect(try await cache.value(for: "1") { "miss" } == "1")
+  #expect(try await cache.value(for: "50") { "miss" } == "50")
+  #expect(try await cache.value(for: "0") { "miss" } == "miss")
+}
+
+@Test(arguments: ["B", "Be", "Ber", "B e r", "in", "in B", "IN B e r"])
+func weatherRootSkipsShortCityNames(_ city: String) async throws {
+  let root = try await view(
+    "weather \(city)", root: true, settings: ["defaultCity": "Berlin"], fetch: unexpectedFetch)
+  #expect(root == ProviderView())
+}
+
+@Test func weatherRootIsSilentOnUnknownCitiesAndNetworkFailures() async throws {
+  let cache = try scratch()
+  defer { try? FileManager.default.removeItem(at: cache) }
+  let unknown = try await view("weather Nowhere", root: true, cacheDirectory: cache) { url in
+    #expect(url.host == "geocoding-api.open-meteo.com", "Forecast must follow a successful geocode")
+    return Data("{}".utf8)
+  }
+  #expect(unknown == ProviderView())
+  let cached = try await view("weather nowhere", root: true, cacheDirectory: cache, fetch: unexpectedFetch)
+  #expect(cached == ProviderView())
+  let unavailable = try await view("weather Berlin", root: true) { _ in throw URLError(.timedOut) }
+  #expect(unavailable == ProviderView())
+}
+
+private func unexpectedFetch(_ url: URL) throws -> Data {
+  Issue.record("Unexpected Weather API request to \(url.host ?? "unknown host")")
+  throw URLError(.badURL)
+}
+
+@Test func weatherUnsubmittedCommandEditsSkipBothAPIs() async throws {
   let settings = ["defaultCity": "Berlin"]
   for prefix in ["B", "Be", "Ber", "Berlin"] {
     let typed = try await view(prefix, settings: settings, fetch: unexpectedFetch)
     #expect(typed.body == "Press Return for the forecast")
-    let root = try await view("weather \(prefix)", root: true, settings: settings, fetch: unexpectedFetch)
-    #expect(root.items.isEmpty && root.body == nil)
   }
   let noInput = try await view("", settings: settings, fetch: unexpectedFetch)
   #expect(noInput.body == "Press Return for the default city's forecast")

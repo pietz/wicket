@@ -21,6 +21,7 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; 
 
 - **Name and keyword:** Match while typing without starting a process. An exact keyword (case-insensitive) + space + text fills the first editable text field (for commands and for manifest/`user.json` items whose first action is `run` into an enabled command with an editable text field). Selecting the row sends one **submitted** request with the filled fields; Ask agent stays in the list.
 - **`match`:** Regex checked in-process on root input (≤512 UTF-8 bytes regex; skips input >4,096 bytes; 5 ms deadline checked at progress callbacks—prefer anchored, simple patterns). Runs before selection and may arrive late. A nonempty successful result is a strong match. A `body` view yields one "Show details" row (even if `items` are also present); activating it or a pattern-error row reruns with root input and `submitted:false`. New typing cancels the old run. Matching empty input supplies initial root rows (even with Only show results when typing on, where Return still runs the selected row).
+  Cache remote lookups in `WICKET_DATA_DIR`.
 - **`fallback:true`:** Shown just after Ask agent when nonempty root input has no strong match and no matching pattern is still running. Activation submits the root query.
 
 **Root order:** exact keywords with field text (longest keyword first, then standard name-match tie-breaks starting with usage for that input) → nonempty pattern results (grouped by extension name, sorted by title/alias tier, usage for that query, then returned order—put the best row first) → name matches (apps, commands, manifest items, host rows, files). Command lists sort by tier then returned order.
@@ -101,7 +102,7 @@ JSON object with at least one of `body` or `items` (`{"items":[]}` is an empty l
 **`detail`:** Inside a list command, shows as a read-only side preview as arrows move (no request; keep titles short). On a page, Return opens the detail and ⌘K keeps the item's actions. Ignored at the root.
 
 ```json
-{"items":[{"id":"weather-berlin","title":"Berlin: 12°C, partly cloudy","subtitle":"Return for the full forecast","icon":"cloud.sun","actions":[{"type":"run","fields":{"view":"forecast","city":"berlin"}}]}]}
+{"items":[{"id":"weather","title":"Berlin · 12°C, partly cloudy","subtitle":"H: 15° L: 8°","icon":"cloud.sun","prominent":true,"actions":[{"type":"run","title":"Show Forecast","fields":{"city":"Berlin"}}]}]}
 ```
 
 ## Actions
@@ -185,6 +186,7 @@ A valid local `wicket.json` takes precedence over the built-in of the same folde
 
 - **Calculator (`calculator`):** Root match accepts bare symbol arithmetic or leading `=` (needed at root for functions, constants, scientific notation, and `of`); inside the command, `expression` takes the full grammar with optional `=`. Unit and currency expressions belong to Convert. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (1–34 significant digits, default 15; or 0–34 decimal places in Fixed, default 2). Automatic prints exact integers in full.
 - **Convert (`units`, `wicket://units`):** Single unit or currency quantities. Currency pairs use Frankfurter reference rates. Settings: `homeCurrency` (default `USD` for omitted targets and ambiguous `$`/`¥`), `decimals` (0–15 decimal places, default `2`), and `includeUnit` (default `false`).
+- **Weather (`weather`):** `weather <city>` looks up an inline summary as soon as the city has four non-space characters after an optional “in”. A lookup with no result returns an empty list. The summary's run action submits the city for a full forecast. The command uses `submit:true` and fetches only on submission. Weather caches geocoding and forecasts for 10 minutes in `WICKET_DATA_DIR`.
 - **Quicklinks (`links-search`, `wicket://links-search`):** Personal bookmarks and site searches. See the recipe below.
 
 ## Recipes

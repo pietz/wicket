@@ -1,37 +1,59 @@
 import Foundation
 
 let weatherUnavailable = message("Weather unavailable. Try again.")
+let noWeatherItems = #"{"items":[]}"#
 
-func weatherView(_ request: JSON?, fetch: @escaping (URL) async throws -> Data) async -> String {
-  if request?["rootMatch"]?.isTrue == true { return #"{"items":[]}"# }
-
+func weatherView(
+  _ request: JSON?, cacheDirectory: URL? = nil, fetch: @escaping (URL) async throws -> Data
+) async -> String {
+  let rootMatch = request?["rootMatch"]?.isTrue == true
   let settings = request?["settings"]
   let input = request?["fields"]?["city"]?.string ?? request?["input"]?.string ?? ""
   let typedCity = input.trimmingCharacters(in: .whitespacesAndNewlines)
-  let defaultCity = settings?["defaultCity"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-  let city = typedCity.isEmpty ? defaultCity : typedCity
-
-  guard !city.isEmpty else { return message("Type a city, or set Default city in Settings") }
-  guard request?["submitted"]?.isTrue == true else {
-    return message(
-      typedCity.isEmpty ? "Press Return for the default city's forecast" : "Press Return for the forecast")
+  let city: String
+  if rootMatch {
+    let parts = typedCity.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+    guard parts.count == 2, parts[0].lowercased() == "weather" else { return noWeatherItems }
+    city = String(parts[1])
+    let name = cityWithoutIn(city) ?? city
+    guard name.filter({ !$0.isWhitespace }).count >= 4 else { return noWeatherItems }
+  } else {
+    let defaultCity = settings?["defaultCity"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    city = typedCity.isEmpty ? defaultCity : typedCity
+    guard !city.isEmpty else { return message("Type a city, or set Default city in Settings") }
+    guard request?["submitted"]?.isTrue == true else {
+      return message(
+        typedCity.isEmpty ? "Press Return for the default city's forecast" : "Press Return for the forecast")
+    }
   }
 
   let fahrenheit = settings?["units"]?.string == "Fahrenheit"
-  let api = OpenMeteo(fetch: fetch)
+  let api = OpenMeteo(cacheDirectory: cacheDirectory, fetch: fetch)
   do {
-    guard let place = try await api.place(named: city) else { return message("City not found") }
+    guard let place = try await api.place(named: city) else {
+      return rootMatch ? noWeatherItems : message("City not found")
+    }
     let forecast = try await api.forecast(for: place, fahrenheit: fahrenheit)
     let current = forecast.current
     let weather = condition(current.weatherCode, night: current.isDay == 0)
-    let title = "\(degrees(current.temperature))\(fahrenheit ? "F" : "C") · \(weather.title)"
+    let temperature = "\(degrees(current.temperature))\(fahrenheit ? "F" : "C")"
     let high = degrees(forecast.daily.highs.first ?? nil)
     let low = degrees(forecast.daily.lows.first ?? nil)
+    let range = "H: \(high) L: \(low)"
+    if rootMatch {
+      let title = "\(place.name) · \(temperature), \(weather.title.lowercased())"
+      return #"""
+        {"items":[{"id":"weather","title":\#(quoted(title)),"subtitle":\#(quoted(range)),
+        "icon":\#(quoted(weather.icon)),"prominent":true,"actions":[
+        {"type":"run","title":"Show Forecast","fields":{"city":\#(quoted(city))}}]}]}
+        """#
+    }
+    let title = "\(temperature) · \(weather.title)"
     let details =
-      "Feels like \(degrees(current.apparentTemperature)) · H: \(high) L: \(low) · Wind \(whole(current.windSpeed)) km/h"
+      "Feels like \(degrees(current.apparentTemperature)) · \(range) · Wind \(whole(current.windSpeed)) km/h"
     return forecastPage(title: title, location: place.location, details: details, forecast: forecast)
   } catch {
-    return weatherUnavailable
+    return rootMatch ? noWeatherItems : weatherUnavailable
   }
 }
 
@@ -124,7 +146,7 @@ func condition(_ code: Int?, night: Bool = false) -> (title: String, icon: Strin
 }
 
 extension JSON {
-  fileprivate var isTrue: Bool {
+  var isTrue: Bool {
     if case .bool(true) = self { true } else { false }
   }
 }

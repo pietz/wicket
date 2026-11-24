@@ -7,11 +7,14 @@ func runWeather() async -> String {
   config.urlCache = nil
   let session = URLSession(configuration: config)
   defer { session.invalidateAndCancel() }
+  let cacheDirectory = ProcessInfo.processInfo.environment["WICKET_DATA_DIR"]
+    .flatMap { $0.isEmpty ? nil : URL(filePath: $0, directoryHint: .isDirectory) }
+  let timeout = request?["rootMatch"]?.isTrue == true ? noWeatherItems : weatherUnavailable
   // Geocoding, its optional retry, and the forecast share one deadline inside Wicket's 10 s budget.
   let deadline = ContinuousClock.now + .seconds(7)
   return await withTaskGroup(of: String.self) { group in
     group.addTask {
-      await weatherView(request) { url in
+      await weatherView(request, cacheDirectory: cacheDirectory) { url in
         let (data, response) = try await session.data(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
@@ -19,10 +22,10 @@ func runWeather() async -> String {
     }
     group.addTask {
       try? await Task.sleep(until: deadline, clock: .continuous)
-      return weatherUnavailable
+      return timeout
     }
     defer { group.cancelAll() }
-    return await group.next() ?? weatherUnavailable
+    return await group.next() ?? timeout
   }
 }
 

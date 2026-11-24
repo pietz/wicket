@@ -1,6 +1,6 @@
 import Foundation
 
-struct Place: Decodable {
+struct Place: Codable {
   let name: String
   let country: String?
   let latitude: Double
@@ -9,8 +9,14 @@ struct Place: Decodable {
   var location: String { [name, country].compactMap { $0 }.joined(separator: ", ") }
 }
 
-struct Forecast: Decodable {
-  struct Current: Decodable {
+func cityWithoutIn(_ city: String) -> String? {
+  let parts = city.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+  guard parts.count == 2, parts[0].lowercased() == "in" else { return nil }
+  return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+struct Forecast: Codable {
+  struct Current: Codable {
     let time: String
     let temperature: Double
     let apparentTemperature: Double
@@ -28,7 +34,7 @@ struct Forecast: Decodable {
     }
   }
 
-  struct Daily: Decodable {
+  struct Daily: Codable {
     let time: [String]
     let highs: [Double?]
     let lows: [Double?]
@@ -42,7 +48,7 @@ struct Forecast: Decodable {
     }
   }
 
-  struct Hourly: Decodable {
+  struct Hourly: Codable {
     let time: [String]
     let temperatures: [Double?]
     let weatherCode: [Int?]
@@ -60,13 +66,13 @@ struct Forecast: Decodable {
 }
 
 struct OpenMeteo {
+  let cacheDirectory: URL?
   let fetch: (URL) async throws -> Data
 
   func place(named city: String) async throws -> Place? {
     if let place = try await geocode(city) { return place }
-    let parts = city.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-    guard parts.count == 2, parts[0].lowercased() == "in" else { return nil }
-    return try await geocode(parts[1].trimmingCharacters(in: .whitespacesAndNewlines))
+    guard let fallback = cityWithoutIn(city) else { return nil }
+    return try await geocode(fallback)
   }
 
   private func geocode(_ city: String) async throws -> Place? {
@@ -74,24 +80,38 @@ struct OpenMeteo {
       let results: [Place]?
     }
 
-    let search: Search = try await get(
-      "https://geocoding-api.open-meteo.com/v1/search", [("name", city), ("count", "1")])
-    return search.results?.first
+    let key = city.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+      .precomposedStringWithCanonicalMapping.lowercased()
+    let cache = WeatherCache<Place?>(file: cacheDirectory?.appending(path: "geocoding.json"))
+    return try await cache.value(for: key) {
+      let search: Search = try await get(
+        "https://geocoding-api.open-meteo.com/v1/search", [("name", city), ("count", "1")])
+      return search.results?.first
+    }
   }
 
   func forecast(for place: Place, fahrenheit: Bool) async throws -> Forecast {
-    let query = [
-      ("latitude", String(place.latitude)),
-      ("longitude", String(place.longitude)),
-      ("timezone", "auto"),
-      ("temperature_unit", fahrenheit ? "fahrenheit" : "celsius"),
-      ("current", "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day"),
-      ("daily", "weather_code,temperature_2m_max,temperature_2m_min"),
-      ("forecast_days", "5"),
-      ("hourly", "temperature_2m,weather_code"),
-      ("forecast_hours", "7"),
-    ]
-    return try await get("https://api.open-meteo.com/v1/forecast", query)
+    let unit = fahrenheit ? "fahrenheit" : "celsius"
+    let coordinates = [place.latitude, place.longitude].map { coordinate in
+      let rounded = (coordinate * 10_000).rounded()
+      return rounded == 0 ? "0" : String(rounded)
+    }.joined(separator: ",")
+    let cache = WeatherCache<Forecast>(file: cacheDirectory?.appending(path: "forecasts.json"))
+    return try await cache.value(for: "\(coordinates),\(unit)") {
+      try await get(
+        "https://api.open-meteo.com/v1/forecast",
+        [
+          ("latitude", String(place.latitude)),
+          ("longitude", String(place.longitude)),
+          ("timezone", "auto"),
+          ("temperature_unit", unit),
+          ("current", "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day"),
+          ("daily", "weather_code,temperature_2m_max,temperature_2m_min"),
+          ("forecast_days", "5"),
+          ("hourly", "temperature_2m,weather_code"),
+          ("forecast_hours", "7"),
+        ])
+    }
   }
 
   private func get<T: Decodable>(_ endpoint: String, _ query: [(String, String)]) async throws -> T {

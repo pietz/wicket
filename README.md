@@ -42,6 +42,8 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Convert** handles length, mass, volume, speed, and temperature offline (`10 km in mi`), plus currency (`100 usd to eur`) using Frankfurter rates. Return copies the number. Settings ▸ Extensions ▸ Convert lets you set the home currency, decimal places, and whether to copy the unit or currency code.
 
+**Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
+
 **Quicklinks** opens your bookmarks and site searches. Add them in `extensions/links-search/user.json` or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
 
 **Window Manager** moves the focused window: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display, and Restore. Type a move name (`left`, `max`, `next display`) or `window`. Wicket closes for the move and reports failures or partial moves (which Restore can undo). If Accessibility is missing, choose **Allow Accessibility for Wicket**. Configure gap and Almost Maximize size in Settings ▸ Extensions ▸ Window Manager.
@@ -72,7 +74,7 @@ Customize standing instructions in `instructions.md` and page styles in `theme.c
 
 An extension is a folder in `~/.config/wicket/extensions/` with `wicket.json` and an optional program (or static items only). Wicket discovers and enables it live with no restart or approval; enabled extensions run with your access. Toggle extensions in Settings ▸ Extensions. Extensions needing Accessibility or Calendar declare them in `permissions`, and Wicket gates access using its own macOS grant. See `extension-contract.md` in the working folder ([source](Sources/WicketApp/Resources/extension-contract.md)).
 
-Built-in extensions (Calculator, Convert, Quicklinks, Window Manager, Shell) ship inside the app with their source. **Make It Mine** in Settings ▸ Extensions copies one into your folder to customize. A valid local manifest takes precedence. If Wicket cannot load it, the built-in stays active and still reads your personal items from `user.json`. Optional examples (`agenda`, `canvas-controls`) live in `examples/`; copy one into `extensions/` to enable. Older examples still work. Disable any overlapping entries in Settings ▸ Extensions.
+Built-in extensions (Calculator, Convert, Weather, Quicklinks, Window Manager, Shell) ship inside the app with their source. **Make It Mine** in Settings ▸ Extensions copies one into your folder to customize. A valid local manifest takes precedence. If Wicket cannot load it, the built-in stays active and still reads your personal items from `user.json`. Optional examples (`agenda`, `canvas-controls`) live in `examples/`; copy one into `extensions/` to enable. Older examples still work. Disable any overlapping entries in Settings ▸ Extensions.
 
 Deep links open screens from other apps: `wicket://weather?input=berlin`, `wicket://settings`, `wicket://history`, `wicket://clipboard`.
 
