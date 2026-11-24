@@ -6,6 +6,21 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.4</title>
+      <pubDate>Tue, 24 Nov 2026 13:17:14 +0000</pubDate>
+      <sparkle:version>45</sparkle:version>
+      <sparkle:shortVersionString>0.7.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[### What's changed
+
+- **Voice input on Bluetooth headsets:** Fixed microphone capture failing (`conversionFailed`) on 16 kHz mono Bluetooth inputs such as AirPods over HFP by accepting native PCM formats.
+- **Better app vs. folder ranking:** Typing a prefix like `chat` now keeps matching apps like ChatGPT above unused local folders named `chat` (while folders you pick can still rise with usage).
+- **Simpler, faster Convert:** Currency conversions now load live rates directly from the Frankfurter API as you type—no manual download prompt. Conversions default to 2 decimal places, show "Copy value", and copy just the number by default (both decimal precision and including the unit are configurable in Settings).
+- **Quicklinks replaces Search the Web & Links & Search:** Removed the separate Search the Web extension and replaced hard-coded starter links with a clean Quicklinks extension driven by your own bookmarks, `{query}` search URLs, keywords, and hotkeys.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.4</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.4/Wicket-0.7.4.dmg" type="application/octet-stream" sparkle:edSignature="gG+xty0Yz3EERdPxsViqVi/xsUlGTiIVSW94B6n5SgSV1fh8LSb/vYIHSuhxwKY+K6qTZXv0V1n27iMKZ6Y8Bw==" length="4253439"/>
+    </item>
+    <item>
       <title>Wicket 0.7.3</title>
       <pubDate>Tue, 24 Nov 2026 10:06:57 +0000</pubDate>
       <sparkle:version>44</sparkle:version>
