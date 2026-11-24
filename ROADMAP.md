@@ -42,6 +42,10 @@ In order:
 4. Give agent transport one close path with a bounded final drain and one missing-outcome diagnostic.
 5. Remove redundant checks within uninterrupted actor turns; simplify failed session resume; simplify final process escalation while keeping process regression checks.
 
+## 8. Agent Client Protocol as the only agent connection
+
+Wicket implements an ACP v1 client in Swift (reusing `JSONLines`; no Node, no new dependency) and connects every harness through it, Claude and Codex included, chosen from one dropdown in Settings. A harness that needs a connector shows a one-line `brew` or `npm` command to copy; Wicket then verifies it works (initialize and a test session) before enabling it. Wicket ships and downloads no connectors. Claude moves first via `claude-agent-acp`; Codex via `codex-acp` on the user's own Node. Each keeps its direct integration until its connector passes agent instructions, resume after the process exits, and approvals, then that integration is deleted. Estimate: about the same code size as today (installer excluded), with fewer tests.
+
 ## Also agreed
 
 Unordered; scheduled after the steps above:
