@@ -156,7 +156,8 @@ struct ConfigurationFile {
           guard let index else { throw ExtensionFailure("This entry has already been removed.") }
           entry = entries[index] as? [String: Any] ?? entry
         }
-        for field in list.fields where original == nil || original?[field.name] != values[field.name] {
+        let fields = inserting ? list.fields : list.editableFields
+        for field in fields where original == nil || original?[field.name] != values[field.name] {
           entry[field.name] = values[field.name]
         }
         let merged = entry.compactMapValues { $0 as? String }

@@ -419,3 +419,61 @@ func pendingMigrationResumesAtTheRecordedDestination(published: Bool) async thro
   #expect(model.extensions.problems[linksID]?.settings != nil)
   await model.finish()
 }
+
+@Test func aHiddenWindowDefinitionIsRequiredOnInsertAndPreservedOnEdit() throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let file = ConfigurationFile(url: root.appending(path: "config.json"))
+  try Configuration().save(at: file.url)
+  let list = try #require(try bundled("window").manifest.settings.first { $0.name == "moves" }?.list)
+  #expect(list.editableFields.map(\.name) == ["title", "keyword"])
+  let definition = try #require(codingMove["definition"])
+  #expect(!list.accepts(["title": "Coding"]))
+  try file.changeEntry(in: list, folder: "window", id: "coding", values: codingMove, inserting: true)
+
+  var edited = codingMove
+  edited["title"] = "Writing"
+  edited["definition"] = nil
+  try file.changeEntry(in: list, folder: "window", id: "coding", values: edited, original: codingMove)
+  let saved = try Configuration.load(at: file.url)
+  let entry = try #require(saved.extensions["window"]?["moves"].array.first)
+  #expect(entry["title"].string == "Writing")
+  #expect(entry["definition"].string == definition)
+  let values = ["id": "coding", "title": "Writing", "definition": definition]
+  #expect(
+    list.row(values)?.actions.first?.kind
+      == .run(
+        Address(fields: ["definition": definition], action: "apply-definition", hidden: true)))
+}
+
+@MainActor @Test(arguments: [false, true])
+func quicklinkMigrationRequiresAnEquivalentLauncherItem(hasDifferentAction: Bool) async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  var links: [String: Any] = [
+    "name": "links", "type": "list", "description": "Bookmarks",
+    "fields": [
+      ["name": "title", "type": "text", "description": "Title"],
+      ["name": "url", "type": "text", "description": "URL"],
+    ],
+  ]
+  if hasDifferentAction {
+    links["item"] = ["title": "{title}", "actions": [["type": "copy", "text": "{url}"]]]
+  }
+  let folder = try extensionFolder(root, name: "links-search", fields: ["settings": [links]])
+  try Data(#"{"items":[{"id":"old","title":"Old Bookmark","url":"https://example.org/"}]}"#.utf8)
+    .write(to: folder.appending(path: "user.json"))
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  try Data(#"{"hotkeys":[{"keys":"ctrl+option+1","address":"wicket://links-search?user-item=old"}]}"#.utf8)
+    .write(to: model.store.url)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+
+  #expect(model.configuration.extensions["links-search"] == nil)
+  let target = try #require(HotkeyTarget("wicket://my-items?item=old"))
+  #expect(model.configuration.hotkeys.first?.target == target)
+  let item = try #require(model.extensions.commands["extension:my-items"]?.item(for: target))
+  let url = try #require(URL(string: "https://example.org/"))
+  #expect(item.actions == [.open(url)])
+  await model.finish()
+}

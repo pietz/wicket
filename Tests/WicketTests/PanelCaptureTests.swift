@@ -81,7 +81,7 @@ private func expectedText(_ name: String) -> [String] {
     return ["Add Site Search", "Put {query} where the search text goes", "Save"]
   }
   if name == "settings-window-add" {
-    return ["Add Window Move", "Window Move Definition", "Display, position, and size", "Save"]
+    return ["Add Window Move", "Title", "Keyword", "Save"]
   }
   if name.contains("settings-") { return [] }
   if name == "extension-quicklinks-empty" { return ["Quicklinks", "Add a Quicklink"] }
@@ -996,6 +996,10 @@ func panelCapture(_ state: String) async throws {
     let missing = expectedText(state).filter { !text.localizedCaseInsensitiveContains($0) }
     #expect(missing.isEmpty, "\(target.lastPathComponent) is missing \(missing). Recognized text: \(text)")
     #expect(!text.isEmpty, "\(target.lastPathComponent) is blank")
+    if state == "settings-window-add" {
+      #expect(!text.localizedCaseInsensitiveContains("definition"))
+      #expect(!text.localizedCaseInsensitiveContains("placement"))
+    }
     await scenario.finish()
   }
 }

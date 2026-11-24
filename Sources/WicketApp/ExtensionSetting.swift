@@ -28,7 +28,8 @@ enum ExtensionSetting: Codable, Sendable, Equatable {
   }
   var valid: Bool {
     switch self {
-    case .field(let field): field.valid && field.optional == nil && field.multiline == nil
+    case .field(let field):
+      field.valid && field.optional == nil && field.multiline == nil && field.hidden == nil
     case .entries(let list): list.valid
     }
   }
@@ -43,6 +44,7 @@ struct SettingList: Codable, Sendable, Equatable {
   var editable: Bool?
   var itemName: String?
   var entryName: String { itemName ?? "Entry" }
+  var editableFields: [ExtensionManifest.Field] { fields.filter { $0.hidden != true } }
 
   var valid: Bool {
     let names = fields.map(\.name)
@@ -88,7 +90,7 @@ struct SettingList: Codable, Sendable, Equatable {
 
   func title(_ values: [String: String]) -> String {
     item?["title"].string.map { substitute($0, values) }
-      ?? fields.first(where: { $0.type == .text }).flatMap { values[$0.name] }
+      ?? editableFields.first(where: { $0.type == .text }).flatMap { values[$0.name] }
       ?? values["id"] ?? name
   }
 

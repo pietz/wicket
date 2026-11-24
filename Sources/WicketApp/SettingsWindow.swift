@@ -829,7 +829,7 @@ struct SettingsEntryDraft: Identifiable {
 
 struct SettingsEntryEditor: View {
   static func size(for list: SettingList) -> CGSize {
-    CGSize(width: 420, height: list.fields.contains(where: { $0.multiline == true }) ? 425 : 350)
+    CGSize(width: 420, height: list.editableFields.contains(where: { $0.multiline == true }) ? 425 : 350)
   }
   let draft: SettingsEntryDraft
   let store: ConfigurationStore
@@ -841,7 +841,7 @@ struct SettingsEntryEditor: View {
     self.store = store
     self.close = close
     var values = draft.values
-    for field in draft.list.fields where field.type == .bool && field.optional != true {
+    for field in draft.list.editableFields where field.type == .bool && field.optional != true {
       if values[field.name] == nil { values[field.name] = "false" }
     }
     _values = State(initialValue: values)
@@ -851,7 +851,7 @@ struct SettingsEntryEditor: View {
     VStack(alignment: .leading, spacing: 0) {
       Text("\(draft.entryID == nil ? "Add" : "Edit") \(draft.list.entryName)").font(.headline).padding()
       Form {
-        ForEach(draft.list.fields, id: \.name) { field in
+        ForEach(draft.list.editableFields, id: \.name) { field in
           VStack(alignment: .leading, spacing: 4) {
             SettingControl(
               field: field,

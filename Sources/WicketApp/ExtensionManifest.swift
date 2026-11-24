@@ -58,6 +58,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     var `default`: String?
     var optional: Bool?
     var multiline: Bool?
+    var hidden: Bool?
 
     var inSearchBar: Bool { type == .text || type == .number }
     func accepts(_ value: String) -> Bool {
@@ -157,7 +158,9 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     let names = fields.map(\.name)
     guard fields.filter(\.inSearchBar).count <= Self.maxSearchFields,
       Set(names).count == names.count,
-      fields.allSatisfy({ $0.valid && $0.default == nil && $0.optional == nil && $0.multiline == nil })
+      fields.allSatisfy({
+        $0.valid && $0.default == nil && $0.optional == nil && $0.multiline == nil && $0.hidden == nil
+      })
     else {
       throw DecodingError.dataCorruptedError(
         forKey: .fields, in: c,

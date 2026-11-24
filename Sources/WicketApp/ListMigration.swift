@@ -96,7 +96,8 @@ import Foundation
         guard let id = item["id"] as? String, !id.isEmpty, ids.insert(id).inserted else {
           throw ExtensionFailure(Row.invalidIDs)
         }
-        if name == "links-search", let (list, values) = quicklink(item, lists: lists) {
+        let legacy = try staticItem(item, owner: name)
+        if name == "links-search", let (list, values) = quicklink(item, lists: lists, legacy: legacy.row) {
           guard settings[name] == nil || settings[name] is [String: Any],
             saved[list.name] == nil || saved[list.name] is [Any]
           else { throw ExtensionFailure("Repair extensions.\(name).\(list.name) in config.json first.") }
@@ -105,7 +106,7 @@ import Foundation
           saved[list.name] = entries
           targets[id] = HotkeyTarget(target: owner, item: entryID, entryList: list.name)
         } else {
-          raw.append(try staticItem(item, owner: name))
+          raw.append(legacy.object)
         }
       }
       if !raw.isEmpty {
@@ -237,7 +238,7 @@ import Foundation
   }
 
   private static func quicklink(
-    _ item: [String: Any], lists: [SettingList]
+    _ item: [String: Any], lists: [SettingList], legacy: Row
   ) -> (SettingList, [String: String])? {
     guard Set(item.keys).isSubset(of: ["id", "title", "url", "keyword"]),
       let url = item["url"] as? String, let title = item["title"] as? String,
@@ -245,11 +246,21 @@ import Foundation
     else { return nil }
     var values = ["url": url, "title": title]
     values["keyword"] = item["keyword"] as? String
-    return list.accepts(values) && !((item["id"] as? String) ?? "").allSatisfy(\.isWhitespace)
-      && list.urlProblem(values) == nil ? (list, values) : nil
+    values["id"] = legacy.id
+    guard !legacy.id.allSatisfy(\.isWhitespace), list.accepts(values), let row = list.row(values),
+      row.title == legacy.title, (row.keywords ?? []) == (legacy.keywords ?? [])
+    else { return nil }
+    let actions = row.actions.map { action -> RowAction.Kind in
+      guard case .run(var address) = action.kind, address.extensionName == nil else { return action.kind }
+      address.extensionName = "links-search"
+      return .run(address)
+    }
+    return actions == legacy.actions.map(\.kind) ? (list, values) : nil
   }
 
-  private static func staticItem(_ item: [String: Any], owner: String) throws -> [String: Any] {
+  private static func staticItem(_ item: [String: Any], owner: String) throws
+    -> (object: [String: Any], row: Row)
+  {
     var row = item
     if owner == "links-search", let url = row["url"] as? String, row["actions"] == nil {
       row["url"] = nil
@@ -273,8 +284,7 @@ import Foundation
         return action
       }
     }
-    _ = try JSONDecoder().decode(Row.self, from: JSONSerialization.data(withJSONObject: row))
-    return row
+    let decoded = try JSONDecoder().decode(Row.self, from: JSONSerialization.data(withJSONObject: row))
+    return (row, decoded)
   }
-
 }
