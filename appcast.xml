@@ -6,6 +6,24 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.5</title>
+      <pubDate>Tue, 24 Nov 2026 15:01:18 +0000</pubDate>
+      <sparkle:version>46</sparkle:version>
+      <sparkle:shortVersionString>0.7.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Better with Bluetooth headphones
+
+- Voice no longer switches your Bluetooth headphones into low-quality call mode. Wicket prefers your Mac's own or any wired microphone.
+- If your headphones are the only microphone, voice doesn't start on its own; click the mic to use them.
+- Wicket fully releases the microphone when voice stops, so music returns to full quality.
+
+## Weather
+
+- Type `weather Berlin` and press Return for current conditions and the forecast, from Open-Meteo. Set a default city and °C or °F in Settings ▸ Extensions ▸ Weather.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.5</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.5/Wicket-0.7.5.dmg" type="application/octet-stream" sparkle:edSignature="9E/eF8O+bKLVUr5rLu1NVvznFK/DmlQs68wEfiC6UmslmRT79+Uizln4rwEehNCRQl4pABtfcmXrlBaqDY/jAw==" length="4343060"/>
+    </item>
+    <item>
       <title>Wicket 0.7.4</title>
       <pubDate>Tue, 24 Nov 2026 13:17:14 +0000</pubDate>
       <sparkle:version>45</sparkle:version>
