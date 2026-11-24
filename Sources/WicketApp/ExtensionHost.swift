@@ -56,9 +56,21 @@ struct ExtensionCommand: Sendable, Equatable {
       values[field.name] = saved[field.name].flatMap { field.accepts($0) ? $0 : nil } ?? field.default
     }
   }
-  /// The command's own view when there is no program: its items, filtered by what is typed.
-  func ownItems(_ input: String) -> [Row] {
-    itemIndex.matches(input).map { shown($0, atRoot: false, subtitle: $0.subtitle) }
+  /// Quicklinks only needs its program once a search link is selected.
+  func staticView(for request: ProviderRequest) -> ProviderView? {
+    let browsingLinks =
+      id == Quicklink.extensionID && !manifest.submit && request.action == nil
+      && request.fields["template"] == nil && request.fields["link"] == nil
+    guard manifest.command == nil || browsingLinks else { return nil }
+    if browsingLinks, items.isEmpty {
+      return ProviderView(items: [
+        Row(
+          id: "help", title: "Add quicklinks in extensions/links-search/user.json",
+          subtitle: "Or ask the agent to add a YouTube quicklink with keyword yt.", actions: [])
+      ])
+    }
+    return ProviderView(
+      items: itemIndex.matches(request.input).map { shown($0, atRoot: false, subtitle: $0.subtitle) })
   }
   /// An item takes the extension's icon where it has none.
   private func shown(_ row: Row, atRoot: Bool, subtitle: String?) -> Row {
@@ -327,7 +339,7 @@ final class ExtensionHost {
       var userItems: [Row] = []
       if let userFile = local?.appending(path: "user.json") {
         do {
-          userItems = try ExtensionManifest.userItems(in: userFile)
+          userItems = try ExtensionManifest.userItems(in: userFile, quicklinks: id == Quicklink.extensionID)
         } catch {
           let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
           let detail = "\(userFile.path)\nInvalid user.json: \(reason)"
@@ -357,7 +369,7 @@ final class ExtensionHost {
     }
     request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
     if rootMatch { request.rootMatch = true }
-    guard command.manifest.command != nil else { return ProviderView(items: command.ownItems(request.input)) }
+    if let view = command.staticView(for: request) { return view }
     let rerun = Address(
       id: command.id, input: request.input, fields: request.fields, action: request.action,
       link: !request.submitted)

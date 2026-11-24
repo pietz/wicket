@@ -31,7 +31,6 @@ let package = Package(
     .executableTarget(name: "shell", path: "Sources/Extensions/shell", exclude: ["wicket.json"]),
     .executableTarget(
       name: "links-search", path: "Sources/Extensions/links-search", exclude: ["wicket.json"]),
-    .executableTarget(name: "web", path: "Sources/Extensions/web", exclude: ["wicket.json"]),
     // The window extension's geometry and the shell's terminal hand-over are tested as functions
     // (`@testable import window`, `shell`).
     .testTarget(

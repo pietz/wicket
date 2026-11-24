@@ -50,7 +50,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     ids
     + (Configuration.builtins + [
       "extension:calculator", "extension:units", "extension:window", "extension:shell",
-      "extension:links-search", "extension:web",
+      "extension:links-search",
     ])
     .filter {
       id in
@@ -162,10 +162,6 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   model.extensions.permissions = Permissions(status: { _ in .denied }, request: { _ in })
   model.store.start(watching: false)
-  var config = model.configuration
-  config.extensions["units"] = ["rateSource": "off"]
-  try config.save(at: model.store.url)
-  model.store.load()
   await model.extensions.reload()
   model.navigator.input = "left half"
   await model.navigator.settled()
@@ -427,7 +423,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   defer { removeHeadlessScratch(root) }
   let units = try await cli(root, ["--extension", "units", "--input", "10 km in mi"])
   let decimal = ProviderRequest.NumberMarks.current.decimal
-  #expect(units.1["items"].array.first?["title"].string == "6\(decimal)2137119 mi")
+  #expect(units.1["items"].array.first?["title"].string == "6\(decimal)21 mi")
   let calculator = try await cli(root, ["--extension", "calculator", "--input", "12*7"])
   #expect(calculator.1["items"].array.first?["title"].string == "84")
 }

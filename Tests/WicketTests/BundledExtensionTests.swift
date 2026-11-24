@@ -17,7 +17,11 @@ let bundledExtensions: URL = {
     products = products.deletingLastPathComponent()
   }
   let folder = products.appending(path: "Extensions")
-  for name in ["calculator", "units", "window", "shell", "links-search", "web"] {
+  let names = ["calculator", "units", "window", "shell", "links-search"]
+  for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where !names.contains(name) {
+    try! fm.removeItem(at: folder.appending(path: name))
+  }
+  for name in names {
     let target = folder.appending(path: name)
     try! fm.createDirectory(at: target, withIntermediateDirectories: true)
     // Only what changed: macOS checks a new binary on its first run, which takes 70 ms and more.
@@ -329,34 +333,37 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
 
 // MARK: - Units
 
-/// Every unit of the pattern, with the results the Python program of 0.1 to 0.3 printed for them.
+/// Every unit in the root pattern.
 @Test(arguments: [
-  ("10 km in mi", "6.2137119 mi"), ("20 c in k", "293.15 K"), ("300 K to f", "80.33 °F"),
-  ("2 gal to l", "7.5708236 l"), ("5 ft to cm", "152.4 cm"), ("16 oz in lb", "1 lb"),
-  ("100 kmh in mph", "62.137119 mph"), ("1 mm in in", "0.039370079 in"), ("3 cm to yd", "0.032808399 yd"),
-  ("7 m in ft", "22.965879 ft"), ("2.5 km to m", "2500 m"), ("12 in in mm", "304.8 mm"),
-  ("1 yd to m", "0.9144 m"), ("1 mi in km", "1.609344 km"), ("500 g in oz", "17.636981 oz"),
-  ("2 kg to lb", "4.4092452 lb"), ("3 oz to g", "85.048569 g"), ("1 lb in kg", "0.45359237 kg"),
-  ("250 ml in l", "0.25 l"), ("1.5 l to ml", "1500 ml"), ("1 gal to ml", "3785.4118 ml"),
-  ("60 mph in kmh", "96.56064 kmh"), ("-40 f in c", "-40 °C"), ("0 k to c", "-273.15 °C"),
-  ("-3 C in F", "26.6 °F"), (" 1000000 mm in km ", "1 km"), ("123456789 km in mm", "1.2345679e+14 mm"),
-  ("10 KM TO MI", "6.2137119 mi"), ("+1,500.50km to m", "1500500 m"),
-  ("1 km/h to mph", "0.62137119 mph"), ("−10 °C to °F", "14 °F"), (".5km to m", "500 m"),
+  ("10 km in mi", "6.21 mi"), ("20 c in k", "293.15 K"), ("300 K to f", "80.33 °F"),
+  ("2 gal to l", "7.57 l"), ("5 ft to cm", "152.4 cm"), ("16 oz in lb", "1 lb"),
+  ("100 kmh in mph", "62.14 mph"), ("1 mm in in", "0.04 in"), ("3 cm to yd", "0.03 yd"),
+  ("7 m in ft", "22.97 ft"), ("2.5 km to m", "2500 m"), ("12 in in mm", "304.8 mm"),
+  ("1 yd to m", "0.91 m"), ("1 mi in km", "1.61 km"), ("500 g in oz", "17.64 oz"),
+  ("2 kg to lb", "4.41 lb"), ("3 oz to g", "85.05 g"), ("1 lb in kg", "0.45 kg"),
+  ("250 ml in l", "0.25 l"), ("1.5 l to ml", "1500 ml"), ("1 gal to ml", "3785.41 ml"),
+  ("60 mph in kmh", "96.56 kmh"), ("-40 f in c", "-40 °C"), ("0 k to c", "-273.15 °C"),
+  ("-3 C in F", "26.6 °F"), (" 1000000 mm in km ", "1 km"), ("123456789 km in mm", "123456789000000 mm"),
+  ("10 KM TO MI", "6.21 mi"), ("+1,500.50km to m", "1500500 m"),
+  ("1 km/h to mph", "0.62 mph"), ("−10 °C to °F", "14 °F"), (".5km to m", "500 m"),
 ])
 func unitsConvert(input: String, expected: String) async throws {
   let view = try await runBundled("units", request: ProviderRequest(input: input, locale: us))
   #expect(view.items.map(\.title) == [expected])
-  if view.items.first?.id == "result" { #expect(view.items.first?.actions == [.copy(expected)]) }
+  let number = String(expected.prefix { $0 != " " })
+  #expect(view.items.first?.actions == [.copy(number)])
+  #expect(view.items.first?.subtitle == "Copy value")
 }
 
 /// With a decimal comma, the root's pattern takes `1,5 km in mi` and the result shows and copies with the
 /// comma; a point still reads as a decimal.
-@Test(arguments: [("1,5 km in mi", "0,93205679 mi"), ("2.5 km to m", "2500 m"), ("-0,5 c in f", "31,1 °F")])
+@Test(arguments: [("1,5 km in mi", "0,93 mi"), ("2.5 km to m", "2500 m"), ("-0,5 c in f", "31,1 °F")])
 func unitsReadAndWriteTheDecimalComma(input: String, expected: String) async throws {
   let units = try bundled("units")
   #expect(units.manifest.matches(input))
   let view = try await runBundled("units", request: ProviderRequest(input: input, locale: de))
-  #expect(view.items.map(\.title) == [expected] && view.items.first?.actions == [.copy(expected)])
+  #expect(view.items.map(\.title) == [expected])
+  #expect(view.items.first?.actions == [.copy(String(expected.prefix { $0 != " " }))])
 }
 
 @Test(arguments: [

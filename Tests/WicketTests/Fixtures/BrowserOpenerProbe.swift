@@ -1,12 +1,16 @@
 import Foundation
 
-extension BrowserOpener {
-  static var system: Self {
-    Self(
-      application: { $0 == "test.browser" ? URL(fileURLWithPath: "/Probe.app") : nil },
-      open: { url, application in
-        let evidence = url.absoluteString + (application.map { "\n" + $0.path } ?? "")
-        try evidence.write(to: URL(fileURLWithPath: "opened"), atomically: true, encoding: .utf8)
-      })
+@MainActor func openLink(_ url: URL, bundleID: String?) async throws {
+  let application: String
+  switch bundleID {
+  case "test.browser": application = "\n/Probe.app"
+  case nil: application = ""
+  default: throw MissingBrowser(errorDescription: "Missing app for \(bundleID ?? "")")
   }
+  try (url.absoluteString + application).write(
+    to: URL(fileURLWithPath: "opened"), atomically: true, encoding: .utf8)
+}
+
+private struct MissingBrowser: LocalizedError {
+  let errorDescription: String?
 }

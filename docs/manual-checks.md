@@ -23,7 +23,7 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 ## 3. Calculator, Convert and Shell
 
 1. `12*7` shows 84 first, Return copies. `200 + 10%` → 220, `1,000 + 1` follows locale, `1.2.3` shows no row. (First calculation after an update may lag once.)
-2. `10 km to mi` and `20 c to k` convert. Search `fx` to open Convert. With ECB rates, `100 usd to eur` shows observation date; Return copies amount and code. ⌘K ▸ **Rate details** and refresh; Escape and **Back to conversions** both restore the list with input intact.
+2. `10 km to mi` shows `6.21 mi` with two decimal places. Search `fx` to open Convert. `100 usd to eur` shows a result using Frankfurter. Return copies the number. Turn on **Include unit when copying** and check that Return copies the unit or currency code as well.
 3. `> touch /tmp/wicket-shell-test` shows one row and creates nothing before Return. Return on `> ls -la` closes Wicket and opens the default terminal in `~` with an interactive shell. `>` alone shows a hint and Return is a no-op.
 
 ## 4. The agent
@@ -63,7 +63,7 @@ For diagnostics, break a scratch extension's `wicket.json` and ask the agent why
 6. Calendar (check on first release build too): run `tccutil reset Calendar app.wicket.Wicket.dev`, then ask the agent for a Today EventKit extension declaring `"permissions":["calendar"]` (no helper app). Entering shows "Allow Calendar for Wicket" without running; Return shows macOS's prompt naming Wicket Dev ("Wicket extensions you enable can read your calendar…"); Allow lists events immediately. On denial, the row opens Privacy & Security ▸ Calendars. A manifest with `"contract":3` shows "needs a newer Wicket" (not "needs repair") at root and in Settings.
 7. Symlink an extension from another checkout into `extensions/`: manifest name edits update the root list; retargeting the symlink to another checkout with an identical manifest and editing it updates; moving the checkout away removes the extension and restoring brings it back; retargeting an intermediate symlink (`releases/current`) is picked up.
 8. On a Mac without Apple developer tools, install/update the signed app and add the contract's Echo extension: first run ~0.2 s, subsequent runs ~10 ms, no install prompt; editing `main.js` reflects immediately at warm speed.
-9. `yt cats` and `yt`, Tab, `cats`, Return open the same YouTube search. With Wicket closed, a Search YouTube hotkey opens at Query (Escape returns to root). An unrelated query offers **Search the Web** below Ask agent; switching engine in Settings updates it; disabling Search the Web leaves site keywords working.
+9. Open Quicklinks with `links` and check the empty-state instructions. Save a YouTube search using the [Quicklinks recipe](../Sources/WicketApp/Resources/extension-contract.md#quicklinks). Check that `yt cats` and `yt`, Tab, `cats`, Return open the same search, and that the item hotkey opens at Query.
 10. Install the contract's JS site search and a fallback based on it: query with spaces, `&`, and non-ASCII opens the browser only on Return with the full query and closes Wicket. Repeat via fallback row.
 11. Store a scratch Keychain item under `wicket.<id>`, read once in Terminal (Always Allow if prompted), then submit a scratch extension using the Keychain recipe: succeeds without prompting and without exposing the secret. Remove the scratch item afterward.
 
@@ -87,7 +87,7 @@ For diagnostics, break a scratch extension's `wicket.json` and ask the agent why
 ## 10. Hotkeys and the action panel
 
 1. Set Hotkey… on Left Half to ⌃⌥←: shown on row and saved in `hotkeys`. Over Safari while closed, moves with no panel flash; over a full-screen window, opens panel on the reason.
-2. Weather hotkey opens panel straight on Weather (no root flash); spinner appears only past ~0.5 s (same for Return); re-pressing while loading is ignored; Escape or ⌘Return cancels late arrival. Links & Search bookmark hotkey opens silently.
+2. Weather hotkey opens panel straight on Weather (no root flash); spinner appears only past ~0.5 s (same for Return); re-pressing while loading is ignored; Escape or ⌘Return cancels late arrival. Quicklinks bookmark hotkey opens silently.
 3. Reusing ⌃⌥←, ⌘C, or the launcher shortcut is refused; Escape cancels recording.
 4. ⌘K on a file: Open, Reveal in Finder. On Left Half: Run, Set Hotkey…, Remove Hotkey. Escape or ⌘K restores selection; typing closes the menu and searches; IME works in its field.
 5. Open a long extension page with a view action, scroll, deselect, press ⌘K: underlying page is hidden and inert; Escape restores scroll position.

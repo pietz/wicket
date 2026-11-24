@@ -4,66 +4,74 @@ import Testing
 @testable import WicketApp
 
 private let links = "extension:links-search"
-private let web = "extension:web"
 
 @MainActor
 @Test(arguments: [
   ("yt cats", "youtube", "cats"),
-  ("wiki new york", "wikipedia", "new york"),
-  ("gh swift testing", "github", "swift testing"),
+  ("wiki new york", "wiki", "new york"),
 ])
 func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query: String) async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  try saveProviders([.init(links), .init(web)], in: root)
+  try writeQuicklinks(in: root)
+  try saveProviders([.init(links)], in: root)
   let (status, output) = try await cli(root, ["--query", input])
   let rows = output["items"].array
   let first = try #require(rows.first)
   let row = first["row"]
   let action = try #require(row["actions"].array.first)
   #expect(status == 0 && output["input"].string == input)
-  #expect(first["provider"].string == links && row["id"].string == "item:" + id)
-  #expect(row["subtitle"].string == "Links & Search · " + query)
+  #expect(first["provider"].string == links && row["id"].string == "user-item:" + id)
+  #expect(row["subtitle"].string == "Quicklinks · " + query)
   #expect(action["promptIfEmpty"] == .bool(true))
   #expect(action["action"].string == "open-link")
-  #expect(action["fields"]["query"].string == query && action["fields"]["link"].string == id)
+  #expect(
+    action["fields"]["query"].string == query
+      && action["fields"]["template"].string?.contains("{query}") == true)
   #expect(!rows.contains { $0["row"]["id"].string == "fallback" })
   #expect(rows.contains { $0["provider"].string == "agent" })
 }
 
-@MainActor @Test func bundledWebFallbackOnlyAppearsForWeakNonemptyQueriesWhenEnabled() async throws {
+@MainActor @Test func quicklinksStartsEmptyAndListsOnlySavedLinks() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  try saveProviders([.init(links), .init(web)], in: root)
-  let text = "how do curious cats find their way home"
-  let (status, output) = try await cli(root, ["--query", text])
-  let rows = output["items"].array
-  #expect(status == 0)
-  #expect(rows.first?["provider"].string == "agent")
-  let row = try #require(rows.dropFirst().first?["row"])
-  #expect(row["id"].string == "fallback" && row["title"].string == "Search the Web")
-  let action = try #require(row["actions"].array.first)
-  #expect(action["input"].string == text && action["hidden"] == .bool(true))
-  for input in ["", "wiki", "web curious cats"] {
-    let result = try await cli(root, ["--query", input]).1
-    #expect(!result["items"].array.contains { $0["row"]["id"].string == "fallback" }, "\(input)")
-    if input.hasPrefix("web ") {
-      let first = try #require(result["items"].array.first)
-      #expect(first["provider"].string == web && first["row"]["subtitle"].string == "curious cats")
-    }
-  }
   try saveProviders([.init(links)], in: root)
-  let disabled = try await cli(root, ["--query", text]).1
-  #expect(!disabled["items"].array.contains { $0["provider"].string == web })
+  let empty = try await cli(root, ["--extension", "links-search"])
+  let help = try #require(empty.1["items"].array.first)
+  #expect(help["title"].string?.contains("user.json") == true)
+  #expect(help["subtitle"].string?.contains("ask the agent") == true)
+  let unknown = try await cli(root, ["--query", "yt cats"])
+  #expect(!unknown.1["items"].array.contains { $0["provider"].string == links })
+
+  try writeQuicklinks(in: root)
+  let listing = try await cli(root, ["--extension", "links-search"])
+  let items = listing.1["items"].array
+  #expect(items.count == 2)
+  #expect(items.compactMap { $0["id"].string }.sorted() == ["user-item:wiki", "user-item:youtube"])
+  let filtered = try await cli(root, ["--extension", "links-search", "--input", "yt"])
+  #expect(filtered.1["items"].array.map { $0["id"].string } == ["user-item:youtube"])
+}
+
+func writeQuicklinks(in root: URL) throws {
+  let folder = root.appending(path: "extensions/links-search")
+  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+  try Data(
+    #"""
+    {"items":[
+      {"id":"youtube","title":"Search YouTube","keyword":"yt","url":"https://www.youtube.com/results?search_query={query}"},
+      {"id":"wiki","title":"Search Wikipedia","keyword":"wiki","url":"https://en.wikipedia.org/w/index.php?search={query}"}
+    ]}
+    """#.utf8
+  ).write(to: folder.appending(path: "user.json"))
 }
 
 /// Compile the shipped request handlers with an inert Launch Services stand-in. The same binary
 /// answers CLI and navigator requests without requiring a runtime test switch in the extension.
-@MainActor private func installLinkProbe(_ name: String, in root: URL) async throws -> URL {
-  let folder = root.appending(path: "extensions/" + name)
+@MainActor private func installLinkProbe(in root: URL) async throws -> URL {
+  let folder = root.appending(path: "extensions/links-search")
   try FileManager.default.createDirectory(
     at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
-  try FileManager.default.copyItem(at: bundledExtensions.appending(path: name), to: folder)
+  try FileManager.default.copyItem(at: bundledExtensions.appending(path: "links-search"), to: folder)
   let binary = folder.appending(path: "main")
   try FileManager.default.removeItem(at: binary)
   let compiled = try await Launch.capture(
@@ -94,13 +102,13 @@ private func fields(_ values: [String: String]) throws -> String {
 @MainActor @Test func headlessLinksValidateTemplatesAndSendOnlySubmittedURLsToTheRightApp() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  let folder = try await installLinkProbe("links-search", in: root)
+  let folder = try await installLinkProbe(in: root)
   let direct = try await cli(
     root,
     [
       "--extension", "links-search", "--submitted", "--action", "open-link", "--input", "new york",
       "--fields",
-      try fields(["link": "wikipedia"]),
+      try fields(["template": "https://en.wikipedia.org/w/index.php?search={query}"]),
     ])
   #expect(direct.0 == 0 && direct.1 == .object([:]))
   #expect(try takeOpenedURL(in: folder) == "https://en.wikipedia.org/w/index.php?search=new%20york")
@@ -138,7 +146,7 @@ private func fields(_ values: [String: String]) throws -> String {
     root,
     [
       "--extension", "links-search", "--submitted", "--action", "open-link", "--fields",
-      try fields(["link": "youtube"]),
+      try fields(["template": "https://www.youtube.com/results?search_query={query}"]),
     ])
   #expect(empty.1["items"].array.first?["title"].string == "Enter a search query.")
   #expect(!didOpenURL(in: folder))
@@ -158,58 +166,17 @@ private func fields(_ values: [String: String]) throws -> String {
     #expect(result.1["items"].array.first?["id"].string == "status", "\(invalid)")
     #expect(!didOpenURL(in: folder), "\(invalid)")
   }
-  let listing = try await cli(root, ["--extension", "links-search"])
-  #expect(listing.1["items"].array.map { $0["id"].string } == ["youtube", "wikipedia", "github"])
-  let filtered = try await cli(root, ["--extension", "links-search", "--input", "yt"])
-  #expect(filtered.1["items"].array.map { $0["id"].string } == ["youtube"])
-  #expect(!didOpenURL(in: folder))
-}
-
-@MainActor @Test func webUsesTheSavedEngineAndOpensOnlyOnSubmission() async throws {
-  let root = try scratch()
-  defer { removeHeadlessScratch(root) }
-  let folder = try await installLinkProbe("web", in: root)
-  let preview = try await cli(root, ["--extension", "web", "--input", "cats & dogs"])
-  #expect(preview.0 == 0 && !didOpenURL(in: folder))
-  let empty = try await cli(root, ["--extension", "web", "--submitted", "--input", " "])
-  #expect(empty.1["items"].array.first?["title"].string == "Enter a search query.")
-  #expect(!didOpenURL(in: folder))
-  let submitted = try await cli(root, ["--extension", "web", "--submitted", "--input", " cats & dogs "])
-  #expect(submitted.0 == 0 && submitted.1 == .object([:]))
-  #expect(try takeOpenedURL(in: folder) == "https://duckduckgo.com/?q=%20cats%20%26%20dogs%20")
-
-  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
-  let surface = RecordingSurface()
-  model.navigator.surface = surface
-  await model.extensions.reload()
-  model.navigator.input = "how do curious cats find their way home"
-  await model.navigator.settled()
-  let fallback = try #require(model.navigator.results.dropFirst().first)
-  #expect(fallback.provider == web && fallback.row.id == "fallback" && !didOpenURL(in: folder))
-  model.navigator.runRow(fallback)
-  await model.navigator.settled()
-  #expect(
-    try takeOpenedURL(in: folder)
-      == "https://duckduckgo.com/?q=how%20do%20curious%20cats%20find%20their%20way%20home"
-  )
-  await model.finish()
-
-  var config = Configuration()
-  config.extensions = ["web": ["webEngine": "Google"]]
-  try config.save(at: root.appending(path: "config.json"))
-  let changed = try await cli(root, ["--extension", "web", "--submitted", "--input", "cats"])
-  #expect(changed.0 == 0)
-  #expect(try takeOpenedURL(in: folder) == "https://www.google.com/search?q=cats")
 }
 
 @MainActor @Test func linksRunThroughReturnTabAndItemHotkeys() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  let folder = try await installLinkProbe("links-search", in: root)
+  let folder = try await installLinkProbe(in: root)
   try Data(
     #"""
     {"items":[
-      {"id":"mdn","title":"MDN Web Docs","keywords":["mdn"],"actions":[{"type":"open","url":"https://developer.mozilla.org/"}]},
+      {"id":"mdn","title":"MDN Web Docs","keyword":"mdn","url":"https://developer.mozilla.org/"},
+      {"id":"youtube","title":"Search YouTube","keyword":"yt","url":"https://www.youtube.com/results?search_query={query}"},
       {"id":"docs","title":"Search Docs","keywords":["docs"],"subtitle":"Test Browser","actions":[
         {"type":"run","action":"open-link","promptIfEmpty":true,"fields":{"template":"https://example.com/search?q={query}","bundleID":"test.browser"},"hidden":true}]},
       {"id":"missing","title":"Search Archive","keywords":["archive"],"actions":[
@@ -244,7 +211,7 @@ private func fields(_ values: [String: String]) throws -> String {
   await navigator.settled()
   #expect(try takeOpenedURL(in: folder) == "https://www.youtube.com/results?search_query=dogs")
 
-  let youtube = HotkeyTarget(target: links, item: "youtube")
+  let youtube = HotkeyTarget(target: links, item: "youtube", isUserItem: true)
   let docs = HotkeyTarget(target: links, item: "docs", isUserItem: true)
   model.press(docs)
   await navigator.settled()
@@ -282,7 +249,9 @@ private func fields(_ values: [String: String]) throws -> String {
   model.press(youtube)
   await navigator.settled()
   try #require(navigator.command?.id == links && surface.isShown && navigator.input.isEmpty)
-  #expect(navigator.fieldValues["link"] == "youtube" && !didOpenURL(in: folder))
+  #expect(
+    navigator.fieldValues["template"] == "https://www.youtube.com/results?search_query={query}"
+      && !didOpenURL(in: folder))
   await type("unsent YouTube query")
   model.press(HotkeyTarget(target: links, item: "fixed", isUserItem: true))
   await navigator.settled()
@@ -310,15 +279,14 @@ private func fields(_ values: [String: String]) throws -> String {
 @MainActor @Test func linksReadStandaloneUserItemsForRootSearchAndHotkeys() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  let bundled = try await installLinkProbe("links-search", in: root.appending(path: "bundle"))
+  let bundled = try await installLinkProbe(in: root.appending(path: "bundle"))
   let local = root.appending(path: "extensions/links-search")
   try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
   try Data(
     #"""
     {"items":[
-      {"id":"mdn","title":"MDN Web Docs","keywords":["mdn"],"actions":[{"type":"open","url":"https://developer.mozilla.org/"}]},
-      {"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[
-        {"type":"run","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
+      {"id":"mdn","title":"MDN Web Docs","keyword":"mdn","url":"https://developer.mozilla.org/"},
+      {"id":"osm","title":"Search OpenStreetMap","keyword":"osm","url":"https://www.openstreetmap.org/search?query={query}"}
     ]}
     """#.utf8
   ).write(to: local.appending(path: "user.json"))
@@ -329,6 +297,14 @@ private func fields(_ values: [String: String]) throws -> String {
   await model.extensions.reload()
   let command = try #require(model.extensions.commands[links])
   #expect(model.extensions.isBundled(command))
+
+  navigator.go(Address(id: links, link: true))
+  await navigator.settled()
+  #expect(navigator.results.count == 2)
+  navigator.editInput("osm")
+  await navigator.settled()
+  #expect(navigator.results.first?.row.id == "user-item:osm")
+  navigator.dismiss()
 
   navigator.input = "mdn"
   await navigator.settled()
@@ -341,7 +317,7 @@ private func fields(_ values: [String: String]) throws -> String {
   navigator.input = "osm New York"
   await navigator.settled()
   #expect(navigator.results.first?.row.id == "user-item:osm")
-  #expect(navigator.results.first?.row.subtitle == "Links & Search · New York")
+  #expect(navigator.results.first?.row.subtitle == "Quicklinks · New York")
 
   surface.shown = false
   navigator.dismiss()
@@ -357,46 +333,11 @@ private func fields(_ values: [String: String]) throws -> String {
   await model.finish()
 }
 
-@MainActor @Test(arguments: [false, true])
-func aSavedSearchHotkeyUsesItsOwnSiteFromAnotherQueryPrompt(documented: Bool) async throws {
-  let root = try scratch()
-  defer { removeHeadlessScratch(root) }
-  let folder = try await installLinkProbe("links-search", in: root)
-  let contractURL = try #require(Bundle.wicket.url(forResource: "extension-contract", withExtension: "md"))
-  let contract = try String(contentsOf: contractURL, encoding: .utf8)
-  let osm = try #require(contract.split(separator: "\n").first { $0.hasPrefix(#"{"id":"osm","#) })
-  let wiki = try #require(contract.split(separator: "\n").first { $0.hasPrefix(#"{"id":"wiki-berlin","#) })
-  #expect(wiki.contains(#""promptIfEmpty":true"#))
-  // Existing items may still use the original recipe without promptIfEmpty.
-  let saved = documented ? String(wiki) : wiki.replacingOccurrences(of: #""promptIfEmpty":true,"#, with: "")
-  let items = #"{"items":["# + "\(osm),\(saved)]}"
-  try Data(items.utf8).write(to: folder.appending(path: "user.json"))
-
-  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
-  let navigator = model.navigator
-  let surface = RecordingSurface()
-  surface.shown = false
-  navigator.surface = surface
-  await model.extensions.reload()
-
-  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=osm")))
-  await navigator.settled()
-  try #require(surface.isShown && navigator.command?.id == links && navigator.input.isEmpty)
-  #expect(navigator.results.first?.row.title == "Enter a search query.")
-  #expect(navigator.fieldValues["template"] == "https://www.openstreetmap.org/search?query={query}")
-  #expect(!didOpenURL(in: folder))
-
-  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=wiki-berlin")))
-  await navigator.settled()
-  #expect(try takeOpenedURL(in: folder) == "https://en.wikipedia.org/w/index.php?search=Berlin")
-  #expect(surface.count(.hide) == 1 && surface.shows == 1)
-  await model.finish()
-}
-
 @MainActor @Test func youtubeHotkeyShowsQueryOverAKeptConversation() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  let folder = try await installLinkProbe("links-search", in: root)
+  let folder = try await installLinkProbe(in: root)
+  try writeQuicklinks(in: root)
   let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   let navigator = model.navigator
   let surface = RecordingSurface()
@@ -408,7 +349,7 @@ func aSavedSearchHotkeyUsesItsOwnSiteFromAnotherQueryPrompt(documented: Bool) as
   surface.perform(.hide)
   try #require(model.agent.active && !surface.isShown)
 
-  model.press(HotkeyTarget(target: links, item: "youtube"))
+  model.press(HotkeyTarget(target: links, item: "youtube", isUserItem: true))
   #expect(surface.shows == 1 && navigator.commandPlaceholder == "Search query" && !model.agent.active)
   await navigator.settled()
   #expect(navigator.input.isEmpty && navigator.results.first?.row.title == "Enter a search query.")

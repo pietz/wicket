@@ -30,7 +30,7 @@ private let states =
     "conversation-multi", "conversation-reopen", "conversation-long", "conversation-long-expanded",
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
-    "extension-pattern", "extension-fallback", "extension-list", "extension-detail", "extension-both",
+    "extension-pattern", "extension-list", "extension-detail", "extension-both",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -124,10 +124,9 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("fields-three") { return ["caff", "hours", "minutes", "seconds"] }
   if name.contains("fields-command") { return ["Caffeinate", "12", "30", "Awake for 12 h 30 min"] }
   if name.contains("extension-pattern") {
-    return ["6\(ProviderRequest.NumberMarks.current.decimal)2137119", "Copy conversion", "Ask agent"]
+    return ["6\(ProviderRequest.NumberMarks.current.decimal)21", "Copy value", "Ask agent"]
   }
-  if name.contains("extension-list") { return ["Links & Search", "Search YouTube", "Search Wikipedia"] }
-  if name.contains("extension-fallback") { return ["Ask agent", "Search the Web"] }
+  if name.contains("extension-list") { return ["Quicklinks", "Search YouTube", "Search Wikipedia"] }
   if name.contains("answer") {
     return ["Ask a follow-up", "A good start", "Extensions", "Ready for a follow-up"]
   }
@@ -693,11 +692,11 @@ private let installedAgent: Void = {
       _ = model.activateReturn()
       await model.navigator.settled()
     } else {
+      if state == "extension-list" { try writeQuicklinks(in: model.agent.folder) }
       await host.reload()
       switch state {
       case "extension-list":
         model.navigator.go(Address(id: "extension:links-search", link: true))
-      case "extension-fallback": model.navigator.input = "a useful sentence to search"
       default: model.navigator.input = "10 km in mi"
       }
       await model.navigator.settled()
@@ -1007,7 +1006,6 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-pattern":
     let decimal = ProviderRequest.NumberMarks.current.decimal
     #expect(model.navigator.results.first?.row.title.contains("6\(decimal)21") == true)
-  case "extension-fallback": #expect(model.navigator.results.contains { $0.row.id == "fallback" })
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
   case "listening":
     #expect(scenario.controller?.input.speaking == true && model.navigator.input == "How do rainbows form?")

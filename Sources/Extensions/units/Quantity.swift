@@ -66,27 +66,31 @@ struct NumberMarks {
     return parse(decimal: decimal, grouping: grouping) ?? parse(decimal: ".", grouping: nil)
   }
 
-  /// Units retain eight significant digits. Currency is rounded once by fixed-precision formatting.
-  func format(_ value: Double, places: Int? = nil, grouped: Bool = false) -> String {
-    var buffer = [CChar](repeating: 0, count: 320)
-    let pattern = places.map { "%.\($0)f" } ?? "%.8g"
-    _ = withVaList([value]) { vsnprintf(&buffer, buffer.count, pattern, $0) }
+  func format(_ value: Double, places: Int) -> String {
+    var buffer = [CChar](repeating: 0, count: 328)
+    _ = withVaList([value]) { vsnprintf(&buffer, buffer.count, "%.\(places)f", $0) }
     var text = String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self)
-    if text.first == "-", text.dropFirst().allSatisfy({ $0 == "0" || $0 == "." }) {
-      text.removeFirst()
+    if places > 0 {
+      while text.last == "0" { text.removeLast() }
+      if text.last == "." { text.removeLast() }
     }
-    let whole = text.prefix { $0 != "." }
+    if text == "-0" { text = "0" }
+    return String(text.map { $0 == "." ? decimal : $0 })
+  }
+
+  func group(_ number: String) -> String {
+    guard let grouping else { return number }
+    let whole = number.prefix { $0 != decimal }
     let start = whole.first == "-" ? 1 : 0
-    let groups = grouped && !text.contains("e")
     var result = ""
-    for (offset, character) in text.enumerated() {
+    for (offset, character) in number.enumerated() {
       let remaining = whole.count - offset
-      if groups, let grouping, offset > start, remaining >= groupingSize,
+      if offset > start, remaining >= groupingSize,
         (remaining - groupingSize).isMultiple(of: secondaryGroupingSize)
       {
         result.append(grouping)
       }
-      result.append(character == "." ? decimal : character)
+      result.append(character)
     }
     return result
   }

@@ -27,7 +27,7 @@ func queryLatency() async throws {
       ],
     ])
   let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
-  try writeCache(convertSnapshot(observedOn: "2025-01-01"), in: folder)
+  try writeQuicklinks(in: folder)
   await model.extensions.reload()
   var published: [(input: String, first: String?, asks: Bool, at: ContinuousClock.Instant)] = []
   let surface = RecordingSurface()
@@ -98,7 +98,7 @@ func queryLatency() async throws {
   )
 
   let units = try bundled("units").manifest
-  for query in ["10 km in mi", "100 usd to eur"] where units.matches(query) {
+  for query in ["10 km in mi"] where units.matches(query) {
     var times: [Double] = []
     var rapid: [Double] = []
     _ = await type(query, provider: "extension:units")
@@ -120,9 +120,9 @@ func queryLatency() async throws {
   }
 
   for (query, provider, rowID) in [
-    ("yt cats", "extension:links-search", "item:youtube"),
-    ("wiki new york", "extension:links-search", "item:wikipedia"),
-    ("how do curious cats find their way home", "agent", "fallback"),
+    ("yt cats", "extension:links-search", "user-item:youtube"),
+    ("wiki new york", "extension:links-search", "user-item:wiki"),
+    ("how do curious cats find their way home", "agent", "ask"),
   ] {
     var times: [Double] = []
     for _ in 0..<60 {
@@ -151,7 +151,7 @@ func queryLatency() async throws {
   }
   print("queryLatency: immediate Return on 10 frogs, \(summary(returns))")
 
-  let youtube = HotkeyTarget(target: "extension:links-search", item: "youtube")
+  let youtube = HotkeyTarget(target: "extension:links-search", item: "youtube", isUserItem: true)
   var promptTimes: [Double] = []
   var prompt: ContinuousClock.Instant?
   surface.onDraw = {

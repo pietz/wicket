@@ -2,7 +2,7 @@
 
 **Your own agent, one keystroke away, answering in UI instead of text.**
 
-Press ⌥Space for apps, files, Calculator, Convert, Window Manager, Links & Search, Shell, Clipboard History, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
+Press ⌥Space for apps, files, Calculator, Convert, Window Manager, Quicklinks, Shell, Clipboard History, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
 
 > **Alpha.** Wicket is at 0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
 
@@ -40,11 +40,9 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Calculator** answers bare arithmetic (`12*7`, `200 + 10%`) as you type. Prefix `=` at the root for functions (`sqrt`, `abs`, `sin`, `cos`, `log`, `round`, `mod(a; b)`), constants (`pi`, `e`), scientific notation, or `of` (`=10% of 200`, `=sqrt(9) + 2^3`). Calculator uses base-10 `log`, radians for trigonometry, and signed remainder for `mod`. Bare phone and date shapes stay in search (`=555-1234` or spaces around `-` subtract). Open `calc` for the full grammar without `=`. Use ⌘Return for spoken math (“12 times 7”). Results follow your locale, mark rounding with `≈`, and copy at shown precision without grouping. ⌘K adds **Paste Result**, **Use Result** (continues at root), and **Copy Machine Number** (ASCII dot, when locale decimal ≠ `.`). Configure input format, output format, and precision in Settings ▸ Extensions ▸ Calculator; with locale input, `1,000` is a thousand only where the comma groups thousands.
 
-**Convert** handles length, mass, volume, speed, and temperature offline (`10 km in mi`), plus currency (`100 usd to eur`) with cached ECB rates showing source and observation date. Return copies ungrouped with unit/code. Open Convert by name, `currency`, or `fx`; choose **Download exchange rates** when no rates are saved. Entering by name refreshes stale ECB rates (>2 days since last check), and ⌘K offers **Rate details** and **Refresh rates**. In Settings ▸ Extensions ▸ Convert, set `homeCurrency` (for omitted targets and `$`/`¥`), pick `file` with a [fixed rates JSON file](docs/extensions/convert.md#settings-and-rates), or choose `off` for units only.
+**Convert** handles length, mass, volume, speed, and temperature offline (`10 km in mi`), plus currency (`100 usd to eur`) using Frankfurter rates. Return copies the number. Settings ▸ Extensions ▸ Convert lets you set the home currency, decimal places, and whether to copy the unit or currency code.
 
-**Links & Search** runs site searches: type `yt cats` (YouTube), `wiki new york` (Wikipedia), or `gh swift` (GitHub) and press Return, or type `links` to browse starters. Add personal bookmarks and searches in `extensions/links-search/user.json` (or ask the agent).
-
-**Search the Web** appears under Ask agent when nothing matches strongly (or type `web <query>`). Switch between DuckDuckGo and Google, or turn it off, in Settings ▸ Extensions ▸ Search the Web.
+**Quicklinks** opens your bookmarks and site searches. Add them in `extensions/links-search/user.json` or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
 
 **Window Manager** moves the focused window: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display, and Restore. Type a move name (`left`, `max`, `next display`) or `window`. Wicket closes for the move and reports failures or partial moves (which Restore can undo). If Accessibility is missing, choose **Allow Accessibility for Wicket**. Configure gap and Almost Maximize size in Settings ▸ Extensions ▸ Window Manager.
 
@@ -74,7 +72,7 @@ Customize standing instructions in `instructions.md` and page styles in `theme.c
 
 An extension is a folder in `~/.config/wicket/extensions/` with `wicket.json` and an optional program (or static items only). Wicket discovers and enables it live with no restart or approval; enabled extensions run with your access. Toggle extensions in Settings ▸ Extensions. Extensions needing Accessibility or Calendar declare them in `permissions`, and Wicket gates access using its own macOS grant. See `extension-contract.md` in the working folder ([source](Sources/WicketApp/Resources/extension-contract.md)).
 
-Built-in extensions (Calculator, Convert, Links & Search, Search the Web, Window Manager, Shell) ship inside the app with their source. **Make It Mine** in Settings ▸ Extensions copies one into your folder to customize. A valid local manifest takes precedence. If Wicket cannot load it, the built-in stays active and still reads your personal items from `user.json`. Optional examples (`agenda`, `canvas-controls`) live in `examples/`; copy one into `extensions/` to enable. Older currency, Quicklinks, or web search examples still work; switch one off in Settings ▸ Extensions if its rows overlap the bundled ones.
+Built-in extensions (Calculator, Convert, Quicklinks, Window Manager, Shell) ship inside the app with their source. **Make It Mine** in Settings ▸ Extensions copies one into your folder to customize. A valid local manifest takes precedence. If Wicket cannot load it, the built-in stays active and still reads your personal items from `user.json`. Optional examples (`agenda`, `canvas-controls`) live in `examples/`; copy one into `extensions/` to enable. Older examples still work. Disable any overlapping entries in Settings ▸ Extensions.
 
 Deep links open screens from other apps: `wicket://weather?input=berlin`, `wicket://settings`, `wicket://history`, `wicket://clipboard`.
 

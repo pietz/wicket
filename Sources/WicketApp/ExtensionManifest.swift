@@ -196,7 +196,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     }
   }
 
-  static func userItems(in file: URL) throws -> [Row] {
+  static func userItems(in file: URL, quicklinks: Bool = false) throws -> [Row] {
     // The catalog's install lock must leave user.json out of its file hashes.
     let data: Data
     do {
@@ -204,11 +204,17 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
       return []
     }
-    return try JSONDecoder().decode(UserItems.self, from: data).items
+    let decoder = JSONDecoder()
+    let items =
+      if quicklinks { try decoder.decode(UserItems<Quicklink>.self, from: data).items.map(\.row) } else {
+        try decoder.decode(UserItems<Row>.self, from: data).items
+      }
+    guard Row.validIDs(items) else { throw ExtensionFailure(Row.invalidIDs) }
+    return items
   }
 
-  private struct UserItems: Decodable {
-    let items: [Row]
+  private struct UserItems<Item: Decodable>: Decodable {
+    let items: [Item]
 
     init(from decoder: any Decoder) throws {
       let file = try decoder.container(keyedBy: AnyKey.self)
@@ -218,10 +224,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
           forKey: key, in: file,
           debugDescription: "Unknown key `\(key.stringValue)`; user.json only holds items")
       }
-      items = try file.decode([Row].self, forKey: itemsKey)
-      guard Row.validIDs(items) else {
-        throw DecodingError.dataCorruptedError(forKey: itemsKey, in: file, debugDescription: Row.invalidIDs)
-      }
+      items = try file.decode([Item].self, forKey: itemsKey)
     }
   }
 

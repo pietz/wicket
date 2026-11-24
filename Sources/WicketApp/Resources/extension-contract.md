@@ -84,7 +84,7 @@ Stdout starting with `{` (after leading whitespace) is decoded as a JSON view (i
 JSON object with at least one of `body` or `items` (`{"items":[]}` is an empty list), plus optional `actions` and `back`:
 
 ```json
-{"items":[{"id":"result","title":"6.2137119 mi","subtitle":"Copy conversion","icon":"ruler","actions":[{"type":"copy","text":"6.2137119 mi"}]}]}
+{"items":[{"id":"result","title":"6.21 mi","subtitle":"Copy value","icon":"ruler","actions":[{"type":"copy","text":"6.21"}]}]}
 {"body":"# 42\nThe total\n<row label=\"Source\" value=\"Local\"/>","actions":[{"type":"copy","text":"42"}]}
 {"body":"# 12°C\nBerlin, now","items":[{"id":"hourly","title":"Hourly forecast","actions":[{"type":"run","fields":{"view":"hourly","city":"berlin"}}]}],"actions":[{"type":"copy","text":"12°C"}]}
 ```
@@ -177,12 +177,13 @@ When asked to turn an answer into an extension, emit the same body/tags from loc
 
 ## Changing a built-in
 
-Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `links-search`, `web`, `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`, preserving any `user.json`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator, Convert (`libxml2` for ECB XML), and Shell avoid Foundation for speed; Window Manager links AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
+Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `links-search` (Quicklinks), `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`, preserving any `user.json`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator and Shell avoid Foundation for speed; Quicklinks and Window Manager link AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
 
 A valid local `wicket.json` takes precedence over the built-in of the same folder name. If Wicket cannot load the local manifest, it uses the bundled extension and shows one repair row for the local copy. Personal items still come from the local `user.json`. Wicket uses the built-in silently for recognized, unmodified contract-1 copies of Convert and Window Manager. In Settings, **Move to Trash** removes the old copy while keeping `user.json` in place, so **Make It Mine** can install the current version.
 
 - **Calculator (`calculator`):** Root match accepts bare symbol arithmetic or leading `=` (needed at root for functions, constants, scientific notation, and `of`); inside the command, `expression` takes the full grammar with optional `=`. Unit and currency expressions belong to Convert. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (1–34 significant digits, default 15; or 0–34 decimal places in Fixed, default 2). Automatic prints exact integers in full.
-- **Convert (`units`, `wicket://units`):** Single unit or currency quantities. ECB snapshots live in `WICKET_DATA_DIR` and download only on submitted requests. Settings: `homeCurrency` (ISO code for omitted target and ambiguous `$`/`¥`), `rateSource` (`ecb`, `file`, `off`), `ratesFile` (JSON: `schemaVersion: 1`, `sourceLabel`, `base`, `observedOn` `YYYY-MM-DD`, `rates` map of ISO codes to positive decimal strings per 1 base unit). The `off` rate source leaves unit conversions available.
+- **Convert (`units`, `wicket://units`):** Single unit or currency quantities. Currency pairs use Frankfurter reference rates. Settings: `homeCurrency` (default `USD` for omitted targets and ambiguous `$`/`¥`), `decimals` (0–15 decimal places, default `2`), and `includeUnit` (default `false`).
+- **Quicklinks (`links-search`, `wicket://links-search`):** Personal bookmarks and site searches. See the recipe below.
 
 ## Recipes
 
@@ -200,27 +201,28 @@ Add or update `wicket://<id>?item=<itemID>` in `config.json`'s `hotkeys`, keepin
 {"hotkeys":[{"keys":"ctrl+option+left","address":"wicket://window?item=left"}]}
 ```
 
-### A personal bookmark
+### Quicklinks
 
-Add to `extensions/links-search/user.json` (create folder if needed, keep existing items). Bind with `wicket://links-search?user-item=my-docs`:
-
-```json
-{"items":[{"id":"my-docs","title":"My docs","keywords":["mydocs"],"actions":[{"type":"open","url":"https://example.com/docs"},{"type":"copy","title":"Copy Link","text":"https://example.com/docs"}]}]}
-```
-
-### A saved definition
-
-Add to `items` in `extensions/links-search/user.json` with parameters as strings in `run.fields`. Use `link` (built-in starter) or `template` (fixed HTTP(S) scheme/host with `{query}` in a path segment or query value—Links & Search encodes it). A fixed `query` runs directly; omit `query` to prompt. Optionally set `bundleID` in `fields` (and name the app in `subtitle`) to target a specific app.
+Add entries to `items` in `extensions/links-search/user.json`. Create the folder if needed and keep existing entries.
 
 ```json
-{"id":"wiki-berlin","title":"Berlin on Wikipedia","actions":[{"type":"run","title":"Search Wikipedia","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"link":"wikipedia","query":"Berlin"}}]}
+{
+  "items": [
+    {"id":"my-docs","title":"My docs","url":"https://example.com/docs"},
+    {"id":"youtube","title":"Search YouTube","keyword":"yt","url":"https://www.youtube.com/results?search_query={query}"}
+  ]
+}
 ```
 
-Bind this prompting example with `wicket://links-search?user-item=osm`:
+Choose a stable, unique `id` and a display `title`. The optional `keyword` is a shortcut at the root. Use an absolute URL for a bookmark. A search template fixes the HTTP(S) host and puts `{query}` in a path segment or query value. Quicklinks encodes the supplied query before opening that URL.
+
+To bind a shortcut, add the item address to `config.json`'s `hotkeys`, preserving existing entries. This binding opens the query prompt. Use the address of a bookmark to open it directly.
 
 ```json
-{"id":"osm","title":"Search OpenStreetMap","keywords":["osm"],"actions":[{"type":"run","title":"Search OpenStreetMap","action":"open-link","promptIfEmpty":true,"hidden":true,"fields":{"template":"https://www.openstreetmap.org/search?query={query}"}}]}
+{"hotkeys":[{"keys":"ctrl+option+y","address":"wicket://links-search?user-item=youtube"}]}
 ```
+
+Items with explicit `actions` are also supported. An `open-link` run can use `fields.template` and optionally `fields.query` for a fixed search or `fields.bundleID` for a specific browser.
 
 ### A saved window move
 
@@ -250,11 +252,7 @@ function main({ submitted, input }) {
 }
 ```
 
-For personal additions to Links & Search, use the saved definition recipe instead.
-
-### A web fallback
-
-The bundled `web` extension already provides a fallback (`webEngine`: `DuckDuckGo` default, or `Google`). For another fallback, copy the site search recipe into a separate folder, add `"fallback":true`, set your URL, and keep the `submitted` guard, `encodeURIComponent(input)`, and `wicket.run(["/usr/bin/open", url])`.
+For a custom fallback, use the standalone search above and add `"fallback":true` to its manifest.
 
 ### A JavaScript command
 

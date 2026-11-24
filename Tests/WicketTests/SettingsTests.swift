@@ -347,7 +347,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   let (commands, problems, _) = ExtensionHost.discover(
     root.appending(path: "extensions"), bundled: bundledExtensions)
   #expect(problems.isEmpty)
-  for name in names + ["units", "links-search", "web"] {
+  for name in names + ["units", "links-search"] {
     #expect(commands["extension:" + name] != nil)
   }
 }

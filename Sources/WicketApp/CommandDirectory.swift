@@ -185,9 +185,7 @@ struct ExtensionScreen: CommandScreenBehavior {
     guard let command else { return .keepView }
     // Typing, voice and refreshes leave submit commands and prompts waiting for Return.
     if request.cause == .rerun, request.prompting || command.manifest.submit { return .keepView }
-    if command.manifest.command == nil {
-      return .immediate(.view(ProviderView(items: command.ownItems(request.input))))
-    }
+    if let view = command.staticView(for: request.provider) { return .immediate(.view(view)) }
     let extensions = directory.extensions
     return .deferred {
       do {
