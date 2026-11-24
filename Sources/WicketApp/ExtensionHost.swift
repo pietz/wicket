@@ -44,12 +44,6 @@ struct ExtensionCommand: Sendable, Equatable {
       shown($0, atRoot: true, subtitle: $0.subtitle ?? manifest.name)
     }
   }
-  /// Keep existing stock IDs inside a command, escaping the prefixes reserved for displayed items.
-  /// The prefix is the same before and after adding it, so the hotkey lookup can strip it again.
-  static func itemPrefix(_ row: Row, atRoot: Bool) -> String {
-    if row.isUserItem { return "user-item:" }
-    return atRoot || row.id.hasPrefix("item:") || row.id.hasPrefix("user-item:") ? "item:" : ""
-  }
   /// The manifest's settings: the saved value, else the default; one with neither is left out.
   func settings(_ saved: [String: String]) -> [String: String] {
     manifest.settings.reduce(into: [:]) { values, field in
@@ -58,10 +52,11 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// An opted-in program handles named actions and fields beyond the text used to filter the list.
   func staticView(for request: ProviderRequest) -> ProviderView? {
-    let browsing =
-      manifest.itemList != nil && request.rootMatch != true && request.action == nil
-      && request.fields.keys.allSatisfy { $0 == manifest.inputField?.name }
-    guard manifest.command == nil || browsing else { return nil }
+    if manifest.command != nil {
+      guard manifest.itemList != nil, request.rootMatch != true, request.action == nil,
+        request.fields.keys.allSatisfy({ $0 == manifest.inputField?.name })
+      else { return nil }
+    }
     if items.isEmpty, let empty = manifest.itemList?.empty {
       return ProviderView(items: [empty])
     }
@@ -70,11 +65,18 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// An item takes the extension's icon where it has none.
   private func shown(_ row: Row, atRoot: Bool, subtitle: String?) -> Row {
+    // Keep stock IDs inside a command unless they use a prefix reserved for displayed items.
+    var id = row.id
+    if row.isUserItem {
+      id = "user-item:" + id
+    } else if atRoot || id.hasPrefix("item:") || id.hasPrefix("user-item:") {
+      id = "item:" + id
+    }
     var shown = Row(
-      id: Self.itemPrefix(row, atRoot: atRoot) + row.id, title: row.title, subtitle: subtitle,
-      icon: row.icon ?? manifest.icon, actions: row.actions,
+      id: id, title: row.title, subtitle: subtitle, icon: row.icon ?? manifest.icon, actions: row.actions,
       keywords: row.keywords, prominent: row.prominent, detail: row.detail)
     shown.isUserItem = row.isUserItem
+    shown.indexedItemID = row.id
     return shown
   }
 }

@@ -336,6 +336,7 @@ func aRenamedUserItemsHotkeyCanBeRemovedAndReused(_ editConfig: Bool) async thro
     script: #"""
       echo '{"items":[
         {"id":"today","title":"From the program","actions":[{"type":"copy","text":"program"}]},
+        {"id":"user-item:today","title":"Also from the program","actions":[{"type":"copy","text":"user"}]},
         {"id":"tomorrow","title":"From both","actions":[{"type":"copy","text":"same","title":"Copy from view"}]}
       ]}'
       """#,
@@ -363,6 +364,8 @@ func aRenamedUserItemsHotkeyCanBeRemovedAndReused(_ editConfig: Bool) async thro
   #expect(model.navigator.results.flatMap(\.row.actions) == [.copy("program")])
   model.navigator.toggleActions()
 
+  let prefixed = try #require(model.navigator.results.first { $0.row.id == "user-item:today" })
+  #expect(model.navigator.hotkeyTarget(of: prefixed) == nil)
   let tomorrow = try #require(model.navigator.results.first { $0.row.id == "tomorrow" })
   #expect(
     model.navigator.hotkeyTarget(of: tomorrow) == HotkeyTarget(target: id, item: "tomorrow", isUserItem: true)

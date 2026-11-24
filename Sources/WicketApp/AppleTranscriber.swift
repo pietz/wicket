@@ -375,19 +375,14 @@ final class Conversion {
     var input = buffer
     if let downmix {
       if let normalizer = downmix.normalizer {
-        input = try Self.allocate(normalizer.outputFormat, frames: buffer.frameLength)
-        try normalizer.convert(to: input, from: buffer)
+        input = try Self.convertSameRate(buffer, using: normalizer)
       }
       input = try Self.mix(input, to: downmix.mono)
     }
     guard let converter else { return input }
     let format = converter.outputFormat
     let ratio = format.sampleRate / input.format.sampleRate
-    if ratio == 1 {
-      let output = try Self.allocate(format, frames: input.frameLength)
-      try converter.convert(to: output, from: input)
-      return output
-    }
+    if ratio == 1 { return try Self.convertSameRate(input, using: converter) }
     // Leave room for rate-conversion rounding so the converter can drain the current input.
     let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1
     let output = try Self.allocate(format, frames: capacity)
@@ -398,6 +393,14 @@ final class Conversion {
       throw VoiceError.conversionFailed
     }
     return output.frameLength > 0 ? output : nil
+  }
+
+  private static func convertSameRate(_ input: AVAudioPCMBuffer, using converter: AVAudioConverter) throws
+    -> AVAudioPCMBuffer
+  {
+    let output = try allocate(converter.outputFormat, frames: input.frameLength)
+    try converter.convert(to: output, from: input)
+    return output
   }
 
   private static func mix(_ input: AVAudioPCMBuffer, to mono: AVAudioFormat) throws -> AVAudioPCMBuffer {

@@ -134,23 +134,14 @@ extension HostCommand {
     guard let owner = extensions.commands[result.provider] else { return nil }
     if atRoot, result.rootExtensionRow == .command { return HotkeyTarget(target: owner.id) }
     let row = result.row
-    guard !atRoot || result.rootExtensionRow == .item else { return nil }
-    let programRow = !atRoot && owner.manifest.command != nil
-    var id = row.id
-    if !programRow {
-      let prefix = ExtensionCommand.itemPrefix(row, atRoot: atRoot)
-      guard id.hasPrefix(prefix) else { return nil }
-      id.removeFirst(prefix.count)
+    if let id = row.indexedItemID {
+      let target = HotkeyTarget(target: owner.id, item: id, isUserItem: row.isUserItem)
+      return owner.item(for: target) == nil ? nil : target
     }
     // A program's row can name either static item. The manifest item wins if both actions match.
-    guard
+    guard !atRoot, let action = row.actions.first,
       let item = owner.items.first(where: { item in
-        guard item.id == id else { return false }
-        if programRow {
-          guard let action = row.actions.first else { return false }
-          return action.kind == item.actions.first?.kind
-        }
-        return item.isUserItem == row.isUserItem
+        item.id == row.id && item.actions.first?.kind == action.kind
       })
     else { return nil }
     return HotkeyTarget(target: owner.id, item: item.id, isUserItem: item.isUserItem)

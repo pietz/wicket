@@ -111,6 +111,8 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   var picture: URL? = nil
   /// Host only, never decoded: whether this static item came from user.json.
   var isUserItem = false
+  /// Host only, never decoded: the original ID of an item displayed by the index.
+  var indexedItemID: String? = nil
 
   init(
     id: String, title: String, subtitle: String? = nil, icon: String? = nil, actions: [RowAction],

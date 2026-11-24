@@ -355,7 +355,9 @@ private func fields(_ values: [String: String]) throws -> String {
   #expect(navigator.results.count == 2)
   navigator.editInput("osm")
   await navigator.settled()
-  #expect(navigator.results.first?.row.id == "user-item:osm")
+  let search = try #require(navigator.results.first)
+  #expect(search.row.id == "user-item:osm")
+  #expect(navigator.hotkeyTarget(of: search) == HotkeyTarget(target: links, item: "osm", isUserItem: true))
   navigator.dismiss()
 
   navigator.input = "mdn"
