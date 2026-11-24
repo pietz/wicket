@@ -477,3 +477,22 @@ func quicklinkMigrationRequiresAnEquivalentLauncherItem(hasDifferentAction: Bool
   #expect(item.actions == [.open(url)])
   await model.finish()
 }
+
+@Test func aRequiredHiddenFieldRulesOutAddingByHandAndMustComeFromSave() throws {
+  func list(_ hidden: String) throws -> SettingList {
+    let data = Data(
+      #"""
+      {"name":"Example","command":["./main"],"contract":2,"settings":[{"name":"moves","type":"list","description":"Moves",
+        "fields":[{"name":"title","type":"text","description":"Title"},
+                  {"name":"definition","type":"text","description":"Definition",\#(hidden)}]}]}
+      """#.utf8)
+    return try #require(try JSONDecoder().decode(ExtensionManifest.self, from: data).settings.first?.list)
+  }
+  let required = try list(#""hidden":true"#)
+  #expect(!required.addable)
+  #expect(required.missingHidden(["title": "Left"]) == ["definition"])
+  #expect(required.missingHidden(["title": "Left", "definition": "  "]) == ["definition"])
+  #expect(required.missingHidden(["title": "Left", "definition": "{}"]).isEmpty)
+  let optional = try list(#""hidden":true,"optional":true"#)
+  #expect(optional.addable && optional.missingHidden(["title": "Left"]).isEmpty)
+}

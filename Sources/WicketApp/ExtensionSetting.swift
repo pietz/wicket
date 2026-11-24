@@ -45,6 +45,16 @@ struct SettingList: Codable, Sendable, Equatable {
   var itemName: String?
   var entryName: String { itemName ?? "Entry" }
   var editableFields: [ExtensionManifest.Field] { fields.filter { $0.hidden != true } }
+  /// Hidden values only come from a program's `save`, so a required one rules out adding by hand.
+  var addable: Bool { editable != false && !fields.contains { $0.hidden == true && $0.optional != true } }
+  /// The required hidden values `values` lacks or gets wrong; Settings can't supply them.
+  func missingHidden(_ values: [String: String]) -> [String] {
+    fields.filter { field in
+      guard field.hidden == true, field.optional != true else { return false }
+      guard let value = values[field.name], !value.allSatisfy(\.isWhitespace) else { return true }
+      return !field.accepts(value)
+    }.map(\.name)
+  }
 
   var valid: Bool {
     let names = fields.map(\.name)

@@ -597,7 +597,7 @@ struct SettingsPane: View {
       HStack {
         Text(list.description)
         Spacer()
-        if list.editable != false {
+        if list.addable {
           Button("Add \(list.entryName)", systemImage: "plus") {
             entryEditor = .init(folder: folder, list: list)
           }

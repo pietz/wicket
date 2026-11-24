@@ -1123,9 +1123,14 @@ final class Navigator {
   private func saveEntry(_ setting: String, values: [String: String], from id: String?) {
     guard let owner = id.flatMap({ extensions.commands[$0] }),
       owner.manifest.command != nil, directory.isAvailable(owner.id, in: configuration),
-      owner.manifest.settings.contains(where: { $0.list?.name == setting })
+      let list = owner.manifest.settings.lazy.compactMap(\.list).first(where: { $0.name == setting })
     else {
       reportActionProblem("Save must name a list declared by its own extension.")
+      return
+    }
+    let missing = list.missingHidden(values)
+    guard missing.isEmpty else {
+      reportActionProblem("Save is missing \(missing.joined(separator: ", ")).")
       return
     }
     surface?.perform(
