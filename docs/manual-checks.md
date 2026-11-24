@@ -39,7 +39,7 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 ## 5. Agent settings
 
 1. Switch between Claude and ChatGPT; change model, effort, and Fast where offered; next turn uses them.
-2. **Stream answers** on: text streams live. Off: completed messages appear at message/tool boundaries.
+2. Ask for a long plain-text answer without tools. With **Stream answers** on, text should appear while the turn is still running. Repeat with it off and verify that the answer appears when complete.
 3. Run a scratch-file edit in each permission mode. Supervised prompts: ⌘Return allows once, Escape declines, plain Return does nothing, Tab moves buttons, Show details shows path. Auto-accept edits, Auto, and Full access prompt progressively less.
 4. Leave a permission card open, hide, reopen within 20 minutes: card is still there.
 

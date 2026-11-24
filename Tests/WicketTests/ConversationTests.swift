@@ -1,8 +1,52 @@
 import AppKit
 import SwiftUI
 import Testing
+import WebKit
 
 @testable import WicketApp
+
+@MainActor @Test(.timeLimit(.minutes(1)))
+func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.update { $0.agent.streamAnswers = true }
+  let lines = try JSONLines(
+    command: ["/usr/bin/python3", fixtureURL("cli-peer.py").path, fixtureURL("claude-stream.jsonl").path],
+    folder: root)
+  model.agent.connect = { _, _, _ in AgentLink(ClaudeTranslator(), lines: lines) }
+  let controller = PaletteController(model: model, drawsGlass: false, panel: RoutingPanel())
+  defer { controller.renderer.release() }
+  let surface = RecordingSurface(wrapping: controller)
+  model.navigator.surface = surface
+  controller.show(orderFront: false, listen: false)
+  model.navigator.send("Invent some fictional city names.")
+  let turn = surface.presentation.pageTurn
+  #expect(surface.presentation.agent?.working == true)
+
+  func checkAnswer(_ source: String, _ text: String, busy: Bool) async {
+    #expect(
+      await eventually(within: .seconds(3)) {
+        surface.presentation.agent?.busy == busy && surface.presentation.page?.source == source
+      })
+    #expect(surface.presentation.pageTurn == turn && surface.presentation.agent?.working == false)
+    #expect(surface.presentation.agent?.streaming == true)
+    await controller.renderer.settled()
+    #expect(controller.renderer.renderedTurn == turn && controller.renderer.problem == nil)
+    let rendered =
+      try? await controller.renderer.page?.callJavaScript(
+        "return document.querySelector('main').textContent;", contentWorld: .defaultClient) as? String
+    #expect(rendered?.trimmingCharacters(in: .whitespacesAndNewlines) == text)
+  }
+
+  // Each next event is withheld until the previous canvas has rendered.
+  await checkAnswer("1. Ashen", "Ashen", busy: true)
+  lines.send(.string("next delta"))
+  await checkAnswer("1. Ashenvale\n2. Brindlemoor", "Ashenvale\nBrindlemoor", busy: true)
+  lines.send(.string("complete turn"))
+  await checkAnswer("1. Ashenvale\n2. Brindlemoor", "Ashenvale\nBrindlemoor", busy: false)
+  await model.finish()
+}
 
 @MainActor @Test func conversationKeepsDraftHistoryAndPendingDecisionAcrossHide() async throws {
   let root = try scratch()
