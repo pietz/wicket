@@ -36,7 +36,7 @@ Fixed numbers referenced by the individual specs:
 2. **Tab into an item's fields:** Shipped.
 3. **Untrusted text stays inert:** Shipped (unknown tags render literally; `<context>` marked as data).
 4. **Patterns compile once:** Shipped.
-5. **List settings:** Extensions declare personal lists, Wicket edits them in native Settings, and indexed entries use `?entry=<list>/<id>` hotkeys. On first launch with a list declaration, Wicket migrates legacy Quicklinks and moves custom actions to My Items, leaving the old file on disk.
+5. **List settings:** Extensions declare personal lists, Wicket edits them in native Settings, and indexed entries use `?entry=<list>/<id>` hotkeys. Wicket migrates legacy personal items from discovered extensions. Compatible Quicklinks go into their lists, and other items go to My Items. Bindings follow their items and the original files stay on disk. A failed migration can retry when its files change.
 6. **Contract recipes:** Shipped, in the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md#recipes).
 7. **`wicket-js`:** Shipped ([docs/wicket-js.md](../wicket-js.md)).
 8. **Meeting links:** Accept conferencing URL schemes (`zoommtg:`, `msteams:`) in `open` behind an explicit action.

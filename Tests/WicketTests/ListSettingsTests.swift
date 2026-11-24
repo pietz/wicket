@@ -255,3 +255,167 @@ private let linksID = "extension:links-search"
   #expect(surface.effects.last == .settingsList(.init(folder: "links-search", setting: "links")))
   await model.finish()
 }
+
+@MainActor @Test func listFreeMigrationPublishesOnlyAfterConfigReplacementAndRetriesInSession() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let legacy = try extensionFolder(root, name: "custom")
+  let source = legacy.appending(path: "user.json")
+  try Data(#"{"items":[{"id":"one","title":"Legacy item","actions":[{"type":"run","action":"one"}]}]}"#.utf8)
+    .write(to: source)
+  let configFolder = root.appending(path: "config-files")
+  let files = FileManager.default
+  try files.createDirectory(at: configFolder, withIntermediateDirectories: true)
+  let configuration = configFolder.appending(path: "config.json")
+  let original = Data(
+    #"""
+    {"providers":[{"id":"extension:custom","enabled":false}],
+     "hotkeys":[{"keys":"ctrl+option+1","address":"wicket://custom?user-item=one"}]}
+    """#.utf8)
+  try original.write(to: configuration)
+  // An existing lock remains writable while the directory refuses the atomic replacement.
+  try Data().write(to: configFolder.appending(path: ".config.json.lock"))
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  try files.createSymbolicLink(at: model.store.url, withDestinationURL: configuration)
+  model.store.start(watching: false)
+  try files.setAttributes([.posixPermissions: 0o500], ofItemAtPath: configFolder.path)
+  defer { try? files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: configFolder.path) }
+
+  await model.extensions.reload()
+  let extensions = root.appending(path: "extensions")
+  let staged = extensions.appending(path: ".wicket-migration")
+  #expect(files.fileExists(atPath: staged.path))
+  #expect(try files.contentsOfDirectory(atPath: staged.path).isEmpty)
+  #expect(model.extensions.problems["extension:custom"]?.settings?.contains("Couldn’t migrate") == true)
+  #expect(try Data(contentsOf: configuration) == original)
+  await model.extensions.reload()
+  #expect(model.extensions.commands["extension:my-items"] == nil)
+  #expect(!files.fileExists(atPath: extensions.appending(path: "my-items").path))
+
+  try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: configFolder.path)
+  model.store.load()
+  #expect(await eventually { model.extensions.commands["extension:my-items"] != nil })
+  #expect(model.extensions.problems["extension:custom"] == nil)
+  let target = try #require(HotkeyTarget("wicket://my-items?item=one"))
+  #expect(model.configuration.hotkeys.first?.target == target)
+  #expect(!model.configuration.isEnabled("extension:my-items", extensions: model.extensions.ids))
+  let item = try #require(model.extensions.commands["extension:my-items"]?.item(for: target))
+  #expect(item.actions == [.run(Address(extensionName: "custom", action: "one"))])
+  #expect(model.configuration.pendingPersonalItems.isEmpty)
+  #expect(model.configuration.migratedPersonalItems.contains("custom"))
+  #expect(files.fileExists(atPath: source.path))
+  await model.finish()
+}
+
+@MainActor @Test(arguments: [false, true])
+func pendingMigrationResumesAtTheRecordedDestination(published: Bool) async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let staging = UUID()
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let destination = root.appending(path: "extensions/my-items")
+  let staged = root.appending(path: "extensions/.wicket-migration/\(staging.uuidString)")
+  let manifest = Data(
+    #"""
+    {"name":"My Items","items":[{"id":"one","title":"Edited item","actions":[{"type":"copy","text":"text"}]}]}
+    """#.utf8)
+  let folder = published ? destination : staged
+  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+  try manifest.write(to: folder.appending(path: "wicket.json"))
+  var config = Configuration()
+  config.hotkeys = [
+    .init(keys: try Shortcut("ctrl+option+1"), target: .init(target: "extension:my-items", item: "one"))
+  ]
+  config.pendingPersonalItems["old"] = .init(destination: "my-items", staging: staging, count: 1)
+  try config.save(at: model.store.url)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  #expect(model.configuration.pendingPersonalItems.isEmpty)
+  #expect(model.configuration.migratedPersonalItems == ["old"])
+  #expect(model.extensions.commands["extension:my-items"]?.items.first?.title == "Edited item")
+  #expect(model.extensions.commands["extension:my-items-2"] == nil)
+  #expect(try Data(contentsOf: destination.appending(path: "wicket.json")) == manifest)
+  await model.finish()
+}
+
+@MainActor @Test func repairingALegacyFileRetriesMigrationThroughTheExtensionWatcher() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let legacy = try extensionFolder(root, name: "custom")
+  let source = legacy.appending(path: "user.json")
+  try Data("{".utf8).write(to: source)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.start(watching: false)
+  model.extensions.start()
+  await model.extensions.firstScan()
+  #expect(model.extensions.problems["extension:custom"]?.settings != nil)
+
+  try Data(#"{"items":[{"id":"one","title":"Legacy item","actions":[{"type":"copy","text":"item"}]}]}"#.utf8)
+    .write(to: source, options: .atomic)
+  #expect(await eventually { model.extensions.commands["extension:my-items"] != nil })
+  #expect(model.extensions.problems["extension:custom"] == nil)
+  await model.finish()
+}
+
+@MainActor @Test func anOldQuicklinksOverrideMigratesShortLinksToMyItems() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let folder = try extensionFolder(root, name: "links-search")
+  try Data(
+    #"{"items":[{"id":"old","title":"Old Bookmark","url":"https://example.org/","keyword":"old"}]}"#.utf8
+  )
+  .write(to: folder.appending(path: "user.json"))
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  #expect(model.extensions.commands[linksID]?.manifest.settings.isEmpty == true)
+  let item = try #require(model.extensions.commands["extension:my-items"]?.items.first)
+  #expect(item.keywords == ["old"] && item.actions == [.open(URL(string: "https://example.org/")!)])
+  await model.finish()
+}
+
+@MainActor @Test func entrySavesMergeWithAgentEditsAndValidateTheExpandedBookmarkURL() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let list = try #require(model.extensions.commands[linksID]?.manifest.settings.first?.list)
+  #expect(list.entryName == "Bookmark")
+  let file = ConfigurationFile(url: model.store.url)
+  let original = ["id": "docs", "title": "Original", "url": "https://example.com/", "keyword": "docs"]
+  try file.changeEntry(in: list, folder: "links-search", id: "docs", values: original, inserting: true)
+
+  var saved = original
+  saved["title"] = "Agent Title"
+  saved["url"] = "https://example.org/"
+  saved["future"] = "preserve"
+  try file.set("links-search", to: ["links": [saved]], in: "extensions")
+  var edited = original
+  edited["title"] = "User Title"
+  edited["keyword"] = nil
+  try file.changeEntry(in: list, folder: "links-search", id: "docs", values: edited, original: original)
+  let config = try Configuration.load(at: file.url)
+  let value = try #require(config.extensions["links-search"]?["links"].array.first)
+  #expect(value["title"].string == "User Title")
+  #expect(value["url"].string == "https://example.org/")
+  #expect(value["future"].string == "preserve" && value["keyword"] == .null)
+
+  for url in ["example.com", "https:///path", "https://", "https://example.com/a b"] {
+    let bad = ["id": "bad", "title": "Bad", "url": url]
+    #expect(list.urlProblem(bad) != nil && list.row(bad) == nil)
+    #expect(throws: ExtensionFailure.self) {
+      try file.changeEntry(in: list, folder: "links-search", id: "bad", values: bad, inserting: true)
+    }
+  }
+  for url in ["https://example.com/", "mailto:hi@example.com", "custom:bookmark", "wicket://settings"] {
+    let good = ["id": "good", "title": "Good", "url": url]
+    #expect(list.urlProblem(good) == nil && list.row(good) != nil)
+  }
+  let bad = ["id": "relative", "title": "Relative", "url": "example.com"]
+  try file.set("links-search", to: ["links": [bad]], in: "extensions")
+  model.store.load()
+  #expect(model.extensions.commands[linksID]?.items.isEmpty == true)
+  #expect(model.extensions.problems[linksID]?.settings != nil)
+  await model.finish()
+}

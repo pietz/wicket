@@ -41,15 +41,18 @@ struct SettingList: Codable, Sendable, Equatable {
   let fields: [ExtensionManifest.Field]
   let item: JSONValue?
   var editable: Bool?
+  var itemName: String?
+  var entryName: String { itemName ?? "Entry" }
 
   var valid: Bool {
     let names = fields.map(\.name)
     guard !name.allSatisfy(\.isWhitespace), !name.contains("/"), !description.allSatisfy(\.isWhitespace),
-      !fields.isEmpty, !names.contains("id"), Set(names).count == names.count,
+      itemName?.allSatisfy(\.isWhitespace) != true, !fields.isEmpty, !names.contains("id"),
+      Set(names).count == names.count,
       fields.allSatisfy({ $0.valid && $0.default == nil && ($0.multiline == nil || $0.type == .text) })
     else { return false }
     let sample = Dictionary(uniqueKeysWithValues: names.map { ($0, "example") } + [("id", "example")])
-    return item == nil || row(sample) != nil
+    return item == nil || makeRow(sample) != nil
   }
 
   func accepts(_ values: [String: String]) -> Bool {
@@ -89,7 +92,26 @@ struct SettingList: Codable, Sendable, Equatable {
       ?? values["id"] ?? name
   }
 
+  func urlProblem(_ values: [String: String]) -> String? {
+    for action in item?["actions"].array ?? [] where action["type"].string == "open" {
+      guard let template = action["url"].string else { continue }
+      let destination = substitute(template, values)
+      guard let url = URL(string: destination, encodingInvalidCharacters: false),
+        let scheme = url.scheme?.lowercased()
+      else { return "Enter a complete URL, including its scheme." }
+      if ["http", "https"].contains(scheme), url.host()?.isEmpty != false {
+        return "Enter a web URL with a host."
+      }
+    }
+    return nil
+  }
+
   func row(_ values: [String: String]) -> Row? {
+    guard urlProblem(values) == nil else { return nil }
+    return makeRow(values)
+  }
+
+  private func makeRow(_ values: [String: String]) -> Row? {
     guard case .object(var object)? = item, let id = values["id"] else { return nil }
     object = object.mapValues { substitute($0, values) }
     object["id"] = .string(id)

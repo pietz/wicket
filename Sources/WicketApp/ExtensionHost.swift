@@ -170,7 +170,9 @@ final class ExtensionHost {
   /// The `extensions` of config.json: each folder's saved settings.
   private var settings: [String: JSONValue] = [:]
   private var discoveryProblems: [String: Problem] = [:]
-  var migrateLists: (([String: ExtensionCommand]) -> (createdItems: Bool, problems: [String: String]))?
+  var migrateLists: (([String: ExtensionCommand]) -> ListMigration.Result)?
+  private var migrating = false
+  private var retryMigrationOnConfigChange = false
   private var migrationProblems: [String: String] = [:]
 
   func applySettings(_ saved: [String: JSONValue]) -> Set<String> {
@@ -247,6 +249,9 @@ final class ExtensionHost {
     rescan()
     await scan?.value
   }
+  func configChanged() {
+    if retryMigrationOnConfigChange, !migrating { rescan() }
+  }
   func rescan() {
     let root = folder.appending(path: "extensions")
     let bundled = bundled
@@ -260,14 +265,20 @@ final class ExtensionHost {
         }.value
         guard let self, !Task.isCancelled else { return }
         if let paths, paths != watchRoots {
-          watcher = FileWatcher(paths: paths.sorted(), latency: 0.2) { [weak self] _ in self?.rescan() }
+          let stage = root.resolvingSymlinksInPath().appending(path: ListMigration.stagingDirectory).path
+          watcher = FileWatcher(paths: paths.sorted(), latency: 0.2) { [weak self] changed in
+            // A failing config write can discard a stage. Its own events must not keep retrying it.
+            if changed.contains(where: { $0 != stage && !$0.hasPrefix(stage + "/") }) { self?.rescan() }
+          }
           watchRoots = paths
           // Read again after subscribing, in case a change arrived before the stream started.
           continue
         }
         if let migrateLists {
-          self.migrateLists = nil
+          migrating = true
           let result = migrateLists(commands)
+          migrating = false
+          retryMigrationOnConfigChange = result.retryOnConfigChange
           migrationProblems = result.problems
           if result.createdItems { continue }
         }

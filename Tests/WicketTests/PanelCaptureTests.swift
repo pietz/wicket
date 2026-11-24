@@ -40,7 +40,8 @@ private let states =
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
     "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
-    "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit", "settings-error",
+    "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit",
+    "settings-quicklinks-search", "settings-window-add", "settings-error",
     "settings-conflict",
   ] + transitions
 
@@ -62,7 +63,7 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("settings-extensions") {
     return ["Built in", "Clipboard History", "Weather", "Window Manager"]
   }
-  if name.contains("settings-window") {
+  if name == "settings-window" {
     return [
       "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Window Manager",
     ]
@@ -70,9 +71,17 @@ private func expectedText(_ name: String) -> [String] {
   if name == "settings-quicklinks" {
     return ["Quicklinks", "Bookmarks", "Wicket Docs", "Site Searches", "Search YouTube"]
   }
-  if name == "settings-quicklinks-add" { return ["Add Entry", "Title", "URL", "Keyword", "Cancel", "Save"] }
+  if name == "settings-quicklinks-add" {
+    return ["Add Bookmark", "Title", "URL", "Keyword", "Cancel", "Save"]
+  }
   if name == "settings-quicklinks-edit" {
-    return ["Edit Entry", "Wicket Docs", "wicket.app", "Cancel", "Save"]
+    return ["Edit Bookmark", "Wicket Docs", "wicket.app", "Cancel", "Save"]
+  }
+  if name == "settings-quicklinks-search" {
+    return ["Add Site Search", "Put {query} where the search text goes", "Save"]
+  }
+  if name == "settings-window-add" {
+    return ["Add Window Move", "Window Move Definition", "Display, position, and size", "Save"]
   }
   if name.contains("settings-") { return [] }
   if name == "extension-quicklinks-empty" { return ["Quicklinks", "Add a Quicklink"] }
@@ -849,15 +858,23 @@ private let installedAgent: Void = {
           ? "extension:window"
           : quicklinks ? "extension:links-search" : "apps"))
     let view: NSView
-    if quicklinks, state != "settings-quicklinks" {
-      let list = try #require(host.commands["extension:links-search"]?.manifest.settings.first?.list)
+    if quicklinks && state != "settings-quicklinks" || state == "settings-window-add" {
+      let window = state == "settings-window-add"
+      let folder = window ? "window" : "links-search"
+      let name = window ? "moves" : state == "settings-quicklinks-search" ? "searches" : "links"
+      let list = try #require(
+        host.commands["extension:" + folder]?.manifest.settings.first { $0.name == name }?.list)
       let editing = state == "settings-quicklinks-edit"
+      let values =
+        if window { ["definition": try #require(codingMove["definition"])] } else {
+          editing ? bookmarks[0] : [:]
+        }
       let draft = SettingsEntryDraft(
-        folder: "links-search", list: list, values: editing ? bookmarks[0] : [:],
+        folder: folder, list: list, values: values,
         entryID: editing ? bookmarks[0]["id"] : nil)
       // A native sheet's content has its own surface. Host that same content without presenting a window.
       let editor = NSHostingView(rootView: SettingsEntryEditor(draft: draft, store: store, close: {}))
-      editor.frame = NSRect(origin: .zero, size: SettingsEntryEditor.size)
+      editor.frame = NSRect(origin: .zero, size: SettingsEntryEditor.size(for: list))
       view = editor
     } else {
       pane.frame = NSRect(origin: .zero, size: SettingsPane.size)
@@ -1029,8 +1046,9 @@ func scenariosSetUpTheirState(_ state: String) async throws {
         && model.navigator.command?.problem?.contains("REPAIR") == true)
   case "hotkey-binding":
     #expect(model.navigator.results.compactMap { model.navigator.hotkey(of: $0) }.count == 2)
-  case "settings-quicklinks-add", "settings-quicklinks-edit":
-    #expect(scenario.controller == nil && scenario.view.frame.size == SettingsEntryEditor.size)
+  case "settings-quicklinks-add", "settings-quicklinks-edit", "settings-quicklinks-search",
+    "settings-window-add":
+    #expect(scenario.controller == nil && scenario.view.frame.width == 420)
   case _ where state.hasPrefix("settings-"):
     #expect(scenario.controller == nil && scenario.view.frame.size == SettingsPane.size)
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)

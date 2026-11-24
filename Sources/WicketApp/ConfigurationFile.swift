@@ -136,7 +136,8 @@ struct ConfigurationFile {
   }
   /// One edit preserves other entries even if one needs repair.
   func changeEntry(
-    in list: SettingList, folder: String, id: String, values: [String: String]?, inserting: Bool = false
+    in list: SettingList, folder: String, id: String, values: [String: String]?,
+    original: [String: String]? = nil, inserting: Bool = false
   ) throws {
     try edit { object in
       var all = object["extensions"] as? [String: Any] ?? [:]
@@ -150,15 +151,19 @@ struct ConfigurationFile {
       var entries = own[list.name] as? [Any] ?? []
       let index = entries.firstIndex { ($0 as? [String: Any])?["id"] as? String == id }
       if let values {
-        guard !id.allSatisfy(\.isWhitespace), list.accepts(values) else {
-          throw ExtensionFailure("Complete the required fields with valid values.")
-        }
         var entry = ["id": id] as [String: Any]
         if !inserting {
           guard let index else { throw ExtensionFailure("This entry has already been removed.") }
           entry = entries[index] as? [String: Any] ?? entry
         }
-        for field in list.fields { entry[field.name] = values[field.name] }
+        for field in list.fields where original == nil || original?[field.name] != values[field.name] {
+          entry[field.name] = values[field.name]
+        }
+        let merged = entry.compactMapValues { $0 as? String }
+        guard !id.allSatisfy(\.isWhitespace), list.accepts(merged) else {
+          throw ExtensionFailure("Complete the required fields with valid values.")
+        }
+        if let problem = list.urlProblem(merged) { throw ExtensionFailure(problem) }
         if inserting {
           guard index == nil else { throw ExtensionFailure("This entry already exists.") }
           entries.append(entry)

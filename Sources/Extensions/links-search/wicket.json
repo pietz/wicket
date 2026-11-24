@@ -19,10 +19,11 @@
       "name": "links",
       "type": "list",
       "description": "Bookmarks",
+      "itemName": "Bookmark",
       "fields": [
-        {"name":"title","type":"text","description":"Title"},
-        {"name":"url","type":"text","description":"URL"},
-        {"name":"keyword","type":"text","description":"Keyword","optional":true}
+        {"name":"title","type":"text","description":"Name shown in the launcher","placeholder":"Title"},
+        {"name":"url","type":"text","description":"Use a complete URL, including its scheme","placeholder":"URL"},
+        {"name":"keyword","type":"text","description":"Optional shortcut to find this bookmark","placeholder":"Keyword","optional":true}
       ],
       "item": {
         "title": "{title}",
@@ -34,10 +35,11 @@
       "name": "searches",
       "type": "list",
       "description": "Site Searches",
+      "itemName": "Site Search",
       "fields": [
-        {"name":"title","type":"text","description":"Title"},
-        {"name":"url","type":"text","description":"URL template with {query}","placeholder":"URL Template"},
-        {"name":"keyword","type":"text","description":"Keyword"}
+        {"name":"title","type":"text","description":"Name shown in the launcher","placeholder":"Title"},
+        {"name":"url","type":"text","description":"Put {query} where the search text goes","placeholder":"URL"},
+        {"name":"keyword","type":"text","description":"Type this shortcut before your search text","placeholder":"Keyword"}
       ],
       "item": {
         "title": "{title}",

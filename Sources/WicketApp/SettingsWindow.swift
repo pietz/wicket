@@ -598,7 +598,7 @@ struct SettingsPane: View {
         Text(list.description)
         Spacer()
         if list.editable != false {
-          Button("Add Entry", systemImage: "plus") {
+          Button("Add \(list.entryName)", systemImage: "plus") {
             entryEditor = .init(folder: folder, list: list)
           }
           .labelStyle(.iconOnly)
@@ -769,10 +769,20 @@ private struct SettingControl: View {
       case .text where field.multiline == true:
         VStack(alignment: .leading, spacing: 4) {
           Text(label)
-          TextEditor(text: text).frame(minHeight: 72).accessibilityLabel(label)
+          TextEditor(text: text)
+            .frame(minHeight: 72)
+            .padding(4)
+            .overlay { RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary) }
+            .accessibilityLabel(label)
         }
       case .text, .number:
-        TextField(label, text: text, prompt: field.default.map { Text($0) })
+        if editingEntry {
+          LabeledContent(label) {
+            TextField("", text: text).accessibilityLabel(label).textFieldStyle(.roundedBorder)
+          }
+        } else {
+          TextField(label, text: text, prompt: field.default.map { Text($0) })
+        }
       }
     }
     .help(field.description)
@@ -818,7 +828,9 @@ struct SettingsEntryDraft: Identifiable {
 }
 
 struct SettingsEntryEditor: View {
-  static let size = CGSize(width: 420, height: 250)
+  static func size(for list: SettingList) -> CGSize {
+    CGSize(width: 420, height: list.fields.contains(where: { $0.multiline == true }) ? 425 : 350)
+  }
   let draft: SettingsEntryDraft
   let store: ConfigurationStore
   let close: () -> Void
@@ -837,15 +849,23 @@ struct SettingsEntryEditor: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text(draft.entryID == nil ? "Add Entry" : "Edit Entry").font(.headline).padding()
+      Text("\(draft.entryID == nil ? "Add" : "Edit") \(draft.list.entryName)").font(.headline).padding()
       Form {
         ForEach(draft.list.fields, id: \.name) { field in
-          SettingControl(
-            field: field,
-            value: Binding(
-              get: { values[field.name] },
-              set: { values[field.name] = $0?.isEmpty == false ? $0 : nil }
-            ), editingEntry: true)
+          VStack(alignment: .leading, spacing: 4) {
+            SettingControl(
+              field: field,
+              value: Binding(
+                get: { values[field.name] },
+                set: { values[field.name] = $0?.isEmpty == false ? $0 : nil }
+              ), editingEntry: true)
+            if let label = field.placeholder, label != field.description {
+              Text(field.description).font(.callout).foregroundStyle(.secondary)
+            }
+          }
+        }
+        if draft.list.accepts(values), let problem = draft.list.urlProblem(values) {
+          Text(problem).foregroundStyle(.red)
         }
         if let problem = store.writeProblem { Text(problem).foregroundStyle(.red) }
       }
@@ -858,18 +878,19 @@ struct SettingsEntryEditor: View {
           if store.change({
             try $0.changeEntry(
               in: draft.list, folder: draft.folder, id: draft.entryID ?? draft.id.uuidString.lowercased(),
-              values: values, inserting: draft.entryID == nil)
+              values: values, original: draft.entryID == nil ? nil : draft.values,
+              inserting: draft.entryID == nil)
           }) {
             close()
           }
         }
         .keyboardShortcut(.defaultAction)
-        .disabled(!draft.list.accepts(values))
+        .disabled(!draft.list.accepts(values) || draft.list.urlProblem(values) != nil)
       }
       .buttonStyle(.bordered)
       .padding()
     }
-    .frame(width: Self.size.width, height: Self.size.height)
+    .frame(width: Self.size(for: draft.list).width, height: Self.size(for: draft.list).height)
     .background(.background)
   }
 }

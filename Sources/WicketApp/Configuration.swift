@@ -72,6 +72,8 @@ struct Configuration: Codable, Equatable, Sendable {
   var hotkeys: [Hotkey] = []
   /// Each extension's settings by folder name. The manifest validates its own values without affecting other settings.
   var extensions: [String: JSONValue] = [:]
+  var migratedPersonalItems: [String] = []
+  var pendingPersonalItems: [String: ListMigration.Pending] = [:]
   var appearance = Appearance.system
   var resultsOnlyWhenTyping = false
   /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
@@ -94,7 +96,7 @@ struct Configuration: Codable, Equatable, Sendable {
   init() {}
   private enum CodingKeys: String, CodingKey {
     case hotkey, hotkeys, appearance, backgroundTransparency, blur, providers, agent, voice, textSize,
-      extensions, resultsOnlyWhenTyping
+      extensions, resultsOnlyWhenTyping, migratedPersonalItems, pendingPersonalItems
   }
   private enum LegacyKey: String, CodingKey { case compactOnOpen }
   init(from decoder: any Decoder) throws {
@@ -105,6 +107,9 @@ struct Configuration: Codable, Equatable, Sendable {
     hotkey = try c.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? hotkey
     hotkeys = try c.decodeIfPresent([Hotkey].self, forKey: .hotkeys) ?? hotkeys
     extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? extensions
+    migratedPersonalItems = try c.decodeIfPresent([String].self, forKey: .migratedPersonalItems) ?? []
+    pendingPersonalItems =
+      try c.decodeIfPresent([String: ListMigration.Pending].self, forKey: .pendingPersonalItems) ?? [:]
     appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? appearance
     resultsOnlyWhenTyping = try c.decodeIfPresent(Bool.self, forKey: .resultsOnlyWhenTyping) ?? false
     if !c.contains(.resultsOnlyWhenTyping) {

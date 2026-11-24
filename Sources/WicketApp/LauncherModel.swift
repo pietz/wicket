@@ -49,10 +49,10 @@ final class LauncherModel {
     self.history = history
     navigator.footerProblem = { [weak self] in self?.problem }
     extensions.migrateLists = { [weak self] commands in
-      guard let self else { return (false, [:]) }
+      guard let self else { return .init() }
       let result = ListMigration.run(commands, root: folder.appending(path: "extensions"), store: store)
       if result.count > 0 { navigator.personalItemsMigrated(result.count) }
-      return (result.createdItems, result.problems)
+      return result
     }
     // Tests and headless runs react with the services alone; the app reacts in its own order, these
     // first (`AppDelegate`).
@@ -73,6 +73,7 @@ final class LauncherModel {
       applied = configuration
     }
     navigator.applied(switching: updated.isEmpty ? switched : updated.union(switched ?? []))
+    if store.problem == nil { extensions.configChanged() }
   }
 
   /// Each source owns its message. Configuration and hotkey problems live in the store, the last

@@ -39,19 +39,19 @@ Search-bar fields and scalar settings use `{name, type, description, placeholder
 
 **Settings:** Rendered in Settings ▸ Extensions and saved in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text/number setting restores its default.
 
-**List settings:** A setting with `"type":"list"` declares a name, a description used as its Settings section label, and a nonempty `fields` array. Fields are one level deep. Each field uses one of the four types above and can set `"optional":true`. Text fields can also set `"multiline":true`. Field names are unique and `id` is reserved. List names cannot contain a slash.
+**List settings:** A setting with `"type":"list"` declares a name, a description used as its Settings section label, and a nonempty `fields` array. Fields are one level deep. Each field uses one of the four types above and can set `"optional":true`. Text fields can also set `"multiline":true`. Field names are unique and `id` is reserved. List names cannot contain a slash. An optional singular `itemName` supplies the sheet title, such as **Add Bookmark**. In the sheet, use `placeholder` for a short field label and `description` for help below it. Without `placeholder`, the description serves as the label.
 
 ```json
-{"name":"links","type":"list","description":"Bookmarks","editable":true,
+{"name":"links","type":"list","description":"Bookmarks","itemName":"Bookmark","editable":true,
  "fields":[{"name":"title","type":"text","description":"Title"},
-           {"name":"url","type":"text","description":"URL"},
+           {"name":"url","type":"text","placeholder":"URL","description":"Use a complete URL, including its scheme"},
            {"name":"keyword","type":"text","description":"Keyword","optional":true}],
  "item":{"title":"{title}","keywords":["{keyword}"],"actions":[{"type":"open","url":"{url}"}]}}
 ```
 
 Wicket draws and saves the editor in Settings ▸ Extensions. `editable` defaults to true. With `editable:false`, use a program's `save` action to open the add sheet. Settings can still edit or delete existing entries. The config value is an array of string maps, each with a stable, nonempty `id` unique within the list. Settings generates IDs. When editing the file, choose a slug and keep the remaining entries and settings. Every request includes valid entries under `settings.<name>` (an empty array when none are valid or saved). Malformed data shows a repair row for its extension.
 
-The optional `item` uses the ordinary item schema. Wicket supplies the entry's ID and expands `{field}` placeholders in string values once, after parsing the template. An absent declared field expands to an empty string, and empty keywords disappear. Indexed entries match at the root without a process and offer **Edit in Settings…** in ⌘K. `wicket://settings?input=<folder>/<list>` opens a list for editing. Delete in Settings also removes the entry's hotkey in the same write.
+The optional `item` uses the ordinary item schema. Wicket supplies the entry's ID and expands `{field}` placeholders in string values once, after parsing the template. An absent declared field expands to an empty string, and empty keywords disappear. Expanded `open` URLs must be absolute, with a host for HTTP and HTTPS. The usual `open` rules apply at activation. Indexed entries match at the root without a process and offer **Edit in Settings…** in ⌘K. `wicket://settings?input=<folder>/<list>` opens a list for editing. When saving an edited entry, Settings writes the fields changed in the sheet and keeps other edits already saved to config.json. Delete in Settings also removes the entry’s hotkey in the same write.
 
 ### Submit and actions
 
