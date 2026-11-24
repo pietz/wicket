@@ -28,22 +28,24 @@ Wicket ships as a notarized DMG on GitHub Releases, updates via Sparkle, and ins
 
 ## Cutting a release
 
-Run `Scripts/check.sh` on a clean working tree (`release.sh` refuses tracked or untracked changes). Signing and notarization require an unlocked macOS login session and login keychain—do not start a release while the session is locked or from an unattended run; unlock and retry if Keychain access stalls. If the Sparkle key was imported (`-f`) rather than generated locally, the first `sign_update` prompts in the UI—click **Always Allow** once, or the release stops after notarization. To sign without the keychain (e.g. headless Mac), export to a private file outside the checkout, run `SPARKLE_KEY_FILE=<file> Scripts/release.sh <version>` (uses `sign_update --ed-key-file`), and delete the file afterward. `WICKET_SIGN_IDENTITY` overrides the identity for `build-app.sh`; `release.sh` always signs the DMG with the team's Developer ID.
+Run `Scripts/check.sh` on a clean working tree (`release.sh` refuses tracked or untracked changes). Signing and notarization require an unlocked macOS login session and login keychain—do not start a release while the session is locked or from an unattended run; unlock and retry if Keychain access stalls. If the Sparkle key was imported (`-f`) rather than generated locally, the first `sign_update` prompts in the UI—click **Always Allow** once, or the release stops after notarization. To sign without the keychain (e.g. headless Mac), export to a private file outside the checkout, run `SPARKLE_KEY_FILE=<file> Scripts/release.sh <version> <notes.md>` (uses `sign_update --ed-key-file`), and delete the file afterward. `WICKET_SIGN_IDENTITY` overrides the identity for `build-app.sh`; `release.sh` always signs the DMG with the team's Developer ID.
 
 ```sh
-Scripts/release.sh <version>
+Scripts/release.sh <version> build/notes.md
 ```
+
+Write the release notes first, in Markdown, outside the tracked tree (`build/` is ignored): what changed for users, in plain words.
 
 The script:
 1. Sets `CFBundleShortVersionString` to `<version>` and increments `CFBundleVersion` past the newest build in `appcast.xml` in `Resources/Info.plist`.
 2. Runs `Scripts/build-app.sh --release` and verifies the bundle starts headlessly with `.build` unreadable.
 3. Creates and signs `build/Wicket-<version>.dmg` (app + `/Applications` symlink).
 4. Notarizes (`notarytool` profile `wicket-notary`), staples, and assesses with `spctl`.
-5. Signs for Sparkle (`wicket` key) and prepends the item to `appcast.xml`.
+5. Signs for Sparkle (`wicket` key) and prepends the item to `appcast.xml`, with the notes as its Markdown `<description>` (what Sparkle's update window shows).
 6. Updates version and SHA-256 in `Casks/wicket.rb`.
-7. Prints the publish commands: commit, tag, push tag, `gh release create` with DMG, push `main` (last, so the appcast goes live after the DMG), and copy/push the cask to `../homebrew-wicket`.
+7. Prints the publish commands: commit, tag, push tag, `gh release create` with DMG and the same notes, push `main` (last, so the appcast goes live after the DMG), and copy/push the cask to `../homebrew-wicket`.
 
-If notarization fails, `appcast.xml` and `Casks/wicket.rb` stay untouched; revert `Resources/Info.plist` with `git checkout Resources/Info.plist`. Edit GitHub's `--generate-notes` release notes on the release page (which Sparkle displays).
+If notarization fails, `appcast.xml` and `Casks/wicket.rb` stay untouched; revert `Resources/Info.plist` with `git checkout Resources/Info.plist`. Sparkle shows the notes embedded in `appcast.xml`; editing the GitHub release later does not change them.
 
 ## After publishing
 

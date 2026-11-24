@@ -2,12 +2,18 @@
 # Cuts a release: bumps the version, builds and signs Wicket, makes a notarized, stapled DMG, signs
 # it for Sparkle, adds it to appcast.xml and the cask, then prints the commands that publish it.
 # It publishes nothing itself. One-time setup and the full sequence: docs/release.md.
-#   Scripts/release.sh <version>
+#   Scripts/release.sh <version> <notes.md>
 set -euo pipefail
 cd "${0:A:h}/.."
 
-version="${1:?usage: Scripts/release.sh <version, like 0.0.2>}"
+version="${1:?usage: Scripts/release.sh <version, like 0.0.2> <notes.md>}"
 [[ $version =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || { echo "version must look like 0.0.2" >&2; exit 2; }
+# Markdown release notes, shown in Sparkle's update window and on the GitHub release. Keep the file
+# outside the tracked tree (e.g. build/notes.md): the build refuses untracked changes.
+notes="${2:?usage: Scripts/release.sh <version> <notes.md>}"
+[[ -s $notes ]] || { echo "release notes file is missing or empty: $notes" >&2; exit 2; }
+grep -q ']]>' "$notes" && { echo "release notes must not contain ]]>" >&2; exit 2; }
+notes=${notes:A}
 sparkle_bin=.build/artifacts/sparkle/Sparkle/bin
 repo=https://github.com/pietz/wicket
 dmg="build/Wicket-$version.dmg"
@@ -75,6 +81,7 @@ item="    <item>
       <sparkle:version>$build</sparkle:version>
       <sparkle:shortVersionString>$version</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format=\"markdown\"><![CDATA[$(<"$notes")]]></description>
       <sparkle:fullReleaseNotesLink>$repo/releases/tag/v$version</sparkle:fullReleaseNotesLink>
       <enclosure url=\"$url\" type=\"application/octet-stream\" $enclosure/>
     </item>"
@@ -98,7 +105,7 @@ Nothing is published yet. To publish, in this order (the appcast goes live last,
   git commit -m "Release $version"
   git tag v$version
   git push origin v$version
-  gh release create v$version "$dmg" --verify-tag --prerelease --title "Wicket $version" --generate-notes
+  gh release create v$version "$dmg" --verify-tag --prerelease --title "Wicket $version" --notes-file "$notes"
   git push origin main
   cp Casks/wicket.rb ../homebrew-wicket/Casks/wicket.rb
   git -C ../homebrew-wicket commit -am "wicket $version" && git -C ../homebrew-wicket push
