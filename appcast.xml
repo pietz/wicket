@@ -6,6 +6,24 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.8</title>
+      <pubDate>Tue, 24 Nov 2026 22:29:43 +0000</pubDate>
+      <sparkle:version>49</sparkle:version>
+      <sparkle:shortVersionString>0.7.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Answers that look like an app
+
+The built-in agent now lays out answers the way you'd expect from a small Mac app, based on layouts picked by hand:
+
+- Two options sit side by side: a comparison as two cards, a recommendation as two tiles with the pick marked.
+- Things to grab, like a packing list, show as an icon grid with one row to copy the list.
+- Steps and explanations are numbered rows or points; press Return on one for the details.
+- Statuses show a badge and one bar per state.
+- Written text, like a note or an email, sits in a card with a row to copy it, or as two versions side by side when the tone is up to you.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.8</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.8/Wicket-0.7.8.dmg" type="application/octet-stream" sparkle:edSignature="HkSPCE5/3uRIMjoB5+6FNOltNXccg1zP+GaBM4l2qDpoPKfezkqrTfUwvJCAY0v6RpNdeOyVi+aVbg8MAiKGDQ==" length="4584723"/>
+    </item>
+    <item>
       <title>Wicket 0.7.7</title>
       <pubDate>Tue, 24 Nov 2026 19:26:39 +0000</pubDate>
       <sparkle:version>48</sparkle:version>
