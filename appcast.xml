@@ -6,6 +6,20 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.7.7</title>
+      <pubDate>Tue, 24 Nov 2026 19:26:39 +0000</pubDate>
+      <sparkle:version>48</sparkle:version>
+      <sparkle:shortVersionString>0.7.7</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Your lists in Settings
+
+- Quicklinks bookmarks and site searches now live in Settings ▸ Extensions ▸ Quicklinks. Add, edit and delete them there, and give any of them a hotkey.
+- Your existing entries move over automatically the first time you open the new version.
+- Window Manager: "Save Current Window…" saves the current window's position as a named move you can run by keyword or hotkey.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.7.7</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.7.7/Wicket-0.7.7.dmg" type="application/octet-stream" sparkle:edSignature="kbNhAykDfOkgZgKXx34xIwWZjSe2prtU0433itbHuwtcriiGteDsZNiJgWlDukW7NJloC+PiKPKcIER9lNc9DQ==" length="4582676"/>
+    </item>
+    <item>
       <title>Wicket 0.7.6</title>
       <pubDate>Tue, 24 Nov 2026 17:06:44 +0000</pubDate>
       <sparkle:version>47</sparkle:version>
