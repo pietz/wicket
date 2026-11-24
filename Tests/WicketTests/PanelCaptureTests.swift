@@ -34,13 +34,13 @@ private let states =
     "conversation-multi", "conversation-reopen", "conversation-long", "conversation-long-expanded",
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
-    "extension-pattern", "extension-list", "extension-detail", "extension-both",
+    "extension-pattern", "extension-list", "extension-quicklinks-empty", "extension-detail", "extension-both",
     "weather-root", "weather-page",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
     "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
-    "settings-error",
+    "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit", "settings-error",
     "settings-conflict",
   ] + transitions
 
@@ -67,7 +67,15 @@ private func expectedText(_ name: String) -> [String] {
       "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Window Manager",
     ]
   }
+  if name == "settings-quicklinks" {
+    return ["Quicklinks", "Bookmarks", "Wicket Docs", "Site Searches", "Search YouTube"]
+  }
+  if name == "settings-quicklinks-add" { return ["Add Entry", "Title", "URL", "Keyword", "Cancel", "Save"] }
+  if name == "settings-quicklinks-edit" {
+    return ["Edit Entry", "Wicket Docs", "wicket.app", "Cancel", "Save"]
+  }
   if name.contains("settings-") { return [] }
+  if name == "extension-quicklinks-empty" { return ["Quicklinks", "Add a Quicklink"] }
   if name.contains("clipboard-image") {
     // Text recognition reads × as x, now and then.
     return ["Clipboard History", "Image 1200", "Dimensions", "File size", "Copied", "50m ago"]
@@ -710,10 +718,13 @@ private let installedAgent: Void = {
       _ = model.activateReturn()
       await model.navigator.settled()
     } else {
-      if state == "extension-list" { try writeQuicklinks(in: model.agent.folder) }
+      if state == "extension-list" {
+        try writeQuicklinks(in: model.agent.folder)
+        model.store.load()
+      }
       await host.reload()
       switch state {
-      case "extension-list":
+      case "extension-list", "extension-quicklinks-empty":
         model.navigator.go(Address(id: "extension:links-search", link: true))
       default: model.navigator.input = "10 km in mi"
       }
@@ -772,7 +783,7 @@ private let installedAgent: Void = {
           keys: try Shortcut("ctrl+option+left"),
           target: HotkeyTarget(target: "extension:window", item: "left"))
       ]
-      initial.extensions = ["window": ["gap": "8"]]
+      initial.extensions = ["window": .object(["gap": .string("8")])]
     }
     if state == "settings-extensions" {
       let weather = folder.appending(path: "extensions/weather")
@@ -781,6 +792,23 @@ private let installedAgent: Void = {
         to: weather.appending(path: "wicket.json"))
       try Data("print('weather')".utf8).write(to: weather.appending(path: "main.py"))
       initial.providers.append(.init("extension:weather", enabled: false))
+    }
+    let quicklinks = state.hasPrefix("settings-quicklinks")
+    let bookmarks = [
+      ["id": "wicket", "title": "Wicket Docs", "url": "https://wicket.app/docs", "keyword": "wd"],
+      ["id": "swift", "title": "Swift", "url": "https://swift.org"],
+    ]
+    if quicklinks {
+      initial.extensions["links-search"] = .object([
+        "links": .array(bookmarks.map { .object($0.mapValues(JSONValue.string)) }),
+        "searches": .array(quicklinkSearches.prefix(1).map { .object($0.mapValues(JSONValue.string)) }),
+      ])
+      initial.hotkeys = [
+        .init(
+          keys: try Shortcut("ctrl+option+w"),
+          target: HotkeyTarget(
+            target: "extension:links-search", item: "wicket", entryList: "links"))
+      ]
     }
     try initial.save(at: store.url)
     // Fresh cached models mean the pane never starts a CLI; the closure guards the rest.
@@ -797,8 +825,9 @@ private let installedAgent: Void = {
     store.checkSignIn = { _ in .signedIn }
     _ = installedAgent
     let host = ExtensionHost(folder: folder, bundled: bundledExtensions)
-    await host.reload()
     store.start(watching: false)
+    _ = host.applySettings(store.configuration.extensions)
+    await host.reload()
     if state == "settings-error" {
       try Data("{".utf8).write(to: store.url, options: .atomic)
       store.load()
@@ -806,7 +835,7 @@ private let installedAgent: Void = {
     if state == "settings-conflict" { store.hotkeyProblem = "⌃K is in use. ⌥Space still opens Wicket." }
     let section =
       ["settings-general", "settings-voice", "settings-agent", "settings-extensions"].firstIndex(of: state)
-      ?? (state == "settings-window" ? 3 : 0)
+      ?? (state == "settings-window" || quicklinks ? 3 : 0)
     let pane = NSHostingView(
       rootView: SettingsPane(
         section: section, store: store, extensions: host,
@@ -816,12 +845,28 @@ private let installedAgent: Void = {
           interval: nil),
         runs: AgentHistory(url: folder.appending(path: "agent-history.json")),
         updater: nil, pauseHotkey: { _ in },
-        selected: state == "settings-window" ? "extension:window" : "apps"))
-    pane.frame = NSRect(origin: .zero, size: SettingsPane.size)
-    let window = NSWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        selected: state == "settings-window"
+          ? "extension:window"
+          : quicklinks ? "extension:links-search" : "apps"))
+    let view: NSView
+    if quicklinks, state != "settings-quicklinks" {
+      let list = try #require(host.commands["extension:links-search"]?.manifest.settings.first?.list)
+      let editing = state == "settings-quicklinks-edit"
+      let draft = SettingsEntryDraft(
+        folder: "links-search", list: list, values: editing ? bookmarks[0] : [:],
+        entryID: editing ? bookmarks[0]["id"] : nil)
+      // A native sheet's content has its own surface. Host that same content without presenting a window.
+      let editor = NSHostingView(rootView: SettingsEntryEditor(draft: draft, store: store, close: {}))
+      editor.frame = NSRect(origin: .zero, size: SettingsEntryEditor.size)
+      view = editor
+    } else {
+      pane.frame = NSRect(origin: .zero, size: SettingsPane.size)
+      view = pane
+    }
+    let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
-    window.contentView = pane
+    window.contentView = view
     if state == "settings-agent" {
       // The pane checks on appearing; the capture draws only once the check answered.
       store.discoverOptions()
@@ -829,7 +874,7 @@ private let installedAgent: Void = {
       #expect(AgentCLI.installed(.claude) && store.signIn[.claude] == .signedIn)
     }
     let model = LauncherModel.testing(in: folder)
-    let scenario = Scenario(model: model, controller: nil, view: pane, window: window, folder: folder)
+    let scenario = Scenario(model: model, controller: nil, view: view, window: window, folder: folder)
     scenario.keep.append(store)
     scenario.keep.append(host)
     return scenario
@@ -981,6 +1026,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
         && model.navigator.command?.problem?.contains("REPAIR") == true)
   case "hotkey-binding":
     #expect(model.navigator.results.compactMap { model.navigator.hotkey(of: $0) }.count == 2)
+  case "settings-quicklinks-add", "settings-quicklinks-edit":
+    #expect(scenario.controller == nil && scenario.view.frame.size == SettingsEntryEditor.size)
   case _ where state.hasPrefix("settings-"):
     #expect(scenario.controller == nil && scenario.view.frame.size == SettingsPane.size)
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)
@@ -1036,6 +1083,8 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-pattern":
     let decimal = ProviderRequest.NumberMarks.current.decimal
     #expect(model.navigator.results.first?.row.title.contains("6\(decimal)21") == true)
+  case "extension-quicklinks-empty":
+    #expect(model.navigator.results.map(\.row.title) == ["Add a Quicklink…"])
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
   case "weather-root":
     #expect(model.navigator.command == nil && model.navigator.prominentFirst)

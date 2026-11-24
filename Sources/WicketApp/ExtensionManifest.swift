@@ -26,7 +26,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   /// That Return is a hidden run (`Address.hidden`).
   let hidden: Bool
   /// Values the user sets in Settings, kept in config.json and sent in every `request.settings`.
-  let settings: [Field]
+  let settings: [ExtensionSetting]
   /// The macOS permissions its program needs, which Wicket checks before running it
   /// (`Permissions.gate`).
   let permissions: [Permission]
@@ -56,6 +56,8 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     var placeholder: String?
     var options: [String]?
     var `default`: String?
+    var optional: Bool?
+    var multiline: Bool?
 
     var inSearchBar: Bool { type == .text || type == .number }
     func accepts(_ value: String) -> Bool {
@@ -67,7 +69,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
       }
     }
 
-    fileprivate var valid: Bool {
+    var valid: Bool {
       guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
         !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       else { return false }
@@ -140,7 +142,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     guard submit || !hidden else {
       throw DecodingError.dataCorruptedError(forKey: .hidden, in: c, debugDescription: "hidden needs submit")
     }
-    settings = try c.decodeIfPresent([Field].self, forKey: .settings) ?? []
+    settings = try c.decodeIfPresent([ExtensionSetting].self, forKey: .settings) ?? []
     let declared = try c.decodeIfPresent([String].self, forKey: .permissions) ?? []
     permissions = declared.compactMap(Permission.init(rawValue:))
     guard permissions.count == declared.count, Set(declared).count == declared.count,
@@ -154,7 +156,8 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     }
     let names = fields.map(\.name)
     guard fields.filter(\.inSearchBar).count <= Self.maxSearchFields,
-      Set(names).count == names.count, fields.allSatisfy({ $0.valid && $0.default == nil })
+      Set(names).count == names.count,
+      fields.allSatisfy({ $0.valid && $0.default == nil && $0.optional == nil && $0.multiline == nil })
     else {
       throw DecodingError.dataCorruptedError(
         forKey: .fields, in: c,
@@ -164,12 +167,12 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     }
     let settingNames = settings.map(\.name)
     guard Set(settingNames).count == settingNames.count, settings.allSatisfy(\.valid),
-      command != nil || settings.isEmpty
+      command != nil || settings.allSatisfy({ $0.list != nil })
     else {
       throw DecodingError.dataCorruptedError(
         forKey: .settings, in: c,
         debugDescription:
-          "Settings need a command, unique names, descriptions and valid type options and defaults")
+          "Settings need unique names, descriptions and valid fields. Scalar settings need a command.")
     }
     guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw DecodingError.dataCorruptedError(forKey: .name, in: c, debugDescription: "Name must be nonempty")
@@ -180,7 +183,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
           forKey: .command, in: c, debugDescription: "Command is a nonempty argv array without NULs")
       }
     } else {
-      guard items != nil else {
+      guard items != nil || settings.contains(where: { $0.list?.item != nil }) else {
         throw DecodingError.dataCorruptedError(
           forKey: .command, in: c, debugDescription: "A manifest needs a command, items or both")
       }
@@ -200,38 +203,6 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
       match = MatchPattern(pattern: pattern, regex: regex)
     } else {
       match = nil
-    }
-  }
-
-  static func userItems(in file: URL, quicklinks: Bool = false) throws -> [Row] {
-    // The catalog's install lock must leave user.json out of its file hashes.
-    let data: Data
-    do {
-      data = try Data(contentsOf: file)
-    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-      return []
-    }
-    let decoder = JSONDecoder()
-    let items =
-      if quicklinks { try decoder.decode(UserItems<Quicklink>.self, from: data).items.map(\.row) } else {
-        try decoder.decode(UserItems<Row>.self, from: data).items
-      }
-    guard Row.validIDs(items) else { throw ExtensionFailure(Row.invalidIDs) }
-    return items
-  }
-
-  private struct UserItems<Item: Decodable>: Decodable {
-    let items: [Item]
-
-    init(from decoder: any Decoder) throws {
-      let file = try decoder.container(keyedBy: AnyKey.self)
-      let itemsKey = AnyKey(stringValue: "items")
-      if let key = file.allKeys.first(where: { $0.stringValue != itemsKey.stringValue }) {
-        throw DecodingError.dataCorruptedError(
-          forKey: key, in: file,
-          debugDescription: "Unknown key `\(key.stringValue)`; user.json only holds items")
-      }
-      items = try file.decode([Item].self, forKey: itemsKey)
     }
   }
 

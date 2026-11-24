@@ -14,7 +14,7 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   /// locale library of its own (the calculator links no Foundation, which costs 10 ms per process).
   let locale: NumberMarks
   /// An extension's settings from config.json over their manifest defaults (`ExtensionHost.view`).
-  var settings: [String: String] = [:]
+  var settings: [String: JSONValue] = [:]
   /// True for a root pattern run. Omitted from other requests.
   var rootMatch: Bool?
   struct NumberMarks: Codable, Sendable, Equatable {
@@ -74,6 +74,14 @@ struct ProviderView: Codable, Sendable, Equatable {
     self.back = back
   }
 
+  /// A submitted command can hand off directly to the native editor.
+  var saveAction: RowAction? {
+    guard body == nil, items.isEmpty, actions.count == 1, let action = actions.first,
+      case .save = action.kind
+    else { return nil }
+    return action
+  }
+
   /// A JSON object with neither body nor items: nothing to show, which only a hidden run may answer
   /// (`Address.hidden`).
   struct Empty: Error {}
@@ -109,8 +117,8 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   let detail: String?
   /// Host only, never decoded: an image file the host shows above the detail, such as a copied image.
   var picture: URL? = nil
-  /// Host only, never decoded: whether this static item came from user.json.
-  var isUserItem = false
+  /// Host only, never decoded: the list owning this indexed entry.
+  var entryList: String? = nil
   /// Host only, never decoded: the original ID of an item displayed by the index.
   var indexedItemID: String? = nil
 
@@ -257,6 +265,9 @@ struct RowAction: Codable, Sendable, Equatable {
     case hotkey(HotkeyTarget, record: Bool)
     /// Host only, never decoded: ask macOS for a permission, then replay the gated request.
     case grant(Permission, then: Address)
+    case save(setting: String, values: [String: String])
+    /// Host only: show an extension list in Settings.
+    case editList(folder: String, setting: String)
     // Host notice actions, never decoded.
     case checkForUpdates
     case dismissNotice
@@ -279,7 +290,10 @@ struct RowAction: Codable, Sendable, Equatable {
     .run(Address(extensionName: "agent", input: text), title: title)
   }
 
-  private enum CodingKeys: String, CodingKey { case type, url, text, title, paste, concealed }
+  private enum CodingKeys: String, CodingKey {
+    case type, url, text, title, paste, concealed, setting, values
+    case extensionName = "extension"
+  }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     title = try c.decodeIfPresent(String.self, forKey: .title)
@@ -293,6 +307,14 @@ struct RowAction: Codable, Sendable, Equatable {
       let text = try c.decode(String.self, forKey: .text)
       let concealed = try c.decodeIfPresent(Bool.self, forKey: .concealed) ?? false
       kind = type == "copy" ? .copy(text, concealed: concealed) : .paste(text, concealed: concealed)
+    case "save":
+      guard !c.contains(.extensionName) else {
+        throw DecodingError.dataCorruptedError(
+          forKey: .extensionName, in: c, debugDescription: "Save can only target its own extension")
+      }
+      kind = .save(
+        setting: try c.decode(String.self, forKey: .setting),
+        values: try c.decode([String: String].self, forKey: .values))
     case "run": kind = .run(try Address(from: decoder))
     case "agent": kind = Self.agent(try c.decode(String.self, forKey: .text)).kind
     default:
@@ -342,6 +364,12 @@ struct RowAction: Codable, Sendable, Equatable {
     case .grant(let permission, _):
       try c.encode("grant", forKey: .type)
       try c.encode(permission.rawValue, forKey: .text)
+    case .save(let setting, let values):
+      try c.encode("save", forKey: .type)
+      try c.encode(setting, forKey: .setting)
+      try c.encode(values, forKey: .values)
+    case .editList:
+      try c.encode("editList", forKey: .type)
     case .checkForUpdates:
       try c.encode("checkForUpdates", forKey: .type)
     case .dismissNotice:

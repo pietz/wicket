@@ -17,9 +17,9 @@ import Testing
   // A folder and an item id with spaces and query characters survive the round trip.
   let odd = HotkeyTarget(target: "extension:my tools", input: "a+b", item: "x&y=z")
   #expect(HotkeyTarget(odd.description) == odd)
-  let user = HotkeyTarget(target: odd.target, input: odd.input, item: odd.item, isUserItem: true)
+  let user = HotkeyTarget(target: odd.target, input: odd.input, item: odd.item, entryList: "links")
   #expect(HotkeyTarget(user.description) == user)
-  #expect(HotkeyTarget("wicket://window?item=left&user-item=left") == nil)
+  #expect(HotkeyTarget("wicket://window?item=left&entry=moves/left") == nil)
   #expect(Address(url: try #require(URL(string: user.description))) == user.address)
   // Followed as a link it is the command, never submitted.
   #expect(item.address == Address(extensionName: "window", link: true))

@@ -1,12 +1,27 @@
-{"name":"Window Manager","keyword":"window","description":"Moves the frontmost window: halves, maximize, center, next display, restore.","icon":"macwindow","command":["./main"],"permissions":["accessibility"],"settings":[{"name":"gap","placeholder":"Gap (points)","default":"0","type":"number","description":"Margin between a window and the screen edges"},{"name":"almostMaximize","placeholder":"Almost Maximize (percent)","default":"90","type":"number","description":"Percent of the screen used by Almost Maximize"}],"contract":2,"fields":[{"name":"query","type":"text","description":"Filter window moves"}],
-"items":[
-{"id":"left","title":"Left Half","keywords":["window"],"icon":"rectangle.lefthalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"left"}]},
-{"id":"right","title":"Right Half","keywords":["window"],"icon":"rectangle.righthalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"right"}]},
-{"id":"top","title":"Top Half","keywords":["window"],"icon":"rectangle.tophalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"top"}]},
-{"id":"bottom","title":"Bottom Half","keywords":["window"],"icon":"rectangle.bottomhalf.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"bottom"}]},
-{"id":"maximize","title":"Maximize","keywords":["window","max"],"icon":"rectangle.inset.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"maximize"}]},
-{"id":"almost-maximize","title":"Almost Maximize","keywords":["window","almost max"],"icon":"rectangle.center.inset.filled","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"almost-maximize"}]},
-{"id":"center","title":"Center","keywords":["window","centre"],"icon":"rectangle.arrowtriangle.2.inward","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"center"}]},
-{"id":"next-display","title":"Next Display","keywords":["window","monitor","screen"],"icon":"display.2","actions":[{"type":"run","title":"Move Window","hidden":true,"action":"next-display"}]},
-{"id":"restore","title":"Restore","keywords":["window"],"icon":"arrow.uturn.backward","actions":[{"type":"run","title":"Restore Window","hidden":true,"action":"restore"}]}
-]}
+{
+  "name": "Window Manager",
+  "keyword": "window",
+  "description": "Moves the frontmost window: halves, maximize, center, next display, restore.",
+  "icon": "macwindow",
+  "command": ["./main"],
+  "permissions": ["accessibility"],
+  "contract": 2,
+  "fields": [{"name": "query", "type": "text", "description": "Filter window moves"}],
+  "settings": [
+    {"name": "gap", "placeholder": "Gap (points)", "default": "0", "type": "number", "description": "Margin between a window and the screen edges"},
+    {"name": "almostMaximize", "placeholder": "Almost Maximize (percent)", "default": "90", "type": "number", "description": "Percent of the screen used by Almost Maximize"},
+    {"name": "moves", "type": "list", "description": "Saved Moves", "editable": false, "fields": [{"name": "title", "type": "text", "description": "Title"}, {"name": "keyword", "type": "text", "description": "Keyword", "optional": true}, {"name": "definition", "type": "text", "description": "Window Move Definition", "multiline": true}], "item": {"title": "{title}", "keywords": ["{keyword}"], "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "apply-definition", "fields": {"definition": "{definition}"}}]}}
+  ],
+  "items": [
+    {"id": "left", "title": "Left Half", "keywords": ["window"], "icon": "rectangle.lefthalf.filled", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "left"}]},
+    {"id": "right", "title": "Right Half", "keywords": ["window"], "icon": "rectangle.righthalf.filled", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "right"}]},
+    {"id": "top", "title": "Top Half", "keywords": ["window"], "icon": "rectangle.tophalf.filled", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "top"}]},
+    {"id": "bottom", "title": "Bottom Half", "keywords": ["window"], "icon": "rectangle.bottomhalf.filled", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "bottom"}]},
+    {"id": "maximize", "title": "Maximize", "keywords": ["window", "max"], "icon": "rectangle.inset.filled", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "maximize"}]},
+    {"id": "almost-maximize", "title": "Almost Maximize", "keywords": ["window", "almost max"], "icon": "rectangle.center.inset.filled", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "almost-maximize"}]},
+    {"id": "center", "title": "Center", "keywords": ["window", "centre"], "icon": "rectangle.arrowtriangle.2.inward", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "center"}]},
+    {"id": "next-display", "title": "Next Display", "keywords": ["window", "monitor", "screen"], "icon": "display.2", "actions": [{"type": "run", "title": "Move Window", "hidden": true, "action": "next-display"}]},
+    {"id": "restore", "title": "Restore", "keywords": ["window"], "icon": "arrow.uturn.backward", "actions": [{"type": "run", "title": "Restore Window", "hidden": true, "action": "restore"}]},
+    {"id": "save-current", "title": "Save Current Window…", "icon": "square.and.arrow.down", "actions": [{"type": "run", "action": "save-current", "hidden": true}]}
+  ]
+}

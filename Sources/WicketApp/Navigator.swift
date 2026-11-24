@@ -208,6 +208,7 @@ final class Navigator {
   private var revealedRootList = false
   /// Snapshot at open so a background update cannot replace the row under the selection.
   private var rootNotice: Result?
+  private var migrationNotice: Result?
   private var dismissedNotices: Set<String> = []
   private static let noticeProvider = "notices"
   private var rootListProblem: String?
@@ -257,7 +258,11 @@ final class Navigator {
   func actions(of result: Result) -> [RowAction] {
     guard let target = hotkeyTarget(of: result) else { return result.row.actions }
     let bound = configuration.hotkeys.contains { $0.target == target }
-    return result.row.actions + [RowAction(.hotkey(target, record: true))]
+    let edit =
+      if let list = target.entryList, let folder = target.address.extensionName {
+        [RowAction(.editList(folder: folder, setting: list))]
+      } else { [RowAction]() }
+    return result.row.actions + edit + [RowAction(.hotkey(target, record: true))]
       + (bound ? [RowAction(.hotkey(target, record: false))] : [])
   }
   /// The row ⌘K is about: the selected one, or on a page with nothing selected the view itself.
@@ -458,7 +463,7 @@ final class Navigator {
     if let hotkey {
       guard let selected = directory.hotkeyTarget(of: row, atRoot: true),
         selected.target == hotkey.target, selected.item == hotkey.item,
-        selected.isUserItem == hotkey.isUserItem
+        selected.entryList == hotkey.entryList
       else { return action }
     }
     address.fields = draft.merging(address.fields ?? [:]) { _, fixed in fixed }
@@ -891,7 +896,13 @@ final class Navigator {
   ) {
     switch outcome {
     case .view(let view):
+      let id = target?.id
       showArrival()
+      if request.cause == .submission, let action = view.saveAction,
+        case .save(let setting, let values) = action.kind
+      {
+        saveEntry(setting, values: values, from: id)
+      }
       command?.show(view, page: page, for: request, turn: turn, remembered: remembered)
     case .problem(let problem, _):
       showArrival()
@@ -974,7 +985,12 @@ final class Navigator {
       return
     }
     switch destination {
-    case .settings: surface?.perform(.settings)
+    case .settings:
+      if let input = address.input, let destination = SettingsListDestination(path: input) {
+        surface?.perform(.settingsList(destination))
+      } else {
+        surface?.perform(.settings)
+      }
     case .agent: fill(address.input ?? input)
     case .root: arrive(nil, input: address.input ?? "", holding: holding)
     case .command(let behavior):
@@ -1071,6 +1087,10 @@ final class Navigator {
       } else {
         go(address, from: result?.provider, submitted: !address.link, trigger: fromItem ? .item : .command)
       }
+    case .editList(let folder, let setting):
+      surface?.perform(.settingsList(.init(folder: folder, setting: setting)))
+    case .save(let setting, let values):
+      saveEntry(setting, values: values, from: result?.provider)
     case .send(let text): send(text)
     case .ask: askAgent()
     case .detail(let markdown, let action): openDetail(markdown, action: action, from: result)
@@ -1088,6 +1108,7 @@ final class Navigator {
     case .dismissNotice:
       guard let result, result == rootNotice else { return true }
       dismissedNotices.insert(result.row.id)
+      if result == migrationNotice { migrationNotice = nil }
       rootNotice = nil
       resetSelection()
       sizeList(now: true)
@@ -1098,6 +1119,17 @@ final class Navigator {
     case .copy, .paste, .clip, .hotkey: return false
     }
     return true
+  }
+  private func saveEntry(_ setting: String, values: [String: String], from id: String?) {
+    guard let owner = id.flatMap({ extensions.commands[$0] }),
+      owner.manifest.command != nil, directory.isAvailable(owner.id, in: configuration),
+      owner.manifest.settings.contains(where: { $0.list?.name == setting })
+    else {
+      reportActionProblem("Save must name a list declared by its own extension.")
+      return
+    }
+    surface?.perform(
+      .settingsList(.init(folder: owner.folder.lastPathComponent, setting: setting, values: values)))
   }
   /// Only picks that root search can learn from: not inside a chosen command, and not fallbacks.
   func record(_ result: Result) {
@@ -1125,6 +1157,20 @@ final class Navigator {
     input = ""
     sizeList(now: true)
   }
+  func personalItemsMigrated(_ count: Int) {
+    let notice = Result(
+      provider: Self.noticeProvider,
+      row: Row(
+        id: "personal-items-migrated", title: "Moved \(count) saved \(count == 1 ? "item" : "items")",
+        subtitle: "Find your lists and migrated items in Settings → Extensions",
+        icon: "checkmark.circle", actions: [RowAction(.dismissNotice)]))
+    migrationNotice = notice
+    rootNotice = notice
+    pendingReturn = nil
+    resetSelection()
+    sizeList(now: true)
+    publish()
+  }
   /// The panel shows again. A conversation or empty question kept past its time is gone, and the root
   /// starts over.
   func reopen(now: Date, availableUpdate: String?) {
@@ -1143,7 +1189,7 @@ final class Navigator {
           id: "update", title: "Update Wicket to \($0)", subtitle: "Return shows what’s new",
           icon: "arrow.down.circle", actions: [RowAction(.checkForUpdates), RowAction(.dismissNotice)]))
     }
-    let notice = update.flatMap { dismissedNotices.contains($0.row.id) ? nil : $0 }
+    let notice = migrationNotice ?? update.flatMap { dismissedNotices.contains($0.row.id) ? nil : $0 }
     guard notice != rootNotice else { return }
     rootNotice = notice
     // A Return made before the notice appeared must never answer it.
@@ -1406,6 +1452,12 @@ final class Navigator {
       guard let self else { return }
       hiddenRuns[run] = nil
       guard let outcome else { return }
+      if case .view(let view) = outcome, let action = view.saveAction,
+        case .save(let setting, let values) = action.kind
+      {
+        saveEntry(setting, values: values, from: id)
+        return
+      }
       let problem = "\(program.manifest.name): \(line)"
       guard surface?.isShown == false else {
         actionProblem = problem

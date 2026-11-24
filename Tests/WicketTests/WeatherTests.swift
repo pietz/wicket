@@ -30,7 +30,7 @@ private func view(
 ) async throws -> ProviderView {
   var request = ProviderRequest(input: input, fields: fields, action: action, submitted: submitted)
   request.rootMatch = root ? true : nil
-  request.settings = settings
+  request.settings = settings.mapValues(JSONValue.string)
   let bytes = try Array(JSONEncoder().encode(request))
   var position = 0
   let output = await weatherView(

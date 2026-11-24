@@ -10,8 +10,8 @@ Symlinked extension folders in `extensions/` are watched live, including edits t
 {"contract":2,"name":"Weather","keyword":"weather","command":["wicket-js","main.js"],"icon":"cloud.sun"}
 ```
 
-Required: nonempty `name` and at least one of nonempty `command` (argv array) or `items`.
-Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `fields`, `itemList`, integer `contract`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), `settings`, and `permissions`. Any other key triggers a repair row naming it.
+Required: nonempty `name` and at least one of `command` (nonempty argv array), `items`, or a list setting that declares an `item`.
+Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `fields`, `itemList`, integer `contract`, `settings`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), and `permissions`. Any other key triggers a repair row naming it.
 
 Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; a contract 1 program does not run and shows migration instructions (use typed `fields`/`settings`, read `request.fields`/`request.action`, return `items`/`body`, then set `"contract":2`). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
 
@@ -19,13 +19,13 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; 
 
 ### Triggers and ranking
 
-- **Name and keyword:** Match while typing without starting a process. An exact keyword (case-insensitive) + space + text fills the first editable text field (for commands and for manifest/`user.json` items whose first action is `run` into an enabled command with an editable text field). Selecting the row sends one **submitted** request with the filled fields; Ask agent stays in the list.
+- **Name and keyword:** Match while typing without starting a process. An exact keyword (case-insensitive) + space + text fills the first editable text field (for commands and for manifest items or list entries whose first action is `run` into an enabled command with an editable text field). Selecting the row sends one **submitted** request with the filled fields; Ask agent stays in the list.
 - **`match`:** Regex checked in-process on root input (≤512 UTF-8 bytes regex; skips input >4,096 bytes; 5 ms deadline checked at progress callbacks—prefer anchored, simple patterns). Runs before selection and may arrive late. A nonempty successful result is a strong match. A `body` view yields one "Show details" row (even if `items` are also present); activating it or a pattern-error row reruns with root input and `submitted:false`. New typing cancels the old run. Matching empty input supplies initial root rows (even with Only show results when typing on, where Return still runs the selected row).
   Cache remote lookups in `WICKET_DATA_DIR`.
   A prominent result can take its own command's keyword row when both submit the same request.
 - **`fallback:true`:** Shown just after Ask agent when nonempty root input has no strong match and no matching pattern is still running. Activation submits the root query.
 
-**Root order:** exact keywords with field text (longest keyword first, then standard name-match tie-breaks starting with usage for that input) → nonempty pattern results (grouped by extension name, sorted by title/alias tier, usage for that query, then returned order—put the best row first) → name matches (apps, commands, manifest items, host rows, files). Command lists sort by tier then returned order.
+**Root order:** exact keywords with field text (longest keyword first, then standard name-match tie-breaks starting with usage for that input) → nonempty pattern results (grouped by extension name, sorted by title/alias tier, usage for that query, then returned order—put the best row first) → name matches (apps, commands, indexed items, host rows, files). Command lists sort by tier then returned order.
 
 ### Fields and settings
 
@@ -33,11 +33,25 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; 
 {"contract":2,"name":"Weather","command":["wicket-js","main.js"],"fields":[{"name":"city","type":"text","description":"Search for a city","placeholder":"City"},{"name":"days","type":"number","description":"Days in the forecast"}],"settings":[{"name":"alerts","type":"bool","description":"Show weather alerts","default":"true"},{"name":"scale","type":"choice","description":"Temperature scale","options":["Celsius","Fahrenheit"],"default":"Celsius"}]}
 ```
 
-Both arrays use `{name, type, description, placeholder?}` (`name` and `description` nonempty; names unique per array). Types: `text`, `number`, `bool`, `choice` (`options`: distinct nonempty strings). All values travel as strings (`"true"`/`"false"` for bool; decimal point for numbers). Programs validate the values they use. `fields` cannot declare `default`; `settings` may.
+Search-bar fields and scalar settings use `{name, type, description, placeholder?}` (`name` and `description` nonempty; names unique per array). Types: `text`, `number`, `bool`, `choice` (`options`: distinct nonempty strings). All values travel as strings (`"true"`/`"false"` for bool; decimal point for numbers). Programs validate the values they use. Scalar settings require a command and may declare `default`.
 
 **Search bar:** Supports up to 3 `text`/`number` fields. The first `text` field claims the main input inside the command; Tab moves through remaining `text`/`number` slots (and from the root into a selected command or item whose first action is `run` into an enabled command, including cross-extension). Fields fixed by the action are skipped; filled and fixed values travel together on Return or hotkey. `bool`/`choice` fields receive values from actions or headless runs. Empty search-bar fields are omitted. Commands without a text field show "Ask about `<name>`…", where Return with no selection asks the agent.
 
 **Settings:** Rendered in Settings ▸ Extensions and saved in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text/number setting restores its default.
+
+**List settings:** A setting with `"type":"list"` declares a name, a description used as its Settings section label, and a nonempty `fields` array. Fields are one level deep. Each field uses one of the four types above and can set `"optional":true`. Text fields can also set `"multiline":true`. Field names are unique and `id` is reserved. List names cannot contain a slash.
+
+```json
+{"name":"links","type":"list","description":"Bookmarks","editable":true,
+ "fields":[{"name":"title","type":"text","description":"Title"},
+           {"name":"url","type":"text","description":"URL"},
+           {"name":"keyword","type":"text","description":"Keyword","optional":true}],
+ "item":{"title":"{title}","keywords":["{keyword}"],"actions":[{"type":"open","url":"{url}"}]}}
+```
+
+Wicket draws and saves the editor in Settings ▸ Extensions. `editable` defaults to true. With `editable:false`, use a program's `save` action to open the add sheet. Settings can still edit or delete existing entries. The config value is an array of string maps, each with a stable, nonempty `id` unique within the list. Settings generates IDs. When editing the file, choose a slug and keep the remaining entries and settings. Every request includes valid entries under `settings.<name>` (an empty array when none are valid or saved). Malformed data shows a repair row for its extension.
+
+The optional `item` uses the ordinary item schema. Wicket supplies the entry's ID and expands `{field}` placeholders in string values once, after parsing the template. An absent declared field expands to an empty string, and empty keywords disappear. Indexed entries match at the root without a process and offer **Edit in Settings…** in ⌘K. `wicket://settings?input=<folder>/<list>` opens a list for editing. Delete in Settings also removes the entry's hotkey in the same write.
 
 ### Submit and actions
 
@@ -49,7 +63,7 @@ Gate user-visible effects on `submitted:true`. For effects the user should revie
 
 `permissions` recognizes `accessibility` (controlling other apps/windows) and `calendar` (full EventKit access). Wicket holds no other protected macOS grants, so macOS refuses Contacts, Photos, Location, and Automation. macOS grants access to Wicket itself, shared by all enabled extensions and agent subprocesses. Declaring permissions lets Wicket check before launch: missing grants skip root matches and show a permission row on command entry or hotkey (Calendar prompts inline and replays the request; Accessibility opens System Settings). A hidden hotkey's permission rows can open over a conversation and Esc returns to the draft.
 
-### Static items and `user.json`
+### Static items
 
 ```json
 {"name":"Bookmarks","icon":"bookmark","items":[
@@ -62,9 +76,7 @@ Static items use the view `items` schema and match at the root without running a
 
 A live command can set `"itemList":{}` to use its indexed items as its default view, as Quicklinks does. Set `itemList.empty` to a row shown when there are no items. Root pattern runs, named actions, and requests with fields beyond the main text filter go to the program. Remove `itemList` from a local Quicklinks manifest to have its program render the default view.
 
-Personal additions live in `extensions/<name>/user.json` in the working folder (`{"items":[...]}`—`items` is its only key; IDs nonempty and unique within `user.json`, may reuse manifest IDs). For a built-in, create the folder if needed and write only `user.json`. Wicket combines these items with the active manifest, including when a broken local override falls back to the built-in. An invalid `user.json` shows a repair row while manifest items remain available. See [Changing a built-in](#changing-a-built-in) for override behavior.
-
-Wicket reloads both files on change. When updating from a request, write atomically (temp file + rename) last. Manifest/item/repair changes cancel and rerun an open live command, while an open `submit:true` command keeps its view and pending request.
+Programs can render their own command views. Wicket adds indexed list entries to their browse lists. Edit `wicket.json` atomically (temp file and rename). A change to the manifest, indexed items or repair state refreshes the affected command.
 
 ## Request and process contract
 
@@ -75,7 +87,7 @@ Wicket reloads both files on change. When updating from a request, write atomica
 - `fields`: string map of filled search-bar/canvas fields and `run`-supplied values. If a command declares a text field, that field and `input` carry the same text.
 - `rootMatch`: `true` on root `match` runs (omitted otherwise). Root `match` checks raw typed input.
 - `locale`: all strings—`decimal`, `grouping` (empty if ungrouped), `groupingSize` (rightmost whole-number group), `secondaryGroupingSize` (groups to its left, e.g. 3 and 2 for `1,00,000`; default 3 if omitted).
-- `settings`: declared manifest settings (saved or default).
+- `settings`: declared scalar settings (saved or default) and lists (arrays of entry string maps).
 - `submitted`: `true` for command/fallback activation, `run` actions (including item hotkeys), Return in a `submit` command, or canvas fields with `act`. `false` for typing, refreshes, root matches, links, and pattern detail/error rows. Only submitted requests may perform user-visible effects; bounded local caches may update on any request.
 - `action`: optional one-shot name from a submitted `run`, canvas field commit, or headless `--action`.
 
@@ -95,7 +107,7 @@ JSON object with at least one of `body` or `items` (`{"items":[]}` is an empty l
 
 - **Items only:** Native list; the only shape whose rows appear directly at the root from a `match`.
 - **Body only:** HTML page (Markdown + body tags) under a native header with command name and view `actions`.
-- **Body + items:** Items render after the body as native-styled rows. Pages start unselected. With nothing selected, Return asks the agent if input is unclaimed; otherwise submits (`submit:true`) or runs the first view-level action (live command). Keep confirmation-worthy actions on a labelled target, not the default Return action. Without `body`, view `actions` are ignored.
+- **Body + items:** Items render after the body as native-styled rows. Pages start unselected. With nothing selected, Return asks the agent if input is unclaimed; otherwise submits (`submit:true`) or runs the first view-level action (live command). Keep confirmation-worthy actions on a labelled target, not the default Return action. Without `body`, view `actions` are used only for a submitted `save` response.
 - **`back`:** Optional field override map (e.g. `"back":{"view":""}`) so Escape reruns the command unsubmitted with those overrides (omitted keys kept, `""` clears).
 
 **Item schema:** Required: nonempty unique `id`, `title`, `actions` array (may be empty). Optional: `subtitle`, SF Symbol `icon`, `keywords`, `prominent:true` (calculator-sized first row), `detail` (Markdown + body tags). Keep IDs stable across updates so selection sticks. File `open`/`reveal` actions get native file icons. Return runs the first action; ⌘K and right-click list all actions (or view `actions` on an unselected page). Unknown action types, wrong types, missing required fields, and duplicate IDs fail; extra keys are ignored.
@@ -117,6 +129,7 @@ Optional `title` names the action in ⌘K and menus (defaults to action kind; `r
 - **`run`:** Submits a request to a target. Optional: `extension` (folder name; defaults to self; never name a folder `agent`, `settings`, `clipboard`, or `history`), `input`, `fields`, `action`, `hidden`, `promptIfEmpty`. Within the open command, `fields` merges by name (omitted kept, `""` clears); in another command, fields start empty. Main text uses the text field name or `input` (field name wins).
   - `"hidden":true`: hides Wicket immediately so the previous app keeps focus; print nothing on success. Printing a failure or a view with `body`/`items` opens Wicket on the command (or shows its first line if open). Visible runs must print a view.
   - `"promptIfEmpty":true`: for hidden actions needing text. Starts with supplied values and any item draft; if the first text field is blank, opens the command for that request (return a prompt view). Filling the field and pressing Return submits the same action as a hidden run.
+- **`save`:** Opens the native add sheet for a list declared by the program's own extension. Supply `setting` and a `values` string map. The user reviews the prefilled values and presses Save to write them to config.json. A program can attach this to a row or answer a submitted capture with `{"items":[],"actions":[{"type":"save","setting":"moves","values":{"definition":"…"}}]}` to open the sheet directly.
 - **`wicket://` URLs:** `wicket://<folder>?input=…`, `wicket://agent?input=…`, `wicket://settings`, `wicket://clipboard?input=…`, `wicket://history?input=…`, `wicket://?input=…` (root). Percent-encode `input`. Always unsubmitted with no `action` and empty non-main fields. Usable in `open`, Markdown links, and `<row open="…"/>`.
 - **`open`:** Accepts `http`, `https`, `mailto`, `wicket://`, `x-apple.systempreferences:…`, and existing `file://` URLs for apps, folders, and nonexecutable documents. Opening an app hides Wicket immediately (showing an error in the panel on failure). Refuses executables, scripts, workflows, and installers (`.command`, `.pkg`, `.mpkg`, `.dmg`, `.sh`, `.bash`, `.zsh`, `.py`, `.js`, `.scpt`, `.applescript`, `.workflow`), including symlink targets. **`reveal`** selects any existing file/folder in Finder and closes Wicket. Both are validated at activation time.
 - **`copy`** / **`paste`:** `copy` copies and closes. `paste` writes verbatim to pasteboard, restores the previous app, and posts ⌘V if Accessibility is granted (otherwise explains how to enable it without prompting). Trailing newlines are preserved verbatim; pasting into a terminal may act on pasted newlines. Add `"concealed":true` to keep text on this Mac and out of Clipboard History.
@@ -183,9 +196,9 @@ When asked to turn an answer into an extension, emit the same body/tags from loc
 
 ## Changing a built-in
 
-Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `weather`, `links-search` (Quicklinks), `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`, preserving any `user.json`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator and Shell avoid Foundation for speed; Quicklinks and Window Manager link AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
+Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `weather`, `links-search` (Quicklinks), `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator and Shell avoid Foundation for speed; Quicklinks and Window Manager link AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
 
-A valid local `wicket.json` takes precedence over the built-in of the same folder name. If Wicket cannot load the local manifest, it uses the bundled extension and shows one repair row for the local copy. Personal items still come from the local `user.json`. Wicket uses the built-in silently for recognized, unmodified contract-1 copies of Convert and Window Manager. In Settings, **Move to Trash** removes the old copy while keeping `user.json` in place, so **Make It Mine** can install the current version.
+A valid local `wicket.json` takes precedence over the built-in of the same folder name. If Wicket cannot load the local manifest, it uses the bundled extension and shows one repair row for the local copy. Wicket uses the built-in silently for recognized, unmodified contract-1 copies of Convert and Window Manager. In Settings, **Move to Trash** removes the old copy so **Make It Mine** can install the bundled version. Extension settings stay in config.json.
 
 - **Calculator (`calculator`):** Root match accepts bare symbol arithmetic or leading `=` (needed at root for functions, constants, scientific notation, and `of`); inside the command, `expression` takes the full grammar with optional `=`. Unit and currency expressions belong to Convert. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (1–34 significant digits, default 15; or 0–34 decimal places in Fixed, default 2). Automatic prints exact integers in full.
 - **Convert (`units`, `wicket://units`):** Single unit or currency quantities. Currency pairs use Frankfurter reference rates. Settings: `homeCurrency` (default `USD` for omitted targets and ambiguous `$`/`¥`), `decimals` (0–15 decimal places, default `2`), and `includeUnit` (default `false`).
@@ -210,35 +223,33 @@ Add or update `wicket://<id>?item=<itemID>` in `config.json`'s `hotkeys`, keepin
 
 ### Quicklinks
 
-Add entries to `items` in `extensions/links-search/user.json`. Create the folder if needed and keep existing entries.
+Add bookmarks and site searches in Settings ▸ Extensions ▸ Quicklinks, or edit these lists in `config.json`:
 
 ```json
-{
-  "items": [
-    {"id":"my-docs","title":"My docs","url":"https://example.com/docs"},
-    {"id":"youtube","title":"Search YouTube","keyword":"yt","url":"https://www.youtube.com/results?search_query={query}"}
-  ]
-}
+{"extensions":{"links-search":{
+  "links":[{"id":"my-docs","title":"My docs","url":"https://example.com/docs"}],
+  "searches":[{"id":"youtube","title":"Search YouTube","keyword":"yt","url":"https://www.youtube.com/results?search_query={query}"}]
+}}}
 ```
 
-Choose a stable, unique `id` and a display `title`. The optional `keyword` is a shortcut at the root. Use an absolute URL for a bookmark, including a host for HTTP(S). A search template fixes the HTTP(S) host and puts `{query}` in a path segment or query value. Quicklinks encodes the supplied query before opening that URL.
+Bookmarks open directly and can have a keyword. Site searches take a keyword and an HTTP(S) template with a fixed host and `{query}` in a path segment or query value. `yt cats` fills the query. `yt` followed by Return opens the query prompt. Quicklinks encodes the query before opening the URL.
 
-To bind a shortcut, add the item address to `config.json`'s `hotkeys`, preserving existing entries. This binding opens the query prompt. Use the address of a bookmark to open it directly.
+Record a hotkey in Settings or add a binding to `config.json` while keeping existing bindings. A search binding opens the prompt, and a bookmark binding opens its URL.
 
 ```json
-{"hotkeys":[{"keys":"ctrl+option+y","address":"wicket://links-search?user-item=youtube"}]}
+{"hotkeys":[{"keys":"ctrl+option+y","address":"wicket://links-search?entry=searches/youtube"}]}
 ```
 
-Items with explicit `actions` are also supported. An `open-link` run can use `fields.template` and optionally `fields.query` for a fixed search or `fields.bundleID` for a specific browser.
+For a custom item with its own actions, put it in a separate items-only manifest. A `run` to `links-search` with action `open-link` accepts `fields.template`, optional `fields.query` for a fixed search, and optional `fields.bundleID` for a specific browser.
 
 ### A saved window move
 
-Capture the current window with `Wicket --extension window --submitted --action capture` and parse `body` as a JSON array of `{bundleID, display, rect, focused}`. Take the entry with `focused: true` and save its display UUID and rect with `gap: 0` (if none is focused, ask the owner to focus a standard window wholly inside one display).
+Choose **Save Current Window…** in Window Manager with a standard window wholly inside one display. Name the move in the prefilled sheet. It appears under Settings ▸ Extensions ▸ Window Manager ▸ Saved Moves, where it can be edited, deleted, or given a hotkey.
 
-Write the item to `extensions/window/user.json` and bind with `wicket://window?user-item=coding` (a saved window move acts on the window focused when the shortcut is used):
+An agent can run `Wicket --extension window --submitted --action save-current` to get the captured `definition` in the response's `save` action. Add the named entry in `config.json` and bind it with `wicket://window?entry=moves/coding`. A saved move acts on the window focused when it is run.
 
 ```json
-{"items":[{"id":"coding","title":"Coding","keywords":["window"],"actions":[{"type":"run","extension":"window","action":"apply-definition","hidden":true,"fields":{"definition":"{\"kind\":\"move\",\"placement\":{\"display\":\"current\",\"rect\":[0,0,0.667,1],\"gap\":8}}"}}]}]}
+{"extensions":{"window":{"moves":[{"id":"coding","title":"Coding","keyword":"coding","definition":"{\"kind\":\"move\",\"placement\":{\"display\":\"current\",\"rect\":[0,0,0.667,1],\"gap\":8}}"}]}}}
 ```
 
 `rect` is `[x, y, width, height]` as fractions from the top-left of the usable display. `display` (and optional `fallback`) accepts `current`, `main`, `next`, or a display UUID. `gap` is 0–200 points (omit to use Window Manager's setting).
@@ -322,7 +333,7 @@ Declare needed permissions in `permissions` (e.g. `calendar`); Wicket handles th
 
 ## Hotkeys
 
-Spell `hotkeys` like `hotkey`, one entry per address. `item` and `user-item` query keys resolve only in `hotkeys`. Item hotkeys do not record usage. A submitted item run starts with supplied fields plus any root draft for that item; if the destination command already owns canvas form values, it keeps them and validates overrides. Hidden `run`, `copy`, `paste`, `open`, and `reveal` run without showing Wicket; other runs/links open Wicket there. A hotkey on a command itself, or an item of a switched-off extension, opens the command unsubmitted (`submitted:false`). Missing user items show a message; Settings marks unavailable item hotkeys—remove the binding there or delete its entry from `hotkeys` to free the keys.
+Spell `hotkeys` like `hotkey`, one entry per address. `item=<id>` addresses a manifest item and `entry=<list>/<id>` addresses a list entry. Both resolve only in `hotkeys`. Item hotkeys do not record usage. A submitted item run starts with supplied fields plus any root draft for that item; if the destination command already owns canvas form values, it keeps them and validates overrides. Hidden `run`, `copy`, `paste`, `open`, and `reveal` run without showing Wicket; other runs/links open Wicket there. A hotkey on a command itself, or an item of a switched-off extension, opens the command unsubmitted (`submitted:false`). Missing entries show a message; Settings marks unavailable item hotkeys—remove the binding there or delete its entry from `hotkeys` to free the keys.
 
 ## Repair
 

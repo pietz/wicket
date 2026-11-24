@@ -63,13 +63,13 @@ if let view = windowAnswer(
     try! JSONEncoder().encode(ax.current).write(to: frameFile)
     return result
   },
-  capture: { commandName in
+  capture: { commandName, saving in
     captureWindows(
       [
         CaptureApp(bundleID: "com.example.Editor", hidden: false, frontmost: true, ax: ax),
         CaptureApp(bundleID: "com.example.Hidden", hidden: true, frontmost: false, ax: hiddenApp),
       ],
-      displays: displays, commandName: commandName)
+      displays: displays, commandName: commandName, saving: saving)
   })
 {
   print(view)

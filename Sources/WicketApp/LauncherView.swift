@@ -633,6 +633,8 @@ extension RowAction {
     case .grant: "Allow"
     case .checkForUpdates: "Show What's New"
     case .dismissNotice: "Dismiss"
+    case .save: "Save…"
+    case .editList: "Edit in Settings…"
     }
   }
   /// The SF Symbol of its kind: its row in the action panel, and a page's target row without an icon.
@@ -651,6 +653,8 @@ extension RowAction {
     case .grant: "lock.open"
     case .checkForUpdates: "arrow.down.circle"
     case .dismissNotice: "xmark.circle"
+    case .save: "square.and.arrow.down"
+    case .editList: "pencil"
     }
   }
 }

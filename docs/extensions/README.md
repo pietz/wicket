@@ -10,7 +10,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 | Convert | [convert.md](convert.md) | Phase 1 shipped | Units offline and currency via Frankfurter. Typed arithmetic with units next. |
 | Weather | [weather.md](weather.md) | Bundled | Current conditions and a five-day forecast by city. |
 | Quicklinks | [quicklinks.md](quicklinks.md) | Shipped | Personal bookmarks and site searches with optional keywords and hotkeys. |
-| Window Manager | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in `user.json`; multi-window layouts next. |
+| Window Manager | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in Settings; multi-window layouts next. |
 | Calendar | [calendar.md](calendar.md) | Waiting on permission checks | Read-only 7-day EventKit agenda with Join and headless read. |
 
 **Parked:** System ([system.md](system.md))—waiting on Automation and per-action permission design.
@@ -18,7 +18,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 
 ## Decisions every spec follows
 
-- **User data & settings:** Personal additions go in `extensions/<name>/user.json` (untouched by catalog updates); settings live in `config.json`; API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
+- **User data & settings:** Personal lists and scalar settings live in `config.json`. API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
 - **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
@@ -36,7 +36,7 @@ Fixed numbers referenced by the individual specs:
 2. **Tab into an item's fields:** Shipped.
 3. **Untrusted text stays inert:** Shipped (unknown tags render literally; `<context>` marked as data).
 4. **Patterns compile once:** Shipped.
-5. **`user.json`:** Shipped (addressed via `?user-item=`; works beside bundled extensions).
+5. **List settings:** Extensions declare personal lists, Wicket edits them in native Settings, and indexed entries use `?entry=<list>/<id>` hotkeys. On first launch with a list declaration, Wicket migrates legacy Quicklinks and moves custom actions to My Items, leaving the old file on disk.
 6. **Contract recipes:** Shipped, in the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md#recipes).
 7. **`wicket-js`:** Shipped ([docs/wicket-js.md](../wicket-js.md)).
 8. **Meeting links:** Accept conferencing URL schemes (`zoommtg:`, `msteams:`) in `open` behind an explicit action.

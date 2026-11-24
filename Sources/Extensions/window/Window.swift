@@ -465,7 +465,7 @@ func answer(problem: String?, commands: String) -> String { #"{"items":["# + (pr
 @MainActor func windowAnswer(
   _ request: JSON?, manifestBytes: [UInt8],
   move: @MainActor (WindowMove, Layout, String) -> String?,
-  capture: @MainActor (String) -> String
+  capture: @MainActor (String, Bool) -> String
 ) -> String? {
   var position = 0
   let manifest = JSON.read(manifestBytes, &position)
@@ -473,7 +473,9 @@ func answer(problem: String?, commands: String) -> String { #"{"items":["# + (pr
     let commandName = manifest?["name"]?.string ?? "Window Manager"
     let settings = request?["settings"]
     let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
-    if action == "capture" { return capture(commandName) }
+    if action == "capture" || action == "save-current" {
+      return capture(commandName, action == "save-current")
+    }
     if action == "apply-definition" {
       switch Placement.decode(request?["fields"]?["definition"]?.string) {
       case .success(let placement):

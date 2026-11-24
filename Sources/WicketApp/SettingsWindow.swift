@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
   private var window: NSWindow?
+  private let listRoute = SettingsListRoute()
   private let store: ConfigurationStore
   private let extensions: ExtensionHost
   private let clipboard: ClipboardHistory
@@ -23,7 +24,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     self.updater = updater
     self.pauseHotkey = pauseHotkey
   }
-  func show(section: Int? = nil) {
+  func show(section: Int? = nil, list: SettingsListDestination? = nil) {
+    if let list { listRoute.request = .init(destination: list) }
     NSApp.setActivationPolicy(.regular)
     if window == nil {
       let tabs = NSTabViewController()
@@ -34,7 +36,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       ].enumerated() {
         let pane = SettingsPane(
           section: index, store: store, extensions: extensions, clipboard: clipboard, runs: runs,
-          updater: updater, pauseHotkey: pauseHotkey)
+          updater: updater, pauseHotkey: pauseHotkey, listRoute: listRoute)
         let controller = NSHostingController(rootView: pane)
         controller.title = item.0
         let tab = NSTabViewItem(viewController: controller)
@@ -73,6 +75,8 @@ struct SettingsPane: View {
   let runs: AgentHistory
   let updater: Updater?
   let pauseHotkey: (Bool) -> Void
+  var listRoute: SettingsListRoute?
+  @State var entryEditor: SettingsEntryDraft?
   @State private var automaticChecks: Bool?
   @State private var recorder = ShortcutRecorder()
   @State private var transparency = SliderEdit("backgroundTransparency")
@@ -96,8 +100,30 @@ struct SettingsPane: View {
         HStack(spacing: 0) {
           extensionList
           Divider()
-          form { extensionDetail }.id(selected)
+          ScrollViewReader { scroll in
+            form { extensionDetail }.id(selected)
+              .task(id: selected) {
+                guard let request = listRoute?.request, let list = settingList(for: request.destination),
+                  selected == "extension:" + request.destination.folder
+                else { return }
+                completeListRoute(request, list: list, scroll: scroll)
+              }
+              .onChange(of: listRoute?.request, initial: true) {
+                guard let request = listRoute?.request, let list = settingList(for: request.destination)
+                else { return }
+                let target = "extension:" + request.destination.folder
+                if selected != target {
+                  selected = target
+                } else {
+                  completeListRoute(request, list: list, scroll: scroll)
+                }
+              }
+          }
         }
+        .sheet(item: $entryEditor) { draft in
+          SettingsEntryEditor(draft: draft, store: store) { entryEditor = nil }
+        }
+        .onChange(of: entryEditor?.id) { recorder.stop() }
         .onChange(of: selected) {
           recorder.stop()
           copyProblem = nil
@@ -476,14 +502,23 @@ struct SettingsPane: View {
     if id == "clipboard" {
       Section { clipboardRows(enabled: config.isEnabled(id, extensions: [])) }
     }
-    if let command, !command.manifest.settings.isEmpty {
+    if let command {
       let folder = command.folder.lastPathComponent
-      Section("Settings") {
-        ForEach(command.manifest.settings, id: \.name) { setting in
-          SettingField(setting: setting, saved: config.extensions[folder]?[setting.name]) { value in
-            store.change { try $0.set(setting.name, to: value, forExtension: folder) }
+      let fields = command.manifest.settings.compactMap { setting in
+        if case .field(let field) = setting { return field }
+        return nil
+      }
+      if !fields.isEmpty {
+        Section("Settings") {
+          ForEach(fields, id: \.name) { field in
+            SettingField(setting: field, saved: config.extensions[folder]?[field.name].string) { value in
+              store.change { try $0.set(field.name, to: value, forExtension: folder) }
+            }
           }
         }
+      }
+      ForEach(command.manifest.settings.compactMap(\.list), id: \.name) { list in
+        entryTable(list, folder: folder, target: id).id(list.name)
       }
     }
     let targets: [(String, HotkeyTarget)] =
@@ -491,7 +526,7 @@ struct SettingsPane: View {
       ? [(ClipboardHistory.title, HotkeyTarget(target: id))]
       : command.map { command in
         [(command.manifest.name, HotkeyTarget(target: id))]
-          + command.items.map { ($0.title, HotkeyTarget(target: id, item: $0.id, isUserItem: $0.isUserItem)) }
+          + (command.manifest.items ?? []).map { ($0.title, HotkeyTarget(target: id, item: $0.id)) }
       } ?? []
     let unavailable = extensions.unavailableItemHotkeys(config.hotkeys).filter { $0.target.target == id }
     if !targets.isEmpty || !unavailable.isEmpty {
@@ -499,7 +534,7 @@ struct SettingsPane: View {
         ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
         ForEach(unavailable, id: \.target, content: unavailableHotkeyRow)
         if recorder.target != nil { recorderHint }
-        if let rejection = store.rejection, targets.contains(where: { $0.1 == rejection.target }) {
+        if let rejection = store.rejection, rejection.target?.target == id {
           warning(rejection.problem)
         } else if let problem = store.bindingProblem {
           warning(problem)
@@ -507,13 +542,77 @@ struct SettingsPane: View {
       }
     }
   }
+  private func completeListRoute(
+    _ request: SettingsListRoute.Request, list: SettingList, scroll: ScrollViewProxy
+  ) {
+    scroll.scrollTo(list.name, anchor: .top)
+    let destination = request.destination
+    if let values = destination.values {
+      entryEditor = .init(folder: destination.folder, list: list, values: values)
+    }
+    listRoute?.request = nil
+  }
+
+  private func settingList(for destination: SettingsListDestination) -> SettingList? {
+    extensions.commands["extension:" + destination.folder]?.manifest.settings
+      .first { $0.name == destination.setting }?.list
+  }
+
+  private func entryTable(_ list: SettingList, folder: String, target: String) -> some View {
+    let entries = config.extensions[folder].map { list.read($0[list.name]).entries } ?? []
+    return Section {
+      if entries.isEmpty {
+        Text("No entries").foregroundStyle(.secondary)
+      } else {
+        HStack {
+          Text("Title").frame(maxWidth: .infinity, alignment: .leading)
+          if list.item != nil { Text("Hotkey").frame(width: 134) }
+          Color.clear.frame(width: 54, height: 1)
+        }
+        .font(.caption).foregroundStyle(.secondary)
+      }
+      ForEach(entries, id: \.self) { entry in
+        if let id = entry["id"] {
+          let title = list.title(entry)
+          HStack {
+            Text(title).lineLimit(1).help(title).frame(maxWidth: .infinity, alignment: .leading)
+            if list.row(entry) != nil {
+              shortcutControls(HotkeyTarget(target: target, item: id, entryList: list.name))
+                .frame(width: 134)
+            }
+            Button("Edit", systemImage: "pencil") {
+              entryEditor = .init(folder: folder, list: list, values: entry, entryID: id)
+            }
+            .help("Edit \(title)")
+            Button("Delete", systemImage: "trash") {
+              recorder.stop()
+              store.change { try $0.changeEntry(in: list, folder: folder, id: id, values: nil) }
+            }
+            .help("Delete \(title)")
+          }
+          .labelStyle(.iconOnly).controlSize(.small)
+        }
+      }
+    } header: {
+      HStack {
+        Text(list.description)
+        Spacer()
+        if list.editable != false {
+          Button("Add Entry", systemImage: "plus") {
+            entryEditor = .init(folder: folder, list: list)
+          }
+          .labelStyle(.iconOnly)
+        }
+      }
+    }
+  }
+
   /// The user's own extension goes to the Trash, so it can be put back. With no bundled one of its name
-  /// to take its place, what config.json keeps only for it goes too, and the selection moves to a neighbour.
+  /// to take its place, the selection moves to a neighbour.
   private func trashButton(_ id: String) -> some View {
     let name = String(id.dropFirst("extension:".count))
     let restores = extensions.hasBundled(name)
     let retired = extensions.localCopies[id]?.retired == true
-    let usingBundled = extensions.problems[id]?.usingBundled == true
     let item = retired ? "the old copy of “\(title(id))”" : "“\(title(id))”"
     return Button("Move to Trash…") {
       trashing = extensions.localCopies[id]
@@ -534,23 +633,19 @@ struct SettingsPane: View {
         selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
       }
     } message: {
-      if retired {
-        Text(
-          "The built-in stays active, and any personal items in user.json stay in your extensions folder.")
-      } else if usingBundled {
-        Text("The built-in stays active. To keep any personal items, copy user.json out of the Trash.")
-      } else if restores {
-        Text(
-          "The built-in version comes back in its place, with your settings and hotkeys. You can restore your copy from the Trash."
-        )
+      if restores {
+        Text("Wicket will use the built-in with your saved settings and hotkeys.")
       } else {
-        Text("Its settings and hotkeys are removed too. You can restore the folder from the Trash.")
+        Text("Your saved settings stay in config.json. You can restore the extension from the Trash.")
       }
     }
   }
   private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
+    LabeledContent(title) { shortcutControls(target) }
+  }
+  private func shortcutControls(_ target: HotkeyTarget) -> some View {
     let keys = config.hotkeys.first { $0.target == target }?.keys
-    return LabeledContent(title) {
+    return HStack(spacing: 4) {
       if keys != nil {
         Button("Remove Hotkey", systemImage: "xmark.circle.fill") { store.bind(nil, to: target) }
           .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
@@ -617,38 +712,17 @@ private struct SettingField: View {
   let save: (String?) -> Void
   @State private var draft: String?
   @FocusState private var focused: Bool
-  private var label: String { setting.placeholder ?? setting.description }
-  private var validSaved: String? { saved.flatMap { setting.accepts($0) ? $0 : nil } }
   var body: some View {
-    switch setting.type {
-    case .bool:
-      Toggle(
-        label,
-        isOn: Binding(
-          get: { (validSaved ?? setting.default) == "true" },
-          set: { save($0 ? "true" : "false") })
-      )
-      .toggleStyle(.switch).help(setting.description)
-    case .choice:
-      Picker(label, selection: Binding(get: { validSaved }, set: { save($0) })) {
-        Text(setting.default.map { "Default (\($0))" } ?? "Unset").tag(nil as String?)
-        ForEach(setting.options ?? [], id: \.self) { Text($0).tag(Optional($0)) }
-      }
-      .help(setting.description)
-    case .text, .number:
-      editable
-    }
-  }
-  @ViewBuilder private var editable: some View {
-    TextField(
-      label, text: Binding(get: { draft ?? saved ?? "" }, set: { draft = $0 }),
-      prompt: setting.default.map { Text($0) }
-    )
-    .help(setting.description)
-    .focused($focused)
-    .onSubmit(commit)
-    .onChange(of: focused) { if !focused { commit() } }
-    .onDisappear(perform: commit)
+    let value = Binding<String?>(
+      get: { draft ?? saved },
+      set: { value in
+        if setting.inSearchBar { draft = value ?? "" } else { save(value) }
+      })
+    SettingControl(field: setting, value: value)
+      .focused($focused)
+      .onSubmit(commit)
+      .onChange(of: focused) { if !focused { commit() } }
+      .onDisappear(perform: commit)
     if let draft, !draft.isEmpty, !setting.accepts(draft) {
       Text("Enter a number using a decimal point.").foregroundStyle(.red)
     }
@@ -660,7 +734,142 @@ private struct SettingField: View {
   }
 }
 
+private struct SettingControl: View {
+  let field: ExtensionManifest.Field
+  @Binding var value: String?
+  var editingEntry = false
+  private var label: String { field.placeholder ?? field.description }
+  private var text: Binding<String> { Binding(get: { value ?? "" }, set: { value = $0 }) }
+  private var choice: Binding<String?> {
+    Binding(get: { value.flatMap { field.accepts($0) ? $0 : nil } }, set: { value = $0 })
+  }
+
+  var body: some View {
+    Group {
+      switch field.type {
+      case .bool where editingEntry && field.optional == true:
+        Picker(label, selection: choice) {
+          Text("Unset").tag(nil as String?)
+          Text("On").tag(Optional("true"))
+          Text("Off").tag(Optional("false"))
+        }
+      case .bool:
+        Toggle(
+          label,
+          isOn: Binding(
+            get: { (choice.wrappedValue ?? field.default) == "true" },
+            set: { value = $0 ? "true" : "false" }
+          )
+        ).toggleStyle(.switch)
+      case .choice:
+        Picker(label, selection: choice) {
+          Text(field.default.map { "Default (\($0))" } ?? "Unset").tag(nil as String?)
+          ForEach(field.options ?? [], id: \.self) { Text($0).tag(Optional($0)) }
+        }
+      case .text where field.multiline == true:
+        VStack(alignment: .leading, spacing: 4) {
+          Text(label)
+          TextEditor(text: text).frame(minHeight: 72).accessibilityLabel(label)
+        }
+      case .text, .number:
+        TextField(label, text: text, prompt: field.default.map { Text($0) })
+      }
+    }
+    .help(field.description)
+  }
+}
+
 @MainActor protocol SettingsActivation {
   func activate(ignoringOtherApps flag: Bool)
 }
 extension NSApplication: SettingsActivation {}
+
+struct SettingsListDestination: Equatable {
+  let folder: String
+  let setting: String
+  var values: [String: String]?
+
+  init(folder: String, setting: String, values: [String: String]? = nil) {
+    self.folder = folder
+    self.setting = setting
+    self.values = values
+  }
+  init?(path: String) {
+    let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+    guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+    self.init(folder: String(parts[0]), setting: String(parts[1]))
+  }
+}
+
+@MainActor @Observable final class SettingsListRoute {
+  struct Request: Equatable {
+    let id = UUID()
+    let destination: SettingsListDestination
+  }
+  var request: Request?
+}
+
+struct SettingsEntryDraft: Identifiable {
+  let id = UUID()
+  let folder: String
+  let list: SettingList
+  var values: [String: String] = [:]
+  var entryID: String?
+}
+
+struct SettingsEntryEditor: View {
+  static let size = CGSize(width: 420, height: 250)
+  let draft: SettingsEntryDraft
+  let store: ConfigurationStore
+  let close: () -> Void
+  @State private var values: [String: String]
+
+  init(draft: SettingsEntryDraft, store: ConfigurationStore, close: @escaping () -> Void) {
+    self.draft = draft
+    self.store = store
+    self.close = close
+    var values = draft.values
+    for field in draft.list.fields where field.type == .bool && field.optional != true {
+      if values[field.name] == nil { values[field.name] = "false" }
+    }
+    _values = State(initialValue: values)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(draft.entryID == nil ? "Add Entry" : "Edit Entry").font(.headline).padding()
+      Form {
+        ForEach(draft.list.fields, id: \.name) { field in
+          SettingControl(
+            field: field,
+            value: Binding(
+              get: { values[field.name] },
+              set: { values[field.name] = $0?.isEmpty == false ? $0 : nil }
+            ), editingEntry: true)
+        }
+        if let problem = store.writeProblem { Text(problem).foregroundStyle(.red) }
+      }
+      .formStyle(.grouped)
+      Divider()
+      HStack {
+        Spacer()
+        Button("Cancel", role: .cancel, action: close).keyboardShortcut(.cancelAction)
+        Button("Save") {
+          if store.change({
+            try $0.changeEntry(
+              in: draft.list, folder: draft.folder, id: draft.entryID ?? draft.id.uuidString.lowercased(),
+              values: values, inserting: draft.entryID == nil)
+          }) {
+            close()
+          }
+        }
+        .keyboardShortcut(.defaultAction)
+        .disabled(!draft.list.accepts(values))
+      }
+      .buttonStyle(.bordered)
+      .padding()
+    }
+    .frame(width: Self.size.width, height: Self.size.height)
+    .background(.background)
+  }
+}

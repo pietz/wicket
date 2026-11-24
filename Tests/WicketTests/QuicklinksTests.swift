@@ -13,15 +13,15 @@ private let links = "extension:links-search"
 func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query: String) async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
-  try writeQuicklinks(in: root)
   try saveProviders([.init(links)], in: root)
+  try writeQuicklinks(in: root)
   let (status, output) = try await cli(root, ["--query", input])
   let rows = output["items"].array
   let first = try #require(rows.first)
   let row = first["row"]
   let action = try #require(row["actions"].array.first)
   #expect(status == 0 && output["input"].string == input)
-  #expect(first["provider"].string == links && row["id"].string == "user-item:" + id)
+  #expect(first["provider"].string == links && row["id"].string == "entry:searches/" + id)
   #expect(row["subtitle"].string == "Quicklinks · " + query)
   #expect(action["promptIfEmpty"] == .bool(true))
   #expect(action["action"].string == "open-link")
@@ -38,8 +38,7 @@ func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query
   try saveProviders([.init(links)], in: root)
   let empty = try await cli(root, ["--extension", "links-search"])
   let help = try #require(empty.1["items"].array.first)
-  #expect(help["title"].string?.contains("user.json") == true)
-  #expect(help["subtitle"].string?.contains("ask the agent") == true)
+  #expect(help["title"].string == "Add a Quicklink…")
   let unknown = try await cli(root, ["--query", "yt cats"])
   #expect(!unknown.1["items"].array.contains { $0["provider"].string == links })
 
@@ -47,9 +46,9 @@ func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query
   let listing = try await cli(root, ["--extension", "links-search"])
   let items = listing.1["items"].array
   #expect(items.count == 2)
-  #expect(items.compactMap { $0["id"].string }.sorted() == ["user-item:wiki", "user-item:youtube"])
+  #expect(items.compactMap { $0["id"].string }.sorted() == ["entry:searches/wiki", "entry:searches/youtube"])
   let filtered = try await cli(root, ["--extension", "links-search", "--input", "yt"])
-  #expect(filtered.1["items"].array.map { $0["id"].string } == ["user-item:youtube"])
+  #expect(filtered.1["items"].array.map { $0["id"].string } == ["entry:searches/youtube"])
 }
 
 @MainActor @Test(arguments: [false, true])
@@ -65,7 +64,7 @@ func aLocalQuicklinksProgramRendersItsOwnView(makeMine: Bool) async throws {
     await model.extensions.reload()
     navigator.go(Address(id: links, link: true))
     await navigator.settled()
-    #expect(navigator.results.first?.row.id == "help")
+    #expect(navigator.results.first?.row.id == "add-quicklink")
     navigator.dismiss()
   }
 
@@ -80,41 +79,21 @@ func aLocalQuicklinksProgramRendersItsOwnView(makeMine: Bool) async throws {
   await model.finish()
 }
 
-@Test(arguments: [
-  ("https://", false), ("https:///docs", false), ("https://example.com", true),
-  ("mailto:hello@example.com", true),
-])
-func quicklinkBookmarksRequireAHostForHTTP(_ url: String, valid: Bool) throws {
-  let root = try scratch()
-  defer { removeHeadlessScratch(root) }
-  let local = root.appending(path: "extensions/links-search")
-  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
-  let file = local.appending(path: "user.json")
-  try JSONEncoder().encode(["items": [["id": "test", "title": "My link", "url": url]]]).write(to: file)
-
-  let (commands, problems, _) = ExtensionHost.discover(
-    local.deletingLastPathComponent(), bundled: bundledExtensions)
-  let command = try #require(commands[links])
-  if valid {
-    #expect(problems[links] == nil)
-    #expect(command.items.first?.actions == [.open(try #require(URL(string: url)))])
-  } else {
-    #expect(command.items.isEmpty)
-    #expect(problems[links]?.userItems?.contains("Enter a URL with a host") == true)
-  }
-}
+let quicklinkSearches = [
+  [
+    "id": "youtube", "title": "Search YouTube", "keyword": "yt",
+    "url": "https://www.youtube.com/results?search_query={query}",
+  ],
+  [
+    "id": "wiki", "title": "Search Wikipedia", "keyword": "wiki",
+    "url": "https://en.wikipedia.org/w/index.php?search={query}",
+  ],
+]
 
 func writeQuicklinks(in root: URL) throws {
-  let folder = root.appending(path: "extensions/links-search")
-  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-  try Data(
-    #"""
-    {"items":[
-      {"id":"youtube","title":"Search YouTube","keyword":"yt","url":"https://www.youtube.com/results?search_query={query}"},
-      {"id":"wiki","title":"Search Wikipedia","keyword":"wiki","url":"https://en.wikipedia.org/w/index.php?search={query}"}
-    ]}
-    """#.utf8
-  ).write(to: folder.appending(path: "user.json"))
+  let url = root.appending(path: "config.json")
+  if !FileManager.default.fileExists(atPath: url.path) { try Configuration().save(at: url) }
+  try ConfigurationFile(url: url).set("links-search", to: ["searches": quicklinkSearches], in: "extensions")
 }
 
 /// Compile the shipped request handlers with an inert Launch Services stand-in. The same binary
@@ -243,6 +222,7 @@ private func fields(_ values: [String: String]) throws -> String {
   let surface = RecordingSurface()
   navigator.surface = surface
   surface.onEffect = { if $0 == .hide { navigator.dismiss() } }
+  model.store.start(watching: false)
   await model.extensions.reload()
   func type(_ input: String) async {
     navigator.input = input
@@ -263,8 +243,8 @@ private func fields(_ values: [String: String]) throws -> String {
   await navigator.settled()
   #expect(try takeOpenedURL(in: folder) == "https://www.youtube.com/results?search_query=dogs")
 
-  let youtube = HotkeyTarget(target: links, item: "youtube", isUserItem: true)
-  let docs = HotkeyTarget(target: links, item: "docs", isUserItem: true)
+  let youtube = HotkeyTarget(target: links, item: "youtube", entryList: "searches")
+  let docs = HotkeyTarget(target: "extension:my-items", item: "docs")
   model.press(docs)
   await navigator.settled()
   #expect(navigator.command?.id == links && navigator.input.isEmpty && !didOpenURL(in: folder))
@@ -286,7 +266,7 @@ private func fields(_ values: [String: String]) throws -> String {
   #expect(try takeOpenedURL(in: folder) == "https://www.youtube.com/results?search_query=new%20cats")
 
   await type("docs swift ui")
-  #expect(navigator.results.first?.row.id == "user-item:docs")
+  #expect(navigator.results.first?.row.id == "item:docs")
   #expect(navigator.results.first?.row.subtitle == "Test Browser · swift ui")
   navigator.run()
   await navigator.settled()
@@ -305,7 +285,7 @@ private func fields(_ values: [String: String]) throws -> String {
     navigator.fieldValues["template"] == "https://www.youtube.com/results?search_query={query}"
       && !didOpenURL(in: folder))
   await type("unsent YouTube query")
-  model.press(HotkeyTarget(target: links, item: "fixed", isUserItem: true))
+  model.press(HotkeyTarget(target: "extension:my-items", item: "fixed"))
   await navigator.settled()
   #expect(try takeOpenedURL(in: folder) == "https://example.com/search?q=fixed%20value")
 
@@ -317,18 +297,21 @@ private func fields(_ values: [String: String]) throws -> String {
   navigator.dismiss()
   await navigator.settled()
 
+  await type("mdn javascript")
+  #expect(navigator.results.allSatisfy { $0.provider != links || $0.keywordArgument == nil })
   await type("mdn")
+  #expect(navigator.fieldSlots.isEmpty)
   let bookmark = try #require(navigator.results.first)
-  #expect(bookmark.row.id == "user-item:mdn")
+  #expect(bookmark.row.id == "entry:links/mdn")
   let action = RowAction.open(try #require(URL(string: "https://developer.mozilla.org/")))
   navigator.run()
   #expect(surface.effects.last == .run(action, from: bookmark))
-  model.press(HotkeyTarget(target: links, item: "mdn", isUserItem: true))
+  model.press(HotkeyTarget(target: links, item: "mdn", entryList: "links"))
   #expect(surface.effects.last == .run(action, from: nil))
   await model.finish()
 }
 
-@MainActor @Test func linksReadStandaloneUserItemsForRootSearchAndHotkeys() async throws {
+@MainActor @Test func migratedEntriesKeepRootSearchAndHotkeys() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
   let bundled = try await installLinkProbe(in: root.appending(path: "bundle"))
@@ -346,6 +329,7 @@ private func fields(_ values: [String: String]) throws -> String {
   let navigator = model.navigator
   let surface = RecordingSurface()
   navigator.surface = surface
+  model.store.start(watching: false)
   await model.extensions.reload()
   let command = try #require(model.extensions.commands[links])
   #expect(model.extensions.isBundled(command))
@@ -356,26 +340,27 @@ private func fields(_ values: [String: String]) throws -> String {
   navigator.editInput("osm")
   await navigator.settled()
   let search = try #require(navigator.results.first)
-  #expect(search.row.id == "user-item:osm")
-  #expect(navigator.hotkeyTarget(of: search) == HotkeyTarget(target: links, item: "osm", isUserItem: true))
+  #expect(search.row.id == "entry:searches/osm")
+  #expect(
+    navigator.hotkeyTarget(of: search) == HotkeyTarget(target: links, item: "osm", entryList: "searches"))
   navigator.dismiss()
 
   navigator.input = "mdn"
   await navigator.settled()
   let bookmark = RowAction.open(try #require(URL(string: "https://developer.mozilla.org/")))
-  #expect(navigator.results.first?.row.id == "user-item:mdn")
+  #expect(navigator.results.first?.row.id == "entry:links/mdn")
   #expect(navigator.returnAction == bookmark)
-  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=mdn")))
+  model.press(try #require(HotkeyTarget("wicket://links-search?entry=links/mdn")))
   #expect(surface.effects.last == .run(bookmark, from: nil))
 
   navigator.input = "osm New York"
   await navigator.settled()
-  #expect(navigator.results.first?.row.id == "user-item:osm")
+  #expect(navigator.results.first?.row.id == "entry:searches/osm")
   #expect(navigator.results.first?.row.subtitle == "Quicklinks · New York")
 
   surface.shown = false
   navigator.dismiss()
-  model.press(try #require(HotkeyTarget("wicket://links-search?user-item=osm")))
+  model.press(try #require(HotkeyTarget("wicket://links-search?entry=searches/osm")))
   await navigator.settled()
   #expect(surface.shows == 1 && navigator.command?.id == links && navigator.input.isEmpty)
   try #require(navigator.commandPlaceholder == "Search query" && !didOpenURL(in: bundled))
@@ -397,13 +382,14 @@ private func fields(_ values: [String: String]) throws -> String {
   let surface = RecordingSurface()
   navigator.surface = surface
   surface.onEffect = { if $0 == .hide { navigator.dismiss() } }
+  model.store.load()
   await model.extensions.reload()
   try await finishTurn(model, "Question", "Answer")
   navigator.editInput("Unsent follow-up")
   surface.perform(.hide)
   try #require(model.agent.active && !surface.isShown)
 
-  model.press(HotkeyTarget(target: links, item: "youtube", isUserItem: true))
+  model.press(HotkeyTarget(target: links, item: "youtube", entryList: "searches"))
   #expect(surface.shows == 1 && navigator.commandPlaceholder == "Search query" && !model.agent.active)
   await navigator.settled()
   #expect(navigator.input.isEmpty && navigator.results.first?.row.title == "Enter a search query.")

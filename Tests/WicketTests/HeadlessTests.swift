@@ -131,22 +131,20 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   #expect(Set(bundledData).isSubset(of: Set(data)))
 }
 
-@Test func headlessQueryFindsUserItemsForABundledExtensionWithoutAManifest() async throws {
+@Test func headlessQueryFindsMigratedRawItemsInTheirOwnExtension() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
   let local = root.appending(path: "extensions/window")
   try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
   try Data(
-    #"""
-    {"items":[{"id":"coding","title":"Coding layout","actions":[{"type":"run","action":"left","hidden":true}]}]}
-    """#.utf8
+    #"{"items":[{"id":"coding","title":"Coding layout","actions":[{"type":"run","action":"left","hidden":true}]}]}"#
+      .utf8
   ).write(to: local.appending(path: "user.json"))
   try saveProviders([.init("extension:window")], in: root)
-
   let (status, result) = try await cli(root, ["--query", "Coding layout"])
   #expect(status == 0)
-  let item = try #require(result["items"].array.first { $0["provider"].string == "extension:window" })
-  #expect(item["row"]["id"].string == "user-item:coding")
+  let item = try #require(result["items"].array.first { $0["provider"].string == "extension:my-items" })
+  #expect(item["row"]["id"].string == "item:coding")
 }
 
 @MainActor @Test func contractOneCopiesKeepBundledItemsHotkeysAndHeadlessCommandsAvailable() async throws {
@@ -154,10 +152,9 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   defer { removeHeadlessScratch(root) }
   let units = try extensionFolder(root, name: "units", fields: ["contract": 1])
   let window = try extensionFolder(root, name: "window", fields: ["contract": 1])
-  let saved = Row(
-    id: "coding", title: "Coding layout", actions: [.run(Address(action: "center", hidden: true))])
-  try JSONEncoder().encode(["items": [saved]]).write(to: window.appending(path: "user.json"))
   try saveProviders([.init("extension:units"), .init("extension:window")], in: root)
+  try ConfigurationFile(url: root.appending(path: "config.json")).set(
+    "window", to: ["moves": [codingMove]], in: "extensions")
 
   let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   model.extensions.permissions = Permissions(status: { _ in .denied }, request: { _ in })
@@ -189,7 +186,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let bindings = [
     ("ctrl+option+1", "wicket://units?item=currency"),
     ("ctrl+option+2", "wicket://window?item=left"),
-    ("ctrl+option+3", "wicket://window?user-item=coding"),
+    ("ctrl+option+3", "wicket://window?entry=moves/coding"),
   ]
   for (keys, address) in bindings {
     model.store.bind(try Shortcut(keys), to: try #require(HotkeyTarget(address)))
@@ -214,7 +211,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let (windowStatus, windowQuery) = try await cli(root, ["--query", "Coding layout"])
   #expect(windowStatus == 0)
   let rows = windowQuery["items"].array.filter { $0["provider"].string == "extension:window" }
-  #expect(rows.contains { $0["row"]["id"].string == "user-item:coding" })
+  #expect(rows.contains { $0["row"]["id"].string == "entry:moves/coding" })
   #expect(rows.filter { $0["row"]["id"].string == "discovery-error" }.count == 1)
   let (runStatus, run) = try await cli(root, ["--extension", "window"])
   if runStatus == 0 {

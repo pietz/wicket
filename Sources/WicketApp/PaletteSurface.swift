@@ -50,6 +50,7 @@ enum PaletteEffect: Equatable {
   case hide
   /// The Settings destination: the launcher leaves for the native window.
   case settings
+  case settingsList(SettingsListDestination)
   /// Ask the updater to show its window after the panel has hidden.
   case checkForUpdates
 }

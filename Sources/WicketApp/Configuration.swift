@@ -49,7 +49,7 @@ struct Configuration: Codable, Equatable, Sendable {
       let c = try decoder.container(keyedBy: CodingKeys.self)
       keys = try c.decode(Shortcut.self, forKey: .keys)
       let address = try c.decode(String.self, forKey: .address)
-      guard let target = HotkeyTarget(address) else {
+      guard let target = HotkeyTarget(address, allowLegacy: true) else {
         throw DecodingError.dataCorruptedError(
           forKey: .address, in: c, debugDescription: "\"\(address)\" is no wicket:// address")
       }
@@ -70,8 +70,8 @@ struct Configuration: Codable, Equatable, Sendable {
   var agent = AgentConfiguration()
   var hotkey = Shortcut.default
   var hotkeys: [Hotkey] = []
-  /// Each extension's settings by folder name, strings as the manifest declares them: `{"window":{"gap":"8"}}`.
-  var extensions: [String: [String: String]] = [:]
+  /// Each extension's settings by folder name. The manifest validates its own values without affecting other settings.
+  var extensions: [String: JSONValue] = [:]
   var appearance = Appearance.system
   var resultsOnlyWhenTyping = false
   /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
@@ -104,7 +104,7 @@ struct Configuration: Codable, Equatable, Sendable {
     agent = try c.decodeIfPresent(AgentConfiguration.self, forKey: .agent) ?? agent
     hotkey = try c.decodeIfPresent(Shortcut.self, forKey: .hotkey) ?? hotkey
     hotkeys = try c.decodeIfPresent([Hotkey].self, forKey: .hotkeys) ?? hotkeys
-    extensions = try c.decodeIfPresent([String: [String: String]].self, forKey: .extensions) ?? extensions
+    extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? extensions
     appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? appearance
     resultsOnlyWhenTyping = try c.decodeIfPresent(Bool.self, forKey: .resultsOnlyWhenTyping) ?? false
     if !c.contains(.resultsOnlyWhenTyping) {

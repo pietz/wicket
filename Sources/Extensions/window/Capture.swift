@@ -35,7 +35,7 @@ private struct CapturedWindow: Encodable {
 }
 
 func captureWindows<AX: WindowCaptureAccessibility>(
-  _ apps: [CaptureApp<AX>], displays: [Display], commandName: String
+  _ apps: [CaptureApp<AX>], displays: [Display], commandName: String, saving: Bool = false
 ) -> String {
   let deadline = ContinuousClock.now + .seconds(7)
   func denied() -> String { answer(problem: accessibilityProblem(commandName), commands: "") }
@@ -44,12 +44,12 @@ func captureWindows<AX: WindowCaptureAccessibility>(
       problem: problem("Window capture timed out", "Close any unresponsive apps and try again"), commands: "")
   }
   var captured: [CapturedWindow] = []
-  for app in apps where !app.hidden {
+  for app in apps where !app.hidden && (!saving || app.frontmost) {
     guard ContinuousClock.now < deadline else { return timedOut() }
     let ax = app.ax
     let (error, windows) = ax.windows(markFocused: app.frontmost)
     if error == .apiDisabled { return denied() }
-    for (window, focused) in windows {
+    for (window, focused) in windows where !saving || focused {
       guard ContinuousClock.now < deadline else { return timedOut() }
       let (standardError, standard) = ax.isStandard(window)
       if standardError == .apiDisabled { return denied() }
@@ -69,13 +69,23 @@ func captureWindows<AX: WindowCaptureAccessibility>(
       }
     }
   }
+  if saving {
+    guard let window = captured.first else {
+      return answer(problem: problem("Focus a standard window that fits within one display"), commands: "")
+    }
+    let rect = window.rect.map { String(Double($0)) }.joined(separator: ",")
+    let definition =
+      #"{"kind":"move","placement":{"display":"\#(window.display)","fallback":"current","rect":[\#(rect)],"gap":0}}"#
+    return
+      #"{"items":[],"actions":[{"type":"save","setting":"moves","values":{"definition":\#(quoted(definition))}}]}"#
+  }
   guard let data = try? JSONEncoder().encode(captured) else {
     return answer(problem: problem("Couldn't encode captured windows"), commands: "")
   }
   return #"{"body":\#(quoted(String(decoding: data, as: UTF8.self)))}"#
 }
 
-@MainActor func captureWindows(commandName: String) -> String {
+@MainActor func captureWindows(commandName: String, saving: Bool = false) -> String {
   let workspace = NSWorkspace.shared
   let frontmost = workspace.frontmostApplication?.processIdentifier
   let apps = workspace.runningApplications.compactMap { app -> CaptureApp<SystemWindowAccessibility>? in
@@ -87,5 +97,5 @@ func captureWindows<AX: WindowCaptureAccessibility>(
       bundleID: bundleID, hidden: app.isHidden, frontmost: app.processIdentifier == frontmost,
       ax: SystemWindowAccessibility(pid: app.processIdentifier, timeout: 0.25))
   }
-  return captureWindows(apps, displays: screenDisplays(), commandName: commandName)
+  return captureWindows(apps, displays: screenDisplays(), commandName: commandName, saving: saving)
 }

@@ -266,7 +266,7 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
 }
 
 @MainActor @Test(arguments: [false, true])
-func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(userItem: Bool) async throws {
+func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(listEntry: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let folder = try extensionFolder(
@@ -290,13 +290,24 @@ func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(userItem: Bool) async th
       ]
     ],
   ]
-  let owner = try extensionFolder(
-    root, name: "links", fields: ["command": NSNull(), "fields": [], "items": userItem ? [] : [item]])
-  if userItem {
-    try JSONSerialization.data(withJSONObject: ["items": [item]]).write(
-      to: owner.appending(path: "user.json"))
+  var owner: [String: Any] = ["command": NSNull(), "fields": [], "items": listEntry ? [] : [item]]
+  if listEntry {
+    owner["settings"] = [
+      [
+        "name": "searches", "type": "list", "description": "Searches",
+        "fields": [["name": "title", "type": "text", "description": "Title"]],
+        "item": item,
+      ]
+    ]
   }
+  _ = try extensionFolder(root, name: "links", fields: owner)
   let model = LauncherModel.testing(in: root, bundled: nil)
+  if listEntry {
+    model.store.start(watching: false)
+    model.store.change {
+      try $0.set("links", to: ["searches": [["id": "youtube", "title": "Search YouTube"]]], in: "extensions")
+    }
+  }
   let nav = model.navigator
   let surface = RecordingSurface()
   nav.surface = surface
@@ -304,7 +315,7 @@ func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(userItem: Bool) async th
 
   nav.editInput("yt cats")
   await nav.settled()
-  #expect(surface.presentation.selected?.row.id == (userItem ? "user-item:youtube" : "item:youtube"))
+  #expect(surface.presentation.selected?.row.id == (listEntry ? "entry:searches/youtube" : "item:youtube"))
   #expect(surface.presentation.selected?.row.title == "Search YouTube")
   #expect(surface.presentation.selected?.row.subtitle == "links · cats")
   #expect(nav.fieldValues == ["query": "cats"] && !nav.moveFocus(1))

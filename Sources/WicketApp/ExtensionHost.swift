@@ -7,31 +7,53 @@ struct ExtensionCommand: Sendable, Equatable {
   let id: String
   let folder: URL
   let manifest: ExtensionManifest
-  /// The manifest's items followed by the user's additions.
+  /// The manifest's items followed by items generated from its list settings.
   let items: [Row]
   private let itemIndex: SearchIndex
   /// At most this many of one extension's items enter the root list for an input, as with file search.
   static let rootItems = 20
 
-  init(id: String, folder: URL, manifest: ExtensionManifest, userItems: [Row] = []) {
+  let entryProblem: String?
+
+  init(id: String, folder: URL, manifest: ExtensionManifest, saved: JSONValue? = nil) {
     self.id = id
     self.folder = folder
     self.manifest = manifest
-    items =
-      (manifest.items ?? [])
-      + userItems.map {
-        var row = $0
-        row.isUserItem = true
-        return row
+    var items = manifest.items ?? []
+    var problems: [String] = []
+    let values: [String: JSONValue]
+    if case .object(let configured)? = saved {
+      values = configured
+    } else {
+      values = [:]
+      if saved != nil { problems.append("Extension settings must be an object") }
+    }
+    for setting in manifest.settings {
+      guard let list = setting.list, let value = values[list.name] else { continue }
+      let read = list.read(value)
+      problems += read.problems
+      if list.item != nil {
+        let rows = read.entries.compactMap(list.row)
+        if rows.count != read.entries.count {
+          problems.append("\(list.name) has an entry that cannot make an item")
+        }
+        items += rows
       }
+    }
+    self.items = items
+    entryProblem = problems.isEmpty ? nil : problems.joined(separator: "\n")
     itemIndex = SearchIndex(items)
   }
-  /// The index follows from the items.
+
+  // The index follows the items.
   static func == (a: Self, b: Self) -> Bool {
     a.id == b.id && a.folder == b.folder && a.manifest == b.manifest && a.items == b.items
+      && a.entryProblem == b.entryProblem
   }
+
   func item(for target: HotkeyTarget) -> Row? {
-    items.first { $0.id == target.item && $0.isUserItem == target.isUserItem }
+    guard !target.legacyItem else { return nil }
+    return items.first { $0.id == target.item && $0.entryList == target.entryList }
   }
   /// What a failed run shows: where the extension is, what it was asked, and why it failed.
   func report(_ request: ProviderRequest, error: any Error) -> String {
@@ -45,9 +67,16 @@ struct ExtensionCommand: Sendable, Equatable {
     }
   }
   /// The manifest's settings: the saved value, else the default; one with neither is left out.
-  func settings(_ saved: [String: String]) -> [String: String] {
-    manifest.settings.reduce(into: [:]) { values, field in
-      values[field.name] = saved[field.name].flatMap { field.accepts($0) ? $0 : nil } ?? field.default
+  func settings(_ saved: JSONValue?) -> [String: JSONValue] {
+    manifest.settings.reduce(into: [:]) { values, setting in
+      switch setting {
+      case .field(let field):
+        let scalar = saved?[field.name].string.flatMap { field.accepts($0) ? $0 : nil } ?? field.default
+        values[field.name] = scalar.map(JSONValue.string)
+      case .entries(let list):
+        let entries = list.read(saved?[list.name] ?? .null).entries
+        values[list.name] = .array(entries.map { .object($0.mapValues(JSONValue.string)) })
+      }
     }
   }
   /// An opted-in program handles named actions and fields beyond the text used to filter the list.
@@ -63,19 +92,23 @@ struct ExtensionCommand: Sendable, Equatable {
     return ProviderView(
       items: itemIndex.matches(request.input).map { shown($0, atRoot: false, subtitle: $0.subtitle) })
   }
+  func listItems(_ input: String) -> [Row] {
+    itemIndex.matches(input).filter { $0.entryList != nil }
+      .map { shown($0, atRoot: false, subtitle: $0.subtitle) }
+  }
   /// An item takes the extension's icon where it has none.
   private func shown(_ row: Row, atRoot: Bool, subtitle: String?) -> Row {
     // Keep stock IDs inside a command unless they use a prefix reserved for displayed items.
     var id = row.id
-    if row.isUserItem {
-      id = "user-item:" + id
-    } else if atRoot || id.hasPrefix("item:") || id.hasPrefix("user-item:") {
+    if let list = row.entryList {
+      id = "entry:" + list + "/" + id
+    } else if atRoot || id.hasPrefix("item:") || id.hasPrefix("entry:") {
       id = "item:" + id
     }
     var shown = Row(
       id: id, title: row.title, subtitle: subtitle, icon: row.icon ?? manifest.icon, actions: row.actions,
       keywords: row.keywords, prominent: row.prominent, detail: row.detail)
-    shown.isUserItem = row.isUserItem
+    shown.entryList = row.entryList
     shown.indexedItemID = row.id
     return shown
   }
@@ -87,11 +120,11 @@ final class ExtensionHost {
   struct Problem: Equatable, Sendable {
     static let fallbackMessage = "Built-in in use until the local copy is fixed or removed"
     var manifest: String? = nil
-    var userItems: String? = nil
+    var settings: String? = nil
     var name: String? = nil
     var contract: Int? = nil
     var usingBundled = false
-    var detail: String { [manifest, userItems].compactMap { $0 }.joined(separator: "\n") }
+    var detail: String { [manifest, settings].compactMap { $0 }.joined(separator: "\n") }
     var message: String { usingBundled ? detail + "\n" + Self.fallbackMessage : detail }
   }
   struct LocalCopy: Equatable, Sendable {
@@ -118,7 +151,7 @@ final class ExtensionHost {
   private(set) var problems: [String: Problem] = [:]
   private(set) var localCopies: [String: LocalCopy] = [:]
   private(set) var locations: [String: Location] = [:]
-  /// Every discovered extension ID, including ones with invalid manifests or user items.
+  /// Every discovered extension ID, including ones with invalid manifests.
   var ids: [String] { Array(commands.keys) + problems.keys.filter { commands[$0] == nil } }
   /// Called with the IDs whose command or problem changed, appeared or went away.
   var onCatalogChange: ((Set<String>) -> Void)?
@@ -135,7 +168,46 @@ final class ExtensionHost {
   /// Moves an item to the Trash, so it can be put back; tests replace it.
   var moveToTrash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
   /// The `extensions` of config.json: each folder's saved settings.
-  var settings: [String: [String: String]] = [:]
+  private var settings: [String: JSONValue] = [:]
+  private var discoveryProblems: [String: Problem] = [:]
+  var migrateLists: (([String: ExtensionCommand]) -> (createdItems: Bool, problems: [String: String]))?
+  private var migrationProblems: [String: String] = [:]
+
+  func applySettings(_ saved: [String: JSONValue]) -> Set<String> {
+    guard saved != settings else { return [] }
+    let previous = settings
+    settings = saved
+    var updated = commands
+    for (id, command) in commands {
+      let name = command.folder.lastPathComponent
+      guard saved[name] != previous[name] else { continue }
+      updated[id] = configured(command)
+    }
+    return install(updated)
+  }
+  private func configured(_ command: ExtensionCommand) -> ExtensionCommand {
+    ExtensionCommand(
+      id: command.id, folder: command.folder, manifest: command.manifest,
+      saved: settings[command.folder.lastPathComponent])
+  }
+
+  private func install(_ commands: [String: ExtensionCommand]) -> Set<String> {
+    var problems = discoveryProblems
+    for (id, detail) in migrationProblems { problems[id, default: Problem()].settings = detail }
+    for (id, command) in commands {
+      if let detail = command.entryProblem {
+        let prior = problems[id]?.settings
+        problems[id, default: Problem()].settings = [prior, detail].compactMap { $0 }.joined(separator: "\n")
+      }
+    }
+    let changed = Set(commands.keys).union(self.commands.keys).filter { commands[$0] != self.commands[$0] }
+      .union(Set(problems.keys).union(self.problems.keys).filter { problems[$0] != self.problems[$0] })
+    if !changed.isEmpty {
+      self.commands = commands
+      self.problems = problems
+    }
+    return changed
+  }
   private var watcher: FileWatcher?
   /// Nil when watching is off, empty before the first subscription.
   private(set) var watchRoots: Set<String>?
@@ -193,24 +265,23 @@ final class ExtensionHost {
           // Read again after subscribing, in case a change arrived before the stream started.
           continue
         }
+        if let migrateLists {
+          self.migrateLists = nil
+          let result = migrateLists(commands)
+          migrationProblems = result.problems
+          if result.createdItems { continue }
+        }
         defer {
           scanned = true
           for waiter in scanWaiters { waiter.resume() }
           scanWaiters = []
         }
-        // FSEvents also report an extension's own cache and log writes. An unchanged catalog must not
-        // restart the launcher's work, or an extension that writes in its folder cancels itself.
-        let changed = Set(commands.keys).union(self.commands.keys).filter {
-          commands[$0] != self.commands[$0]
-        }
-        .union(Set(problems.keys).union(self.problems.keys).filter { problems[$0] != self.problems[$0] })
-        // Retired copies affect Settings even when the active command and repair rows stay the same.
+        // FSEvents report cache and log writes too. Only a changed catalog can restart launcher work.
         if localCopies != locations.copies { localCopies = locations.copies }
         if self.locations != locations.extensions { self.locations = locations.extensions }
-        guard !changed.isEmpty else { return }
-        self.commands = commands
-        self.problems = problems
-        onCatalogChange?(changed)
+        discoveryProblems = problems
+        let changed = install(commands.mapValues(configured))
+        if !changed.isEmpty { onCatalogChange?(changed) }
         return
       }
     }
@@ -267,7 +338,7 @@ final class ExtensionHost {
     paths.insert(directory.path)
     return paths
   }
-  /// Try the local manifest first. User items always come from the working folder.
+  /// Try the local manifest first.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
     [String: ExtensionCommand], [String: Problem], Locations
   ) {
@@ -298,8 +369,7 @@ final class ExtensionHost {
       let override = local.flatMap { hasManifest($0) ? $0 : nil }
       guard var folder = override ?? builtIns[name] else { continue }
       let id = "extension:" + name
-      let localFolder = override ?? local.flatMap { hasEntry($0.appending(path: "user.json")) ? $0 : nil }
-      locations.extensions[id] = .init(source: override == nil ? .bundled : .local, localFolder: localFolder)
+      locations.extensions[id] = .init(source: override == nil ? .bundled : .local, localFolder: override)
       if let override { locations.copies[id] = LocalCopy(folder: override) }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
@@ -334,17 +404,7 @@ final class ExtensionHost {
         folder = builtIn
         manifest = fallback
       }
-      var userItems: [Row] = []
-      if let userFile = local?.appending(path: "user.json") {
-        do {
-          userItems = try ExtensionManifest.userItems(in: userFile, quicklinks: id == Quicklink.extensionID)
-        } catch {
-          let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
-          let detail = "\(userFile.path)\nInvalid user.json: \(reason)"
-          problems[id, default: Problem()].userItems = detail
-        }
-      }
-      commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
+      commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest)
     }
     return (commands, problems, locations)
   }
@@ -365,7 +425,7 @@ final class ExtensionHost {
         input: input, fields: fields, action: request.action, submitted: request.submitted,
         locale: request.locale)
     }
-    request.settings = command.settings(settings[command.folder.lastPathComponent] ?? [:])
+    request.settings = command.settings(settings[command.folder.lastPathComponent])
     if rootMatch { request.rootMatch = true }
     if let view = command.staticView(for: request) { return view }
     let rerun = Address(
@@ -378,7 +438,15 @@ final class ExtensionHost {
     defer { running[id] = nil }
     return try await withTaskCancellationHandler {
       do {
-        return try await task.value
+        var view = try await task.value
+        if view.body == nil, request.action == nil, !rootMatch,
+          command.manifest.settings.contains(where: { $0.list?.item != nil }),
+          request.fields.keys.allSatisfy({ $0 == command.manifest.inputField?.name })
+        {
+          let ids = Set(view.items.map(\.id))
+          view.items += command.listItems(request.input).filter { !ids.contains($0.id) }
+        }
+        return view
       } catch {
         let trigger = rootMatch ? .rootPattern : trigger
         if !Task.isCancelled, !(error is CancellationError),
@@ -406,22 +474,16 @@ final class ExtensionHost {
       == bundled?.resolvingSymlinksInPath().path
   }
   func folderToReveal(_ command: ExtensionCommand) -> URL {
-    if let own = ownFolder(command.id) { return own }
-    let local = folder.appending(path: "extensions/" + command.folder.lastPathComponent)
-    if isBundled(command), FileManager.default.fileExists(atPath: local.appending(path: "user.json").path) {
-      return local
-    }
-    return command.folder
+    ownFolder(command.id) ?? command.folder
   }
 
-  /// Copies a bundled extension into the user's extensions folder, preserving any personal items.
+  /// Copies a bundled extension into the user's extensions folder.
   func makeMine(_ command: ExtensionCommand) throws {
     let files = FileManager.default
     let name = command.folder.lastPathComponent
     let copy = folder.appending(path: "extensions/" + name)
     if files.fileExists(atPath: copy.path) {
-      // The folder may already hold user.json and files Finder adds, such as .DS_Store; only the
-      // extension's own files must not be there yet.
+      // A folder left by migration can still receive its first manifest.
       let incoming = try files.contentsOfDirectory(atPath: command.folder.path)
       guard try files.attributesOfItem(atPath: copy.path)[.type] as? FileAttributeType == .typeDirectory,
         Set(try files.contentsOfDirectory(atPath: copy.path)).isDisjoint(with: incoming)
@@ -455,7 +517,7 @@ final class ExtensionHost {
     rescan()
   }
 
-  /// Local copies have a manifest. A folder holding only personal items can still receive one.
+  /// A local copy has a manifest.
   func ownFolder(_ id: String) -> URL? {
     localCopies[id]?.folder
   }
@@ -464,7 +526,7 @@ final class ExtensionHost {
     bundled.map { FileManager.default.fileExists(atPath: $0.appending(path: name + "/wicket.json").path) }
       ?? false
   }
-  /// A retired override can be removed without interrupting its built-in or moving personal items.
+  /// A retired override can be removed without interrupting its built-in or moving unrelated files.
   /// `confirmed` is the copy the user agreed to remove; if a rescan changed it since, nothing moves.
   func trash(_ id: String, confirmed: LocalCopy? = nil) throws {
     guard let copy = localCopies[id] else {
@@ -502,7 +564,7 @@ final class ExtensionHost {
         try files.moveItem(at: local.appending(path: name), to: oldCopy.appending(path: name))
         moved.append(name)
       }
-      // Keep the old copy together in the Trash and leave user.json at its original path.
+      // Keep the old copy together in the Trash and leave unrelated files where they are.
       try moveToTrash(oldCopy)
       moved.removeAll()
     } catch {

@@ -86,7 +86,7 @@ enum Diagnostics {
     let permissions: [Permission]
     let missingPermissions: [Permission]
     let discoveryProblem: String?
-    let userJSONProblem: String?
+    let settingsProblem: String?
   }
   private struct Hotkeys: Encodable {
     struct Entry: Encodable {
@@ -156,6 +156,7 @@ enum Diagnostics {
     let store = ConfigurationStore(url: folder.appending(path: "config.json"))
     store.load()
     let host = ExtensionHost(folder: folder, bundled: bundled)
+    _ = host.applySettings(store.configuration.extensions)
     let directory = CommandDirectory(extensions: host, hosts: [], store: store)
     await host.reload()
     let configuration = store.problem == nil ? store.configuration : nil
@@ -282,7 +283,7 @@ enum Diagnostics {
       permissions: command?.manifest.permissions ?? [],
       missingPermissions: command.map { Permissions.missing($0, status: permissionStatus) } ?? [],
       discoveryProblem: problem?.manifest,
-      userJSONProblem: problem?.userItems)
+      settingsProblem: problem?.settings)
   }
 
   private static func hotkeyReport(

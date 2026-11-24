@@ -348,7 +348,7 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
   #expect(manifest.name == "Window Manager" && manifest.keyword == "window")
   #expect(!manifest.matches("window"))
   let rows = try #require(manifest.items)
-  #expect(rows.map(\.id) == Move.allCases.map(\.rawValue))
+  #expect(rows.map(\.id) == Move.allCases.map(\.rawValue) + ["save-current"])
   for row in rows {
     guard case .run(let address) = row.actions.first?.kind else {
       Issue.record("\(row.id) runs no move")
@@ -495,7 +495,7 @@ func invalidWindowDefinitionsGiveAClearRowWithoutTouchingWindows(definition: Str
       Issue.record("An invalid definition reached the Accessibility adapter")
       return nil
     },
-    capture: { _ in
+    capture: { _, _ in
       Issue.record("An invalid definition reached Capture")
       return ""
     })
@@ -586,7 +586,12 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
   return folder
 }
 
-@MainActor @Test func captureBecomesAHeadlessMoveAndAHiddenUserItemHotkey() async throws {
+let codingMove = [
+  "id": "coding", "title": "Coding layout",
+  "definition": #"{"kind":"move","placement":{"display":"current","rect":[0,0,0.5,1]}}"#,
+]
+
+@MainActor @Test func captureBecomesAHeadlessMoveAndAnEntryHotkey() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
   let folder = try await Task.detached { try installFakeWindowManager(in: root) }.value
@@ -616,38 +621,29 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
   let frameFile = dataFolder.appending(path: "mock-window-frame.json")
   let original = CGRect(x: -800, y: -100, width: 500, height: 440)
   let destination = CGRect(x: 520, y: 240, width: 240, height: 300)
-  // Simulate the user moving the focused window after Capture, before using the saved item.
-  try JSONEncoder().encode(original).write(to: frameFile)
   func observedFrame() throws -> CGRect {
     try JSONDecoder().decode(CGRect.self, from: Data(contentsOf: frameFile))
   }
-  let focused = entries.first(where: \.focused)
-  let saved = try #require(focused)
-  let rectangle = saved.rect.map { String($0) }.joined(separator: ",")
-  let definition =
-    #"{"kind":"move","placement":{"display":"\#(saved.display)","rect":[\#(rectangle)],"gap":0}}"#
-  let item = Row(
-    id: "coding", title: "Coding",
-    actions: [
-      .run(
-        Address(
-          id: "extension:window", fields: ["definition": definition],
-          action: "apply-definition", hidden: true))
-    ])
-  try JSONEncoder().encode(["items": [item]]).write(to: folder.appending(path: "user.json"))
+  // Capture the original rectangle for saving, then simulate a window move before replay.
+  try JSONEncoder().encode(destination).write(to: frameFile)
+  let (saveStatus, save) = try await cli(
+    root, ["--extension", "window", "--submitted", "--action", "save-current"])
+  let saveAction = try #require(save["actions"].array.first)
+  #expect(saveStatus == 0 && saveAction["type"].string == "save" && saveAction["setting"].string == "moves")
+  let definition = try #require(saveAction["values"]["definition"].string)
+  try JSONEncoder().encode(original).write(to: frameFile)
+  var entry = codingMove
+  entry["definition"] = definition
   try saveProviders([.init("extension:window")], in: root)
+  try ConfigurationFile(url: root.appending(path: "config.json")).set(
+    "window", to: ["moves": [entry]], in: "extensions")
   let (queryStatus, query) = try await cli(root, ["--query", "Coding"])
-  #expect(queryStatus == 0 && query["items"].array.contains { $0["row"]["id"].string == "user-item:coding" })
+  #expect(
+    queryStatus == 0 && query["items"].array.contains { $0["row"]["id"].string == "entry:moves/coding" })
   #expect(try observedFrame() == original)
 
-  let command = try #require(
-    ExtensionHost.discover(root.appending(path: "extensions"), bundled: nil)
-      .0["extension:window"])
-  let target = try #require(HotkeyTarget("wicket://window?user-item=coding"))
-  guard case .run(let action)? = command.item(for: target)?.actions.first?.kind else {
-    Issue.record("The saved item has no run action")
-    return
-  }
+  let target = try #require(HotkeyTarget("wicket://window?entry=moves/coding"))
+  let action = Address(fields: ["definition": definition], action: "apply-definition", hidden: true)
   let fields = String(decoding: try JSONEncoder().encode(action.fields), as: UTF8.self)
   let status = try await cli(
     root,
@@ -666,9 +662,7 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
   let bundledWindow = bundled.appending(path: "window")
   try FileManager.default.createDirectory(at: bundled, withIntermediateDirectories: true)
   try FileManager.default.moveItem(at: folder, to: bundledWindow)
-  let broken = try extensionFolder(root, name: "window", fields: ["contract": 1])
-  try FileManager.default.moveItem(
-    at: bundledWindow.appending(path: "user.json"), to: broken.appending(path: "user.json"))
+  _ = try extensionFolder(root, name: "window", fields: ["contract": 1])
   let model = LauncherModel(
     history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: bundled,
     extensionDataDirectory: history)

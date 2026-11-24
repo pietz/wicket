@@ -135,16 +135,16 @@ extension HostCommand {
     if atRoot, result.rootExtensionRow == .command { return HotkeyTarget(target: owner.id) }
     let row = result.row
     if let id = row.indexedItemID {
-      let target = HotkeyTarget(target: owner.id, item: id, isUserItem: row.isUserItem)
+      let target = HotkeyTarget(target: owner.id, item: id, entryList: row.entryList)
       return owner.item(for: target) == nil ? nil : target
     }
-    // A program's row can name either static item. The manifest item wins if both actions match.
+    // A program can render a manifest row with its original ID and primary action.
     guard !atRoot, let action = row.actions.first,
       let item = owner.items.first(where: { item in
-        item.id == row.id && item.actions.first?.kind == action.kind
+        item.entryList == nil && item.id == row.id && item.actions.first?.kind == action.kind
       })
     else { return nil }
-    return HotkeyTarget(target: owner.id, item: item.id, isUserItem: item.isUserItem)
+    return HotkeyTarget(target: owner.id, item: item.id, entryList: item.entryList)
   }
   /// The host's rows at the root, before ranking: Settings and the host commands available now.
   func rootRows(_ configuration: Configuration) -> [Result] {

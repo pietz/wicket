@@ -362,7 +362,11 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     #"{"contract":2,"name":"W","description":"Moves windows.","command":["./main"],"settings":[{"name":"gap","type":"number","description":"Window margin","placeholder":"Gap","default":"0"},{"name":"note","type":"text","description":"Note"}]}"#
   )
   #expect(window.description == "Moves windows." && window.settings.map(\.name) == ["gap", "note"])
-  #expect(window.settings[0].default == "0" && window.settings[1].placeholder == nil)
+  guard case .field(let gap) = window.settings[0], case .field(let note) = window.settings[1] else {
+    Issue.record("Expected scalar settings")
+    return
+  }
+  #expect(gap.default == "0" && note.placeholder == nil)
   for invalid in [
     #"{"contract":2,"name":"W","command":["x"],"settings":[{"name":"a","type":"text","description":"A"},{"name":"a","type":"text","description":"A"}]}"#,
     #"{"contract":2,"name":"W","command":["x"],"settings":[{"name":"","type":"text","description":"A"}]}"#,
@@ -379,14 +383,15 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     try file.set("unit", to: "km", forExtension: "units")
     #expect(
       try Configuration.load(at: file.url).extensions == [
-        "window": ["future": "keep", "gap": "8"], "units": ["unit": "km"],
+        "window": .object(["future": .string("keep"), "gap": .string("8")]),
+        "units": .object(["unit": .string("km")]),
       ])
     try file.set("unit", to: nil, forExtension: "units")
     let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
     #expect(json["extensions"]["units"] == .null && json["extensions"]["window"]["gap"] == .string("8"))
-    // Settings stay strings in config.json.
+    // A malformed extension setting remains repairable without disabling the other settings.
     try Data(#"{"extensions":{"window":{"gap":8}}}"#.utf8).write(to: file.url)
-    #expect(throws: (any Error).self) { try Configuration.load(at: file.url) }
+    #expect(try Configuration.load(at: file.url).extensions["window"]?["gap"] == .number(8))
   }
 }
 
@@ -418,51 +423,31 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   _ = try await model.extensions.view(echo, request: ProviderRequest(input: ""))
   let request = try JSONDecoder().decode(
     ProviderRequest.self, from: Data(contentsOf: root.appending(path: "request")))
-  #expect(request.settings == ["gap": "8", "percent": "90", "enabled": "true", "layout": "left"])
+  #expect(
+    request.settings == [
+      "gap": .string("8"), "percent": .string("90"), "enabled": .string("true"), "layout": .string("left"),
+    ])
 }
 
-@MainActor @Test(arguments: [false, true])
-func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) async throws {
+@MainActor @Test func makeItMineCopiesABundledExtensionThatThenShadowsIt() async throws {
   let root = try scratch()
   let files = FileManager.default
   defer { try? files.removeItem(at: root) }
   let local = root.appending(path: "extensions/window")
-  let userFile = local.appending(path: "user.json")
-  let move = Row(
-    id: "desk", title: "Desk",
-    actions: [
-      .run(
-        Address(
-          id: "extension:window",
-          fields: ["definition": #"{"kind":"move","placement":{"display":"current","rect":[0,0,0.5,1]}}"#],
-          action: "apply-definition", hidden: true))
-    ])
-  let saved = try JSONEncoder().encode(["items": [move]])
-  if withSavedMove {
-    try files.createDirectory(at: local, withIntermediateDirectories: true)
-    try saved.write(to: userFile)
-  }
+  try files.createDirectory(at: local, withIntermediateDirectories: true)
   let host = ExtensionHost(folder: root, bundled: bundledExtensions)
   await host.reload()
   let id = "extension:window"
   let window = try #require(host.commands[id])
   #expect(host.isBundled(window))
-  #expect(host.folderToReveal(window).path == (withSavedMove ? local : window.folder).path)
-  if withSavedMove {
-    #expect(host.ownFolder(id) == nil)
-    #expect(window.items.filter(\.isUserItem).map(\.id) == ["desk"])
-    // A file the copy would install blocks it; unrelated files such as .DS_Store don't.
-    let other = local.appending(path: "main.swift")
-    let contents = Data("owner's file".utf8)
-    try contents.write(to: other)
-    try Data().write(to: local.appending(path: ".DS_Store"))
-    #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
-    #expect(try Data(contentsOf: other) == contents)
-    #expect(try Data(contentsOf: userFile) == saved)
-    #expect(
-      Set(try files.contentsOfDirectory(atPath: local.path)) == ["user.json", "main.swift", ".DS_Store"])
-    try files.removeItem(at: other)
-  }
+  #expect(host.folderToReveal(window) == window.folder)
+  let other = local.appending(path: "main.swift")
+  let contents = Data("owner's file".utf8)
+  try contents.write(to: other)
+  try Data().write(to: local.appending(path: ".DS_Store"))
+  #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
+  #expect(try Data(contentsOf: other) == contents)
+  try files.removeItem(at: other)
 
   try host.makeMine(window)
   await host.reload()
@@ -470,14 +455,10 @@ func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) asy
   #expect(!host.isBundled(mine))
   #expect(mine.folder.resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
   #expect(host.folderToReveal(mine) == mine.folder)
-  #expect(mine.manifest == window.manifest)
-  #expect(mine.items == window.items)
+  #expect(mine.manifest == window.manifest && mine.items == window.items)
   let bundledEntries = try files.contentsOfDirectory(atPath: window.folder.path)
-  #expect(
-    Set(try files.contentsOfDirectory(atPath: local.path))
-      == Set(bundledEntries + (withSavedMove ? ["user.json", ".DS_Store"] : [])))
+  #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == Set(bundledEntries + [".DS_Store"]))
   #expect(files.isExecutableFile(atPath: mine.folder.appending(path: "main").path))
-  if withSavedMove { #expect(try Data(contentsOf: userFile) == saved) }
   #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
 }
 
@@ -511,13 +492,13 @@ func makeItMineCopiesABundledExtensionThatThenShadowsIt(withSavedMove: Bool) asy
 }
 
 @MainActor @Test(arguments: [false, true])
-func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: Bool) async throws {
+func retiredCopiesCanBeRevealedAndReplacedWithoutMovingUnrelatedFiles(keepItems: Bool) async throws {
   let root = try scratch()
   let files = FileManager.default
   defer { try? files.removeItem(at: root) }
   let extensions = root.appending(path: "extensions")
   let local = extensions.appending(path: "units")
-  let userFile = local.appending(path: "user.json")
+  let userFile = local.appending(path: "notes.txt")
   let trash = root.appending(path: "Trash")
   try files.createDirectory(at: extensions, withIntermediateDirectories: true)
   try files.createDirectory(at: trash, withIntermediateDirectories: true)
@@ -545,7 +526,7 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
     #expect(throws: CocoaError.self) { try host.trash(id) }
     #expect(
       Set(try files.contentsOfDirectory(atPath: local.path))
-        == ["main.py", "user.json", "wicket.json", ".DS_Store"])
+        == ["main.py", "notes.txt", "wicket.json", ".DS_Store"])
     #expect(try Data(contentsOf: userFile) == saved)
   }
   host.moveToTrash = {
@@ -558,7 +539,7 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
   let trashed = trash.appending(path: "units")
   #expect(Set(try files.contentsOfDirectory(atPath: trashed.path)) == ["main.py", "wicket.json"])
   if keepItems {
-    #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == ["user.json", ".DS_Store"])
+    #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == ["notes.txt", ".DS_Store"])
     #expect(try Data(contentsOf: userFile) == saved)
   } else {
     #expect(!files.fileExists(atPath: local.path))
@@ -593,7 +574,7 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
   #expect(files.fileExists(atPath: local.appending(path: "wicket.json").path))
 }
 
-@Test func forgettingAnExtensionRemovesOnlyItsSwitchSettingsAndHotkeys() throws {
+@Test func forgettingAnExtensionRemovesOnlyItsSwitchAndHotkeys() throws {
   try withSettings(
     #"""
     {"future":"keep",
@@ -606,7 +587,8 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingPersonalItems(keepItems: 
     try file.forget(extension: "echo")
     let config = try Configuration.load(at: file.url)
     #expect(config.providers.map(\.id) == ["apps", "extension:echoes"])
-    #expect(config.extensions == ["window": ["gap": "4"]])
+    #expect(config.extensions["echo"]?["gap"] == .string("8"))
+    #expect(config.extensions["window"]?["gap"] == .string("4"))
     #expect(config.hotkeys.map(\.target) == [HotkeyTarget(target: "extension:window", item: "left")])
     let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
     #expect(json["future"] == .string("keep"))
@@ -725,7 +707,8 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
       }
     }
     #expect(attempts == 2)
-    #expect(configuration.extensions["window"] == ["gap": "8", "almostMaximize": "80"])
+    #expect(
+      configuration.extensions["window"] == .object(["gap": .string("8"), "almostMaximize": .string("80")]))
     let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
     #expect(json["future"] == .bool(true))
   }

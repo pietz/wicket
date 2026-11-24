@@ -67,7 +67,7 @@ private func calculatorRow(
   _ input: String, _ locale: ProviderRequest.NumberMarks = us, settings: [String: String] = [:]
 ) async throws -> Row? {
   var request = ProviderRequest(input: input, locale: locale)
-  request.settings = settings
+  request.settings = settings.mapValues(JSONValue.string)
   return try await runBundled("calculator", request: request).items.first
 }
 
@@ -414,11 +414,10 @@ private func path(_ folder: URL) -> String { folder.resolvingSymlinksInPath().pa
   #expect(path(commands["extension:calculator"]) == path(calculator))
   #expect(problems.isEmpty)
   try Data("{".utf8).write(to: calculator.appending(path: "wicket.json"))
-  try Data("{".utf8).write(to: calculator.appending(path: "user.json"))
   (commands, problems, _) = ExtensionHost.discover(extensions, bundled: bundledExtensions)
   #expect(path(commands["extension:calculator"]) == path(bundledExtensions.appending(path: "calculator")))
   #expect(problems.count == 1)
   let problem = try #require(problems["extension:calculator"])
   #expect(problem.usingBundled)
-  #expect(problem.detail.contains("Invalid wicket.json") && problem.detail.contains("Invalid user.json"))
+  #expect(problem.detail.contains("Invalid wicket.json"))
 }

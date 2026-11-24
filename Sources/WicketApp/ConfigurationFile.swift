@@ -109,7 +109,9 @@ struct ConfigurationFile {
   func bind(_ keys: Shortcut?, to target: HotkeyTarget) throws {
     try edit { object in
       var entries = object["hotkeys"] as? [[String: Any]] ?? []
-      let index = entries.firstIndex { ($0["address"] as? String).flatMap(HotkeyTarget.init) == target }
+      let index = entries.firstIndex {
+        ($0["address"] as? String).flatMap { HotkeyTarget($0, allowLegacy: true) } == target
+      }
       switch (keys, index) {
       case (let keys?, let index?): entries[index]["keys"] = keys.description
       case (let keys?, nil): entries.append(["keys": keys.description, "address": target.description])
@@ -123,27 +125,76 @@ struct ConfigurationFile {
   func set(_ key: String, to value: String?, forExtension folder: String) throws {
     try edit { object in
       var all = object["extensions"] as? [String: Any] ?? [:]
+      guard all[folder] == nil || all[folder] is [String: Any] else {
+        throw ExtensionFailure("Repair the extension's settings in config.json before editing them.")
+      }
       var own = all[folder] as? [String: Any] ?? [:]
       own[key] = value
       all[folder] = own.isEmpty ? nil : own
       object["extensions"] = all.isEmpty ? nil : all
     }
   }
-  /// Removes what is kept only for an extension that is gone: its switch, its settings and the hotkeys
-  /// whose address targets it.
+  /// One edit preserves other entries even if one needs repair.
+  func changeEntry(
+    in list: SettingList, folder: String, id: String, values: [String: String]?, inserting: Bool = false
+  ) throws {
+    try edit { object in
+      var all = object["extensions"] as? [String: Any] ?? [:]
+      var own = all[folder] as? [String: Any] ?? [:]
+      guard object["extensions"] == nil || object["extensions"] is [String: Any],
+        all[folder] == nil || all[folder] is [String: Any],
+        own[list.name] == nil || own[list.name] is [Any]
+      else {
+        throw ExtensionFailure("Repair the extension's settings in config.json before editing this list.")
+      }
+      var entries = own[list.name] as? [Any] ?? []
+      let index = entries.firstIndex { ($0 as? [String: Any])?["id"] as? String == id }
+      if let values {
+        guard !id.allSatisfy(\.isWhitespace), list.accepts(values) else {
+          throw ExtensionFailure("Complete the required fields with valid values.")
+        }
+        var entry = ["id": id] as [String: Any]
+        if !inserting {
+          guard let index else { throw ExtensionFailure("This entry has already been removed.") }
+          entry = entries[index] as? [String: Any] ?? entry
+        }
+        for field in list.fields { entry[field.name] = values[field.name] }
+        if inserting {
+          guard index == nil else { throw ExtensionFailure("This entry already exists.") }
+          entries.append(entry)
+        } else if let index {
+          entries[index] = entry
+        }
+      } else if let index {
+        entries.remove(at: index)
+        if let bindings = object["hotkeys"] as? [[String: Any]] {
+          object["hotkeys"] = bindings.filter {
+            guard let target = ($0["address"] as? String).flatMap({ HotkeyTarget($0) }) else { return true }
+            return
+              !(target.target == "extension:" + folder && target.entryList == list.name && target.item == id)
+          }
+        }
+      } else {
+        return
+      }
+      own[list.name] = entries
+      all[folder] = own
+      object["extensions"] = all
+    }
+  }
+
+  /// Forget the switch and hotkeys. Keep saved settings for a restoration.
   func forget(extension folder: String) throws {
     let id = "extension:" + folder
     try edit { object in
       if let entries = object["providers"] as? [[String: Any]] {
         object["providers"] = entries.filter { $0["id"] as? String != id }
       }
-      if var all = object["extensions"] as? [String: Any] {
-        all[folder] = nil
-        object["extensions"] = all.isEmpty ? nil : all
-      }
       if let entries = object["hotkeys"] as? [[String: Any]] {
-        object["hotkeys"] = entries.filter {
-          ($0["address"] as? String).flatMap(HotkeyTarget.init)?.target != id
+        object["hotkeys"] = entries.filter { entry in
+          guard let target = (entry["address"] as? String).flatMap({ HotkeyTarget($0, allowLegacy: true) })
+          else { return true }
+          return target.target != id
         }
       }
     }

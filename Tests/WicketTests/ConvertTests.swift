@@ -25,7 +25,7 @@ private func convert(
   let command = ExtensionCommand(
     id: units.id, folder: units.folder, manifest: try rateManifest(units, rate: rate))
   var request = ProviderRequest(input: input, locale: locale)
-  request.settings = settings
+  request.settings = settings.mapValues(JSONValue.string)
   let runner = ExtensionRunner(dataDirectory: folder)
   return try await runner.run(command, request: request).items.first
 }

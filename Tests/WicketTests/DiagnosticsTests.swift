@@ -19,18 +19,15 @@ private let deniedPermissions = Permissions(
   }
   let local = try extensionFolder(root, name: "local", script: script, fields: ["permissions": ["calendar"]])
   let override = try extensionFolder(root, name: "override", script: script)
-  let broken = try extensionFolder(root, name: "broken", script: script, fields: ["contract": 1])
+  _ = try extensionFolder(root, name: "broken", script: script, fields: ["contract": 1])
   _ = try extensionFolder(root, name: "stranded", script: script, fields: ["contract": 1])
   let mixed = try extensionFolder(root, name: "Mixed", script: script)
-  let personal = root.appending(path: "extensions/personal")
-  try FileManager.default.createDirectory(at: personal, withIntermediateDirectories: true)
-  try Data(#"{"items":[]}"#.utf8).write(to: personal.appending(path: "user.json"))
   let retired = root.appending(path: "extensions/units")
   try FileManager.default.copyItem(at: fixtureURL("retired-units"), to: retired)
-  try Data("broken user items".utf8).write(to: broken.appending(path: "user.json"))
 
   var config = Configuration()
   config.resultsOnlyWhenTyping = true
+  config.extensions["broken"] = .number(1)
   config.providers = [.init("extension:built-in", enabled: false)]
   config.hotkeys = try [
     ("ctrl+1", "wicket://override?input=private-query"),
@@ -81,12 +78,14 @@ private let deniedPermissions = Permissions(
   #expect(try pointsTo("extension:Mixed", "activeFolder", mixed))
   #expect(entries["extension:mixed"]?["source"] == .string("bundled"))
   #expect(entries["extension:personal"]?["source"] == .string("bundled"))
-  #expect(try pointsTo("extension:personal", "localFolder", personal))
+  #expect(entries["extension:personal"]?["localFolder"] == .null)
   #expect(entries["extension:broken"]?["source"] == .string("broken local copy, using bundled"))
   #expect(entries["extension:broken"]?["contract"] == .number(2))
   #expect(
     entries["extension:broken"]?["discoveryProblem"].string?.contains("uses extension contract 1") == true)
-  #expect(entries["extension:broken"]?["userJSONProblem"].string?.contains("Invalid user.json") == true)
+  #expect(
+    entries["extension:broken"]?["settingsProblem"].string?.contains("Extension settings must be an object")
+      == true)
   #expect(entries["extension:stranded"]?["contract"] == .number(1))
   #expect(entries["extension:stranded"]?["activeFolder"] == .null)
 
@@ -427,7 +426,7 @@ private func diagnosticsAttributesPermissionChecksAndRegistrations(_ writer: Dia
     fields: ["settings": [["name": "token", "type": "text", "description": "Token"]]])
   let host = ExtensionHost(folder: root, bundled: nil, runtime: recorder)
   let sentinel = "private-request-sentinel"
-  host.settings["test"] = ["token": sentinel]
+  _ = host.applySettings(["test": .object(["token": .string(sentinel)])])
   await host.reload()
   let command = try #require(host.commands["extension:test"])
   do {

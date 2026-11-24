@@ -1,47 +1,61 @@
 import Foundation
 
-/// What a global hotkey from `hotkeys` in config.json is bound to: an address spelled as a URL
-/// (`wicket://clipboard`, `wicket://weather?input=berlin`), or one of an extension's static items, named by
-/// `item` for a manifest item (`wicket://window?item=left`) or `user-item` for a user item. These query
-/// keys are read only here. Keeping the item's ID lets its current action stay in the extension.
+/// A command address, a manifest item, or a list entry. URL navigation itself only reads the command.
 struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
-  /// `Address.targetID`: a reserved name, an extension ID, or nil for a root query.
   let target: String?
   let input: String?
   let item: String?
-  let isUserItem: Bool
+  let entryList: String?
+  /// Only read from existing config files so migration can replace the binding without losing its keys.
+  let legacyItem: Bool
 
-  init(target: String?, input: String? = nil, item: String? = nil, isUserItem: Bool = false) {
+  init(
+    target: String?, input: String? = nil, item: String? = nil, entryList: String? = nil,
+    legacyItem: Bool = false
+  ) {
     self.target = target
     self.input = input
     self.item = item
-    self.isUserItem = item != nil && isUserItem
+    self.entryList = entryList
+    self.legacyItem = legacyItem
   }
-  init?(_ spelling: String) {
+  init?(_ spelling: String, allowLegacy: Bool = false) {
     guard let url = URL(string: spelling), let address = Address(url: url) else { return nil }
-    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
-    let item = query?.first { $0.name == "item" }
-    let userItem = query?.first { $0.name == "user-item" }
-    guard item == nil || userItem == nil else { return nil }
-    if let userItem, userItem.value?.isEmpty != false { return nil }
-    self.init(
-      target: address.targetID, input: address.input, item: userItem?.value ?? item?.value,
-      isUserItem: userItem != nil)
+    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    let references = query.filter { ["item", "entry", "user-item"].contains($0.name) }
+    guard references.count <= 1 else { return nil }
+    guard let reference = references.first else {
+      self.init(target: address.targetID, input: address.input)
+      return
+    }
+    guard let item = reference.value, !item.isEmpty else { return nil }
+    if reference.name == "entry" {
+      let parts = item.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+      guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }),
+        address.targetID?.hasPrefix("extension:") == true
+      else { return nil }
+      self.init(
+        target: address.targetID, input: address.input, item: String(parts[1]), entryList: String(parts[0]))
+    } else {
+      let legacy = reference.name == "user-item"
+      guard !legacy || allowLegacy else { return nil }
+      self.init(target: address.targetID, input: address.input, item: item, legacyItem: legacy)
+    }
   }
-  /// The address that opens it: a link, so its request is never submitted.
   var address: Address {
     guard let target else { return Address(extensionName: "", input: input, link: true) }
     return Address(id: target, input: input, link: true)
   }
-  /// `wicket://window?item=left`, the folder percent-encoded, as config.json keeps it.
   var description: String {
     var url = URLComponents()
     url.scheme = Address.schemes[0]
     url.encodedHost = (address.extensionName ?? "").addingPercentEncoding(
       withAllowedCharacters: .urlHostAllowed)
-    let query = [("input", input), (isUserItem ? "user-item" : "item", item)].compactMap { name, value in
-      value.map { URLQueryItem(name: name, value: $0) }
+    let reference = item.map { item in
+      if let entryList { return URLQueryItem(name: "entry", value: entryList + "/" + item) }
+      return URLQueryItem(name: legacyItem ? "user-item" : "item", value: item)
     }
+    let query = [input.map { URLQueryItem(name: "input", value: $0) }, reference].compactMap { $0 }
     url.queryItems = query.isEmpty ? nil : query
     return url.string ?? "wicket://"
   }
@@ -73,7 +87,9 @@ struct HotkeyRegistrations: Codable, Equatable, Sendable {
   }
 
   static func target(_ target: HotkeyTarget) -> String {
-    HotkeyTarget(target: target.target, item: target.item, isUserItem: target.isUserItem).description
+    HotkeyTarget(
+      target: target.target, item: target.item, entryList: target.entryList, legacyItem: target.legacyItem
+    ).description
   }
 }
 
@@ -103,6 +119,7 @@ final class CommandHotKeys {
   /// Registers every binding, keeping those already in effect, and drops those no longer listed.
   /// `launcher` is the launcher's shortcut, which no binding takes. One line per problem, or nil.
   func apply(_ hotkeys: [Configuration.Hotkey], launcher: Shortcut?) -> String? {
+    let hotkeys = hotkeys.filter { !$0.target.legacyItem }
     let listed = Set(hotkeys.map(\.target))
     registrations = registrations.filter { listed.contains($0.key) }
     var entries: [HotkeyRegistrations.Entry] = []

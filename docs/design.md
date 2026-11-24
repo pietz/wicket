@@ -8,7 +8,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 2. **Extension.** A folder with `wicket.json` and, optionally, a program that answers one request per process. Reached by name, keyword, a `match` pattern, or as a fallback. *Why:* anything that turns input into a screen lives outside the core, in any language, written by the agent.
 3. **Field.** A typed, named value (`text`, `number`, `bool`, `choice`) that travels as a string, asked for in the search bar, on a page, or in Settings. *Why:* one way to ask for a value everywhere.
 4. **Item.** A row with an id, a title, and actions, from core sources (apps, files, clipboard), a manifest, a list, or a program's view. *Why:* stable ids make rows bindable to hotkeys, selectable across updates, and learnable by usage.
-5. **Action.** What an item does: `open`, `reveal`, `copy`, `paste`, `run`, `agent`. `run` sends a request to an extension. *Why:* effects happen only on a submitted request; effects worth reviewing need a named action.
+5. **Action.** What an item does: `open`, `reveal`, `copy`, `paste`, `run`, `agent`, `save`. `run` sends a request to an extension. *Why:* effects happen only on a submitted request; effects worth reviewing need a named action.
 6. **Address.** A `wicket://` link to the root, an extension, an item, the agent, or Settings; it opens a view and never acts. *Why:* hotkeys, links, and the agent's follow-up rows all point at places the same way.
 7. **View.** A program's answer: `items` (native list) and/or `body` (one HTML page in the page language). Agent answers use the same page language. *Why:* native frame for keys and focus, HTML for freely designed content.
 8. **Setting.** A persisted value an extension declares: a field or a list of entries. Wicket draws it in Settings, stores it in `config.json`, and sends it with every request. *Why:* the extension declares, Wicket draws and saves.
@@ -32,6 +32,5 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 
 ## Where the map doesn't fit yet
 
-- **Lists of personal entries.** Quicklinks and saved window moves are stored as raw launcher items in `extensions/<name>/user.json`, inside the extension's folder. Core has a Quicklinks special case to read them, and there is no editor. They should be settings (block 8).
 - **Three dialects of fields.** Search-bar fields, page fields, and settings share types but not rules.
-- **Small flags on items and actions** (`itemList`, `promptIfEmpty`, `user-item`, `hidden`, `submit`). Each solved a real case; together they are hard to learn. Check each against the blocks above.
+- **Small flags on items and actions** (`itemList`, `promptIfEmpty`, `hidden`, `submit`). Each solved a real case; together they are hard to learn. Check each against the blocks above.

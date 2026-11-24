@@ -217,6 +217,9 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     switch effect {
     case .hide: hide()
     case .settings: showSettings()
+    case .settingsList(let destination):
+      hide()
+      settings?.show(section: 3, list: destination)
     case .checkForUpdates: model.checkForUpdates()
     case .run(let action, let result): perform(action, from: result)
     }
@@ -348,7 +351,9 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     case .hotkey(let target, record: true):
       navigator.revealRootResults()
       recorder.record(target, in: panel, store: model.store, pausing: pauseHotkeys)
-    case .run, .send, .ask, .detail, .field, .hotkey, .grant, .checkForUpdates, .dismissNotice: break
+    case .run, .send, .ask, .detail, .field, .hotkey, .grant, .checkForUpdates, .dismissNotice, .editList,
+      .save:
+      break
     case .reveal(let url):
       NSWorkspace.shared.activateFileViewerSelecting([url])
       record()

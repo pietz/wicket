@@ -177,7 +177,7 @@ enum Ranking {
       if problem.usingBundled {
         ExtensionHost.Problem.fallbackMessage
       } else if hasCommand {
-        "Invalid user.json"
+        "Invalid extension settings"
       } else if problem.detail.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
         "Update the manifest and program to contract 2"
       } else {
@@ -218,7 +218,7 @@ enum Ranking {
   ///   - patterns: Outcomes of the pattern extensions that ran, by extension ID.
   ///   - running: The pattern extensions that matched the input and have not answered yet.
   ///   - extensions: Manifests of the enabled, valid extensions.
-  ///   - problems: Repair text of the enabled extensions with an invalid manifest or user.json.
+  ///   - problems: Repair text of the enabled extensions with an invalid manifest or settings.
   ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
   ///   - hostFields: The fields of an available host command, which a host row or extension item may target.
   static func compose(

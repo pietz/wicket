@@ -48,6 +48,12 @@ final class LauncherModel {
     navigator = Navigator(agent: agent, directory: directory, root: root, store: store, history: history)
     self.history = history
     navigator.footerProblem = { [weak self] in self?.problem }
+    extensions.migrateLists = { [weak self] commands in
+      guard let self else { return (false, [:]) }
+      let result = ListMigration.run(commands, root: folder.appending(path: "extensions"), store: store)
+      if result.count > 0 { navigator.personalItemsMigrated(result.count) }
+      return (result.createdItems, result.problems)
+    }
     // Tests and headless runs react with the services alone; the app reacts in its own order, these
     // first (`AppDelegate`).
     store.onChange = { [weak self] configuration in self?.apply(configuration) }
@@ -55,7 +61,7 @@ final class LauncherModel {
   /// A configuration was loaded (`ConfigurationStore.onChange`): the extensions' settings, the clipboard
   /// and the sources it switched on or off follow it.
   func apply(_ configuration: Configuration) {
-    extensions.settings = configuration.extensions
+    let updated = extensions.applySettings(configuration.extensions)
     clipboard?.configure(enabled: configuration.isEnabled("clipboard", extensions: []))
     var switched: Set<String>?
     if configuration != applied {
@@ -66,7 +72,7 @@ final class LauncherModel {
       }
       applied = configuration
     }
-    navigator.applied(switching: switched)
+    navigator.applied(switching: updated.isEmpty ? switched : updated.union(switched ?? []))
   }
 
   /// Each source owns its message. Configuration and hotkey problems live in the store, the last
@@ -102,9 +108,9 @@ final class LauncherModel {
     let owner = target.target.flatMap { extensions.commands[$0] }
     guard let itemID = target.item else { return navigator.open(target.address, pressed: target) }
     let item = owner?.item(for: target)
-    if item == nil, target.isUserItem {
+    if item == nil, target.entryList != nil || target.legacyItem {
       let name = owner?.manifest.name ?? target.address.extensionName ?? "this extension"
-      return navigator.reportActionProblem("User item “\(itemID)” is no longer available in \(name).")
+      return navigator.reportActionProblem("Entry “\(itemID)” is no longer available in \(name).")
     }
     // A switched-off extension's items run nothing: its address shows that it is off.
     guard let owner, configuration.isEnabled(owner.id, extensions: extensions.ids),
@@ -118,7 +124,8 @@ final class LauncherModel {
     case .run(let address):
       navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
     case .copy, .paste, .open, .reveal: navigator.perform(action)
-    case .send, .ask, .detail, .field, .clip, .hotkey, .grant, .checkForUpdates, .dismissNotice:
+    case .send, .ask, .detail, .field, .clip, .hotkey, .grant, .checkForUpdates, .dismissNotice, .editList,
+      .save:
       navigator.open(target.address, pressed: target)
     }
   }
