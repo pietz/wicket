@@ -9,11 +9,12 @@ enum VoiceLog {
   static func milliseconds(since start: ContinuousClock.Instant) -> Int {
     Int((ContinuousClock.now - start) / .milliseconds(1))
   }
-  /// A VoiceError by its case; anything else by its domain and code, which name the failing API.
+  /// Report only stable error identifiers from the voice pipeline and system APIs.
   static func describe(_ error: any Error) -> String {
-    if let error = (error as? VoiceSystemError)?.category ?? error as? VoiceError {
-      return error.rawValue
+    if let system = error as? VoiceSystemError {
+      return "\(system.category.rawValue) (\(system.domain) \(system.code))"
     }
+    if let error = error as? VoiceError { return error.rawValue }
     let error = error as NSError
     return "\(error.domain) \(error.code)"
   }

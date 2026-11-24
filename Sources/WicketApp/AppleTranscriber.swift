@@ -187,10 +187,9 @@ final class Microphone: @unchecked Sendable {
       let capture = AVCaptureSession()
       let input = try AVCaptureDeviceInput(device: device)
       let output = AVCaptureAudioDataOutput()
-      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio) { fail($0) }
-      output.audioSettings = [
-        AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
-      ]
+      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio, fail: fail)
+      // Keep capture in native PCM. Convert once the actual sample format is known.
+      output.audioSettings = nil
       // Session startup and teardown can wait for delivery to drain.
       output.setSampleBufferDelegate(
         samples, queue: DispatchQueue(label: "app.wicket.audio", qos: .userInitiated))
@@ -266,12 +265,12 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
   private let format: AVAudioFormat
   private let audio: @Sendable (AVAudioPCMBuffer) -> Void
   private let firstAudio: @Sendable () -> Void
-  private let fail: @Sendable (VoiceError) -> Void
+  private let fail: @Sendable (any Error) -> Void
   private var conversion: Conversion?
 
   init(
     format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
-    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
+    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (any Error) -> Void
   ) {
     self.format = format
     self.audio = audio
@@ -288,11 +287,19 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
   func receive(_ sampleBuffer: CMSampleBuffer) {
     do {
       guard sampleBuffer.numSamples > 0 else { return }
-      guard let description = sampleBuffer.formatDescription,
-        let buffer = AVAudioPCMBuffer(
-          pcmFormat: AVAudioFormat(cmAudioFormatDescription: description),
-          frameCapacity: AVAudioFrameCount(sampleBuffer.numSamples))
+      guard let description = sampleBuffer.formatDescription?.audioStreamBasicDescription,
+        description.mFormatID == kAudioFormatLinearPCM
       else { throw VoiceError.conversionFailed }
+      // Voice treats all channels equally. Keep their byte layout and ignore device-specific speaker labels.
+      var stream = description
+      let layout =
+        stream.mChannelsPerFrame > 2
+        ? AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | stream.mChannelsPerFrame)
+        : nil
+      guard let source = AVAudioFormat(streamDescription: &stream, channelLayout: layout) else {
+        throw VoiceError.conversionFailed
+      }
+      let buffer = try Conversion.allocate(source, frames: AVAudioFrameCount(sampleBuffer.numSamples))
       buffer.frameLength = buffer.frameCapacity
       try sampleBuffer.copyPCMData(
         fromRange: 0..<sampleBuffer.numSamples, into: buffer.mutableAudioBufferList)
@@ -301,57 +308,116 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
         conversion = try Conversion(input: buffer.format, output: format)
       }
       if let converted = try conversion?.convert(buffer) { audio(converted) }
-    } catch { fail(.conversionFailed) }
+    } catch let error as VoiceError {
+      fail(error)
+    } catch {
+      let system = error as NSError
+      fail(VoiceSystemError(category: .conversionFailed, domain: system.domain, code: system.code))
+    }
   }
 }
 
 /// Explicit averaging supports discrete multichannel PCM layouts.
-final class Conversion: @unchecked Sendable {
-  private let converter: AVAudioConverter
-  private let source: AVAudioFormat, mono: AVAudioFormat, format: AVAudioFormat
-  private let ratio: Double
+final class Conversion {
+  private let source: AVAudioFormat
+  private let downmix: (mono: AVAudioFormat, normalizer: AVAudioConverter?)?
+  private let converter: AVAudioConverter?
+
   init(input: AVAudioFormat, output: AVAudioFormat) throws {
-    guard input.commonFormat == .pcmFormatFloat32,
-      let mono = AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: 1),
-      let converter = AVAudioConverter(from: input.channelCount > 1 ? mono : input, to: output)
-    else { throw VoiceError.conversionFailed }
     source = input
-    self.mono = mono
-    self.converter = converter
-    format = output
-    ratio = output.sampleRate / input.sampleRate
-  }
-  func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
-    // Not ==: that also compares channel layouts, which do not affect averaging or resampling.
-    guard buffer.format.sameRateAndChannels(source), buffer.format.commonFormat == source.commonFormat,
-      buffer.format.isInterleaved == source.isInterleaved
-    else { throw VoiceError.conversionFailed }
-    guard buffer.frameLength > 0 else { return nil }
-    var input = buffer
-    if source.channelCount > 1 {
-      guard let mixed = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength),
-        let channels = buffer.floatChannelData, let samples = mixed.floatChannelData?[0]
-      else { throw VoiceError.conversionFailed }
-      mixed.frameLength = buffer.frameLength
-      let count = Int(source.channelCount)
-      for frame in 0..<Int(buffer.frameLength) {
-        var sum: Float = 0
-        for channel in 0..<count {
-          sum += source.isInterleaved ? channels[0][frame * count + channel] : channels[channel][frame]
-        }
-        samples[frame] = sum / Float(count)
+    if input.channelCount > 1 {
+      guard let mono = AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: 1) else {
+        throw VoiceError.conversionFailed
       }
-      input = mixed
+      downmix = (mono, try Self.makeNormalizer(for: input))
+    } else {
+      downmix = nil
     }
-    let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1
-    guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+    let effectiveInput = downmix?.mono ?? input
+    converter = effectiveInput == output ? nil : try Self.makeConverter(from: effectiveInput, to: output)
+  }
+
+  private static func makeNormalizer(for input: AVAudioFormat) throws -> AVAudioConverter? {
+    guard input.commonFormat != .pcmFormatFloat32 else { return nil }
+    let floats =
+      if let layout = input.channelLayout {
+        AVAudioFormat(
+          commonFormat: .pcmFormatFloat32, sampleRate: input.sampleRate, interleaved: false,
+          channelLayout: layout)
+      } else {
+        AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: input.channelCount)
+      }
+    guard let floats else { throw VoiceError.conversionFailed }
+    return try makeConverter(from: input, to: floats)
+  }
+
+  private static func makeConverter(from input: AVAudioFormat, to output: AVAudioFormat) throws
+    -> AVAudioConverter
+  {
+    guard let converter = AVAudioConverter(from: input, to: output) else {
       throw VoiceError.conversionFailed
     }
+    return converter
+  }
+
+  fileprivate static func allocate(_ format: AVAudioFormat, frames: AVAudioFrameCount) throws
+    -> AVAudioPCMBuffer
+  {
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
+      throw VoiceError.conversionFailed
+    }
+    return buffer
+  }
+
+  func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
+    guard buffer.format == source else { throw VoiceError.conversionFailed }
+    guard buffer.frameLength > 0 else { return nil }
+    var input = buffer
+    if let downmix {
+      if let normalizer = downmix.normalizer {
+        input = try Self.allocate(normalizer.outputFormat, frames: buffer.frameLength)
+        try normalizer.convert(to: input, from: buffer)
+      }
+      input = try Self.mix(input, to: downmix.mono)
+    }
+    guard let converter else { return input }
+    let format = converter.outputFormat
+    let ratio = format.sampleRate / input.format.sampleRate
+    if ratio == 1 {
+      let output = try Self.allocate(format, frames: input.frameLength)
+      try converter.convert(to: output, from: input)
+      return output
+    }
+    // Leave room for rate-conversion rounding so the converter can drain the current input.
+    let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1
+    let output = try Self.allocate(format, frames: capacity)
     var error: NSError?
     let status = converter.convert(to: output, error: &error, withInputFrom: Self.inputBlock(input))
-    guard status != .error else { throw VoiceError.conversionFailed }
+    if status == .error {
+      if let error { throw error }
+      throw VoiceError.conversionFailed
+    }
     return output.frameLength > 0 ? output : nil
   }
+
+  private static func mix(_ input: AVAudioPCMBuffer, to mono: AVAudioFormat) throws -> AVAudioPCMBuffer {
+    let mixed = try allocate(mono, frames: input.frameLength)
+    guard let channels = input.floatChannelData, let samples = mixed.floatChannelData?[0] else {
+      throw VoiceError.conversionFailed
+    }
+    mixed.frameLength = input.frameLength
+    let count = Int(input.format.channelCount)
+    let interleaved = input.format.isInterleaved
+    for frame in 0..<Int(input.frameLength) {
+      var sum: Float = 0
+      for channel in 0..<count {
+        sum += interleaved ? channels[0][frame * count + channel] : channels[channel][frame]
+      }
+      samples[frame] = sum / Float(count)
+    }
+    return mixed
+  }
+
   static func inputBlock(_ buffer: AVAudioPCMBuffer) -> AVAudioConverterInputBlock {
     nonisolated(unsafe) var supplied = false
     // AVAudioPCMBuffer is Sendable only from the macOS 27 SDK; the converter calls this block synchronously.
@@ -365,12 +431,6 @@ final class Conversion: @unchecked Sendable {
       status.pointee = .haveData
       return buffer
     }
-  }
-}
-
-extension AVAudioFormat {
-  fileprivate func sameRateAndChannels(_ other: AVAudioFormat) -> Bool {
-    sampleRate == other.sampleRate && channelCount == other.channelCount
   }
 }
 

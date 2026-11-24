@@ -195,14 +195,9 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
   #expect(abs(converted.floatChannelData![0][500] - 0.625) < 0.001)
   let wrong = try audio(1)
   #expect(throws: VoiceError.conversionFailed) { try conversion.convert(wrong) }
-  let unsupported = try #require(
-    AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48000, channels: 1, interleaved: false))
-  #expect(throws: VoiceError.conversionFailed) { try Conversion(input: unsupported, output: output) }
 }
 
-@Test func thirtyTwoKilohertzStereoReachesTheAnalyzerFormat() throws {
-  let input = try audio(2, rate: 32000)
-  let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
   var sample: CMSampleBuffer?
   let created = CMAudioSampleBufferCreateWithPacketDescriptions(
     allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: false, makeDataReadyCallback: nil,
@@ -215,7 +210,13 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
     flags: 0, bufferList: input.audioBufferList)
   try #require(copied == noErr)
   try #require(CMSampleBufferSetDataReady(sampleBuffer) == noErr)
+  return sampleBuffer
+}
 
+@Test func thirtyTwoKilohertzStereoReachesTheAnalyzerFormat() throws {
+  let input = try audio(2, rate: 32000)
+  let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+  let sampleBuffer = try captureSample(input)
   let counts = Mutex((audio: 0, first: 0))
   let receiver = AudioSamples(
     format: output,
@@ -229,6 +230,116 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
   receiver.receive(sampleBuffer)
   receiver.receive(sampleBuffer)
   #expect(counts.withLock { $0 } == (2, 1))
+}
+
+@Test(
+  arguments: [false, true],
+  [
+    kAudioChannelLayoutTag_Mono, kAudioChannelLayoutTag_DiscreteInOrder | 1,
+    kAudioChannelLayoutTag_Unknown | 1,
+  ])
+func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChannelLayoutTag) throws {
+  let layout = try #require(AVAudioChannelLayout(layoutTag: tag))
+  let format = AVAudioFormat(
+    commonFormat: .pcmFormatInt16, sampleRate: 16000, interleaved: interleaved, channelLayout: layout)
+  let input = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320))
+  input.frameLength = 320
+  let data = try #require(input.int16ChannelData?[0])
+  // Distinct packets expose dropped or repeated samples across the conversion calls.
+  let values: [Int16] = [-16384, 8192]
+  let packets = try values.map { value in
+    for frame in 0..<Int(input.frameLength) { data[frame] = value }
+    return try captureSample(input)
+  }
+  for outputFormat in [AVAudioCommonFormat.pcmFormatFloat32, .pcmFormatInt16] {
+    let output = try #require(
+      AVAudioFormat(commonFormat: outputFormat, sampleRate: 16000, channels: 1, interleaved: false))
+    let received = Mutex([Float]())
+    let first = Mutex(0)
+    let receiver = AudioSamples(
+      format: output,
+      audio: { buffer in
+        #expect(buffer.format == output)
+        #expect(buffer.frameLength == 320)
+        let samples = (0..<Int(buffer.frameLength)).map { frame in
+          if let floats = buffer.floatChannelData { return floats[0][frame] }
+          return Float(buffer.int16ChannelData![0][frame]) / 32768
+        }
+        received.withLock { $0.append(contentsOf: samples) }
+      },
+      firstAudio: { first.withLock { $0 += 1 } },
+      fail: { Issue.record("Audio failed: \(VoiceLog.describe($0))") })
+    for packet in packets { receiver.receive(packet) }
+    let expected = values.flatMap { Array(repeating: Float($0) / 32768, count: 320) }
+    #expect(received.withLock { $0 } == expected)
+    #expect(first.withLock { $0 } == 1)
+  }
+}
+
+@Test func packedIntegerChannelsAreAveragedBySampleOrder() throws {
+  // USB microphones can supply packed 24-bit PCM outside AVAudioCommonFormat.
+  let count: UInt32 = 4
+  var asbd = AudioStreamBasicDescription(
+    mSampleRate: 16000, mFormatID: kAudioFormatLinearPCM,
+    mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+    mBytesPerPacket: count * 3, mFramesPerPacket: 1, mBytesPerFrame: count * 3,
+    mChannelsPerFrame: count, mBitsPerChannel: 24, mReserved: 0)
+  let layout = try #require(AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_Quadraphonic))
+  let format = try #require(AVAudioFormat(streamDescription: &asbd, channelLayout: layout))
+  #expect(format.commonFormat == .otherFormat)
+  let input = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320))
+  input.frameLength = 320
+  let bytes = try #require(input.audioBufferList.pointee.mBuffers.mData).assumingMemoryBound(to: UInt8.self)
+  let frame: [UInt8] = [0, 0, 0x40, 0, 0, 0x20, 0, 0, 0, 0, 0, 0xE0]
+  for index in 0..<Int(input.frameLength) {
+    frame.withUnsafeBufferPointer {
+      bytes.advanced(by: index * frame.count).update(from: $0.baseAddress!, count: frame.count)
+    }
+  }
+  let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+  let received = Mutex(0)
+  let receiver = AudioSamples(
+    format: output,
+    audio: { buffer in
+      #expect(buffer.format == output)
+      #expect(buffer.frameLength == 320)
+      #expect(buffer.floatChannelData?[0][0] == 0.125)
+      #expect(buffer.floatChannelData?[0][319] == 0.125)
+      received.withLock { $0 += 1 }
+    },
+    firstAudio: {},
+    fail: { Issue.record("Audio failed: \(VoiceLog.describe($0))") })
+  receiver.receive(try captureSample(input))
+  #expect(received.withLock { $0 } == 1)
+}
+
+@Test func copyingMicrophoneSamplesPreservesTheSystemError() throws {
+  let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+  var sample: CMSampleBuffer?
+  let created = CMAudioSampleBufferCreateWithPacketDescriptions(
+    allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: false, makeDataReadyCallback: nil,
+    refcon: nil, formatDescription: format.formatDescription, sampleCount: 320,
+    presentationTimeStamp: .zero, packetDescriptions: nil, sampleBufferOut: &sample)
+  try #require(created == noErr)
+  let errors = Mutex([VoiceSystemError]())
+  let receiver = AudioSamples(
+    format: format,
+    audio: { _ in Issue.record("Delivered audio from an unreadable buffer") },
+    firstAudio: { Issue.record("Reported first audio from an unreadable buffer") },
+    fail: { error in
+      guard let system = error as? VoiceSystemError else {
+        Issue.record("Missing system error")
+        return
+      }
+      errors.withLock { $0.append(system) }
+    })
+  receiver.receive(try #require(sample))
+  let reported = errors.withLock { $0 }
+  #expect(reported.count == 1)
+  let error = try #require(reported.first)
+  #expect(error.category == .conversionFailed)
+  #expect(error.domain == NSOSStatusErrorDomain && error.code == Int(kCMSampleBufferError_BufferNotReady))
+  #expect(VoiceLog.describe(error) == "conversionFailed (\(error.domain) \(error.code))")
 }
 
 @Test func bluetoothInputIsReplacedBeforeTheCaptureSessionIsMade() async throws {
@@ -257,10 +368,7 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
       return types.contains(.external) ? [bluetoothLE, virtual, usb] : [bluetoothLE, virtual]
     }, transport: { $0 })
   #expect(fallback == usb)
-  #expect(
-    try InputDevice.select(
-      current: bluetooth, discover: { _, _, _ in [bluetoothLE, virtual] }, transport: { $0 }) == bluetooth)
-  for current in [usb, virtual] {
+  for current in [builtin, usb, virtual, kAudioDeviceTransportTypeUnknown] {
     #expect(
       try InputDevice.select(
         current: current,
@@ -269,4 +377,13 @@ private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) 
           return []
         }, transport: { $0 }) == current)
   }
+}
+
+@Test(arguments: [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE])
+func bluetoothRemainsTheFallbackWithoutBuiltInOrUSB(_ transport: UInt32) throws {
+  #expect(
+    try InputDevice.select(
+      current: transport, discover: { _, _, _ in [transport, kAudioDeviceTransportTypeVirtual] },
+      transport: { $0 })
+      == transport)
 }
