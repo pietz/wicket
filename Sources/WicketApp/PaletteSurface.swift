@@ -50,6 +50,8 @@ enum PaletteEffect: Equatable {
   case hide
   /// The Settings destination: the launcher leaves for the native window.
   case settings
+  /// Ask the updater to show its window after the panel has hidden.
+  case checkForUpdates
 }
 
 /// What the panel shows, as the navigator committed it in one step: the card's content and selection,

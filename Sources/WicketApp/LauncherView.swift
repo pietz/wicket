@@ -437,6 +437,12 @@ struct LauncherView: View {
           Text(result.row.subtitle ?? "").font(.system(size: 12)).foregroundStyle(
             .secondary)
         }.lineLimit(1)
+      } else if result.row.id == Permissions.accessibilityRowID, let subtitle = result.row.subtitle {
+        VStack(alignment: .leading, spacing: 0) {
+          Text(result.row.title)
+          Text(subtitle).foregroundStyle(.secondary)
+        }
+        .font(.system(size: 14 * textSize.scale)).lineLimit(1)
       } else {
         Text(result.row.title).font(.system(size: 14 * textSize.scale)).lineLimit(1)
           .layoutPriority(
@@ -625,6 +631,8 @@ extension RowAction {
     case .clip(_, let paste): paste ? "Paste into previous app" : "Copy"
     case .hotkey(_, let record): record ? "Set Hotkey…" : "Remove Hotkey"
     case .grant: "Allow"
+    case .checkForUpdates: "Show What's New"
+    case .dismissNotice: "Dismiss"
     }
   }
   /// The SF Symbol of its kind: its row in the action panel, and a page's target row without an icon.
@@ -641,6 +649,8 @@ extension RowAction {
     case .hotkey(_, let record): record ? "keyboard" : "xmark.circle"
     case .clip(_, let paste): paste ? "doc.on.clipboard" : "doc.on.doc"
     case .grant: "lock.open"
+    case .checkForUpdates: "arrow.down.circle"
+    case .dismissNotice: "xmark.circle"
     }
   }
 }

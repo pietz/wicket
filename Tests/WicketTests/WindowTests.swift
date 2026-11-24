@@ -384,7 +384,7 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
     window, request: ProviderRequest(input: "", action: "left", submitted: true))
   let row = try #require(view.items.first)
   #expect(view.items.count == 1 && row.title == "Allow Accessibility for Wicket")
-  #expect(row.subtitle?.contains("add it again") == true)
+  #expect(row.subtitle == "Window Manager needs it. If on, remove (–) and re-add Wicket.")
   #expect(row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
 }
 

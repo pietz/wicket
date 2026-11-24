@@ -61,6 +61,149 @@ import Testing
 private let full = PaletteLayout.rowsHeight(8) + PaletteLayout.footer
 private let one = PaletteLayout.rowsHeight(1) + PaletteLayout.footer
 
+@MainActor @Test(arguments: [false, true])
+func anUpdateNoticeShowsAtTheEmptyRootAndReturnOpensTheUpdater(compact: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let history = UsageHistory(url: root.appending(path: "usage.json"))
+  let apps = GatedApps()
+  var checks = 0
+  let model = LauncherModel(
+    apps: apps, history: history, folder: root, bundled: nil, availableUpdate: { "0.8.0" },
+    checkForUpdates: { checks += 1 })
+  model.store.update { $0.resultsOnlyWhenTyping = compact }
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  let navigator = model.navigator
+  let surface = RecordingSurface(wrapping: controller)
+  navigator.surface = surface
+  controller.show(orderFront: false, listen: false)
+  await navigator.settled()
+
+  let notice = try #require(surface.presentation.selected)
+  #expect(notice.row.title == "Update Wicket to 0.8.0")
+  #expect(surface.presentation.showsCard && surface.presentation.rows.first == notice)
+  #expect(navigator.hotkeyTarget(of: notice) == nil)
+  if compact {
+    #expect(surface.presentation.rows == [notice] && surface.presentation.sizedRows == 1)
+    navigator.move(1)
+    #expect(surface.presentation.rows.count > 1 && surface.presentation.rows.first == notice)
+  } else {
+    #expect(surface.presentation.rows.count > 1)
+  }
+  apps.held = true
+  navigator.editInput("settings")
+  #expect(!surface.presentation.rows.contains(notice))
+  apps.release()
+  await navigator.settled()
+  navigator.editInput("")
+  await navigator.settled()
+  #expect(surface.presentation.selected == notice)
+  #expect(navigator.returnPlan() == .run)
+  navigator.run()
+  #expect(surface.effects == [.hide, .checkForUpdates] && checks == 1 && !controller.isShown)
+  #expect(history.store.entries.isEmpty)
+
+  var ranked: [Result] = []
+  model.root.search("", speaking: false) { ranked = $0.results }
+  await model.root.settled()
+  #expect(!ranked.isEmpty && !ranked.contains(notice))
+  await controller.finish()
+}
+
+@MainActor @Test func anUpdateNoticeWaitsForNextOpenAndCanBeDismissedForTheSession() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  var availableUpdate: String?
+  let model = LauncherModel(
+    history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    availableUpdate: { availableUpdate })
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  model.reopen()
+  navigator.refresh()
+  let initial = surface.presentation.rows
+  #expect(!surface.presentation.showsCard)
+
+  availableUpdate = "0.8.0"
+  navigator.refresh()
+  #expect(surface.presentation.rows == initial && !surface.presentation.showsCard)
+  navigator.dismiss()
+  model.reopen()
+  let notice = try #require(surface.presentation.selected)
+  #expect(surface.presentation.rows == [notice] && surface.presentation.offersActions)
+  navigator.toggleActions()
+  #expect(surface.presentation.rows.map(\.row.title) == ["Show What's New", "Dismiss"])
+  navigator.move(1)
+  navigator.run()
+  #expect(surface.effects.isEmpty)
+  #expect(surface.presentation.rows == initial && !surface.presentation.showsCard)
+
+  navigator.dismiss()
+  model.reopen()
+  navigator.refresh()
+  #expect(!surface.presentation.showsCard && surface.presentation.rows == initial)
+  #expect(availableUpdate == "0.8.0")
+  await model.finish()
+}
+
+@MainActor @Test func aQueuedReturnCannotOpenAnUpdateNoticeItNeverSaw() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let apps = GatedApps()
+  var availableUpdate: String?
+  let model = LauncherModel(
+    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    availableUpdate: { availableUpdate })
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  model.reopen()
+  navigator.refresh()
+  navigator.editInput("app")
+  await navigator.settled()
+  apps.held = true
+  navigator.editInput("")
+  // Keep Return waiting on the new empty query as an unavailable first list would.
+  navigator.run()
+  #expect(navigator.returnQueued)
+
+  availableUpdate = "0.8.0"
+  model.reopen()
+  #expect(!navigator.returnQueued)
+  apps.release()
+  await navigator.settled()
+  #expect(surface.presentation.selected?.row.title == "Update Wicket to 0.8.0")
+  #expect(surface.effects.isEmpty)
+  await model.finish()
+}
+
+@MainActor @Test func aHotkeySelectsItsRepairWhenTheInitialRootResultsArrive() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(root, name: "broken", fields: ["contract": 0])
+  let apps = GatedApps()
+  apps.held = true
+  let model = LauncherModel(
+    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  await model.extensions.reload()
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  surface.shown = false
+  navigator.surface = surface
+  #expect(navigator.results.isEmpty)
+
+  model.press(HotkeyTarget(target: "extension:broken"))
+  #expect(surface.presentation.footerMessage == "No extension named broken")
+  apps.release()
+  await navigator.settled()
+  #expect(surface.presentation.showsCard)
+  #expect(surface.presentation.selected?.row.id == "discovery-error")
+  await model.finish()
+}
+
 @MainActor @Test func hiddenRootResultsKeepItsSearchAndReturnAndRevealsTheCard() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

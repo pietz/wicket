@@ -11,7 +11,7 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 1. Press the shortcut: the panel appears near the top of the screen under the pointer, the first keystroke lands. Press it twice quickly: no flicker.
 2. Click outside: it closes. Escape clears the input, a second Escape closes. Open it on another Space and over a full-screen app.
 3. Type steadily while late results arrive (files, a slow extension): the input row never moves, the list grows at once and shrinks only after a pause.
-4. Turn on **Only show results when typing** under Settings ▸ General. Type or paste into the empty root, clear the field, then press ↓. The card appears, folds and appears again with the top edge in the same place. Reopen and press Return to run the initial result. With voice on, check that the search pill shows listening and the card appears when dictated text arrives. Clear the field and verify the card folds. Check that a voice error or extension problem appears in the pill while folded. Press ↓ to see the status in the footer and scroll to the repair row if there is one. A kept conversation reopens with its own card. With an enabled extension missing a grant, verify that the empty root shows only the **Allow** rows, with the first selected. Press ↓ to reveal the full list. Reopen and grant the last permission with the field empty. The card folds again.
+4. Turn on **Only show results when typing** under Settings ▸ General. Type or paste into the empty root, clear the field, then press ↓. The card appears, folds and appears again with the top edge in the same place. Reopen and press Return to run the initial result. With voice on, check that the search pill shows listening and the card appears when dictated text arrives. Clear the field and verify the card folds. Check that a voice error or extension problem appears in the pill while folded. Press ↓ to see the status in the footer and scroll to the repair row if there is one. A kept conversation reopens with its own card. With an enabled extension missing a grant, verify that the empty root stays folded. Press a hotkey whose extension has been removed with the setting both on and off. The pill or footer names the missing extension. If its manifest is broken, the card selects its repair row.
 
 ## 2. Search
 
@@ -74,7 +74,7 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 
 ## 9. Window Manager
 
-1. Without Accessibility (and with a stale switch on from an older build): Left Half from the list and its hotkey both show only "Allow Accessibility for Wicket" (hotkey opens panel on it), subtitle fits and mentions remove/re-add, no system prompt; Return opens Privacy & Security. Root `left` shows Left Half (no permission row). Type a draft follow-up and press the hotkey over the conversation. Verify that **Allow Accessibility for Wicket** is selected and Escape restores the conversation and draft. Hide Wicket, press the hotkey again, and use Return to open Privacy & Security. Reopen Wicket to verify the same conversation and draft are there. Grant to Wicket only; next press moves the window.
+1. Without Accessibility (and with a stale switch on from an older build): Left Half from the list and its hotkey both show only "Allow Accessibility for Wicket" (hotkey opens panel on it). The subtitle names Window Manager and shows “If on, remove (–) and re-add Wicket” on one line at all four text sizes. Return opens Privacy & Security without a system prompt. Root `left` shows Left Half (no permission row). Type a draft follow-up and press the hotkey over the conversation. Verify that **Allow Accessibility for Wicket** is selected and Escape restores the conversation and draft. Hide Wicket, press the hotkey again, and use Return to open Privacy & Security. Reopen Wicket to verify the same conversation and draft are there. Grant to Wicket only; next press moves the window.
 2. Over Safari (reopening Wicket for each): Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, and Center respect menu bar/Dock, close Wicket immediately, and keep Safari focused.
 3. Restore after Left Half then Maximize steps back one move at a time, then says "Nothing to restore." Manually moved windows report nothing to restore.
 4. Next Display across two differently sized displays preserves relative place and size; single display reports unavailability.
@@ -95,6 +95,14 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 1. Enable in Settings ▸ Extensions. Copy multi-line text, screenshot (⌃⇧⌘4), and Preview image. `clip` lists newest first with side preview; arrowing feels instant; Return pastes text and images into the prior app.
 2. Passwords from Apple Passwords / 1Password are skipped. If macOS prompts on read, Settings mentions Paste from Other Apps.
 3. Test an extension item with multi-line `copy`/`paste` ending in a newline: verify breaks and trailing newline in a plain-text editor. Repeat with `"concealed":true`: pasteable locally, absent from `clip`, and blocked from Universal Clipboard.
+
+## 12. Updates
+
+Run this check with an older release build of Wicket installed and a newer release available in the appcast. Let the scheduled check run. If six hours have elapsed since the last check, Sparkle checks soon after launch.
+
+1. While the launcher is open, wait for the menu bar dot and **Update to …**. The current rows stay in place. Close and reopen on an empty search. Verify the update row is first and is the only row with **Only show results when typing** on. Type to hide it, clear the field to bring it back, and press ↓ to reveal the full list.
+2. Press Return on the update row. The launcher closes and Sparkle comes to the front with release notes and **Install**, **Remind Me Later**, and **Skip**. Verify the update title and dot clear once the alert gets attention, with the agent idle.
+3. With a scheduled update available again, choose ⌘K ▸ **Dismiss** on the update row. Reopen the launcher and verify the row stays hidden for the rest of the app session. Verify **Update to …** remains in the status menu and the app menu and opens the Sparkle window.
 
 ## Feedback
 

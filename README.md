@@ -12,7 +12,7 @@ Press ⌥Space for apps, files, Calculator, Convert, Window Manager, Links & Sea
 brew install --cask pietz/wicket/wicket
 ```
 
-Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/pietz/wicket/releases/latest) and drag Wicket to Applications. Updates run through Sparkle (**Check for Updates…** in the menu bar menu or Settings ▸ General).
+Or download `Wicket-<version>.dmg` from the [latest release](https://github.com/pietz/wicket/releases/latest) and drag Wicket to Applications. Wicket checks for updates through Sparkle every six hours by default. When an update is available, a dot appears on the menu bar icon and the next time you open the launcher, **Update Wicket to …** appears above the empty search results. Press Return to read the release notes and choose when to install, or use ⌘K ▸ **Dismiss** to hide the launcher notice until you quit Wicket. You can still open the update from the menu bar or check in Settings ▸ General.
 
 **Requirements:** Apple silicon Mac, macOS 26 (Tahoe) or later. For the agent, install and sign in to [Claude Code](https://claude.com/claude-code) (`claude auth login`) or [Codex](https://github.com/openai/codex) (`codex login`).
 
@@ -34,7 +34,7 @@ Upgrading from 0.0.x: old settings and extensions do not carry over; Wicket neve
 
 Click selects; double-click runs. Type `<keyword> <text>` at the root to fill a command or item's first text field (e.g. `pasteboard invoice` filters Clipboard History when enabled), then press Return, Tab for more fields, or ⌘Return to ask the agent. You can also select a command or item and press Tab to fill its fields. Inside a command whose bar says “Ask about …”, Return with nothing selected asks the agent about that view.
 
-Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnlyWhenTyping": true` in `config.json`) to start with just the search field. Typing, pasting, dictating text or pressing ↓ reveals the results card. Clearing the field folds it again. If enabled extensions need macOS permissions, the empty root shows only the permission requests until you type or press ↓. Granting the last missing permission folds the card again if the field is still empty and you haven't pressed ↓. While folded, listening, problems and notices are shown in the search pill. Return still runs the selected result, and a kept conversation reopens with its own card.
+Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnlyWhenTyping": true` in `config.json`) to start with just the search field. Typing, pasting, dictating text or pressing ↓ reveals the results card. Clearing the field folds it again. An available update has its own row in the empty launcher. Press ↓ to show the full list. While folded, listening and problems are shown in the search pill. Return still runs the selected result, and a kept conversation reopens with its own card.
 
 **Files** search Spotlight from two characters (each typed word starts a word in the file name) across visible home folders, iCloud Drive, `~/Library/CloudStorage`, and mounted volumes, skipping hidden, Library, build, and cache folders. Return opens; ⌘K reveals. Scripts and installers only reveal.
 

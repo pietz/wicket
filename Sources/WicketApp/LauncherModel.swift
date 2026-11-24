@@ -20,15 +20,20 @@ final class LauncherModel {
   /// The configuration last reacted to.
   @ObservationIgnored private var applied = Configuration()
   private let history: UsageHistory
+  private let availableUpdate: () -> String?
+  let checkForUpdates: () -> Void
 
   init(
     apps: (any Provider)? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
     agentHistory: AgentHistory? = nil, history: UsageHistory,
     folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
-    extensionDataDirectory: URL? = nil
+    extensionDataDirectory: URL? = nil, availableUpdate: @escaping () -> String? = { nil },
+    checkForUpdates: @escaping () -> Void = {}
   ) {
     self.clipboard = clipboard
     self.agentHistory = agentHistory
+    self.availableUpdate = availableUpdate
+    self.checkForUpdates = checkForUpdates
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
@@ -72,7 +77,7 @@ final class LauncherModel {
   func reopen(now: Date = Date()) {
     clipboard?.expire(now: now)
     agentHistory?.expire(now: now)
-    navigator.reopen(now: now)
+    navigator.reopen(now: now, availableUpdate: availableUpdate())
   }
 
   // MARK: Hotkeys
@@ -109,7 +114,8 @@ final class LauncherModel {
     case .run(let address):
       navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
     case .copy, .paste, .open, .reveal: navigator.perform(action)
-    case .send, .ask, .detail, .field, .clip, .hotkey, .grant: navigator.open(target.address, pressed: target)
+    case .send, .ask, .detail, .field, .clip, .hotkey, .grant, .checkForUpdates, .dismissNotice:
+      navigator.open(target.address, pressed: target)
     }
   }
   func finish() async {

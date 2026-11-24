@@ -54,17 +54,9 @@ struct Permissions: Sendable {
     rows.first?.row.id.hasPrefix(rowPrefix) == true
   }
   private static let rowPrefix = "permission:"
-  static let rootProvider = "permissions"
+  static let accessibilityRowID = rowID(.accessibility)
 
-  /// One request per system grant, even if several enabled extensions need it.
-  @MainActor func rootRequests(for commands: [ExtensionCommand]) -> [Result] {
-    Permission.allCases.compactMap { permission in
-      guard let command = commands.first(where: { $0.manifest.permissions.contains(permission) }),
-        let row = requestRow(permission, neededBy: command.manifest.name, rerun: nil)
-      else { return nil }
-      return Result(provider: Self.rootProvider, row: row)
-    }
-  }
+  private static func rowID(_ permission: Permission) -> String { rowPrefix + permission.rawValue }
 
   /// Wicket's own rows in place of the program's view while a declared permission is missing: one per
   /// permission, which asks for it where macOS lets Wicket ask, else opens its pane. `rerun` is the
@@ -76,7 +68,7 @@ struct Permissions: Sendable {
     return rows.isEmpty ? nil : ProviderView(items: rows)
   }
 
-  @MainActor private func requestRow(_ permission: Permission, neededBy name: String, rerun: Address?)
+  @MainActor private func requestRow(_ permission: Permission, neededBy name: String, rerun: Address)
     -> Row?
   {
     let open = RowAction.open(permission.pane, title: "Open Privacy & Security")
@@ -86,7 +78,7 @@ struct Permissions: Sendable {
     case (_, .granted): return nil
     case (.accessibility, _):
       // An older grant can still show its switch on after an update or rebuild.
-      subtitle = "\(name) needs it. Already on? Remove Wicket there and add it again"
+      subtitle = "\(name) needs it. If on, remove (–) and re-add Wicket."
       action = open
     case (.calendar, .askable):
       subtitle = "\(name) needs it"
@@ -96,7 +88,7 @@ struct Permissions: Sendable {
       action = open
     }
     return Row(
-      id: Self.rowPrefix + permission.rawValue, title: "Allow \(permission.title) for Wicket",
+      id: Self.rowID(permission), title: "Allow \(permission.title) for Wicket",
       subtitle: subtitle, icon: permission == .accessibility ? "lock" : "calendar", actions: [action])
   }
 }

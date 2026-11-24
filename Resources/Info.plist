@@ -45,5 +45,7 @@
 	<string>https://raw.githubusercontent.com/pietz/wicket/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>JmFt5qQSEqkM4Pt+l4JFfhkvcSwG5lsTBYPkQw07UpQ=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>21600</integer>
 </dict>
 </plist>

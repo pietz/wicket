@@ -163,6 +163,36 @@ enum Ranking {
     }
   }
 
+  static func repairRow(_ id: String, problem: ExtensionHost.Problem, hasCommand: Bool) -> Result {
+    // A manifest for a newer contract is not broken: updating Wicket is the fix, in Settings.
+    if !hasCommand, problem.detail.contains(ExtensionManifest.ContractError.newerPhrase) {
+      return Result(
+        provider: id,
+        row: Row(
+          id: "discovery-error", title: id + " " + ExtensionManifest.ContractError.newerPhrase,
+          subtitle: "Written for a newer extension contract", icon: "arrow.down.circle",
+          actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
+    }
+    let repair =
+      if problem.usingBundled {
+        ExtensionHost.Problem.fallbackMessage
+      } else if hasCommand {
+        "Invalid user.json"
+      } else if problem.detail.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
+        "Update the manifest and program to contract 2"
+      } else {
+        "Invalid extension manifest"
+      }
+    return Result(
+      provider: id,
+      row: Row(
+        id: "discovery-error", title: id + " needs repair", subtitle: repair,
+        icon: "exclamationmark.triangle",
+        actions: [
+          .agent("Fix this extension. " + problem.detail.split(separator: "\n").joined(separator: ": "))
+        ]))
+  }
+
   /// The whole list at the root of the launcher, best first:
   ///
   /// 1. Exact keywords with text for an editable field, longest keyword first, then the name matches' tie-breaks.
@@ -315,34 +345,7 @@ enum Ranking {
       provider: "agent",
       row: Row(id: "ask", title: "Ask agent", subtitle: "⌘↩", icon: "sparkles", actions: [.send(input)]))
     let repairs = problems.keys.sorted().map { id in
-      let problem = problems[id]!
-      // A manifest for a newer contract is not broken: updating Wicket is the fix, in Settings.
-      if extensions[id] == nil, problem.detail.contains(ExtensionManifest.ContractError.newerPhrase) {
-        return Result(
-          provider: id,
-          row: Row(
-            id: "discovery-error", title: id + " " + ExtensionManifest.ContractError.newerPhrase,
-            subtitle: "Written for a newer extension contract", icon: "arrow.down.circle",
-            actions: [.run(Address(extensionName: "settings"), title: "Open Settings")]))
-      }
-      let repair =
-        if problem.usingBundled {
-          ExtensionHost.Problem.fallbackMessage
-        } else if extensions[id] != nil {
-          "Invalid user.json"
-        } else if problem.detail.contains(ExtensionManifest.ContractError.olderProgramPhrase) {
-          "Update the manifest and program to contract 2"
-        } else {
-          "Invalid extension manifest"
-        }
-      return Result(
-        provider: id,
-        row: Row(
-          id: "discovery-error", title: id + " needs repair", subtitle: repair,
-          icon: "exclamationmark.triangle",
-          actions: [
-            .agent("Fix this extension. " + problem.detail.split(separator: "\n").joined(separator: ": "))
-          ]))
+      repairRow(id, problem: problems[id]!, hasCommand: extensions[id] != nil)
     }
     let firstProblem = failures.first?.row.title ?? repairs.first?.row.title
     if query.isEmpty {

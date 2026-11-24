@@ -28,9 +28,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let clipboard = ClipboardHistory(
       url: Edition.current.privateDirectory().appending(path: "clipboard-history.json"))
     let runs = AgentHistory(url: Edition.current.privateDirectory().appending(path: "agent-history.json"))
+    let updater = Updater()
+    self.updater = updater
     let model = LauncherModel(
       apps: apps, files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
-      history: history, folder: directory, extensionDataDirectory: Edition.current.extensionDataDirectory())
+      history: history, folder: directory, extensionDataDirectory: Edition.current.extensionDataDirectory(),
+      availableUpdate: { updater?.availableUpdate }, checkForUpdates: { updater?.checkForUpdates() })
     do {
       try AnswerRenderer.installFiles(in: directory)
       try ExtensionHost.installFiles(in: directory)
@@ -56,7 +59,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       bindings.pause(paused)
       if !paused { register(configuration.configuration) }
     }
-    updater = Updater()
     settings = SettingsWindowController(
       store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
       pauseHotkey: pause)
@@ -64,11 +66,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     apps.onChange = { [weak model] in model?.navigator.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name
-    Task { [weak self] in
-      for await waiting in Observations({ model.agent.waiting }) {
-        self?.status.button?.image = Self.statusImage(name: name, dot: waiting)
-      }
-    }
     let menu = NSMenu()
     shortcutItem = menu.addItem(
       withTitle: "Open \(name)", action: #selector(show), keyEquivalent: "")
@@ -98,6 +95,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     windowItem.submenu = windows
     appMenu.addItem(windowItem)
     NSApp.mainMenu = appMenu
+    let updateAction = #selector(checkForUpdates)
+    let updateItems = [menu, root.submenu].compactMap { $0?.items.first { $0.action == updateAction } }
+    Task { [weak self] in
+      for await (waiting, version) in Observations({ (model.agent.waiting, updater?.availableUpdate) }) {
+        self?.status.button?.image = Self.statusImage(name: name, dot: waiting || version != nil)
+        let title = version.map { "Update to \($0)…" } ?? "Check for Updates…"
+        for item in updateItems { item.title = title }
+      }
+    }
     // The app's one reaction to a configuration load, in order: the services (and through the screens'
     // redraw, voice), then the hotkey registrations, then the status item.
     var applied = Configuration()

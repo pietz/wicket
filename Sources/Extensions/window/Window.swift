@@ -336,7 +336,7 @@ func accessibilityProblem(
 ) -> String {
   row(
     title, icon: "lock",
-    subtitle: "\(commandName) needs it. Already on? Remove Wicket there and add it again",
+    subtitle: "\(commandName) needs it. If on, remove (–) and re-add Wicket.",
     actions:
       #"[{"type":"open","title":"Open Privacy & Security","url":"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"}]"#
   )

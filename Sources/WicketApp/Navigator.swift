@@ -80,8 +80,13 @@ final class Navigator {
         if agentOwnsCommandInput { return publish() }
         refresh(typed: changed)
         // The card can change as soon as the input changes, before the new rows arrive.
-        if configuration.resultsOnlyWhenTyping, newValue.isEmpty != previous.isEmpty, search.isSearching {
-          draw()
+        if newValue.isEmpty != previous.isEmpty, search.isSearching {
+          if command == nil, rootNotice != nil {
+            sizeList()
+            publish()
+          } else if configuration.resultsOnlyWhenTyping {
+            draw()
+          }
         }
       }
     }
@@ -141,8 +146,8 @@ final class Navigator {
     if let overlay { return overlay.rows }
     guard let page else {
       if conversing { return [] }
-      if rootResultsHeld, base.rows.first?.provider == Permissions.rootProvider {
-        return Array(base.rows.prefix { $0.provider == Permissions.rootProvider })
+      if command == nil, input.isEmpty, let rootNotice {
+        return rootResultsHeld ? [rootNotice] : [rootNotice] + listed
       }
       return listed
     }
@@ -190,10 +195,10 @@ final class Navigator {
     didSet { if confirmationHeight != oldValue { draw() } }
   }
   /// What the last action could not do, until the next action, the user's next input or the configuration
-  /// changing. Draw it with the conversation or the search pill.
+  /// changing. Draw it with the conversation or the root, where the card may be folded.
   var actionProblem: String? {
     didSet {
-      if actionProblem != oldValue, conversing || rootResultsHidden {
+      if actionProblem != oldValue, conversing || command == nil {
         draw()
       }
     }
@@ -201,6 +206,10 @@ final class Navigator {
 
   /// Down reveals the empty root for this visit. Typing or hiding starts it over.
   private var revealedRootList = false
+  /// Snapshot at open so a background update cannot replace the row under the selection.
+  private var rootNotice: Result?
+  private var dismissedNotices: Set<String> = []
+  private static let noticeProvider = "notices"
   private var rootListProblem: String?
   private var rootResultsCanBeHidden: Bool {
     configuration.resultsOnlyWhenTyping && command == nil && !conversing && overlay == nil && !inDetail
@@ -211,7 +220,7 @@ final class Navigator {
     rootResultsCanBeHidden ? rootListProblem : nil
   }
   var rootResultsHidden: Bool {
-    rootResultsHeld && base.rows.first?.provider != Permissions.rootProvider
+    rootResultsHeld && rootNotice == nil
   }
 
   /// The panel the screens show in (`PaletteSurface`).
@@ -358,7 +367,7 @@ final class Navigator {
   private var gateIsCurrent: Bool {
     guard let command, !conversing, Permissions.isGate(results) else { return false }
     if agentOwnsCommandInput, !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
-    guard case .grant(_, let rerun?)? = results.first?.row.actions.first?.kind else { return true }
+    guard case .grant(_, let rerun)? = results.first?.row.actions.first?.kind else { return true }
     let request = command.request()
     return rerun.input == request.input && (rerun.fields ?? [:]) == request.fields
   }
@@ -597,6 +606,7 @@ final class Navigator {
       if replay, command.problem != nil || Permissions.isGate(results) { return .refuse }
       return .run
     }
+    if let rootNotice, input.isEmpty, selection == rootNotice.id { return replay ? .refuse : .run }
     if composedInput != input { return .wait }
     if current.picked || keywordArgument != nil || !replay && search.isPatternResult(selected) { return .run }
     if search.outranked(selected) { return .wait }
@@ -906,18 +916,7 @@ final class Navigator {
   /// The root's list for what is typed.
   private func show(_ output: RootCommand.Output) {
     showArrival()
-    var requests: [Result] = []
-    if configuration.resultsOnlyWhenTyping, output.input.isEmpty {
-      let enabled = configuration.sources(extensions: extensions.ids).filter(\.enabled)
-      let commands = enabled.compactMap { extensions.commands[$0.id] }.sorted { $0.id < $1.id }
-      requests = extensions.permissions.rootRequests(for: commands)
-      if requests.contains(where: { request in !base.rows.contains { $0.id == request.id } }) {
-        // A Return made before the prompt appeared must never answer it.
-        pendingReturn = nil
-        resetSelection()
-      }
-    }
-    listed = requests.isEmpty ? output.results : requests + output.results
+    listed = output.results
     composedInput = output.input
     rootListProblem = output.firstProblem
     publish()
@@ -960,6 +959,17 @@ final class Navigator {
     let target = address.extensionName == nil ? own : address.targetID
     guard let destination = directory.destination(target) else {
       actionProblem = "No extension named \(target.map { Address(id: $0).extensionName ?? $0 } ?? "")"
+      if command == nil, !conversing, overlay == nil, !inDetail,
+        let target, let problem = extensions.problems[target],
+        configuration.isEnabled(target, extensions: extensions.ids)
+      {
+        let repair = Ranking.repairRow(target, problem: problem, hasCommand: false)
+        let needsResults = !base.rows.contains { $0.id == repair.id }
+        revealRootResults()
+        if needsResults { retainSelection() }
+        select(repair.id)
+        if needsResults { refresh() }
+      }
       return
     }
     switch destination {
@@ -1067,6 +1077,17 @@ final class Navigator {
       }
     case .hotkey(let target, record: false): store.bind(nil, to: target)
     case .grant(let permission, let address): grant(permission, then: address)
+    case .checkForUpdates:
+      guard let result, result == rootNotice else { return true }
+      surface?.perform(.hide)
+      surface?.perform(.checkForUpdates)
+    case .dismissNotice:
+      guard let result, result == rootNotice else { return true }
+      dismissedNotices.insert(result.row.id)
+      rootNotice = nil
+      resetSelection()
+      sizeList(now: true)
+      publish()
     case .open, .reveal:
       guard let refusal = OpenPolicy.refusal(action) else { return false }
       actionProblem = refusal
@@ -1076,7 +1097,7 @@ final class Navigator {
   }
   /// Only picks that root search can learn from: not inside a chosen command, and not fallbacks.
   func record(_ result: Result) {
-    guard command == nil, result.row.id != "fallback" else { return }
+    guard command == nil, result.row.id != "fallback", result.provider != Self.noticeProvider else { return }
     history.record(result.id, input: input)
   }
   /// Hides the panel's screens: what was over them, a switch and the work of the screen shown end. A
@@ -1102,14 +1123,32 @@ final class Navigator {
   }
   /// The panel shows again. A conversation or empty question kept past its time is gone, and the root
   /// starts over.
-  func reopen(now: Date) {
-    guard agent.reopen(now: now) else { return }
-    cancelWork()
-    conversation = nil
-    base.fill([:])
-    base.startSelectionOver()
-    command = nil
-    input = ""
+  func reopen(now: Date, availableUpdate: String?) {
+    if agent.reopen(now: now) {
+      cancelWork()
+      conversation = nil
+      base.fill([:])
+      base.startSelectionOver()
+      command = nil
+      input = ""
+    }
+    let update = availableUpdate.map {
+      Result(
+        provider: Self.noticeProvider,
+        row: Row(
+          id: "update", title: "Update Wicket to \($0)", subtitle: "Return shows what’s new",
+          icon: "arrow.down.circle", actions: [RowAction(.checkForUpdates), RowAction(.dismissNotice)]))
+    }
+    let notice = update.flatMap { dismissedNotices.contains($0.row.id) ? nil : $0 }
+    guard notice != rootNotice else { return }
+    rootNotice = notice
+    // A Return made before the notice appeared must never answer it.
+    pendingReturn = nil
+    if command == nil, !conversing {
+      resetSelection()
+      sizeList(now: true)
+      publish()
+    }
   }
   /// Quitting: the work of the screens stops, and the agent's screen ends before its session does.
   func finish() {
@@ -1371,17 +1410,13 @@ final class Navigator {
       }
     }
   }
-  /// Asks macOS from Wicket itself, then refreshes the root prompt or replays the request the gate held.
-  private func grant(_ permission: Permission, then address: Address?) {
+  /// Asks macOS from Wicket itself, then replays the request the gate held.
+  private func grant(_ permission: Permission, then address: Address) {
     let id = UUID()
     hiddenRuns[id] = Task { [weak self, extensions] in
       await extensions.permissions.request(permission)
       guard let self else { return }
       hiddenRuns[id] = nil
-      guard let address else {
-        if command == nil, !conversing, arriving == nil { refresh() }
-        return
-      }
       if address.hidden {
         runHidden(address, from: nil, replacingFields: true)
       } else {
