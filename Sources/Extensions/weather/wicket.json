@@ -5,7 +5,7 @@
   "keyword": "weather",
   "icon": "cloud.sun",
   "command": ["./main"],
-  "match": "(?i)^\\s*weather\\s+(?!in\\s*$)\\S.*$",
+  "submit": true,
   "fields": [{"name": "city", "type": "text", "description": "City or place", "placeholder": "City"}],
   "settings": [
     {"name": "defaultCity", "type": "text", "description": "Default city", "placeholder": "e.g. Berlin"},

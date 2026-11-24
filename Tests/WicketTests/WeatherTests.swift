@@ -33,7 +33,7 @@ private func view(
 }
 
 private func weatherFixture(
-  city: String = "Berlin", root: Bool = false, fahrenheit: Bool = false, place: String = berlin
+  city: String = "Berlin", fahrenheit: Bool = false, place: String = berlin
 ) -> (URL) throws -> Data {
   { url in
     let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
@@ -50,22 +50,25 @@ private func weatherFixture(
     #expect(query["latitude"] == "52.52" && query["longitude"] == "13.41")
     #expect(query["temperature_unit"] == (fahrenheit ? "fahrenheit" : "celsius"))
     #expect(query["timezone"] == "auto")
-    #expect(query["forecast_days"] == (root ? "1" : "5"))
-    #expect(query["hourly"] == (root ? nil : "temperature_2m,weather_code"))
-    #expect(query["forecast_hours"] == (root ? nil : "7"))
+    #expect(query["forecast_days"] == "5")
+    #expect(query["hourly"] == "temperature_2m,weather_code")
+    #expect(query["forecast_hours"] == "7")
     let response = fahrenheit ? forecast.replacingOccurrences(of: "12.4", with: "54.3") : forecast
     return Data(response.utf8)
   }
 }
 
-@Test func weatherMatchesOnlyExplicitRootCityQueries() throws {
-  let manifest = try bundled("weather").manifest
-  #expect(manifest.keyword == "weather" && manifest.inputField?.name == "city")
-  for input in ["weather in Berlin", "WeAtHeR  Berlin", "  weather in   New York  ", "weather Zürich"] {
-    #expect(manifest.matches(input), "\(input)")
-  }
-  for input in ["", "weather", "weather   ", "weather in  ", "weathering in Berlin", "Berlin weather"] {
-    #expect(!manifest.matches(input), "\(input)")
+@Test func weatherRootKeywordFillsCityAndWaitsForSubmission() throws {
+  let command = try bundled("weather")
+  #expect(command.manifest.submit)
+  let result = Ranking.compose(
+    query: "weather Berlin", names: [], patterns: [:], extensions: [command.id: command.manifest],
+    problems: [:], usage: UsageStore())
+  let row = try #require(result.results.first)
+  #expect(row.provider == command.id && row.row.title == "Weather")
+  #expect(row.keywordArgument?.field == "city" && row.keywordArgument?.text == "Berlin")
+  for input in ["weather B", "weather Be", "weather Ber", "weather Berlin"] {
+    #expect(!command.manifest.matches(input))
   }
 }
 
@@ -88,36 +91,13 @@ func weatherConditionsUseWMOCodes(_ code: Int, _ title: String, _ icon: String) 
 }
 
 @Test(arguments: [false, true])
-func weatherRootRowIsProminentAndOpensTheForecast(_ fahrenheit: Bool) async throws {
+func weatherForecastRendersTilesAndUpcomingLocalHours(_ fahrenheit: Bool) async throws {
   let settings = fahrenheit ? ["units": "Fahrenheit"] : [:]
   let result = try await view(
-    "wEaThEr   in  Berlin", fields: ["city": "wEaThEr   in  Berlin"], root: true, settings: settings,
-    fetch: weatherFixture(root: true, fahrenheit: fahrenheit))
-  #expect(result.body == nil && result.items.count == 1)
-  let row = try #require(result.items.first)
-  #expect(row.title == (fahrenheit ? "54°F · Partly cloudy" : "12°C · Partly cloudy"))
-  #expect(row.icon == "cloud.sun" && row.prominent == true)
-  #expect(row.subtitle == "Berlin · H: 15° L: 8° · Return for forecast")
-  #expect(row.actions.map(\.label) == ["Show forecast", "Copy summary"])
-  guard case .run(let address)? = row.actions.first?.kind,
-    case .copy(let summary, false)? = row.actions.last?.kind
-  else {
-    Issue.record("Expected a forecast run action followed by a copy action")
-    return
-  }
-  #expect(address.action == "forecast" && address.fields == ["city": "Berlin"])
-  #expect(summary.contains("Berlin, Germany · \(row.title)"))
-
-  let page = try await view(
-    "", fields: address.fields ?? [:], submitted: true, action: address.action, settings: settings,
-    fetch: weatherFixture(fahrenheit: fahrenheit))
-  #expect(page.body?.hasPrefix("# \(row.title)\n") == true)
-}
-
-@Test func weatherForecastRendersTilesAndUpcomingLocalHours() async throws {
-  let result = try await view("Berlin", fetch: weatherFixture())
+    "Berlin", submitted: true, settings: settings, fetch: weatherFixture(fahrenheit: fahrenheit))
   let body = try #require(result.body)
   #expect(result.items.isEmpty)
+  #expect(body.hasPrefix(fahrenheit ? "# 54°F · Partly cloudy" : "# 12°C · Partly cloudy"))
   #expect(body.contains("Berlin, Germany · Feels like 10° · H: 15° L: 8° · Wind 14 km/h"))
   #expect(body.components(separatedBy: "<tile ").count - 1 == 5)
   #expect(body.contains(#"<tile label="Tue" icon="cloud.sun" title="15° 8°"/>"#))
@@ -135,52 +115,80 @@ func weatherRootRowIsProminentAndOpensTheForecast(_ fahrenheit: Bool) async thro
   #expect(!text.contains("<tile"))
 }
 
-@Test func weatherUsesDefaultCityAndHonorsEditedAndKeywordFields() async throws {
-  let defaultCity = try await view("", settings: ["defaultCity": " Berlin "], fetch: weatherFixture())
+@Test func weatherUsesDefaultCityAndHonorsSubmittedRunFields() async throws {
+  let defaultCity = try await view(
+    "", submitted: true, settings: ["defaultCity": " Berlin "], fetch: weatherFixture())
   #expect(defaultCity.body?.contains("Berlin, Germany") == true)
-  let keyword = try await view("in  Berlin", submitted: true, fetch: weatherFixture())
-  #expect(keyword.body?.contains("Berlin, Germany") == true)
 
-  let typed = try await view(
-    "ignored", fields: ["city": "In Salah + A&B"], settings: ["defaultCity": "Berlin"],
-    fetch: weatherFixture(city: "In Salah + A&B"))
-  #expect(typed.body != nil)
+  let city = "Baden + A&B"
+  let run = try await view(
+    "ignored", fields: ["city": city], submitted: true, action: "forecast",
+    settings: ["defaultCity": "Ignored"], fetch: weatherFixture(city: city))
+  #expect(run.body?.contains("Berlin, Germany") == true)
+}
+
+@Test func weatherUsesLiteralInSalahWhenItMatches() async throws {
+  let inSalah = berlin.replacingOccurrences(of: "Berlin", with: "In Salah")
+    .replacingOccurrences(of: "Germany", with: "Algeria")
+  let result = try await view(
+    "In Salah", submitted: true, fetch: weatherFixture(city: "In Salah", place: inSalah))
+  #expect(result.body?.contains("In Salah, Algeria") == true)
+}
+
+@Test func weatherRetriesInBerlinWithoutInAfterAnEmptySearch() async throws {
+  var lookups: [String] = []
+  let result = try await view("in Berlin", submitted: true) { url in
+    if url.host == "geocoding-api.open-meteo.com" {
+      let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+      let name = try #require(components.queryItems?.first { $0.name == "name" }?.value)
+      lookups.append(name)
+      if name == "in Berlin" { return Data("{}".utf8) }
+    }
+    return try weatherFixture()(url)
+  }
+  #expect(lookups == ["in Berlin", "Berlin"])
+  #expect(result.body?.contains("Berlin, Germany") == true)
 }
 
 @Test func weatherPlaceNamesStayLiteralInForecasts() async throws {
   let place = #"""
     {"results":[{"name":"**Town**\n<row title='hi' copy='test'/>","latitude":52.52,"longitude":13.41}]}
     """#
-  let result = try await view("Berlin", fetch: weatherFixture(place: place))
+  let result = try await view("Berlin", submitted: true, fetch: weatherFixture(place: place))
   let html = AnswerMarkdown.html(try #require(result.body))
   #expect(html.contains("**Town**") && html.contains("&lt;row"))
   #expect(!html.contains("<strong>Town</strong>") && !html.contains("data-copy"))
 }
 
-@Test func weatherEmptyInputsSkipBothAPIs() async throws {
-  let empty = try await runBundled("weather", request: ProviderRequest(input: "   "))
-  #expect(empty.body == "Type a city, or set Default city in Settings")
-  for raw in ["", "weather", "weather   in "] {
-    let result = try await view(raw, root: true, settings: ["defaultCity": "Berlin"]) { _ in
-      Issue.record("An empty root match must not call Open-Meteo")
-      throw URLError(.badURL)
-    }
-    #expect(result.items.isEmpty && result.body == nil)
+@Test func weatherUnsubmittedAndRootRequestsSkipBothAPIs() async throws {
+  func unexpectedFetch(_ url: URL) throws -> Data {
+    Issue.record("A prompt or root request must not call Open-Meteo")
+    throw URLError(.badURL)
   }
+
+  let settings = ["defaultCity": "Berlin"]
+  for prefix in ["B", "Be", "Ber", "Berlin"] {
+    let typed = try await view(prefix, settings: settings, fetch: unexpectedFetch)
+    #expect(typed.body == "Press Return for the forecast")
+    let root = try await view("weather \(prefix)", root: true, settings: settings, fetch: unexpectedFetch)
+    #expect(root.items.isEmpty && root.body == nil)
+  }
+  let noInput = try await view("", settings: settings, fetch: unexpectedFetch)
+  #expect(noInput.body == "Press Return for the default city's forecast")
+  let noDefault = try await view("   ", submitted: true, fetch: unexpectedFetch)
+  #expect(noDefault.body == "Type a city, or set Default city in Settings")
 }
 
 @Test func weatherShowsShortMessagesOnUnknownCitiesAndNetworkFailures() async throws {
-  let unknown = try await view("Nowhere") { url in
+  let unknown = try await view("Nowhere", submitted: true) { url in
     #expect(url.host == "geocoding-api.open-meteo.com", "Forecast must follow a successful geocode")
     return Data("{}".utf8)
   }
   #expect(unknown.body == "City not found")
 
-  let unavailable = try await view("weather Berlin", root: true) { url in
+  let unavailable = try await view("Berlin", submitted: true) { url in
     if url.host == "geocoding-api.open-meteo.com" { return Data(berlin.utf8) }
     throw URLError(.timedOut)
   }
-  #expect(unavailable.body == nil)
-  #expect(unavailable.items.map(\.title) == ["Weather unavailable. Try again."])
-  #expect(unavailable.items.first?.actions.isEmpty == true)
+  #expect(unavailable.body == "Weather unavailable. Try again.")
 }

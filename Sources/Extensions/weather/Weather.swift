@@ -1,68 +1,41 @@
 import Foundation
 
+let weatherUnavailable = message("Weather unavailable. Try again.")
+
 func weatherView(_ request: JSON?, fetch: @escaping (URL) async throws -> Data) async -> String {
+  if request?["rootMatch"]?.isTrue == true { return #"{"items":[]}"# }
+
   let settings = request?["settings"]
   let input = request?["fields"]?["city"]?.string ?? request?["input"]?.string ?? ""
-  let rootMatch = request?["rootMatch"]?.isTrue == true
+  let typedCity = input.trimmingCharacters(in: .whitespacesAndNewlines)
+  let defaultCity = settings?["defaultCity"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  let city = typedCity.isEmpty ? defaultCity : typedCity
 
-  var city = input.trimmingCharacters(in: .whitespacesAndNewlines)
-  if rootMatch {
-    let parts = city.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-    guard parts.count == 2, parts[0].lowercased() == "weather" else {
-      return #"{"items":[]}"#
-    }
-    city = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-    if city.lowercased() == "in" { return #"{"items":[]}"# }
-  }
-
-  // The root keyword shortcut submits everything after “weather” as the city field.
-  if rootMatch || (request?["submitted"]?.isTrue == true && request?["action"]?.string == nil) {
-    let parts = city.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-    if parts.count == 2, parts[0].lowercased() == "in" {
-      city = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-  }
-  if city.isEmpty {
-    city = settings?["defaultCity"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-  }
   guard !city.isEmpty else { return message("Type a city, or set Default city in Settings") }
+  guard request?["submitted"]?.isTrue == true else {
+    return message(
+      typedCity.isEmpty ? "Press Return for the default city's forecast" : "Press Return for the forecast")
+  }
 
   let fahrenheit = settings?["units"]?.string == "Fahrenheit"
   let api = OpenMeteo(fetch: fetch)
   do {
-    guard let place = try await api.place(named: city) else {
-      return message("City not found", root: rootMatch)
-    }
-    let forecast = try await api.forecast(for: place, fahrenheit: fahrenheit, summary: rootMatch)
+    guard let place = try await api.place(named: city) else { return message("City not found") }
+    let forecast = try await api.forecast(for: place, fahrenheit: fahrenheit)
     let current = forecast.current
     let weather = condition(current.weatherCode, night: current.isDay == 0)
     let title = "\(degrees(current.temperature))\(fahrenheit ? "F" : "C") · \(weather.title)"
     let high = degrees(forecast.daily.highs.first ?? nil)
     let low = degrees(forecast.daily.lows.first ?? nil)
-    let range = "H: \(high) L: \(low)"
-    if rootMatch {
-      let subtitle = "\(place.name) · \(range) · Return for forecast"
-      let summary = "\(place.location) · \(title) · \(range)\nWeather data by Open-Meteo"
-      return #"""
-        {"items":[{"id":"weather","title":\#(quoted(title)),"subtitle":\#(quoted(subtitle)),
-        "icon":\#(quoted(weather.icon)),"prominent":true,"actions":[
-        {"type":"run","title":"Show forecast","action":"forecast","fields":{"city":\#(quoted(city))}},
-        {"type":"copy","title":"Copy summary","text":\#(quoted(summary))}]}]}
-        """#
-    }
     let details =
-      "Feels like \(degrees(current.apparentTemperature)) · \(range) · Wind \(whole(current.windSpeed)) km/h"
+      "Feels like \(degrees(current.apparentTemperature)) · H: \(high) L: \(low) · Wind \(whole(current.windSpeed)) km/h"
     return forecastPage(title: title, location: place.location, details: details, forecast: forecast)
   } catch {
-    return message("Weather unavailable. Try again.", root: rootMatch)
+    return weatherUnavailable
   }
 }
 
-private func message(_ title: String, root: Bool = false) -> String {
-  root
-    ? #"{"items":[{"id":"unavailable","title":\#(quoted(title)),"actions":[]}]}"#
-    : #"{"body":\#(quoted(title))}"#
-}
+private func message(_ title: String) -> String { #"{"body":\#(quoted(title))}"# }
 
 private func forecastPage(title: String, location: String, details: String, forecast: Forecast) -> String {
   // Escape Markdown punctuation and squeeze line breaks so place names stay plain text.
@@ -103,7 +76,7 @@ private func forecastPage(title: String, location: String, details: String, fore
     for (time, (temperature, code)) in zip(hourly.time, zip(hourly.temperatures, hourly.weatherCode)) {
       guard time > forecast.current.time else { continue }
       let hour = time.dropFirst(11)
-      guard hour.wholeMatch(of: /[0-9]{2}:[0-9]{2}/) != nil else { continue }
+      guard hour.wholeMatch(of: #/[0-9]{2}:[0-9]{2}/#) != nil else { continue }
       let weather = condition(code)
       rows.append(#"<row label="\#(hour)" title="\#(weather.title)" value="\#(degrees(temperature))"/>"#)
       hourlyLines.append("\(hour) · \(weather.title) · \(degrees(temperature))")

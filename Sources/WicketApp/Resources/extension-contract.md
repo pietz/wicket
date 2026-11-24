@@ -330,7 +330,7 @@ This contract is rewritten on every launch. Optional examples live in `examples/
 Put `--extension` or `--query` first after the executable (using the binary path from the agent instructions), with `WICKET_CONFIG_DIR` pointing at the working folder holding `extensions/`. Run `--extension` first on valid and invalid input, then run `--query` once with a representative **root** query for the extension:
 
 ```sh
-WICKET_CONFIG_DIR=/path/to/wicket Wicket --extension weather --input 'Berlin'
+WICKET_CONFIG_DIR=/path/to/wicket Wicket --extension weather --submitted --input 'Berlin'
 ```
 
 - **`--extension <folder|extension:name>`:** Runs even if switched off. Optional `--input`, `--fields` (JSON string map), `--submitted`, `--action NAME` (requires `--submitted`). Prints decoded view JSON (without running its actions), `{}` for silent output (valid only for hidden runs), or `{"error":…}` with exit 1 (`{"error":…,"permissions":[…]}` if a declared permission is missing—only the owner can grant it in the panel). Pointing `WICKET_CONFIG_DIR` at the normal working folder shares `WICKET_DATA_DIR` with the panel; a scratch folder isolates data. Isolate real side effects with inert fixtures.

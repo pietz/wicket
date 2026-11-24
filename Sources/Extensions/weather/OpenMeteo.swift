@@ -63,6 +63,13 @@ struct OpenMeteo {
   let fetch: (URL) async throws -> Data
 
   func place(named city: String) async throws -> Place? {
+    if let place = try await geocode(city) { return place }
+    let parts = city.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+    guard parts.count == 2, parts[0].lowercased() == "in" else { return nil }
+    return try await geocode(parts[1].trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+
+  private func geocode(_ city: String) async throws -> Place? {
     struct Search: Decodable {
       let results: [Place]?
     }
@@ -72,19 +79,18 @@ struct OpenMeteo {
     return search.results?.first
   }
 
-  func forecast(for place: Place, fahrenheit: Bool, summary: Bool) async throws -> Forecast {
-    var query = [
+  func forecast(for place: Place, fahrenheit: Bool) async throws -> Forecast {
+    let query = [
       ("latitude", String(place.latitude)),
       ("longitude", String(place.longitude)),
       ("timezone", "auto"),
       ("temperature_unit", fahrenheit ? "fahrenheit" : "celsius"),
       ("current", "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day"),
       ("daily", "weather_code,temperature_2m_max,temperature_2m_min"),
-      ("forecast_days", summary ? "1" : "5"),
+      ("forecast_days", "5"),
+      ("hourly", "temperature_2m,weather_code"),
+      ("forecast_hours", "7"),
     ]
-    if !summary {
-      query += [("hourly", "temperature_2m,weather_code"), ("forecast_hours", "7")]
-    }
     return try await get("https://api.open-meteo.com/v1/forecast", query)
   }
 
