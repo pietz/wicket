@@ -17,7 +17,7 @@ func cityWithoutIn(_ city: String) -> String? {
 
 struct Forecast: Codable {
   struct Current: Codable {
-    let time: String
+    let time: TimeInterval
     let temperature: Double
     let apparentTemperature: Double
     let weatherCode: Int
@@ -35,7 +35,7 @@ struct Forecast: Codable {
   }
 
   struct Daily: Codable {
-    let time: [String]
+    let time: [TimeInterval]
     let highs: [Double?]
     let lows: [Double?]
     let weatherCode: [Int?]
@@ -49,20 +49,31 @@ struct Forecast: Codable {
   }
 
   struct Hourly: Codable {
-    let time: [String]
+    let time: [TimeInterval]
     let temperatures: [Double?]
     let weatherCode: [Int?]
+    let precipitationProbability: [Int?]
+    let isDay: [Int?]
 
     private enum CodingKeys: String, CodingKey {
       case time
       case temperatures = "temperature_2m"
       case weatherCode = "weather_code"
+      case precipitationProbability = "precipitation_probability"
+      case isDay = "is_day"
     }
   }
 
   let current: Current
   let daily: Daily
   let hourly: Hourly?
+  let timezone: String
+  let utcOffsetSeconds: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case current, daily, hourly, timezone
+    case utcOffsetSeconds = "utc_offset_seconds"
+  }
 }
 
 struct OpenMeteo {
@@ -104,12 +115,13 @@ struct OpenMeteo {
           ("latitude", String(place.latitude)),
           ("longitude", String(place.longitude)),
           ("timezone", "auto"),
+          ("timeformat", "unixtime"),
           ("temperature_unit", unit),
           ("current", "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day"),
           ("daily", "weather_code,temperature_2m_max,temperature_2m_min"),
           ("forecast_days", "5"),
-          ("hourly", "temperature_2m,weather_code"),
-          ("forecast_hours", "7"),
+          ("hourly", "temperature_2m,weather_code,precipitation_probability,is_day"),
+          ("forecast_hours", "13"),
         ])
     }
   }

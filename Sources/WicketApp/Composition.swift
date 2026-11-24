@@ -356,8 +356,22 @@ enum Ranking {
         strongReason: "empty input lists apps first", firstProblem: firstProblem)
     }
     if !keywordRows.isEmpty {
-      let matches = keywordRows.map(\.result)
-      let ids = Set(matches.map(\.id))
+      let matches = keywordRows.map { candidate in
+        let shortcut = candidate.result
+        guard shortcut.rootExtensionRow == .command,
+          case .run(let address)? = shortcut.row.actions.first?.kind
+        else { return shortcut }
+        // The prominent result can take the shortcut's place when Return runs the same request.
+        return patternRows.first { result in
+          guard result.provider == shortcut.provider, result.row.prominent == true,
+            case .run(var action)? = result.row.actions.first?.kind
+          else { return false }
+          action.extensionName = action.extensionName ?? address.extensionName
+          action.input = action.input ?? ""
+          return action == address
+        } ?? shortcut
+      }
+      let ids = Set(matches.map(\.id) + keywordRows.map(\.result.id))
       let ordered =
         matches + patternRows.filter { !ids.contains($0.id) }
         + candidates.dropFirst(matches.count).map(\.result)

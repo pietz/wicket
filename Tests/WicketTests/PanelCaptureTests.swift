@@ -10,6 +10,8 @@ import WebKit
 //
 //   WICKET_CAPTURE_DIR=$PWD/docs/screens swift test --filter panelCapture
 //
+// Set WICKET_CAPTURE_STATES to a comma-separated list to capture just those states.
+//
 // Two runs draw identical pixels when `SWIFT_DETERMINISTIC_HASHING=1` is set too (an extension's report
 // prints its request with unordered keys), so a refactor can be checked by comparing them.
 //
@@ -23,6 +25,8 @@ import WebKit
 // `VNImageRequestHandler.perform`; if a run stops making progress, kill it and rerun.
 
 private let captureDirectory = ProcessInfo.processInfo.environment["WICKET_CAPTURE_DIR"]
+private let captureStates = ProcessInfo.processInfo.environment["WICKET_CAPTURE_STATES"]?
+  .split(separator: ",").map(String.init)
 
 private let states =
   [
@@ -31,6 +35,7 @@ private let states =
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
     "extension-pattern", "extension-list", "extension-detail", "extension-both",
+    "weather-root", "weather-page",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -51,6 +56,8 @@ private let transitions = [
 /// What text recognition must find, so a blank or broken panel fails.
 private func expectedText(_ name: String) -> [String] {
   if let text = transitionText[name] { return text }
+  if name == "weather-root" { return ["Berlin", "overcast", "Ask agent"] }
+  if name == "weather-page" { return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"] }
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
   if name.contains("settings-extensions") {
     return ["Built in", "Clipboard History", "Weather", "Window Manager"]
@@ -343,6 +350,17 @@ private let installedAgent: Void = {
       await model.extensions.reload()
       model.navigator.input = "200*10%+2^3"
       await model.navigator.settled()
+    case "weather-root", "weather-page":
+      let runner = ExtensionRunner(dataDirectory: folder.appending(path: "extension-data"))
+      try await seedRecordedWeather(in: runner.dataDirectory(for: "extension:weather"))
+      await model.extensions.reload()
+      model.navigator.input = "weather Berlin"
+      await model.navigator.settled()
+      try #require(model.navigator.selected?.row.id == "weather")
+      if name == "weather-page" {
+        try #require(model.activateReturn())
+        await model.navigator.settled()
+      }
     case "ask": model.navigator.input = "How do rainbows form?"
     case "listening":
       controller.input.arm()
@@ -880,7 +898,7 @@ private func recognizedText(in url: URL) throws -> String {
 @MainActor
 @Test(
   .enabled(if: captureDirectory != nil, "Set WICKET_CAPTURE_DIR to draw the panels offscreen"),
-  arguments: states)
+  arguments: states.filter { captureStates?.contains($0) ?? true })
 func panelCapture(_ state: String) async throws {
   let directory = URL(fileURLWithPath: try #require(captureDirectory))
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -897,6 +915,18 @@ func panelCapture(_ state: String) async throws {
         controller.presentation == scenario.model.navigator.presentation, "\(state) drew a stale screen")
     }
     try await render(scenario.view, to: target)
+    if state == "weather-page" {
+      let renderer = try #require(scenario.controller?.renderer)
+      let page = try #require(renderer.page)
+      // Measure before the renderer's cap, which would hide overflowing content.
+      let height = try await page.callJavaScript(
+        "return document.querySelector('main').getBoundingClientRect().height;",
+        arguments: [:], contentWorld: .defaultClient)
+      let measured = try #require(height as? Double)
+      #expect(
+        measured > 0 && measured.rounded(.up) <= renderer.cap,
+        "Weather content is \(measured) points high; the panel allows \(renderer.cap).")
+    }
     let text = try recognizedText(in: target)
     let missing = expectedText(state).filter { !text.localizedCaseInsensitiveContains($0) }
     #expect(missing.isEmpty, "\(target.lastPathComponent) is missing \(missing). Recognized text: \(text)")
@@ -1007,6 +1037,12 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     let decimal = ProviderRequest.NumberMarks.current.decimal
     #expect(model.navigator.results.first?.row.title.contains("6\(decimal)21") == true)
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
+  case "weather-root":
+    #expect(model.navigator.command == nil && model.navigator.prominentFirst)
+    #expect(model.navigator.results.filter { $0.provider == "extension:weather" }.count == 1)
+  case "weather-page":
+    #expect(model.navigator.command?.id == "extension:weather")
+    #expect(model.navigator.body?.contains("### Next days") == true)
   case "listening":
     #expect(scenario.controller?.input.speaking == true && model.navigator.input == "How do rainbows form?")
   case "empty": #expect(model.navigator.results.map(\.row.title) == ["Calculator", "Calendar", "Chess"])

@@ -1,6 +1,6 @@
 # Weather
 
-Type `weather Berlin` or `weather in Berlin` at the launcher to see current conditions and today's high and low. Press Return to open the five-day forecast and the next few hours. Inside the Weather command, enter a city and press Return to fetch. Use ⌘K to copy the forecast.
+Type `weather Berlin` or `weather in Berlin` at the launcher to see current conditions and today's high and low. Press Return for the forecast page. The summary includes the current wind speed. Hourly tiles show the next 12 hours in two-hour steps in the city's local time and show the chance of precipitation at 20% or higher. Five daily tiles mark the high with ↑ and the low with ↓. Inside Weather, enter a city and press Return to fetch. Use ⌘K to copy the forecast or open its data source.
 
 Set **Default city** in Settings ▸ Extensions ▸ Weather to use that city when you run Weather with an empty field. **Temperature unit** defaults to Celsius and can be set to Fahrenheit. Wind speed is shown in km/h. For ambiguous names, append a country or region, such as `Paris, Texas`.
 

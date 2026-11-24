@@ -8,13 +8,18 @@ private let berlin =
   #"{"results":[{"name":"Berlin","country":"Germany","latitude":52.52,"longitude":13.41}]}"#
 private let forecast = #"""
   {
-    "current":{"time":"2026-11-24T23:15","temperature_2m":12.4,"apparent_temperature":9.8,
+    "timezone":"Europe/Berlin","utc_offset_seconds":3600,
+    "current":{"time":1795558500,"temperature_2m":12.4,"apparent_temperature":9.8,
       "weather_code":2,"wind_speed_10m":13.7,"is_day":1},
-    "daily":{"time":["2026-11-24","2026-11-25","2026-11-26","2026-11-27","2026-11-28"],
+    "daily":{"time":[1795474800,1795561200,1795647600,1795734000,1795820400],
       "temperature_2m_max":[15,14,13,12,11],"temperature_2m_min":[8,7,6,5,4],
       "weather_code":[2,3,61,71,95]},
-    "hourly":{"time":["2026-11-24T23:00","2026-11-25T00:00","2026-11-25T01:00"],
-      "temperature_2m":[9,8,7],"weather_code":[0,3,61]}
+    "hourly":{"time":[1795557600,1795561200,1795564800,1795568400,1795572000,1795575600,1795579200,
+      1795582800,1795586400,1795590000,1795593600,1795597200,1795600800],
+      "temperature_2m":[9,8,7,7,6,6,6,7,7,8,9,10,11],
+      "weather_code":[0,3,61,2,3,0,1,2,2,3,2,0,1],
+      "precipitation_probability":[0,20,50,19,15,null,10,50,45,0,0,20,0],
+      "is_day":[0,0,0,0,0,0,0,0,0,1,1,1,1]}
   }
   """#
 
@@ -51,9 +56,10 @@ private func weatherFixture(
     #expect(query["latitude"] == "52.52" && query["longitude"] == "13.41")
     #expect(query["temperature_unit"] == (fahrenheit ? "fahrenheit" : "celsius"))
     #expect(query["timezone"] == "auto")
+    #expect(query["timeformat"] == "unixtime")
     #expect(query["forecast_days"] == "5")
-    #expect(query["hourly"] == "temperature_2m,weather_code")
-    #expect(query["forecast_hours"] == "7")
+    #expect(query["hourly"] == "temperature_2m,weather_code,precipitation_probability,is_day")
+    #expect(query["forecast_hours"] == "13")
     let response = fahrenheit ? forecast.replacingOccurrences(of: "12.4", with: "54.3") : forecast
     return Data(response.utf8)
   }
@@ -101,22 +107,46 @@ func weatherForecastRendersTilesAndUpcomingLocalHours(_ fahrenheit: Bool) async 
     "Berlin", submitted: true, settings: settings, fetch: weatherFixture(fahrenheit: fahrenheit))
   let body = try #require(result.body)
   #expect(result.items.isEmpty)
-  #expect(body.hasPrefix(fahrenheit ? "# 54°F · Partly cloudy" : "# 12°C · Partly cloudy"))
-  #expect(body.contains("Berlin, Germany · Feels like 10° · H: 15° L: 8° · Wind 14 km/h"))
-  #expect(body.components(separatedBy: "<tile ").count - 1 == 5)
-  #expect(body.contains(#"<tile label="Tue" icon="cloud.sun" title="15° 8°"/>"#))
-  #expect(body.contains(#"<row label="00:00" title="Overcast" value="8°"/>"#))
+  #expect(body.hasPrefix(fahrenheit ? "# 54° Partly cloudy" : "# 12° Partly cloudy"))
+  #expect(body.contains("Berlin, Germany · H 15° L 8° · Feels like 10° · Wind 14 km/h"))
+  let columns = body.components(separatedBy: "<columns>")
+  #expect(columns.count == 3)
+  #expect(columns.dropFirst().map { $0.components(separatedBy: "<tile ").count - 1 } == [6, 5])
+  let hours = body.matches(of: #/<tile label="([0-9]{2}:[0-9]{2})"/#).map { String($0.1) }
+  #expect(hours == ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00"])
+  #expect(body.contains(#"<tile label="00:00" icon="cloud" title="8°" subtitle="20%"/>"#))
+  #expect(body.contains(#"<tile label="02:00" icon="cloud.moon" title="7°"/>"#))
+  #expect(body.contains(#"<tile label="06:00" icon="cloud.moon" title="7°" subtitle="50%"/>"#))
+  #expect(body.contains(#"<tile label="Tue" icon="cloud.sun" title="↑15° ↓8°"/>"#))
+  #expect(body.hasSuffix("</columns>"))
   #expect(!body.contains("23:00"))
   let html = AnswerMarkdown.html(body)
-  #expect(html.contains("<w-columns") && html.contains("<w-tile") && html.contains("<w-rows"))
+  #expect(html.contains("<w-columns") && html.contains("<w-tile"))
+  #expect(!html.contains("<w-rows"))
   #expect(result.actions.first?.label == "Copy forecast")
+  #expect(
+    result.actions.last == .open(URL(string: "https://open-meteo.com/")!, title: "Weather data by Open-Meteo")
+  )
   guard case .copy(let text, false)? = result.actions.first?.kind else {
     Issue.record("Expected Copy forecast to copy plain text")
     return
   }
   #expect(text.contains("Sat · Thunderstorm · H: 11° L: 4°"))
-  #expect(text.contains("00:00 · Overcast · 8°"))
+  #expect(text.contains("00:00 · Overcast · 8° · 20% precipitation"))
+  #expect(text.contains("Wind 14 km/h"))
   #expect(!text.contains("<tile"))
+}
+
+func seedRecordedWeather(in directory: URL) async throws {
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let fixture = try #require(
+    Bundle.module.url(
+      forResource: "weather-berlin-forecast", withExtension: "json", subdirectory: "Fixtures"))
+  let response = try Data(contentsOf: fixture)
+  let weather = try await view("weather Berlin", root: true, cacheDirectory: directory) { url in
+    url.host == "api.open-meteo.com" ? response : try weatherFixture()(url)
+  }
+  try #require(weather.items.first?.title == "Berlin · 3°C, overcast")
 }
 
 @Test func weatherUsesDefaultCityAndHonorsSubmittedRunFields() async throws {

@@ -48,10 +48,12 @@ func weatherView(
         {"type":"run","title":"Show Forecast","fields":{"city":\#(quoted(city))}}]}]}
         """#
     }
-    let title = "\(temperature) · \(weather.title)"
-    let details =
-      "Feels like \(degrees(current.apparentTemperature)) · \(range) · Wind \(whole(current.windSpeed)) km/h"
-    return forecastPage(title: title, location: place.location, details: details, forecast: forecast)
+    let title = "\(degrees(current.temperature)) \(weather.title)"
+    let wind = "\(whole(current.windSpeed)) km/h"
+    let details = "H \(high) L \(low) · Feels like \(degrees(current.apparentTemperature)) · Wind \(wind)"
+    return forecastPage(
+      title: title, copyTitle: "\(temperature) \(weather.title)", location: place.location,
+      details: details, forecast: forecast)
   } catch {
     return rootMatch ? noWeatherItems : weatherUnavailable
   }
@@ -59,7 +61,9 @@ func weatherView(
 
 private func message(_ title: String) -> String { #"{"body":\#(quoted(title))}"# }
 
-private func forecastPage(title: String, location: String, details: String, forecast: Forecast) -> String {
+private func forecastPage(
+  title: String, copyTitle: String, location: String, details: String, forecast: Forecast
+) -> String {
   // Escape Markdown punctuation and squeeze line breaks so place names stay plain text.
   let place = location.split(whereSeparator: \.isWhitespace).joined(separator: " ")
   let syntax = CharacterSet(charactersIn: "!\"#&'()*+-.<>[\\]_`{|}~:")
@@ -67,53 +71,63 @@ private func forecastPage(title: String, location: String, details: String, fore
     syntax.contains($0) ? "&#\($0.value);" : String($0)
   }.joined()
   var body = ["# \(title)", "\(literal) · \(details)"]
-  var copy = [title, "\(place) · \(details)"]
+  var copy = [copyTitle, "\(place) · \(details)"]
+
+  let offset = TimeZone(secondsFromGMT: forecast.utcOffsetSeconds) ?? .gmt
+  let format = DateFormatter()
+  format.locale = Locale(identifier: "en_US_POSIX")
+  format.timeZone = TimeZone(identifier: forecast.timezone) ?? offset
+  format.dateFormat = "HH:mm"
+  if let hourly = forecast.hourly, let first = hourly.time.firstIndex(where: { $0 > forecast.current.time }) {
+    var tiles: [String] = []
+    var hourlyLines: [String] = []
+    for index in stride(from: first, to: min(hourly.time.count, first + 12), by: 2) {
+      let date = Date(timeIntervalSince1970: hourly.time[index])
+      let hour = format.string(from: date)
+      let temperature = degrees(hourly.temperatures[ifPresent: index] ?? nil)
+      let weather = condition(
+        hourly.weatherCode[ifPresent: index] ?? nil, night: hourly.isDay[ifPresent: index] == 0)
+      let chance = hourly.precipitationProbability[ifPresent: index] ?? nil
+      let precipitation = chance.flatMap { $0 >= 20 ? "\($0)%" : nil }
+      let subtitle = precipitation.map { #" subtitle="\#($0)""# } ?? ""
+      tiles.append(#"<tile label="\#(hour)" icon="\#(weather.icon)" title="\#(temperature)"\#(subtitle)/>"#)
+      let rain = precipitation.map { " · \($0) precipitation" } ?? ""
+      hourlyLines.append("\(hour) · \(weather.title) · \(temperature)\(rain)")
+    }
+    body.append("### Next hours\n<columns>\n" + tiles.joined(separator: "\n") + "\n</columns>")
+    copy.append("Next hours\n" + hourlyLines.joined(separator: "\n"))
+  }
 
   let daily = forecast.daily
-  let isoDate = ISO8601DateFormatter()
-  isoDate.formatOptions = [.withFullDate]
-  let weekday = DateFormatter()
-  weekday.locale = Locale(identifier: "en_US_POSIX")
-  weekday.timeZone = .gmt
-  weekday.dateFormat = "EEE"
+  // Open-Meteo defines daily boundaries using the offset it reports at request time.
+  format.timeZone = offset
+  format.dateFormat = "EEE"
   let days = zip(daily.time, zip(daily.highs, daily.lows))
   var tiles: [String] = []
   var dailyLines: [String] = []
   for ((date, (high, low)), code) in zip(days, daily.weatherCode) {
-    guard let date = isoDate.date(from: date) else { continue }
-    let day = weekday.string(from: date)
+    let day = format.string(from: Date(timeIntervalSince1970: date))
     let weather = condition(code)
     tiles.append(
-      #"<tile label="\#(day)" icon="\#(weather.icon)" title="\#(degrees(high)) \#(degrees(low))"/>"#)
+      #"<tile label="\#(day)" icon="\#(weather.icon)" title="↑\#(degrees(high)) ↓\#(degrees(low))"/>"#)
     dailyLines.append("\(day) · \(weather.title) · H: \(degrees(high)) L: \(degrees(low))")
   }
   if !tiles.isEmpty {
-    body.append("### Daily forecast\n<columns>\n" + tiles.joined(separator: "\n") + "\n</columns>")
-    copy.append("Daily forecast\n" + dailyLines.joined(separator: "\n"))
+    body.append("### Next days\n<columns>\n" + tiles.joined(separator: "\n") + "\n</columns>")
+    copy.append("Next days\n" + dailyLines.joined(separator: "\n"))
   }
 
-  if let hourly = forecast.hourly {
-    var rows: [String] = []
-    var hourlyLines: [String] = []
-    for (time, (temperature, code)) in zip(hourly.time, zip(hourly.temperatures, hourly.weatherCode)) {
-      guard time > forecast.current.time else { continue }
-      let hour = time.dropFirst(11)
-      guard hour.wholeMatch(of: #/[0-9]{2}:[0-9]{2}/#) != nil else { continue }
-      let weather = condition(code)
-      rows.append(#"<row label="\#(hour)" title="\#(weather.title)" value="\#(degrees(temperature))"/>"#)
-      hourlyLines.append("\(hour) · \(weather.title) · \(degrees(temperature))")
-    }
-    if !rows.isEmpty {
-      body.append("### Next hours\n" + rows.joined(separator: "\n"))
-      copy.append("Next hours\n" + hourlyLines.joined(separator: "\n"))
-    }
-  }
-
-  body.append("Weather data by [Open-Meteo](https://open-meteo.com/)")
   copy.append("Weather data by Open-Meteo")
   let text = quoted(copy.joined(separator: "\n\n"))
-  return
-    #"{"body":\#(quoted(body.joined(separator: "\n\n"))),"actions":[{"type":"copy","title":"Copy forecast","text":\#(text)}]}"#
+  return #"""
+    {"body":\#(quoted(body.joined(separator: "\n\n"))),"actions":[
+    {"type":"copy","title":"Copy forecast","text":\#(text)},
+    {"type":"open","title":"Weather data by Open-Meteo","url":"https://open-meteo.com/"}]}
+    """#
+}
+
+extension Array {
+  fileprivate subscript(ifPresent index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
 private func whole(_ value: Double) -> String {

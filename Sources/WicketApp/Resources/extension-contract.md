@@ -22,6 +22,7 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; 
 - **Name and keyword:** Match while typing without starting a process. An exact keyword (case-insensitive) + space + text fills the first editable text field (for commands and for manifest/`user.json` items whose first action is `run` into an enabled command with an editable text field). Selecting the row sends one **submitted** request with the filled fields; Ask agent stays in the list.
 - **`match`:** Regex checked in-process on root input (≤512 UTF-8 bytes regex; skips input >4,096 bytes; 5 ms deadline checked at progress callbacks—prefer anchored, simple patterns). Runs before selection and may arrive late. A nonempty successful result is a strong match. A `body` view yields one "Show details" row (even if `items` are also present); activating it or a pattern-error row reruns with root input and `submitted:false`. New typing cancels the old run. Matching empty input supplies initial root rows (even with Only show results when typing on, where Return still runs the selected row).
   Cache remote lookups in `WICKET_DATA_DIR`.
+  A prominent result can take its own command's keyword row when both submit the same request.
 - **`fallback:true`:** Shown just after Ask agent when nonempty root input has no strong match and no matching pattern is still running. Activation submits the root query.
 
 **Root order:** exact keywords with field text (longest keyword first, then standard name-match tie-breaks starting with usage for that input) → nonempty pattern results (grouped by extension name, sorted by title/alias tier, usage for that query, then returned order—put the best row first) → name matches (apps, commands, manifest items, host rows, files). Command lists sort by tier then returned order.
@@ -173,6 +174,8 @@ Lead with the result as `#` (`# 3 events`, `# 12° Light rain`), one plain conte
 - **2–3 options:** side-by-side tiles, then a one-sentence verdict.
 
 Keep slots to labels/figures (prose stays Markdown). Use rows for lists, omit repeated icons, and reserve color for badges.
+
+Fit the page in the panel without scrolling at the default text size. Move secondary details into ⌘K actions, item details, or a follow-up view.
 
 ## An answer as an extension
 
