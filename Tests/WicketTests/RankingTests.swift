@@ -283,7 +283,7 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
     "deploy now", apps: [app("Tool to Redeploy Now")],
     patterns: ["extension:deploy": .failed("exit 7")],
     extensions: ["extension:deploy": manifest("Deploy", keyword: "deploy", match: "^deploy")],
-    problems: ["extension:broken": .init(detail: "bad json")])
+    problems: ["extension:broken": .init(manifest: "bad json")])
   #expect(
     titles(output) == ["Ask agent", "Tool to Redeploy Now", "Deploy failed", "extension:broken needs repair"])
   #expect(output.results.last?.row.actions == [.agent("Fix this extension. bad json")])

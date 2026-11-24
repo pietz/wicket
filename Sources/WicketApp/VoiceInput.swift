@@ -11,7 +11,9 @@ enum VoiceLog {
   }
   /// A VoiceError by its case; anything else by its domain and code, which name the failing API.
   static func describe(_ error: any Error) -> String {
-    if let error = error as? VoiceError { return error.rawValue }
+    if let error = (error as? VoiceSystemError)?.category ?? error as? VoiceError {
+      return error.rawValue
+    }
     let error = error as NSError
     return "\(error.domain) \(error.code)"
   }
@@ -55,6 +57,7 @@ final class VoiceInput {
   @ObservationIgnored private var listeningStarted = ContinuousClock.now
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private let timingURL: URL?
+  @ObservationIgnored private let runtime: RuntimeRecorder?
   @ObservationIgnored private(set) var shutdown: Task<Void, Never>?
   @ObservationIgnored private let timingWriter: LatestWriter<String>
   @ObservationIgnored private var timingSaved = false
@@ -69,9 +72,12 @@ final class VoiceInput {
   var noSpeechDuration: Duration = .seconds(3)
   var maximumDuration: Duration = .seconds(300)
 
-  init(transcriber: @escaping () -> any Transcriber, timingURL: URL? = nil, write: @escaping (String) -> Void)
-  {
+  init(
+    transcriber: @escaping () -> any Transcriber, timingURL: URL? = nil, runtime: RuntimeRecorder? = nil,
+    write: @escaping (String) -> Void
+  ) {
     self.timingURL = timingURL
+    self.runtime = runtime
     timingWriter = LatestWriter { text in
       guard let timingURL else { return }
       try? text.write(to: timingURL, atomically: true, encoding: .utf8)
@@ -130,9 +136,11 @@ final class VoiceInput {
       } catch {
         guard let self, generation == current else { return }
         VoiceLog.logger.error("voice failed: \(VoiceLog.describe(error), privacy: .public)")
-        permissionDenied = error as? VoiceError == .microphoneDenied
+        let category = (error as? VoiceSystemError)?.category ?? error as? VoiceError
+        permissionDenied = category == .microphoneDenied
+        runtime?.voiceFailed(error, reason: .failed)
         stop(.failed)
-        problem = (error as? VoiceError)?.description ?? "Couldn't listen. Try again."
+        problem = category?.description ?? "Couldn't listen. Try again."
       }
     }
   }
@@ -197,9 +205,18 @@ final class VoiceInput {
       try? await Task.sleep(until: deadline, clock: .continuous)
       guard !Task.isCancelled, let self, generation == current else { return }
       stop(reason)
-      if reason == .startTimeout { problem = VoiceError.microphoneStartFailed.description }
+      if reason == .startTimeout {
+        runtime?.voiceFailed(VoiceError.microphoneStartFailed, reason: reason)
+        problem = VoiceError.microphoneStartFailed.description
+      }
     }
   }
+}
+
+struct VoiceSystemError: Error {
+  let category: VoiceError
+  let domain: String
+  let code: Int
 }
 
 /// The raw value is the case alone, for the log.

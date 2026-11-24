@@ -30,10 +30,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let runs = AgentHistory(url: Edition.current.privateDirectory().appending(path: "agent-history.json"))
     let updater = Updater()
     self.updater = updater
+    let runtime = RuntimeRecorder(url: RuntimeRecord.url(beside: AgentLog.standard()))
     let model = LauncherModel(
       apps: apps, files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
       history: history, folder: directory, extensionDataDirectory: Edition.current.extensionDataDirectory(),
-      availableUpdate: { updater?.availableUpdate }, checkForUpdates: { updater?.checkForUpdates() })
+      availableUpdate: { updater?.availableUpdate }, checkForUpdates: { updater?.checkForUpdates() },
+      runtime: runtime)
     do {
       try AnswerRenderer.installFiles(in: directory)
       try ExtensionHost.installFiles(in: directory)
@@ -51,6 +53,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       guard let self else { return }
       configuration.hotkeyProblem = hotkey.apply(config.hotkey)
       configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
+      runtime.register(
+        HotkeyRegistrations(
+          launcher: hotkey.snapshot(config.hotkey, problem: configuration.hotkeyProblem),
+          bindings: bindings.latest))
     }
     // Either recorder, Settings' or the panel's Set Hotkey…, pauses every hotkey, so it hears the keys.
     let pause: (Bool) -> Void = { [weak self] paused in
@@ -121,6 +127,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         configuration.problem ?? configuration.hotkeyProblem ?? configuration.bindingProblem
         ?? model.installProblem ?? "\(name): \(hotkey.inEffect?.symbols ?? "use menu to open")"
     }
+    runtime.observePermissions(model.extensions.permissions)
     configuration.start()
     model.extensions.start()
     Task { await apps.start() }

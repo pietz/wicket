@@ -953,7 +953,8 @@ final class Navigator {
   /// `holding`: the screen being left stays until the new one has its content (`arrive`).
   func go(
     _ address: Address, from origin: String? = nil, submitted: Bool = false, holding: Bool = true,
-    replacingFields: Bool = false, itemHotkey: Bool = false
+    replacingFields: Bool = false, itemHotkey: Bool = false,
+    trigger: RuntimeRecord.Trigger = .command
   ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
@@ -978,7 +979,9 @@ final class Navigator {
     case .root: arrive(nil, input: address.input ?? "", holding: holding)
     case .command(let behavior):
       var state = commandState(for: behavior, itemHotkey: itemHotkey)
-      if let invalid = state.enter(address, submitted: submitted, replacingFields: replacingFields) {
+      if let invalid = state.enter(
+        address, submitted: submitted, replacingFields: replacingFields, trigger: trigger)
+      {
         actionProblem = "Invalid value for \(invalid)"
         return draw()
       }
@@ -1031,7 +1034,7 @@ final class Navigator {
     func arrive() {
       go(
         address, from: origin, submitted: submitted, holding: shown, replacingFields: replacingFields,
-        itemHotkey: submitted && hotkey?.item != nil)
+        itemHotkey: submitted && hotkey?.item != nil, trigger: hotkey == nil ? .command : .hotkey)
       pressed = hotkey.map { ($0, generation) }
     }
     if let surface, !shown { surface.show(arriving: arrive) } else { arrive() }
@@ -1062,10 +1065,11 @@ final class Navigator {
     case .run(let address):
       if let result { record(result) }
       // Activating a run action is the user's choice; following a link never is.
+      let fromItem = result != nil && result?.rootExtensionRow != .command
       if address.hidden {
-        runHidden(address, from: result?.provider)
+        runHidden(address, from: result?.provider, fromItem: fromItem)
       } else {
-        go(address, from: result?.provider, submitted: !address.link)
+        go(address, from: result?.provider, submitted: !address.link, trigger: fromItem ? .item : .command)
       }
     case .send(let text): send(text)
     case .ask: askAgent()
@@ -1341,7 +1345,7 @@ final class Navigator {
   /// address without an enabled program to run is followed as usual, which says why.
   func runHidden(
     _ address: Address, from origin: String?, pressed hotkey: HotkeyTarget? = nil,
-    replacingFields: Bool = false
+    replacingFields: Bool = false, fromItem: Bool = false
   ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     guard let id = address.extensionName == nil ? own : address.targetID,
@@ -1386,7 +1390,9 @@ final class Navigator {
       var outcome: CommandOutcome?
       var line = ""
       do {
-        let view = try await extensions.view(program, request: request)
+        let view = try await extensions.view(
+          program, request: request, trigger: hotkey != nil ? .hotkey : fromItem ? .item : .hiddenRun,
+          silentSuccess: true)
         outcome = .view(view)
         line =
           view.items.first.map { [$0.title, $0.subtitle].compactMap { $0 }.joined(separator: ": ") }

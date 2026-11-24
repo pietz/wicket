@@ -1,3 +1,4 @@
+import AVFoundation
 import ApplicationServices
 import EventKit
 import Foundation
@@ -9,7 +10,7 @@ enum Permission: String, Codable, Sendable, CaseIterable {
   case accessibility, calendar
 
   /// Where it stands for Wicket.
-  enum Status: Sendable { case granted, askable, denied }
+  enum Status: String, Codable, Sendable { case granted, askable, denied }
 
   /// Its pane in System Settings, Privacy & Security.
   var pane: URL {
@@ -44,8 +45,28 @@ struct Permissions: Sendable {
       _ = try? await EKEventStore().requestFullAccessToEvents()
     })
 
+  var microphone: @MainActor @Sendable () -> Permission.Status = {
+    switch AVAudioApplication.shared.recordPermission {
+    case .granted: .granted
+    case .undetermined: .askable
+    default: .denied
+    }
+  }
+
+  @MainActor func snapshot() -> [String: Permission.Status] {
+    var values = Dictionary(uniqueKeysWithValues: Permission.allCases.map { ($0.rawValue, status($0)) })
+    values["microphone"] = microphone()
+    return values
+  }
+
   /// What `command` declares and Wicket does not hold now.
   @MainActor func missing(_ command: ExtensionCommand) -> [Permission] {
+    Self.missing(command, status: status)
+  }
+
+  static func missing(_ command: ExtensionCommand, status: (Permission) -> Permission.Status)
+    -> [Permission]
+  {
     command.manifest.permissions.filter { status($0) != .granted }
   }
 

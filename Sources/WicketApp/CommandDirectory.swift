@@ -94,6 +94,38 @@ extension HostCommand {
     return
       "\(name(of: id) ?? id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
   }
+  /// Resolves a configured target without opening it or executing its first action.
+  func hotkeyResolution(
+    _ target: HotkeyTarget, permissionStatus: (Permission) -> Permission.Status
+  ) -> HotkeyRegistrations.Resolution {
+    func commandResolution(_ id: String) -> HotkeyRegistrations.Resolution {
+      if id == "agent" || id == "settings" { return .ok }
+      let command = extensions.commands[id]
+      guard command != nil || hostType(id) != nil else { return .missingExtension }
+      guard isAvailable(id, in: store.configuration) else { return .disabled }
+      if let command, command.manifest.command != nil,
+        !Permissions.missing(command, status: permissionStatus).isEmpty
+      {
+        return .missingPermission
+      }
+      return .ok
+    }
+    guard let id = target.target else { return .ok }
+    // A static item can invoke a different command or have its own effect independently of its owner.
+    guard target.item != nil, let owner = extensions.commands[id],
+      isAvailable(id, in: store.configuration)
+    else { return commandResolution(id) }
+    guard let item = owner.item(for: target) else { return .missingItem }
+    switch item.actions.first?.kind {
+    case .run(let address):
+      let destination = address.extensionName == nil ? id : address.targetID
+      return destination.map(commandResolution) ?? .ok
+    case .paste:
+      return permissionStatus(.accessibility) == .granted ? .ok : .missingPermission
+    case .copy, .open, .reveal: return .ok
+    default: return commandResolution(id)
+    }
+  }
   /// What a row's hotkey is bound to: an extension's command row, one of its static items (at the root,
   /// or inside the command when the view lists it with the same primary action) or a host command.
   /// Nil for a row with no address of its own, such as an app, a file or a fallback.
@@ -159,7 +191,7 @@ struct ExtensionScreen: CommandScreenBehavior {
     let extensions = directory.extensions
     return .deferred {
       do {
-        return .view(try await extensions.view(command, request: request.provider))
+        return .view(try await extensions.view(command, request: request.provider, trigger: request.trigger))
       } catch {
         return .problem(command.report(request.provider, error: error), summary: error.localizedDescription)
       }

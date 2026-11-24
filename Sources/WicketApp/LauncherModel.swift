@@ -10,6 +10,7 @@ final class LauncherModel {
   let navigator: Navigator
   let agent: AgentSession
   let extensions: ExtensionHost
+  let runtime: RuntimeRecorder?
   /// The search at the root.
   let root: RootCommand
   let clipboard: ClipboardHistory?
@@ -28,16 +29,18 @@ final class LauncherModel {
     agentHistory: AgentHistory? = nil, history: UsageHistory,
     folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
     extensionDataDirectory: URL? = nil, availableUpdate: @escaping () -> String? = { nil },
-    checkForUpdates: @escaping () -> Void = {}
+    checkForUpdates: @escaping () -> Void = {}, runtime: RuntimeRecorder? = nil
   ) {
     self.clipboard = clipboard
     self.agentHistory = agentHistory
     self.availableUpdate = availableUpdate
     self.checkForUpdates = checkForUpdates
+    self.runtime = runtime
     store = ConfigurationStore(url: folder.appending(path: "config.json"))
     agent = AgentSession(folder: folder)
     agent.history = agentHistory
-    extensions = ExtensionHost(folder: folder, bundled: bundled, dataDirectory: extensionDataDirectory)
+    extensions = ExtensionHost(
+      folder: folder, bundled: bundled, dataDirectory: extensionDataDirectory, runtime: runtime)
     let directory = CommandDirectory(
       extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 },
       store: store)
@@ -75,6 +78,9 @@ final class LauncherModel {
   }
   /// The panel shows again: both histories drop what is past their time, and so do the screens.
   func reopen(now: Date = Date()) {
+    if let runtime {
+      Task { [extensions] in runtime.observePermissions(extensions.permissions) }
+    }
     clipboard?.expire(now: now)
     agentHistory?.expire(now: now)
     navigator.reopen(now: now, availableUpdate: availableUpdate())
@@ -125,5 +131,6 @@ final class LauncherModel {
     await history.finish()
     await clipboard?.finish()
     await agentHistory?.finish()
+    await runtime?.finish()
   }
 }

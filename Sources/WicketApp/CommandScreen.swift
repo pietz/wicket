@@ -37,6 +37,7 @@ struct CommandScreenRequest {
   let cause: CommandScreen.Cause
   var fieldChange: Page.Field.Change? = nil
   var prompting = false
+  var trigger: RuntimeRecord.Trigger = .command
   /// The request as an extension's program and a host command receive it.
   var provider: ProviderRequest {
     ProviderRequest(input: input, fields: fields, action: action, submitted: cause == .submission)
@@ -80,6 +81,7 @@ enum CommandOutcome {
   /// user's activation makes it submitted; every later request is a rerun.
   private(set) var next = Cause.address
   private var action: String?
+  private var trigger: RuntimeRecord.Trigger = .command
   /// The hidden run waiting for its text, kept beyond the request that shows the prompt.
   private(set) var promptedRun: Address?
   private var replacingFields = false
@@ -135,7 +137,8 @@ enum CommandOutcome {
   /// Returns the name of an invalid canvas override, leaving the visit as it was.
   @discardableResult
   mutating func enter(
-    _ address: Address, submitted: Bool, replacingFields: Bool = false
+    _ address: Address, submitted: Bool, replacingFields: Bool = false,
+    trigger: RuntimeRecord.Trigger = .command
   ) -> String? {
     let submitting = submitted && !address.link
     let field = descriptor?.inputField
@@ -151,6 +154,7 @@ enum CommandOutcome {
       return invalid.key
     }
     next = submitting ? .submission : .address
+    self.trigger = trigger
     action = next == .submission ? address.action : nil
     self.replacingFields = replacingFields
     if address.link || replacingFields {
@@ -182,7 +186,8 @@ enum CommandOutcome {
     }
     if let field = descriptor?.inputField { fields[field.name] = providerInput.isEmpty ? nil : providerInput }
     return CommandScreenRequest(
-      input: providerInput, fields: fields, action: action, cause: next, prompting: promptedRun != nil)
+      input: providerInput, fields: fields, action: action, cause: next, prompting: promptedRun != nil,
+      trigger: trigger)
   }
 
   /// Keeps the latest local edit visible and stages only the work this control calls for.
@@ -251,6 +256,7 @@ enum CommandOutcome {
   /// A request is being answered; every later one is a rerun.
   mutating func begin(_ request: CommandScreenRequest? = nil) {
     next = .rerun
+    trigger = .command
     action = nil
     replacingFields = false
     if let request {

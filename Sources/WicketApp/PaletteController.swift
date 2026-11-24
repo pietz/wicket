@@ -127,7 +127,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     }
     input = PanelInput(
       navigator: navigator, agent: model.agent, store: model.store, folder: model.agent.folder,
-      transcriber: transcriber,
+      transcriber: transcriber, runtime: model.runtime,
       permissionFinished: { [weak panel] in
         guard let panel, panel.isVisible else { return }
         panel.makeKey()

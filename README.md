@@ -60,6 +60,8 @@ On by default (toggle in Settings ▸ Voice): Wicket listens on open and fills t
 
 ## The agent
 
+If an extension, hotkey, permission, or voice fails, ask the agent why. It can read Wicket's diagnosis.
+
 Runs your local `claude` or `codex` CLI with your config and MCP servers—Wicket stores no credentials. Configure agent, model, effort, permission mode, speed, and streaming (on by default) in Settings ▸ Agent. On permission prompts, ⌘Return allows once and Escape declines.
 
 Replies render as keyboard-driven pages (rows, tiles, cards, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.

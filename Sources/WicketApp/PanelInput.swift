@@ -23,16 +23,19 @@ final class PanelInput: Speech {
   private(set) var voice: VoiceInput?
   @ObservationIgnored private let makeTranscriber: () -> any Transcriber
   @ObservationIgnored private let timingURL: URL
+  @ObservationIgnored private let runtime: RuntimeRecorder?
   /// The panel takes the keys back when the microphone's consent dialog is done.
   @ObservationIgnored private let permissionFinished: () -> Void
 
   init(
     navigator: Navigator, agent: AgentSession, store: ConfigurationStore, folder: URL,
-    transcriber: @escaping () -> any Transcriber, permissionFinished: @escaping () -> Void
+    transcriber: @escaping () -> any Transcriber, runtime: RuntimeRecorder? = nil,
+    permissionFinished: @escaping () -> Void
   ) {
     self.navigator = navigator
     self.agent = agent
     self.store = store
+    self.runtime = runtime
     makeTranscriber = transcriber
     timingURL = folder.appending(path: "voice-timing.txt")
     self.permissionFinished = permissionFinished
@@ -56,7 +59,7 @@ final class PanelInput: Speech {
     guard offersVoice else { return nil }
     if voice == nil {
       voice = VoiceInput(
-        transcriber: makeTranscriber, timingURL: timingURL,
+        transcriber: makeTranscriber, timingURL: timingURL, runtime: runtime,
         write: { [weak self] text in
           guard let self, agent.takesSpeech else {
             self?.stop(.busy)

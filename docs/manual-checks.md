@@ -4,7 +4,7 @@ Checks requiring a real Mac: glass, focus, IME, global hotkeys, audio, Accessibi
 
 For extension checks, install a Weather fixture showing Berlin's forecast on entry and an error row for unrecognized input, with `submit` off so typing a question replaces the visible result while the first agent turn still gets the prior forecast.
 
-Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log show --predicate 'subsystem == "app.wicket" AND category == "voice"' --last 5m` for voice stop reasons.
+Run `--diagnose` on the app binary to see Wicket's configuration and recent failures from `~/Library/Logs/Wicket Dev/runtime.json`. Agent protocol traffic is in `~/Library/Logs/Wicket Dev/agent.log`.
 
 ## 1. Open and close
 
@@ -52,6 +52,8 @@ Diagnostics: `~/Library/Logs/Wicket Dev/agent.log` for agent runs; `/usr/bin/log
 5. On a Mac lacking the speech model, verify missing-model message and that typing still works.
 
 ## 7. Extensions
+
+For diagnostics, break a scratch extension's `wicket.json` and ask the agent why it disappeared. Fix the manifest, bind a hotkey to a run that exits nonzero, and press it. Ask again and check that the agent cites the hotkey-triggered entry in `recentFailures`.
 
 1. Settings ▸ Extensions lists Built in and Extensions with switches. Switching Convert off stops `10 km to mi`. Copy `examples/agenda` into `extensions/`: appears enabled within a second. Invalid `wicket.json` shows a warning and reason.
 2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: fields follow typed text; Tab/⇧Tab navigate; Return or click runs with values; Japanese IME, paste, and ⌘A work in fields; arrowing off returns keys to input. Check field labels with VoiceOver.

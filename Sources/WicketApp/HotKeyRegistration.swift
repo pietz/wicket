@@ -18,6 +18,12 @@ final class HotKeyRegistration {
     self.register = register
   }
 
+  func snapshot(_ shortcut: Shortcut, problem: String?) -> HotkeyRegistrations.Entry {
+    .init(
+      shortcut: shortcut.description, resolution: problem == nil ? .ok : .registrationFailed,
+      problem: problem, inEffect: inEffect?.description)
+  }
+
   func pause(_ paused: Bool) {
     self.paused = paused
     if paused { registration = nil }

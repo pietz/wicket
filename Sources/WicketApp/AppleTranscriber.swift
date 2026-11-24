@@ -39,7 +39,7 @@ import Synchronization
   }
   nonisolated private static func listen(
     _ microphone: Microphone, yield: @escaping @Sendable (VoiceUpdate) -> Void,
-    fail: @escaping @Sendable (VoiceError) -> Void
+    fail: @escaping @Sendable (any Error) -> Void
   ) async throws {
     defer { _ = microphone.stop() }
     try validateUsage(Bundle.main.infoDictionary ?? [:])
@@ -163,27 +163,31 @@ final class Microphone: @unchecked Sendable {
     return closed
   }
 
-  func captureEnded(fail: @escaping @Sendable (VoiceError) -> Void) {
+  func captureEnded(error: NSError? = nil, fail: @escaping @Sendable (any Error) -> Void) {
     queue.async { [self] in
       guard !isStopped else { return }
       VoiceLog.logger.log(
         "voice input stopped by a configuration change \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after opening"
       )
-      fail(.inputChanged)
+      if let error {
+        fail(VoiceSystemError(category: .inputChanged, domain: error.domain, code: error.code))
+      } else {
+        fail(VoiceError.inputChanged)
+      }
       close()
     }
   }
 
   func start(
     format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
-    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (VoiceError) -> Void
+    firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (any Error) -> Void
   ) async throws {
     // An explicit device input avoids AVAudioEngine binding its default input and switching it back.
     try await open(selecting: InputDevice.select) { [self] device in
       let capture = AVCaptureSession()
       let input = try AVCaptureDeviceInput(device: device)
       let output = AVCaptureAudioDataOutput()
-      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio, fail: fail)
+      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio) { fail($0) }
       output.audioSettings = [
         AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
       ]
@@ -205,10 +209,11 @@ final class Microphone: @unchecked Sendable {
   }
 
   private func observe(
-    _ name: Notification.Name, object: AnyObject, fail: @escaping @Sendable (VoiceError) -> Void
+    _ name: Notification.Name, object: AnyObject, fail: @escaping @Sendable (any Error) -> Void
   ) -> any NSObjectProtocol {
-    NotificationCenter.default.addObserver(forName: name, object: object, queue: nil) { [weak self] _ in
-      self?.captureEnded(fail: fail)
+    NotificationCenter.default.addObserver(forName: name, object: object, queue: nil) {
+      [weak self] notification in
+      self?.captureEnded(error: notification.userInfo?[AVCaptureSessionErrorKey] as? NSError, fail: fail)
     }
   }
 

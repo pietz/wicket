@@ -88,7 +88,7 @@ private final class FakeCapture: CaptureSession, @unchecked Sendable {
   let lostInput = DispatchSemaphore(value: 0)
   for _ in 0..<2 {
     microphone.captureEnded {
-      #expect($0 == .inputChanged)
+      #expect($0 as? VoiceError == .inputChanged)
       retries.withLock { $0 += 1 }
       lostInput.signal()
     }

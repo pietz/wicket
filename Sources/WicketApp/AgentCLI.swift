@@ -98,8 +98,12 @@ enum AgentCLI {
   ) throws -> AgentLink<T> {
     let command = [cli.path] + T.arguments(for: settings, resume: resume, instructions: instructions)
     let run = log.begin(settings, command: command, folder: folder)
+    var environment = Launch.environment()
+    environment[Diagnostics.agentEnvironmentKey] = "1"
     do {
-      return AgentLink(translator, lines: try JSONLines(command: command, folder: folder, log: run), log: run)
+      return AgentLink(
+        translator,
+        lines: try JSONLines(command: command, folder: folder, environment: environment, log: run), log: run)
     } catch {
       run.note("END", "failed to start: \(error.localizedDescription)")
       run.close()

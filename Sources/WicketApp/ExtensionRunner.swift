@@ -101,8 +101,9 @@ struct ExtensionRunner: Sendable {
       try Task.checkCancellation()
       let diagnostic = String(decoding: err.data, as: UTF8.self)
       func failure(_ message: String, nothingShown: Bool = false) -> ExtensionFailure {
-        var failure = ExtensionFailure(
-          message + (diagnostic.isEmpty ? "" : "\n\nStderr (last 4 KiB):\n" + diagnostic))
+        var failure = ExtensionFailure(message)
+        failure.stderr = diagnostic
+        if case .status(let code) = exit { failure.exitCode = code }
         failure.nothingShown = nothingShown
         return failure
       }
@@ -172,7 +173,11 @@ struct ExtensionFailure: LocalizedError, Sendable {
   /// A clean exit with no view: a hidden run's success (`Address.hidden`), an error anywhere else.
   var nothingShown = false
   init(_ message: String) { self.message = message }
-  var errorDescription: String? { message }
+  var stderr = ""
+  var exitCode: Int32?
+  var errorDescription: String? {
+    message + (stderr.isEmpty ? "" : "\n\nStderr (last 4 KiB):\n" + stderr)
+  }
   static let noView =
     "Extension printed no view: no body and no items. If its effect is the feedback (a moved window, an "
     + #"opened file), add "hidden":true to the run action, or to the manifest for a submit command's Return."#

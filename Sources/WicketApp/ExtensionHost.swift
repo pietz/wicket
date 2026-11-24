@@ -76,8 +76,12 @@ struct ExtensionCommand: Sendable, Equatable {
 final class ExtensionHost {
   struct Problem: Equatable, Sendable {
     static let fallbackMessage = "Built-in in use until the local copy is fixed or removed"
-    var detail: String
+    var manifest: String? = nil
+    var userItems: String? = nil
+    var name: String? = nil
+    var contract: Int? = nil
     var usingBundled = false
+    var detail: String { [manifest, userItems].compactMap { $0 }.joined(separator: "\n") }
     var message: String { usingBundled ? detail + "\n" + Self.fallbackMessage : detail }
   }
   struct LocalCopy: Equatable, Sendable {
@@ -99,6 +103,7 @@ final class ExtensionHost {
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   private let runner: ExtensionRunner
+  private let runtime: RuntimeRecorder?
   /// What macOS grants Wicket, checked before a program that declares permissions runs; tests replace it.
   var permissions = Permissions.system
   /// Moves an item to the Trash, so it can be put back; tests replace it.
@@ -127,9 +132,12 @@ final class ExtensionHost {
   }
   private var running: [UUID: Task<ProviderView, any Error>] = [:]
 
-  init(folder: URL, bundled: URL? = bundledFolder, dataDirectory: URL? = nil) {
+  init(
+    folder: URL, bundled: URL? = bundledFolder, dataDirectory: URL? = nil, runtime: RuntimeRecorder? = nil
+  ) {
     self.folder = folder
     self.bundled = bundled
+    self.runtime = runtime
     // A fixture host can keep its data in the same scratch folder as its manifests.
     runner = ExtensionRunner(dataDirectory: dataDirectory ?? folder.appending(path: "extension-data"))
   }
@@ -265,7 +273,7 @@ final class ExtensionHost {
       if let override { localCopies[id] = LocalCopy(folder: override) }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
-        problems[id] = Problem(detail: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
+        problems[id] = Problem(manifest: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
         continue
       }
       let manifest: ExtensionManifest
@@ -275,13 +283,20 @@ final class ExtensionHost {
         let reason = error is ExtensionManifest.ContractError ? "\(error)" : "Invalid wicket.json: \(error)"
         let detail = "\(folder.path)\n\(reason)"
         guard let override, let builtIn = builtIns[name], let fallback = try? readManifest(builtIn) else {
-          problems[id] = Problem(detail: detail)
+          let manifest = try? Data(contentsOf: folder.appending(path: "wicket.json"))
+          struct Header: Decodable {
+            let name: String?
+            let contract: Int?
+          }
+          let header = manifest.flatMap { try? JSONDecoder().decode(Header.self, from: $0) }
+          problems[id] = Problem(
+            manifest: detail, name: header?.name, contract: header.map { $0.contract ?? 1 })
           continue
         }
         if retiredFiles(in: override) != nil {
           localCopies[id]?.retired = true
         } else {
-          problems[id] = Problem(detail: detail, usingBundled: true)
+          problems[id] = Problem(manifest: detail, usingBundled: true)
         }
         folder = builtIn
         manifest = fallback
@@ -293,11 +308,7 @@ final class ExtensionHost {
         } catch {
           let reason = (error as? DecodingError).map { String(describing: $0) } ?? error.localizedDescription
           let detail = "\(userFile.path)\nInvalid user.json: \(reason)"
-          if problems[id] != nil {
-            problems[id]?.detail += "\n" + detail
-          } else {
-            problems[id] = Problem(detail: detail)
-          }
+          problems[id, default: Problem()].userItems = detail
         }
       }
       commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
@@ -309,7 +320,8 @@ final class ExtensionHost {
   /// permission rows while a permission it declares is missing, and nothing runs either; else what its
   /// program printed within the deadline. Cancelling, or `shutdown`, stops the process.
   func view(
-    _ command: ExtensionCommand, request: ProviderRequest, rootMatch: Bool = false
+    _ command: ExtensionCommand, request: ProviderRequest, rootMatch: Bool = false,
+    trigger: RuntimeRecord.Trigger = .command, silentSuccess: Bool = false
   ) async throws -> ProviderView {
     var request = request
     if let field = command.manifest.inputField {
@@ -332,7 +344,17 @@ final class ExtensionHost {
     running[id] = task
     defer { running[id] = nil }
     return try await withTaskCancellationHandler {
-      try await task.value
+      do {
+        return try await task.value
+      } catch {
+        let trigger = rootMatch ? .rootPattern : trigger
+        if !Task.isCancelled, !(error is CancellationError),
+          !(silentSuccess && (error as? ExtensionFailure)?.nothingShown == true)
+        {
+          runtime?.extensionFailed(command.id, trigger: trigger, action: request.action, error: error)
+        }
+        throw error
+      }
     } onCancel: {
       task.cancel()
     }

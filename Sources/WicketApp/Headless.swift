@@ -26,6 +26,15 @@ public enum Headless {
     var options: [String: String] = [:]
     func value(_ key: String) -> String? { options[key] }
     let folder = Edition.current.configDirectory()
+    if CommandLine.arguments.dropFirst().elementsEqual(["--diagnose"]) {
+      do {
+        FileHandle.standardOutput.write(try await Diagnostics.report(folder: folder) + Data([10]))
+        return 0
+      } catch {
+        FileHandle.standardError.write(Data("Could not encode Wicket diagnostics.\n".utf8))
+        return 1
+      }
+    }
     let history = UsageHistory(url: folder.appending(path: "usage.json"))
     let apps = AppsProvider()
     let model = LauncherModel(
@@ -58,7 +67,7 @@ public enum Headless {
       if value("--help") != nil {
         try printJSON([
           "usage":
-            "Wicket --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
+            "Wicket --diagnose | --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
         ])
         await model.finish()
         return 0
