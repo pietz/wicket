@@ -24,7 +24,7 @@ enum Permission: String, Codable, Sendable, CaseIterable {
 /// prompts; only `request` may, and only Calendar can be asked for inline: Accessibility is granted in
 /// System Settings alone.
 struct Permissions: Sendable {
-  var status: @MainActor @Sendable (Permission) -> Permission.Status
+  var status: @Sendable (Permission) -> Permission.Status
   /// Asks macOS from Wicket's own process, so the prompt names Wicket; returns once the user answered.
   var request: @MainActor @Sendable (Permission) async -> Void
 
@@ -45,7 +45,7 @@ struct Permissions: Sendable {
       _ = try? await EKEventStore().requestFullAccessToEvents()
     })
 
-  var microphone: @MainActor @Sendable () -> Permission.Status = {
+  var microphone: @Sendable () -> Permission.Status = {
     switch AVAudioApplication.shared.recordPermission {
     case .granted: .granted
     case .undetermined: .askable
@@ -53,7 +53,7 @@ struct Permissions: Sendable {
     }
   }
 
-  @MainActor func snapshot() -> [String: Permission.Status] {
+  func snapshot() -> [String: Permission.Status] {
     var values = Dictionary(uniqueKeysWithValues: Permission.allCases.map { ($0.rawValue, status($0)) })
     values["microphone"] = microphone()
     return values

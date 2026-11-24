@@ -127,7 +127,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         configuration.problem ?? configuration.hotkeyProblem ?? configuration.bindingProblem
         ?? model.installProblem ?? "\(name): \(hotkey.inEffect?.symbols ?? "use menu to open")"
     }
-    runtime.observePermissions(model.extensions.permissions)
+    runtime.refreshPermissions(model.extensions.permissions)
     configuration.start()
     model.extensions.start()
     Task { await apps.start() }

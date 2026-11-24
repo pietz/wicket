@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import WicketApp
@@ -8,11 +9,17 @@ import Testing
 
 /// Stands in for macOS: Calendar can be asked for until granted, Accessibility only granted by hand.
 @MainActor private final class FakePermissions {
-  var granted: Set<Permission> = []
+  nonisolated private let grants = Mutex<Set<Permission>>([])
+  var granted: Set<Permission> {
+    get { grants.withLock { $0 } }
+    set { grants.withLock { $0 = newValue } }
+  }
   var asked: [Permission] = []
   var permissions: Permissions {
     Permissions(
-      status: { [self] in granted.contains($0) ? .granted : $0 == .calendar ? .askable : .denied },
+      status: { [self] permission in
+        grants.withLock { $0.contains(permission) } ? .granted : permission == .calendar ? .askable : .denied
+      },
       request: { [self] in
         asked.append($0)
         if $0 == .calendar { granted.insert($0) }

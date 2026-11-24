@@ -13,13 +13,17 @@ private let deniedPermissions = Permissions(
   let bundledBase = root.appending(path: "bundle")
   let bundled = bundledBase.appending(path: "extensions")
   let script = "touch ran; exit 1"
-  for name in ["built-in", "override", "broken", "units"] {
+  for name in ["built-in", "override", "broken", "units", "mixed", "personal"] {
     _ = try extensionFolder(bundledBase, name: name, script: script)
   }
   let local = try extensionFolder(root, name: "local", script: script, fields: ["permissions": ["calendar"]])
   let override = try extensionFolder(root, name: "override", script: script)
   let broken = try extensionFolder(root, name: "broken", script: script, fields: ["contract": 1])
   _ = try extensionFolder(root, name: "stranded", script: script, fields: ["contract": 1])
+  let mixed = try extensionFolder(root, name: "Mixed", script: script)
+  let personal = root.appending(path: "extensions/personal")
+  try FileManager.default.createDirectory(at: personal, withIntermediateDirectories: true)
+  try Data(#"{"items":[]}"#.utf8).write(to: personal.appending(path: "user.json"))
   let retired = root.appending(path: "extensions/units")
   try FileManager.default.copyItem(at: fixtureURL("retired-units"), to: retired)
   try Data("broken user items".utf8).write(to: broken.appending(path: "user.json"))
@@ -47,7 +51,7 @@ private let deniedPermissions = Permissions(
   let commandKeys = CommandHotKeys { keys, _ in keys == config.hotkeys.last?.keys ? nil : NSObject() }
   let launcherProblem = launcher.apply(config.hotkey)
   _ = commandKeys.apply(config.hotkeys, launcher: launcher.inEffect)
-  recorder.observePermissions(deniedPermissions)
+  recorder.observePermissions(deniedPermissions.snapshot())
   recorder.register(
     .init(launcher: launcher.snapshot(config.hotkey, problem: launcherProblem), bindings: commandKeys.latest))
   await recorder.finish()
@@ -72,6 +76,11 @@ private let deniedPermissions = Permissions(
   #expect(try pointsTo("extension:override", "activeFolder", override))
   #expect(entries["extension:units"]?["source"] == .string("retired local copy ignored"))
   #expect(try pointsTo("extension:units", "localFolder", retired))
+  #expect(entries["extension:Mixed"]?["source"] == .string("local"))
+  #expect(try pointsTo("extension:Mixed", "activeFolder", mixed))
+  #expect(entries["extension:mixed"]?["source"] == .string("bundled"))
+  #expect(entries["extension:personal"]?["source"] == .string("bundled"))
+  #expect(try pointsTo("extension:personal", "localFolder", personal))
   #expect(entries["extension:broken"]?["source"] == .string("broken local copy, using bundled"))
   #expect(entries["extension:broken"]?["contract"] == .number(2))
   #expect(
@@ -87,16 +96,56 @@ private let deniedPermissions = Permissions(
   #expect(report["permissions"]["recorded"]["calendar"]["status"] == .string("askable"))
   #expect(report["permissions"]["recorded"]["calendar"]["checkedAt"].string != nil)
   #expect(report["permissions"]["note"].string?.contains("from Wicket's agent") == true)
+  #expect(report["runtimeIsLive"] == .bool(true))
+  #expect(report["runtime"]["bundlePath"] == .string(Bundle.main.bundleURL.path))
+  #expect(report["runtime"]["executablePath"].string != nil)
+  #expect(report["runtime"]["processStartTimeMicroseconds"] != .null)
   #expect(report["runtime"]["bindingProblem"].string?.contains("could not be registered") == true)
   #expect(report["hotkeys"]["launcher"]["resolution"] == .string("ok"))
   #expect(
     report["hotkeys"]["bindings"].array.compactMap { $0["resolution"].string }
       == [
         "ok", "disabled", "missing extension", "missing item", "missing permission", "duplicate",
-        "conflicts with launcher", "registration failed",
+        "conflicts with launcher", "ok",
       ])
+  #expect(report["hotkeys"]["launcher"]["registration"] == .string("registered"))
+  #expect(
+    report["hotkeys"]["bindings"].array.compactMap { $0["registration"].string }
+      == ["registered", "registered", "registered", "registered", "registered", "failed", "failed", "failed"])
   #expect(!String(decoding: data, as: UTF8.self).contains("private-query"))
   #expect(!FileManager.default.fileExists(atPath: root.appending(path: "extension-data").path))
+
+  config.hotkeys[0].keys = try Shortcut("ctrl+8")
+  try config.save(at: root.appending(path: "config.json"))
+  let changed = try JSONDecoder().decode(
+    JSONValue.self,
+    from: await Diagnostics.report(
+      folder: root, bundled: bundled, permissions: deniedPermissions, environment: env))
+  let changedBindings = changed["hotkeys"]["bindings"].array
+  #expect(changedBindings[0]["resolution"] == .string("ok"))
+  #expect(changedBindings[0]["registration"] == .string("unknown"))
+  #expect(changedBindings[0]["inEffect"] == .null)
+  #expect(changedBindings[1]["registration"] == .string("registered"))
+
+  try Data("{".utf8).write(to: root.appending(path: "config.json"))
+  let malformed = try JSONDecoder().decode(
+    JSONValue.self,
+    from: await Diagnostics.report(
+      folder: root, bundled: bundled, permissions: deniedPermissions, environment: env))
+  let unknown = JSONValue.string("unknown (config.json could not be read)")
+  #expect(malformed["config"]["problem"].string?.hasPrefix("Config: ") == true)
+  for field in ["resultsOnlyWhenTyping", "agent", "agentCLIInstalled"] {
+    #expect(malformed["config"][field] == .null)
+  }
+  #expect(malformed["extensions"].array.count == entries.count)
+  #expect(malformed["extensions"].array.allSatisfy { $0["enabled"] == unknown })
+  #expect(malformed["hotkeys"]["launcher"]["resolution"] == unknown)
+  #expect(malformed["hotkeys"]["launcher"]["inEffect"] == .string(config.hotkey.description))
+  let recordedBindings = malformed["hotkeys"]["bindings"].array
+  #expect(recordedBindings.count == config.hotkeys.count)
+  #expect(recordedBindings.allSatisfy { $0["resolution"] == unknown })
+  #expect(recordedBindings.first?["shortcut"] == .string("ctrl+1"))
+  #expect(recordedBindings.first?["registration"] == .string("registered"))
 }
 
 @Test func diagnoseCLILeavesMissingFilesAloneAndReportsBadConfig() async throws {
@@ -105,7 +154,8 @@ private let deniedPermissions = Permissions(
   let config = root.appending(path: "config.json")
   let (status, report) = try await cli(root, ["--diagnose"])
   #expect(status == 0)
-  #expect(report["app"]["signing"] != .null)
+  #expect(report["app"]["signing"]["satisfiesDesignatedRequirement"] == .bool(true))
+  #expect(report["app"]["signing"]["designatedRequirement"].string?.isEmpty == false)
   #expect(report["runtime"] == .null)
   #expect(report["runtimeReason"].string?.contains("never written") == true)
   #expect(!FileManager.default.fileExists(atPath: config.path))
@@ -113,8 +163,91 @@ private let deniedPermissions = Permissions(
   let (badStatus, badReport) = try await cli(root, ["--diagnose"])
   #expect(badStatus == 0)
   #expect(badReport["config"]["problem"].string?.hasPrefix("Config: ") == true)
+  #expect(badReport["hotkeys"]["launcher"]["registration"] == .string("unknown"))
+  #expect(badReport["hotkeys"]["launcher"]["shortcut"] == .null)
   let (_, help) = try await cli(root, ["--help"])
   #expect(help["usage"].string?.contains("--diagnose") == true)
+}
+
+private enum OldRuntimeWriter: CaseIterable { case exited, moved, reusedPID, legacy }
+
+@MainActor @Test(arguments: OldRuntimeWriter.allCases)
+private func diagnosticsKeepsStaleRuntimeHistory(_ writer: OldRuntimeWriter) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let config = Configuration()
+  try config.save(at: root.appending(path: "config.json"))
+  let env = ["WICKET_CONFIG_DIR": root.path]
+  let url = RuntimeRecord.url(beside: AgentLog.standard(environment: env))
+  let bundle = "/Old Location/Wicket.app"
+  let path = bundle + "/Contents/MacOS/Wicket"
+  let start: UInt64 = 1_800_000_000_122_051
+  let record = RuntimeRecord(
+    pid: 1234, executablePath: writer == .legacy ? nil : path,
+    bundlePath: writer == .legacy ? nil : bundle,
+    processStartTimeMicroseconds: writer == .legacy ? nil : start,
+    updatedAt: Date(), permissions: ["accessibility": .init(status: .granted, checkedAt: Date())],
+    registrations: .init(
+      launcher: .init(shortcut: config.hotkey.description, inEffect: config.hotkey.description),
+      bindings: []),
+    recentFailures: [
+      .init(
+        at: Date(), extensionID: "extension:fixture", trigger: .command, action: nil,
+        message: "Fixture failure", exitCode: 1, stderrTail: nil)
+    ])
+  let encoder = JSONEncoder()
+  encoder.dateEncodingStrategy = .iso8601
+  try encoder.encode(record).write(to: url)
+
+  let data = try await Diagnostics.report(
+    folder: root, bundled: nil, permissions: deniedPermissions, environment: env,
+    process: { pid in
+      #expect(pid == record.pid)
+      switch writer {
+      case .exited: return nil
+      case .moved:
+        return .init(
+          executablePath: "/Applications/Wicket.app/Contents/MacOS/Wicket", startTimeMicroseconds: start)
+      case .reusedPID: return .init(executablePath: path, startTimeMicroseconds: start + 1)
+      case .legacy: return .init(executablePath: path, startTimeMicroseconds: start)
+      }
+    })
+  let report = try JSONDecoder().decode(JSONValue.self, from: data)
+  #expect(report["runtimeIsLive"] == .bool(false))
+  #expect(report["runtimeReason"].string?.contains("no longer running") == true)
+  #expect(report["runtime"]["bundlePath"].string == record.bundlePath)
+  #expect(report["runtime"]["executablePath"].string == record.executablePath)
+  #expect(report["runtime"]["recentFailures"].array.first?["message"] == .string("Fixture failure"))
+  #expect(report["permissions"]["recorded"]["accessibility"]["status"] == .string("granted"))
+  #expect(report["permissions"]["note"].string?.contains("checks use live permissions") == true)
+  #expect(report["hotkeys"]["launcher"]["registration"] == .string("unknown"))
+  #expect(report["hotkeys"]["launcher"]["inEffect"] == .null)
+}
+
+@MainActor @Test func reopeningCollectsPermissionSnapshotsOffMain() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let recorder = RuntimeRecorder()
+  let model = LauncherModel(
+    history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    runtime: recorder)
+  model.extensions.permissions = Permissions(
+    status: { permission in
+      #expect(!Thread.isMainThread)
+      return permission == .calendar ? .askable : .denied
+    },
+    request: { _ in Issue.record("Diagnostics asked for a permission") },
+    microphone: {
+      #expect(!Thread.isMainThread)
+      return .granted
+    })
+  model.reopen()
+  #expect(recorder.record.permissions.isEmpty)
+  await model.finish()
+  #expect(
+    recorder.record.permissions.mapValues(\.status) == [
+      "accessibility": .denied, "calendar": .askable, "microphone": .granted,
+    ])
 }
 
 @MainActor @Test func runtimeRecordsOnlyExtensionFailuresAndBoundsThePrivateFile() async throws {
@@ -140,9 +273,9 @@ private let deniedPermissions = Permissions(
     history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
     runtime: recorder)
   model.extensions.permissions = deniedPermissions
-  recorder.observePermissions(deniedPermissions)
+  recorder.observePermissions(deniedPermissions.snapshot())
   let initial = recorder.record.updatedAt
-  recorder.observePermissions(deniedPermissions)
+  recorder.observePermissions(deniedPermissions.snapshot())
   await model.extensions.reload()
   model.navigator.editInput("ordinary typing")
   await model.navigator.settled()
@@ -200,11 +333,14 @@ private let deniedPermissions = Permissions(
   #expect(failure.errorCase == "inputChanged" && failure.osDomain == "Fixture.Audio" && failure.osCode == -17)
   #expect(failure.stopReason == "failed")
 
-  let folder = try extensionFolder(root, script: "cat >/dev/null; echo repair >&2; exit 1")
+  let folder = try extensionFolder(
+    root, script: "cat >/dev/null; echo repair >&2; exit 1",
+    fields: ["settings": [["name": "token", "type": "text", "description": "Token"]]])
   let host = ExtensionHost(folder: root, bundled: nil, runtime: recorder)
+  let sentinel = "private-request-sentinel"
+  host.settings["test"] = ["token": sentinel]
   await host.reload()
   let command = try #require(host.commands["extension:test"])
-  let sentinel = "private-request-sentinel"
   do {
     _ = try await host.view(command, request: .init(input: sentinel, fields: ["secret": sentinel]))
     Issue.record("The failing script returned a view")

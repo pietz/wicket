@@ -78,9 +78,7 @@ final class LauncherModel {
   }
   /// The panel shows again: both histories drop what is past their time, and so do the screens.
   func reopen(now: Date = Date()) {
-    if let runtime {
-      Task { [extensions] in runtime.observePermissions(extensions.permissions) }
-    }
+    runtime?.refreshPermissions(extensions.permissions)
     clipboard?.expire(now: now)
     agentHistory?.expire(now: now)
     navigator.reopen(now: now, availableUpdate: availableUpdate())

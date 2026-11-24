@@ -28,7 +28,28 @@ struct RuntimeRecord: Codable, Sendable {
     let stderrTail: String?
   }
 
+  struct ProcessIdentity: Equatable, Sendable {
+    let executablePath: String
+    let startTimeMicroseconds: UInt64
+
+    static func read(_ pid: Int32) -> Self? {
+      guard pid > 0 else { return nil }
+      // PROC_PIDPATHINFO_MAXSIZE is a C macro that Swift doesn't import.
+      var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+      let count = path.withUnsafeMutableBytes { proc_pidpath(pid, $0.baseAddress, UInt32($0.count)) }
+      guard count > 0, let start = ProcessTree.startTime(of: pid) else { return nil }
+      return Self(
+        executablePath: String(
+          decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self),
+        startTimeMicroseconds: start)
+    }
+  }
+
   let pid: Int32
+  // Optional so a record from an earlier build can still be read as history.
+  var executablePath: String? = nil
+  var bundlePath: String? = nil
+  var processStartTimeMicroseconds: UInt64? = nil
   var updatedAt: Date
   var permissions: [String: PermissionCheck] = [:]
   var registrations: HotkeyRegistrations?
@@ -36,6 +57,13 @@ struct RuntimeRecord: Codable, Sendable {
   var bindingProblem: String?
   var lastVoiceFailure: VoiceFailure?
   var recentFailures: [ExtensionFailure] = []
+
+  func isLive(process: (Int32) -> ProcessIdentity?) -> Bool {
+    guard let executablePath, let processStartTimeMicroseconds else { return false }
+    return process(pid)
+      == .init(
+        executablePath: executablePath, startTimeMicroseconds: processStartTimeMicroseconds)
+  }
 
   static func url(beside log: AgentLog) -> URL {
     log.file.deletingLastPathComponent().appending(path: "runtime.json")
@@ -51,10 +79,17 @@ struct RuntimeRecord: Codable, Sendable {
 /// The app's most recent observations. Tests can omit the writer and inspect the same record in memory.
 @MainActor
 final class RuntimeRecorder {
-  private(set) var record = RuntimeRecord(pid: getpid(), updatedAt: Date())
+  private(set) var record: RuntimeRecord
+  private var permissionCheck: Task<Void, Never>?
   private let writer: LatestWriter<RuntimeRecord>?
 
   init(url: URL? = nil) {
+    let pid = getpid()
+    let process = RuntimeRecord.ProcessIdentity.read(pid)
+    record = RuntimeRecord(
+      pid: pid, executablePath: process?.executablePath ?? Bundle.main.executableURL?.path,
+      bundlePath: Bundle.main.bundleURL.path, processStartTimeMicroseconds: process?.startTimeMicroseconds,
+      updatedAt: Date())
     writer = url.map { url in
       LatestWriter { record in
         let encoder = JSONEncoder()
@@ -72,8 +107,16 @@ final class RuntimeRecorder {
     }
   }
 
-  func observePermissions(_ permissions: Permissions) {
-    let live = permissions.snapshot()
+  func refreshPermissions(_ permissions: Permissions) {
+    guard permissionCheck == nil else { return }
+    permissionCheck = Task {
+      let snapshot = await Task.detached { permissions.snapshot() }.value
+      observePermissions(snapshot)
+      permissionCheck = nil
+    }
+  }
+
+  func observePermissions(_ live: [String: Permission.Status]) {
     let changed = record.permissions.mapValues(\.status) != live
     let now = Date()
     record.permissions = live.mapValues { .init(status: $0, checkedAt: now) }
@@ -122,7 +165,10 @@ final class RuntimeRecorder {
     writer?.submit(record)
   }
 
-  func finish() async { await writer?.finish() }
+  func finish() async {
+    await permissionCheck?.value
+    await writer?.finish()
+  }
 
   nonisolated private static func writePrivate(_ data: Data, to url: URL) throws {
     let folder = url.deletingLastPathComponent()

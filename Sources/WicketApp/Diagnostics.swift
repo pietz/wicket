@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Security
 
@@ -6,6 +5,7 @@ import Security
 @MainActor
 enum Diagnostics {
   static let agentEnvironmentKey = "WICKET_DIAGNOSE_FROM_AGENT"
+  private static let unreadableConfig = "unknown (config.json could not be read)"
 
   private struct App: Encodable {
     let edition: String
@@ -21,6 +21,7 @@ enum Diagnostics {
   private struct Signing: Encodable {
     var teamID: String?
     var adHoc: Bool?
+    var designatedRequirement: String?
     var satisfiesDesignatedRequirement: Bool?
     var cdhash: String?
     var status: OSStatus?
@@ -46,6 +47,10 @@ enum Diagnostics {
       }
       var requirement: SecRequirement?
       if SecCodeCopyDesignatedRequirement(code, [], &requirement) == errSecSuccess, let requirement {
+        var text: CFString?
+        if SecRequirementCopyString(requirement, [], &text) == errSecSuccess {
+          designatedRequirement = text as String?
+        }
         satisfiesDesignatedRequirement =
           SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSDoNotValidateResources), requirement)
           == errSecSuccess
@@ -63,16 +68,16 @@ enum Diagnostics {
   private struct Config: Encodable {
     let problem: String?
     let workingFolder: String
-    let resultsOnlyWhenTyping: Bool
-    let agent: AgentConfiguration.Agent
-    let agentCLIInstalled: Bool
+    let resultsOnlyWhenTyping: Bool?
+    let agent: AgentConfiguration.Agent?
+    let agentCLIInstalled: Bool?
     let agentLogPath: String
   }
   private struct Extension: Encodable {
     let id: String
     let name: String
-    let enabled: Bool
-    let source: String
+    let enabled: JSONValue
+    let source: ExtensionHost.Source
     let activeFolder: String?
     let localFolder: String?
     let contract: Int?
@@ -82,8 +87,36 @@ enum Diagnostics {
     let userJSONProblem: String?
   }
   private struct Hotkeys: Encodable {
-    let launcher: HotkeyRegistrations.Entry
-    let bindings: [HotkeyRegistrations.Entry]
+    struct Entry: Encodable {
+      enum Registration: String, Encodable { case registered, failed, unknown }
+
+      let shortcut: String?
+      let target: String?
+      let resolution: String
+      let registration: Registration
+      let inEffect: String?
+      let problem: String?
+
+      init(
+        shortcut: String? = nil, target: String? = nil, resolution: String,
+        recorded: HotkeyRegistrations.Entry?
+      ) {
+        self.shortcut = shortcut ?? recorded?.shortcut
+        self.target = target ?? recorded?.target
+        self.resolution = resolution
+        if let recorded, recorded.resolution != .ok {
+          registration = .failed
+        } else if let recorded, recorded.inEffect == recorded.shortcut {
+          registration = .registered
+        } else {
+          registration = .unknown
+        }
+        inEffect = recorded?.inEffect
+        problem = recorded?.problem
+      }
+    }
+    let launcher: Entry
+    let bindings: [Entry]
     let note: String
   }
   private struct Report: Encodable {
@@ -93,10 +126,11 @@ enum Diagnostics {
     let extensions: [Extension]
     let hotkeys: Hotkeys
     let runtime: RuntimeRecord?
+    let runtimeIsLive: Bool?
     let runtimeReason: String?
 
     enum CodingKeys: String, CodingKey {
-      case app, permissions, config, extensions, hotkeys, runtime, runtimeReason
+      case app, permissions, config, extensions, hotkeys, runtime, runtimeIsLive, runtimeReason
     }
     func encode(to encoder: any Encoder) throws {
       var values = encoder.container(keyedBy: CodingKeys.self)
@@ -106,35 +140,44 @@ enum Diagnostics {
       try values.encode(extensions, forKey: .extensions)
       try values.encode(hotkeys, forKey: .hotkeys)
       try values.encode(runtime, forKey: .runtime)
+      try values.encodeIfPresent(runtimeIsLive, forKey: .runtimeIsLive)
       try values.encodeIfPresent(runtimeReason, forKey: .runtimeReason)
     }
   }
 
   static func report(
     folder: URL, bundled: URL? = ExtensionHost.bundledFolder, permissions: Permissions = .system,
-    edition: Edition = .current, environment: [String: String] = ProcessInfo.processInfo.environment
+    edition: Edition = .current, environment: [String: String] = ProcessInfo.processInfo.environment,
+    process: (Int32) -> RuntimeRecord.ProcessIdentity? = RuntimeRecord.ProcessIdentity.read
   ) async throws -> Data {
     let store = ConfigurationStore(url: folder.appending(path: "config.json"))
     store.load()
     let host = ExtensionHost(folder: folder, bundled: bundled)
     let directory = CommandDirectory(extensions: host, hosts: [], store: store)
     await host.reload()
-    let configuration = store.configuration
+    let configuration = store.problem == nil ? store.configuration : nil
     let log = AgentLog.standard(edition: edition, environment: environment)
     let (runtime, reason) = readRuntime(beside: log)
-    let live = permissions.snapshot()
-    let appPermissions = runtime?.permissions.mapValues(\.status) ?? live
+    let runtimeIsLive = runtime.map { $0.isLive(process: process) }
+    let running = runtimeIsLive == true ? runtime : nil
+    let live = await Task.detached { permissions.snapshot() }.value
     func permissionStatus(_ permission: Permission) -> Permission.Status {
-      appPermissions[permission.rawValue] ?? .denied
+      running?.permissions[permission.rawValue]?.status ?? live[permission.rawValue] ?? .denied
     }
     let attribution =
       environment[agentEnvironmentKey] == "1"
       ? "This command was run from Wicket's agent, so macOS normally attributes permission checks to Wicket."
       : "This command was run outside Wicket's agent. macOS normally attributes checks to the launching app, such as Terminal."
-    let permissionSource =
-      runtime == nil
-      ? "Extension and hotkey checks use live permissions."
-      : "Extension and hotkey checks use the app's recorded permissions."
+    let permissionSource: String
+    if running?.permissions.isEmpty == false {
+      permissionSource =
+        "Extension and hotkey checks use the running app's recorded permissions where available."
+    } else if runtimeIsLive == false, runtime?.permissions.isEmpty == false {
+      permissionSource =
+        "Recorded permissions come from a copy of Wicket that is no longer running. Extension and hotkey checks use live permissions."
+    } else {
+      permissionSource = "Extension and hotkey checks use live permissions."
+    }
     let bundle = Bundle.main
     let signingTarget =
       bundle.bundleURL.pathExtension == "app"
@@ -148,15 +191,21 @@ enum Diagnostics {
         live: live, recorded: runtime?.permissions, note: attribution + " " + permissionSource),
       config: Config(
         problem: store.problem, workingFolder: folder.path,
-        resultsOnlyWhenTyping: configuration.resultsOnlyWhenTyping, agent: configuration.agent.agent,
-        agentCLIInstalled: (try? AgentCLI.executable(
-          configuration.agent.agent, in: Launch.environment(environment)))
-          != nil, agentLogPath: log.file.path),
-      extensions: host.ids.sorted().map { id in
-        extensionReport(id, host: host, configuration: configuration, permissionStatus: permissionStatus)
+        resultsOnlyWhenTyping: configuration?.resultsOnlyWhenTyping, agent: configuration?.agent.agent,
+        agentCLIInstalled: configuration.map {
+          (try? AgentCLI.executable($0.agent.agent, in: Launch.environment(environment))) != nil
+        }, agentLogPath: log.file.path),
+      extensions: host.locations.sorted { $0.key < $1.key }.map { id, location in
+        extensionReport(
+          id, location: location, host: host, configuration: configuration, permissionStatus: permissionStatus
+        )
       },
-      hotkeys: hotkeyReport(directory, recorded: runtime?.registrations, permissionStatus: permissionStatus),
-      runtime: runtime, runtimeReason: reason)
+      hotkeys: hotkeyReport(
+        directory, configuration: configuration, recorded: running?.registrations,
+        permissionStatus: permissionStatus),
+      runtime: runtime, runtimeIsLive: runtimeIsLive,
+      runtimeReason: runtimeIsLive == false
+        ? "runtime.json is from a copy of Wicket that is no longer running." : reason)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     encoder.dateEncodingStrategy = .iso8601
@@ -166,11 +215,7 @@ enum Diagnostics {
   private static func readRuntime(beside log: AgentLog) -> (RuntimeRecord?, String?) {
     let url = RuntimeRecord.url(beside: log)
     do {
-      let record = try RuntimeRecord.read(url)
-      guard record.pid > 0, kill(record.pid, 0) == 0 || errno == EPERM else {
-        return (nil, "The app process that wrote runtime.json is no longer running.")
-      }
-      return (record, nil)
+      return (try RuntimeRecord.read(url), nil)
     } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
       return (nil, "The app has never written runtime.json here.")
     } catch {
@@ -179,31 +224,17 @@ enum Diagnostics {
   }
 
   private static func extensionReport(
-    _ id: String, host: ExtensionHost, configuration: Configuration,
+    _ id: String, location: ExtensionHost.Location, host: ExtensionHost, configuration: Configuration?,
     permissionStatus: (Permission) -> Permission.Status
   ) -> Extension {
     let name = String(id.dropFirst("extension:".count))
     let command = host.commands[id]
     let problem = host.problems[id]
-    let local = host.localCopies[id]
-    let localFolder = host.folder.appending(path: "extensions").appending(path: name)
-    let source: String
-    if local?.retired == true {
-      source = "retired local copy ignored"
-    } else if problem?.usingBundled == true {
-      source = "broken local copy, using bundled"
-    } else if local != nil {
-      source = command != nil && host.hasBundled(name) ? "local overriding bundled" : "local"
-    } else {
-      source = "bundled"
-    }
     return Extension(
       id: id, name: command?.manifest.name ?? problem?.name ?? name,
-      enabled: configuration.isEnabled(id, extensions: host.ids), source: source,
-      activeFolder: command?.folder.path,
-      localFolder: local?.folder.path
-        ?? (FileManager.default.fileExists(atPath: localFolder.appending(path: "user.json").path)
-          ? localFolder.path : nil),
+      enabled: configuration.map { .bool($0.isEnabled(id, extensions: host.ids)) }
+        ?? .string(unreadableConfig),
+      source: location.source, activeFolder: command?.folder.path, localFolder: location.localFolder?.path,
       contract: command?.manifest.contract ?? problem?.contract,
       permissions: command?.manifest.permissions ?? [],
       missingPermissions: command.map { Permissions.missing($0, status: permissionStatus) } ?? [],
@@ -212,35 +243,51 @@ enum Diagnostics {
   }
 
   private static func hotkeyReport(
-    _ directory: CommandDirectory, recorded: HotkeyRegistrations?,
+    _ directory: CommandDirectory, configuration: Configuration?, recorded: HotkeyRegistrations?,
     permissionStatus: (Permission) -> Permission.Status
   ) -> Hotkeys {
-    let config = directory.store.configuration
-    let launcher = HotKeyRegistration { _ in NSObject() }
-    let bindings = CommandHotKeys { _, _ in NSObject() }
-    let problem = launcher.apply(config.hotkey)
-    _ = bindings.apply(config.hotkeys, launcher: launcher.inEffect)
-    let actual = recorded.flatMap { recorded in
-      recorded.launcher.shortcut == config.hotkey.description
-        && recorded.bindings.count == bindings.latest.count
-        && zip(recorded.bindings, bindings.latest).allSatisfy {
-          $0.shortcut == $1.shortcut && $0.target == $1.target
-        } ? recorded : nil
+    guard let configuration else {
+      return Hotkeys(
+        launcher: .init(resolution: unreadableConfig, recorded: recorded?.launcher),
+        bindings: (recorded?.bindings ?? []).map { .init(resolution: unreadableConfig, recorded: $0) },
+        note: recorded == nil
+          ? "config.json could not be read. No live registration record is available."
+          : "config.json could not be read. Showing the running app’s last recorded registrations.")
     }
-    var main = actual?.launcher ?? launcher.snapshot(config.hotkey, problem: problem)
-    if actual == nil { main.inEffect = nil }
-    let entries = zip(config.hotkeys, actual?.bindings ?? bindings.latest).map { binding, entry in
-      var entry = entry
-      if actual == nil { entry.inEffect = nil }
-      if entry.resolution == .ok {
-        entry.resolution = directory.hotkeyResolution(binding.target, permissionStatus: permissionStatus)
+
+    struct RegistrationKey: Hashable {
+      let shortcut: String
+      let target: String?
+    }
+    let addresses = configuration.hotkeys.map {
+      RegistrationKey(shortcut: $0.keys.description, target: HotkeyRegistrations.target($0.target))
+    }
+    // The runtime record deliberately omits address input. Only unambiguous entries can be matched.
+    let configured = Dictionary(grouping: addresses, by: { $0 })
+    let observed = Dictionary(grouping: recorded?.bindings ?? []) {
+      RegistrationKey(shortcut: $0.shortcut, target: $0.target)
+    }
+    var seen: Set<Shortcut> = []
+    let entries = zip(configuration.hotkeys, addresses).map { binding, address in
+      let resolution: HotkeyRegistrations.Resolution
+      if binding.keys == configuration.hotkey {
+        resolution = .conflictsWithLauncher
+      } else if !seen.insert(binding.keys).inserted {
+        resolution = .duplicate
+      } else {
+        resolution = directory.hotkeyResolution(binding.target, permissionStatus: permissionStatus)
       }
-      return entry
+      let matches = observed[address] ?? []
+      return Hotkeys.Entry(
+        shortcut: address.shortcut, target: address.target, resolution: resolution.rawValue,
+        recorded: configured[address]?.count == 1 && matches.count == 1 ? matches.first : nil)
     }
+    let shortcut = configuration.hotkey.description
     return Hotkeys(
-      launcher: main, bindings: entries,
-      note: actual == nil
-        ? "Checks configuration and targets. No matching global registration record is available."
-        : "Global registration comes from the running app.")
+      launcher: .init(
+        shortcut: shortcut, resolution: "ok",
+        recorded: recorded?.launcher.shortcut == shortcut ? recorded?.launcher : nil),
+      bindings: entries,
+      note: "Target checks use config.json. Registration uses matching observations from the running app.")
   }
 }

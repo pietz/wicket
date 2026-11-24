@@ -89,9 +89,25 @@ final class ExtensionHost {
     var retired = false
   }
 
+  enum Source: String, Encodable, Sendable {
+    case bundled, local
+    case localOverride = "local overriding bundled"
+    case retired = "retired local copy ignored"
+    case brokenFallback = "broken local copy, using bundled"
+  }
+  struct Location: Equatable, Sendable {
+    var source: Source
+    let localFolder: URL?
+  }
+  struct Locations: Sendable {
+    var copies: [String: LocalCopy] = [:]
+    var extensions: [String: Location] = [:]
+  }
+
   private(set) var commands: [String: ExtensionCommand] = [:]
   private(set) var problems: [String: Problem] = [:]
   private(set) var localCopies: [String: LocalCopy] = [:]
+  private(set) var locations: [String: Location] = [:]
   /// Every discovered extension ID, including ones with invalid manifests or user items.
   var ids: [String] { Array(commands.keys) + problems.keys.filter { commands[$0] == nil } }
   /// Called with the IDs whose command or problem changed, appeared or went away.
@@ -156,7 +172,7 @@ final class ExtensionHost {
     scan?.cancel()
     scan = Task { [weak self] in
       while !Task.isCancelled {
-        let (paths, (commands, problems, localCopies)) = await Task.detached {
+        let (paths, (commands, problems, locations)) = await Task.detached {
           let paths = watching ? Self.watchPaths(in: root) : nil
           return (paths, Self.discover(root, bundled: bundled))
         }.value
@@ -179,7 +195,8 @@ final class ExtensionHost {
         }
         .union(Set(problems.keys).union(self.problems.keys).filter { problems[$0] != self.problems[$0] })
         // Retired copies affect Settings even when the active command and repair rows stay the same.
-        if self.localCopies != localCopies { self.localCopies = localCopies }
+        if localCopies != locations.copies { localCopies = locations.copies }
+        if self.locations != locations.extensions { self.locations = locations.extensions }
         guard !changed.isEmpty else { return }
         self.commands = commands
         self.problems = problems
@@ -242,20 +259,21 @@ final class ExtensionHost {
   }
   /// Try the local manifest first. User items always come from the working folder.
   nonisolated static func discover(_ root: URL, bundled: URL?) -> (
-    [String: ExtensionCommand], [String: Problem], [String: LocalCopy]
+    [String: ExtensionCommand], [String: Problem], Locations
   ) {
     var commands: [String: ExtensionCommand] = [:]
     var problems: [String: Problem] = [:]
-    var localCopies: [String: LocalCopy] = [:]
+    var locations = Locations()
     // Listing does not follow a linked root itself.
     func entries(_ root: URL?) -> [URL] {
       guard let root = root?.resolvingSymlinksInPath() else { return [] }
       return (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
     }
-    func hasManifest(_ folder: URL) -> Bool {
+    func hasEntry(_ url: URL) -> Bool {
       var info = stat()
-      return lstat(folder.appending(path: "wicket.json").path, &info) == 0
+      return lstat(url.path, &info) == 0
     }
+    func hasManifest(_ folder: URL) -> Bool { hasEntry(folder.appending(path: "wicket.json")) }
     func readManifest(_ folder: URL) throws -> ExtensionManifest {
       try JSONDecoder().decode(
         ExtensionManifest.self, from: Data(contentsOf: folder.appending(path: "wicket.json")))
@@ -270,7 +288,9 @@ final class ExtensionHost {
       let override = local.flatMap { hasManifest($0) ? $0 : nil }
       guard var folder = override ?? builtIns[name] else { continue }
       let id = "extension:" + name
-      if let override { localCopies[id] = LocalCopy(folder: override) }
+      let localFolder = override ?? local.flatMap { hasEntry($0.appending(path: "user.json")) ? $0 : nil }
+      locations.extensions[id] = .init(source: override == nil ? .bundled : .local, localFolder: localFolder)
+      if let override { locations.copies[id] = LocalCopy(folder: override) }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
         problems[id] = Problem(manifest: "\(folder.path)\n\(name) is a reserved name. Rename the folder.")
@@ -279,6 +299,7 @@ final class ExtensionHost {
       let manifest: ExtensionManifest
       do {
         manifest = try readManifest(folder)
+        if override != nil && builtIns[name] != nil { locations.extensions[id]?.source = .localOverride }
       } catch {
         let reason = error is ExtensionManifest.ContractError ? "\(error)" : "Invalid wicket.json: \(error)"
         let detail = "\(folder.path)\n\(reason)"
@@ -294,9 +315,11 @@ final class ExtensionHost {
           continue
         }
         if retiredFiles(in: override) != nil {
-          localCopies[id]?.retired = true
+          locations.copies[id]?.retired = true
+          locations.extensions[id]?.source = .retired
         } else {
           problems[id] = Problem(manifest: detail, usingBundled: true)
+          locations.extensions[id]?.source = .brokenFallback
         }
         folder = builtIn
         manifest = fallback
@@ -313,7 +336,7 @@ final class ExtensionHost {
       }
       commands[id] = ExtensionCommand(id: id, folder: folder, manifest: manifest, userItems: userItems)
     }
-    return (commands, problems, localCopies)
+    return (commands, problems, locations)
   }
 
   /// The view the command answers: from its items when it has no program, and nothing runs; Wicket's

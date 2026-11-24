@@ -205,12 +205,18 @@ final class ProcessTree: Sendable {
 
   /// `pid` as a member if it is a live process other than Wicket and launchd (a zombie is gone).
   private static func member(_ pid: pid_t) -> Member? {
-    guard pid > 1, pid != getpid() else { return nil }
+    guard pid > 1, pid != getpid(), let start = startTime(of: pid) else { return nil }
+    return Member(pid: pid, start: start)
+  }
+
+  /// Kernel start time in microseconds since the Unix epoch, for a live process.
+  static func startTime(of pid: pid_t) -> UInt64? {
+    guard pid > 0 else { return nil }
     var info = proc_bsdinfo()
     let size = Int32(MemoryLayout<proc_bsdinfo>.size)
     guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_status != SZOMB
     else { return nil }
-    return Member(pid: pid, start: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+    return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
   }
 
   static func children(of pid: pid_t) -> [pid_t] {
