@@ -46,10 +46,11 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 ## 6. Voice
 
 1. Open and speak immediately: first word is caught. Typing takes over; speech never submits; ⌘Return asks.
-2. Test built-in, USB mic, and Bluetooth headset in Sound settings. With the headset set as both input and output, play music and open Wicket for its first voice session after launch. Verify dictation uses the Mac's built-in mic, or the USB mic on a Mac without a built-in mic, and the music stays high quality. Hide during startup and reopen. If the previous open is still stalled, the retry should promptly show "Microphone didn't start. Try again." Verify dictation works when you reopen after the previous open has returned. With only the headset mic available, verify it still works. Unplug the active mic mid-capture and verify one retry hint and no auto-restart.
-3. Stay silent: stops quietly after ~3 s; mic click restarts. Rapid open/close always clears the menu bar mic indicator.
-4. Verify first-time permission prompt and denial; focus returns to panel afterward.
-5. On a Mac lacking the speech model, verify missing-model message and that typing still works.
+2. With voice on and a Bluetooth headset selected for input and output in Sound settings, play music and open and close Wicket. Verify dictation uses a built-in or external hardware mic and music stays high quality throughout. Repeat in clamshell mode with Bluetooth as the only available mic. Verify automatic listening stays off and the pill shows the hint. Click the mic and dictate, then close Wicket and verify music returns to high quality. Reopen and verify listening is off again.
+3. Hide during startup and reopen. If the previous open is still stalled, the retry should promptly show "Microphone didn't start. Try again." Verify dictation works when you reopen after the previous open has returned. Unplug the active mic mid-capture and verify one retry hint and no auto-restart.
+4. Stay silent: stops quietly after ~3 s; mic click restarts. Rapid open/close always clears the menu bar mic indicator.
+5. Verify first-time permission prompt and denial; focus returns to panel afterward.
+6. On a Mac lacking the speech model, verify missing-model message and that typing still works.
 
 ## 7. Extensions
 

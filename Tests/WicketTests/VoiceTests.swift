@@ -26,9 +26,11 @@ import Testing
 
 @MainActor final class FakeTranscriber: Transcriber {
   var feeds: [AsyncThrowingStream<VoiceUpdate, any Error>.Continuation] = []
+  var bluetoothAllowed: [Bool] = []
   var stops = 0
   var shutdown: AsyncStream<Never>?
-  func start() -> AsyncThrowingStream<VoiceUpdate, any Error> {
+  func start(allowBluetooth: Bool) -> AsyncThrowingStream<VoiceUpdate, any Error> {
+    bluetoothAllowed.append(allowBluetooth)
     let (stream, feed) = AsyncThrowingStream.makeStream(of: VoiceUpdate.self)
     feeds.append(feed)
     return stream
@@ -37,6 +39,32 @@ import Testing
     stops += 1
     feeds.last?.finish()
   }
+}
+
+@MainActor @Test func bluetoothOnlyAutoStartOffersTheMicButtonForThisSession() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let fake = FakeTranscriber()
+  let input = PanelInput(
+    navigator: model.navigator, agent: model.agent, store: model.store, folder: root,
+    transcriber: { fake }, permissionFinished: {})
+  input.arm()
+  #expect(fake.bluetoothAllowed == [false])
+  fake.feeds[0].finish(throwing: VoiceError.bluetoothOnly)
+  #expect(await eventually { input.bluetoothHint == VoiceError.bluetoothOnly.description })
+  #expect(!input.speaking && input.offersVoice)
+
+  input.toggle()
+  #expect(fake.bluetoothAllowed == [false, true] && input.bluetoothHint == nil)
+  fake.feeds[1].yield(.ready)
+  #expect(await eventually { input.status == "Listening…" })
+  input.stop(.hidden)
+
+  input.arm()
+  #expect(fake.bluetoothAllowed == [false, true, false])
+  await input.finish()
+  await model.finish()
 }
 
 @MainActor @Test func hiddenRootResultsKeepVoiceStatusInThePillUntilDictationArrives() async throws {

@@ -23,7 +23,7 @@ enum VoiceLog {
 /// Why capture stopped: the one thing the log needs to tell a key or edit from a failure.
 enum VoiceStop: String, Sendable {
   case toggle, key, escape, edit, hidden, run, busy, disabled, quit, ended, failed, startTimeout, noSpeech,
-    silence, limit
+    silence, limit, bluetoothOnly
 }
 
 enum VoiceUpdate: Sendable {
@@ -36,7 +36,7 @@ enum VoiceUpdate: Sendable {
 
 /// The only hardware boundary. Construction is lazy and stop must return immediately.
 @MainActor protocol Transcriber {
-  func start() -> AsyncThrowingStream<VoiceUpdate, any Error>
+  func start(allowBluetooth: Bool) -> AsyncThrowingStream<VoiceUpdate, any Error>
   func stop()
   var shutdown: AsyncStream<Never>? { get }
 }
@@ -50,6 +50,7 @@ final class VoiceInput {
   @ObservationIgnored var onPermissionFinished: () -> Void = {}
   @ObservationIgnored private var permissionDenied = false
   private(set) var problem: String?
+  private(set) var bluetoothOnly = false
   @ObservationIgnored private let makeTranscriber: () -> any Transcriber
   @ObservationIgnored private let write: (String) -> Void
   @ObservationIgnored private var transcriber: (any Transcriber)?
@@ -87,10 +88,11 @@ final class VoiceInput {
     self.write = write
   }
   var active: Bool { state != .idle }
-  func toggle() { if active { stop(.toggle) } else { start() } }
-  func arm() { if !permissionDenied, !active { start() } }
-  private func start() {
+  func toggle() { if active { stop(.toggle) } else { start(allowBluetooth: true) } }
+  func arm() { if !permissionDenied, !active { start(allowBluetooth: false) } }
+  private func start(allowBluetooth: Bool) {
     problem = nil
+    bluetoothOnly = false
     state = .starting
     generation += 1
     let current = generation
@@ -101,12 +103,12 @@ final class VoiceInput {
     let source = makeTranscriber()
     transcriber = source
     let previous = shutdown
-    let stream = previous == nil ? source.start() : nil
+    let stream = previous == nil ? source.start(allowBluetooth: allowBluetooth) : nil
     session = Task { [weak self] in
       await previous?.value
       guard !Task.isCancelled else { return }
       do {
-        for try await update in stream ?? source.start() {
+        for try await update in stream ?? source.start(allowBluetooth: allowBluetooth) {
           guard let self, !Task.isCancelled, generation == current else { return }
           switch update {
           case .permission(let pending):
@@ -134,6 +136,10 @@ final class VoiceInput {
         }
         guard let self, generation == current else { return }
         stop(.ended)
+      } catch VoiceError.bluetoothOnly {
+        guard let self, generation == current else { return }
+        stop(.bluetoothOnly)
+        bluetoothOnly = true
       } catch {
         guard let self, generation == current else { return }
         VoiceLog.logger.error("voice failed: \(VoiceLog.describe(error), privacy: .public)")
@@ -223,11 +229,12 @@ struct VoiceSystemError: Error {
 /// The raw value is the case alone, for the log.
 enum VoiceError: String, Error, Equatable, CustomStringConvertible {
   case microphoneDenied, noMicrophone, microphoneStartFailed, noLanguage, modelMissing, usageMissing,
-    conversionFailed, inputChanged
+    conversionFailed, inputChanged, bluetoothOnly
   var description: String {
     switch self {
     case .microphoneDenied: "Microphone denied. Allow Wicket in System Settings."
     case .noMicrophone: "No microphone. Check Sound → Input in System Settings."
+    case .bluetoothOnly: "Voice off: Bluetooth mic only. Click the mic to use it."
     case .microphoneStartFailed: "Microphone didn't start. Try again."
     case .noLanguage: "No on-device speech for your preferred languages."
     case .modelMissing: "Speech model missing. Check macOS Dictation settings."

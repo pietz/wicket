@@ -44,6 +44,9 @@ final class PanelInput: Speech {
 
   /// Whether the mic button shows: voice is on and the screen takes speech.
   var offersVoice: Bool { store.configuration.voice.enabled && agent.takesSpeech }
+  var bluetoothHint: String? {
+    offersVoice && voice?.bluetoothOnly == true ? VoiceError.bluetoothOnly.description : nil
+  }
   var speaking: Bool { voice?.active == true }
   /// What voice says in the panel, including after a failure. Switching voice off clears it.
   var status: String? {

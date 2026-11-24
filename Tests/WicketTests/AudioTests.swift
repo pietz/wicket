@@ -42,7 +42,7 @@ func synthesizedAudioPreservesRateAndChannelAverage(_ channels: UInt32, _ interl
 
 /// Counts what opening and closing do in place of hardware.
 private final class FakeCapture: CaptureSession, @unchecked Sendable {
-  let counts = Mutex((starts: 0, stops: 0))
+  let counts = Mutex((starts: 0, stops: 0, detaches: 0))
   let isRunning: Bool
   private let onStart: @Sendable () -> Void
 
@@ -55,6 +55,12 @@ private final class FakeCapture: CaptureSession, @unchecked Sendable {
     onStart()
   }
   func stopRunning() { counts.withLock { $0.stops += 1 } }
+  func detach() {
+    counts.withLock {
+      #expect($0.starts == $0.stops)
+      $0.detaches += 1
+    }
+  }
 }
 
 @Test func microphoneStoppedBeforeOpeningNeverOpens() async {
@@ -96,7 +102,7 @@ private final class FakeCapture: CaptureSession, @unchecked Sendable {
   #expect(await signalArrives(lostInput, within: 60))
   for await _ in microphone.stop() {}
   for await _ in microphone.stop() {}
-  #expect(capture.counts.withLock { $0 } == (1, 1))
+  #expect(capture.counts.withLock { $0 } == (1, 1, 1))
   #expect(retries.withLock { $0 } == 1)
 }
 
@@ -106,7 +112,20 @@ private final class FakeCapture: CaptureSession, @unchecked Sendable {
   await #expect(throws: VoiceError.microphoneStartFailed) {
     try await microphone.open(selecting: {}, session: { _ in capture })
   }
-  #expect(capture.counts.withLock { $0 } == (1, 1))
+  #expect(capture.counts.withLock { $0 } == (1, 1, 1))
+}
+
+@Test func detachingCaptureClearsTheSampleDelegateAndRemovesTheOutput() throws {
+  let capture = AVCaptureSession()
+  let output = AVCaptureAudioDataOutput()
+  let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
+  let samples = AudioSamples(format: format, audio: { _ in }, firstAudio: {}, fail: { _ in })
+  try #require(capture.canAddOutput(output))
+  capture.addOutput(output)
+  output.setSampleBufferDelegate(samples, queue: DispatchQueue(label: "test.audio"))
+  #expect(output.sampleBufferDelegate === samples)
+  capture.detach()
+  #expect(output.sampleBufferDelegate == nil && capture.outputs.isEmpty)
 }
 
 private enum CaptureStep: CaseIterable, Sendable { case selection, construction, startup }
@@ -158,12 +177,18 @@ private func stalledMicrophoneOpenCanBeCancelledAndDoesNotPileUp(_ step: Capture
   release.signal()
   await watcher.value
   await #expect(throws: CancellationError.self) { try await opening.value }
-  #expect(capture.counts.withLock { $0 } == (step == .startup ? (1, 1) : (0, 0)))
+  let expected =
+    switch step {
+    case .selection: (0, 0, 0)
+    case .construction: (0, 0, 1)
+    case .startup: (1, 1, 1)
+    }
+  #expect(capture.counts.withLock { $0 } == expected)
 
   let fresh = FakeCapture()
   try await retry.open(selecting: {}, session: { _ in fresh })
   for await _ in retry.stop() {}
-  #expect(fresh.counts.withLock { $0 } == (1, 1))
+  #expect(fresh.counts.withLock { $0 } == (1, 1, 1))
 }
 
 private func signalArrives(_ signal: DispatchSemaphore, within seconds: Double) async -> Bool {
@@ -343,8 +368,7 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
 }
 
 @Test func bluetoothInputIsReplacedBeforeTheCaptureSessionIsMade() async throws {
-  let bluetooth = kAudioDeviceTransportTypeBluetooth
-  let bluetoothLE = kAudioDeviceTransportTypeBluetoothLE
+  let headset = (uid: "headset", transport: kAudioDeviceTransportTypeUnknown)
   let builtin = kAudioDeviceTransportTypeBuiltIn
   let usb = kAudioDeviceTransportTypeUSB
   let virtual = kAudioDeviceTransportTypeVirtual
@@ -353,37 +377,83 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
   try await microphone.open(
     selecting: {
       try InputDevice.select(
-        current: bluetooth, discover: { _, _, _ in [bluetooth, virtual, usb, builtin] }, transport: { $0 })
+        current: headset, allowBluetooth: false,
+        discover: { _, _, _ in [headset, ("virtual", virtual), ("usb", usb), ("mac", builtin)] },
+        transport: { device in
+          InputDevice.transport(uid: device.uid, captureTransport: device.transport) {
+            $0 == headset.uid ? kAudioDeviceTransportTypeBluetooth : nil
+          }
+        })
     },
     session: { selected in
-      #expect(selected == builtin && capture.counts.withLock { $0 } == (0, 0))
+      #expect(selected.device.uid == "mac" && selected.transport == builtin)
+      #expect(capture.counts.withLock { $0 } == (0, 0, 0))
       return capture
     })
-  #expect(capture.counts.withLock { $0 } == (1, 0))
   for await _ in microphone.stop() {}
+  #expect(capture.counts.withLock { $0 } == (1, 1, 1))
+}
+
+@Test(arguments: [
+  kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeThunderbolt, kAudioDeviceTransportTypePCI,
+  kAudioDeviceTransportTypeDisplayPort, kAudioDeviceTransportTypeHDMI,
+  kAudioDeviceTransportTypeContinuityCaptureWired, kAudioDeviceTransportTypeContinuityCaptureWireless,
+])
+func nonBluetoothHardwareReplacesABluetoothDefault(_ hardware: UInt32) throws {
+  let bluetoothLE = kAudioDeviceTransportTypeBluetoothLE
+  let virtual = kAudioDeviceTransportTypeVirtual
   let fallback = try InputDevice.select(
-    current: bluetoothLE,
+    current: bluetoothLE, allowBluetooth: false,
     discover: { types, media, position in
-      #expect(types.contains(.microphone) && media == .audio && position == .unspecified)
-      return types.contains(.external) ? [bluetoothLE, virtual, usb] : [bluetoothLE, virtual]
+      #expect(types == [.microphone, .external] && media == .audio && position == .unspecified)
+      return [bluetoothLE, virtual, hardware]
     }, transport: { $0 })
-  #expect(fallback == usb)
-  for current in [builtin, usb, virtual, kAudioDeviceTransportTypeUnknown] {
+  #expect(fallback.device == hardware)
+}
+
+@Test func nonBluetoothDefaultIsKept() throws {
+  for current in [
+    kAudioDeviceTransportTypeBuiltIn, kAudioDeviceTransportTypeUSB,
+    kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeUnknown,
+  ] {
     #expect(
       try InputDevice.select(
-        current: current,
+        current: current, allowBluetooth: false,
         discover: { _, _, _ in
           Issue.record("Looked for a replacement for a non-Bluetooth input")
           return []
-        }, transport: { $0 }) == current)
+        }, transport: { $0 }
+      ).device == current)
   }
 }
 
 @Test(arguments: [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE])
-func bluetoothRemainsTheFallbackWithoutBuiltInOrUSB(_ transport: UInt32) throws {
-  #expect(
+func bluetoothRequiresAnExplicitStart(_ transport: UInt32) async throws {
+  let select: @Sendable (Bool) throws -> UInt32 = { allowBluetooth in
     try InputDevice.select(
-      current: transport, discover: { _, _, _ in [transport, kAudioDeviceTransportTypeVirtual] },
-      transport: { $0 })
-      == transport)
+      current: transport, allowBluetooth: allowBluetooth,
+      discover: { _, _, _ in [transport, kAudioDeviceTransportTypeVirtual] },
+      transport: { $0 }
+    ).device
+  }
+  let openSlot = DispatchSemaphore(value: 1)
+  let automatic = Microphone(openSlot: openSlot)
+  await #expect(throws: VoiceError.bluetoothOnly) {
+    try await automatic.open(
+      selecting: { try select(false) },
+      session: { _ in
+        Issue.record("Constructed a capture session for automatic Bluetooth input")
+        return FakeCapture()
+      })
+  }
+  let manual = Microphone(openSlot: openSlot)
+  let capture = FakeCapture()
+  try await manual.open(
+    selecting: { try select(true) },
+    session: { selected in
+      #expect(selected == transport)
+      return capture
+    })
+  for await _ in manual.stop() {}
+  #expect(capture.counts.withLock { $0 } == (1, 1, 1))
 }

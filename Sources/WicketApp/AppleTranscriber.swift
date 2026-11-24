@@ -9,7 +9,7 @@ import Synchronization
   private var task: Task<Void, Never>?
   private var microphone: Microphone?
   private(set) var shutdown: AsyncStream<Never>?
-  func start() -> AsyncThrowingStream<VoiceUpdate, any Error> {
+  func start(allowBluetooth: Bool) -> AsyncThrowingStream<VoiceUpdate, any Error> {
     stop()
     let capture = Microphone()
     microphone = capture
@@ -17,7 +17,8 @@ import Synchronization
       let worker = Task.detached(priority: .userInitiated) {
         do {
           try await Self.listen(
-            capture, yield: { continuation.yield($0) }, fail: { continuation.finish(throwing: $0) })
+            capture, allowBluetooth: allowBluetooth,
+            yield: { continuation.yield($0) }, fail: { continuation.finish(throwing: $0) })
           continuation.finish()
         } catch { continuation.finish(throwing: error) }
       }
@@ -38,7 +39,7 @@ import Synchronization
     }
   }
   nonisolated private static func listen(
-    _ microphone: Microphone, yield: @escaping @Sendable (VoiceUpdate) -> Void,
+    _ microphone: Microphone, allowBluetooth: Bool, yield: @escaping @Sendable (VoiceUpdate) -> Void,
     fail: @escaping @Sendable (any Error) -> Void
   ) async throws {
     defer { _ = microphone.stop() }
@@ -78,7 +79,7 @@ import Synchronization
       // Audio buffers from here on wait in `inputs` until the analyzer reads them: the first word counts.
       yield(.openingMicrophone(.now))
       try await microphone.start(
-        format: format, audio: { feed.yield(AnalyzerInput(buffer: $0)) },
+        allowBluetooth: allowBluetooth, format: format, audio: { feed.yield(AnalyzerInput(buffer: $0)) },
         firstAudio: { yield(.audio(.now)) }, fail: fail)
       try Task.checkCancellation()
       yield(.ready)
@@ -134,7 +135,10 @@ final class Microphone: @unchecked Sendable {
         let device = try select()
         guard !isStopped else { throw CancellationError() }
         let capture = try make(device)
-        guard !isStopped else { throw CancellationError() }
+        guard !isStopped else {
+          capture.detach()
+          throw CancellationError()
+        }
         capture.startRunning()
         session = capture
         guard !isStopped else { throw CancellationError() }
@@ -179,24 +183,25 @@ final class Microphone: @unchecked Sendable {
   }
 
   func start(
-    format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
+    allowBluetooth: Bool, format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (any Error) -> Void
   ) async throws {
     // An explicit device input avoids AVAudioEngine binding its default input and switching it back.
-    try await open(selecting: InputDevice.select) { [self] device in
+    let select = { @Sendable in try InputDevice.select(allowBluetooth: allowBluetooth) }
+    try await open(selecting: select) { [self] device in
       let capture = AVCaptureSession()
       let input = try AVCaptureDeviceInput(device: device)
       let output = AVCaptureAudioDataOutput()
-      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio, fail: fail)
       // Keep capture in native PCM. Convert once the actual sample format is known.
       output.audioSettings = nil
-      // Session startup and teardown can wait for delivery to drain.
-      output.setSampleBufferDelegate(
-        samples, queue: DispatchQueue(label: "app.wicket.audio", qos: .userInitiated))
       guard capture.canAddInput(input) else { throw VoiceError.noMicrophone }
       capture.addInput(input)
       guard capture.canAddOutput(output) else { throw VoiceError.microphoneStartFailed }
       capture.addOutput(output)
+      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio, fail: fail)
+      // Session startup and teardown can wait for delivery to drain.
+      output.setSampleBufferDelegate(
+        samples, queue: DispatchQueue(label: "app.wicket.audio", qos: .userInitiated))
       self.samples = samples
       observers = [
         observe(AVCaptureSession.didStopRunningNotification, object: capture, fail: fail),
@@ -221,6 +226,7 @@ final class Microphone: @unchecked Sendable {
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
     observers.removeAll()
     session?.stopRunning()
+    session?.detach()
     session = nil
     samples = nil
   }
@@ -231,32 +237,94 @@ protocol CaptureSession: AnyObject {
   var isRunning: Bool { get }
   func startRunning()
   func stopRunning()
+  func detach()
 }
 
-extension AVCaptureSession: CaptureSession {}
+extension AVCaptureSession: CaptureSession {
+  func detach() {
+    // stopRunning must happen outside the configuration transaction.
+    beginConfiguration()
+    for output in outputs {
+      (output as? AVCaptureAudioDataOutput)?.setSampleBufferDelegate(nil, queue: nil)
+      removeOutput(output)
+    }
+    for input in inputs { removeInput(input) }
+    commitConfiguration()
+  }
+}
 
-/// A Bluetooth microphone switches its headset into call mode, degrading playback. Prefer built-in
-/// then USB when the default is Bluetooth.
+/// A Bluetooth microphone switches its headset into call mode, degrading playback.
 enum InputDevice {
-  static func select() throws -> AVCaptureDevice {
-    try select(
-      current: AVCaptureDevice.default(for: .audio),
+  static func select(allowBluetooth: Bool) throws -> AVCaptureDevice {
+    let selected = try select(
+      current: AVCaptureDevice.default(for: .audio), allowBluetooth: allowBluetooth,
       discover: { AVCaptureDevice.DiscoverySession(deviceTypes: $0, mediaType: $1, position: $2).devices },
-      transport: { UInt32(bitPattern: $0.transportType) })
+      transport: { transport(uid: $0.uniqueID, captureTransport: UInt32(bitPattern: $0.transportType)) })
+    let bytes = withUnsafeBytes(of: selected.transport.bigEndian) { Array($0) }
+    let category =
+      bytes.allSatisfy { (32...126).contains($0) } ? String(decoding: bytes, as: UTF8.self) : "unknown"
+    VoiceLog.logger.log("voice input transport: \(category, privacy: .public)")
+    return selected.device
   }
 
   static func select<Device>(
-    current: Device?,
+    current: Device?, allowBluetooth: Bool,
     discover: ([AVCaptureDevice.DeviceType], AVMediaType, AVCaptureDevice.Position) -> [Device],
     transport: (Device) -> UInt32
-  ) throws -> Device {
+  ) throws -> (device: Device, transport: UInt32) {
     guard let current else { throw VoiceError.noMicrophone }
+    let currentTransport = transport(current)
     guard
-      [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(transport(current))
-    else { return current }
+      [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(currentTransport)
+    else { return (current, currentTransport) }
     let candidates = discover([.microphone, .external], .audio, .unspecified)
-    return candidates.first { transport($0) == kAudioDeviceTransportTypeBuiltIn }
-      ?? candidates.first { transport($0) == kAudioDeviceTransportTypeUSB } ?? current
+      .map { (device: $0, transport: transport($0)) }
+    if let replacement = candidates.first(where: { $0.transport == kAudioDeviceTransportTypeBuiltIn })
+      ?? candidates.first(where: { $0.transport == kAudioDeviceTransportTypeUSB })
+      ?? candidates.first(where: { isNonBluetoothHardware($0.transport) })
+    {
+      return replacement
+    }
+    guard allowBluetooth else { throw VoiceError.bluetoothOnly }
+    return (current, currentTransport)
+  }
+
+  private static func isNonBluetoothHardware(_ transport: UInt32) -> Bool {
+    switch transport {
+    case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
+      kAudioDeviceTransportTypeUnknown, kAudioDeviceTransportTypeVirtual,
+      kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAutoAggregate:
+      false
+    default: true
+    }
+  }
+
+  static func transport(
+    uid: String, captureTransport: UInt32, coreAudio: (String) -> UInt32? = coreAudioTransport
+  ) -> UInt32 {
+    guard let transport = coreAudio(uid), transport != kAudioDeviceTransportTypeUnknown else {
+      return captureTransport
+    }
+    return transport
+  }
+
+  private static func coreAudioTransport(_ uid: String) -> UInt32? {
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioHardwarePropertyTranslateUIDToDevice, mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain)
+    var device = AudioDeviceID(kAudioObjectUnknown)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    let translated = withUnsafePointer(to: uid as CFString) {
+      AudioObjectGetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject), &address, UInt32(MemoryLayout<CFString>.size), $0,
+        &size, &device)
+    }
+    guard translated == noErr, device != kAudioObjectUnknown else { return nil }
+    address.mSelector = kAudioDevicePropertyTransportType
+    var transport = UInt32(0)
+    size = UInt32(MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &transport) == noErr else { return nil }
+    return transport
   }
 }
 

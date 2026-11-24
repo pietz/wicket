@@ -54,7 +54,7 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 ## Voice
 
-On by default (toggle in Settings ▸ Voice): Wicket listens on open and fills the search field. Any key takes over; speech never submits. Silence stops capture after 3 seconds (click the mic to listen again). Transcription is Apple on-device speech with no audio saved. Wicket prefers the built-in mic, then USB, over a Bluetooth headset to avoid call-mode audio.
+On by default (toggle in Settings ▸ Voice): Wicket listens on open and fills the search field. Any key takes over; speech never submits. Silence stops capture after 3 seconds (click the mic to listen again). Transcription is Apple on-device speech with no audio saved. If the default mic is Bluetooth, Wicket uses another hardware mic when available to preserve playback quality. If Bluetooth is the only option, listening stays off until you click the mic for that session.
 
 ## The agent
 
