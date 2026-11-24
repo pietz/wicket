@@ -50,8 +50,10 @@ struct EvalScore: Codable, Sendable {
     // A short noun phrase can be the result ("Titan"). Reject headings that repeat the question's topic.
     let questionWords = Set(Self.topicWords(question.question))
     let specific = Self.topicWords(lead).contains { !questionWords.contains($0) }
+    // Restating the question is never the answer, whatever digits or verbs it contains.
+    let restated = Self.normalized(lead) == Self.normalized(question.question)
     let result =
-      (1...18).contains(count)
+      !restated && (1...18).contains(count)
       && (lead.contains(where: \.isNumber)
         || lead.contains(/(?i)\b(?:is|are|was|were|has|have|can|use|pick|choose|start|keep|yes|no)\b/)
         || lead.hasSuffix(".") || lead.hasSuffix("!") || (count <= 8 && specific))
@@ -83,9 +85,11 @@ struct EvalScore: Codable, Sendable {
     components = parts
 
     let countOfComponents = Self.componentNames.reduce(0) { $0 + parts[$1, default: 0] }
+    // Wicket shows a fenced block as a copyable code box, which is not prose.
+    let codeBlocks = html.ranges(of: "<pre").count
     shapeMaximum = prose ? 75 : 55
     if prose {
-      shapePoints = max(0, 75 - 25 * countOfComponents)
+      shapePoints = max(0, 75 - 25 * (countOfComponents + codeBlocks))
     } else if expectation.minimum.isEmpty {
       shapePoints = max(0, 55 - 15 * countOfComponents)
     } else {
@@ -113,6 +117,10 @@ struct EvalScore: Codable, Sendable {
 
   private static func plain(_ html: String) -> String {
     html.replacing(/<[^>]*>/, with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func normalized(_ string: String) -> String {
+    string.lowercased().split { !$0.isLetter && !$0.isNumber }.joined(separator: " ")
   }
 
   private static func wordCount(_ string: String) -> Int {

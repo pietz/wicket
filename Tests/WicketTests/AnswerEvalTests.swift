@@ -48,6 +48,8 @@ func answerEval() async throws {
   }
   try EvalReport.write(results, baseline: baseline, to: directory)
   print("Answer eval report: \(directory.appending(path: "report.html").path)")
+  // Signed-out or missing CLIs fail every turn; the report says why, and the run must not pass.
+  #expect(results.contains { $0.light != nil }, "No agent produced an answer; see the report for failures")
 }
 
 private struct EvalVariant: Sendable {

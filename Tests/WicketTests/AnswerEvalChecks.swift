@@ -102,9 +102,12 @@ private func question(_ id: String) throws -> EvalQuestion {
   let forced = EvalScore(
     #"<row title="Running ten minutes late" subtitle="Please start without me."/>"#,
     question: writing)
+  let fenced = EvalScore(
+    "```\nRunning ten minutes late. Please start without me if that helps.\n```", question: writing)
   #expect(note.answerFirst == nil)
   #expect(note.total == 100)
   #expect(forced.total <= 75)
+  #expect(fenced.total <= 75)
   #expect(EvalScore("", question: writing).total == 0)
   let long = EvalScore(String(repeating: "Words and words. ", count: 60), question: writing)
   #expect(long.longParagraphs == 1)
@@ -171,4 +174,12 @@ private func question(_ id: String) throws -> EvalQuestion {
   #expect(pair["candidates"].array.compactMap { $0["id"].string } == [current.id, alternate.id])
   #expect(pair["candidates"].array.first?["id"].string == current.id)
   #expect(pair["candidates"].array.first?["light"].string == current.light)
+}
+
+@Test func evalScoreNeverCountsTheRestatedQuestionAsTheAnswer() throws {
+  let seconds = try question("seconds")
+  let restated = EvalScore("# \(seconds.question)\n9,000 seconds.", question: seconds)
+  #expect(restated.answerFirst == false)
+  #expect(restated.components["headline"] == 0)
+  #expect(restated.total < 100)
 }
