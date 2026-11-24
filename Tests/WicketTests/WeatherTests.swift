@@ -294,3 +294,13 @@ private func unexpectedFetch(_ url: URL) throws -> Data {
   }
   #expect(unavailable.body == "Weather unavailable. Try again.")
 }
+
+@Test func weatherSendsTheCityWithSingleSpacesAndKeepsTheTypedKeywordArgument() async throws {
+  let cache = try scratch()
+  defer { try? FileManager.default.removeItem(at: cache) }
+  let doubled = try await view(
+    "weather New  York ", root: true, cacheDirectory: cache, fetch: weatherFixture(city: "New York"))
+  let row = try #require(doubled.items.first)
+  // The keyword row carries the argument as typed; the same request lets this row replace it.
+  #expect(row.actions == [.run(Address(fields: ["city": "New  York "]), title: "Show Forecast")])
+}

@@ -5,6 +5,7 @@ struct Place: Codable {
   let country: String?
   let latitude: Double
   let longitude: Double
+  let timezone: String?
 
   var location: String { [name, country].compactMap { $0 }.joined(separator: ", ") }
 }
@@ -91,12 +92,13 @@ struct OpenMeteo {
       let results: [Place]?
     }
 
-    let key = city.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-      .precomposedStringWithCanonicalMapping.lowercased()
+    // Open-Meteo finds no place for doubled spaces, so it gets the same spelling as the cache key.
+    let name = city.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    let key = name.precomposedStringWithCanonicalMapping.lowercased()
     let cache = WeatherCache<Place?>(file: cacheDirectory?.appending(path: "geocoding.json"))
     return try await cache.value(for: key) {
       let search: Search = try await get(
-        "https://geocoding-api.open-meteo.com/v1/search", [("name", city), ("count", "1")])
+        "https://geocoding-api.open-meteo.com/v1/search", [("name", name), ("count", "1")])
       return search.results?.first
     }
   }
@@ -108,7 +110,12 @@ struct OpenMeteo {
       return rounded == 0 ? "0" : String(rounded)
     }.joined(separator: ",")
     let cache = WeatherCache<Forecast>(file: cacheDirectory?.appending(path: "forecasts.json"))
-    return try await cache.value(for: "\(coordinates),\(unit)") {
+    // The place's local date is part of the key: the first daily entry is today there.
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = place.timezone.flatMap(TimeZone.init(identifier:)) ?? .current
+    let today = calendar.dateComponents([.year, .month, .day], from: .now)
+    let date = "\(today.year ?? 0)-\(today.month ?? 0)-\(today.day ?? 0)"
+    return try await cache.value(for: "\(coordinates),\(unit),\(date)") {
       try await get(
         "https://api.open-meteo.com/v1/forecast",
         [

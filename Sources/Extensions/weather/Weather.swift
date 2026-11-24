@@ -42,10 +42,14 @@ func weatherView(
     let range = "H: \(high) L: \(low)"
     if rootMatch {
       let title = "\(place.name) · \(temperature), \(weather.title.lowercased())"
+      // Keep the host's keyword argument as typed, so this row takes the keyword row's place.
+      let typed =
+        input.range(of: "weather ", options: [.anchored, .caseInsensitive])
+        .map { String(input[$0.upperBound...]) } ?? city
       return #"""
         {"items":[{"id":"weather","title":\#(quoted(title)),"subtitle":\#(quoted(range)),
         "icon":\#(quoted(weather.icon)),"prominent":true,"actions":[
-        {"type":"run","title":"Show Forecast","fields":{"city":\#(quoted(city))}}]}]}
+        {"type":"run","title":"Show Forecast","fields":{"city":\#(quoted(typed))}}]}]}
         """#
     }
     let title = "\(degrees(current.temperature)) \(weather.title)"
