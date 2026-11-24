@@ -136,7 +136,7 @@ struct EvalReport {
             return "\(key) \(found)" + (target.map { "/\($0)" } ?? "")
           }.joined(separator: ", ")
           let change = prior(candidate)?.score.map { " (Δ \(delta(score.total - $0.total)))" } ?? ""
-          let lead = score.answerFirst ? "yes" : "no"
+          let lead = score.answerFirst.map { $0 ? "yes" : "no" } ?? "n/a"
           metrics = """
             <p><strong>\(score.total)/100\(change)</strong><br>
             Shape \(score.shapePoints)/\(score.shapeMaximum) · \(shape.isEmpty ? "no components" : shape)<br>

@@ -43,7 +43,7 @@
   },
   {
     "id": "tea-methods",
-    "question": "Compare a French press, a basket infuser, and a tea ball for loose-leaf tea.",
+    "question": "Compare a French press and a tea ball for loose-leaf tea.",
     "category": "Comparisons and options",
     "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 110}
   },
@@ -57,7 +57,7 @@
     "id": "bike-fares",
     "question": "Bike rental is €4/hour or €19/day. Which should I use for six hours, and where is the break-even point?",
     "category": "Comparisons and options",
-    "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 80}
+    "expect": {"shape": "Recommendation and option tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 80}
   },
   {
     "id": "dry-goods",
@@ -147,25 +147,25 @@
     "id": "late-note",
     "question": "Write a short note to a teammate saying I’ll be ten minutes late to our meeting.",
     "category": "Writing tasks",
-    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 85}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "copyRow": 1}, "maxWords": 85}
   },
   {
     "id": "library-sign",
     "question": "Write a warm two-sentence sign asking library visitors to silence their phones.",
     "category": "Writing tasks",
-    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 70}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "copyRow": 1}, "maxWords": 70}
   },
   {
     "id": "museum-caption",
     "question": "Write a 40-word museum caption for an exhibit of hand-painted seed packets from the 1930s.",
     "category": "Writing tasks",
-    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 75}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "copyRow": 1}, "maxWords": 75}
   },
   {
     "id": "summarize-changes",
     "question": "Summarize this in two sentences: We moved the workshop from Monday to Wednesday. Venue and start time are unchanged. People who already registered keep their places.",
     "category": "Writing tasks",
-    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 70}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "copyRow": 1}, "maxWords": 70}
   },
   {
     "id": "room-booking",

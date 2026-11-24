@@ -115,7 +115,22 @@ private func question(_ id: String) throws -> EvalQuestion {
     <row icon="doc.on.doc" title="Copy note" copy="\(text)"/>
     """, question: writing)
   #expect(card.answerFirst == true)
+  #expect(card.components["copyRow"] == 1)
   #expect(card.total == 100)
+  let inert = EvalScore(
+    "<card>\n## Note\n\(text)\n</card>\n<row title=\"Copy note\"/>", question: writing)
+  #expect(inert.components["copyRow"] == 0)
+  #expect(inert.total < card.total)
+  let split = EvalScore(
+    "Use PNG.\n<columns>\n<card>\n## PNG\n</card>\n</columns>\n<columns>\n<card>\n## JPEG\n</card>\n</columns>",
+    question: try question("png-jpeg"))
+  #expect(split.components["cardInColumns"] == 1)
+  // Earlier results left `answerFirst` out for writing tasks; they must still load as a baseline.
+  var stored = try #require(
+    JSONSerialization.jsonObject(with: JSONEncoder().encode(card)) as? [String: Any])
+  stored["answerFirst"] = nil
+  let old = try JSONDecoder().decode(EvalScore.self, from: JSONSerialization.data(withJSONObject: stored))
+  #expect(old.answerFirst == nil)
   #expect(EvalScore(text, question: writing).total <= 45)
   #expect(EvalScore("", question: writing).total == 0)
   let long = EvalScore(String(repeating: "Words and words. ", count: 60), question: writing)

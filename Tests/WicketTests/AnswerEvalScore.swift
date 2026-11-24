@@ -24,7 +24,8 @@ struct EvalScore: Codable, Sendable {
   let components: [String: Int]
   let shapePoints: Int
   let shapeMaximum: Int
-  let answerFirst: Bool
+  // Optional so earlier results.json files, which left it out for writing tasks, still load as a baseline.
+  let answerFirst: Bool?
   let answerFirstPoints: Int
   let headings: Int
   let listItems: Int
@@ -38,7 +39,7 @@ struct EvalScore: Codable, Sendable {
   static let longParagraphWords = 40
   static let componentNames = ["row", "tile", "progress", "badge", "columns", "card"]
   static let shapeNames = Set(
-    componentNames + ["tileInColumns", "cardInColumns", "rowDetail", "headline", "contextLine"])
+    componentNames + ["tileInColumns", "cardInColumns", "rowDetail", "copyRow", "headline", "contextLine"])
 
   init(_ reply: String, question: EvalQuestion) {
     let expectation = question.expect
@@ -68,13 +69,18 @@ struct EvalScore: Codable, Sendable {
         (name, html.ranges(of: "<w-\(name) ").count)
       })
     let columns = html.matches(of: /(?s)<w-columns\b[^>]*>(.*?)<\/w-columns>/)
-    parts["tileInColumns"] = columns.reduce(into: 0) { $0 += $1.1.ranges(of: "<w-tile ").count }
-    parts["cardInColumns"] = columns.reduce(into: 0) { $0 += $1.1.ranges(of: "<w-card ").count }
+    // Side by side means within one columns block, not one item in each of several.
+    parts["tileInColumns"] = columns.map { $0.1.ranges(of: "<w-tile ").count }.max() ?? 0
+    parts["cardInColumns"] = columns.map { $0.1.ranges(of: "<w-card ").count }.max() ?? 0
     let rows = html.matches(of: /<w-row\b[^>]*\sdata-target="([^"]+)"/)
     let rowIDs = Set(rows.map { String($0.1) })
     parts["rowDetail"] =
       page.targets.filter { row in
         rowIDs.contains(row.id) && row.actions.contains { if case .detail = $0.kind { true } else { false } }
+      }.count
+    parts["copyRow"] =
+      page.targets.filter { row in
+        rowIDs.contains(row.id) && row.actions.contains { if case .copy = $0.kind { true } else { false } }
       }.count
     parts["headline"] = result && opening?.1 == "h1" ? 1 : 0
     if let opening, opening.1 == "h1",
