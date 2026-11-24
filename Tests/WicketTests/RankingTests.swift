@@ -318,6 +318,34 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   #expect(output.strongReason == "title prefix: files:/Users/me/Documents/ditto.md")
 }
 
+@Test func exactFoldersJoinThePrefixTierAndCanMoveUpWithUsage() {
+  let apps = [app("ChatGPT")]
+  let folders = ["/Users/me/Dev/chat", "/Users/me/Documents/chat"].map {
+    Row(id: $0, title: "chat", actions: [])
+  }
+  let file = Row(id: "/Users/me/Documents/chat notes.txt", title: "chat notes.txt", actions: [])
+  let files = [file] + folders
+
+  #expect(titles(compose("chat", apps: apps, files: files)) == ["ChatGPT", "chat", "chat", "chat notes.txt"])
+  let otherMatches = compose(
+    "chat", apps: apps, files: files,
+    items: ["extension:links": [Row(id: "room", title: "Chat Room", actions: [])]],
+    extensions: ["extension:tools": manifest("Chat Tools")])
+  #expect(titles(otherMatches) == ["ChatGPT", "Chat Tools", "Chat Room", "chat", "chat", "chat notes.txt"])
+
+  let fileMatches = compose("chat", files: files)
+  #expect(titles(fileMatches) == ["chat", "chat", "chat notes.txt"])
+  #expect(fileMatches.strongReason != nil)
+
+  let picked = Result(provider: "files", row: folders[1])
+  var usage = UsageStore()
+  usage.record(picked.id, query: "chat", now: Date())
+  let learned = compose("chat", apps: apps, files: files, usage: usage)
+  #expect(learned.results.first?.id == picked.id)
+  #expect(titles(learned) == ["chat", "ChatGPT", "chat", "chat notes.txt"])
+  #expect(titles(compose("chat", apps: [app("Chat")] + apps, files: files, usage: usage)).first == "Chat")
+}
+
 private func command(_ json: String) throws -> ExtensionCommand {
   ExtensionCommand(
     id: "extension:links", folder: URL(fileURLWithPath: "/tmp/links"),

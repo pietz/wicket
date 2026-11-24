@@ -30,7 +30,7 @@ Upgrading from 0.0.x: old settings and extensions do not carry over; Wicket neve
 | Tab / ⇧Tab | Move into and between a command's fields |
 | Escape | Go back one step: stop voice, cancel answer, leave command/conversation, clear, close |
 
-**Ranking:** Exact keyword + space + text matches come first (longest keyword wins), then pattern results (Calculator, Convert), then name matches (apps, commands, items, files—word-start matches before looser matches, usage breaking ties within a tier). When nothing matches strongly, **Ask agent** leads so Return sends your question.
+Exact keyword + space + text matches come first (longest keyword wins), then pattern results (Calculator, Convert), then name matches. Name matches rank in three tiers, from exact matches to prefixes to looser matches. File and folder names that start with the query share the prefix tier, including exact names. Within each tier, usage for the same query breaks ties, and files and folders come last when usage is equal. When nothing matches strongly, **Ask agent** leads so Return sends your question.
 
 Click selects; double-click runs. Type `<keyword> <text>` at the root to fill a command or item's first text field (e.g. `pasteboard invoice` filters Clipboard History when enabled), then press Return, Tab for more fields, or ⌘Return to ask the agent. You can also select a command or item and press Tab to fill its fields. Inside a command whose bar says “Ask about …”, Return with nothing selected asks the agent about that view.
 
