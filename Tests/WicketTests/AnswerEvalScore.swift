@@ -7,7 +7,6 @@ struct EvalQuestion: Codable, Equatable, Sendable {
     let shape: String
     let minimum: [String: Int]
     let maxWords: Int
-    var prose: Bool?
   }
 
   let id: String
@@ -25,7 +24,7 @@ struct EvalScore: Codable, Sendable {
   let components: [String: Int]
   let shapePoints: Int
   let shapeMaximum: Int
-  let answerFirst: Bool?
+  let answerFirst: Bool
   let answerFirstPoints: Int
   let headings: Int
   let listItems: Int
@@ -38,7 +37,8 @@ struct EvalScore: Codable, Sendable {
 
   static let longParagraphWords = 40
   static let componentNames = ["row", "tile", "progress", "badge", "columns", "card"]
-  static let shapeNames = Set(componentNames + ["tileInColumns", "rowDetail", "headline", "contextLine"])
+  static let shapeNames = Set(
+    componentNames + ["tileInColumns", "cardInColumns", "rowDetail", "headline", "contextLine"])
 
   init(_ reply: String, question: EvalQuestion) {
     let expectation = question.expect
@@ -52,14 +52,16 @@ struct EvalScore: Codable, Sendable {
     let specific = Self.topicWords(lead).contains { !questionWords.contains($0) }
     // Restating the question is never the answer, whatever digits or verbs it contains.
     let restated = Self.normalized(lead) == Self.normalized(question.question)
+    // An answer that opens with a component (tiles, a draft card) is the result itself.
+    let opensWithComponent = html.prefixMatch(of: /\s*<w-/) != nil
     let result =
-      !restated && (1...18).contains(count)
-      && (lead.contains(where: \.isNumber)
-        || lead.contains(/(?i)\b(?:is|are|was|were|has|have|can|use|pick|choose|start|keep|yes|no)\b/)
-        || lead.hasSuffix(".") || lead.hasSuffix("!") || (count <= 8 && specific))
-    let prose = expectation.prose == true
-    answerFirst = prose ? nil : result
-    answerFirstPoints = !prose && result ? 20 : 0
+      opensWithComponent
+      || !restated && (1...18).contains(count)
+        && (lead.contains(where: \.isNumber)
+          || lead.contains(/(?i)\b(?:is|are|was|were|has|have|can|use|pick|choose|start|keep|yes|no)\b/)
+          || lead.hasSuffix(".") || lead.hasSuffix("!") || (count <= 8 && specific))
+    answerFirst = result
+    answerFirstPoints = result ? 20 : 0
 
     var parts = Dictionary(
       uniqueKeysWithValues: Self.componentNames.map { name in
@@ -67,6 +69,7 @@ struct EvalScore: Codable, Sendable {
       })
     let columns = html.matches(of: /(?s)<w-columns\b[^>]*>(.*?)<\/w-columns>/)
     parts["tileInColumns"] = columns.reduce(into: 0) { $0 += $1.1.ranges(of: "<w-tile ").count }
+    parts["cardInColumns"] = columns.reduce(into: 0) { $0 += $1.1.ranges(of: "<w-card ").count }
     let rows = html.matches(of: /<w-row\b[^>]*\sdata-target="([^"]+)"/)
     let rowIDs = Set(rows.map { String($0.1) })
     parts["rowDetail"] =
@@ -84,20 +87,11 @@ struct EvalScore: Codable, Sendable {
     }
     components = parts
 
-    let countOfComponents = Self.componentNames.reduce(0) { $0 + parts[$1, default: 0] }
-    // Wicket shows a fenced block as a copyable code box, which is not prose.
-    let codeBlocks = html.ranges(of: "<pre").count
-    shapeMaximum = prose ? 75 : 55
-    if prose {
-      shapePoints = max(0, 75 - 25 * (countOfComponents + codeBlocks))
-    } else if expectation.minimum.isEmpty {
-      shapePoints = max(0, 55 - 15 * countOfComponents)
-    } else {
-      let coverage = expectation.minimum.reduce(0.0) { sum, goal in
-        sum + Double(min(parts[goal.key, default: 0], goal.value)) / Double(goal.value)
-      }
-      shapePoints = Int((55 * coverage / Double(expectation.minimum.count)).rounded())
+    shapeMaximum = 55
+    let coverage = expectation.minimum.reduce(0.0) { sum, goal in
+      sum + Double(min(parts[goal.key, default: 0], goal.value)) / Double(goal.value)
     }
+    shapePoints = Int((55 * coverage / Double(max(1, expectation.minimum.count))).rounded())
 
     let markdown = html.replacing(/(?s)<w-card\b[^>]*>\s*<h2>.*?<\/h2>/, with: "<w-card>")
     headings = markdown.matches(of: /<h[2-6]>/).count
@@ -106,9 +100,7 @@ struct EvalScore: Codable, Sendable {
       Self.wordCount(Self.plain(String($0.1))) > Self.longParagraphWords
     }
     tables = markdown.ranges(of: "<table>").count
-    let tablePenalty = expectation.minimum.isEmpty ? 0 : tables * 8
-    markdownPoints = max(
-      0, 15 - headings * 3 - listItems * 2 - (prose ? 0 : longParagraphs * 4) - tablePenalty)
+    markdownPoints = max(0, 15 - headings * 3 - listItems * 2 - longParagraphs * 4 - tables * 8)
     words = Self.wordCount(Self.plain(html))
     characters = reply.count
     lengthPoints = words > 0 ? min(10, 10 * expectation.maxWords / words) : 0

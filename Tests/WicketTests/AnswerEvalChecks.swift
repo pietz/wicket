@@ -9,13 +9,14 @@ private func question(_ id: String) throws -> EvalQuestion {
 
 @Test func evalQuestionFixtureHasUniqueIDsAndScorableShapes() throws {
   let questions = try EvalQuestion.load()
-  #expect(questions.count == 31)
+  #expect(questions.count == 33)
   #expect(Set(questions.map(\.id)).count == questions.count)
-  #expect(Set(questions.map(\.category)).count == 7)
+  #expect(Set(questions.map(\.category)).count == 8)
   for question in questions {
     #expect(question.id.wholeMatch(of: /[a-z0-9]+(?:-[a-z0-9]+)*/) != nil)
     #expect(question.expect.maxWords > 0)
     #expect(question.expect.minimum.keys.allSatisfy(EvalScore.shapeNames.contains))
+    #expect(!question.expect.minimum.isEmpty)
     #expect(question.expect.minimum.values.allSatisfy { $0 > 0 })
   }
 }
@@ -33,17 +34,23 @@ private func question(_ id: String) throws -> EvalQuestion {
   #expect(topic.total < fact.total)
 
   let comparison = try question("png-jpeg")
-  let tiles = EvalScore(
+  let cards = EvalScore(
     """
     Use PNG for the screenshot.
     <columns>
-    <tile title="PNG" subtitle="Sharp text"/>
-    <tile title="JPEG" subtitle="Visible compression"/>
+    <card>
+    ## PNG
+    <row label="Text" value="Sharp"/>
+    </card>
+    <card>
+    ## JPEG
+    <row label="Text" value="Visible compression"/>
+    </card>
     </columns>
     """, question: comparison)
-  #expect(tiles.components["tile"] == 2)
-  #expect(tiles.components["tileInColumns"] == 2)
-  #expect(tiles.total == 100)
+  #expect(cards.components["card"] == 2)
+  #expect(cards.components["cardInColumns"] == 2)
+  #expect(cards.total == 100)
   let markdown = EvalScore(
     """
     ## PNG vs JPEG
@@ -62,7 +69,7 @@ private func question(_ id: String) throws -> EvalQuestion {
   #expect(markdown.tables == 1)
   #expect(markdown.longParagraphs == 1)
   #expect(markdown.markdownPoints == 0)
-  #expect(markdown.total < tiles.total)
+  #expect(markdown.total < cards.total)
 }
 
 @Test func evalScoreUsesVisibleComponentsAndRecognizesRowDetails() throws {
@@ -96,23 +103,25 @@ private func question(_ id: String) throws -> EvalQuestion {
   #expect(card.headings == 0)
 }
 
-@Test func evalScoreKeepsWritingAsProse() throws {
+@Test func evalScoreExpectsWritingInACardWithACopyRow() throws {
   let writing = try question("late-note")
-  let note = EvalScore("Running ten minutes late. Please start without me if that helps.", question: writing)
-  let forced = EvalScore(
-    #"<row title="Running ten minutes late" subtitle="Please start without me."/>"#,
-    question: writing)
-  let fenced = EvalScore(
-    "```\nRunning ten minutes late. Please start without me if that helps.\n```", question: writing)
-  #expect(note.answerFirst == nil)
-  #expect(note.total == 100)
-  #expect(forced.total <= 75)
-  #expect(fenced.total <= 75)
+  let text = "Running ten minutes late. Please start without me if that helps."
+  let card = EvalScore(
+    """
+    <card icon="bubble.left">
+    ## Note
+    \(text)
+    </card>
+    <row icon="doc.on.doc" title="Copy note" copy="\(text)"/>
+    """, question: writing)
+  #expect(card.answerFirst == true)
+  #expect(card.total == 100)
+  #expect(EvalScore(text, question: writing).total <= 45)
   #expect(EvalScore("", question: writing).total == 0)
   let long = EvalScore(String(repeating: "Words and words. ", count: 60), question: writing)
   #expect(long.longParagraphs == 1)
-  #expect(long.markdownPoints == 15)
-  #expect(long.lengthPoints < note.lengthPoints)
+  #expect(long.markdownPoints == 11)
+  #expect(long.lengthPoints < card.lengthPoints)
 }
 
 @MainActor

@@ -33,37 +33,37 @@
     "id": "png-jpeg",
     "question": "Should I export a screenshot with fine text as PNG or JPEG? Compare both.",
     "category": "Comparisons and options",
-    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 100}
+    "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 100}
   },
   {
     "id": "utf",
     "question": "Compare UTF-8 and UTF-16 for an API that mostly exchanges English text.",
     "category": "Comparisons and options",
-    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 105}
+    "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 105}
   },
   {
     "id": "tea-methods",
     "question": "Compare a French press, a basket infuser, and a tea ball for loose-leaf tea.",
     "category": "Comparisons and options",
-    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 110}
+    "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 110}
   },
   {
     "id": "backup",
     "question": "Compare a local external-drive backup and a cloud backup for a laptop.",
     "category": "Comparisons and options",
-    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 110}
+    "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 110}
   },
   {
     "id": "bike-fares",
     "question": "Bike rental is €4/hour or €19/day. Which should I use for six hours, and where is the break-even point?",
     "category": "Comparisons and options",
-    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 80}
+    "expect": {"shape": "Short verdict and two side-by-side cards with the same property rows", "minimum": {"columns": 1, "cardInColumns": 2}, "maxWords": 80}
   },
   {
     "id": "dry-goods",
     "question": "What are four dry pantry staples for an inexpensive vegetarian dinner? Suggest one use for each.",
     "category": "Things to scan",
-    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 115}
+    "expect": {"shape": "A grid of at least four icon tiles", "minimum": {"columns": 1, "tileInColumns": 4}, "maxWords": 115}
   },
   {
     "id": "asteroids",
@@ -87,7 +87,7 @@
     "id": "packing",
     "question": "Give me a quick packing checklist for a one-night work trip with a carry-on.",
     "category": "Things to scan",
-    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 95}
+    "expect": {"shape": "A grid of at least four icon tiles", "minimum": {"columns": 1, "tileInColumns": 4}, "maxWords": 95}
   },
   {
     "id": "paper-airplane",
@@ -147,25 +147,25 @@
     "id": "late-note",
     "question": "Write a short note to a teammate saying I’ll be ten minutes late to our meeting.",
     "category": "Writing tasks",
-    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 85, "prose": true}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 85}
   },
   {
     "id": "library-sign",
     "question": "Write a warm two-sentence sign asking library visitors to silence their phones.",
     "category": "Writing tasks",
-    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 70, "prose": true}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 70}
   },
   {
     "id": "museum-caption",
     "question": "Write a 40-word museum caption for an exhibit of hand-painted seed packets from the 1930s.",
     "category": "Writing tasks",
-    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 75, "prose": true}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 75}
   },
   {
     "id": "summarize-changes",
     "question": "Summarize this in two sentences: We moved the workshop from Monday to Wednesday. Venue and start time are unchanged. People who already registered keep their places.",
     "category": "Writing tasks",
-    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 70, "prose": true}
+    "expect": {"shape": "The text in a card with a copy row", "minimum": {"card": 1, "row": 1}, "maxWords": 70}
   },
   {
     "id": "room-booking",
@@ -184,5 +184,17 @@
     "question": "My desk is 120 cm wide. Two monitors are 54 cm each, and I want a 5 cm gap. Will it fit, and how much room is left?",
     "category": "Mixed",
     "expect": {"shape": "Short numeric result with a context line", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 55}
+  },
+  {
+    "id": "idempotent",
+    "question": "What does idempotent mean?",
+    "category": "Explanations",
+    "expect": {"shape": "One-line definition and at least three rows that open to each point", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 110}
+  },
+  {
+    "id": "dns-cache",
+    "question": "Why does a website sometimes still load the old version after I change its DNS?",
+    "category": "Explanations",
+    "expect": {"shape": "One-line definition and at least three rows that open to each point", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 110}
   }
 ]
