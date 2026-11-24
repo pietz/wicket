@@ -2,7 +2,7 @@
 
 Agreed upcoming work in order; unresolved items sit under **To decide**. Open problems live in [ISSUES.md](ISSUES.md). Delete each step when it ships and update affected comments, README, contract, and agent instructions.
 
-**Core model:** Two nouns and one path. A **field** is a typed, named value with one wire format across three scopes: per-request (search bar), per-page (`<field>`), and persisted (setting). An **action** is a one-shot name on a submitted request (Return, button, link, or committing field—never replayed by reruns). The **path** is the catalog service and single `config.json` writer, exposed through headless commands, a canvas page, and Settings. Onboarding is a host command page on that path.
+**Core model:** the building blocks and how to check new work against them live in [docs/design.md](docs/design.md). The **path** for installs and settings is the catalog service and single `config.json` writer, exposed through headless commands, a canvas page, and Settings. Onboarding is a host command page on that path.
 
 The canvas is an HTML (WebKit) page by deliberate decision: flexible to design and theme, and unnoticeably fast once warm. Raise it openly if concrete negatives accumulate.
 

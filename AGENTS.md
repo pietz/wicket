@@ -1,6 +1,6 @@
 # Wicket
 
-A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes. There is no separate spec: the code and its comments explain how and why. Doc ownership: [README.md](README.md) (user guide), [ROADMAP.md](ROADMAP.md) (agreed upcoming work), [docs/extensions/README.md](docs/extensions/README.md) (official extension specs and shared decisions), [docs/wicket-js.md](docs/wicket-js.md) (JS runner internals), [ISSUES.md](ISSUES.md) (open problems), `Sources/WicketApp/Resources/extension-contract.md` (extension interface), [docs/manual-checks.md](docs/manual-checks.md) (hands-on checklist), [docs/release.md](docs/release.md) (release runbook).
+A small, fast, native macOS launcher with your own AI agent built in, and extensions that agent writes. There is no separate spec: the code and its comments explain how and why. Doc ownership: [docs/design.md](docs/design.md) (building blocks and the checklist for new features), [README.md](README.md) (user guide), [ROADMAP.md](ROADMAP.md) (agreed upcoming work), [docs/extensions/README.md](docs/extensions/README.md) (official extension specs and shared decisions), [docs/wicket-js.md](docs/wicket-js.md) (JS runner internals), [ISSUES.md](ISSUES.md) (open problems), `Sources/WicketApp/Resources/extension-contract.md` (extension interface), [docs/manual-checks.md](docs/manual-checks.md) (hands-on checklist), [docs/release.md](docs/release.md) (release runbook).
 
 ## Layout
 
