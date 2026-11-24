@@ -917,7 +917,10 @@ private let installedAgent: Void = {
     image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
   }
-  try bitmap.representation(using: .png, properties: [:])?.write(to: url)
+  guard let data = bitmap.representation(using: .png, properties: [:]) else {
+    throw ExtensionFailure("Could not encode the render as PNG")
+  }
+  try data.write(to: url)
 }
 
 /// The capture is read over a mid grey, a neutral desktop behind the glass: its backing is translucent, and
@@ -1127,11 +1130,22 @@ func replyCapture(_ index: Int) async throws {
   let entry = replies[index]
   let size = entry.dropFirst(2).first { ["small", "large", "larger"].contains($0) }
   for dark in [false, true] {
-    let scenario = try await Scenario.make(
-      "answer" + (size.map { "-" + $0 } ?? ""), dark: dark, folder: "reply-\(index)-\(dark)",
-      turn: (entry[0], entry[1]))
+    try await renderReply(
+      (entry[0], entry[1]), dark: dark, size: size, keys: entry.dropFirst(2),
+      to: directory.appending(path: String(format: "%02d-%@.png", index + 1, dark ? "dark" : "light")))
+  }
+}
+
+@MainActor
+func renderReply(
+  _ turn: (question: String, reply: String), dark: Bool, size: String? = nil,
+  keys: ArraySlice<String> = [], to url: URL
+) async throws {
+  let scenario = try await Scenario.make(
+    "answer" + (size.map { "-" + $0 } ?? ""), dark: dark, turn: turn)
+  do {
     // Only keys the model handles itself: Return dispatches a detail or a follow-up, never an effect.
-    for key in entry.dropFirst(2) {
+    for key in keys {
       switch key {
       case "down": scenario.model.navigator.move(1)
       case "up": scenario.model.navigator.move(-1)
@@ -1143,9 +1157,10 @@ func replyCapture(_ index: Int) async throws {
     }
     await scenario.controller?.renderer.settled()
     try await Task.sleep(for: .seconds(1))
-    try await render(
-      scenario.view,
-      to: directory.appending(path: String(format: "%02d-%@.png", index + 1, dark ? "dark" : "light")))
+    try await render(scenario.view, to: url)
     await scenario.finish()
+  } catch {
+    await scenario.finish()
+    throw error
   }
 }

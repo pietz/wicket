@@ -10,42 +10,42 @@ import Testing
   arguments: ["claude", "codex"])
 func liveAgentScratchConversation(_ name: String) async throws {
   let folder = try scratch()
-  let session = AgentSession(folder: folder, log: AgentLog(folder: folder.appending(path: "logs")))
-  try AnswerRenderer.installFiles(in: folder)
+  let model = try liveScratchModel(in: folder)
+  let session = model.agent
   var settings = AgentConfiguration()
   settings.agent = name == "claude" ? .claude : .codex
   settings.model = name == "claude" ? "sonnet" : "gpt-6.1-sol"
   settings.effort = "low"
   settings.mode = name == "claude" ? "default" : "read-only"
   settings.streamAnswers = true
+  func ask(_ question: String) {
+    model.store.update { $0.agent = settings }
+    model.navigator.send(question)
+  }
   func wait(_ condition: () -> Bool) async throws {
-    let until = ContinuousClock.now + .seconds(90)
-    while !condition(), ContinuousClock.now < until { try await Task.sleep(for: .milliseconds(20)) }
-    try #require(condition(), "\(name): \(session.status)")
+    try #require(try await waitForLiveAgent(until: .seconds(90), condition), "\(name): \(session.status)")
   }
   do {
-    session.ask(
-      "Remember the codeword LANTERN-47 for this conversation. Reply only LANTERN-47. No tools.",
-      settings: settings)
+    ask("Remember the codeword LANTERN-47 for this conversation. Reply only LANTERN-47. No tools.")
     try await wait { !session.busy }
     #expect(session.answer.contains("LANTERN-47"), "\(name): \(session.status)")
     let id = try #require(session.sessionID)
-    session.ask("What is the codeword? Reply only the codeword. No tools.", settings: settings)
+    ask("What is the codeword? Reply only the codeword. No tools.")
     try await wait { !session.busy }
     #expect(session.answer.contains("LANTERN-47"), "\(name): \(session.status)")
     #expect(session.sessionID == id)
     // A changed model, effort or mode applies on the next question's launch.
     settings.effort = "medium"
     settings.model = name == "claude" ? "haiku" : "gpt-6-luna"
-    session.ask("What is the codeword? Reply only the codeword. No tools.", settings: settings)
+    ask("What is the codeword? Reply only the codeword. No tools.")
     try await wait { !session.busy }
     #expect(session.answer.contains("LANTERN-47") && session.sessionID == id, "\(name): \(session.status)")
     settings.effort = "low"
     settings.model = name == "claude" ? "sonnet" : "gpt-6.1-sol"
     // The default modes must require permission. Only an explicitly scoped scratch write is allowed.
-    session.ask(
-      "Use the file-writing tool to create \(folder.path)/allowed.txt containing exactly ALLOWED. Do not run shell commands or touch any other path.",
-      settings: settings)
+    ask(
+      "Use the file-writing tool to create \(folder.path)/allowed.txt containing exactly ALLOWED. Do not run shell commands or touch any other path."
+    )
     try await wait { !session.permissions.isEmpty || !session.busy }
     let permission = try #require(
       session.permissions.first, "\(name): no permission: \(session.status)")
@@ -59,15 +59,15 @@ func liveAgentScratchConversation(_ name: String) async throws {
     #expect(
       try String(contentsOf: folder.appending(path: "allowed.txt"), encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines) == "ALLOWED")
-    session.ask(
-      "Use the file-writing tool to create \(folder.path)/denied.txt containing DENIED. Do not run shell commands or touch any other path.",
-      settings: settings)
+    ask(
+      "Use the file-writing tool to create \(folder.path)/denied.txt containing DENIED. Do not run shell commands or touch any other path."
+    )
     try await wait { !session.permissions.isEmpty || !session.busy }
     _ = try #require(session.permissions.first)
     session.decide(false)
     try await wait { !session.busy }
     #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "denied.txt").path))
-    session.ask("Count the integers 1 to 5000, one per line, without tools.", settings: settings)
+    ask("Count the integers 1 to 5000, one per line, without tools.")
     try await wait { !session.answer.isEmpty || !session.busy }
     session.cancel()
     try await wait { !session.busy }
@@ -75,11 +75,29 @@ func liveAgentScratchConversation(_ name: String) async throws {
     print(
       "LIVE \(name): stream, resume/history, settings change, allow, deny, cancel passed; scratch \(folder.path)"
     )
-    await session.shutdown()
+    await model.finish()
   } catch {
-    await session.shutdown()
+    await model.finish()
     throw error
   }
+}
+
+@MainActor
+func liveScratchModel(in folder: URL, instructionTemplate: String? = nil) throws -> LauncherModel {
+  try AnswerRenderer.installFiles(in: folder)
+  let model = LauncherModel.testing(in: folder, bundled: nil)
+  let log = AgentLog(folder: folder.appending(path: "logs"))
+  model.agent.connect = {
+    try AgentCLI.connect($0, folder: $1, resume: $2, log: log, instructionTemplate: instructionTemplate)
+  }
+  return model
+}
+
+@MainActor
+func waitForLiveAgent(until timeout: Duration, _ condition: () -> Bool) async throws -> Bool {
+  let deadline = ContinuousClock.now + timeout
+  while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+  return condition()
 }
 
 /// Codex's Auto mode (a reviewer subagent decides) never sends turn/completed: a plain question and

@@ -50,10 +50,13 @@ enum Launch {
   }
 
   /// Runs a short command to its end: its exit and stdout, or nil if it outlasts `limit`.
-  static func capture(_ executable: URL, _ arguments: [String], in folder: URL, limit: Duration)
+  static func capture(
+    _ executable: URL, _ arguments: [String], in folder: URL, limit: Duration, input: Data? = nil
+  )
     async throws -> (exit: Exit, output: Data)?
   {
     let started = try start(executable, arguments, in: folder, environment: environment())
+    if let input { started.tree.write(input) }
     started.tree.closeInput()
     // Read concurrently, so a full diagnostic pipe cannot deadlock the deadline.
     let output = Task {

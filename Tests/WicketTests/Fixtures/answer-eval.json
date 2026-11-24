@@ -1,0 +1,188 @@
+[
+  {
+    "id": "fahrenheit",
+    "question": "At what temperature in Fahrenheit does water freeze?",
+    "category": "Facts and figures",
+    "expect": {"shape": "Short fact headline and one line of context", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 30}
+  },
+  {
+    "id": "seconds",
+    "question": "How many seconds are in 2.5 hours?",
+    "category": "Facts and figures",
+    "expect": {"shape": "Short fact headline and one line of context", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 30}
+  },
+  {
+    "id": "titan",
+    "question": "What is Saturn’s largest moon?",
+    "category": "Facts and figures",
+    "expect": {"shape": "Short fact headline and one line of context", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 35}
+  },
+  {
+    "id": "legal-paper",
+    "question": "What are the dimensions of US legal paper in inches?",
+    "category": "Facts and figures",
+    "expect": {"shape": "Short fact headline and one line of context", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 35}
+  },
+  {
+    "id": "stockholm-time",
+    "question": "It’s 14:00 in Stockholm (UTC+1) and New York is UTC−5. What time is it in New York?",
+    "category": "Facts and figures",
+    "expect": {"shape": "Short fact headline and one line of context", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 35}
+  },
+  {
+    "id": "png-jpeg",
+    "question": "Should I export a screenshot with fine text as PNG or JPEG? Compare both.",
+    "category": "Comparisons and options",
+    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 100}
+  },
+  {
+    "id": "utf",
+    "question": "Compare UTF-8 and UTF-16 for an API that mostly exchanges English text.",
+    "category": "Comparisons and options",
+    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 105}
+  },
+  {
+    "id": "tea-methods",
+    "question": "Compare a French press, a basket infuser, and a tea ball for loose-leaf tea.",
+    "category": "Comparisons and options",
+    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 110}
+  },
+  {
+    "id": "backup",
+    "question": "Compare a local external-drive backup and a cloud backup for a laptop.",
+    "category": "Comparisons and options",
+    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 110}
+  },
+  {
+    "id": "bike-fares",
+    "question": "Bike rental is €4/hour or €19/day. Which should I use for six hours, and where is the break-even point?",
+    "category": "Comparisons and options",
+    "expect": {"shape": "Short verdict and at least two side-by-side tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 80}
+  },
+  {
+    "id": "dry-goods",
+    "question": "What are four dry pantry staples for an inexpensive vegetarian dinner? Suggest one use for each.",
+    "category": "Things to scan",
+    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 115}
+  },
+  {
+    "id": "asteroids",
+    "question": "List four large objects in the asteroid belt, with an approximate diameter for each.",
+    "category": "Things to scan",
+    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 100}
+  },
+  {
+    "id": "hotel-options",
+    "question": "Rank these hotels from cheapest to priciest and include walking times: Pine €95/12 min, Elm €120/4 min, Ash €89/18 min, Beech €106/7 min.",
+    "category": "Things to scan",
+    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 90}
+  },
+  {
+    "id": "common-ports",
+    "question": "What are the usual port numbers for SSH, DNS, HTTP, and HTTPS?",
+    "category": "Things to scan",
+    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 90}
+  },
+  {
+    "id": "packing",
+    "question": "Give me a quick packing checklist for a one-night work trip with a carry-on.",
+    "category": "Things to scan",
+    "expect": {"shape": "Scannable list with at least four rows", "minimum": {"row": 4}, "maxWords": 95}
+  },
+  {
+    "id": "paper-airplane",
+    "question": "Walk me through folding a basic dart paper airplane from a sheet of printer paper.",
+    "category": "How-tos and steps",
+    "expect": {"shape": "Short takeaway and at least three step rows, with instructions in each detail", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 90}
+  },
+  {
+    "id": "cold-brew",
+    "question": "How do I make a small batch of cold brew with a jar and a kitchen strainer?",
+    "category": "How-tos and steps",
+    "expect": {"shape": "Short takeaway and at least three step rows, with instructions in each detail", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 100}
+  },
+  {
+    "id": "loose-button",
+    "question": "How do I sew a loose two-hole button back onto a shirt?",
+    "category": "How-tos and steps",
+    "expect": {"shape": "Short takeaway and at least three step rows, with instructions in each detail", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 95}
+  },
+  {
+    "id": "csv-import",
+    "question": "How do I bring a CSV into a spreadsheet without losing leading zeroes on ZIP codes?",
+    "category": "How-tos and steps",
+    "expect": {"shape": "Short takeaway and at least three step rows, with instructions in each detail", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 100}
+  },
+  {
+    "id": "charge-cycle",
+    "question": "How can I calculate average battery drain per hour from two battery percentages and timestamps?",
+    "category": "How-tos and steps",
+    "expect": {"shape": "Short takeaway and at least three step rows, with instructions in each detail", "minimum": {"row": 3, "rowDetail": 3}, "maxWords": 100}
+  },
+  {
+    "id": "disk-quota",
+    "question": "My scratch disk has used 184 GB of its 200 GB quota. I need to export 22 GB. Do I have room?",
+    "category": "Status and checks",
+    "expect": {"shape": "Verdict, progress or share, and a badge for the state", "minimum": {"progress": 1, "badge": 1}, "maxWords": 85}
+  },
+  {
+    "id": "upload-batch",
+    "question": "A batch has 20 uploads: 14 complete, 4 uploading, 2 failed. Give me the current status.",
+    "category": "Status and checks",
+    "expect": {"shape": "Verdict, progress or share, and a badge for the state", "minimum": {"progress": 1, "badge": 1}, "maxWords": 85}
+  },
+  {
+    "id": "fundraiser",
+    "question": "We’ve raised €6,300 against a €9,000 target, and we have two days left. Where do we stand?",
+    "category": "Status and checks",
+    "expect": {"shape": "Verdict, progress or share, and a badge for the state", "minimum": {"progress": 1, "badge": 1}, "maxWords": 85}
+  },
+  {
+    "id": "test-results",
+    "question": "Of 48 checks, 46 passed, one timed out, and one failed. The release requires all checks to pass. Can it go out?",
+    "category": "Status and checks",
+    "expect": {"shape": "Verdict, progress or share, and a badge for the state", "minimum": {"progress": 1, "badge": 1}, "maxWords": 85}
+  },
+  {
+    "id": "late-note",
+    "question": "Write a short note to a teammate saying I’ll be ten minutes late to our meeting.",
+    "category": "Writing tasks",
+    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 85, "prose": true}
+  },
+  {
+    "id": "library-sign",
+    "question": "Write a warm two-sentence sign asking library visitors to silence their phones.",
+    "category": "Writing tasks",
+    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 70, "prose": true}
+  },
+  {
+    "id": "museum-caption",
+    "question": "Write a 40-word museum caption for an exhibit of hand-painted seed packets from the 1930s.",
+    "category": "Writing tasks",
+    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 75, "prose": true}
+  },
+  {
+    "id": "summarize-changes",
+    "question": "Summarize this in two sentences: We moved the workshop from Monday to Wednesday. Venue and start time are unchanged. People who already registered keep their places.",
+    "category": "Writing tasks",
+    "expect": {"shape": "Requested text as plain prose", "minimum": {}, "maxWords": 70, "prose": true}
+  },
+  {
+    "id": "room-booking",
+    "question": "Show me a draft booking for Cedar on Thursday from 10:00 to 10:45 for six people. Don’t book anything.",
+    "category": "Mixed",
+    "expect": {"shape": "Draft in a card with property rows", "minimum": {"card": 1, "row": 3}, "maxWords": 105}
+  },
+  {
+    "id": "laptop-choice",
+    "question": "Laptop A is €850 with 8 GB RAM. B is €990 with 16 GB RAM. I have €1,000 and use large photo libraries. Pick one and explain the caveat.",
+    "category": "Mixed",
+    "expect": {"shape": "Recommendation and option tiles", "minimum": {"columns": 1, "tileInColumns": 2}, "maxWords": 105}
+  },
+  {
+    "id": "desk-width",
+    "question": "My desk is 120 cm wide. Two monitors are 54 cm each, and I want a 5 cm gap. Will it fit, and how much room is left?",
+    "category": "Mixed",
+    "expect": {"shape": "Short numeric result with a context line", "minimum": {"headline": 1, "contextLine": 1}, "maxWords": 55}
+  }
+]

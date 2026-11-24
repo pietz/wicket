@@ -48,11 +48,13 @@ enum AgentCLI {
   /// answer area's cap and the page's 14-point body (answers.css) zoomed by the text size.
   static func instructions(
     in folder: URL, textSize: Configuration.TextSize = .medium,
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    instructionTemplate: String? = nil
   ) -> String {
     let executable = environment["WICKET_EXECUTABLE"] ?? Bundle.main.executableURL?.path ?? "Wicket"
     var base =
-      (try? String(
+      instructionTemplate
+      ?? (try? String(
         contentsOf: Bundle.wicket.url(forResource: "agent-instructions", withExtension: "md")!,
         encoding: .utf8)) ?? ""
     for (key, value) in [
@@ -77,11 +79,12 @@ enum AgentCLI {
   @MainActor
   static func connect(
     _ settings: AgentConfiguration, folder: URL, resume: String?, log: AgentLog,
-    environment: [String: String] = Launch.environment()
+    environment: [String: String] = Launch.environment(), instructionTemplate: String? = nil
   ) throws -> any AgentConnection {
     let agent = settings.agent
     let cli = try executable(agent, in: environment)
-    let instructions = instructions(in: folder, textSize: settings.textSize)
+    let instructions = instructions(
+      in: folder, textSize: settings.textSize, instructionTemplate: instructionTemplate)
     switch agent {
     case .claude:
       return try link(ClaudeTranslator(), cli, settings, folder, resume, instructions, log)

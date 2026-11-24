@@ -107,6 +107,32 @@ Run this check with an older release build of Wicket installed and a newer relea
 2. Press Return on the update row. The launcher closes and Sparkle comes to the front with release notes and **Install**, **Remind Me Later**, and **Skip**. Verify the update title and dot clear once the alert gets attention, with the agent idle.
 3. With a scheduled update available again, choose ⌘K ▸ **Dismiss** on the update row. Reopen the launcher and verify the row stays hidden for the rest of the app session. Verify **Update to …** remains in the status menu and the app menu and opens the Sparkle window.
 
+## Agent answer design eval
+
+Run from the checkout with the signed-in agent CLIs. Each self-contained question starts a fresh
+conversation with Wicket’s instructions and the app’s default effort. The run uses your CLI
+subscriptions. By default it tests Claude Sonnet and Wicket’s default Codex model.
+
+```sh
+WICKET_EVAL_DIR=/tmp/wicket-eval-before swift test --filter answerEval
+
+# After editing Sources/WicketApp/Resources/agent-instructions.md
+WICKET_EVAL_DIR=/tmp/wicket-eval-after \
+  WICKET_EVAL_BASELINE=/tmp/wicket-eval-before/results.json \
+  swift test --filter answerEval
+```
+
+To compare instruction files side by side in one run, set
+`WICKET_EVAL_VARIANTS=before=/path/to/before.md,after=/path/to/after.md`. Set
+`WICKET_EVAL_AGENTS` to a comma-separated list such as `claude:sonnet,codex:gpt-6.1-terra`
+to pin model versions across runs. `WICKET_EVAL_DARK=1` adds dark renders.
+`WICKET_EVAL_JUDGE=1` adds one Claude Sonnet call per render.
+
+Open `report.html` and pick answers by eye. The automatic score measures structure, and the
+optional judge rates the rendered screen. Neither checks factual correctness. Baseline deltas pair
+the same question, variant name, and agent. Keep `results.json` for the reply text, scores, and
+failures, and `pairs.json` for the candidate IDs and image paths by question.
+
 ## Feedback
 
 Report per section: works, broken (steps + actual), or feels off (expected). Log open problems in [ISSUES.md](../ISSUES.md).
