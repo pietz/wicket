@@ -55,14 +55,20 @@ import Testing
   #expect(await eventually { input.bluetoothHint == VoiceError.bluetoothOnly.description })
   #expect(!input.speaking && input.offersVoice)
 
+  input.stop(.hidden)
+  #expect(input.bluetoothHint == nil)
+  input.arm()
+  fake.feeds[1].finish(throwing: VoiceError.bluetoothOnly)
+  #expect(await eventually { input.bluetoothHint != nil })
+
   input.toggle()
-  #expect(fake.bluetoothAllowed == [false, true] && input.bluetoothHint == nil)
-  fake.feeds[1].yield(.ready)
+  #expect(fake.bluetoothAllowed == [false, false, true] && input.bluetoothHint == nil)
+  fake.feeds[2].yield(.ready)
   #expect(await eventually { input.status == "Listening…" })
   input.stop(.hidden)
 
   input.arm()
-  #expect(fake.bluetoothAllowed == [false, true, false])
+  #expect(fake.bluetoothAllowed == [false, false, true, false])
   await input.finish()
   await model.finish()
 }

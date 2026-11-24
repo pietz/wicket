@@ -274,9 +274,14 @@ enum InputDevice {
   ) throws -> (device: Device, transport: UInt32) {
     guard let current else { throw VoiceError.noMicrophone }
     let currentTransport = transport(current)
-    guard
-      [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(currentTransport)
-    else { return (current, currentTransport) }
+    let bluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE]
+      .contains(currentTransport)
+    // An aggregate or unidentified default may route a Bluetooth mic, so a verified mic wins over it.
+    let unverified = [
+      kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAutoAggregate,
+      kAudioDeviceTransportTypeUnknown,
+    ].contains(currentTransport)
+    guard bluetooth || unverified else { return (current, currentTransport) }
     let candidates = discover([.microphone, .external], .audio, .unspecified)
       .map { (device: $0, transport: transport($0)) }
     if let replacement = candidates.first(where: { $0.transport == kAudioDeviceTransportTypeBuiltIn })
@@ -285,7 +290,7 @@ enum InputDevice {
     {
       return replacement
     }
-    guard allowBluetooth else { throw VoiceError.bluetoothOnly }
+    guard allowBluetooth || !bluetooth else { throw VoiceError.bluetoothOnly }
     return (current, currentTransport)
   }
 

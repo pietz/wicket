@@ -411,10 +411,26 @@ func nonBluetoothHardwareReplacesABluetoothDefault(_ hardware: UInt32) throws {
   #expect(fallback.device == hardware)
 }
 
+@Test(arguments: [
+  kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAutoAggregate,
+  kAudioDeviceTransportTypeUnknown,
+])
+func verifiedMicReplacesAnUnverifiedDefaultWhichStaysUsableAlone(_ unverified: UInt32) throws {
+  let builtIn = kAudioDeviceTransportTypeBuiltIn
+  #expect(
+    try InputDevice.select(
+      current: unverified, allowBluetooth: false, discover: { _, _, _ in [unverified, builtIn] },
+      transport: { $0 }
+    ).device == builtIn)
+  #expect(
+    try InputDevice.select(
+      current: unverified, allowBluetooth: false, discover: { _, _, _ in [unverified] }, transport: { $0 }
+    ).device == unverified)
+}
+
 @Test func nonBluetoothDefaultIsKept() throws {
   for current in [
-    kAudioDeviceTransportTypeBuiltIn, kAudioDeviceTransportTypeUSB,
-    kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeUnknown,
+    kAudioDeviceTransportTypeBuiltIn, kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeVirtual,
   ] {
     #expect(
       try InputDevice.select(

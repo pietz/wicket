@@ -162,6 +162,8 @@ final class VoiceInput {
     )
   }
   func stop(_ reason: VoiceStop) {
+    // Dismissal ends the session the hint was for, even while voice is idle.
+    if reason == .hidden { bluetoothOnly = false }
     guard active else { return }
     VoiceLog.logger.log(
       "voice stop: \(reason.rawValue, privacy: .public) while \(self.state == .listening ? "listening" : "starting", privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
