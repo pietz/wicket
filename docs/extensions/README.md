@@ -8,6 +8,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 | --- | --- | --- | --- |
 | Calculator | [calculator.md](calculator.md) | Phase 1 shipped | Arithmetic as you type at the root (`calc` for full grammar); Programmer, date math, and History next. |
 | Convert | [convert.md](convert.md) | Phase 1 shipped | Units offline and currency via Frankfurter. Typed arithmetic with units next. |
+| Weather | [weather.md](weather.md) | Bundled | Current conditions and a five-day forecast by city. |
 | Quicklinks | [quicklinks.md](quicklinks.md) | Shipped | Personal bookmarks and site searches with optional keywords and hotkeys. |
 | Window Manager | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in `user.json`; multi-window layouts next. |
 | Calendar | [calendar.md](calendar.md) | Waiting on permission checks | Read-only 7-day EventKit agenda with Join and headless read. |

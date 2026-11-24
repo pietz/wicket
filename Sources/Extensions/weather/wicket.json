@@ -1,0 +1,14 @@
+{
+  "contract": 2,
+  "name": "Weather",
+  "description": "Current conditions and forecasts for a city, from Open-Meteo.",
+  "keyword": "weather",
+  "icon": "cloud.sun",
+  "command": ["./main"],
+  "match": "(?i)^\\s*weather\\s+(?!in\\s*$)\\S.*$",
+  "fields": [{"name": "city", "type": "text", "description": "City or place", "placeholder": "City"}],
+  "settings": [
+    {"name": "defaultCity", "type": "text", "description": "Default city", "placeholder": "e.g. Berlin"},
+    {"name": "units", "type": "choice", "description": "Temperature unit", "options": ["Celsius", "Fahrenheit"], "default": "Celsius"}
+  ]
+}

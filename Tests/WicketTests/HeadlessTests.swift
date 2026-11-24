@@ -50,7 +50,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     ids
     + (Configuration.builtins + [
       "extension:calculator", "extension:units", "extension:window", "extension:shell",
-      "extension:links-search",
+      "extension:links-search", "extension:weather",
     ])
     .filter {
       id in

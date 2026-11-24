@@ -17,7 +17,7 @@ let bundledExtensions: URL = {
     products = products.deletingLastPathComponent()
   }
   let folder = products.appending(path: "Extensions")
-  let names = ["calculator", "units", "window", "shell", "links-search"]
+  let names = ["calculator", "units", "weather", "window", "shell", "links-search"]
   for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where !names.contains(name) {
     try! fm.removeItem(at: folder.appending(path: name))
   }

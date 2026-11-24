@@ -179,7 +179,7 @@ When asked to turn an answer into an extension, emit the same body/tags from loc
 
 ## Changing a built-in
 
-Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `links-search` (Quicklinks), `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`, preserving any `user.json`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator and Shell avoid Foundation for speed; Quicklinks and Window Manager link AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
+Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`, `units` (Convert), `weather`, `links-search` (Quicklinks), `window`, and `shell`, each with `wicket.json`, `main`, and Swift sources (including shared `JSON.swift`). To customize code, use **Make It Mine** in Settings ▸ Extensions (or copy files into `extensions/<name>/`, preserving any `user.json`), edit, and rebuild with `swiftc -O *.swift -o main`. Calculator and Shell avoid Foundation for speed; Quicklinks and Window Manager link AppKit. To add extra root results beside a built-in, prefer a separate `match` extension. To replace a compiled-in source (`apps`, `files`, `clipboard`), disable it in `config.json` (`providers`: `{"id":"files","enabled":false}`, keeping other entries) and write an extension (matching empty input for an app replacement).
 
 A valid local `wicket.json` takes precedence over the built-in of the same folder name. If Wicket cannot load the local manifest, it uses the bundled extension and shows one repair row for the local copy. Personal items still come from the local `user.json`. Wicket uses the built-in silently for recognized, unmodified contract-1 copies of Convert and Window Manager. In Settings, **Move to Trash** removes the old copy while keeping `user.json` in place, so **Make It Mine** can install the current version.
 
@@ -330,7 +330,7 @@ This contract is rewritten on every launch. Optional examples live in `examples/
 Put `--extension` or `--query` first after the executable (using the binary path from the agent instructions), with `WICKET_CONFIG_DIR` pointing at the working folder holding `extensions/`. Run `--extension` first on valid and invalid input, then run `--query` once with a representative **root** query for the extension:
 
 ```sh
-WICKET_CONFIG_DIR=/path/to/wicket Wicket --extension weather --input 'berlin' --fields '{"view":"hourly"}'
+WICKET_CONFIG_DIR=/path/to/wicket Wicket --extension weather --input 'Berlin'
 ```
 
 - **`--extension <folder|extension:name>`:** Runs even if switched off. Optional `--input`, `--fields` (JSON string map), `--submitted`, `--action NAME` (requires `--submitted`). Prints decoded view JSON (without running its actions), `{}` for silent output (valid only for hidden runs), or `{"error":…}` with exit 1 (`{"error":…,"permissions":[…]}` if a declared permission is missing—only the owner can grant it in the panel). Pointing `WICKET_CONFIG_DIR` at the normal working folder shares `WICKET_DATA_DIR` with the panel; a scratch folder isolates data. Isolate real side effects with inert fixtures.
