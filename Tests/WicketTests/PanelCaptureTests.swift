@@ -35,7 +35,7 @@ private let states =
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
     "extension-pattern", "extension-list", "extension-quicklinks-empty", "extension-detail", "extension-both",
-    "weather-root", "weather-page", "weather-default",
+    "weather-keyword", "weather-root", "weather-page", "weather-default",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -57,6 +57,7 @@ private let transitions = [
 /// What text recognition must find, so a blank or broken panel fails.
 private func expectedText(_ name: String) -> [String] {
   if let text = transitionText[name] { return text }
+  if name == "weather-keyword" { return ["weather", "Ask agent"] }
   if name == "weather-root" { return ["Berlin", "overcast", "Ask agent"] }
   if name == "weather-page" || name == "weather-default" {
     return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"]
@@ -369,7 +370,7 @@ private let installedAgent: Void = {
       await model.extensions.reload()
       model.navigator.input = "200*10%+2^3"
       await model.navigator.settled()
-    case "weather-root", "weather-page", "weather-default":
+    case "weather-keyword", "weather-root", "weather-page", "weather-default":
       let runner = ExtensionRunner(dataDirectory: folder.appending(path: "extension-data"))
       try await seedRecordedWeather(in: runner.dataDirectory(for: "extension:weather"))
       await model.extensions.reload()
@@ -378,9 +379,9 @@ private let installedAgent: Void = {
         model.navigator.go(Address(id: "extension:weather", link: true))
         await model.navigator.settled()
       } else {
-        model.navigator.input = "weather Berlin"
+        model.navigator.input = name == "weather-keyword" ? "weather " : "weather Berlin"
         await model.navigator.settled()
-        try #require(model.navigator.selected?.row.id == "weather")
+        try #require(model.navigator.selected?.row.id == (name == "weather-keyword" ? "command" : "weather"))
         if name == "weather-page" {
           try #require(model.activateReturn())
           await model.navigator.settled()
@@ -1119,8 +1120,13 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "extension-quicklinks-empty":
     #expect(model.navigator.results.map(\.row.title) == ["Add a Quicklink…"])
   case "extension-list": #expect(model.navigator.command != nil && !model.navigator.results.isEmpty)
+  case "weather-keyword":
+    #expect(model.navigator.command == nil && model.navigator.fieldSlots.isEmpty)
+    #expect(model.navigator.input == "weather " && model.navigator.hasFieldNavigation)
   case "weather-root":
-    #expect(model.navigator.command == nil && model.navigator.prominentFirst)
+    #expect(
+      model.navigator.command == nil && model.navigator.prominentFirst && model.navigator.fieldSlots.isEmpty)
+    #expect(model.navigator.hasFieldNavigation)
     #expect(model.navigator.results.filter { $0.provider == "extension:weather" }.count == 1)
   case "weather-page", "weather-default":
     #expect(model.navigator.command?.id == "extension:weather")

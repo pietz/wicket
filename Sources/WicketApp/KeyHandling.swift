@@ -6,7 +6,7 @@ enum PaletteKeyAction: Equatable, Sendable {
   case actions
   case permission(Bool)
   case move(Int)
-  /// Tab and Shift+Tab between the input and the argument slots.
+  /// Tab into a root text field or Tab and Shift+Tab between the input and argument slots.
   case focus(Int)
   case edit(Edit)
   case consume, passThrough
@@ -22,7 +22,7 @@ enum PaletteKeyAction: Equatable, Sendable {
       if modifiers == .command, keyCode == 36 || keyCode == 76 { return .permission(true) }
       if keyCode == 36 || keyCode == 76 { return .consume }
     }
-    // Tab is AppKit's wherever no slots are shown, such as the confirmation card's buttons.
+    // Tab is AppKit's wherever there are no argument fields, such as the confirmation card's buttons.
     if keyCode == 48, hasFields, !permissionPending, modifiers.isEmpty || modifiers == .shift {
       return .focus(modifiers.isEmpty ? 1 : -1)
     }

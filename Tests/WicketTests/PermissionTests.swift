@@ -314,6 +314,28 @@ func aHiddenHotkeyShowsAnActionablePermissionOverAConversation(kept: Bool) async
   await model.finish()
 }
 
+@MainActor @Test func grantingAccessKeepsTheItemPreparedByTab() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (model, fake, surface) = try await gated(root, ["calendar"])
+  let nav = model.navigator
+  nav.editInput("left")
+  await nav.settled()
+  #expect(nav.selected?.row.id == "item:left" && nav.moveFocus(1))
+  await nav.settled()
+  #expect(nav.selected?.row.id == "permission:calendar")
+  nav.run()
+  await nav.settled()
+  #expect(fake.asked == [.calendar] && requests(root).map(\.submitted) == [false])
+  nav.editInput("today")
+  nav.run()
+  await nav.settled()
+  let sent = requests(root)
+  #expect(sent.map(\.submitted) == [false, true] && sent.last?.action == "left")
+  #expect(sent.last?.input == "today" && surface.effects == [.hide])
+  await model.finish()
+}
+
 /// Headless cannot ask macOS: a run held back by a missing permission is an error naming it, not the
 /// gate's rows printed as if the program had answered.
 @MainActor @Test func headlessRefusesARunMissingAPermission() async throws {

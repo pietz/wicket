@@ -185,13 +185,10 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   await nav.settled()
   let owner = crossExtension ? "extension:personal" : "extension:search"
   #expect(nav.selected?.provider == owner && nav.selected?.row.id == "item:yt")
-  #expect(nav.fieldSlots.map(\.name) == ["query"])
-  #expect(nav.moveFocus(1) && nav.focusedField == "query")
-  nav.setField("query", to: "cats")
-  #expect(nav.moveFocus(1) && nav.focusedField == nil)
-  nav.setField("limit", to: "2")
+  #expect(nav.fieldSlots.isEmpty && !nav.moveFocus(-1))
+  nav.editInput("yt cats")
   await nav.settled()
-  #expect(nav.input == "yt" && nav.fieldValues == ["query": "cats"])
+  #expect(nav.fieldSlots.isEmpty && nav.fieldValues == ["query": "cats"])
   #expect(try requests(in: folder).isEmpty)
 
   if byHotkey {
@@ -246,6 +243,52 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   await model.finish()
 }
 
+@MainActor @Test func aSingleTextFieldUsesTheRootQueryAndTabOpensItWithoutSubmitting() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let (_, requests) = try logging(
+    root, name: "Weather",
+    fields: [
+      "keyword": "weather", "submit": true,
+      "fields": [["name": "city", "type": "text", "description": "City", "placeholder": "City"]],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let nav = model.navigator
+  model.agent.connect = { _, _, _ in FakeAgent() }
+  await model.extensions.reload()
+
+  for input in ["weather", "weather "] {
+    nav.editInput(input)
+    await nav.settled()
+    #expect(nav.selected?.provider == "extension:weather" && nav.fieldSlots.isEmpty)
+    #expect(nav.fieldValues.isEmpty && nav.hasFieldNavigation && !nav.moveFocus(-1))
+  }
+  nav.editInput("weather in Berlin")
+  await nav.settled()
+  #expect(nav.fieldSlots.isEmpty && nav.fieldValues == ["city": "in Berlin"])
+  #expect(try requests().isEmpty)
+
+  #expect(nav.moveFocus(1))
+  await nav.settled()
+  #expect(nav.command?.id == "extension:weather" && nav.commandPlaceholder == "City")
+  #expect(nav.input == "in Berlin" && nav.focusedField == nil && nav.fieldSlots.isEmpty)
+  #expect(try requests().map(\.submitted) == [false])
+  nav.editInput("Potsdam")
+  nav.run()
+  await nav.settled()
+  let sent = try requests()
+  #expect(sent.map(\.submitted) == [false, true] && sent.last?.fields == ["city": "Potsdam"])
+
+  #expect(nav.escape())
+  await nav.settled()
+  #expect(nav.input.isEmpty && nav.command == nil)
+  nav.editInput("weather in Berlin")
+  await nav.settled()
+  nav.askAgent()
+  #expect(model.agent.question == "weather in Berlin")
+  await model.finish()
+}
+
 @MainActor @Test func rootKeywordFillsACommandAndTabReachesItsNextField() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -284,6 +327,7 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   #expect(surface.presentation.selected?.row.subtitle == "Café + cats")
   #expect(surface.presentation.rows.contains { $0.row.actions.first == .send(input) })
   #expect(nav.fieldValues == ["query": "Café + cats"] && nav.focusedField == nil)
+  #expect(nav.fieldSlots.map(\.name) == ["scope"])
   #expect(nav.moveFocus(1) && nav.focusedField == "scope")
   nav.setField("scope", to: "videos")
   #expect(nav.input == input && nav.fieldValues == ["query": "Café + cats", "scope": "videos"])
@@ -297,14 +341,18 @@ func aRootItemUsesItsRunsFields(crossExtension: Bool, byHotkey: Bool) async thro
   await model.finish()
 }
 
-@MainActor @Test(arguments: [false, true])
-func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(listEntry: Bool) async throws {
+@MainActor @Test(arguments: [false, true], [false, true])
+func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(listEntry: Bool, byTab: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let folder = try extensionFolder(
     root, name: "search",
     script: """
-      cat >> log.jsonl
+      request=$(cat)
+      printf '%s\\n' "$request" >> log.jsonl
+      case "$request" in
+        *'"submitted":false'*) echo '{"items":[]}' ;;
+      esac
       """,
     fields: [
       "fields": [
@@ -350,15 +398,24 @@ func rootItemKeywordFillsTheFirstTextFieldThatIsntFixed(listEntry: Bool) async t
   #expect(surface.presentation.selected?.row.id == (listEntry ? "entry:searches/youtube" : "item:youtube"))
   #expect(surface.presentation.selected?.row.title == "Search YouTube")
   #expect(surface.presentation.selected?.row.subtitle == "links · cats")
-  #expect(nav.fieldValues == ["query": "cats"] && !nav.moveFocus(1))
+  #expect(nav.fieldSlots.isEmpty && nav.fieldValues == ["query": "cats"])
   #expect(try requests(in: folder).isEmpty)
 
+  if byTab {
+    #expect(nav.moveFocus(1))
+    #expect(nav.command?.id == "extension:search" && nav.focusedField == "query")
+    #expect(nav.input == "youtube" && nav.fieldValues["query"] == "cats")
+    nav.setField("query", to: "dogs")
+    await nav.settled()
+    let preview = try #require(try requests(in: folder).first)
+    #expect(!preview.submitted && preview.action == nil)
+  }
   nav.run()
   await nav.settled()
   let sent = try requests(in: folder)
-  let request = try #require(sent.first)
-  #expect(sent.count == 1 && request.submitted && request.action == "open-link")
-  #expect(request.fields == ["site": "youtube", "query": "cats", "limit": "10"])
+  let request = try #require(sent.last)
+  #expect(sent.map(\.submitted) == (byTab ? [false, true] : [true]) && request.action == "open-link")
+  #expect(request.fields == ["site": "youtube", "query": byTab ? "dogs" : "cats", "limit": "10"])
   #expect(surface.effects == [.hide])
   await model.finish()
 }
@@ -501,6 +558,10 @@ func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async
         """,
       fields: [
         "keyword": "lookup", "items": [["id": "web", "title": "Search the Web", "actions": [action]]],
+        "fields": [
+          ["name": "query", "type": "text", "description": "Query"],
+          ["name": "limit", "type": "number", "description": "Limit"],
+        ],
       ])
   }
   let folder = try writeManifest(["type": "run"])

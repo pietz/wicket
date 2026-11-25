@@ -471,8 +471,7 @@ final class Navigator {
     draftedAction.kind = .run(address)
     return draftedAction
   }
-  /// The fields the user can fill in: inside a command its own declared ones, at the root those of
-  /// the command the selected extension row runs. Empty when there are none.
+  /// The visible slots: inside a command the bar itself takes the first text field.
   var fieldSlots: [Field] {
     guard !conversing, overlay == nil else { return [] }
     if let command {
@@ -480,11 +479,29 @@ final class Navigator {
       let main = descriptor.inputField?.name
       return descriptor.fields.filter { $0.inSearchBar && $0.name != main }
     }
-    guard let row = selectedRow, let origin = row.rootExtensionRow else { return [] }
-    return row.row.editableRootFields(from: row.provider) { target in
-      if origin == .command { return directory.behavior(of: target)?.descriptor?.fields ?? [] }
+    return rootFieldLayout.slots
+  }
+  private var rootFieldLayout: (slots: [Field], entry: (row: Result, field: Field)?) {
+    guard command == nil, !conversing, overlay == nil,
+      let row = selectedRow,
+      row.rootExtensionRow != nil || row.matchedCommandField != nil || directory.host(row.provider) != nil
+    else { return ([], nil) }
+    // Count the keyword-bound field before hiding it; a second text field still gets its slot.
+    let bound = row.keywordArgument?.field ?? row.matchedCommandField
+    let fields = row.row.editableRootFields(from: row.provider, keywordField: bound) { target in
+      if row.rootExtensionRow == .command { return directory.behavior(of: target)?.descriptor?.fields ?? [] }
       return directory.availableFields(target, in: configuration)
     }
+    if fields.count == 1, let field = fields.first, field.type == .text {
+      return ([], composedInput == input && arriving == nil ? (row, field) : nil)
+    }
+    guard row.rootExtensionRow != nil else { return ([], nil) }
+    return (fields.filter { $0.name != bound }, nil)
+  }
+  var hasFieldNavigation: Bool {
+    guard command == nil else { return !fieldSlots.isEmpty }
+    let layout = rootFieldLayout
+    return !layout.slots.isEmpty || layout.entry != nil
   }
   private var keywordArgument: KeywordQuery.Argument? {
     composedInput == input ? selectedRow?.keywordArgument : nil
@@ -540,8 +557,16 @@ final class Navigator {
   private func pickFieldRow() {
     if command == nil, let selection { select(selection) }
   }
-  /// Tab and Shift+Tab: the input, then each slot in order, round again. False when there are none.
+  /// Tab opens a lone root text field. Otherwise Tab and Shift+Tab cycle through the input and slots.
   @discardableResult func moveFocus(_ delta: Int) -> Bool {
+    if delta == 1, let (row, field) = rootFieldLayout.entry,
+      case .run(let address)? = row.row.actions.first?.kind
+    {
+      speech?.stop(.edit)
+      go(address, from: row.provider, holding: false, draftingRun: row.rootExtensionRow == .item)
+      focusTarget = command?.descriptor?.inputField?.name == field.name ? nil : field.name
+      return true
+    }
     let names = [nil] + fieldSlots.map(\.name)
     guard names.count > 1 else { return false }
     let index = names.firstIndex(of: focusedField) ?? 0
@@ -966,7 +991,7 @@ final class Navigator {
   func go(
     _ address: Address, from origin: String? = nil, submitted: Bool = false, holding: Bool = true,
     replacingFields: Bool = false, itemHotkey: Bool = false,
-    trigger: RuntimeRecord.Trigger = .command
+    trigger: RuntimeRecord.Trigger = .command, draftingRun: Bool = false
   ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
@@ -997,7 +1022,8 @@ final class Navigator {
     case .command(let behavior):
       var state = commandState(for: behavior, itemHotkey: itemHotkey)
       if let invalid = state.enter(
-        address, submitted: submitted, replacingFields: replacingFields, trigger: trigger)
+        address, submitted: submitted, replacingFields: replacingFields, trigger: trigger,
+        draftingRun: draftingRun)
       {
         actionProblem = "Invalid value for \(invalid)"
         return draw()

@@ -82,7 +82,7 @@ enum CommandOutcome {
   private(set) var next = Cause.address
   private var action: String?
   private var trigger: RuntimeRecord.Trigger = .command
-  /// The hidden run waiting for its text, kept beyond the request that shows the prompt.
+  /// The item's run waiting for Return, kept beyond the request that shows the prompt.
   private(set) var promptedRun: Address?
   private var replacingFields = false
   /// A link or root pattern can supply a command query while the search bar holds an agent draft.
@@ -138,7 +138,7 @@ enum CommandOutcome {
   @discardableResult
   mutating func enter(
     _ address: Address, submitted: Bool, replacingFields: Bool = false,
-    trigger: RuntimeRecord.Trigger = .command
+    trigger: RuntimeRecord.Trigger = .command, draftingRun: Bool = false
   ) -> String? {
     let submitting = submitted && !address.link
     let field = descriptor?.inputField
@@ -174,7 +174,13 @@ enum CommandOutcome {
     }
     providerInput =
       field.flatMap { overrides[$0.name] } ?? address.input ?? (replacingFields ? "" : providerInput)
-    promptedRun = prompts && providerInput.allSatisfy(\.isWhitespace) ? address : nil
+    // Tab into a root item keeps its action for Return, even if the user already typed its argument.
+    if draftingRun || (prompts && providerInput.allSatisfy(\.isWhitespace)) {
+      promptedRun = address
+    } else if !address.link || !replacingFields {
+      // A permission grant can replay the draft's preview within this visit.
+      promptedRun = nil
+    }
     if let field { screen.fill(field.name, with: "") }
     return nil
   }

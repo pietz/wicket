@@ -8,18 +8,21 @@ struct Result: Identifiable, Sendable, Equatable {
   let row: Row
   let rootExtensionRow: RootExtensionRow?
   let keywordArgument: KeywordQuery.Argument?
+  /// The argument field when this pattern result stands in for the matching command row.
+  let matchedCommandField: String?
   var id: String {
     provider.hasPrefix("extension:") ? "\(provider.utf8.count):" + provider + row.id : provider + ":" + row.id
   }
 
   init(
     provider: String, row: Row, rootExtensionRow: RootExtensionRow? = nil,
-    keywordArgument: KeywordQuery.Argument? = nil
+    keywordArgument: KeywordQuery.Argument? = nil, matchedCommandField: String? = nil
   ) {
     self.provider = provider
     self.row = row
     self.rootExtensionRow = rootExtensionRow
     self.keywordArgument = keywordArgument
+    self.matchedCommandField = matchedCommandField
   }
 }
 
@@ -63,13 +66,15 @@ struct KeywordQuery {
 }
 
 extension Row {
-  func editableRootFields(from provider: String, fieldsFor: (String) -> [Field])
+  func editableRootFields(from provider: String, keywordField: String? = nil, fieldsFor: (String) -> [Field])
     -> [Field]
   {
     guard case .run(let address)? = actions.first?.kind, !address.link,
       let target = address.extensionName == nil ? provider : address.targetID
     else { return [] }
-    return fieldsFor(target).filter { $0.inSearchBar && address.fields?[$0.name] == nil }
+    return fieldsFor(target).filter {
+      $0.inSearchBar && ($0.name == keywordField || address.fields?[$0.name] == nil)
+    }
   }
 }
 
@@ -362,14 +367,18 @@ enum Ranking {
           case .run(let address)? = shortcut.row.actions.first?.kind
         else { return shortcut }
         // The prominent result can take the shortcut's place when Return runs the same request.
-        return patternRows.first { result in
+        let prominent = patternRows.first { result in
           guard result.provider == shortcut.provider, result.row.prominent == true,
             case .run(var action)? = result.row.actions.first?.kind
           else { return false }
           action.extensionName = action.extensionName ?? address.extensionName
           action.input = action.input ?? ""
           return action == address
-        } ?? shortcut
+        }
+        guard let prominent else { return shortcut }
+        return Result(
+          provider: prominent.provider, row: prominent.row,
+          matchedCommandField: shortcut.keywordArgument?.field)
       }
       let ids = Set(matches.map(\.id) + keywordRows.map(\.result.id))
       let ordered =

@@ -58,7 +58,7 @@ class PalettePanel: NSPanel {
       hasFields: target?.hasFields == true)
     if target?.handle(action) == true { return true }
     switch action {
-    case .passThrough: return false
+    case .passThrough, .focus: return false
     case .edit(let edit):
       let selector: Selector =
         switch edit {
@@ -162,7 +162,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     panel.contentView = nil
   }
   var permissionPending: Bool { navigator.permissionPending }
-  var hasFields: Bool { !navigator.fieldSlots.isEmpty }
+  var hasFields: Bool { navigator.hasFieldNavigation }
   func handle(_ action: PaletteKeyAction) -> Bool {
     if input.keyPressed(action) { return true }
     switch action {
@@ -172,7 +172,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     case .actions: navigator.toggleActions()
     case .permission(let allow): navigator.decide(allow)
     case .move(let delta): navigator.move(delta)
-    case .focus(let delta): navigator.moveFocus(delta)
+    case .focus(let delta): return navigator.moveFocus(delta)
     case .edit, .consume, .passThrough: return false
     }
     return true

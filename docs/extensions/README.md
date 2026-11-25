@@ -42,7 +42,7 @@ Fixed numbers referenced by the individual specs:
 8. **Meeting links:** Accept conferencing URL schemes (`zoommtg:`, `msteams:`) in `open` behind an explicit action.
 9. **Saving a page's choices to `config.json`:** Design with onboarding ([ROADMAP step 4](../../ROADMAP.md#4-onboarding)).
 10. **Extension catalog:** [ROADMAP step 3](../../ROADMAP.md#3-extension-catalog).
-11. **Keyword, space, text:** Shipped (root keyword + argument fills first editable text field and ranks first while keeping Ask agent).
+11. **Keyword, space, text:** Shipped. The root keyword and argument fill the first editable text field and rank first while keeping Ask agent. A lone editable text field uses the main bar. Multiple editable fields or an editable number use slots.
 
 ## Next, in order
 

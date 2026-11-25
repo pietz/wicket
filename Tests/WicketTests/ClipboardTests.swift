@@ -258,7 +258,8 @@ func extensionTextActionsWriteExactTextAndKeepConcealedTextOutOfHistory(type: St
   #expect(view.items.map(\.title) == ["beta two"] && history.clips.map(\.text) == ["beta two"])
 }
 
-@MainActor @Test func clipboardKeywordOpensFilteredHistory() async throws {
+@MainActor @Test(arguments: [false, true])
+func clipboardKeywordOpensFilteredHistory(byTab: Bool) async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let (clipboard, _) = makeHistory(folder)
@@ -274,7 +275,11 @@ func extensionTextActionsWriteExactTextAndKeepConcealedTextOutOfHistory(type: St
   #expect(nav.selected?.provider == "clipboard" && nav.selected?.row.subtitle == "invoice")
   #expect(nav.fieldValues == ["query": "invoice"])
 
-  nav.run()
+  if byTab {
+    #expect(nav.fieldSlots.isEmpty && nav.moveFocus(1))
+  } else {
+    nav.run()
+  }
   await nav.settled()
   #expect(nav.command?.id == "clipboard" && nav.input == "invoice")
   #expect(nav.results.map(\.row.title) == ["Invoice due Friday"])

@@ -229,6 +229,7 @@ except (OSError, ValueError, http.client.HTTPException) as error:
     print("# Calendar not read\n" + " ".join((str(error) or type(error).__name__).split()))
     sys.exit()
 
+# `agenda Berlin` at the root and `Berlin` in Agenda both supply the query field.
 text = request["fields"].get("query", request["input"]).strip()
 query = text.lower()
 events = sorted((event for event in events if upcoming(event)

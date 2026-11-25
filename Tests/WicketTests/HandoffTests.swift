@@ -390,7 +390,13 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
-    root, name: "notes", fields: ["fields": [["name": "topic", "type": "text", "description": "Topic"]]])
+    root, name: "notes",
+    fields: [
+      "fields": [
+        ["name": "topic", "type": "text", "description": "Topic"],
+        ["name": "limit", "type": "number", "description": "Limit"],
+      ]
+    ])
   _ = try extensionFolder(
     root, name: "held",
     script: "cat >/dev/null\nwhile [ ! -e release ]; do sleep 0.01; done\n" + answering("held result"),
@@ -424,7 +430,13 @@ func aPickedCommandRowReplacedByItsOwnPatternLeavesNoPick(succeeds: Bool) async 
   _ = try extensionFolder(
     root, name: "weather",
     script: "while [ ! -e release ]; do sleep 0.01; done\n" + answer,
-    fields: ["match": "^weather$", "fields": [["name": "units", "type": "text", "description": "Units"]]])
+    fields: [
+      "match": "^weather$",
+      "fields": [
+        ["name": "units", "type": "text", "description": "Units"],
+        ["name": "days", "type": "number", "description": "Days"],
+      ],
+    ])
   let model = LauncherModel(
     files: nil, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
   model.agent.connect = { _, _, _ in FakeAgent() }

@@ -236,8 +236,11 @@ private func fields(_ values: [String: String]) throws -> String {
   #expect(try takeOpenedURL(in: folder) == "https://www.youtube.com/results?search_query=cats")
 
   await type("yt")
-  #expect(navigator.moveFocus(1) && navigator.focusedField == "query")
-  navigator.setField("query", to: "dogs")
+  #expect(navigator.fieldSlots.isEmpty && navigator.moveFocus(1))
+  await navigator.settled()
+  #expect(navigator.command?.id == links && navigator.commandPlaceholder == "Search query")
+  #expect(navigator.input.isEmpty && navigator.focusedField == nil && !didOpenURL(in: folder))
+  await type("dogs")
   #expect(!didOpenURL(in: folder))
   navigator.run()
   await navigator.settled()

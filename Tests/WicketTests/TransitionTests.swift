@@ -1578,7 +1578,13 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(
-    root, name: "note", fields: ["fields": [["name": "title", "type": "text", "description": "Title"]]])
+    root, name: "note",
+    fields: [
+      "fields": [
+        ["name": "title", "type": "text", "description": "Title"],
+        ["name": "limit", "type": "number", "description": "Limit"],
+      ]
+    ])
   let model = LauncherModel.testing(in: root, bundled: nil)
   await model.extensions.reload()
   let controller = PaletteController(model: model, panel: RoutingPanel())
@@ -1588,7 +1594,7 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   model.navigator.focusedField = "title"
   try await update(controller)
   let content = try #require(controller.panel.contentView)
-  let slot = try #require(fields(in: content).first { $0 !== controller.panel.field })
+  let slot = try #require(fields(in: content).first { $0.accessibilityLabel() == "title" })
   #expect(controller.panel.firstResponder === slot.currentEditor())
   let editor = try compose("か", in: slot)
   try await update(controller)
@@ -1599,6 +1605,39 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
     model.navigator.fieldValues == ["title": "か"] && model.navigator.input == "note"
       && slot.stringValue == "か")
   controller.hide()
+  await model.finish()
+}
+
+@MainActor @Test func tabFocusesTheEditableSlotWhenAnItemFixesTheMainTextField() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "search",
+    fields: [
+      "fields": [
+        ["name": "site", "type": "text", "description": "Site"],
+        ["name": "query", "type": "text", "description": "Query"],
+      ],
+      "items": [
+        ["id": "yt", "title": "YouTube", "actions": [["type": "run", "fields": ["site": "YouTube"]]]]
+      ],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  defer { controller.hide() }
+  let nav = model.navigator
+  nav.editInput("YouTube")
+  await nav.settled()
+  try await update(controller)
+  let content = try #require(controller.panel.contentView)
+  #expect(fields(in: content).count == 1)
+  #expect(controller.handle(.focus(1)) && nav.focusedField == "query")
+  try await update(controller)
+  let slot = try #require(fields(in: content).first { $0.accessibilityLabel() == "query" })
+  let editor = try #require(slot.currentEditor())
+  #expect(controller.panel.firstResponder === editor && nav.input == "YouTube")
   await model.finish()
 }
 
