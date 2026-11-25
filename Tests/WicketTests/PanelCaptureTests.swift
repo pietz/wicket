@@ -35,7 +35,7 @@ private let states =
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
     "extension-pattern", "extension-list", "extension-quicklinks-empty", "extension-detail", "extension-both",
-    "weather-keyword", "weather-root", "weather-page", "weather-default",
+    "weather-keyword", "weather-root", "weather-page", "weather-default", "convert-cached-rate",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -60,6 +60,7 @@ private func expectedText(_ name: String) -> [String] {
   if let text = transitionText[name] { return text }
   if name == "weather-keyword" { return ["weather", "Ask agent"] }
   if name == "weather-root" { return ["Berlin", "overcast", "Ask agent"] }
+  if name == "convert-cached-rate" { return ["80 EUR", "Cached rate"] }
   if name == "weather-page" || name == "weather-default" {
     return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"]
   }
@@ -382,6 +383,13 @@ private let installedAgent: Void = {
       await model.extensions.reload()
       model.navigator.input = "200*10%+2^3"
       await model.navigator.settled()
+    case "convert-cached-rate":
+      let runner = ExtensionRunner(dataDirectory: folder.appending(path: "extension-data"))
+      try await seedRecordedUSDToEUR(in: runner, stale: true)
+      await model.extensions.reload()
+      model.navigator.input = "100 usd to eur"
+      await model.navigator.settled()
+      try #require(model.navigator.selected?.row.subtitle == "Cached rate · Copy value")
     case "weather-keyword", "weather-root", "weather-page", "weather-default":
       let runner = ExtensionRunner(dataDirectory: folder.appending(path: "extension-data"))
       try await seedRecordedWeather(in: runner.dataDirectory(for: "extension:weather"))

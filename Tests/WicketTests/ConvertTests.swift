@@ -12,8 +12,13 @@ private func rateDirectory(_ runner: ExtensionRunner) throws -> URL {
   return directory
 }
 
-private func seedUSDtoEUR(in directory: URL) async {
-  _ = await exchangeRate(from: "USD", to: "EUR", in: directory) { _, _ in Data(usdToEur.utf8) }
+func seedRecordedUSDToEUR(in runner: ExtensionRunner, stale: Bool = false) async throws {
+  let directory = try rateDirectory(runner)
+  let now = Date.now
+  _ = await exchangeRate(
+    from: "USD", to: "EUR", in: directory, now: stale ? now.addingTimeInterval(-24 * 3600) : now
+  ) { _, _ in Data(usdToEur.utf8) }
+  if stale { _ = await exchangeRate(from: "USD", to: "EUR", in: directory, now: now) { _, _ in nil } }
 }
 
 private func convert(
@@ -131,8 +136,7 @@ func conversionShowsAnUnavailableRateWithoutActions(rate: String) async throws {
   }
   #expect(!units.matches("12*7"))
   #expect(calculator.matches("12*7"))
-  let directory = try rateDirectory(ExtensionRunner(dataDirectory: folder.appending(path: "extension-data")))
-  await seedUSDtoEUR(in: directory)
+  try await seedRecordedUSDToEUR(in: ExtensionRunner(dataDirectory: folder.appending(path: "extension-data")))
   let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
   model.store.start(watching: false)
   model.store.change { try $0.set("decimals", to: "4", forExtension: "units") }

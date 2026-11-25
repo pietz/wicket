@@ -12,9 +12,8 @@ struct ExchangeRate: Equatable, Sendable {
 }
 
 private struct CachedRate: Codable {
-  let value: Double?
+  let value: Double
   let fetchedAt: Date
-  let checkedAt: Date
 }
 
 func exchangeRate(
@@ -24,32 +23,34 @@ func exchangeRate(
   if source == target { return ExchangeRate(value: 1) }
   let file = directory?.appending(path: "rate-\(source)-\(target).json")
   let decoder = JSONDecoder()
-  let cached = file.flatMap { try? Data(contentsOf: $0) }.flatMap {
-    try? decoder.decode(CachedRate.self, from: $0)
+  let cached = file.flatMap { try? Data(contentsOf: $0) }.flatMap { data -> CachedRate? in
+    guard let saved = try? decoder.decode(CachedRate.self, from: data), saved.value > 0, saved.value.isFinite
+    else { return nil }
+    return saved
   }
-  let oldRate = cached?.value.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
-  if let cached {
-    if let oldRate, now.timeIntervalSince(cached.fetchedAt) < 6 * 3600 {
-      return ExchangeRate(value: oldRate)
-    }
-    // An offline refresh should not stall every subsequent keystroke.
-    if now.timeIntervalSince(cached.checkedAt) < 60 {
-      return oldRate.map { ExchangeRate(value: $0, stale: true) }
-    }
+  if let cached, now.timeIntervalSince(cached.fetchedAt) < 6 * 3600 {
+    return ExchangeRate(value: cached.value)
   }
-
-  let latest = await fetch(source, target).flatMap { try? decoder.decode(Rate.self, from: $0) }
-  let fresh = latest.flatMap { rate in
-    rate.base == source && rate.quote == target && rate.rate.isFinite && rate.rate > 0 ? rate.rate : nil
+  let stale = cached.map { ExchangeRate(value: $0.value, stale: true) }
+  // Save a failed attempt separately so it cannot replace a rate another process just fetched.
+  let retry = file?.appendingPathExtension("retry")
+  if let retry, let data = try? Data(contentsOf: retry),
+    let checked = try? decoder.decode(Date.self, from: data),
+    now.timeIntervalSince(checked) < 60
+  {
+    return stale
   }
-  let value = fresh ?? oldRate
+  guard let data = await fetch(source, target), let latest = try? decoder.decode(Rate.self, from: data),
+    latest.base == source, latest.quote == target, latest.rate.isFinite, latest.rate > 0
+  else {
+    if let retry { try? JSONEncoder().encode(now).write(to: retry, options: .atomic) }
+    return stale
+  }
   if let file {
-    let fetchedAt = fresh == nil ? cached?.fetchedAt ?? now : now
-    let entry = CachedRate(value: value, fetchedAt: fetchedAt, checkedAt: now)
-    // Each pair has its own file so concurrent lookups cannot lose another pair's rate.
-    try? JSONEncoder().encode(entry).write(to: file, options: .atomic)
+    let rate = CachedRate(value: latest.rate, fetchedAt: now)
+    try? JSONEncoder().encode(rate).write(to: file, options: .atomic)
   }
-  return value.map { ExchangeRate(value: $0, stale: fresh == nil) }
+  return ExchangeRate(value: latest.rate)
 }
 
 private func fetchRate(_ source: String, _ target: String) async -> Data? {
