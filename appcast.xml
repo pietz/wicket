@@ -6,6 +6,34 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.8.0</title>
+      <pubDate>Wed, 25 Nov 2026 15:35:12 +0000</pubDate>
+      <sparkle:version>50</sparkle:version>
+      <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Your own window positions
+
+Windows lets you add your own moves in Settings: pick an anchor, a width and a height in percent, and give it a hotkey. Save Current Window turns the window in front into a move. The agent can add them too.
+
+## Smoother everyday use
+
+- Voice works with the lid closed on a dock, skips silent microphones, and tells you when it hears nothing.
+- Shell runs your aliases and opens commands in the terminal you pick (only installed ones are listed).
+- Calculator and Convert answer right as you type, with no page to open. Currency is instant and keeps working offline with the last known rate. Pick their decimal places from a menu.
+- Weather opens your default city right away.
+- Search finds apps and items with words in any order, like "code visual".
+- After a minute away, Wicket opens fresh at search instead of the last page.
+- Clipboard and Windows have shorter names, and Settings has a slimmer sidebar.
+
+## Fixes
+
+- Hotkeys behave the same in Settings, diagnostics and when pressed; swapping two keys works.
+- Moving one of your extensions to the Trash keeps its hotkeys and settings for when you restore it.
+- Settings you change are stored as overrides, so extension updates bring new defaults for everything you didn't touch.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.8.0</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.8.0/Wicket-0.8.0.dmg" type="application/octet-stream" sparkle:edSignature="0dip6D0P/SD8AKtT3mapq5p0woLD84AJkad8p5Wrajavrz2nPMCLyP0O+LLmid36ZPkuvn3OnTvV+G1TOkimCw==" length="4640061"/>
+    </item>
+    <item>
       <title>Wicket 0.7.8</title>
       <pubDate>Tue, 24 Nov 2026 22:29:43 +0000</pubDate>
       <sparkle:version>49</sparkle:version>
