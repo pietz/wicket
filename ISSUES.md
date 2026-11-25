@@ -16,6 +16,7 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 - **Direct edits to `config.json` can race a Wicket save.** Wicket serializes its own writers and retries on change, but an external editor without the lock can still write between the last check and replacement.
 - **A restored `config.json` symlink target needs a restart.** While a link dangles, Wicket keeps the launcher hotkey and disables extensions; when the target returns (e.g. a late-mounting volume), nothing reloads. Next: watch the target's parent directory or retry on panel open.
 - **Convert accepts ASCII digits only.** Non-ASCII digits (e.g. Arabic-Indic) yield no row. Next: normalize digits in Convert's parser and regex if requested.
+- **Calculator assumes groups of three digits.** Locales that use lakh grouping can reject input such as `1,00,000 + 1` or display the result with the wrong grouping. Fix by using the locale's primary and secondary grouping widths.
 
 ## Files
 
@@ -31,6 +32,5 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 
 ## Code
 
-- **`Navigator.swift` is about 1,370 lines.** It still holds agent question settings and header/permission height staging. Next: move agent question settings to the agent screen; key heights to the visit alongside measure-before-show.
+- **`Navigator` owns agent question settings and header and permission height staging.** Move agent question settings to the agent screen and keep heights with the visit alongside measure-before-show.
 - **A successful pattern drops text typed into a command's field** when its row is replaced. Next: preserve the selected command row and field values across ranking.
-

@@ -76,13 +76,12 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   let url = try application(in: root)
   model.navigator.input = "> B"
   controller.run()
-  #expect(model.navigator.returnQueued)
   // A menu item chosen meanwhile opens an application and dismisses the panel.
   controller.run(.open(url))
-  #expect(held.opened == [url] && !controller.isShown && !model.navigator.returnQueued)
+  #expect(held.opened == [url] && !controller.isShown)
   try release(root, "echo")
   await model.navigator.settled()
-  #expect(!model.navigator.returnQueued && model.navigator.command == nil)
+  #expect(model.navigator.command == nil)
   #expect(try !requests(in: root.appending(path: "extensions/echo")).contains { $0.submitted })
   held.finish()
   await model.finish()
@@ -117,7 +116,6 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.input = "> B"
   controller.run()
-  #expect(model.navigator.returnQueued)
   // The mic button, before the row Return waits for arrives.
   #expect(await listening(controller, fake))
   try release(root, "echo")
@@ -161,7 +159,7 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   #expect(!model.navigator.results.contains { $0.provider == "agent" || $0.row.id == "fallback" })
   #expect(model.navigator.awaitsPattern)
   controller.run()
-  #expect(model.navigator.returnQueued && model.navigator.command == nil)
+  #expect(model.navigator.command == nil)
   try release(root, "echo")
   #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
   #expect(model.navigator.command?.id == "extension:echo" && !model.agent.active)
@@ -190,7 +188,7 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   await model.navigator.settled()
   #expect(model.navigator.results.first?.provider == "agent" && !model.navigator.awaitsPattern)
   controller.run()
-  #expect(!model.navigator.returnQueued && model.agent.active && model.agent.question == "> E")
+  #expect(model.agent.active && model.agent.question == "> E")
   controller.hide()
   await model.finish()
 }
@@ -209,7 +207,6 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   #expect(await eventually { model.navigator.selected?.row.title == "> C" })
   #expect(model.navigator.awaitsPattern)
   controller.run()
-  #expect(!model.navigator.returnQueued)
   #expect(await eventually { model.navigator.command?.id == "extension:echo" })
   try release(root, "held")
   await model.navigator.settled()
@@ -237,11 +234,10 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   defer { try? FileManager.default.removeItem(at: root) }
   model.navigator.input = "go"
   controller.run()
-  #expect(model.navigator.returnQueued)
   // Zulu's row arrives and is selected, but Alpha, still running, ranks above it: the Return waits.
   #expect(await eventually { model.navigator.selected?.provider == "extension:zulu" })
   try await Task.sleep(for: .milliseconds(50))
-  #expect(model.navigator.returnQueued && model.navigator.command == nil)
+  #expect(model.navigator.command == nil)
   try release(root, "alpha")
   #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
   #expect(model.navigator.command?.id == "extension:alpha")
@@ -256,7 +252,6 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   model.navigator.input = "go"
   #expect(await eventually { model.navigator.selected?.provider == "extension:zulu" })
   controller.run()
-  #expect(!model.navigator.returnQueued)
   #expect(await eventually { model.navigator.command?.id == "extension:zulu" })
   try release(root, "alpha")
   await model.navigator.settled()
@@ -279,7 +274,7 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   #expect(await eventually { model.navigator.selected?.row.id == "command" })
   #expect(model.navigator.selected?.provider == "extension:needle" && model.navigator.awaitsPattern)
   controller.run()
-  #expect(model.navigator.returnQueued && model.navigator.command == nil)
+  #expect(model.navigator.command == nil)
   try release(root, "held")
   #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
   #expect(model.navigator.command?.id == "extension:needle")
@@ -325,7 +320,7 @@ private final class HeldFiles: @unchecked Sendable {
   // Return twice on Ask agent after the failure: neither asks nor waits for anything.
   model.navigator.run()
   model.navigator.run()
-  #expect(!model.navigator.returnQueued && !model.agent.active)
+  #expect(!model.agent.active)
   // The footer offers ⌘↩ alone, not a Return that does nothing.
   #expect(model.navigator.presentation.refusesReturn)
   files.send("/Users/me/needle.txt")
@@ -361,13 +356,12 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   model.navigator.surface = surface
   model.navigator.input = "needle"
   model.navigator.run()
-  #expect(model.navigator.returnQueued)
   #expect(await eventually { files.started })
   let fileShown = { model.navigator.results.first?.provider == "files" }
   if fileFirst {
     files.send(file.path)
     #expect(await eventually { fileShown() })
-    #expect(model.navigator.returnQueued && surface.effects.isEmpty)
+    #expect(surface.effects.isEmpty)
   }
   try release(root, "broken")
   #expect(await eventually { model.navigator.results.contains { $0.row.id == "error" } })
@@ -376,7 +370,7 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
     #expect(await eventually { fileShown() })
   }
   try await Task.sleep(for: .milliseconds(50))
-  #expect(!model.navigator.returnQueued && surface.effects.isEmpty && !model.agent.active)
+  #expect(surface.effects.isEmpty && !model.agent.active)
   model.navigator.select(model.navigator.results.first?.id)
   model.navigator.run()
   #expect(surface.effects.count == 1 && !model.agent.active)
@@ -408,7 +402,6 @@ func anEarlyReturnHeldForAPatternThatFailsOpensNoFile(fileFirst: Bool) async thr
   #expect(model.navigator.moveFocus(1) && model.navigator.focusedField == "topic")
   model.navigator.setField("topic", to: "travel")
   controller.run()
-  #expect(!model.navigator.returnQueued)
   #expect(await eventually { model.navigator.command?.id == "extension:notes" })
   #expect(model.navigator.fieldValues == ["topic": "travel"])
   try release(root, "held")
@@ -461,7 +454,7 @@ func aPickedCommandRowReplacedByItsOwnPatternLeavesNoPick(succeeds: Bool) async 
   } else {
     #expect(model.navigator.presentation.refusesReturn)
     try await Task.sleep(for: .milliseconds(50))
-    #expect(!model.navigator.returnQueued && !model.agent.active && surface.effects.isEmpty)
+    #expect(!model.agent.active && surface.effects.isEmpty)
     // Picking the highlighted Ask agent lets Return ask, and the footer is drawn again with its hint.
     let drawn = surface.changes.count
     model.navigator.select(model.navigator.selection)

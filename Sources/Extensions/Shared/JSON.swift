@@ -1,6 +1,6 @@
 // The bundled extensions' JSON: just enough to read a request and write a view, in plain Swift without
-// Foundation, which would cost about 10 ms per run. Each extension's folder holds a copy of this file
-// beside its `main.swift`; after editing, build one with `swiftc -O *.swift -o main`.
+// Foundation, which would cost about 10 ms per run. Extension sources symlink this file beside
+// `main.swift`. Rebuild an extension with `swiftc -O *.swift -o main`.
 
 /// An array keeps the bytes it spans, so it can be passed on as written.
 enum JSON {

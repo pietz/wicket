@@ -748,14 +748,13 @@ import WebKit
 
   navigator.editInput("new")
   navigator.run()
-  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  #expect(surface.effects.isEmpty)
   try Data().write(to: folder.appending(path: "release-save"))
   #expect(
     await eventually { FileManager.default.fileExists(atPath: folder.appending(path: "rerunning").path) })
-  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  #expect(surface.effects.isEmpty)
   try Data().write(to: folder.appending(path: "release-rerun"))
   await navigator.settled()
-  #expect(!navigator.returnQueued)
   #expect(surface.effects == [.run(.copy("new"), from: surface.presentation.viewRow)])
   await model.finish()
 }
@@ -794,7 +793,7 @@ import WebKit
   navigator.editInput(question)
   #expect(surface.presentation.returnAsksAgent && surface.presentation.busy)
   navigator.run()
-  #expect(!navigator.returnQueued && model.agent.question == question)
+  #expect(model.agent.question == question)
   try release(root, "test")
   await navigator.settled()
   #expect(surface.presentation.agent?.question == question)

@@ -139,10 +139,6 @@ public enum Headless {
             askAgent: .init(
               shown: results.first?.provider == "agent", reason: model.root.strongReason ?? "no strong match")
           ))
-      } else {
-        throw ExtensionFailure(
-          "Use --query TEXT, or --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]"
-        )
       }
       await model.finish()
       return 0

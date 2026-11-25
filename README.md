@@ -2,7 +2,7 @@
 
 **Your own agent, one keystroke away, answering in UI instead of text.**
 
-Press ⌥Space for apps, files, Calculator, Convert, Windows, Quicklinks, Shell, Clipboard History, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
+Press ⌥Space for apps, files, Calculator, Convert, Windows, Quicklinks, Shell, Clipboard, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
 
 > **Alpha.** Wicket is at 0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
 
@@ -50,11 +50,11 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 In Settings ▸ Extensions ▸ Windows, set the gap or add a saved move with an anchor, width and height percentages, and an optional keyword. Give a move its own hotkey there, or ask the agent to add and bind it. **Save Current Window…** opens the same editor with the nearest anchor and rounded sizes filled in.
 
-**Shell:** `> git status` opens the command in your default terminal in your home folder on Return (nothing runs before Return).
+**Shell** opens commands in your home folder. Type `> git status` and press Return. Choose the terminal in Settings ▸ Extensions ▸ Shell.
 
-**Clipboard History** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
+**Clipboard** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
 
-**Command hotkeys.** Press ⌘K ▸ **Set Hotkey…** on an openable command like Weather, an item with a distinct action like Left Half, Settings, Agent History, or Clipboard History. Calculator, Convert, and Shell answer from root patterns. Hidden actions, copy, paste, open, and reveal run without showing Wicket. Other supported actions open directly on their screen. None are set by default.
+**Command hotkeys.** Press ⌘K ▸ **Set Hotkey…** on an openable command like Weather, an item with a distinct action like Left Half, Settings, Agent History, or Clipboard. Calculator, Convert, and Shell answer from root patterns. Hidden actions, copy, paste, open, and reveal run without showing Wicket. Other supported actions open directly on their screen. None are set by default.
 
 ## Voice
 

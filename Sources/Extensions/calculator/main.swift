@@ -765,7 +765,7 @@ private func row(_ input: String, marks: Marks, rootMatch: Bool) -> String? {
   if hasPrefix {
     text = text.dropFirst()
   } else if text.isEmpty {
-    return #"{"id":"help","title":"Type a calculation, like 200 + 10% or =sqrt(9)","actions":[]}"#
+    return nil
   } else if !fullGrammar, !isBareCalculation(text, marks: marks) {
     return nil
   }
@@ -787,7 +787,7 @@ private func status(_ issue: Issue) -> String {
 }
 
 let request = JSON.standardInput()
-let input = request?["fields"]?["expression"]?.string ?? request?["input"]?.string ?? ""
+let input = request?["input"]?.string ?? ""
 let rootMatch = if case .bool(true)? = request?["rootMatch"] { true } else { false }
 let item = row(input, marks: Marks(request), rootMatch: rootMatch)
 print(#"{"items":[\#(item ?? "")]}"#)

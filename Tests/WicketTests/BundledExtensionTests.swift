@@ -7,7 +7,10 @@ let testProducts: URL = {
   // SwiftPM puts resources beside the products, or inside the test bundle with swiftbuild.
   var directory = Bundle.module.bundleURL.deletingLastPathComponent()
   while directory.path != "/" {
-    if FileManager.default.isExecutableFile(atPath: directory.appending(path: "Wicket").path) {
+    let wicket = directory.appending(path: "Wicket")
+    if (try? wicket.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+      FileManager.default.isExecutableFile(atPath: wicket.path)
+    {
       return directory
     }
     directory = directory.deletingLastPathComponent()
@@ -25,6 +28,9 @@ let bundledExtensions: URL = {
   let fm = FileManager.default
   let folder = testProducts.appending(path: "Extensions")
   let names = ["calculator", "units", "weather", "window", "shell", "links-search"]
+  precondition(
+    names.allSatisfy { fm.isExecutableFile(atPath: testProducts.appending(path: $0).path) },
+    "Missing bundled extension executables beside Wicket. Run Scripts/check.sh to build them.")
   for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where !names.contains(name) {
     try! fm.removeItem(at: folder.appending(path: name))
   }

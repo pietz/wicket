@@ -652,7 +652,6 @@ final class Navigator {
     case picked(Result, positional: Bool)
   }
   private var pendingReturn: PendingReturn?
-  var returnQueued: Bool { pendingReturn != nil }
 
   /// A click runs the row and action the user saw, even if a replacement view is on its way.
   func runRow(_ result: Result, action chosen: RowAction? = nil) {

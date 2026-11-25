@@ -11,7 +11,6 @@ private func status(_ message: String) -> String {
     return status("Choose a quicklink to open.")
   }
   guard let template = fields?["template"]?.string else {
-    if fields?["link"]?.string != nil { return status("Set a URL template for this saved search.") }
     return status("Choose a quicklink to open.")
   }
   guard let destination = SearchURL(template) else {

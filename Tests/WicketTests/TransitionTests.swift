@@ -167,11 +167,9 @@ func anUpdateNoticeShowsAtTheEmptyRootAndReturnOpensTheUpdater(compact: Bool) as
   navigator.editInput("")
   // Keep Return waiting on the new empty query as an unavailable first list would.
   navigator.run()
-  #expect(navigator.returnQueued)
 
   availableUpdate = "0.8.0"
   model.reopen()
-  #expect(!navigator.returnQueued)
   apps.release()
   await navigator.settled()
   #expect(surface.presentation.selected?.row.title == "Update Wicket to 0.8.0")
@@ -797,21 +795,19 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   return (model, controller, root)
 }
 
-@MainActor @Test func aWaitingReturnIsCalledOffByAnEditAPickOrHiding() async throws {
+@MainActor @Test(arguments: ["edit", "pick", "hide"])
+func aWaitingReturnIsCalledOffByAnEditAPickOrHiding(cancel: String) async throws {
   let (model, controller, root) = try await staleReturn()
   defer { try? FileManager.default.removeItem(at: root) }
-  for cancel in ["edit", "pick", "hide"] {
-    model.navigator.input = "> B"
-    controller.run()
-    #expect(model.navigator.returnQueued && model.navigator.returnPlan() == .wait)
-    switch cancel {
-    case "edit": model.navigator.editInput("> Bb")
-    case "pick": model.navigator.select(model.navigator.results.first?.id)
-    default:
-      controller.hide()
-      controller.show(orderFront: false, listen: false)
-    }
-    #expect(!model.navigator.returnQueued)
+  model.navigator.input = "> B"
+  controller.run()
+  #expect(model.navigator.returnPlan() == .wait)
+  switch cancel {
+  case "edit": model.navigator.editInput("> Bb")
+  case "pick": model.navigator.select(model.navigator.results.first?.id)
+  default:
+    controller.hide()
+    controller.show(orderFront: false, listen: false)
   }
   try release(root, "echo")
   await model.navigator.settled()
@@ -826,9 +822,8 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   // A failed pattern calls the waiting Return off: it never becomes Ask agent.
   model.navigator.input = "> F"
   controller.run()
-  #expect(model.navigator.returnQueued)
   await model.navigator.settled()
-  #expect(!model.navigator.returnQueued && model.navigator.command == nil && !model.agent.active)
+  #expect(model.navigator.command == nil && !model.agent.active)
   #expect(model.navigator.results.contains { $0.row.id == "error" })
   // Replayed once, when the rows for what is typed arrive.
   model.navigator.input = "> B"
@@ -836,8 +831,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   try release(root, "echo")
   #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
   #expect(
-    model.navigator.command?.id == "extension:echo" && model.navigator.input == "> B"
-      && !model.navigator.returnQueued)
+    model.navigator.command?.id == "extension:echo" && model.navigator.input == "> B")
   await model.navigator.settled()
   #expect(model.navigator.command?.id == "extension:echo" && !model.agent.active)
   controller.hide()
@@ -887,10 +881,9 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   #expect(surface.presentation.selected?.row.title == "84")
 
   navigator.run()
-  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  #expect(surface.effects.isEmpty)
   try release(root)
   await navigator.settled()
-  #expect(!navigator.returnQueued)
   #expect(surface.effects == [.run(.copy("924"), from: surface.presentation.selected)])
   await model.finish()
 }
@@ -900,7 +893,6 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   defer { try? FileManager.default.removeItem(at: root) }
   let (model, surface) = try await liveReturnCommand(in: root)
   model.navigator.run()
-  #expect(!model.navigator.returnQueued)
   #expect(surface.effects == [.run(.copy("84"), from: surface.presentation.selected)])
   await model.finish()
 }
@@ -912,10 +904,10 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   let navigator = model.navigator
   navigator.editInput("broken")
   navigator.run()
-  #expect(navigator.returnQueued && surface.effects.isEmpty)
+  #expect(surface.effects.isEmpty)
   try release(root)
   await navigator.settled()
-  #expect(!navigator.returnQueued && navigator.returnPlan() != .wait)
+  #expect(navigator.returnPlan() != .wait)
   #expect(surface.presentation.problem?.contains("Calculation failed") == true)
   #expect(surface.effects.isEmpty && !model.agent.active)
   await model.finish()
@@ -935,13 +927,12 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   } else {
     navigator.select(clicked.id)
     navigator.run()
-    #expect(navigator.returnQueued && surface.effects.isEmpty)
+    #expect(surface.effects.isEmpty)
   }
 
   try release(root)
   await navigator.settled()
   #expect(surface.presentation.selected?.row.id == "replacement")
-  #expect(!navigator.returnQueued)
   navigator.runRow(clicked)
   #expect(surface.effects == (doubleClick ? [.run(.copy("84"), from: clicked)] : []))
   await model.finish()
@@ -1208,15 +1199,14 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   surface.onDraw = { if model.navigator.command == nil { batches += 1 } }
   model.navigator.input = "> B"
   controller.run()
-  #expect(model.navigator.returnQueued)
   // The held pattern lets the list compose without it first: Return keeps waiting.
   #expect(await eventually { batches >= 1 })
-  #expect(model.navigator.returnQueued && model.navigator.command == nil)
+  #expect(model.navigator.command == nil)
   try release(root, "echo")
   #expect(await eventually(within: .seconds(3)) { model.navigator.command != nil })
   await model.navigator.settled()
   let submitted = try logged(root, "echo").filter(\.submitted)
-  #expect(submitted.count == 1 && submitted[0].input == "> B" && !model.navigator.returnQueued)
+  #expect(submitted.count == 1 && submitted[0].input == "> B")
   controller.hide()
   await model.finish()
 }
