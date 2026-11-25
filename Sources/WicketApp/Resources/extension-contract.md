@@ -147,7 +147,7 @@ Optional `title` names the action in ⌘K and menus (defaults to action kind; `r
 - **`run`:** Submits a request to a target. Optional: `extension` (folder name; defaults to self; never name a folder `agent`, `settings`, `clipboard`, or `history`), `input`, `fields`, `action`, `hidden`, `promptIfEmpty`. Within the open command, `fields` merges by name (omitted kept, `""` clears); in another command, fields start empty. Main text uses the text field name or `input` (field name wins).
   - `"hidden":true`: hides Wicket immediately so the previous app keeps focus; print nothing on success. Printing a failure or a view with `body`/`items` opens Wicket on the command (or shows its first line if open). Visible runs must print a view.
   - `"promptIfEmpty":true`: for hidden actions needing text. Starts with supplied values and any item draft; if the first text field is blank, opens the command for that request (return a prompt view). Filling the field and pressing Return submits the same action as a hidden run.
-- **`save`:** Opens the native add sheet for a list declared by the program's own extension. Supply `setting` and a `values` string map. The user reviews the prefilled values and presses Save to write them to config.json. A program can attach this to a row or answer a submitted capture with `{"items":[],"actions":[{"type":"save","setting":"moves","values":{"definition":"…"}}]}` to open the sheet directly.
+- **`save`:** Opens the native add sheet for a list declared by the program's own extension. Supply `setting` and a `values` string map. The user reviews the prefilled values and presses Save to write them to config.json. A program can attach this to a row or answer a submitted capture with `{"items":[],"actions":[{"type":"save","setting":"moves","values":{"anchor":"center","width":"60","height":"80"}}]}` to open the sheet directly.
 - **`wicket://` URLs:** `wicket://<folder>?input=…`, `wicket://agent?input=…`, `wicket://settings`, `wicket://clipboard?input=…`, `wicket://history?input=…`, `wicket://?input=…` (root). Percent-encode `input`. A command link opens unsubmitted with no `action` and sets the main field to `input` or empty. Other fields start empty. Usable in `open`, Markdown links, and `<row open="…"/>`.
 - **`open`:** Accepts `http`, `https`, `mailto`, `wicket://`, `x-apple.systempreferences:…`, and existing `file://` URLs for apps, folders, and nonexecutable documents. Opening an app hides Wicket immediately (showing an error in the panel on failure). Refuses executables, scripts, workflows, and installers (`.command`, `.pkg`, `.mpkg`, `.dmg`, `.sh`, `.bash`, `.zsh`, `.py`, `.js`, `.scpt`, `.applescript`, `.workflow`), including symlink targets. **`reveal`** selects any existing file/folder in Finder and closes Wicket. Both are validated at activation time.
 - **`copy`** / **`paste`:** `copy` copies and closes. `paste` writes verbatim to pasteboard, restores the previous app, and posts ⌘V if Accessibility is granted (otherwise explains how to enable it without prompting). Trailing newlines are preserved verbatim; pasting into a terminal may act on pasted newlines. Add `"concealed":true` to keep text on this Mac and out of Clipboard.
@@ -273,15 +273,17 @@ Set `extensions.shell.terminal` to `default`, `terminal`, `iterm2`, or `ghostty`
 
 ### A saved window move
 
-Choose **Save Current Window…** in Windows with a standard window wholly inside one display. Name the move in the prefilled sheet. It appears under Settings ▸ Extensions ▸ Windows ▸ Saved Moves, where it can be edited, deleted, or given a hotkey.
+In Settings ▸ Extensions ▸ Windows ▸ Saved Moves, add a move and assign its hotkey. **Save Current Window…** prefills the nearest anchor and rounded sizes. For the same prefill values headlessly, run `Wicket --extension window --submitted --action save-current` and read the `save` action.
 
-An agent can run `Wicket --extension window --submitted --action save-current` to get the captured `definition` in the response's `save` action. Add the named entry in `config.json` and bind it with `wicket://window?entry=moves/coding`. A saved move acts on the window focused when it is run.
+Add entries to `extensions.window.moves` and bind them with `wicket://window?entry=moves/<id>`. Keep existing entries and bindings when editing `config.json`.
 
 ```json
-{"extensions":{"window":{"moves":[{"id":"coding","title":"Coding","keyword":"coding","definition":"{\"kind\":\"move\",\"placement\":{\"display\":\"current\",\"rect\":[0,0,0.667,1],\"gap\":8}}"}]}}}
+{"extensions":{"window":{"moves":[
+  {"id":"coding","title":"Coding","anchor":"left","width":"66.67","height":"100","keyword":"coding"}
+]}},"hotkeys":[{"keys":"ctrl+option+1","address":"wicket://window?entry=moves/coding"}]}
 ```
 
-`rect` is `[x, y, width, height]` as fractions from the top-left of the usable display. `display` (and optional `fallback`) accepts `current`, `main`, `next`, or a display UUID. `gap` is 0–200 points (omit to use Windows's setting).
+A move uses the focused window's current display and the Windows gap setting. Width and height are percentage strings from 10 to 100. Anchors are `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, and `bottom-right`.
 
 ### A site search with a query
 

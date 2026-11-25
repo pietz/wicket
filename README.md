@@ -2,7 +2,7 @@
 
 **Your own agent, one keystroke away, answering in UI instead of text.**
 
-Press ⌥Space for apps, files, Calculator, Convert, Window Manager, Quicklinks, Shell, Clipboard History, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
+Press ⌥Space for apps, files, Calculator, Convert, Windows, Quicklinks, Shell, Clipboard History, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
 
 > **Alpha.** Wicket is at 0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
 
@@ -44,9 +44,11 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
 
-**Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys. **Window Manager** can capture the focused window as a reusable move with **Save Current Window…**.
+**Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
 
-**Window Manager** moves the focused window: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display, and Restore. Type a move name (`left`, `max`, `next display`) or `window`. Wicket closes for the move and reports failures or partial moves (which Restore can undo). If Accessibility is missing, choose **Allow Accessibility for Wicket**. Configure gap and Almost Maximize size in Settings ▸ Extensions ▸ Window Manager.
+**Windows** moves the focused window with Left Half, Right Half, Maximize, Center (keeping its size), Next Display, or Restore. Type a move name or `window`. Wicket closes for the move and reports failures or partial moves, which Restore can undo. If Accessibility is missing, choose **Allow Accessibility for Wicket**.
+
+In Settings ▸ Extensions ▸ Windows, set the gap or add a saved move with an anchor, width and height percentages, and an optional keyword. Give a move its own hotkey there, or ask the agent to add and bind it. **Save Current Window…** opens the same editor with the nearest anchor and rounded sizes filled in.
 
 **Shell:** `> git status` opens the command in your default terminal in your home folder on Return (nothing runs before Return).
 

@@ -174,7 +174,7 @@ final class ExtensionHost {
   /// The `extensions` of config.json: each folder's saved settings.
   private var settings: [String: JSONValue] = [:]
   private var discoveryProblems: [String: Problem] = [:]
-  var migrateLists: (([String: ExtensionCommand]) -> ListMigration.Result)?
+  var migrateLists: (([String: ExtensionCommand], Locations) -> ListMigration.Result)?
   private var migrating = false
   private var retryMigrationOnConfigChange = false
   private var migrationProblems: [String: String] = [:]
@@ -183,6 +183,12 @@ final class ExtensionHost {
     guard saved != settings else { return [] }
     let previous = settings
     settings = saved
+    if migrateLists != nil, !migrating, !retryMigrationOnConfigChange, saved["window"] != previous["window"],
+      let list = ListMigration.windowMoveList(commands["extension:window"]),
+      ListMigration.hasLegacyWindowMoves(saved["window"], list: list)
+    {
+      rescan()
+    }
     var updated = commands
     for (id, command) in commands {
       let name = command.folder.lastPathComponent
@@ -294,7 +300,7 @@ final class ExtensionHost {
         }
         if let migrateLists {
           migrating = true
-          let result = migrateLists(commands)
+          let result = migrateLists(commands, locations)
           migrating = false
           retryMigrationOnConfigChange = result.retryOnConfigChange
           migrationProblems = result.problems

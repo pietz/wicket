@@ -48,9 +48,10 @@ final class LauncherModel {
     navigator = Navigator(agent: agent, directory: directory, root: root, store: store, history: history)
     self.history = history
     navigator.footerProblem = { [weak self] in self?.problem }
-    extensions.migrateLists = { [weak self] commands in
+    extensions.migrateLists = { [weak self] commands, locations in
       guard let self else { return .init() }
-      let result = ListMigration.run(commands, root: folder.appending(path: "extensions"), store: store)
+      let result = ListMigration.run(
+        commands, locations: locations, root: folder.appending(path: "extensions"), store: store)
       if result.count > 0 { navigator.personalItemsMigrated(result.count) }
       return result
     }

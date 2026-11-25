@@ -42,7 +42,7 @@ private let states =
     "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
     "settings-extension-shadow", "settings-extension-local",
     "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit",
-    "settings-quicklinks-search", "settings-window-add", "settings-error",
+    "settings-quicklinks-search", "settings-window-add", "settings-window-invalid", "settings-error",
     "settings-conflict",
   ] + transitions
 
@@ -68,7 +68,7 @@ private func expectedText(_ name: String) -> [String] {
     return ["Built in", "Clipboard", "Weather", "Windows", "Finds the apps on this Mac by name"]
   }
   if name == "settings-window" {
-    return ["Moves the frontmost window", "Gap", "Almost Maximize", "Hotkeys", "Windows"]
+    return ["Gap", "Saved Moves", "Coding layout", "Windows"]
   }
   if name == "settings-extension-shadow" {
     return [
@@ -92,7 +92,12 @@ private func expectedText(_ name: String) -> [String] {
     return ["Add Site Search", "Put {query} where the search text goes", "Save"]
   }
   if name == "settings-window-add" {
-    return ["Add Window Move", "Title", "Keyword", "Save"]
+    return [
+      "Add Window Move", "Title", "Anchor", "Center", "Width", "50", "Height", "100", "Keyword", "Save",
+    ]
+  }
+  if name == "settings-window-invalid" {
+    return ["Add Window Move", "Coding", "Width", "Enter a number from 10 to 100", "Keyword", "Save"]
   }
   if name.contains("settings-") { return [] }
   if name == "extension-quicklinks-empty" { return ["Quicklinks", "Add a Quicklink"] }
@@ -807,9 +812,16 @@ private let installedAgent: Void = {
       initial.hotkeys = [
         .init(
           keys: try Shortcut("ctrl+option+left"),
-          target: HotkeyTarget(target: "extension:window", item: "left"))
+          target: HotkeyTarget(target: "extension:window", item: "left")),
+        .init(
+          keys: try Shortcut("ctrl+option+1"),
+          target: HotkeyTarget(target: "extension:window", item: "coding", entryList: "moves")),
       ]
-      initial.extensions = ["window": .object(["gap": .string("8")])]
+      initial.extensions = [
+        "window": .object([
+          "gap": .string("8"), "moves": .array([.object(codingMove.mapValues(JSONValue.string))]),
+        ])
+      ]
     }
     if state == "settings-extensions" || state == "settings-extension-shadow" {
       try FileManager.default.copyItem(
@@ -884,17 +896,15 @@ private let installedAgent: Void = {
         runs: AgentHistory(url: folder.appending(path: "agent-history.json")),
         updater: nil, pauseHotkey: { _ in }, selected: selected))
     let view: NSView
-    if quicklinks && state != "settings-quicklinks" || state == "settings-window-add" {
-      let window = state == "settings-window-add"
-      let folder = window ? "window" : "links-search"
-      let name = window ? "moves" : state == "settings-quicklinks-search" ? "searches" : "links"
+    let windowEditor = state == "settings-window-add" || state == "settings-window-invalid"
+    if quicklinks && state != "settings-quicklinks" || windowEditor {
+      let folder = windowEditor ? "window" : "links-search"
+      let name = windowEditor ? "moves" : state == "settings-quicklinks-search" ? "searches" : "links"
       let list = try #require(
         host.commands["extension:" + folder]?.manifest.settings.first { $0.name == name }?.list)
       let editing = state == "settings-quicklinks-edit"
       let values =
-        if window { ["definition": try #require(codingMove["definition"])] } else {
-          editing ? bookmarks[0] : [:]
-        }
+        state == "settings-window-invalid" ? ["title": "Coding", "width": "5"] : editing ? bookmarks[0] : [:]
       let draft = SettingsEntryDraft(
         folder: folder, list: list, values: values,
         entryID: editing ? bookmarks[0]["id"] : nil)
@@ -1022,10 +1032,6 @@ func panelCapture(_ state: String) async throws {
     let missing = expectedText(state).filter { !text.localizedCaseInsensitiveContains($0) }
     #expect(missing.isEmpty, "\(target.lastPathComponent) is missing \(missing). Recognized text: \(text)")
     #expect(!text.isEmpty, "\(target.lastPathComponent) is blank")
-    if state == "settings-window-add" {
-      #expect(!text.localizedCaseInsensitiveContains("definition"))
-      #expect(!text.localizedCaseInsensitiveContains("placement"))
-    }
     if state == "settings-window" || state == "settings-extensions" {
       #expect(!text.localizedCaseInsensitiveContains("Show in Finder"))
     }
@@ -1080,7 +1086,7 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "hotkey-binding":
     #expect(model.navigator.results.compactMap { model.navigator.hotkey(of: $0) }.count == 2)
   case "settings-quicklinks-add", "settings-quicklinks-edit", "settings-quicklinks-search",
-    "settings-window-add":
+    "settings-window-add", "settings-window-invalid":
     #expect(scenario.controller == nil && scenario.view.frame.width == 420)
   case _ where state.hasPrefix("settings-"):
     #expect(scenario.controller == nil && scenario.view.frame.size == SettingsPane.size)

@@ -448,30 +448,120 @@ func pendingMigrationResumesAtTheRecordedDestination(published: Bool) async thro
   await model.finish()
 }
 
-@Test func aHiddenWindowDefinitionIsRequiredOnInsertAndPreservedOnEdit() throws {
+@MainActor @Test func savedWindowMovesMigrateInPlaceWithoutChangingTheirBindings() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
   let file = ConfigurationFile(url: root.appending(path: "config.json"))
+  let target = try #require(HotkeyTarget("wicket://window?entry=moves/legacy"))
+  let shortcut = try Shortcut("ctrl+option+1")
+  let legacy = [
+    "id": "legacy", "title": "Coding", "keyword": "code", "future": "kept",
+    "definition":
+      #"{"kind":"move","placement":{"display":"12345678-1234-4321-1234-ABCDEFABCDEF","fallback":"current","rect":[0.01,0.17,0.3333,0.8],"gap":0}}"#,
+  ]
+  let tiny = [
+    "id": "tiny", "title": "Tiny",
+    "definition": #"{"kind":"move","placement":{"display":"current","rect":[0,0,0.04,0.08]}}"#,
+  ]
+  var malformed = legacy
+  malformed["id"] = "malformed"
+  malformed["definition"] = #"{"kind":"layout"}"#
   try Configuration().save(at: file.url)
-  let list = try #require(try bundled("window").manifest.settings.first { $0.name == "moves" }?.list)
-  #expect(list.editableFields.map(\.name) == ["title", "keyword"])
-  let definition = try #require(codingMove["definition"])
-  #expect(!list.accepts(["title": "Coding"]))
-  try file.changeEntry(in: list, folder: "window", id: "coding", values: codingMove, inserting: true)
+  try file.bind(shortcut, to: target)
+  try file.set("window", to: ["moves": [legacy, tiny, malformed, codingMove], "gap": "8"], in: "extensions")
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  model.store.start(watching: false)
+  await model.extensions.reload()
 
-  var edited = codingMove
-  edited["title"] = "Writing"
-  edited["definition"] = nil
-  try file.changeEntry(in: list, folder: "window", id: "coding", values: edited, original: codingMove)
   let saved = try Configuration.load(at: file.url)
-  let entry = try #require(saved.extensions["window"]?["moves"].array.first)
-  #expect(entry["title"].string == "Writing")
-  #expect(entry["definition"].string == definition)
-  let values = ["id": "coding", "title": "Writing", "definition": definition]
+  #expect(saved.hotkeys == [.init(keys: shortcut, target: target)])
+  #expect(saved.extensions["window"]?["gap"].string == "8")
+  let entries = saved.extensions["window"]?["moves"].array ?? []
+  let expected = [
+    "id": "legacy", "title": "Coding", "keyword": "code", "future": "kept",
+    "anchor": "bottom-left", "width": "33.33", "height": "80",
+  ]
   #expect(
-    list.row(values)?.actions.first?.kind
+    entries
+      == [
+        expected, ["id": "tiny", "title": "Tiny", "anchor": "top-left", "width": "10", "height": "10"],
+        malformed, codingMove,
+      ].map { .object($0.mapValues(JSONValue.string)) })
+  let item = model.extensions.commands["extension:window"]?.item(for: target)
+  #expect(item?.title == "Coding" && item?.keywords == ["code"])
+  #expect(
+    item?.actions.first?.kind
       == .run(
-        Address(fields: ["definition": definition], action: "apply-definition", hidden: true)))
+        Address(
+          fields: ["anchor": "bottom-left", "width": "33.33", "height": "80"], action: "apply-placement",
+          hidden: true)))
+  #expect(model.extensions.problems["extension:window"]?.settings?.contains("moves entry 3") == true)
+
+  let disk = try Data(contentsOf: file.url)
+  await model.extensions.reload()
+  #expect(try Data(contentsOf: file.url) == disk)
+
+  malformed["definition"] = legacy["definition"]
+  try file.set("window", to: ["moves": [expected, malformed, codingMove], "gap": "8"], in: "extensions")
+  model.store.load()
+  let repaired = try #require(HotkeyTarget("wicket://window?entry=moves/malformed"))
+  #expect(
+    await eventually(within: .seconds(3)) {
+      model.extensions.commands["extension:window"]?.item(for: repaired) != nil
+    })
+  #expect(model.configuration.extensions["window"]?["moves"].array[1]["definition"].string == nil)
+  await model.finish()
+}
+
+@MainActor @Test(arguments: [false, true])
+func anOlderLocalWindowsExtensionKeepsItsOwnMoveSchema(disconnected: Bool) async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let list: [String: Any] = [
+    "name": "moves", "type": "list", "description": "Saved Moves",
+    "fields": [
+      ["name": "title", "type": "text", "description": "Title"],
+      ["name": "definition", "type": "text", "description": "Definition", "hidden": true],
+    ],
+    "item": ["title": "{title}", "actions": [["type": "run", "action": "apply-definition"]]],
+  ]
+  let local = try extensionFolder(root, name: "window", script: "echo '{}'", fields: ["settings": [list]])
+  let file = ConfigurationFile(url: root.appending(path: "config.json"))
+  try Configuration().save(at: file.url)
+  let legacy = [
+    "id": "legacy", "title": "Coding",
+    "definition": #"{"kind":"move","placement":{"display":"current","rect":[0,0,0.5,1]}}"#,
+  ]
+  try file.set("window", to: ["moves": [legacy]], in: "extensions")
+  let disk = try Data(contentsOf: file.url)
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  #expect(try Data(contentsOf: file.url) == disk)
+  #expect(model.extensions.commands["extension:window"]?.items.first?.id == "legacy")
+  #expect(model.extensions.problems["extension:window"]?.settings == nil)
+  let manifest = local.appending(path: "wicket.json")
+  let data = try Data(contentsOf: manifest)
+  let backup = root.appending(path: "backup")
+  let remote = root.appending(path: "remote")
+  if disconnected {
+    try FileManager.default.moveItem(at: local, to: backup)
+    try FileManager.default.createSymbolicLink(at: local, withDestinationURL: remote)
+  } else {
+    try Data("{".utf8).write(to: manifest, options: .atomic)
+  }
+  await model.extensions.reload()
+  #expect(model.extensions.commands["extension:window"]?.manifest.name == "Windows")
+  #expect(try Data(contentsOf: file.url) == disk)
+  if disconnected {
+    try FileManager.default.moveItem(at: backup, to: remote)
+  } else {
+    try data.write(to: manifest, options: .atomic)
+  }
+  await model.extensions.reload()
+  #expect(try Data(contentsOf: file.url) == disk)
+  #expect(model.extensions.commands["extension:window"]?.items.first?.id == "legacy")
+  await model.finish()
 }
 
 @MainActor @Test(arguments: [false, true])

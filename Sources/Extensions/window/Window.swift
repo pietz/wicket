@@ -15,11 +15,9 @@ func contents(_ path: String) -> [UInt8]? {
 
 // MARK: - Moves
 
-/// The commands, by the `move` argument their items set.
+/// The stock commands, keyed by their manifest item IDs.
 enum Move: String, CaseIterable {
-  case left, right, top, bottom, maximize
-  case almostMaximize = "almost-maximize"
-  case center
+  case left, right, maximize, center
   case nextDisplay = "next-display"
   case restore
 }
@@ -49,48 +47,37 @@ func displayIndex(of window: CGRect, in displays: [Display]) -> Int {
   return overlaps.indices.max { overlaps[$0] < overlaps[$1] } ?? 0
 }
 
-/// The user's settings (`request.settings`): `gap`, the points between a window and the screen's edges
-/// and between halves, and `almostMaximize`, the percent of each side Almost Maximize takes.
 struct Layout: Equatable {
   var gap: CGFloat = 0
-  var almost: CGFloat = 0.9
-  /// Values that are no number, or out of range, keep the default.
-  init(gap: String? = nil, almostMaximize: String? = nil) {
+
+  init(gap: String? = nil) {
     if let value = gap.flatMap(Double.init), (0...200).contains(value) { self.gap = value.rounded() }
-    if let value = almostMaximize.flatMap(Double.init), (10...100).contains(value) { almost = value / 100 }
+  }
+
+  func gap(in visible: CGRect) -> CGFloat {
+    min(gap, (min(visible.width, visible.height) / 4).rounded(.down))
   }
 }
 
-/// Where a move puts a window, on whole points of its display's visible frame. Nil for `restore`, which
-/// reads where the window was, and for `nextDisplay` with a single display.
+/// Where a stock move puts a window. Restore instead reads where the window was.
 func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = Layout()) -> CGRect? {
   guard !displays.isEmpty else { return nil }
   let index = displayIndex(of: window, in: displays)
   let visible = displays[index].visible
-  let gap = min(layout.gap, (min(visible.width, visible.height) / 4).rounded(.down))
-  let screen = visible.insetBy(dx: gap, dy: gap)
-  /// The screen in two along an axis, the gap between them; the second half takes the odd point.
-  func halves(_ edge: CGRectEdge) -> (CGRect, CGRect) {
-    let size = edge == .minXEdge ? screen.width : screen.height
-    let (first, rest) = screen.divided(atDistance: ((size - gap) / 2).rounded(.down), from: edge)
-    return (first, rest.divided(atDistance: gap, from: edge).remainder)
-  }
-  func centered(_ width: CGFloat, _ height: CGFloat) -> CGRect {
-    CGRect(
+  let gap = layout.gap(in: visible)
+  switch move {
+  case .left, .right:
+    return Placement(anchor: move == .left ? .left : .right, width: 50, height: 100)
+      .frame(in: visible, gap: gap)
+  case .maximize:
+    return Placement(anchor: .center, width: 100, height: 100).frame(in: visible, gap: gap)
+  case .center:
+    let screen = visible.insetBy(dx: gap, dy: gap)
+    let width = min(window.width, screen.width)
+    let height = min(window.height, screen.height)
+    return CGRect(
       x: screen.minX + ((screen.width - width) / 2).rounded(.down),
       y: screen.minY + ((screen.height - height) / 2).rounded(.down), width: width, height: height)
-  }
-  switch move {
-  case .left: return halves(.minXEdge).0
-  case .right: return halves(.minXEdge).1
-  case .top: return halves(.minYEdge).0
-  case .bottom: return halves(.minYEdge).1
-  case .maximize: return screen
-  case .almostMaximize:
-    return centered(
-      min((visible.width * layout.almost).rounded(), screen.width),
-      min((visible.height * layout.almost).rounded(), screen.height))
-  case .center: return centered(min(window.width, screen.width), min(window.height, screen.height))
   case .nextDisplay:
     guard displays.count > 1 else { return nil }
     let next = displays[nextDisplay(after: index, in: displays)].visible
@@ -387,10 +374,13 @@ func perform<AX: WindowAccessibility>(
     }
     destination = rect
   case .custom(let placement):
-    switch placement.destination(for: current, displays: displays(), defaultGap: layout.gap) {
-    case .success(let rect): destination = rect
-    case .failure(let error): return problem("Can't apply window move", error.message)
+    let screens = displays()
+    guard !screens.isEmpty else { return problem("No display available") }
+    let visible = screens[displayIndex(of: current, in: screens)].visible
+    guard let rect = placement.frame(in: visible, gap: layout.gap(in: visible)) else {
+      return problem("Can't apply window move", "Use a larger move or reduce the gap in Windows Settings")
     }
+    destination = rect
   }
 
   let (denied, actual, cleanupError) = writeFrame(destination, to: window, using: ax)
@@ -465,28 +455,32 @@ func answer(problem: String?, commands: String) -> String { #"{"items":["# + (pr
 @MainActor func windowAnswer(
   _ request: JSON?, manifestBytes: [UInt8],
   move: @MainActor (WindowMove, Layout, String) -> String?,
-  capture: @MainActor (String, Bool) -> String
+  capture: @MainActor (String, Bool, Layout) -> String
 ) -> String? {
   var position = 0
   let manifest = JSON.read(manifestBytes, &position)
   if case .bool(true)? = request?["submitted"], let action = request?["action"]?.string {
     let commandName = manifest?["name"]?.string ?? "Windows"
     let settings = request?["settings"]
-    let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
+    let layout = Layout(gap: settings?["gap"]?.string)
     if action == "capture" || action == "save-current" {
-      return capture(commandName, action == "save-current")
+      return capture(commandName, action == "save-current", layout)
     }
-    if action == "apply-definition" {
-      switch Placement.decode(request?["fields"]?["definition"]?.string) {
-      case .success(let placement):
-        return move(.custom(placement), layout, commandName).map { answer(problem: $0, commands: "") }
-      case .failure(let error):
-        return answer(problem: problem("Invalid window move definition", error.message), commands: "")
+    if action == "apply-placement" {
+      guard let placement = Placement(fields: request?["fields"]) else {
+        return answer(
+          problem: problem(
+            "Invalid window move", "Choose an anchor and enter width and height from 10 to 100%"),
+          commands: "")
       }
+      return move(.custom(placement), layout, commandName).map { answer(problem: $0, commands: "") }
     }
     if let stock = Move(rawValue: action) {
       return move(.stock(stock), layout, commandName).map { answer(problem: $0, commands: "") }
     }
+    return answer(
+      problem: problem("Window move is unavailable", "Choose a move in Windows or add one in Settings"),
+      commands: "")
   }
   let commands: String
   if case .array(let range)? = manifest?["items"] {

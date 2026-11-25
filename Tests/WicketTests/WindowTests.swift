@@ -38,10 +38,7 @@ private let external = Display(
 @Test(arguments: [
   (Move.left, CGRect(x: 0, y: 33, width: 756, height: 859)),
   (.right, CGRect(x: 756, y: 33, width: 756, height: 859)),
-  (.top, CGRect(x: 0, y: 33, width: 1512, height: 429)),
-  (.bottom, CGRect(x: 0, y: 462, width: 1512, height: 430)),
   (.maximize, CGRect(x: 0, y: 33, width: 1512, height: 859)),
-  (.almostMaximize, CGRect(x: 75, y: 76, width: 1361, height: 773)),
   (.center, CGRect(x: 456, y: 162, width: 600, height: 600)),
 ])
 func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
@@ -57,8 +54,8 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
   let left = try #require(target(.left, window: current, displays: [odd]))
   let right = try #require(target(.right, window: current, displays: [odd]))
   #expect(left.maxX == right.minX && right.maxX == 1511)
-  let top = try #require(target(.top, window: current, displays: [odd]))
-  let bottom = try #require(target(.bottom, window: current, displays: [odd]))
+  let top = try #require(Placement(anchor: .top, width: 100, height: 50).frame(in: odd.visible, gap: 0))
+  let bottom = try #require(Placement(anchor: .bottom, width: 100, height: 50).frame(in: odd.visible, gap: 0))
   #expect(top.maxY == bottom.minY && bottom.maxY == 926)
   // A window wider than the screen is centered at the screen's width.
   #expect(target(.center, window: current, displays: [odd]) == CGRect(x: 0, y: 325, width: 1511, height: 300))
@@ -360,7 +357,8 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
   #expect(try await windowView().items == rows)
   #expect(try await windowView("left").items == rows)
   #expect(try await windowView(submitted: true).items == rows)
-  #expect(try await windowView("sideways", submitted: true).items == rows)
+  #expect(
+    try await windowView("sideways", submitted: true).items.first?.title == "Window move is unavailable")
 }
 
 /// A move that failed answers one row saying why: the whole answer, so no command that matches what is
@@ -424,142 +422,148 @@ func apiDisabledOffersTheSameRecoveryAsTheHost(duringWrite: Bool) throws {
 
 // MARK: - Settings
 
-@Test func aGapInsetsEveryMoveAndSeparatesTheHalves() throws {
-  let layout = Layout(gap: "8", almostMaximize: "80")
+@Test func stockAndCustomMovesShareTheSameEvenGaps() throws {
+  // An odd visible width centered on the global origin exercises rounding on both sides of zero.
+  let screen = CGRect(x: -756, y: 33, width: 1511, height: 859)
+  let display = Display(frame: screen, visible: screen)
   let current = CGRect(x: 10, y: 50, width: 600, height: 600)
-  func moved(_ move: Move) throws -> CGRect {
-    try #require(target(move, window: current, displays: [laptop], layout: layout))
+  for gap in [8.0, 9.0] {
+    let layout = Layout(gap: String(gap))
+    func moved(_ move: Move) throws -> CGRect {
+      try #require(target(move, window: current, displays: [display], layout: layout))
+    }
+    #expect(try moved(.maximize) == screen.insetBy(dx: gap, dy: gap))
+    let (left, right) = (try moved(.left), try moved(.right))
+    #expect(left.minX == screen.minX + gap && right.minX - left.maxX == gap)
+    #expect(right.maxX == screen.maxX - gap && left.height == screen.height - 2 * gap)
+    #expect(Placement(anchor: .left, width: 50, height: 100).frame(in: screen, gap: gap) == left)
+    let top = try #require(Placement(anchor: .top, width: 100, height: 50).frame(in: screen, gap: gap))
+    let bottom = try #require(Placement(anchor: .bottom, width: 100, height: 50).frame(in: screen, gap: gap))
+    #expect(bottom.minY - top.maxY == gap && bottom.maxY == screen.maxY - gap)
+    let center = try #require(Placement(anchor: .center, width: 60, height: 80).frame(in: screen, gap: gap))
+    #expect(abs(center.width - (screen.width * 0.6 - gap)) <= 1)
+    #expect(abs(center.height - (screen.height * 0.8 - gap)) <= 1)
+    #expect(abs(center.midX - screen.midX) <= 0.5 && abs(center.midY - screen.midY) <= 0.5)
   }
-  let screen = laptop.visible
-  #expect(try moved(.maximize) == screen.insetBy(dx: 8, dy: 8))
-  let (left, right) = (try moved(.left), try moved(.right))
-  #expect(left.minX == 8 && right.minX - left.maxX == 8 && right.maxX == screen.maxX - 8)
-  #expect(left.minY == screen.minY + 8 && left.height == screen.height - 16)
-  let (top, bottom) = (try moved(.top), try moved(.bottom))
-  #expect(bottom.minY - top.maxY == 8 && bottom.maxY == screen.maxY - 8)
-  // Almost Maximize takes its percent of the visible frame, centered.
-  let almost = try moved(.almostMaximize)
-  #expect(almost.width == (1512 * 0.8).rounded() && almost.height == (859 * 0.8).rounded())
-  #expect(abs(almost.midX - screen.midX) <= 1 && abs(almost.midY - screen.midY) <= 1)
 }
 
-@Test func settingsThatAreNoNumberOrOutOfRangeKeepTheDefaults() {
-  #expect(Layout() == Layout(gap: "0", almostMaximize: "90"))
-  #expect(Layout(gap: "wide", almostMaximize: "150") == Layout())
-  #expect(Layout(gap: "-4", almostMaximize: "5") == Layout())
-  #expect(Layout(gap: "12.4").gap == 12 && Layout(almostMaximize: "75").almost == 0.75)
+@Test func gapSettingsRejectInvalidValuesAndClampOnSmallDisplays() {
+  #expect(Layout() == Layout(gap: "0"))
+  #expect(Layout(gap: "wide") == Layout())
+  #expect(Layout(gap: "-4") == Layout())
+  #expect(Layout(gap: "201") == Layout())
+  #expect(Layout(gap: "12.4").gap == 12)
+  let small = CGRect(x: 0, y: 20, width: 320, height: 200)
+  #expect(Layout(gap: "200").gap(in: small) == 50)
+  #expect(Placement(anchor: .center, width: 10, height: 10).frame(in: small, gap: 50) == nil)
+}
+
+@Test(arguments: [
+  (window.WindowAnchor.topLeft, -1300, -180),
+  (.top, -940, -180),
+  (.topRight, -580, -180),
+  (.left, -1300, 45),
+  (.center, -940, 45),
+  (.right, -580, 45),
+  (.bottomLeft, -1300, 270),
+  (.bottom, -940, 270),
+  (.bottomRight, -580, 270),
+])
+func anchoredMovesResolveAgainstTheVisibleFrame(anchor: window.WindowAnchor, x: Int, y: Int) throws {
+  let visible = CGRect(x: -1300, y: -180, width: 1200, height: 900)
+  let rect = try #require(Placement(anchor: anchor, width: 40, height: 50).frame(in: visible, gap: 0))
+  #expect(rect == CGRect(x: x, y: y, width: 480, height: 450))
+  let normalized = CGRect(
+    x: (CGFloat(x) - visible.minX) / visible.width, y: (CGFloat(y) - visible.minY) / visible.height,
+    width: 0.4, height: 0.5)
+  #expect(window.WindowAnchor.nearest(to: normalized) == anchor)
+}
+
+@Test func thirdsAndTwoThirdsUseTheSameGutter() throws {
+  let screen = CGRect(x: -900, y: 30, width: 900, height: 600)
+  let left = try #require(Placement(anchor: .left, width: 66.67, height: 100).frame(in: screen, gap: 12))
+  let right = try #require(Placement(anchor: .right, width: 33.33, height: 100).frame(in: screen, gap: 12))
+  #expect(left == CGRect(x: -888, y: 42, width: 582, height: 576))
+  #expect(right == CGRect(x: -294, y: 42, width: 282, height: 576))
+
+  let full = CGRect(x: 0, y: 0, width: 1000, height: 800)
+  let third = try #require(Placement(anchor: .left, width: 33.3, height: 100).frame(in: full, gap: 9))
+  let remainder = try #require(Placement(anchor: .right, width: 66.7, height: 100).frame(in: full, gap: 9))
+  #expect(remainder.minX - third.maxX == 9)
+}
+
+@Test func subpointRoundingStaysInsideTheVisibleFrame() throws {
+  let visible = CGRect(x: -1300.3, y: -180.2, width: 1200.7, height: 900.1)
+  let rect = try #require(Placement(anchor: .center, width: 100, height: 100).frame(in: visible, gap: 0))
+  #expect(visible.contains(rect))
+  #expect(rect == CGRect(x: -1300, y: -180, width: 1200, height: 899))
 }
 
 // MARK: - Saved moves and Capture
 
 @MainActor
-@Test(
-  arguments: [
-    (nil, "Set fields.definition"),
-    ("{", "Set fields.definition"),
-    (#"{"placement":{}}"#, "Set kind to move"),
-    (#"{"kind":42}"#, "Set kind to move"),
-    (#"{"kind":"layout","placement":{}}"#, "Set kind to move"),
-    (#"{"kind":"move"}"#, "Set placement to an object"),
-    (#"{"kind":"move","placement":[]}"#, "Set placement to an object"),
-    (
-      #"{"kind":"move","placement":{"rect":[0,0,1,1]}}"#,
-      "Set placement.display to current, main, next, or a display UUID"
-    ),
-    (#"{"kind":"move","placement":{"display":1,"rect":[0,0,1,1]}}"#, "Set placement.display"),
-    (#"{"kind":"move","placement":{"display":"primary","rect":[0,0,1,1]}}"#, "Set placement.display"),
-    (
-      #"{"kind":"move","placement":{"display":"main","fallback":1,"rect":[0,0,1,1]}}"#,
-      "Set placement.fallback"
-    ),
-    (
-      #"{"kind":"move","placement":{"display":"main","fallback":"primary","rect":[0,0,1,1]}}"#,
-      "Set placement.fallback"
-    ),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1,1],"gap":-1}}"#, "Set placement.gap"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1,1],"gap":"8"}}"#, "Set placement.gap"),
-    (#"{"kind":"move","placement":{"display":"main"}}"#, "Set placement.rect"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1]}}"#, "Set placement.rect"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0.5,0,0.6,1]}}"#, "Set placement.rect"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,0,1]}}"#, "Set placement.rect"),
-    (#"{"kind":"move","placement":{"display":"main","rect":[0,0,1e309,1]}}"#, "Set placement.rect"),
-  ] as [(String?, String)])
-func invalidWindowDefinitionsGiveAClearRowWithoutTouchingWindows(definition: String?, hint: String) throws {
-  let request = window.JSON.object([
-    "submitted": .bool(true), "action": .string("apply-definition"),
-    "fields": .object(definition.map { ["definition": .string($0)] } ?? [:]),
+@Test(arguments: [
+  [:],
+  ["anchor": "anywhere", "width": "50", "height": "100"],
+  ["anchor": "left", "width": "9", "height": "100"],
+  ["anchor": "left", "width": "50", "height": "101"],
+  ["anchor": "left", "width": "nan", "height": "100"],
+  ["anchor": "left", "width": "50", "height": ""],
+])
+func invalidWindowPlacementsGiveAClearRowWithoutTouchingWindows(fields: [String: String]) throws {
+  let request: window.JSON = .object([
+    "submitted": .bool(true), "action": .string("apply-placement"),
+    "fields": .object(fields.mapValues(window.JSON.string)),
   ])
-  let view = windowAnswer(
+  let answer = windowAnswer(
     request, manifestBytes: [],
     move: { _, _, _ in
-      Issue.record("An invalid definition reached the Accessibility adapter")
+      Issue.record("Invalid move reached the window adapter")
       return nil
     },
-    capture: { _, _ in
-      Issue.record("An invalid definition reached Capture")
+    capture: { _, _, _ in
+      Issue.record("Invalid move reached capture")
       return ""
     })
-  let output = try #require(view)
-  let row = try #require(JSONDecoder().decode(ProviderView.self, from: Data(output.utf8)).items.first)
-  #expect(row.title == "Invalid window move definition")
-  #expect(row.subtitle?.contains(hint) == true)
+  let response = try #require(answer)
+  let view = try JSONDecoder().decode(ProviderView.self, from: Data(response.utf8))
+  #expect(view.items.first?.title == "Invalid window move")
+  #expect(view.items.first?.subtitle == "Choose an anchor and enter width and height from 10 to 100%")
 }
 
-@Test func customPlacementsResolveDisplaysAndQuantizeEdges() throws {
-  let uuid = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
-  var secondary = external
-  secondary.uuid = uuid
-  func placement(_ display: String, fallback: String? = nil, rect: String = "[0,0,1,1]") throws -> Placement {
-    let fallbackField = fallback.map { #","fallback":"\#($0)""# } ?? ""
-    return try Placement.decode(
-      #"{"kind":"move","placement":{"display":"\#(display)"\#(fallbackField),"rect":\#(rect)}}"#
-    ).get()
-  }
-  let displays = [laptop, secondary]
-  let current = external.visible
-  #expect(
-    try placement("current").destination(for: current, displays: displays, defaultGap: 0).get() == current)
-  for selector in ["main", "next"] {
-    #expect(
-      try placement(selector).destination(for: current, displays: displays, defaultGap: 0).get()
-        == laptop.visible)
-  }
-  let explicit = try placement(uuid.uuidString.lowercased())
-  #expect(try explicit.destination(for: laptop.visible, displays: displays, defaultGap: 0).get() == current)
-  #expect(throws: Placement.Failure.self) {
-    _ = try explicit.destination(for: laptop.visible, displays: [laptop], defaultGap: 0).get()
-  }
-  #expect(
-    try placement(uuid.uuidString, fallback: "current")
-      .destination(for: laptop.visible, displays: [laptop], defaultGap: 8).get()
-      == laptop.visible.insetBy(dx: 8, dy: 8))
-  let top = try placement("main", rect: "[0,0,1,0.5]").destination(
-    for: current, displays: displays, defaultGap: 9
-  )
-  .get()
-  let bottom = try placement("main", rect: "[0,0.5,1,0.5]")
-    .destination(for: current, displays: displays, defaultGap: 9).get()
-  #expect(top.maxY == bottom.minY)
-  #expect(top.union(bottom) == laptop.visible.insetBy(dx: 9, dy: 9))
-}
-
-@Test func unavailableWindowDisplaysNameBothSelectorsInTheFailureRow() throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let primary = "01234567-89AB-CDEF-0123-456789ABCDEF"
-  let fallback = "FEDCBA98-7654-3210-FEDC-BA9876543210"
-  let placement = try Placement.decode(
-    #"{"kind":"move","placement":{"display":"\#(primary)","fallback":"\#(fallback)","rect":[0,0,1,1]}}"#
-  ).get()
+@Test func anOversizeWindowCaptureClampsItsPercentagesOnItsOwnDisplay() throws {
   let ax = FakeWindowAccessibility()
-  let failure = try #require(
-    perform(
-      .custom(placement), layout: Layout(), pid: 42, name: "Test App", commandName: "Windows",
-      displays: [laptop], recordsFile: folder.appending(path: "moves.txt"), ax: ax))
-  let row = try JSONDecoder().decode(Row.self, from: Data(failure.utf8))
-  #expect(row.title == "Can't apply window move")
-  #expect(row.subtitle == "Display \(primary) and fallback \(fallback) are unavailable")
-  #expect(ax.events == [.readFrame])
+  ax.current = CGRect(x: 1490, y: -300, width: 1950, height: 50)
+  let response = saveCurrentWindow(
+    ax, displays: [laptop, external], commandName: "Windows", layout: Layout())
+  let view = try JSONDecoder().decode(ProviderView.self, from: Data(response.utf8))
+  #expect(
+    view.actions.first?.kind
+      == .save(setting: "moves", values: ["anchor": "top", "width": "100", "height": "10"]))
+}
+
+@Test func capturingTiledWindowsDoesNotApplyTheGapTwice() throws {
+  let visible = CGRect(x: 0, y: 0, width: 1000, height: 800)
+  let screens = [Display(frame: visible, visible: visible)]
+  let layout = Layout(gap: "20")
+  let ax = FakeWindowAccessibility()
+  for original in [
+    Placement(anchor: .left, width: 50, height: 100),
+    Placement(anchor: .center, width: 60, height: 80),
+    Placement(anchor: .bottomRight, width: 40, height: 30),
+  ] {
+    ax.current = try #require(original.frame(in: visible, gap: layout.gap))
+    let response = saveCurrentWindow(ax, displays: screens, commandName: "Windows", layout: layout)
+    let view = try JSONDecoder().decode(ProviderView.self, from: Data(response.utf8))
+    guard case .save("moves", let values) = view.actions.first?.kind else {
+      Issue.record("Capture didn't provide move fields")
+      continue
+    }
+    let saved = try #require(Placement(fields: .object(values.mapValues(window.JSON.string))))
+    #expect(
+      saved.anchor == original.anchor && saved.width == original.width && saved.height == original.height)
+    #expect(saved.frame(in: visible, gap: layout.gap) == ax.current)
+  }
 }
 
 /// Use the same request dispatcher and move engine in the spawned child, with an in-memory AX adapter.
@@ -578,7 +582,9 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
   compiler.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
   compiler.arguments =
     ["swiftc", "-swift-version", "6", "-warnings-as-errors", entry.path]
-    + ["Window", "Placement", "Capture", "JSON"].map { source.appending(path: $0 + ".swift").path }
+    + ["Window", "WindowAnchor", "Placement", "Capture", "JSON"].map {
+      source.appending(path: $0 + ".swift").path
+    }
     + ["-o", folder.appending(path: "main").path]
   try compiler.run()
   compiler.waitUntilExit()
@@ -588,7 +594,7 @@ private func installFakeWindowManager(in root: URL) throws -> URL {
 
 let codingMove = [
   "id": "coding", "title": "Coding layout",
-  "definition": #"{"kind":"move","placement":{"display":"current","rect":[0,0,0.5,1]}}"#,
+  "anchor": "left", "width": "50", "height": "100",
 ]
 
 @MainActor @Test func captureBecomesAHeadlessMoveAndAnEntryHotkey() async throws {
@@ -620,20 +626,24 @@ let codingMove = [
     FileManager.default.contentsOfDirectory(at: history, includingPropertiesForKeys: nil).first)
   let frameFile = dataFolder.appending(path: "mock-window-frame.json")
   let original = CGRect(x: -800, y: -100, width: 500, height: 440)
-  let destination = CGRect(x: 520, y: 240, width: 240, height: 300)
+  let captured = CGRect(x: 520, y: 240, width: 240, height: 300)
+  let destination = CGRect(x: -615, y: 68, width: 230, height: 304)
   func observedFrame() throws -> CGRect {
     try JSONDecoder().decode(CGRect.self, from: Data(contentsOf: frameFile))
   }
-  // Capture the original rectangle for saving, then simulate a window move before replay.
-  try JSONEncoder().encode(destination).write(to: frameFile)
+  // Capture on the main display, then move the window to the external display before replay.
+  try JSONEncoder().encode(captured).write(to: frameFile)
   let (saveStatus, save) = try await cli(
     root, ["--extension", "window", "--submitted", "--action", "save-current"])
   let saveAction = try #require(save["actions"].array.first)
   #expect(saveStatus == 0 && saveAction["type"].string == "save" && saveAction["setting"].string == "moves")
-  let definition = try #require(saveAction["values"]["definition"].string)
+  guard case .object(let savedFields) = saveAction["values"] else {
+    throw ExtensionFailure("Capture didn't provide move fields")
+  }
+  let placement = savedFields.compactMapValues(\.string)
+  #expect(placement == ["anchor": "center", "width": "23", "height": "38"])
   try JSONEncoder().encode(original).write(to: frameFile)
-  var entry = codingMove
-  entry["definition"] = definition
+  let entry = codingMove.merging(placement) { _, captured in captured }
   try saveProviders([.init("extension:window")], in: root)
   try ConfigurationFile(url: root.appending(path: "config.json")).set(
     "window", to: ["moves": [entry]], in: "extensions")
@@ -643,7 +653,7 @@ let codingMove = [
   #expect(try observedFrame() == original)
 
   let target = try #require(HotkeyTarget("wicket://window?entry=moves/coding"))
-  let action = Address(fields: ["definition": definition], action: "apply-definition", hidden: true)
+  let action = Address(fields: placement, action: "apply-placement", hidden: true)
   let fields = String(decoding: try JSONEncoder().encode(action.fields), as: UTF8.self)
   let status = try await cli(
     root,
@@ -682,5 +692,23 @@ let codingMove = [
   await model.navigator.settled()
   #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
   #expect(try observedFrame() == original)
+
+  for (id, x) in [("left", -1000), ("right", -500)] {
+    let side = try #require(HotkeyTarget("wicket://window?item=" + id))
+    let shortcut = try Shortcut("option+cmd+" + id)
+    model.store.bind(shortcut, to: side)
+    let binding = try #require(model.configuration.hotkeys.first { $0.target == side })
+    #expect(binding.keys == shortcut)
+    model.press(binding.target)
+    await model.navigator.settled()
+    #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
+    #expect(try observedFrame() == CGRect(x: x, y: -180, width: 500, height: 800))
+  }
+  let retired = try #require(HotkeyTarget("wicket://window?item=top"))
+  model.store.bind(try Shortcut("option+cmd+up"), to: retired)
+  #expect(model.extensions.unavailableHotkeys(model.configuration.hotkeys).map(\.target) == [retired])
+  model.press(retired)
+  await model.navigator.settled()
+  #expect(try observedFrame() == CGRect(x: -500, y: -180, width: 500, height: 800))
   await model.finish()
 }

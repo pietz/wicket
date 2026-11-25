@@ -908,7 +908,9 @@ struct SettingsEntryDraft: Identifiable {
 
 struct SettingsEntryEditor: View {
   static func size(for list: SettingList) -> CGSize {
-    CGSize(width: 420, height: list.editableFields.contains(where: { $0.multiline == true }) ? 425 : 350)
+    let fields = list.editableFields
+    let regularHeight: CGFloat = fields.count > 4 ? 400 : 350
+    return CGSize(width: 420, height: fields.contains(where: { $0.multiline == true }) ? 425 : regularHeight)
   }
   let draft: SettingsEntryDraft
   let store: ConfigurationStore

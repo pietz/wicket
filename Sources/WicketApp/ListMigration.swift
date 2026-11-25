@@ -1,6 +1,6 @@
 import Foundation
 
-/// Legacy personal items and their bindings are committed in config before staged manifests are published.
+/// Migrate built-in lists before they are indexed, and commit personal items before publishing their manifests.
 @MainActor enum ListMigration {
   nonisolated static let stagingDirectory = ".wicket-migration"
 
@@ -18,7 +18,8 @@ import Foundation
   }
 
   static func run(
-    _ commands: [String: ExtensionCommand], root: URL, store: ConfigurationStore
+    _ commands: [String: ExtensionCommand], locations: ExtensionHost.Locations, root: URL,
+    store: ConfigurationStore
   ) -> Result {
     var result = Result()
     let file = ConfigurationFile(url: store.url)
@@ -31,6 +32,19 @@ import Foundation
       .union(configuration.pendingPersonalItems.keys)
       .subtracting(configuration.migratedPersonalItems)
     var configurationChanged = false
+    let windowID = "extension:window"
+    if let list = windowMoveList(commands[windowID]),
+      hasLegacyWindowMoves(configuration.extensions["window"], list: list),
+      canMigrateWindowMoves(locations.extensions[windowID]?.source, root: root)
+    {
+      do {
+        configurationChanged = try migrateWindowMoves(list, file: file)
+      } catch {
+        result.retryOnConfigChange = true
+        result.problems[windowID] =
+          "Couldn’t migrate saved window moves: \(error.localizedDescription)"
+      }
+    }
     for name in names.sorted() {
       let id = "extension:" + name
       let source = root.appending(path: name + "/user.json")
@@ -61,6 +75,83 @@ import Foundation
     }
     if configurationChanged { store.load() }
     return result
+  }
+
+  static func windowMoveList(_ command: ExtensionCommand?) -> SettingList? {
+    guard let list = command?.manifest.settings.first(where: { $0.name == "moves" })?.list,
+      list.item?["actions"].array.first?["action"].string == "apply-placement"
+    else { return nil }
+    return list
+  }
+
+  static func hasLegacyWindowMoves(_ settings: JSONValue?, list: SettingList) -> Bool {
+    settings?["moves"].array.contains { entry in
+      guard case .object(let values) = entry, values["definition"]?.string != nil else { return false }
+      return !list.accepts(values.compactMapValues(\.string))
+    } == true
+  }
+
+  private static func canMigrateWindowMoves(_ source: ExtensionHost.Source?, root: URL) -> Bool {
+    // A broken manifest or disconnected symlink can later return with the old list schema.
+    switch source {
+    case .brokenFallback: return false
+    case .bundled:
+      return (try? FileManager.default.destinationOfSymbolicLink(atPath: root.appending(path: "window").path))
+        == nil
+    default: return true
+    }
+  }
+
+  private struct LegacyWindowMove: Decodable {
+    struct Placement: Decodable {
+      let display: String
+      let fallback: String?
+      let rect: [Double]
+      let gap: Double?
+    }
+    let kind: String
+    let placement: Placement
+
+    var rect: CGRect? {
+      func validDisplay(_ name: String) -> Bool {
+        ["current", "main", "next"].contains(name) || UUID(uuidString: name) != nil
+      }
+      let rect = placement.rect
+      guard kind == "move", validDisplay(placement.display), placement.fallback.map(validDisplay) != false,
+        placement.gap.map({ (0...200).contains($0) }) != false,
+        rect.count == 4, rect.allSatisfy({ (0...1).contains($0) }), rect[2] > 0, rect[3] > 0,
+        rect[0] + rect[2] <= 1, rect[1] + rect[3] <= 1
+      else { return nil }
+      return CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3])
+    }
+  }
+
+  private static func migrateWindowMoves(_ list: SettingList, file: ConfigurationFile) throws -> Bool {
+    var changed = false
+    try file.edit { config in
+      changed = false
+      guard var extensions = config["extensions"] as? [String: Any],
+        var window = extensions["window"] as? [String: Any], let moves = window["moves"] as? [Any]
+      else { return }
+      window["moves"] = moves.map { original -> Any in
+        guard var entry = original as? [String: String], let id = entry["id"], !id.allSatisfy(\.isWhitespace),
+          !list.accepts(entry), let definition = entry["definition"],
+          let legacy = try? JSONDecoder().decode(LegacyWindowMove.self, from: Data(definition.utf8)),
+          let rect = legacy.rect
+        else { return original }
+        entry["anchor"] = WindowAnchor.nearest(to: rect).rawValue
+        entry["width"] = Field.wire(max(10, (rect.width * 10_000).rounded() / 100))
+        entry["height"] = Field.wire(max(10, (rect.height * 10_000).rounded() / 100))
+        entry["definition"] = nil
+        guard list.accepts(entry) else { return original }
+        changed = true
+        return entry
+      }
+      guard changed else { return }
+      extensions["window"] = window
+      config["extensions"] = extensions
+    }
+    return changed
   }
 
   private static func prepare(
