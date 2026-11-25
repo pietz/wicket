@@ -833,7 +833,10 @@ private struct SettingControl: View {
             TextField("", text: text).accessibilityLabel(label).textFieldStyle(.roundedBorder)
           }
         } else {
-          TextField(label, text: text, prompt: field.default.map { Text($0) })
+          // A scalar setting's placeholder is an example inside the field, never its label.
+          TextField(
+            field.description ?? label, text: text,
+            prompt: (field.placeholder ?? field.default).map { Text($0) })
         }
       }
     }

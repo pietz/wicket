@@ -73,7 +73,7 @@ private func expectedText(_ name: String) -> [String] {
   if name == "settings-extension-shadow" {
     return [
       "A local copy replaces the built-in version", "Use Built-in", "Ask Agent to Merge", "Show in Finder",
-      "e.g. Berlin", "Temperature unit", "Hotkeys",
+      "Default city", "Temperature unit", "Hotkeys",
     ]
   }
   if name == "settings-extension-local" {
