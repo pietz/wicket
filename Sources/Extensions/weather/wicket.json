@@ -9,7 +9,7 @@
   "submit": true,
   "fields": [{"name": "city", "type": "text", "description": "City or place", "placeholder": "City"}],
   "settings": [
-    {"name": "defaultCity", "type": "text", "description": "Default city", "placeholder": "e.g. Berlin"},
+    {"name": "defaultCity", "type": "text", "description": "Shown when you open Weather without typing a city, e.g. Berlin", "placeholder": "Default city"},
     {"name": "units", "type": "choice", "description": "Temperature unit", "options": ["Celsius", "Fahrenheit"], "default": "Celsius"}
   ]
 }
