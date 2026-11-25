@@ -35,7 +35,7 @@ private let states =
     "working", "working-text", "permission-routine", "permission-high",
     "answer-small", "answer-large", "answer-larger", "apps-larger", "permission-routine-larger",
     "extension-pattern", "extension-list", "extension-quicklinks-empty", "extension-detail", "extension-both",
-    "weather-root", "weather-page",
+    "weather-root", "weather-page", "weather-default",
     "extension-targets", "extension-detail-larger", "asking", "asking-extension",
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
@@ -58,7 +58,9 @@ private let transitions = [
 private func expectedText(_ name: String) -> [String] {
   if let text = transitionText[name] { return text }
   if name == "weather-root" { return ["Berlin", "overcast", "Ask agent"] }
-  if name == "weather-page" { return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"] }
+  if name == "weather-page" || name == "weather-default" {
+    return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"]
+  }
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
   if name.contains("settings-extensions") {
     return ["Built in", "Clipboard", "Weather", "Windows"]
@@ -367,16 +369,22 @@ private let installedAgent: Void = {
       await model.extensions.reload()
       model.navigator.input = "200*10%+2^3"
       await model.navigator.settled()
-    case "weather-root", "weather-page":
+    case "weather-root", "weather-page", "weather-default":
       let runner = ExtensionRunner(dataDirectory: folder.appending(path: "extension-data"))
       try await seedRecordedWeather(in: runner.dataDirectory(for: "extension:weather"))
       await model.extensions.reload()
-      model.navigator.input = "weather Berlin"
-      await model.navigator.settled()
-      try #require(model.navigator.selected?.row.id == "weather")
-      if name == "weather-page" {
-        try #require(model.activateReturn())
+      if name == "weather-default" {
+        model.store.update { $0.extensions["weather"] = .object("defaultCity", .string("Berlin")) }
+        model.navigator.go(Address(id: "extension:weather", link: true))
         await model.navigator.settled()
+      } else {
+        model.navigator.input = "weather Berlin"
+        await model.navigator.settled()
+        try #require(model.navigator.selected?.row.id == "weather")
+        if name == "weather-page" {
+          try #require(model.activateReturn())
+          await model.navigator.settled()
+        }
       }
     case "ask": model.navigator.input = "How do rainbows form?"
     case "listening":
@@ -980,7 +988,7 @@ func panelCapture(_ state: String) async throws {
         controller.presentation == scenario.model.navigator.presentation, "\(state) drew a stale screen")
     }
     try await render(scenario.view, to: target)
-    if state == "weather-page" {
+    if state == "weather-page" || state == "weather-default" {
       let renderer = try #require(scenario.controller?.renderer)
       let page = try #require(renderer.page)
       // Measure before the renderer's cap, which would hide overflowing content.
@@ -1114,9 +1122,10 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "weather-root":
     #expect(model.navigator.command == nil && model.navigator.prominentFirst)
     #expect(model.navigator.results.filter { $0.provider == "extension:weather" }.count == 1)
-  case "weather-page":
+  case "weather-page", "weather-default":
     #expect(model.navigator.command?.id == "extension:weather")
     #expect(model.navigator.body?.contains("### Next days") == true)
+    if state == "weather-default" { #expect(model.navigator.input.isEmpty) }
   case "listening":
     #expect(scenario.controller?.input.speaking == true && model.navigator.input == "How do rainbows form?")
   case "empty": #expect(model.navigator.results.map(\.row.title) == ["Calculator", "Calendar", "Chess"])

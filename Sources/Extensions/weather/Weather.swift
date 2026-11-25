@@ -21,9 +21,8 @@ func weatherView(
     let defaultCity = settings?["defaultCity"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     city = typedCity.isEmpty ? defaultCity : typedCity
     guard !city.isEmpty else { return message("Type a city, or set Default city in Settings") }
-    guard request?["submitted"]?.isTrue == true else {
-      return message(
-        typedCity.isEmpty ? "Press Return for the default city's forecast" : "Press Return for the forecast")
+    guard typedCity.isEmpty || request?["submitted"]?.isTrue == true else {
+      return message("Press Return for the forecast")
     }
   }
 

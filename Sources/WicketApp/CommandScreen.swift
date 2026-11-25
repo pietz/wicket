@@ -132,8 +132,8 @@ enum CommandOutcome {
     self.behavior = behavior
   }
 
-  /// Applies an address to this visit. `replacingFields` restores the address's exact field set (used when
-  /// replaying a permission-gated request so edits made while the gate was visible do not leak in).
+  /// Applies an address to this visit. Links start with the address's fields. Permission replay
+  /// uses `replacingFields` to restore its original request.
   /// Returns the name of an invalid canvas override, leaving the visit as it was.
   @discardableResult
   mutating func enter(
@@ -143,7 +143,7 @@ enum CommandOutcome {
     let submitting = submitted && !address.link
     let field = descriptor?.inputField
     let prompts = submitting && address.hidden && address.promptIfEmpty && field != nil
-    let replacingFields = replacingFields || prompts
+    let replacingFields = replacingFields || address.link || prompts
     let overrides = address.fields ?? [:]
     if submitting, !replacingFields,
       let invalid = overrides.first(where: { name, value in
@@ -157,7 +157,7 @@ enum CommandOutcome {
     self.trigger = trigger
     action = next == .submission ? address.action : nil
     self.replacingFields = replacingFields
-    if address.link || replacingFields {
+    if replacingFields {
       screen.fill([:])
       canvasEdits.removeAll()
       failedCanvasValues.removeAll()

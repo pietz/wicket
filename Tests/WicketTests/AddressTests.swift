@@ -405,6 +405,8 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
     Page(body: #"<row title="Ship" open="wicket://ship?input=a"/>"#, runs: false).targets.first)
   request = try await activate(agentItem.actions[0], from: Result(provider: "answer", row: agentItem))
   #expect(!request.submitted && request.input == "a")
+  request = try await activate(.run(try #require(url("wicket://ship"))))
+  #expect(!request.submitted && request.input.isEmpty && request.fields.isEmpty)
   // The host's Show details and error rows only show what a pattern produced.
   row = try await atRoot("page one") { $0.row.id == "detail" }
   request = try await activate(row.row.actions[0], from: row)

@@ -150,15 +150,56 @@ func seedRecordedWeather(in directory: URL) async throws {
 }
 
 @Test func weatherUsesDefaultCityAndHonorsSubmittedRunFields() async throws {
-  let defaultCity = try await view(
-    "", submitted: true, settings: ["defaultCity": " Berlin "], fetch: weatherFixture())
-  #expect(defaultCity.body?.contains("Berlin, Germany") == true)
+  for submitted in [false, true] {
+    let defaultCity = try await view(
+      "", submitted: submitted, settings: ["defaultCity": " Berlin "], fetch: weatherFixture())
+    #expect(defaultCity.body?.contains("Berlin, Germany") == true)
+  }
 
   let city = "Baden + A&B"
   let run = try await view(
     "ignored", fields: ["city": city], submitted: true, action: "forecast",
     settings: ["defaultCity": "Ignored"], fetch: weatherFixture(city: city))
   #expect(run.body?.contains("Berlin, Germany") == true)
+}
+
+@MainActor @Test(arguments: [true, false])
+func openingWeatherShowsTheDefaultForecastWithAnEmptyCity(_ hotkey: Bool) async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let runner = ExtensionRunner(dataDirectory: folder.appending(path: "extension-data"))
+  try await seedRecordedWeather(in: runner.dataDirectory(for: "extension:weather"))
+  let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  surface.shown = !hotkey
+  navigator.surface = surface
+  model.store.update { $0.extensions["weather"] = .object("defaultCity", .string("Berlin")) }
+  await model.extensions.reload()
+
+  if hotkey {
+    model.press(HotkeyTarget(target: "extension:weather"))
+    #expect(surface.shows == 1)
+  } else {
+    navigator.input = "weather"
+    await navigator.settled()
+    try #require(navigator.selected?.provider == "extension:weather")
+    try #require(model.activateReturn())
+  }
+  await navigator.settled()
+  #expect(navigator.command?.id == "extension:weather" && navigator.input.isEmpty)
+  let body = try #require(navigator.body)
+  #expect(body.contains("Berlin, Germany") && body.contains("### Next days"))
+
+  let turn = navigator.command?.turn
+  navigator.input = "Paris"
+  navigator.refresh()
+  await navigator.settled()
+  #expect(navigator.body == body && navigator.command?.turn == turn)
+
+  model.press(HotkeyTarget(target: "extension:weather"))
+  await navigator.settled()
+  #expect(navigator.body == body && navigator.input.isEmpty)
 }
 
 @Test func weatherUsesLiteralInSalahWhenItMatches() async throws {
@@ -275,8 +316,8 @@ private func unexpectedFetch(_ url: URL) throws -> Data {
     let typed = try await view(prefix, settings: settings, fetch: unexpectedFetch)
     #expect(typed.body == "Press Return for the forecast")
   }
-  let noInput = try await view("", settings: settings, fetch: unexpectedFetch)
-  #expect(noInput.body == "Press Return for the default city's forecast")
+  let noInput = try await view("", settings: ["defaultCity": "  "], fetch: unexpectedFetch)
+  #expect(noInput.body == "Type a city, or set Default city in Settings")
   let noDefault = try await view("   ", submitted: true, fetch: unexpectedFetch)
   #expect(noDefault.body == "Type a city, or set Default city in Settings")
 }

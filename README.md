@@ -42,7 +42,7 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Convert** handles length, mass, volume, speed, and temperature offline (`10 km in mi`), plus currency (`100 usd to eur`) using Frankfurter rates. Return copies the number. Settings ▸ Extensions ▸ Convert lets you set the home currency, decimal places, and whether to copy the unit or currency code.
 
-**Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
+**Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast. Set **Default city** in Settings ▸ Extensions ▸ Weather to see that forecast on open, including from a Weather hotkey.
 
 **Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys. **Windows** can capture the focused window as a reusable move with **Save Current Window…**.
 

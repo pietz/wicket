@@ -91,7 +91,7 @@ For diagnostics, break a scratch extension's `wicket.json` and ask the agent why
 ## 10. Hotkeys and the action panel
 
 1. Set Hotkey… on Left Half to ⌃⌥←: shown on row and saved in `hotkeys`. Over Safari while closed, moves with no panel flash; over a full-screen window, opens panel on the reason.
-2. Weather hotkey opens panel straight on Weather (no root flash); spinner appears only past ~0.5 s (same for Return); re-pressing while loading is ignored; Escape or ⌘Return cancels late arrival. Quicklinks bookmark hotkey opens silently.
+2. Set Berlin as Weather’s **Default city**. Its hotkey opens directly to the forecast with the City field empty. Opening from a bare `weather` search does the same. Typing Paris keeps the Berlin forecast until Return. Pressing the bare hotkey again clears the city field and shows Berlin. Clear the default city and check that the hotkey shows the city prompt. The panel opens without a root flash. The spinner appears only after about 0.5 s, just as on Return. Pressing the hotkey again while loading has no effect. Escape or ⌘Return cancels a pending forecast. Quicklinks bookmark hotkey opens silently.
 3. Reusing ⌃⌥←, ⌘C, or the launcher shortcut is refused; Escape cancels recording.
 4. ⌘K on a file: Open, Reveal in Finder. On Left Half: Run, Set Hotkey…, Remove Hotkey. Escape or ⌘K restores selection; typing closes the menu and searches; IME works in its field.
 5. Open a long extension page with a view action, scroll, deselect, press ⌘K: underlying page is hidden and inert; Escape restores scroll position.
