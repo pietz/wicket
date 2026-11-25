@@ -235,19 +235,6 @@ final class ExtensionHost {
     return command
   }
 
-  func unavailableHotkeys(_ hotkeys: [Configuration.Hotkey]) -> [Configuration.Hotkey] {
-    guard scanned else { return [] }
-    return hotkeys.filter { binding in
-      let target = binding.target
-      guard let id = target.target, id.hasPrefix("extension:") else { return false }
-      let owner = commands[id]
-      if target.item != nil {
-        guard let item = owner?.item(for: target) else { return true }
-        return itemHotkeyTarget(item, in: id) == nil
-      }
-      return owner?.commandHotkeyTarget == nil
-    }
-  }
   private var scanWaiters: [CheckedContinuation<Void, Never>] = []
   /// Returns once the catalog was read at least once.
   func firstScan() async {

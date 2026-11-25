@@ -66,6 +66,7 @@ struct HotkeyRegistrations: Codable, Equatable, Sendable {
     case missingCommand = "missing command"
     case missingItem = "missing item"
     case missingPermission = "missing permission"
+    case invalidAction = "invalid action"
     case conflictsWithLauncher = "conflicts with launcher"
     case registrationFailed = "registration failed"
   }
@@ -85,6 +86,21 @@ struct HotkeyRegistrations: Codable, Equatable, Sendable {
     return messages.isEmpty ? nil : messages.joined(separator: "\n")
   }
 
+  static func conflicts(_ hotkeys: [Configuration.Hotkey], launcher: Shortcut?)
+    -> [HotkeyTarget: Resolution]
+  {
+    var conflicts: [HotkeyTarget: Resolution] = [:]
+    var claimed: Set<Shortcut> = []
+    for binding in hotkeys where !binding.target.legacyItem {
+      if binding.keys == launcher {
+        conflicts[binding.target] = .conflictsWithLauncher
+      } else if !claimed.insert(binding.keys).inserted {
+        conflicts[binding.target] = .duplicate
+      }
+    }
+    return conflicts
+  }
+
   static func target(_ target: HotkeyTarget) -> String {
     HotkeyTarget(
       target: target.target, item: target.item, entryList: target.entryList, legacyItem: target.legacyItem
@@ -95,38 +111,6 @@ struct HotkeyRegistrations: Codable, Equatable, Sendable {
 extension ExtensionCommand {
   var commandHotkeyTarget: HotkeyTarget? {
     manifest.hasCommandPage ? HotkeyTarget(target: id) : nil
-  }
-
-  func hotkeyItem(for target: HotkeyTarget) -> Row? {
-    guard let item = item(for: target), item.hotkeyTarget(in: id) != nil else { return nil }
-    return item
-  }
-}
-
-extension ExtensionHost {
-  func itemHotkeyTarget(_ row: Row, in owner: String) -> HotkeyTarget? {
-    if case .run(let address)? = row.actions.first?.kind,
-      unopenableLinkTarget(address, from: owner) != nil
-    {
-      return nil
-    }
-    return row.hotkeyTarget(in: owner)
-  }
-}
-
-extension Row {
-  func hotkeyTarget(in owner: String) -> HotkeyTarget? {
-    switch actions.first?.kind {
-    case .copy, .paste, .open, .reveal, .save: break
-    case .run(let address):
-      let otherTarget = address.extensionName != nil && address.targetID != owner
-      guard
-        otherTarget || address.action != nil || address.hidden || address.input?.isEmpty == false
-          || address.fields?.isEmpty == false
-      else { return nil }
-    default: return nil
-    }
-    return HotkeyTarget(target: owner, item: id, entryList: entryList)
   }
 }
 
@@ -141,6 +125,7 @@ final class CommandHotKeys {
   private var registrations: [HotkeyTarget: HotKeyRegistration] = [:]
   private var paused = false
   private(set) var latest: [HotkeyRegistrations.Entry] = []
+  private(set) var failures: [HotkeyTarget: HotkeyRegistrations.Entry] = [:]
 
   init(register: @escaping Register) { self.register = register }
 
@@ -159,12 +144,68 @@ final class CommandHotKeys {
     let hotkeys = hotkeys.filter { !$0.target.legacyItem }
     let listed = Set(hotkeys.map(\.target))
     registrations = registrations.filter { listed.contains($0.key) }
-    var entries: [HotkeyRegistrations.Entry] = []
-    var problems: [String] = []
+    let conflicts = HotkeyRegistrations.conflicts(hotkeys, launcher: launcher)
+    let requested = Dictionary(
+      uniqueKeysWithValues: hotkeys.filter { conflicts[$0.target] == nil }.map {
+        ($0.keys, $0.target)
+      })
+    var released: [HotkeyTarget: Shortcut] = [:]
+    func release(_ target: HotkeyTarget) {
+      released[target] = inEffect(target)
+      registrations[target] = nil
+    }
+
+    var problems: [HotkeyTarget: (HotkeyRegistrations.Resolution, String)] = [:]
+    var pending: [Configuration.Hotkey] = []
     for binding in hotkeys {
-      let (resolution, problem) = register(binding.keys, for: binding.target, launcher: launcher)
+      let target = binding.target
+      let keys = binding.keys
+      switch conflicts[target] {
+      case .conflictsWithLauncher:
+        problems[target] = (.conflictsWithLauncher, launcherConflict(keys, target))
+      case .duplicate:
+        problems[target] = (.duplicate, "\(keys.symbols) is already assigned to another hotkey.")
+      default: pending.append(binding)
+      }
+      if conflicts[target] != nil, let old = inEffect(target), requested[old] != nil {
+        release(target)
+      }
+    }
+
+    while !pending.isEmpty {
+      let waiting = Set(pending.map(\.target))
+      let owners = Dictionary(
+        uniqueKeysWithValues: registrations.compactMap { target, registration in
+          registration.inEffect.map { ($0, target) }
+        })
+      var ready = pending.filter { binding in
+        guard let owner = owners[binding.keys], owner != binding.target else { return true }
+        return !waiting.contains(owner)
+      }
+      if ready.isEmpty {
+        // The remaining bindings exchange keys with each other. Release them as a group.
+        ready = pending
+        for binding in ready { release(binding.target) }
+      }
+      let targets = Set(ready.map(\.target))
+      pending.removeAll { targets.contains($0.target) }
+      for binding in ready {
+        let (resolution, problem) = register(binding.keys, for: binding.target, launcher: launcher)
+        if let problem { problems[binding.target] = (resolution, problem) }
+      }
+    }
+    // If a replacement failed, restore the old keys if no other registration took them.
+    for binding in hotkeys where problems[binding.target] != nil {
+      if let old = released[binding.target] {
+        _ = register(old, for: binding.target, launcher: launcher)
+      }
+    }
+
+    failures = [:]
+    latest = hotkeys.map { binding in
       let shortcut = binding.keys.description
       let target = HotkeyRegistrations.target(binding.target)
+      let resolution = problems[binding.target]?.0 ?? .ok
       let summary: String? =
         switch resolution {
         case .conflictsWithLauncher: "\(shortcut) opens Wicket."
@@ -172,14 +213,18 @@ final class CommandHotKeys {
         case .registrationFailed: "\(shortcut) for \(target) could not be registered."
         default: nil
         }
-      entries.append(
-        .init(
-          shortcut: shortcut, target: target, resolution: resolution, problem: summary,
-          inEffect: inEffect(binding.target)?.description))
-      if let problem { problems.append(problem) }
+      let entry = HotkeyRegistrations.Entry(
+        shortcut: shortcut, target: target, resolution: resolution, problem: summary,
+        inEffect: inEffect(binding.target)?.description)
+      if summary != nil { failures[binding.target] = entry }
+      return entry
     }
-    latest = entries
-    return problems.isEmpty ? nil : problems.joined(separator: "\n")
+    let messages = hotkeys.compactMap { problems[$0.target]?.1 }
+    return messages.isEmpty ? nil : messages.joined(separator: "\n")
+  }
+
+  private func launcherConflict(_ keys: Shortcut, _ target: HotkeyTarget) -> String {
+    "\(keys.symbols) opens Wicket. Choose another for \(target)."
   }
 
   /// Registers `keys` for `target` before anything saves it; on a conflict the binding in effect stays.
@@ -198,7 +243,7 @@ final class CommandHotKeys {
     let registration = registrations[target] ?? makeRegistration(target)
     registrations[target] = registration
     if keys == launcher {
-      return (.conflictsWithLauncher, "\(keys.symbols) opens Wicket. Choose another for \(target).")
+      return (.conflictsWithLauncher, launcherConflict(keys, target))
     }
     if let other = registrations.first(where: { $0.key != target && $0.value.inEffect == keys }) {
       return (.duplicate, "\(keys.symbols) is already the hotkey for \(other.key).")

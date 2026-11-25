@@ -330,10 +330,6 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   func open(_ url: URL) {
     if let address = Address(url: url) { navigator.open(address) }
   }
-  /// Whether Set Hotkey… is recording this row's hotkey.
-  func recordsHotkey(of result: Result) -> Bool {
-    recorder.target != nil && recorder.target == navigator.hotkeyTarget(of: result)
-  }
   /// Return, a button or a menu item (`Navigator.run`).
   func run(_ chosen: RowAction? = nil) { navigator.run(chosen) }
   /// What Return, a button or a menu item chose that leaves the screens: the effects on the panel and the

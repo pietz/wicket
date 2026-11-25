@@ -225,7 +225,8 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     model.store.bind(try Shortcut(keys), to: try #require(HotkeyTarget(address)))
   }
   #expect(model.configuration.hotkeys.count == bindings.count)
-  #expect(model.extensions.unavailableHotkeys(model.configuration.hotkeys).isEmpty)
+  let directory = CommandDirectory(extensions: model.extensions, hosts: [], store: model.store)
+  #expect(directory.hotkeyResolutions().values.allSatisfy { $0 == .missingPermission })
   for address in bindings.map(\.1) {
     model.press(try #require(HotkeyTarget(address)))
     await model.navigator.settled()

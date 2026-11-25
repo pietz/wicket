@@ -46,13 +46,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     configuration.applyHotkey = { [weak self] in self?.hotkey.apply($0) }
     configuration.applyBinding = { [weak self] keys, target in
       guard let self else { return nil }
-      return bindings.set(keys, for: target, launcher: hotkey.inEffect)
+      return bindings.set(keys, for: target, launcher: configuration.configuration.hotkey)
     }
     bindings.onPress = { [weak self] in self?.palette.model.press($0) }
     let register: (Configuration) -> Void = { [weak self] config in
       guard let self else { return }
       configuration.hotkeyProblem = hotkey.apply(config.hotkey)
-      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: hotkey.inEffect)
+      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: config.hotkey)
+      configuration.bindingFailures = bindings.failures
       runtime.register(
         HotkeyRegistrations(
           launcher: hotkey.snapshot(config.hotkey, problem: configuration.hotkeyProblem),

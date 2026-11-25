@@ -173,6 +173,10 @@ struct SettingsPane: View {
     }
     .formStyle(.grouped)
   }
+  private var directory: CommandDirectory {
+    CommandDirectory(extensions: extensions, hosts: [], store: store)
+  }
+
   private var recorderHint: some View {
     Text(
       recorder.rejected ? "Add ⌘, ⌃ or ⌥ (F-keys work alone). Esc cancels." : "Press a shortcut. Esc cancels."
@@ -230,13 +234,17 @@ struct SettingsPane: View {
       }
       Toggle("Only show results when typing", isOn: resultsOnlyWhenTyping)
     }
-    let ids = Set(extensions.ids)
-    let unavailable = extensions.unavailableHotkeys(config.hotkeys).filter {
-      $0.target.target.map(ids.contains) != true
+    let resolutions = extensions.scanned ? directory.hotkeyResolutions() : [:]
+    let owners = Set(extensions.ids + ["clipboard"])
+    let unavailable = config.hotkeys.filter { binding in
+      binding.target.target.map(owners.contains) != true
+        && shortcutProblem(for: binding.target, resolution: resolutions[binding.target]) != nil
     }
     if !unavailable.isEmpty {
       Section("Hotkeys") {
-        ForEach(unavailable, id: \.target, content: unavailableHotkeyRow)
+        ForEach(unavailable, id: \.target) { binding in
+          unavailableHotkeyRow(binding, resolution: resolutions[binding.target])
+        }
       }
     }
     Section {
@@ -476,6 +484,8 @@ struct SettingsPane: View {
   }
   @ViewBuilder private var extensionDetail: some View {
     let id = selected ?? "apps"
+    let directory = self.directory
+    let resolutions = extensions.scanned ? directory.hotkeyResolutions() : [:]
     let command = extensions.commands[id]
     let shadowsBuiltIn = extensions.locations[id]?.shadowsBuiltIn == true
     if shadowsBuiltIn {
@@ -522,7 +532,7 @@ struct SettingsPane: View {
         }
       }
       ForEach(command.manifest.settings.compactMap(\.list), id: \.name) { list in
-        entryTable(list, folder: folder, target: id).id(list.name)
+        entryTable(list, folder: folder, target: id, resolutions: resolutions).id(list.name)
       }
     }
     let targets: [(String, HotkeyTarget)] =
@@ -531,19 +541,25 @@ struct SettingsPane: View {
       : command.map { command in
         (command.commandHotkeyTarget.map { [(command.manifest.name, $0)] } ?? [])
           + (command.manifest.items ?? []).compactMap { item in
-            extensions.itemHotkeyTarget(item, in: id).map { (item.title, $0) }
+            directory.itemHotkeyTarget(item, in: id).map { (item.title, $0) }
           }
       } ?? []
-    let unavailable = extensions.unavailableHotkeys(config.hotkeys).filter { $0.target.target == id }
+    let listed = Set(targets.map(\.1))
+    let unavailable = config.hotkeys.filter { binding in
+      let target = binding.target
+      guard target.target == id, !listed.contains(target),
+        shortcutProblem(for: target, resolution: resolutions[target]) != nil
+      else { return false }
+      guard target.entryList != nil, let item = command?.item(for: target) else { return true }
+      return directory.itemHotkeyTarget(item, in: id) != target
+    }
     if !targets.isEmpty || !unavailable.isEmpty {
       Section("Hotkeys") {
-        ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
-        ForEach(unavailable, id: \.target, content: unavailableHotkeyRow)
-        if recorder.target != nil { recorderHint }
-        if let rejection = store.rejection, rejection.target?.target == id {
-          warning(rejection.problem)
-        } else if let problem = store.bindingProblem {
-          warning(problem)
+        ForEach(targets, id: \.1) { title, target in
+          hotkeyRow(title, target, resolution: resolutions[target])
+        }
+        ForEach(unavailable, id: \.target) { binding in
+          unavailableHotkeyRow(binding, resolution: resolutions[binding.target])
         }
       }
     }
@@ -592,10 +608,13 @@ struct SettingsPane: View {
       .first { $0.name == destination.setting }?.list
   }
 
-  private func entryTable(_ list: SettingList, folder: String, target: String) -> some View {
+  private func entryTable(
+    _ list: SettingList, folder: String, target: String,
+    resolutions: [HotkeyTarget: HotkeyRegistrations.Resolution]
+  ) -> some View {
     let entries = config.extensions[folder].map { list.read($0[list.name]).entries } ?? []
     let rows = entries.map { entry in
-      (entry, list.row(entry).flatMap { extensions.itemHotkeyTarget($0, in: target) })
+      (entry, list.row(entry).flatMap { directory.itemHotkeyTarget($0, in: target) })
     }
     let hasHotkeys = rows.contains { $0.1 != nil }
     return Section {
@@ -612,29 +631,32 @@ struct SettingsPane: View {
       ForEach(rows, id: \.0) { entry, binding in
         if let id = entry["id"] {
           let title = list.title(entry)
-          HStack {
-            Text(title).lineLimit(1).help(title).frame(maxWidth: .infinity, alignment: .leading)
-            if hasHotkeys {
-              Group {
-                if let binding {
-                  shortcutControls(binding)
-                } else {
-                  Color.clear
+          VStack(alignment: .leading) {
+            HStack {
+              Text(title).lineLimit(1).help(title).frame(maxWidth: .infinity, alignment: .leading)
+              if hasHotkeys {
+                Group {
+                  if let binding {
+                    shortcutControls(binding)
+                  } else {
+                    Color.clear
+                  }
                 }
+                .frame(width: 134)
               }
-              .frame(width: 134)
+              Button("Edit", systemImage: "pencil") {
+                entryEditor = .init(folder: folder, list: list, values: entry, entryID: id)
+              }
+              .help("Edit \(title)")
+              Button("Delete", systemImage: "trash") {
+                recorder.stop()
+                store.change { try $0.changeEntry(in: list, folder: folder, id: id, values: nil) }
+              }
+              .help("Delete \(title)")
             }
-            Button("Edit", systemImage: "pencil") {
-              entryEditor = .init(folder: folder, list: list, values: entry, entryID: id)
-            }
-            .help("Edit \(title)")
-            Button("Delete", systemImage: "trash") {
-              recorder.stop()
-              store.change { try $0.changeEntry(in: list, folder: folder, id: id, values: nil) }
-            }
-            .help("Delete \(title)")
+            .labelStyle(.iconOnly).controlSize(.small)
+            if let binding { shortcutFeedback(for: binding, resolution: resolutions[binding]) }
           }
-          .labelStyle(.iconOnly).controlSize(.small)
         }
       }
     } header: {
@@ -684,9 +706,34 @@ struct SettingsPane: View {
     let index = others.firstIndex(of: id) ?? 0
     selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
   }
-  private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
-    LabeledContent(title) { shortcutControls(target) }
+  private func hotkeyRow(
+    _ title: String, _ target: HotkeyTarget, resolution: HotkeyRegistrations.Resolution?
+  ) -> some View {
+    VStack(alignment: .leading) {
+      LabeledContent(title) { shortcutControls(target) }
+      shortcutFeedback(for: target, resolution: resolution)
+    }
   }
+
+  func shortcutProblem(for target: HotkeyTarget, resolution: HotkeyRegistrations.Resolution?) -> String? {
+    if let rejection = store.rejection, rejection.target == target { return rejection.problem }
+    if let registration = store.bindingFailures[target], let problem = registration.problem {
+      if let inEffect = registration.inEffect, let old = try? Shortcut(inEffect) {
+        return "\(problem) \(old.symbols) still works."
+      }
+      return problem
+    }
+    guard let resolution, resolution != .ok else { return nil }
+    return "Hotkey unavailable: \(resolution.rawValue)."
+  }
+
+  @ViewBuilder private func shortcutFeedback(
+    for target: HotkeyTarget, resolution: HotkeyRegistrations.Resolution?
+  ) -> some View {
+    if recorder.target == target { recorderHint }
+    if let problem = shortcutProblem(for: target, resolution: resolution) { warning(problem) }
+  }
+
   private func shortcutControls(_ target: HotkeyTarget) -> some View {
     let keys = config.hotkeys.first { $0.target == target }?.keys
     return HStack(spacing: 4) {
@@ -699,10 +746,15 @@ struct SettingsPane: View {
       }
     }
   }
-  private func unavailableHotkeyRow(_ binding: Configuration.Hotkey) -> some View {
-    LabeledContent("Unavailable: \(binding.target.description)") {
-      Text(binding.keys.symbols)
-      Button("Remove") { store.bind(nil, to: binding.target) }
+  private func unavailableHotkeyRow(
+    _ binding: Configuration.Hotkey, resolution: HotkeyRegistrations.Resolution?
+  ) -> some View {
+    VStack(alignment: .leading) {
+      LabeledContent(binding.target.description) {
+        Text(binding.keys.symbols)
+        Button("Remove") { store.bind(nil, to: binding.target) }
+      }
+      shortcutFeedback(for: binding.target, resolution: resolution)
     }
   }
   /// A shortcut's button: it shows the keys, and a press starts recording or, while recording, stops it.

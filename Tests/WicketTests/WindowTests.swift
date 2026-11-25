@@ -706,7 +706,8 @@ let codingMove = [
   }
   let retired = try #require(HotkeyTarget("wicket://window?item=top"))
   model.store.bind(try Shortcut("option+cmd+up"), to: retired)
-  #expect(model.extensions.unavailableHotkeys(model.configuration.hotkeys).map(\.target) == [retired])
+  let directory = CommandDirectory(extensions: model.extensions, hosts: [], store: model.store)
+  #expect(directory.hotkeyResolutions().filter { $0.value != .ok } == [retired: .missingItem])
   model.press(retired)
   await model.navigator.settled()
   #expect(try observedFrame() == CGRect(x: -500, y: -180, width: 500, height: 800))

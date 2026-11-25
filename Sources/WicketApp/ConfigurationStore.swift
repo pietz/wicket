@@ -14,6 +14,7 @@ final class ConfigurationStore {
   var applyBinding: (Shortcut?, HotkeyTarget) -> String? = { _, _ in nil }
   /// Why a `hotkeys` binding is not in effect, one line each, as registration reports.
   var bindingProblem: String?
+  var bindingFailures: [HotkeyTarget: HotkeyRegistrations.Entry] = [:]
   /// Why the last hotkey recorded was not taken, for the launcher (no target) or a binding. The hotkeys in
   /// effect did not change, so it lasts only until the next recording starts or the panel hides.
   var rejection: (target: HotkeyTarget?, problem: String)?

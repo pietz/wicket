@@ -9,7 +9,6 @@ import Foundation
   nonisolated static var row: Result { get }
   nonisolated static var descriptor: CommandDescriptor { get }
   func view(for request: ProviderRequest) -> ProviderView
-  func view(for request: ProviderRequest, fieldChange: Page.Control.Change) -> ProviderView
   /// Whether it is listed at the root and can be opened now.
   nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool
   /// The conversation a submitted request reopens instead of answering with a view (Agent History's
@@ -24,9 +23,6 @@ extension HostCommand {
       submits: false, asksAbout: false)
   }
   func reopened(_ request: ProviderRequest) -> AgentHistory.Run? { nil }
-  func view(for request: ProviderRequest, fieldChange: Page.Control.Change) -> ProviderView {
-    view(for: request)
-  }
 }
 
 /// Where every command address resolves: the root, the agent, the native Settings window, or a command
@@ -94,41 +90,108 @@ extension HostCommand {
     return
       "\(name(of: id) ?? id) is switched off. Switch it on in Settings, Extensions, or press Esc to go back."
   }
-  /// Resolves a configured target without opening it or executing its first action.
-  func hotkeyResolution(
-    _ target: HotkeyTarget, permissionStatus: (Permission) -> Permission.Status
-  ) -> HotkeyRegistrations.Resolution {
+  struct ResolvedHotkey {
+    enum Delivery {
+      case open(Address)
+      case item(Result, RowAction)
+      case problem(String)
+    }
+    var resolution: HotkeyRegistrations.Resolution = .ok
+    let delivery: Delivery
+  }
+
+  /// A hotkey can still show a repair, a switched-off command, or a permission gate when pressed.
+  func resolveHotkey(
+    _ target: HotkeyTarget, permissionStatus: ((Permission) -> Permission.Status)? = nil
+  ) -> ResolvedHotkey {
+    let status = permissionStatus ?? extensions.permissions.status
     func commandResolution(_ id: String) -> HotkeyRegistrations.Resolution {
       if id == "agent" || id == "settings" { return .ok }
       let command = extensions.commands[id]
       guard command != nil || hostType(id) != nil else { return .missingExtension }
       guard isAvailable(id, in: store.configuration) else { return .disabled }
-      if let command, command.manifest.command != nil,
-        !Permissions.missing(command, status: permissionStatus).isEmpty
-      {
+      if let command, command.manifest.command != nil, !Permissions.missing(command, status: status).isEmpty {
         return .missingPermission
       }
       return .ok
     }
-    guard let id = target.target else { return .ok }
-    if target.item == nil, let owner = extensions.commands[id], owner.commandHotkeyTarget == nil {
-      return .missingCommand
+
+    let open = ResolvedHotkey.Delivery.open(target.address)
+    let id = target.target
+    let owner = id.flatMap { extensions.commands[$0] }
+    guard let itemID = target.item else {
+      let resolution: HotkeyRegistrations.Resolution =
+        if let owner, owner.commandHotkeyTarget == nil { .missingCommand } else {
+          id.map(commandResolution) ?? .ok
+        }
+      return .init(resolution: resolution, delivery: open)
     }
-    // A static item can invoke a different command or have its own effect independently of its owner.
-    guard target.item != nil, let owner = extensions.commands[id] else { return commandResolution(id) }
-    guard let item = owner.hotkeyItem(for: target) else { return .missingItem }
-    guard isAvailable(id, in: store.configuration) else { return .disabled }
-    switch item.actions.first?.kind {
+    guard let id, let owner, let item = owner.item(for: target), let action = itemAction(item, in: id)
+    else {
+      let name = owner?.manifest.name ?? target.address.extensionName ?? "this extension"
+      return .init(
+        resolution: owner == nil && id?.hasPrefix("extension:") == true ? .missingExtension : .missingItem,
+        delivery: .problem("Entry “\(itemID)” is no longer available in \(name)."))
+    }
+    // An item may act independently of the permissions its owner's program needs.
+    guard isAvailable(id, in: store.configuration) else {
+      return .init(resolution: .disabled, delivery: open)
+    }
+    let delivery = ResolvedHotkey.Delivery.item(Result(provider: id, row: item), action)
+    if let problem = OpenPolicy.refusal(action) {
+      return .init(resolution: .invalidAction, delivery: .problem(problem))
+    }
+    switch action.kind {
     case .run(let address):
-      if extensions.unopenableLinkTarget(address, from: id) != nil { return .missingCommand }
+      if extensions.unopenableLinkTarget(address, from: id) != nil {
+        return .init(resolution: .missingCommand, delivery: delivery)
+      }
       let destination = address.extensionName == nil ? id : address.targetID
-      return destination.map(commandResolution) ?? .ok
+      return .init(resolution: destination.map(commandResolution) ?? .ok, delivery: delivery)
     case .paste:
-      return permissionStatus(.accessibility) == .granted ? .ok : .missingPermission
-    case .copy, .open, .reveal, .save: return .ok
-    default: return commandResolution(id)
+      return .init(
+        resolution: status(.accessibility) == .granted ? .ok : .missingPermission, delivery: delivery)
+    default: return .init(delivery: delivery)
     }
   }
+
+  func hotkeyResolutions(permissionStatus: ((Permission) -> Permission.Status)? = nil)
+    -> [HotkeyTarget: HotkeyRegistrations.Resolution]
+  {
+    let config = store.configuration
+    var resolutions = HotkeyRegistrations.conflicts(config.hotkeys, launcher: config.hotkey)
+    for binding in config.hotkeys where resolutions[binding.target] == nil {
+      resolutions[binding.target] =
+        resolveHotkey(binding.target, permissionStatus: permissionStatus).resolution
+    }
+    return resolutions
+  }
+
+  /// An item hotkey must do something distinct from opening its owner's command.
+  private func itemAction(_ row: Row, in owner: String) -> RowAction? {
+    guard let action = row.actions.first else { return nil }
+    switch action.kind {
+    case .copy, .paste, .open, .reveal, .save: return action
+    case .run(let address):
+      let otherTarget = address.extensionName != nil && address.targetID != owner
+      if otherTarget || address.action != nil || address.hidden || address.input?.isEmpty == false
+        || address.fields?.isEmpty == false
+      {
+        return action
+      }
+      return nil
+    default: return nil
+    }
+  }
+
+  func itemHotkeyTarget(_ row: Row, in owner: String) -> HotkeyTarget? {
+    guard let action = itemAction(row, in: owner) else { return nil }
+    if case .run(let address) = action.kind, extensions.unopenableLinkTarget(address, from: owner) != nil {
+      return nil
+    }
+    return HotkeyTarget(target: owner, item: row.id, entryList: row.entryList)
+  }
+
   /// What a row's hotkey is bound to: an extension's command row, one of its static items (at the root,
   /// or inside the command when the view lists it with the same primary action) or a host command.
   /// Nil for a row with no address of its own, such as an app, a file or a fallback.
@@ -140,7 +203,7 @@ extension HostCommand {
     if let id = row.indexedItemID {
       let target = HotkeyTarget(target: owner.id, item: id, entryList: row.entryList)
       guard let item = owner.item(for: target) else { return nil }
-      return extensions.itemHotkeyTarget(item, in: owner.id)
+      return itemHotkeyTarget(item, in: owner.id)
     }
     // A program can render a manifest row with its original ID and primary action.
     guard !atRoot, let action = row.actions.first,
@@ -148,7 +211,7 @@ extension HostCommand {
         item.entryList == nil && item.id == row.id && item.actions.first?.kind == action.kind
       })
     else { return nil }
-    return extensions.itemHotkeyTarget(item, in: owner.id)
+    return itemHotkeyTarget(item, in: owner.id)
   }
   /// The host's rows at the root, before ranking: Settings and the host commands available now.
   func rootRows(_ configuration: Configuration) -> [Result] {
@@ -204,9 +267,6 @@ struct HostScreen: CommandScreenBehavior {
   func work(for request: CommandScreenRequest) -> CommandWork {
     if let problem = directory.unavailability(of: id) { return .unavailable(problem) }
     let provider = request.provider
-    if let change = request.fieldChange {
-      return .immediate(.view(host.view(for: provider, fieldChange: change)))
-    }
     if let run = host.reopened(provider) {
       return .immediate(.restore(run))
     }

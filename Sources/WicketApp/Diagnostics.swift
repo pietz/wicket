@@ -292,7 +292,7 @@ enum Diagnostics {
 
   private static func hotkeyReport(
     _ directory: CommandDirectory, configuration: Configuration?, recorded: HotkeyRegistrations?,
-    permissionStatus: (Permission) -> Permission.Status
+    permissionStatus: @escaping (Permission) -> Permission.Status
   ) -> Hotkeys {
     guard let configuration else {
       return Hotkeys(
@@ -315,16 +315,9 @@ enum Diagnostics {
     let observed = Dictionary(grouping: recorded?.bindings ?? []) {
       RegistrationKey(shortcut: $0.shortcut, target: $0.target)
     }
-    var seen: Set<Shortcut> = []
+    let resolutions = directory.hotkeyResolutions(permissionStatus: permissionStatus)
     let entries = zip(configuration.hotkeys, addresses).map { binding, address in
-      let resolution: HotkeyRegistrations.Resolution
-      if binding.keys == configuration.hotkey {
-        resolution = .conflictsWithLauncher
-      } else if !seen.insert(binding.keys).inserted {
-        resolution = .duplicate
-      } else {
-        resolution = directory.hotkeyResolution(binding.target, permissionStatus: permissionStatus)
-      }
+      let resolution = resolutions[binding.target] ?? .ok
       let matches = observed[address] ?? []
       return Hotkeys.Entry(
         shortcut: address.shortcut, target: address.target, resolution: resolution.rawValue,

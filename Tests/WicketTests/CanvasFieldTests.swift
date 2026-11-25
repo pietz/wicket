@@ -194,73 +194,68 @@ import WebKit
   #expect(try await run("return !inputs[0].isConnected && scrollY === 0;") as? Bool == true)
 }
 
-@MainActor private final class CanvasHost: HostCommand {
-  let id = "history"
-  nonisolated static let title = "Canvas Test"
-  nonisolated static let row = Ranking.host("history", title, icon: "slider.horizontal.3")
-  nonisolated static func isAvailable(in configuration: Configuration, extensions: [String]) -> Bool { true }
-  var changes: [Page.Control.Change] = []
-  var requests: [ProviderRequest] = []
-  func view(for request: ProviderRequest, fieldChange: Page.Control.Change) -> ProviderView {
-    changes.append(fieldChange)
-    requests.append(request)
-    return view(for: request)
-  }
-  func view(for request: ProviderRequest) -> ProviderView {
-    let level = request.fields["level"] ?? "0"
-    let toggle = request.fields["toggle"] ?? "false"
-    let choice = request.fields["choice"] ?? "a"
-    return .init(
-      body: """
-        <field name="level"/>
-        <field name="toggle"/>
-        <row title="Details">Read more. <field name="nested"/></row>
-        <field name="choice"/>
-        """,
-      fields: [
-        .init(name: "level", type: .number, min: 0, max: 1, step: 0.1, value: level, action: .named("save")),
-        .init(name: "toggle", type: .bool, value: toggle),
-        .init(name: "choice", type: .choice, options: [.init("a"), .init("b")], value: choice),
-      ])
-  }
-}
-
-@MainActor @Test func canvasEventsGoThroughHostBehaviorAndReturnFollowsReadingOrder() async throws {
-  let folder = try scratch()
-  defer { try? FileManager.default.removeItem(at: folder) }
-  let host = CanvasHost()
-  let model = LauncherModel.testing(in: folder, bundled: nil)
-  let directory = CommandDirectory(extensions: model.extensions, hosts: [host], store: model.store)
-  let history = UsageHistory(url: folder.appending(path: "canvas-usage.json"))
-  let navigator = Navigator(
-    agent: model.agent, directory: directory, root: model.root, store: model.store, history: history)
-  navigator.go(Address(id: host.id), holding: false)
+@MainActor @Test func canvasEventsReachTheExtensionAndReturnFollowsReadingOrder() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let view = ProviderView(
+    body: """
+      <field name="level"/>
+      <field name="toggle"/>
+      <row title="Details">Read more. <field name="nested"/></row>
+      <field name="choice"/>
+      """,
+    fields: [
+      .init(name: "level", type: .number, min: 0, max: 1, step: 0.1, action: .named("save")),
+      .init(name: "toggle", type: .bool),
+      .init(name: "choice", type: .choice, options: [.init("a"), .init("b")]),
+    ])
+  let response = String(decoding: try JSONEncoder().encode(view), as: UTF8.self)
+  let folder = try extensionFolder(
+    root,
+    script: """
+      IFS= read -r request
+      printf '%s\n' "$request" >>log.jsonl
+      printf '%s' '\(response)'
+      """, fields: ["fields": []])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  let navigator = model.navigator
+  navigator.go(Address(id: "test"))
+  await navigator.settled()
   let turn = navigator.pageTurn
   #expect(navigator.results.map(\.row.id) == ["#field:level", "#field:toggle", "#0", "#field:choice"])
-  #expect(navigator.returnAction == nil)
+  #expect(navigator.returnAction?.kind == .ask)
   navigator.changeField(.init(name: "level", value: "0.1", phase: .preview), turn: "stale")
   navigator.changeField(.init(name: "level", value: "0.15", phase: .commit), turn: turn)
   navigator.changeField(.init(name: "toggle", value: "true", phase: .preview), turn: turn)
-  #expect(host.changes.isEmpty)
+  await navigator.settled()
+  #expect(try requests(in: folder).count == 1)
+
   navigator.changeField(.init(name: "level", value: "0.10", phase: .preview), turn: turn)
+  await navigator.settled()
   navigator.changeField(.init(name: "level", value: "0.3", phase: .commit), turn: turn)
-  #expect(host.changes.map(\.phase) == [.preview, .commit])
-  #expect(host.requests.map(\.action) == [nil, "save"])
-  #expect(host.requests.map(\.submitted) == [false, true])
-  #expect(host.requests.map { $0.fields["level"] } == ["0.1", "0.3"])
+  await navigator.settled()
+  let edits = try requests(in: folder).dropFirst()
+  #expect(edits.map(\.action) == [nil, "save"])
+  #expect(edits.map(\.submitted) == [false, true])
+  #expect(edits.map { $0.fields["level"] } == ["0.1", "0.3"])
+
   navigator.move(1)
   navigator.move(1)
   navigator.run()
-  #expect(host.changes.last == .init(name: "toggle", value: "true", phase: .commit))
+  await navigator.settled()
+  #expect(try requests(in: folder).last?.fields["toggle"] == "true")
   navigator.move(1)
   navigator.run()
   #expect(navigator.inDetail && navigator.page?.fields.isEmpty == true)
   navigator.changeField(.init(name: "toggle", value: "false", phase: .commit), turn: navigator.pageTurn)
-  #expect(host.changes.count == 3)
+  await navigator.settled()
+  #expect(try requests(in: folder).count == 4)
   #expect(navigator.escape())
   navigator.move(1)
   navigator.run()
-  #expect(host.changes.last == .init(name: "choice", value: "b", phase: .commit))
+  await navigator.settled()
+  #expect(try requests(in: folder).last?.fields["choice"] == "b")
   #expect(navigator.pageTurn == turn && navigator.selectedTarget == "#field:choice")
   await model.finish()
 }

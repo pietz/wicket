@@ -8,6 +8,7 @@ import Observation
 @MainActor @Observable
 final class LauncherModel {
   let navigator: Navigator
+  private let directory: CommandDirectory
   let agent: AgentSession
   let extensions: ExtensionHost
   let runtime: RuntimeRecorder?
@@ -41,7 +42,7 @@ final class LauncherModel {
     agent.history = agentHistory
     extensions = ExtensionHost(
       folder: folder, bundled: bundled, dataDirectory: extensionDataDirectory, runtime: runtime)
-    let directory = CommandDirectory(
+    directory = CommandDirectory(
       extensions: extensions, hosts: [clipboard as (any HostCommand)?, agentHistory].compactMap { $0 },
       store: store)
     root = RootCommand(apps: apps, files: files, directory: directory, store: store, history: history)
@@ -107,27 +108,19 @@ final class LauncherModel {
       }
       return
     }
-    let owner = target.target.flatMap { extensions.commands[$0] }
-    guard let itemID = target.item else { return navigator.open(target.address, pressed: target) }
-    guard let item = owner?.hotkeyItem(for: target) else {
-      let name = owner?.manifest.name ?? target.address.extensionName ?? "this extension"
-      return navigator.reportActionProblem("Entry “\(itemID)” is no longer available in \(name).")
-    }
-    // A switched-off extension's items run nothing: its address shows that it is off.
-    guard let owner, configuration.isEnabled(owner.id, extensions: extensions.ids),
-      let action = item.actions.first
-    else {
-      return navigator.open(target.address, pressed: target)
-    }
-    switch navigator.applyingDraft(to: action, for: target).kind {
-    case .run(let address) where address.hidden:
-      navigator.runHidden(address, from: owner.id, pressed: target)
-    case .run(let address):
-      navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
-    case .copy, .paste, .open, .reveal: navigator.perform(action)
-    case .save: navigator.activate(action, from: Result(provider: owner.id, row: item))
-    case .send, .ask, .detail, .field, .clip, .hotkey, .grant, .checkForUpdates, .dismissNotice, .editList:
-      navigator.open(target.address, pressed: target)
+    switch directory.resolveHotkey(target).delivery {
+    case .open(let address): navigator.open(address, pressed: target)
+    case .problem(let message): navigator.reportActionProblem(message)
+    case .item(let result, let action):
+      switch navigator.applyingDraft(to: action, for: target).kind {
+      case .run(let address) where address.hidden:
+        navigator.runHidden(address, from: result.provider, pressed: target)
+      case .run(let address):
+        navigator.open(address, from: result.provider, submitted: !address.link, pressed: target)
+      case .copy, .paste, .open, .reveal: navigator.perform(action)
+      case .save: navigator.activate(action, from: result)
+      default: break
+      }
     }
   }
   func finish() async {

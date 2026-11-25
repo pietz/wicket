@@ -114,6 +114,51 @@ import Testing
   #expect(live.isEmpty && hotkeys.inEffect(left) == nil)
 }
 
+@MainActor @Test func swappingConfiguredHotkeysTransfersTheirLiveHandlers() throws {
+  let taken = try Shortcut("ctrl+3")
+  var live: [Shortcut: () -> Void] = [:]
+  final class Registration {
+    let release: () -> Void
+    init(_ release: @escaping () -> Void) { self.release = release }
+    deinit { release() }
+  }
+  let bindings = CommandHotKeys { shortcut, press in
+    guard shortcut != taken, live[shortcut] == nil else { return nil }
+    live[shortcut] = press
+    return Registration { live[shortcut] = nil }
+  }
+  var pressed: [HotkeyTarget] = []
+  bindings.onPress = { pressed.append($0) }
+  let left = HotkeyTarget(target: "extension:window", item: "left")
+  let right = HotkeyTarget(target: "extension:window", item: "right")
+  let one = try Shortcut("ctrl+1")
+  let two = try Shortcut("ctrl+2")
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = ConfigurationStore(url: root.appending(path: "config.json"))
+  store.onChange = { config in
+    store.bindingProblem = bindings.apply(config.hotkeys, launcher: config.hotkey)
+  }
+  defer { store.onChange = { _ in } }
+  store.update { $0.hotkeys = [.init(keys: one, target: left), .init(keys: two, target: right)] }
+  live[one]?()
+  live[two]?()
+
+  store.update { $0.hotkeys = [.init(keys: two, target: left), .init(keys: one, target: right)] }
+  #expect(store.bindingProblem == nil)
+  #expect(bindings.latest.map(\.inEffect) == [two.description, one.description])
+  live[one]?()
+  live[two]?()
+  #expect(pressed == [left, right, right, left])
+
+  store.update { $0.hotkeys = [.init(keys: one, target: left), .init(keys: taken, target: right)] }
+  #expect(bindings.latest.map(\.resolution) == [.duplicate, .registrationFailed])
+  #expect(bindings.latest.map(\.inEffect) == [two.description, one.description])
+  live[one]?()
+  live[two]?()
+  #expect(pressed.suffix(2) == [right, left])
+}
+
 @MainActor @Test func settingAHotkeyRegistersBeforeSavingAndAConflictSavesNothing() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -619,10 +664,10 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   model.navigator.surface = surface
   let saved = model.configuration.hotkeys
   #expect(saved.count == 4)
-  #expect(model.extensions.unavailableHotkeys(saved).map(\.target) == saved.map(\.target))
   let directory = CommandDirectory(extensions: model.extensions, hosts: [], store: model.store)
+  let resolutions = directory.hotkeyResolutions()
   #expect(
-    saved.map { directory.hotkeyResolution($0.target, permissionStatus: { _ in .granted }) }
+    saved.map { resolutions[$0.target] }
       == [.missingCommand, .missingCommand, .missingItem, .missingCommand])
   model.navigator.input = "Convert Distance"
   await model.navigator.settled()
@@ -664,12 +709,79 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(set.label == "Set Hotkey…" && !model.navigator.activate(set, from: row))
   model.navigator.select(row.id)
   controller.run(set)
-  #expect(controller.recorder.isRecording && controller.recordsHotkey(of: row) && pauses == [true])
+  #expect(controller.recorder.isRecording && pauses == [true])
+  #expect(controller.recorder.target == model.navigator.hotkeyTarget(of: row))
   controller.hide()
   #expect(!controller.recorder.isRecording && controller.recorder.target == nil && pauses == [true, false])
   // A row without an address offers no hotkey.
   let app = Result(provider: "apps", row: Row(id: "x", title: "X", actions: [.copy("x")]))
   #expect(model.navigator.actions(of: app) == [.copy("x")])
+}
+
+@MainActor @Test func aSavedLinkToARemovedCommandReportsTheSameProblemAcrossHotkeySurfaces() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  _ = try extensionFolder(
+    root, name: "links",
+    fields: [
+      "items": [
+        ["id": "notes", "title": "Notes", "actions": [["type": "open", "url": "wicket://missing"]]]
+      ]
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let target = HotkeyTarget(target: "extension:links", item: "notes")
+  model.store.bind(try Shortcut("ctrl+1"), to: target)
+  let directory = CommandDirectory(extensions: model.extensions, hosts: [], store: model.store)
+  let pane = SettingsPane(
+    section: 3, store: model.store, extensions: model.extensions,
+    clipboard: ClipboardHistory(
+      url: root.appending(path: "clipboard.json"), pasteboard: FakePasteboard(), interval: nil),
+    runs: AgentHistory(url: root.appending(path: "history.json")), updater: nil, pauseHotkey: { _ in })
+  let resolution = directory.hotkeyResolutions()[target]
+  #expect(
+    pane.shortcutProblem(for: target, resolution: resolution) == "Hotkey unavailable: missing extension.")
+
+  let report = try JSONDecoder().decode(
+    JSONValue.self,
+    from: await Diagnostics.report(
+      folder: root, bundled: nil, permissions: model.extensions.permissions,
+      environment: ["WICKET_CONFIG_DIR": root.path]))
+  #expect(report["hotkeys"]["bindings"].array.first?["resolution"].string == resolution?.rawValue)
+  model.press(target)
+  await model.navigator.settled()
+  #expect(model.navigator.actionProblem == "No extension named missing")
+  #expect(model.navigator.command == nil)
+
+  _ = try extensionFolder(root, name: "missing")
+  await model.extensions.reload()
+  #expect(directory.hotkeyResolutions()[target] == .ok)
+  model.press(target)
+  await model.navigator.settled()
+  #expect(model.navigator.command?.id == "extension:missing")
+  await model.finish()
+}
+
+@MainActor @Test func recordingAListEntryOnlyReportsTheRejectionOnItsRow() throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = ConfigurationStore(url: root.appending(path: "config.json"))
+  store.start(watching: false)
+  let keys = try Shortcut("ctrl+1")
+  let bindings = CommandHotKeys { _, _ in nil }
+  store.applyBinding = { keys, target in bindings.set(keys, for: target, launcher: nil) }
+  let bookmark = HotkeyTarget(target: "extension:links-search", item: "example", entryList: "links")
+  let siteSearch = HotkeyTarget(target: "extension:links-search", item: "example", entryList: "searches")
+  let pane = SettingsPane(
+    section: 3, store: store, extensions: ExtensionHost(folder: root, bundled: nil),
+    clipboard: ClipboardHistory(
+      url: root.appending(path: "clipboard.json"), pasteboard: FakePasteboard(), interval: nil),
+    runs: AgentHistory(url: root.appending(path: "history.json")), updater: nil, pauseHotkey: { _ in })
+  store.bind(keys, to: bookmark)
+  #expect(pane.shortcutProblem(for: bookmark, resolution: .ok)?.contains("is in use") == true)
+  #expect(pane.shortcutProblem(for: siteSearch, resolution: .ok) == nil)
+  #expect(store.configuration.hotkeys.isEmpty)
 }
 
 /// A rejected recording changed no hotkey, so the footer says why only until the panel hides or the next
