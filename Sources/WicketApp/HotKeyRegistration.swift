@@ -24,9 +24,15 @@ final class HotKeyRegistration {
       problem: problem, inEffect: inEffect?.description)
   }
 
+  /// Resuming takes back the shortcut that was in effect, if it is still free, so a fallback kept after a
+  /// conflict survives a recording that was canceled.
   func pause(_ paused: Bool) {
     self.paused = paused
-    if paused { registration = nil }
+    if paused {
+      registration = nil
+    } else if registration == nil, let previous {
+      registration = register(previous)
+    }
   }
 
   func apply(_ shortcut: Shortcut) -> String? {

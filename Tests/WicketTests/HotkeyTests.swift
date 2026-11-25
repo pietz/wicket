@@ -159,6 +159,55 @@ import Testing
   #expect(pressed.suffix(2) == [right, left])
 }
 
+@MainActor @Test func theLauncherSwapsKeysWithABindingAndResumingKeepsAFallback() throws {
+  var live: [Shortcut: () -> Void] = [:]
+  final class Registration {
+    let release: () -> Void
+    init(_ release: @escaping () -> Void) { self.release = release }
+    deinit { release() }
+  }
+  let take = { (shortcut: Shortcut, press: @escaping () -> Void) -> AnyObject? in
+    guard live[shortcut] == nil else { return nil }
+    live[shortcut] = press
+    return Registration { live[shortcut] = nil }
+  }
+  var pressed: [String] = []
+  let launcher = HotKeyRegistration { take($0) { pressed.append("launcher") } }
+  let bindings = CommandHotKeys { take($0, $1) }
+  bindings.onPress = { pressed.append($0.description) }
+  let left = HotkeyTarget(target: "extension:window", item: "left")
+  let right = HotkeyTarget(target: "extension:window", item: "right")
+  let one = try Shortcut("ctrl+1")
+  let two = try Shortcut("ctrl+2")
+  let three = try Shortcut("ctrl+3")
+  var config = Configuration()
+  config.hotkey = one
+  config.hotkeys = [.init(keys: two, target: left)]
+  #expect(bindings.apply(config, launcher: launcher) == (nil, nil))
+  // Swapped in the file: each takes the other's keys.
+  config.hotkey = two
+  config.hotkeys = [.init(keys: one, target: left)]
+  #expect(bindings.apply(config, launcher: launcher) == (nil, nil))
+  live[one]?()
+  live[two]?()
+  #expect(pressed == [left.description, "launcher"])
+
+  // A duplicate keeps its old keys working, also after a recorder pauses and resumes everything.
+  config.hotkeys = [.init(keys: one, target: left), .init(keys: three, target: right)]
+  #expect(bindings.apply(config, launcher: launcher).bindings == nil)
+  config.hotkeys = [.init(keys: one, target: left), .init(keys: one, target: right)]
+  #expect(bindings.apply(config, launcher: launcher).bindings != nil && bindings.inEffect(right) == three)
+  launcher.pause(true)
+  bindings.pause(true)
+  #expect(live.isEmpty)
+  launcher.pause(false)
+  bindings.pause(false)
+  _ = bindings.apply(config, launcher: launcher)
+  #expect(bindings.inEffect(right) == three && launcher.inEffect == two)
+  live[three]?()
+  #expect(pressed.last == right.description)
+}
+
 @MainActor @Test func settingAHotkeyRegistersBeforeSavingAndAConflictSavesNothing() throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

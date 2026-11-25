@@ -51,8 +51,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     bindings.onPress = { [weak self] in self?.palette.model.press($0) }
     let register: (Configuration) -> Void = { [weak self] config in
       guard let self else { return }
-      configuration.hotkeyProblem = hotkey.apply(config.hotkey)
-      configuration.bindingProblem = bindings.apply(config.hotkeys, launcher: config.hotkey)
+      (configuration.hotkeyProblem, configuration.bindingProblem) = bindings.apply(config, launcher: hotkey)
       configuration.bindingFailures = bindings.failures
       runtime.register(
         HotkeyRegistrations(

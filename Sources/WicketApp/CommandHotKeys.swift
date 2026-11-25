@@ -223,6 +223,17 @@ final class CommandHotKeys {
     return messages.isEmpty ? nil : messages.joined(separator: "\n")
   }
 
+  /// Applies the launcher's shortcut and the bindings together. A launcher that moves lets go of its old
+  /// keys while the bindings register, so a binding can take them, as in a swap.
+  func apply(_ config: Configuration, launcher: HotKeyRegistration) -> (launcher: String?, bindings: String?)
+  {
+    let moving = launcher.inEffect.map { $0 != config.hotkey } ?? false
+    if moving { launcher.pause(true) }
+    let problems = apply(config.hotkeys, launcher: config.hotkey)
+    if moving { launcher.pause(false) }
+    return (launcher.apply(config.hotkey), problems)
+  }
+
   private func launcherConflict(_ keys: Shortcut, _ target: HotkeyTarget) -> String {
     "\(keys.symbols) opens Wicket. Choose another for \(target)."
   }
