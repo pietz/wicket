@@ -72,7 +72,8 @@ private func calculatorRow(
 }
 
 private func calculate(_ input: String, _ locale: ProviderRequest.NumberMarks = us) async throws -> Answer? {
-  guard let row = try await calculatorRow(input, locale), row.id == "result" else { return nil }
+  guard let row = try await calculatorRow(input, locale, settings: ["precision": "15"]), row.id == "result"
+  else { return nil }
   guard case .copy(let copy, false) = row.actions.first?.kind, row.prominent == true else {
     throw ExtensionFailure("A result is prominent and copies the number")
   }
@@ -244,7 +245,7 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
 }
 
 @Test func calculatorCopyPasteAndContinuationUseTheVisiblePrecision() async throws {
-  let comma = try #require(try await calculatorRow("1.234,50 * 3", de))
+  let comma = try #require(try await calculatorRow("1.234,50 * 3", de, settings: ["precision": "5"]))
   #expect(
     comma.actions == [
       .copy("3703,5"), .copy("3703.5", title: "Copy Machine Number"), .paste("3703,5", title: "Paste Result"),
@@ -253,20 +254,23 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   let dot = try #require(try await calculatorRow("1/3", us))
   #expect(
     dot.actions == [
-      .copy("0.333333333333333"), .paste("0.333333333333333", title: "Paste Result"),
-      .run(Address(extensionName: "", input: "=0.333333333333333"), title: "Use Result"),
+      .copy("0.33"), .paste("0.33", title: "Paste Result"),
+      .run(Address(extensionName: "", input: "=0.33"), title: "Use Result"),
     ])
-  let continued = try #require(try await calculatorRow("=1,234 * 2", de))
+  let continued = try #require(try await calculatorRow("=1,234 * 2", de, settings: ["precision": "5"]))
   #expect(continued.actions.first == .copy("2,468"))
   #expect(
     try await calculatorRow("=1", de)?.actions.contains(.copy("1", title: "Copy Machine Number")) == true)
 }
 
 @Test func calculatorInputAndOutputSettings() async throws {
-  let dot = try #require(try await calculatorRow("=1.234", de, settings: ["inputFormat": "Dot"]))
+  let dot = try #require(
+    try await calculatorRow("=1.234", de, settings: ["inputFormat": "Dot", "precision": "5"]))
   #expect(dot.actions.first == .copy("1,234"))
   #expect(dot.actions.last == .run(Address(extensionName: "", input: "=1.234"), title: "Use Result"))
-  #expect(try await calculatorRow("=1,234", us, settings: ["inputFormat": "Comma"])?.title == "1.234")
+  #expect(
+    try await calculatorRow("=1,234", us, settings: ["inputFormat": "Comma", "precision": "5"])?.title
+      == "1.234")
   #expect(try await calculatorRow("1,225+0", de, settings: ["outputFormat": "Fixed"])?.title == "≈ 1,22")
   #expect(
     try await calculatorRow("=1", us, settings: ["outputFormat": "Fixed", "precision": "-1"])?.title == "1.00"
@@ -277,6 +281,23 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   #expect(
     try await calculatorRow("=12345", de, settings: ["outputFormat": "Scientific", "precision": "3"])?.title
       == "≈ 1,23e4")
+  #expect(try await calculatorRow("=12345", us, settings: ["outputFormat": "Scientific"])?.title == "≈ 1.2e4")
+  #expect(try await calculatorRow("=1/3", settings: ["precision": "0"])?.title == "≈ 0.3")
+  #expect(
+    try await calculatorRow("=12345", us, settings: ["outputFormat": "Scientific", "precision": "0"])?.title
+      == "≈ 1e4")
+}
+
+@Test func calculatorPrecisionPickerLoadsOldConfigValues() throws {
+  let command = try bundled("calculator")
+  let setting = try #require(command.manifest.settings.first { $0.name == "precision" })
+  guard case .field(let field) = setting else { throw ExtensionFailure("Expected a scalar setting") }
+  #expect(field.type == .choice && field.options?.map(\.value) == ["0", "1", "2", "3", "4", "5"])
+  #expect(command.settings(nil)["precision"] == .string("2"))
+  #expect(command.settings(.object("precision", .number(4)))["precision"] == .string("4"))
+  #expect(command.settings(.object("precision", .string("5")))["precision"] == .string("5"))
+  #expect(command.settings(.object("precision", .number(15)))["precision"] == .string("2"))
+  #expect(command.settings(.object("precision", .string("34")))["precision"] == .string("2"))
 }
 
 @MainActor @Test func calculatorReturnCopiesAndUseResultContinuesAtTheRoot() async throws {

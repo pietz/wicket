@@ -72,7 +72,8 @@ struct ExtensionCommand: Sendable, Equatable {
       switch setting {
       case .field(let field):
         let scalar =
-          saved?[field.name].string.flatMap { field.canonical($0) != nil ? $0 : nil } ?? field.default
+          field.savedSettingText(saved?[field.name]).flatMap { field.canonical($0) != nil ? $0 : nil }
+          ?? field.default
         values[field.name] = scalar.map(JSONValue.string)
       case .entries(let list):
         let entries = list.read(saved?[list.name] ?? .null).entries

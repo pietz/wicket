@@ -511,7 +511,8 @@ struct SettingsPane: View {
       if !fields.isEmpty {
         Section("Settings") {
           ForEach(fields, id: \.name) { field in
-            SettingField(setting: field, saved: config.extensions[folder]?[field.name].string) { value in
+            let saved = field.savedSettingText(config.extensions[folder]?[field.name])
+            SettingField(setting: field, saved: saved) { value in
               store.change { try $0.set(field.name, to: value, forExtension: folder) }
             }
           }

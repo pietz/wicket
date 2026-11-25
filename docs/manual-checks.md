@@ -22,7 +22,7 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 
 ## 3. Calculator, Convert and Shell
 
-1. `12*7` shows 84 first, Return copies. `200 + 10%` → 220, `1,000 + 1` follows locale, `1.2.3` shows no row. (First calculation after an update may lag once.)
+1. `12*7` shows 84 first, Return copies. `200 + 10%` → 220, `1,000 + 1` follows locale, `1.2.3` shows no row. (First calculation after an update may lag once.) In Calculator Settings, **Precision** offers 0–5 and defaults to 2. With `1/3`, try 5 in Automatic and 0 in Fixed, then restore the default.
 2. `10 km to mi` shows `6.21 mi` with two decimal places. Search `fx` to open Convert. `100 usd to eur` shows a result using Frankfurter. Return copies the number. Turn on **Include unit when copying** and check that Return copies the unit or currency code as well.
 3. `> touch /tmp/wicket-shell-test` shows one row and creates nothing before Return. With **System default** selected, Return on `> ls -la` closes Wicket and opens the macOS `.command` handler in `~` with an interactive shell. `>` alone shows a hint and Return is a no-op.
 4. In Settings ▸ Extensions ▸ Shell, verify that **Terminal app** offers **System default** and only the installed supported apps. Choose **Ghostty**, press Return on `> echo hi`, and confirm Ghostty prints `hi`.

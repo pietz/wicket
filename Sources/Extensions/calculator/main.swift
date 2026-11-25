@@ -28,8 +28,7 @@ private struct Marks {
     }
     format = settings?["outputFormat"]?.string.flatMap(Format.init(rawValue:)) ?? .automatic
     let proposed = settings?["precision"]?.string.flatMap(Int.init)
-    let minimum = format == .fixed ? 0 : 1
-    precision = proposed.flatMap { (minimum...34).contains($0) ? $0 : nil } ?? (format == .fixed ? 2 : 15)
+    precision = max(format == .fixed ? 0 : 1, proposed.flatMap { (0...34).contains($0) ? $0 : nil } ?? 2)
   }
 
   private static let groupingSpaces: [Character] = [" ", "\u{00A0}", "\u{202F}"]

@@ -158,6 +158,14 @@ struct Field: Codable, Sendable, Equatable {
     return [self.default, value].compactMap { $0 }.allSatisfy { canonical($0) != nil }
   }
 
+  /// A numeric setting may have been stored as a JSON number before it became a picker.
+  func savedSettingText(_ saved: JSONValue?) -> String? {
+    if case .number(let number) = saved, number.isFinite, type == .number || type == .choice {
+      return Self.wire(number)
+    }
+    return saved?.string
+  }
+
   func canonical(_ value: String) -> String? {
     switch type {
     case .text: return value
