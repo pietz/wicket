@@ -34,6 +34,3 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 - **`Navigator.swift` is about 1,370 lines.** It still holds agent question settings and header/permission height staging. Next: move agent question settings to the agent screen; key heights to the visit alongside measure-before-show.
 - **A successful pattern drops text typed into a command's field** when its row is replaced. Next: preserve the selected command row and field values across ranking.
 
-## Tests
-
-- **`HeadlessTests` invokes `.build/debug/Wicket` at a fixed path** and assumes `Scripts/check.sh` built it. Next: build the target from the test or report clearly if missing.

@@ -5,8 +5,7 @@ import Testing
 
 func cli(_ folder: URL, _ arguments: [String]) async throws -> (Int32, JSONValue) {
   _ = bundledExtensions  // Beside the executable, where an unbundled Wicket looks for them.
-  let executable = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    .deletingLastPathComponent().appending(path: ".build/debug/Wicket")
+  let executable = testProducts.appending(path: "Wicket")
   let p = Process()
   let output = Pipe()
   let errors = Pipe()

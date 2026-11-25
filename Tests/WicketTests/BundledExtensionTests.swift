@@ -3,20 +3,27 @@ import Testing
 
 @testable import WicketApp
 
+let testProducts: URL = {
+  // SwiftPM puts resources beside the products, or inside the test bundle with swiftbuild.
+  var directory = Bundle.module.bundleURL.deletingLastPathComponent()
+  while directory.path != "/" {
+    if FileManager.default.isExecutableFile(atPath: directory.appending(path: "Wicket").path) {
+      return directory
+    }
+    directory = directory.deletingLastPathComponent()
+  }
+  preconditionFailure("No Wicket executable beside the test products. Run Scripts/check.sh to build it.")
+}()
+
 /// The bundled extensions as the app ships them (`Scripts/build-app.sh`): each folder's manifest and
-/// source with the binary SwiftPM built, assembled once beside the debug Wicket executable, where an
+/// source with the binary SwiftPM built, assembled once beside the Wicket executable, where an
 /// unbundled Wicket finds them (`ExtensionHost.bundledFolder`) for the headless tests. In-process
 /// models get this folder only when a test passes it.
 let bundledExtensions: URL = {
   let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent()
   let fm = FileManager.default
-  // The test resources sit beside the products, or inside the test bundle with swiftbuild.
-  var products = Bundle.module.bundleURL.deletingLastPathComponent()
-  while !fm.fileExists(atPath: products.appending(path: "Wicket").path), products.path != "/" {
-    products = products.deletingLastPathComponent()
-  }
-  let folder = products.appending(path: "Extensions")
+  let folder = testProducts.appending(path: "Extensions")
   let names = ["calculator", "units", "weather", "window", "shell", "links-search"]
   for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where !names.contains(name) {
     try! fm.removeItem(at: folder.appending(path: name))
@@ -31,7 +38,7 @@ let bundledExtensions: URL = {
     }
     let files =
       sources.map { ($0.resolvingSymlinksInPath(), $0.lastPathComponent) }
-      + [(products.appending(path: name), "main")]
+      + [(testProducts.appending(path: name), "main")]
     for (source, file) in files
     where !fm.contentsEqual(atPath: source.path, andPath: target.appending(path: file).path) {
       try? fm.removeItem(at: target.appending(path: file))
