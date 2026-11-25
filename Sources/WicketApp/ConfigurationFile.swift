@@ -244,24 +244,6 @@ struct ConfigurationFile {
     }
   }
 
-  /// Forget the switch and hotkeys. Keep saved settings for a restoration.
-  func forget(extension folder: String) throws {
-    let id = "extension:" + folder
-    try edit { object in
-      if let entries = object["providers"] as? [[String: Any]] {
-        let remaining = entries.filter { $0["id"] as? String != id }
-        if remaining.count != entries.count { object["providers"] = remaining.isEmpty ? nil : remaining }
-      }
-      if let entries = object["hotkeys"] as? [[String: Any]] {
-        let remaining = entries.filter { entry in
-          guard let target = (entry["address"] as? String).flatMap({ HotkeyTarget($0, allowLegacy: true) })
-          else { return true }
-          return target.target != id
-        }
-        if remaining.count != entries.count { object["hotkeys"] = remaining.isEmpty ? nil : remaining }
-      }
-    }
-  }
   func setProvider(_ id: String, enabled: Bool) throws {
     try edit { object in
       var entries = object["providers"] as? [[String: Any]] ?? []

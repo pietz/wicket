@@ -47,16 +47,14 @@ struct HotkeyTarget: Hashable, Sendable, CustomStringConvertible {
     return Address(id: target, input: input, link: true)
   }
   var description: String {
-    var url = URLComponents()
-    url.scheme = Address.schemes[0]
-    url.encodedHost = (address.extensionName ?? "").addingPercentEncoding(
-      withAllowedCharacters: .urlHostAllowed)
-    let reference = item.map { item in
-      if let entryList { return URLQueryItem(name: "entry", value: entryList + "/" + item) }
-      return URLQueryItem(name: legacyItem ? "user-item" : "item", value: item)
+    var url = address.linkComponents
+    if let item {
+      let reference: URLQueryItem =
+        if let entryList { URLQueryItem(name: "entry", value: entryList + "/" + item) } else {
+          URLQueryItem(name: legacyItem ? "user-item" : "item", value: item)
+        }
+      url.queryItems = (url.queryItems ?? []) + [reference]
     }
-    let query = [input.map { URLQueryItem(name: "input", value: $0) }, reference].compactMap { $0 }
-    url.queryItems = query.isEmpty ? nil : query
     return url.string ?? "wicket://"
   }
 }

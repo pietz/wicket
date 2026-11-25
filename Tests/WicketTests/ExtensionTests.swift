@@ -26,6 +26,31 @@ func answering(_ title: String) -> String {
   return "cat >/dev/null\nprintf '%s' '" + String(decoding: data, as: UTF8.self) + "'"
 }
 
+@MainActor @Test func headlessViewLinksRoundTripAsUnsubmittedAddresses() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  _ = try extensionFolder(
+    root, name: "links",
+    script:
+      #"echo '{"items":[],"actions":[{"type":"open","url":"wicket://target?input=a%2Bb%20%26%20c&action=ignored"}],"body":"Links"}'"#
+  )
+  let target = try extensionFolder(
+    root, name: "target", script: #"cat >request.json; echo '{"body":"Target"}'"#)
+  let (status, json) = try await cli(root, ["--extension", "links"])
+  #expect(status == 0)
+  #expect(json["actions"].array.first?["type"] == .string("open"))
+  let view = try JSONDecoder().decode(ProviderView.self, from: JSONEncoder().encode(json))
+  let action = try #require(view.actions.first)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  await model.extensions.reload()
+  model.navigator.activate(action, from: nil)
+  await model.navigator.settled()
+  let request = try JSONDecoder().decode(
+    ProviderRequest.self, from: Data(contentsOf: target.appending(path: "request.json")))
+  #expect(request.input == "a+b & c" && !request.submitted && request.action == nil)
+  await model.finish()
+}
+
 @Test func completeExtensionWireContract() throws {
   #expect(
     Result(provider: "extension:a", row: Row(id: "b:c", title: "A", actions: [])).id

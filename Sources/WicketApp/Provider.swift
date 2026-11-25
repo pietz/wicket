@@ -282,6 +282,14 @@ struct Address: Codable, Sendable, Equatable {
     if Self.reserved.contains(name.lowercased()) { return name.lowercased() }
     return name.hasPrefix("extension:") ? name : "extension:" + name
   }
+
+  var linkComponents: URLComponents {
+    var url = URLComponents()
+    url.scheme = Self.schemes[0]
+    url.encodedHost = (extensionName ?? "").addingPercentEncoding(withAllowedCharacters: .urlHostAllowed)
+    url.queryItems = input.map { [URLQueryItem(name: "input", value: $0)] }
+    return url
+  }
 }
 
 /// What Return, a button or a menu item does. Every row carries one, including the host's own, so one
@@ -385,6 +393,9 @@ struct RowAction: Codable, Sendable, Equatable {
       }
       try c.encode(text, forKey: .text)
       if concealed { try c.encode(true, forKey: .concealed) }
+    case .run(let address) where address.link:
+      try c.encode("open", forKey: .type)
+      try c.encode(address.linkComponents.string ?? "wicket://", forKey: .url)
     case .run(let address):
       try c.encode("run", forKey: .type)
       try address.encode(to: encoder)

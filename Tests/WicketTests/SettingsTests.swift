@@ -645,31 +645,6 @@ func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async
   #expect(files.fileExists(atPath: local.appending(path: "wicket.json").path))
 }
 
-@Test func forgettingAnExtensionRemovesOnlyItsSwitchAndHotkeys() throws {
-  try withSettings(
-    #"""
-    {"future":"keep",
-     "providers":[{"id":"apps","enabled":true},{"id":"extension:echo","enabled":false},{"id":"extension:echoes","enabled":false}],
-     "extensions":{"echo":{"gap":"8"},"window":{"gap":"4"}},
-     "hotkeys":[{"keys":"ctrl+option+e","address":"wicket://echo"},{"keys":"ctrl+option+i","address":"wicket://echo?item=one"},
-                {"keys":"ctrl+option+left","address":"wicket://window?item=left"}]}
-    """#
-  ) { file in
-    try file.forget(extension: "echo")
-    let config = try Configuration.load(at: file.url)
-    #expect(config.providers.map(\.id) == ["apps", "extension:echoes"])
-    #expect(config.extensions["echo"]?["gap"] == .string("8"))
-    #expect(config.extensions["window"]?["gap"] == .string("4"))
-    #expect(config.hotkeys.map(\.target) == [HotkeyTarget(target: "extension:window", item: "left")])
-    let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
-    #expect(json["future"] == .string("keep"))
-    // Nothing kept for it: the file is left as it was, with no keys added.
-    try Data("{}".utf8).write(to: file.url)
-    try file.forget(extension: "echo")
-    #expect(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url)) == .object([:]))
-  }
-}
-
 @MainActor @Test(arguments: [0.75, 0.15])
 func theSliderSavesEveryTransparencyExactly(value: Double) throws {
   // An untouched old file stores this value but reads as 0.5, so choosing it is a change to save.

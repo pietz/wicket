@@ -673,16 +673,14 @@ struct SettingsPane: View {
       if restores {
         Text("Wicket will use the built-in with your saved settings and hotkeys.")
       } else {
-        Text("Your saved settings stay in config.json. You can restore the extension from the Trash.")
+        Text("Your settings and hotkeys stay in config.json. You can restore the extension from the Trash.")
       }
     }
   }
   func trashExtension(_ id: String, confirmed: ExtensionHost.LocalCopy?) throws {
     try extensions.trash(id, confirmed: confirmed)
     guard extensions.locations[id]?.bundledFolder == nil else { return }
-    let name = String(id.dropFirst("extension:".count))
     let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
-    store.change { try $0.forget(extension: name) }
     let index = others.firstIndex(of: id) ?? 0
     selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
   }

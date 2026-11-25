@@ -65,7 +65,7 @@ Use text or rows for choices in agent answers. Interactive fields belong to exte
 
 Each item takes at most one action (run on Return, labelled by `action`):
 
-- `open`: `http`, `https`, `mailto`, `wicket://`, or an absolute/`~` path (apps, folders, documents; scripts/installers refused).
+- `open`: `http`, `https`, `mailto`, `wicket://`, or an absolute/`~` path (apps, folders, documents; scripts/installers refused). A `wicket://` link opens a view unsubmitted.
 - `copy`: text to copy.
 - `ask`: draft text placed in the follow-up field without sending; nothing runs until the user sends it, so name the row for the exact action (`Create event`, never `Yes`) and act only once sent.
 

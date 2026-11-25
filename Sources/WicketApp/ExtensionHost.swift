@@ -476,6 +476,7 @@ final class ExtensionHost {
       do {
         var view = try await task.value
         if view.pageBody(reservedFields: command.manifest.fields) == nil, request.action == nil, !rootMatch,
+          !request.submitted || view.saveAction(reservedFields: command.manifest.fields) == nil,
           command.manifest.settings.contains(where: { $0.list?.item != nil }),
           request.fields.keys.allSatisfy({ $0 == command.manifest.inputField?.name })
         {

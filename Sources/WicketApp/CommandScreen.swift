@@ -143,6 +143,8 @@ enum CommandOutcome {
     let submitting = submitted && !address.link
     let field = descriptor?.inputField
     let prompts = submitting && address.hidden && address.promptIfEmpty && field != nil
+    // Only permission replay keeps the draft when reopening its preview.
+    let preservesPrompt = replacingFields && address.link
     let replacingFields = replacingFields || address.link || prompts
     let overrides = address.fields ?? [:]
     if submitting, !replacingFields,
@@ -177,8 +179,7 @@ enum CommandOutcome {
     // Tab into a root item keeps its action for Return, even if the user already typed its argument.
     if draftingRun || (prompts && providerInput.allSatisfy(\.isWhitespace)) {
       promptedRun = address
-    } else if !address.link || !replacingFields {
-      // A permission grant can replay the draft's preview within this visit.
+    } else if !preservesPrompt {
       promptedRun = nil
     }
     if let field { screen.fill(field.name, with: "") }

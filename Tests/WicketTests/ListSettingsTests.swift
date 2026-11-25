@@ -127,7 +127,7 @@ private let linksID = "extension:links-search"
   await model.finish()
 }
 
-@MainActor @Test func deletingAnEntryRemovesItsBindingAndTrashingAnExtensionKeepsItsLists() async throws {
+@MainActor @Test func deletingAnEntryRemovesItsBindingButTrashingTheExtensionKeepsSettings() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
   let folder = try extensionFolder(
@@ -158,19 +158,29 @@ private let linksID = "extension:links-search"
   #expect(model.store.change { try $0.changeEntry(in: list, folder: "local", id: "one", values: nil) })
   #expect(model.configuration.hotkeys.map(\.target) == [other])
   #expect(model.extensions.commands["extension:local"]?.item(for: entry) == nil)
+  #expect(model.store.change { try $0.setProvider("extension:local", enabled: false) })
+  let saved = try Data(contentsOf: model.store.url)
+  let pane = SettingsPane(
+    section: 3, store: model.store, extensions: model.extensions,
+    clipboard: ClipboardHistory(
+      url: root.appending(path: "clipboard.json"), pasteboard: FakePasteboard(), interval: nil),
+    runs: AgentHistory(url: root.appending(path: "history.json")), updater: nil, pauseHotkey: { _ in })
   try FileManager.default.createDirectory(
     at: root.appending(path: "trash"), withIntermediateDirectories: true)
   model.extensions.moveToTrash = {
     try FileManager.default.moveItem(at: $0, to: root.appending(path: "trash/local"))
   }
-  try model.extensions.trash("extension:local")
-  #expect(model.store.change { try $0.forget(extension: "local") })
+  try pane.trashExtension("extension:local", confirmed: model.extensions.localCopies["extension:local"])
   await model.extensions.reload()
   #expect(
     model.extensions.commands["extension:local"] == nil
       && !FileManager.default.fileExists(atPath: folder.path))
-  #expect(model.configuration.extensions["local"]?["saved"].array.first?["id"].string == "two")
-  #expect(model.configuration.hotkeys.isEmpty)
+  #expect(try Data(contentsOf: model.store.url) == saved)
+  try FileManager.default.moveItem(at: root.appending(path: "trash/local"), to: folder)
+  await model.extensions.reload()
+  #expect(model.extensions.commands["extension:local"]?.item(for: other)?.title == "Two")
+  #expect(!model.configuration.isEnabled("extension:local", extensions: model.extensions.ids))
+  #expect(model.configuration.hotkeys.map(\.target) == [other])
   await model.finish()
 }
 
@@ -266,6 +276,75 @@ private let linksID = "extension:links-search"
   #expect(throws: DecodingError.self) {
     try JSONDecoder().decode(ProviderView.self, from: Data(foreign.utf8))
   }
+  await model.finish()
+}
+
+@MainActor @Test func aSubmittedSaveResponseTakesPrecedenceOverMatchingSavedEntries() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  _ = try extensionFolder(
+    root, name: "notes",
+    script: #"echo '{"items":[],"actions":[{"type":"save","setting":"notes","values":{"title":"Draft"}}]}'"#,
+    fields: [
+      "submit": true,
+      "settings": [
+        [
+          "name": "notes", "type": "list", "description": "Notes",
+          "fields": [["name": "title", "type": "text", "description": "Title"]],
+          "item": ["title": "{title}", "actions": [["type": "copy", "text": "{title}"]]],
+        ]
+      ],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.start(watching: false)
+  #expect(
+    model.store.change {
+      try $0.set("notes", to: ["notes": [["id": "old", "title": "Draft"]]], in: "extensions")
+    })
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  let nav = model.navigator
+  nav.surface = surface
+  nav.go(Address(extensionName: "notes", input: "Draft"), submitted: true)
+  await nav.settled()
+  #expect(
+    surface.effects.last
+      == .settingsList(.init(folder: "notes", setting: "notes", values: ["title": "Draft"])))
+  await model.finish()
+}
+
+@MainActor @Test func reopeningQuicklinksWithItsHotkeyRestoresLiveFiltering() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  model.store.start(watching: false)
+  #expect(
+    model.store.change {
+      try $0.set(
+        "links-search",
+        to: [
+          "links": [
+            ["id": "docs", "title": "Docs", "url": "https://example.com/docs"],
+            ["id": "status", "title": "Status", "url": "https://example.com/status"],
+          ],
+          "searches": [
+            ["id": "site", "title": "Site", "keyword": "site", "url": "https://example.com/?q={query}"]
+          ],
+        ], in: "extensions")
+    })
+  await model.extensions.reload()
+  let nav = model.navigator
+  let surface = RecordingSurface()
+  nav.surface = surface
+  model.press(HotkeyTarget(target: linksID, item: "site", entryList: "searches"))
+  await nav.settled()
+  #expect(nav.command?.promptedRun != nil)
+  model.press(HotkeyTarget(target: linksID))
+  await nav.settled()
+  #expect(nav.results.contains { $0.row.title == "Status" })
+  nav.editInput("Docs")
+  await nav.settled()
+  #expect(nav.results.filter { $0.row.entryList == "links" }.map(\.row.title) == ["Docs"])
   await model.finish()
 }
 
