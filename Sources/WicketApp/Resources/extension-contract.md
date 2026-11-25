@@ -265,10 +265,12 @@ For a custom item with its own actions, put it in a separate items-only manifest
 
 ### Shell's terminal app
 
-Set `extensions.shell.terminal` to `default`, `terminal`, `iterm2`, or `ghostty`. For example, select Ghostty with:
+The first `>` in a root query opens Shell. Any subsequent `>` is part of the shell command, as in `> >notes.txt printf hello`.
+
+Set `extensions.shell.terminal` to `default` or one of the bundle IDs in Shell's manifest. To select Ghostty:
 
 ```json
-{"extensions":{"shell":{"terminal":"ghostty"}}}
+{"extensions":{"shell":{"terminal":"com.mitchellh.ghostty"}}}
 ```
 
 ### A saved window move

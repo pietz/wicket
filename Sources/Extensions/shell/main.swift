@@ -99,15 +99,6 @@ func sweep(_ folder: String, now: time_t = time(nil)) {
     unlink(path)
   }
 }
-func terminalBundleID(_ choice: String?) -> String? {
-  switch choice {
-  case "terminal": "com.apple.Terminal"
-  case "iterm2": "com.googlecode.iterm2"
-  case "ghostty": "com.mitchellh.ghostty"
-  default: nil
-  }
-}
-
 /// macOS reports whether it could hand off the file, without waiting for the terminal to finish.
 func openFile(_ words: [String]) -> Bool {
   var actions: posix_spawn_file_actions_t?
@@ -133,18 +124,19 @@ func openFile(_ words: [String]) -> Bool {
 func answer(
   _ request: JSON?, temporary: String = temporaryFolder(), open: ([String]) -> Bool = openFile
 ) -> String {
-  var command = Substring(request?["fields"]?["command"]?.string ?? request?["input"]?.string ?? "")
-  // `> ls` typed inside Shell is `ls`.
-  command = command.drop { $0 == " " || $0 == ">" }
-  while command.last == " " { command.removeLast() }
+  var input = (request?["input"]?.string ?? "").drop { $0 == " " }
+  if input.first == ">" { input = input.dropFirst().drop { $0 == " " } }
+  while input.last == " " { input.removeLast() }
   // Only the user's choice runs anything.
-  guard case .bool(true)? = request?["submitted"], request?["action"]?.string == "open-terminal",
-    !command.isEmpty
-  else { return row(String(command)) }
+  guard case .bool(true)? = request?["submitted"], request?["action"]?.string == "open-terminal"
+  else { return row(String(input)) }
+  // The preview's command already had its launcher prefix removed.
+  let command = request?["fields"]?["command"]?.string ?? String(input)
+  guard !command.isEmpty else { return row(command) }
   sweep(temporary)
-  let script = terminalScript(String(command), folder: homeFolder(), shell: loginShell())
+  let script = terminalScript(command, folder: homeFolder(), shell: loginShell())
   guard let path = writeCommandFile(script, in: temporary) else { return failed }
-  if let bundleID = terminalBundleID(request?["settings"]?["terminal"]?.string),
+  if let bundleID = request?["settings"]?["terminal"]?.string, bundleID != "default",
     open(["/usr/bin/open", "-b", bundleID, path])
   {
     return ""

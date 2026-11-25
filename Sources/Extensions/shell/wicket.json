@@ -5,7 +5,6 @@
   "command": ["./main"],
   "match": "^>",
   "contract": 2,
-  "fields": [{"name": "command", "type": "text", "description": "Command to run in the terminal"}],
   "settings": [
     {
       "name": "terminal",
@@ -15,9 +14,9 @@
       "default": "default",
       "options": [
         {"value": "default", "label": "System default"},
-        {"value": "terminal", "label": "Terminal", "requiresApp": "com.apple.Terminal"},
-        {"value": "iterm2", "label": "iTerm2", "requiresApp": "com.googlecode.iterm2"},
-        {"value": "ghostty", "label": "Ghostty", "requiresApp": "com.mitchellh.ghostty"}
+        {"value": "com.apple.Terminal", "label": "Terminal", "requiresApp": "com.apple.Terminal"},
+        {"value": "com.googlecode.iterm2", "label": "iTerm2", "requiresApp": "com.googlecode.iterm2"},
+        {"value": "com.mitchellh.ghostty", "label": "Ghostty", "requiresApp": "com.mitchellh.ghostty"}
       ]
     }
   ]

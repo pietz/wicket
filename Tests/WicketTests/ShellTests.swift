@@ -8,12 +8,14 @@ import Testing
 // with a stand-in for `open`, and the `.command` file is run by /bin/sh without a terminal.
 
 private func request(
-  _ input: String, submitted: Bool = false, action: String = "", terminal: String? = nil
+  _ input: String, submitted: Bool = false, action: String = "", terminal: String? = nil,
+  command: String? = nil
 ) -> JSON {
   var request: [String: JSON] = [
     "input": .string(input), "submitted": .bool(submitted), "action": .string(action),
   ]
   if let terminal { request["settings"] = .object(["terminal": .string(terminal)]) }
+  if let command { request["fields"] = .object(["command": .string(command)]) }
   return .object(request)
 }
 
@@ -58,6 +60,31 @@ private func request(
   #expect(try FileManager.default.contentsOfDirectory(atPath: temporary.path).count == 2)
 }
 
+@Test func shellKeepsRedirectionInThePreviewAndTheCommandFile() throws {
+  let directory = try scratch()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let input = "> > notes.txt printf hello"
+  let preview = answer(request(input))
+  let view = try JSONDecoder().decode(ProviderView.self, from: Data(preview.utf8))
+  let row = try #require(view.items.first)
+  guard case .run(let action)? = row.actions.first?.kind else {
+    Issue.record("Expected a Shell action")
+    return
+  }
+  let command = try #require(action.fields?["command"])
+  #expect(row.title == "> notes.txt printf hello" && command == row.title)
+  var opened: String?
+  let response = answer(
+    request("", submitted: true, action: "open-terminal", command: command), temporary: directory.path
+  ) { words in
+    opened = words.last
+    return true
+  }
+  #expect(response.isEmpty)
+  let script = try String(contentsOfFile: #require(opened), encoding: .utf8)
+  #expect(script.contains("-c '> notes.txt printf hello'"))
+}
+
 @Test func shellHandsTheFileToItsChosenTerminal() throws {
   let manifest = try bundled("shell").manifest
   guard case .field(let field) = try #require(manifest.settings.first) else {
@@ -66,6 +93,7 @@ private func request(
   }
   let options = try #require(field.options)
   #expect(field.name == "terminal" && field.default == "default")
+  #expect(manifest.fields.isEmpty)
   #expect(options.map(\.label) == ["System default", "Terminal", "iTerm2", "Ghostty"])
   #expect(
     options.map(\.requiresApp) == [
@@ -74,7 +102,7 @@ private func request(
   #expect(field.availableOptions { _ in false }.map(\.value) == ["default"])
   #expect(
     field.availableOptions { ["com.apple.Terminal", "com.mitchellh.ghostty"].contains($0) }.map(\.value)
-      == ["default", "terminal", "ghostty"])
+      == ["default", "com.apple.Terminal", "com.mitchellh.ghostty"])
 
   let directory = try scratch()
   defer { try? FileManager.default.removeItem(at: directory) }
@@ -99,7 +127,7 @@ private func request(
   defer { try? FileManager.default.removeItem(at: directory) }
   var calls: [[String]] = []
   let output = answer(
-    request("echo hi", submitted: true, action: "open-terminal", terminal: "ghostty"),
+    request("echo hi", submitted: true, action: "open-terminal", terminal: "com.mitchellh.ghostty"),
     temporary: directory.path
   ) { words in
     calls.append(words)
