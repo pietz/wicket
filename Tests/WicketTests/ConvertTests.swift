@@ -48,6 +48,22 @@ private func convert(
   #expect(withCode?.title == "1.200,424 EUR" && withCode?.actions == [.copy("1200,424 EUR")])
 }
 
+@Test func convertDecimalPlacesPickerLoadsOldConfigValues() async throws {
+  let command = try bundled("units")
+  let setting = try #require(command.manifest.settings.first { $0.name == "decimals" })
+  guard case .field(let field) = setting else { throw ExtensionFailure("Expected a scalar setting") }
+  #expect(field.type == .choice && field.options?.map(\.value) == ["0", "1", "2", "3", "4", "5"])
+  for (saved, expected) in [
+    (JSONValue.null, "6.21 mi"), (.number(4), "6.2137 mi"), (.string("5"), "6.21371 mi"),
+    (.number(15), "6.21 mi"), (.string("6"), "6.21 mi"),
+  ] {
+    var request = ProviderRequest(input: "10 km in mi", locale: .init(decimal: ".", grouping: ","))
+    request.settings = command.settings(.object("decimals", saved))
+    let view = try await runBundled("units", request: request)
+    #expect(view.items.first?.title == expected)
+  }
+}
+
 @Test func currenciesUseHomeCurrencyAndSymbolsAndSkipSameCurrencyLookup() async throws {
   #expect(try await convert("100 usd", settings: ["homeCurrency": "EUR"])?.title == "80 EUR")
   #expect(try await convert("$100 to eur")?.title == "80 EUR")
