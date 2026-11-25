@@ -13,9 +13,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let runs: AgentHistory
   private let updater: Updater?
   private let pauseHotkey: (Bool) -> Void
+  private let canOpenMergeConversation: () -> Bool
+  private let openMergeConversation: (String) -> Void
   init(
     store: ConfigurationStore, extensions: ExtensionHost, clipboard: ClipboardHistory, runs: AgentHistory,
-    updater: Updater?, pauseHotkey: @escaping (Bool) -> Void
+    updater: Updater?, pauseHotkey: @escaping (Bool) -> Void,
+    canOpenMergeConversation: @escaping () -> Bool, openMergeConversation: @escaping (String) -> Void
   ) {
     self.store = store
     self.extensions = extensions
@@ -23,6 +26,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     self.runs = runs
     self.updater = updater
     self.pauseHotkey = pauseHotkey
+    self.canOpenMergeConversation = canOpenMergeConversation
+    self.openMergeConversation = openMergeConversation
   }
   func show(section: Int? = nil, list: SettingsListDestination? = nil) {
     if let list { listRoute.request = .init(destination: list) }
@@ -36,7 +41,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       ].enumerated() {
         let pane = SettingsPane(
           section: index, store: store, extensions: extensions, clipboard: clipboard, runs: runs,
-          updater: updater, pauseHotkey: pauseHotkey, listRoute: listRoute)
+          updater: updater, pauseHotkey: pauseHotkey, canOpenMergeConversation: canOpenMergeConversation,
+          openMergeConversation: openMergeConversation, listRoute: listRoute)
         let controller = NSHostingController(rootView: pane)
         controller.title = item.0
         let tab = NSTabViewItem(viewController: controller)
@@ -75,6 +81,9 @@ struct SettingsPane: View {
   let runs: AgentHistory
   let updater: Updater?
   let pauseHotkey: (Bool) -> Void
+  var canOpenMergeConversation: () -> Bool = { true }
+  var openMergeConversation: (String) -> Void = { _ in }
+  var revealExtension: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
   var listRoute: SettingsListRoute?
   @State var entryEditor: SettingsEntryDraft?
   @State private var automaticChecks: Bool?
@@ -88,7 +97,7 @@ struct SettingsPane: View {
   @State private var confirmingClearRuns = false
   /// The Extensions tab's selected source.
   @State var selected: String? = "apps"
-  @State private var copyProblem: String?
+  @State private var extensionActionProblem: String?
   @State private var confirmingTrash = false
   /// The local copy as it was when the user asked to trash it.
   @State private var trashing: ExtensionHost.LocalCopy?
@@ -126,7 +135,7 @@ struct SettingsPane: View {
         .onChange(of: entryEditor?.id) { recorder.stop() }
         .onChange(of: selected) {
           recorder.stop()
-          copyProblem = nil
+          extensionActionProblem = nil
         }
       } else {
         form {
@@ -449,6 +458,12 @@ struct SettingsPane: View {
     return HStack {
       Label(title(id), systemImage: icon ?? "puzzlepiece.extension")
       Spacer()
+      if extensions.locations[id]?.shadowsBuiltIn == true {
+        Image(systemName: "square.on.square")
+          .font(.caption2).foregroundStyle(.secondary)
+          .help("A local copy replaces the built-in version")
+          .accessibilityLabel("Local copy replaces the built-in version")
+      }
       Toggle(
         title(id),
         isOn: Binding(
@@ -462,43 +477,31 @@ struct SettingsPane: View {
   @ViewBuilder private var extensionDetail: some View {
     let id = selected ?? "apps"
     let command = extensions.commands[id]
-    let bundled = command.map(extensions.isBundled) ?? false
-    let own = extensions.ownFolder(id) != nil
-    Section {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(title(id)).font(.title3.bold())
-        if let about = Self.builtins[id]?.2 ?? command?.manifest.description {
-          Text(about).foregroundStyle(.secondary)
-        }
-      }
-      if let problem = extensions.problems[id] {
-        warning(problem.message).textSelection(.enabled)
-      }
-      if command != nil || own {
+    let shadowsBuiltIn = extensions.locations[id]?.shadowsBuiltIn == true
+    if shadowsBuiltIn {
+      Section {
+        Label("A local copy replaces the built-in version", systemImage: "square.on.square")
+          .font(.callout)
         HStack {
-          if let command {
-            Button("Show in Finder") {
-              NSWorkspace.shared.activateFileViewerSelecting([extensions.folderToReveal(command)])
-            }
-          }
-          if let command, bundled, !own {
-            Button("Make It Mine") {
-              copyProblem = nil
-              do { try extensions.makeMine(command) } catch { copyProblem = error.localizedDescription }
-            }
-            .help("Copies it into your extensions folder, where you and your agent can change it.")
-          }
-          if own { trashButton(id) }
+          trashButton(id, label: "Use Built-in")
+          Button("Ask Agent to Merge") { askAgentToMerge(id) }
+            .disabled(!canOpenMergeConversation())
+            .help(canOpenMergeConversation() ? "Draft a merge request" : "Wait for the current agent turn")
+          Button("Show in Finder") { showExtensionInFinder(id) }
         }
-        if let copyProblem { Text(copyProblem).foregroundStyle(.red) }
-      }
-    } footer: {
-      if extensions.localCopies[id]?.retired == true {
-        Text("Wicket is using the built-in. Move the old copy to the Trash to make a fresh copy.")
-      } else if bundled, !own {
-        Text("Bundled with Wicket. A valid local copy replaces it.")
       }
     }
+    if let about = Self.builtins[id]?.2 ?? command?.manifest.description {
+      Section {
+      } header: {
+        Text(about).font(.callout).foregroundStyle(.secondary).lineLimit(1).help(about)
+          .padding(.bottom, 6)
+      }
+    }
+    if let problem = extensions.problems[id] {
+      warning(problem.message).textSelection(.enabled)
+    }
+    if let extensionActionProblem { warning(extensionActionProblem) }
     if id == "clipboard" {
       Section { clipboardRows(enabled: config.isEnabled(id, extensions: [])) }
     }
@@ -542,6 +545,34 @@ struct SettingsPane: View {
         }
       }
     }
+    if !shadowsBuiltIn, extensions.ownFolder(id) != nil {
+      Section {
+        HStack {
+          Button("Show in Finder") { showExtensionInFinder(id) }
+          trashButton(id, label: "Move to Trash…")
+        }
+        .controlSize(.small)
+      }
+    }
+  }
+
+  func showExtensionInFinder(_ id: String) {
+    if let folder = extensions.ownFolder(id) { revealExtension(folder) }
+  }
+
+  func askAgentToMerge(_ id: String) {
+    guard canOpenMergeConversation(), let location = extensions.locations[id], location.shadowsBuiltIn,
+      let local = location.localFolder, let builtIn = location.bundledFolder
+    else { return }
+    recorder.stop()
+    openMergeConversation(
+      """
+      Please bring my changes from the local Wicket extension at \(local.path.debugDescription) onto the \
+      current built-in version at \(builtIn.path.debugDescription). Read the extension contract and compare \
+      both versions first. Keep my customizations, the built-in's current features, and my saved settings \
+      and hotkeys. Write the merged extension to the local folder, leave the built-in untouched, and verify \
+      the result.
+      """)
   }
   private func completeListRoute(
     _ request: SettingsListRoute.Request, list: SettingList, scroll: ScrollViewProxy
@@ -610,28 +641,21 @@ struct SettingsPane: View {
 
   /// The user's own extension goes to the Trash, so it can be put back. With no bundled one of its name
   /// to take its place, the selection moves to a neighbour.
-  private func trashButton(_ id: String) -> some View {
-    let name = String(id.dropFirst("extension:".count))
-    let restores = extensions.hasBundled(name)
+  private func trashButton(_ id: String, label: String) -> some View {
+    let restores = extensions.locations[id]?.bundledFolder != nil
     let retired = extensions.localCopies[id]?.retired == true
-    let item = retired ? "the old copy of “\(title(id))”" : "“\(title(id))”"
-    return Button("Move to Trash…") {
+    let item = restores ? "the \(retired ? "old" : "local") copy of “\(title(id))”" : "“\(title(id))”"
+    return Button(label) {
       trashing = extensions.localCopies[id]
       confirmingTrash = true
     }
     .disabled(store.problem != nil)
     .confirmationDialog("Move \(item) to the Trash?", isPresented: $confirmingTrash) {
       Button("Move to Trash", role: .destructive) {
-        let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
-        copyProblem = nil
-        do { try extensions.trash(id, confirmed: trashing) } catch {
-          copyProblem = error.localizedDescription
-          return
+        extensionActionProblem = nil
+        do { try trashExtension(id, confirmed: trashing) } catch {
+          extensionActionProblem = error.localizedDescription
         }
-        guard !restores else { return }
-        store.change { try $0.forget(extension: name) }
-        let index = others.firstIndex(of: id) ?? 0
-        selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
       }
     } message: {
       if restores {
@@ -640,6 +664,15 @@ struct SettingsPane: View {
         Text("Your saved settings stay in config.json. You can restore the extension from the Trash.")
       }
     }
+  }
+  func trashExtension(_ id: String, confirmed: ExtensionHost.LocalCopy?) throws {
+    try extensions.trash(id, confirmed: confirmed)
+    guard extensions.locations[id]?.bundledFolder == nil else { return }
+    let name = String(id.dropFirst("extension:".count))
+    let others = extensionSources(config.sources(extensions: extensions.ids)).map(\.id)
+    store.change { try $0.forget(extension: name) }
+    let index = others.firstIndex(of: id) ?? 0
+    selected = others.dropFirst(index + 1).first ?? others.prefix(index).last ?? "apps"
   }
   private func hotkeyRow(_ title: String, _ target: HotkeyTarget) -> some View {
     LabeledContent(title) { shortcutControls(target) }

@@ -143,6 +143,8 @@ final class ExtensionHost {
   struct Location: Equatable, Sendable {
     var source: Source
     let localFolder: URL?
+    let bundledFolder: URL?
+    var shadowsBuiltIn: Bool { source == .localOverride }
   }
   struct Locations: Sendable {
     var copies: [String: LocalCopy] = [:]
@@ -382,7 +384,8 @@ final class ExtensionHost {
       let override = local.flatMap { hasManifest($0) ? $0 : nil }
       guard var folder = override ?? builtIns[name] else { continue }
       let id = "extension:" + name
-      locations.extensions[id] = .init(source: override == nil ? .bundled : .local, localFolder: override)
+      locations.extensions[id] = .init(
+        source: override == nil ? .bundled : .local, localFolder: override, bundledFolder: builtIns[name])
       if let override { locations.copies[id] = LocalCopy(folder: override) }
       // Addresses name these host targets, so a folder of that name could never be reached.
       if Address.reserved.contains(name.lowercased()) {
@@ -482,63 +485,11 @@ final class ExtensionHost {
     for task in tasks { _ = await task.result }
   }
 
-  func isBundled(_ command: ExtensionCommand) -> Bool {
-    command.folder.deletingLastPathComponent().resolvingSymlinksInPath().path
-      == bundled?.resolvingSymlinksInPath().path
-  }
-  func folderToReveal(_ command: ExtensionCommand) -> URL {
-    ownFolder(command.id) ?? command.folder
-  }
-
-  /// Copies a bundled extension into the user's extensions folder.
-  func makeMine(_ command: ExtensionCommand) throws {
-    let files = FileManager.default
-    let name = command.folder.lastPathComponent
-    let copy = folder.appending(path: "extensions/" + name)
-    if files.fileExists(atPath: copy.path) {
-      // A folder left by migration can still receive its first manifest.
-      let incoming = try files.contentsOfDirectory(atPath: command.folder.path)
-      guard try files.attributesOfItem(atPath: copy.path)[.type] as? FileAttributeType == .typeDirectory,
-        Set(try files.contentsOfDirectory(atPath: copy.path)).isDisjoint(with: incoming)
-      else {
-        throw ExtensionFailure("Your extensions folder already has a folder named \(name).")
-      }
-
-      let staging = try files.url(
-        for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: copy, create: true)
-      defer { try? files.removeItem(at: staging) }
-      let staged = staging.appending(path: name)
-      try files.copyItem(at: command.folder, to: staged)
-      let entries = try files.contentsOfDirectory(at: staged, includingPropertiesForKeys: nil)
-      // Discovery switches to the local extension as soon as the manifest appears.
-      let manifest = staged.appending(path: "wicket.json")
-      var installed: [URL] = []
-      do {
-        for entry in entries.filter({ $0.lastPathComponent != "wicket.json" }) + [manifest] {
-          let destination = copy.appending(path: entry.lastPathComponent)
-          try files.moveItem(at: entry, to: destination)
-          installed.append(destination)
-        }
-      } catch {
-        for entry in installed { try? files.removeItem(at: entry) }
-        throw error
-      }
-    } else {
-      try files.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
-      try files.copyItem(at: command.folder, to: copy)
-    }
-    rescan()
-  }
-
   /// A local copy has a manifest.
   func ownFolder(_ id: String) -> URL? {
     localCopies[id]?.folder
   }
-  /// Whether a bundled extension has this folder name, so it takes the place of the user's when that goes.
-  func hasBundled(_ name: String) -> Bool {
-    bundled.map { FileManager.default.fileExists(atPath: $0.appending(path: name + "/wicket.json").path) }
-      ?? false
-  }
+
   /// A retired override can be removed without interrupting its built-in or moving unrelated files.
   /// `confirmed` is the copy the user agreed to remove; if a rescan changed it since, nothing moves.
   func trash(_ id: String, confirmed: LocalCopy? = nil) throws {

@@ -1389,13 +1389,12 @@ final class Navigator {
     return command?.asksAbout(
       typed: !agentOwnsCommandInput && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
   }
-  /// The `agent` action: the text becomes the input and nothing is sent. In a conversation the next
-  /// Return is the follow-up. Anywhere else an open command is left and an empty conversation opens
-  /// with the text as its unsent first question; ending it goes back to the root.
-  func fill(_ text: String) {
+  /// Fills the input without sending. This drafts a follow-up in an open conversation unless a fresh
+  /// one was requested. An empty conversation opens over the root for a new question.
+  func fill(_ text: String, newConversation: Bool = false) {
     // The text is the input now: dictation, which would write over it, stops first.
     speech?.stop(.edit)
-    if !conversing {
+    if newConversation || !conversing {
       converse {
         command = nil
         agent.open(settings: configuration.agent)

@@ -166,10 +166,9 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   for local in [units, window] {
     let id = "extension:" + local.lastPathComponent
     let command = try #require(model.extensions.commands[id])
-    #expect(model.extensions.isBundled(command))
+    #expect(command.folder == model.extensions.locations[id]?.bundledFolder)
     #expect(
       model.extensions.ownFolder(id)?.resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
-    #expect(model.extensions.folderToReveal(command).path == model.extensions.ownFolder(id)?.path)
     let repairs = model.navigator.results.filter { $0.provider == id && $0.row.id == "discovery-error" }
     #expect(repairs.count == 1)
     let row = try #require(repairs.first?.row)

@@ -433,40 +433,94 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     ])
 }
 
-@MainActor @Test func makeItMineCopiesABundledExtensionThatThenShadowsIt() async throws {
+@MainActor @Test func shadowBannerActionsUseTheLocalCopyAndRestoreBundledSettings() async throws {
   let root = try scratch()
   let files = FileManager.default
   defer { try? files.removeItem(at: root) }
-  let local = root.appending(path: "extensions/window")
-  try files.createDirectory(at: local, withIntermediateDirectories: true)
-  let host = ExtensionHost(folder: root, bundled: bundledExtensions)
-  await host.reload()
+  let local = try extensionFolder(root, name: "window")
+  let standalone = try extensionFolder(root, name: "custom")
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  var config = Configuration()
+  config.extensions = ["window": .object(["gap": .string("8")])]
+  config.providers = [.init("extension:window", enabled: false)]
+  config.hotkeys = [
+    .init(
+      keys: try Shortcut("ctrl+option+left"), target: HotkeyTarget(target: "extension:window", item: "left"))
+  ]
+  try config.save(at: model.store.url)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let host = model.extensions
   let id = "extension:window"
-  let window = try #require(host.commands[id])
-  #expect(host.isBundled(window))
-  #expect(host.folderToReveal(window) == window.folder)
-  let other = local.appending(path: "main.swift")
-  let contents = Data("owner's file".utf8)
-  try contents.write(to: other)
-  try Data().write(to: local.appending(path: ".DS_Store"))
-  #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
-  #expect(try Data(contentsOf: other) == contents)
-  try files.removeItem(at: other)
+  let location = try #require(host.locations[id])
+  let builtIn = try #require(location.bundledFolder)
+  #expect(location.shadowsBuiltIn)
+  #expect(host.commands[id]?.folder == location.localFolder)
+  #expect(!Edition.sameFolder(builtIn, local))
+  #expect(host.locations["extension:custom"]?.shadowsBuiltIn == false)
+  #expect(host.locations["extension:calculator"]?.shadowsBuiltIn == false)
 
-  try host.makeMine(window)
-  await host.reload()
-  let mine = try #require(host.commands[id])
-  #expect(!host.isBundled(mine))
-  #expect(mine.folder.resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
-  #expect(host.folderToReveal(mine) == mine.folder)
-  #expect(mine.manifest == window.manifest && mine.items == window.items)
-  let bundledEntries = try files.contentsOfDirectory(atPath: window.folder.path)
-  #expect(Set(try files.contentsOfDirectory(atPath: local.path)) == Set(bundledEntries + [".DS_Store"]))
-  #expect(files.isExecutableFile(atPath: mine.folder.appending(path: "main").path))
-  #expect(throws: ExtensionFailure.self) { try host.makeMine(window) }
+  var prompts: [String] = []
+  var revealed: [URL] = []
+  let pane = SettingsPane(
+    section: 3, store: model.store, extensions: host,
+    clipboard: ClipboardHistory(
+      url: root.appending(path: "clipboard-history.json"), pasteboard: FakePasteboard(), interval: nil),
+    runs: AgentHistory(url: root.appending(path: "agent-history.json")), updater: nil, pauseHotkey: { _ in },
+    canOpenMergeConversation: { !model.agent.busy },
+    openMergeConversation: { prompt in
+      prompts.append(prompt)
+      model.navigator.fill(prompt, newConversation: true)
+    },
+    revealExtension: { revealed.append($0) })
+  pane.showExtensionInFinder(id)
+  pane.showExtensionInFinder("extension:custom")
+  pane.showExtensionInFinder("extension:calculator")
+  #expect(revealed.count == 2)
+  #expect(zip(revealed, [local, standalone]).allSatisfy { Edition.sameFolder($0, $1) })
+
+  let prior = FakeAgent()
+  model.agent.connect = { _, _, _ in prior }
+  model.navigator.send("An earlier conversation")
+  #expect(await eventually { prior.running })
+  pane.askAgentToMerge(id)
+  #expect(prompts.isEmpty && model.agent.busy && !prior.stopped)
+  prior.text("The earlier reply")
+  prior.end()
+  #expect(await eventually { !model.agent.busy && prior.stopped })
+  model.navigator.input = "An earlier draft"
+  model.agent.connect = { _, _, _ in
+    Issue.record("Opening the merge draft must not start an agent")
+    throw AgentFailure("The draft was sent")
+  }
+  pane.askAgentToMerge("extension:custom")
+  pane.askAgentToMerge("extension:calculator")
+  #expect(prompts.isEmpty)
+  pane.askAgentToMerge(id)
+  let prompt = try #require(prompts.first)
+  #expect(prompts.count == 1)
+  #expect(prompt.contains(try #require(location.localFolder).path) && prompt.contains(builtIn.path))
+  #expect(prompt.contains("current built-in version") && prompt.contains("my saved settings and hotkeys"))
+  #expect(model.navigator.input == prompt)
+  #expect(model.agent.active && model.agent.question.isEmpty && !model.agent.busy)
+
+  let localCopy = try #require(host.localCopies[id])
+  host.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
+  #expect(throws: CocoaError.self) { try pane.trashExtension(id, confirmed: localCopy) }
+  #expect(host.locations[id]?.shadowsBuiltIn == true)
+  let trash = root.appending(path: "Trashed extension")
+  host.moveToTrash = { try files.moveItem(at: $0, to: trash) }
+  let original = try Data(contentsOf: model.store.url)
+  try pane.trashExtension(id, confirmed: localCopy)
+  #expect(await eventually { host.locations[id]?.source == .bundled })
+  #expect(host.commands[id]?.folder == builtIn)
+  #expect(host.ownFolder(id) == nil)
+  #expect(try String(contentsOf: trash.appending(path: "main.sh"), encoding: .utf8).contains("echo"))
+  #expect(try Data(contentsOf: model.store.url) == original)
+  await model.finish()
 }
 
-@MainActor @Test func onlyTheUsersOwnExtensionsGoToTheTrashBrokenAndShadowingOnesIncluded() async throws {
+@MainActor @Test func onlyTheUsersOwnExtensionsGoToTheTrashIncludingBrokenOnes() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let trash = root.appending(path: "Trash")
@@ -480,23 +534,18 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
   try Data("{".utf8).write(to: broken.appending(path: "wicket.json"))
   await host.reload()
-  try host.makeMine(try #require(host.commands["extension:window"]))
-  await host.reload()
   #expect(host.problems["extension:broken"] != nil)
   #expect(host.ownFolder("extension:calculator") == nil)
   #expect(throws: ExtensionFailure.self) { try host.trash("extension:calculator") }
-  #expect(!host.hasBundled("echo") && host.hasBundled("window"))
-  for id in ["extension:echo", "extension:broken", "extension:window"] { try host.trash(id) }
+  for id in ["extension:echo", "extension:broken"] { try host.trash(id) }
   await host.reload()
   #expect(host.commands["extension:echo"] == nil && host.problems["extension:broken"] == nil)
-  // The bundled window comes back in place of the user's copy.
-  #expect(try host.isBundled(#require(host.commands["extension:window"])))
   #expect(
-    try FileManager.default.contentsOfDirectory(atPath: trash.path).sorted() == ["broken", "echo", "window"])
+    try FileManager.default.contentsOfDirectory(atPath: trash.path).sorted() == ["broken", "echo"])
 }
 
 @MainActor @Test(arguments: [false, true])
-func retiredCopiesCanBeRevealedAndReplacedWithoutMovingUnrelatedFiles(keepItems: Bool) async throws {
+func retiredCopiesCanBeTrashedWithoutMovingUnrelatedFiles(keepItems: Bool) async throws {
   let root = try scratch()
   let files = FileManager.default
   defer { try? files.removeItem(at: root) }
@@ -512,18 +561,16 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingUnrelatedFiles(keepItems:
   ])
   if keepItems {
     try saved.write(to: userFile)
-    // Show in Finder leaves one behind; it must not block a fresh copy.
     try Data().write(to: local.appending(path: ".DS_Store"))
   }
   let host = ExtensionHost(folder: root, bundled: bundledExtensions)
   let id = "extension:units"
   await host.reload()
   let builtIn = try #require(host.commands[id])
-  #expect(host.isBundled(builtIn) && host.problems[id] == nil)
+  #expect(builtIn.folder == host.locations[id]?.bundledFolder && host.problems[id] == nil)
+  #expect(host.locations[id]?.shadowsBuiltIn == false)
   #expect(host.localCopies[id]?.retired == true)
-  #expect(
-    host.folderToReveal(builtIn).resolvingSymlinksInPath().path == local.resolvingSymlinksInPath().path)
-  #expect(throws: ExtensionFailure.self) { try host.makeMine(builtIn) }
+  #expect(host.ownFolder(id).map { Edition.sameFolder($0, local) } == true)
 
   if keepItems {
     host.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
@@ -549,12 +596,6 @@ func retiredCopiesCanBeRevealedAndReplacedWithoutMovingUnrelatedFiles(keepItems:
     #expect(!files.fileExists(atPath: local.path))
   }
 
-  try host.makeMine(builtIn)
-  await host.reload()
-  let mine = try #require(host.commands[id])
-  #expect(!host.isBundled(mine))
-  #expect(mine.manifest == builtIn.manifest && mine.items == builtIn.items)
-  if keepItems { #expect(try Data(contentsOf: userFile) == saved) }
 }
 
 @MainActor @Test func trashRefusesACopyThatChangedAfterTheUserConfirmed() async throws {

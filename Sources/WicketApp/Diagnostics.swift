@@ -80,8 +80,10 @@ enum Diagnostics {
     let name: String
     let enabled: JSONValue
     let source: ExtensionHost.Source
+    let shadowsBuiltIn: Bool
     let activeFolder: String?
     let localFolder: String?
+    let bundledFolder: String?
     let contract: Int?
     let permissions: [Permission]
     let missingPermissions: [Permission]
@@ -278,7 +280,8 @@ enum Diagnostics {
       id: id, name: command?.manifest.name ?? problem?.name ?? name,
       enabled: configuration.map { .bool($0.isEnabled(id, extensions: host.ids)) }
         ?? .string(unreadableConfig),
-      source: location.source, activeFolder: command?.folder.path, localFolder: location.localFolder?.path,
+      source: location.source, shadowsBuiltIn: location.shadowsBuiltIn, activeFolder: command?.folder.path,
+      localFolder: location.localFolder?.path, bundledFolder: location.bundledFolder?.path,
       contract: command?.manifest.contract ?? problem?.contract,
       permissions: command?.manifest.permissions ?? [],
       missingPermissions: command.map { Permissions.missing($0, status: permissionStatus) } ?? [],

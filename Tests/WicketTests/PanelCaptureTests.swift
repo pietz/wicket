@@ -40,6 +40,7 @@ private let states =
     "extension-error", "fields-empty", "fields-filled", "fields-command", "fields-open",
     "fields-long", "fields-three", "history", "history-reopened", "clipboard", "clipboard-image",
     "settings-general", "settings-voice", "settings-agent", "settings-extensions", "settings-window",
+    "settings-extension-shadow", "settings-extension-local",
     "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit",
     "settings-quicklinks-search", "settings-window-add", "settings-error",
     "settings-conflict",
@@ -64,12 +65,19 @@ private func expectedText(_ name: String) -> [String] {
   }
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
   if name.contains("settings-extensions") {
-    return ["Built in", "Clipboard", "Weather", "Windows"]
+    return ["Built in", "Clipboard", "Weather", "Windows", "Finds the apps on this Mac by name"]
   }
   if name == "settings-window" {
+    return ["Moves the frontmost window", "Gap", "Almost Maximize", "Hotkeys", "Windows"]
+  }
+  if name == "settings-extension-shadow" {
     return [
-      "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Windows",
+      "A local copy replaces the built-in version", "Use Built-in", "Ask Agent to Merge", "Show in Finder",
+      "e.g. Berlin", "Temperature unit", "Hotkeys",
     ]
+  }
+  if name == "settings-extension-local" {
+    return ["Site Status", "Settings", "Endpoint", "Hotkeys", "Show in Finder", "Move to Trash"]
   }
   if name == "settings-quicklinks" {
     return ["Quicklinks", "Bookmarks", "Wicket Docs", "Site Searches", "Search YouTube"]
@@ -803,13 +811,18 @@ private let installedAgent: Void = {
       ]
       initial.extensions = ["window": .object(["gap": .string("8")])]
     }
-    if state == "settings-extensions" {
-      let weather = folder.appending(path: "extensions/weather")
-      try FileManager.default.createDirectory(at: weather, withIntermediateDirectories: true)
-      try Data(#"{"contract":2,"name":"Weather","command":["/usr/bin/python3","main.py"]}"#.utf8).write(
-        to: weather.appending(path: "wicket.json"))
-      try Data("print('weather')".utf8).write(to: weather.appending(path: "main.py"))
+    if state == "settings-extensions" || state == "settings-extension-shadow" {
+      try FileManager.default.copyItem(
+        at: bundledExtensions.appending(path: "weather"), to: folder.appending(path: "extensions/weather"))
       initial.providers.append(.init("extension:weather", enabled: false))
+    }
+    if state == "settings-extension-local" {
+      _ = try extensionFolder(
+        folder, name: "site-status",
+        fields: [
+          "name": "Site Status", "description": "Checks whether a website is responding.",
+          "settings": [["name": "endpoint", "type": "text", "description": "Endpoint"]],
+        ])
     }
     let quicklinks = state.hasPrefix("settings-quicklinks")
     let bookmarks = [
@@ -853,7 +866,14 @@ private let installedAgent: Void = {
     if state == "settings-conflict" { store.hotkeyProblem = "⌃K is in use. ⌥Space still opens Wicket." }
     let section =
       ["settings-general", "settings-voice", "settings-agent", "settings-extensions"].firstIndex(of: state)
-      ?? (state == "settings-window" || quicklinks ? 3 : 0)
+      ?? (state == "settings-window" || state.hasPrefix("settings-extension-") || quicklinks ? 3 : 0)
+    let selected =
+      switch state {
+      case "settings-window": "extension:window"
+      case "settings-extension-shadow": "extension:weather"
+      case "settings-extension-local": "extension:site-status"
+      default: quicklinks ? "extension:links-search" : "apps"
+      }
     let pane = NSHostingView(
       rootView: SettingsPane(
         section: section, store: store, extensions: host,
@@ -862,10 +882,7 @@ private let installedAgent: Void = {
           pasteboard: NSPasteboard(name: .init(UUID().uuidString)),
           interval: nil),
         runs: AgentHistory(url: folder.appending(path: "agent-history.json")),
-        updater: nil, pauseHotkey: { _ in },
-        selected: state == "settings-window"
-          ? "extension:window"
-          : quicklinks ? "extension:links-search" : "apps"))
+        updater: nil, pauseHotkey: { _ in }, selected: selected))
     let view: NSView
     if quicklinks && state != "settings-quicklinks" || state == "settings-window-add" {
       let window = state == "settings-window-add"
@@ -1008,6 +1025,9 @@ func panelCapture(_ state: String) async throws {
     if state == "settings-window-add" {
       #expect(!text.localizedCaseInsensitiveContains("definition"))
       #expect(!text.localizedCaseInsensitiveContains("placement"))
+    }
+    if state == "settings-window" || state == "settings-extensions" {
+      #expect(!text.localizedCaseInsensitiveContains("Show in Finder"))
     }
     await scenario.finish()
   }

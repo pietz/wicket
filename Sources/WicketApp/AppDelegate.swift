@@ -67,7 +67,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     settings = SettingsWindowController(
       store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
-      pauseHotkey: pause)
+      pauseHotkey: pause, canOpenMergeConversation: { !model.agent.busy },
+      openMergeConversation: { [weak self] prompt in
+        self?.palette.show { model.navigator.fill(prompt, newConversation: true) }
+      })
     palette = PaletteController(model: model, settings: settings, pauseHotkeys: pause)
     apps.onChange = { [weak model] in model?.navigator.sourcesChanged([apps.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

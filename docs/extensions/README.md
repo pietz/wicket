@@ -19,6 +19,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 ## Decisions every spec follows
 
 - **User data & settings:** Personal lists and scalar settings live in `config.json`. API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
+- **Local customizations:** A valid local manifest overrides the built-in of the same ID. Settings and `--diagnose` surface active overrides so users can recover current built-in features and ask the agent to carry their custom changes forward.
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
 - **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**

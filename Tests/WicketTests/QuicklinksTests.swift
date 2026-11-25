@@ -51,23 +51,11 @@ func headlessSiteKeywordsFillTheOriginalQuery(_ input: String, id: String, query
   #expect(filtered.1["items"].array.map { $0["id"].string } == ["entry:searches/youtube"])
 }
 
-@MainActor @Test(arguments: [false, true])
-func aLocalQuicklinksProgramRendersItsOwnView(makeMine: Bool) async throws {
+@MainActor @Test func aLocalQuicklinksProgramRendersItsOwnView() async throws {
   let root = try scratch()
   defer { removeHeadlessScratch(root) }
   let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
   let navigator = model.navigator
-  await model.extensions.reload()
-
-  if makeMine {
-    try model.extensions.makeMine(try #require(model.extensions.commands[links]))
-    await model.extensions.reload()
-    navigator.go(Address(id: links, link: true))
-    await navigator.settled()
-    #expect(navigator.results.first?.row.id == "add-quicklink")
-    navigator.dismiss()
-  }
-
   let title = "My Quicklinks view"
   _ = try extensionFolder(root, name: "links-search", script: answering(title))
   await model.extensions.reload()
@@ -335,7 +323,7 @@ private func fields(_ values: [String: String]) throws -> String {
   model.store.start(watching: false)
   await model.extensions.reload()
   let command = try #require(model.extensions.commands[links])
-  #expect(model.extensions.isBundled(command))
+  #expect(command.folder == model.extensions.locations[command.id]?.bundledFolder)
 
   navigator.go(Address(id: links, link: true))
   await navigator.settled()
