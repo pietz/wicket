@@ -57,9 +57,12 @@ func singleQuoted(_ text: String) -> String {
   "'" + text.split(separator: "'", omittingEmptySubsequences: false).joined(separator: #"'\''"#) + "'"
 }
 /// A `.command` file for the default terminal: it goes to the folder, runs the command in a login shell,
-/// then stays in an interactive shell there.
+/// then stays in an interactive shell there. The command's shell is interactive too, so it reads the rc
+/// file (`~/.zshrc`) where the user's aliases and functions live, as if typed at the prompt. An interactive
+/// zsh hangs up its background jobs when it exits, so `NO_HUP` keeps a `command &` running past it.
 func terminalScript(_ command: String, folder: String, shell: String) -> String {
-  "#!/bin/sh\ncd " + singleQuoted(folder) + " || exit 1\n" + singleQuoted(shell) + " -l -c "
+  let options = shell.hasSuffix("/zsh") ? " -l -i -o NO_HUP -c " : " -l -i -c "
+  return "#!/bin/sh\ncd " + singleQuoted(folder) + " || exit 1\n" + singleQuoted(shell) + options
     + singleQuoted(command) + "\nexec " + singleQuoted(shell) + " -l\n"
 }
 /// Writes the text to a new `wicket-shell-<random>.command` in `folder`, executable by the owner only, and

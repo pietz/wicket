@@ -42,7 +42,7 @@ private func request(_ input: String, submitted: Bool = false, action: String = 
   #expect(file.hasPrefix(temporary.path + "/wicket-shell-") && file.hasSuffix(".command"))
   let permissions = try FileManager.default.attributesOfItem(atPath: file)[.posixPermissions] as? Int
   #expect(permissions == 0o700)
-  #expect(try String(contentsOfFile: file, encoding: .utf8).contains("-l -c 'echo hi'"))
+  #expect(try String(contentsOfFile: file, encoding: .utf8).contains("-c 'echo hi'"))
   // Each hand-over is a new file, and one the terminal could not open is removed; the panel stays.
   #expect(answered("pwd", submitted: true, action: "open-terminal").isEmpty && Set(opened).count == 2)
   let refused = answer(request("ls", submitted: true, action: "open-terminal"), temporary: temporary.path) {
@@ -58,7 +58,7 @@ private func request(_ input: String, submitted: Bool = false, action: String = 
       == #"""
       #!/bin/sh
       cd '/Users/me/it'\''s' || exit 1
-      '/bin/zsh' -l -c 'echo '\''hi'\'''
+      '/bin/zsh' -l -i -o NO_HUP -c 'echo '\''hi'\'''
       exec '/bin/zsh' -l
 
       """#)
@@ -72,6 +72,8 @@ private func request(_ input: String, submitted: Bool = false, action: String = 
   let process = Process()
   process.executableURL = URL(fileURLWithPath: "/bin/sh")
   process.arguments = [file]
+  // The command's shell is interactive and reads startup files: none of the developer's.
+  process.environment = ["HOME": root.path, "PATH": "/usr/bin:/bin"]
   process.standardInput = FileHandle.nullDevice
   try process.run()
   process.waitUntilExit()
