@@ -15,6 +15,7 @@ enum Diagnostics {
     let bundlePath: String
     let executablePath: String?
     let signing: Signing
+    let extensionContract = ExtensionManifest.currentContract
     let note =
       "macOS grants permissions per signed copy. A different path or signature from the copy in System Settings can explain a switch that looks on."
   }
