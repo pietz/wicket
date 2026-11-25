@@ -23,12 +23,14 @@ private func compose(
   extensions: [String: ExtensionManifest] = [:], problems: [String: ExtensionHost.Problem] = [:],
   usage: UsageStore = UsageStore()
 ) -> Ranking.Output {
-  Ranking.compose(
-    query: query,
+  let search = SearchQuery(query)
+  return Ranking.compose(
+    query: search,
     names: [
-      .init(provider: "apps", kind: .app, rows: apps), .init(provider: "files", kind: .file, rows: files),
+      .init(provider: "apps", kind: .app, matches: SearchIndex(apps).scored(search)),
+      .init(provider: "files", kind: .file, matches: SearchIndex(files).scored(search, forFile: true)),
     ]
-      + items.map { .init(provider: $0.key, kind: .item, rows: $0.value) },
+      + items.map { .init(provider: $0.key, kind: .item, matches: SearchIndex($0.value).scored(search)) },
     patterns: patterns, extensions: extensions, problems: problems,
     hosts: [CommandDirectory.settings, AgentHistory.row], usage: usage)
 }
@@ -356,7 +358,9 @@ private func command(_ json: String) throws -> ExtensionCommand {
   let links = try command(
     #"{"name":"Links","icon":"link","items":[{"id":"gh","title":"GitHub","keywords":["code"],"actions":[]},"#
       + #"{"id":"cal","title":"Calendar Web","subtitle":"Work","icon":"calendar","actions":[]}]}"#)
-  func items(_ input: String) -> [String: [Row]] { ["extension:links": links.rootItems(input)] }
+  func items(_ input: String) -> [String: [Row]] {
+    ["extension:links": links.rootItems(SearchQuery(input)).map(\.row)]
+  }
   let apps = [app("Calendar"), app("Cal")]
   var usage = UsageStore()
   // Same tier as the apps: kind breaks the tie after usage and score, so apps first.
@@ -364,7 +368,7 @@ private func command(_ json: String) throws -> ExtensionCommand {
     titles(compose("cal", apps: apps, items: items("cal"))) == [
       "Cal", "Calendar", "Calendar Web",
     ])
-  let web = Result(provider: "extension:links", row: links.rootItems("cal")[0])
+  let web = Result(provider: "extension:links", row: links.rootItems(SearchQuery("cal"))[0].row)
   for _ in 0..<20 { usage.record(web.id, query: "cal", now: Date()) }
   let used = compose("cal", apps: apps, items: items("cal"), usage: usage)
   // Usage lifts the item within the prefix tier but never above the exact match.
@@ -373,18 +377,39 @@ private func command(_ json: String) throws -> ExtensionCommand {
   #expect(github.row.title == "GitHub" && github.row.subtitle == "Links" && github.row.icon == "link")
   #expect(
     github.id != Result(provider: "extension:links", row: Row(id: "command", title: "", actions: [])).id)
-  let own = links.rootItems("cal")[0]
+  let own = links.rootItems(SearchQuery("cal"))[0].row
   #expect(own.subtitle == "Work" && own.icon == "calendar")
   // Items are name matches for something typed: none in the empty list.
-  #expect(links.rootItems("").isEmpty)
+  #expect(links.rootItems(SearchQuery("")).isEmpty)
 }
 
 @Test func atMostTheBestTwentyItemsOfOneExtensionEnterTheList() throws {
   let rows = (0..<50).map { #"{"id":"\#($0)","title":"Note \#($0)","actions":[]}"# }
   let many = try command(
     #"{"name":"Many","items":[\#(rows.joined(separator: ",")),{"id":"x","title":"n o t e s","actions":[]}]}"#)
-  let found = many.rootItems("note")
+  let found = many.rootItems(SearchQuery("note")).map(\.row)
   #expect(found.count == ExtensionCommand.rootItems)
   #expect(found.allSatisfy { $0.title.hasPrefix("Note ") })
-  #expect(many.rootItems("zzz").isEmpty)
+  #expect(many.rootItems(SearchQuery("zzz")).isEmpty)
+}
+
+@MainActor @Test func reorderedWordsFindAppsAndItemsThroughRootSearch() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  _ = try extensionFolder(
+    folder, name: "links",
+    fields: [
+      "name": "Links", "command": NSNull(),
+      "items": [["id": "code", "title": "Visual Studio Code Guide", "actions": []]],
+    ])
+  let index = SearchIndex([app("Visual Studio Code")])
+  let model = LauncherModel(
+    apps: { _ in index }, history: UsageHistory(url: folder.appending(path: "usage.json")),
+    folder: folder, bundled: nil)
+  await model.extensions.reload()
+  model.navigator.input = "code visual"
+  await model.navigator.settled()
+  #expect(model.navigator.results.contains { $0.provider == "apps" && $0.row.title == "Visual Studio Code" })
+  #expect(model.navigator.results.contains { $0.provider == "extension:links" && $0.row.id == "item:code" })
+  await model.finish()
 }

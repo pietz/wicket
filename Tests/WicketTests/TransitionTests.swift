@@ -9,13 +9,12 @@ import Testing
 // driven by gates (a file an extension waits for, apps that answer when released), never by timing alone.
 
 /// Twelve apps, held back on request until released, so the root can be kept waiting.
-@MainActor private final class GatedApps: Provider {
-  let id = "apps"
+@MainActor private final class GatedApps {
   var held = false
   private var waiting: [CheckedContinuation<Void, Never>] = []
-  func view(for request: ProviderRequest) async -> ProviderView {
+  func search(_ input: String) async -> SearchIndex {
     if held { await withCheckedContinuation { waiting.append($0) } }
-    return .init(items: (0..<12).map { row("App \($0)") })
+    return SearchIndex((0..<12).map { row("App \($0)") })
   }
   func release() {
     held = false
@@ -69,7 +68,7 @@ func anUpdateNoticeShowsAtTheEmptyRootAndReturnOpensTheUpdater(compact: Bool) as
   let apps = GatedApps()
   var checks = 0
   let model = LauncherModel(
-    apps: apps, history: history, folder: root, bundled: nil, availableUpdate: { "0.8.0" },
+    apps: apps.search, history: history, folder: root, bundled: nil, availableUpdate: { "0.8.0" },
     checkForUpdates: { checks += 1 })
   model.store.update { $0.resultsOnlyWhenTyping = compact }
   let controller = PaletteController(model: model, panel: RoutingPanel())
@@ -154,7 +153,8 @@ func anUpdateNoticeShowsAtTheEmptyRootAndReturnOpensTheUpdater(compact: Bool) as
   let apps = GatedApps()
   var availableUpdate: String?
   let model = LauncherModel(
-    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil,
+    apps: apps.search, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    bundled: nil,
     availableUpdate: { availableUpdate })
   let navigator = model.navigator
   let surface = RecordingSurface()
@@ -186,7 +186,8 @@ func anUpdateNoticeShowsAtTheEmptyRootAndReturnOpensTheUpdater(compact: Bool) as
   let apps = GatedApps()
   apps.held = true
   let model = LauncherModel(
-    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
+    apps: apps.search, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    bundled: nil)
   model.store.update { $0.resultsOnlyWhenTyping = true }
   await model.extensions.reload()
   let navigator = model.navigator
@@ -214,7 +215,8 @@ func anUpdateNoticeShowsAtTheEmptyRootAndReturnOpensTheUpdater(compact: Bool) as
     fields: ["match": "^$"])
   let apps = GatedApps()
   let model = LauncherModel(
-    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
+    apps: apps.search, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    bundled: nil)
   try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: model.store.url)
   model.store.load()
   await model.extensions.reload()
@@ -325,7 +327,8 @@ private let finished = #"{"items":[{"id":"done","title":"Finished","actions":[]}
   try JSONSerialization.data(withJSONObject: manifest).write(to: notes.appending(path: "wicket.json"))
   let apps = GatedApps()
   let model = LauncherModel(
-    apps: apps, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root, bundled: nil)
+    apps: apps.search, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    bundled: nil)
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()
   // The tests count frames; when the busy state draws is its own test's.
@@ -613,7 +616,7 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   defer { try? FileManager.default.removeItem(at: root) }
   let transcriber = FakeTranscriber()
   let voiced = LauncherModel(
-    apps: GatedApps(), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    apps: GatedApps().search, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
     bundled: nil)
   let controller = PaletteController(model: voiced, panel: RoutingPanel(), transcriber: { transcriber })
   await model.finish()

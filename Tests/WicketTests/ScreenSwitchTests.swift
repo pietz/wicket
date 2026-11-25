@@ -4,10 +4,9 @@ import Testing
 @testable import WicketApp
 
 /// Twelve apps for any input, so the root list is at its full eight rows (with Ask agent and Agent History, 14).
-@MainActor private final class ManyApps: Provider {
-  let id = "apps"
-  func view(for request: ProviderRequest) async -> ProviderView {
-    .init(items: (0..<12).map { row("App \($0)") })
+@MainActor private final class ManyApps {
+  func search(_ input: String) async -> SearchIndex {
+    SearchIndex((0..<12).map { row("App \($0)") })
   }
 }
 
@@ -49,7 +48,7 @@ import Testing
     try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appending(path: "wicket.json"))
   }
   let model = LauncherModel(
-    apps: ManyApps(), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
+    apps: ManyApps().search, history: UsageHistory(url: root.appending(path: "usage.json")), folder: root)
   await model.extensions.reload()
   model.navigator.input = "a"
   await model.navigator.settled()

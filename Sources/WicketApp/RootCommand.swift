@@ -1,5 +1,7 @@
 import Foundation
 
+typealias AppSearch = @MainActor (String) async -> SearchIndex
+
 /// Root search: the installed apps, Spotlight files, extension items and pattern extensions, ranked into
 /// one list for an input (`Ranking.compose`). Sources answer progressively; each search delivers a
 /// complete list whenever its sources allow, and nothing from a search that a newer one or `cancel`
@@ -16,16 +18,17 @@ import Foundation
   static let patternHold = Duration.milliseconds(30)
 
   /// The installed apps, the one source answered in process besides file search.
-  private let apps: (any Provider)?
+  private let apps: AppSearch?
   private let files: FilesProvider?
   private let directory: CommandDirectory
   private let store: ConfigurationStore
   private let history: UsageHistory
   private var extensions: ExtensionHost { directory.extensions }
 
-  private var appRows: [Row] = []
+  private var appMatches: [SearchIndex.Match] = []
   /// The previous file rows stay until the first batch for a new input replaces them.
   private var fileRows: [Row] = []
+  private var fileMatches: [SearchIndex.Match] = []
   private var itemRows: [Ranking.Names] = []
   private var patterns: [String: Ranking.Pattern] = [:]
   /// The pattern extensions whose regex matched the input; their answers are `patterns`.
@@ -40,7 +43,7 @@ import Foundation
   private(set) var strongReason: String?
 
   init(
-    apps: (any Provider)?, files: FilesProvider?, directory: CommandDirectory, store: ConfigurationStore,
+    apps: AppSearch?, files: FilesProvider?, directory: CommandDirectory, store: ConfigurationStore,
     history: UsageHistory
   ) {
     self.apps = apps
@@ -86,9 +89,10 @@ import Foundation
     let request = ProviderRequest(input: input)
     let host = extensions
     let configuration = store.configuration
-    appRows = []
+    appMatches = []
     patterns.removeAll()
     let active = configuration.sources(extensions: extensions.ids).filter(\.enabled)
+    let query = SearchQuery(input)
     // Extension items are in memory: matched once per input, not on every batch that recomposes.
     let keyword = KeywordQuery(input)
     itemRows = active.compactMap { extensions.commands[$0.id] }.map { command in
@@ -102,7 +106,7 @@ import Foundation
         }
       }
       return Ranking.Names(
-        provider: command.id, kind: .item, rows: command.rootItems(input, including: exact))
+        provider: command.id, kind: .item, matches: command.rootItems(query, including: exact))
     }
     // The previous file rows stay until the first batch for this input replaces them, so files do not
     // vanish and return on every keystroke; ranking drops those the new input no longer matches.
@@ -110,12 +114,13 @@ import Foundation
       active.contains { $0.id == files.id } && FileSearch.predicate(for: input) != nil ? files : nil
     }
     if files == nil { fileRows = [] }
-    let apps = apps.flatMap { apps in active.contains { $0.id == apps.id } ? apps : nil }
+    fileMatches = SearchIndex(fileRows).scored(query, forFile: true)
+    let apps = active.contains { $0.id == AppsProvider.id } ? apps : nil
     var appsReady = apps == nil
     let compose = { [weak self] in
       guard let self else { return }
       isSearching = false
-      let ranked = rank(input)
+      let ranked = rank(query)
       strongReason = ranked.strongReason
       deliver(Output(input: input, results: ranked.results, firstProblem: ranked.firstProblem))
     }
@@ -139,9 +144,9 @@ import Foundation
     if let apps {
       tasks.append(
         Task { [weak self] in
-          let view = await apps.view(for: request)
+          let index = await apps(input)
           guard let self, !Task.isCancelled, generation == current else { return }
-          appRows = view.items
+          appMatches = index.scored(query)
           appsReady = true
           if !holding { compose() }
         })
@@ -189,10 +194,14 @@ import Foundation
             guard let self, !Task.isCancelled, generation == current else { return }
             received = true
             fileRows = rows
+            fileMatches = SearchIndex(rows).scored(query, forFile: true)
             if appsReady, !holding { compose() }
           }
           guard let self, !Task.isCancelled, generation == current else { return }
-          if !received { fileRows = [] }
+          if !received {
+            fileRows = []
+            fileMatches = []
+          }
           pending.remove(files.id)
           if appsReady, !holding { compose() }
         })
@@ -219,17 +228,17 @@ import Foundation
     } while seen != generation
   }
 
-  private func rank(_ input: String) -> Ranking.Output {
+  private func rank(_ query: SearchQuery) -> Ranking.Output {
     let configuration = store.configuration
     let enabled = Set(configuration.sources(extensions: extensions.ids).filter(\.enabled).map(\.id))
     let commands = extensions.commands.filter { enabled.contains($0.key) }
     let names =
       [
-        Ranking.Names(provider: "apps", kind: .app, rows: appRows),
-        Ranking.Names(provider: "files", kind: .file, rows: fileRows),
+        Ranking.Names(provider: AppsProvider.id, kind: .app, matches: appMatches),
+        Ranking.Names(provider: "files", kind: .file, matches: fileMatches),
       ] + itemRows
     return Ranking.compose(
-      query: input, names: names, patterns: patterns, running: runningPatterns,
+      query: query, names: names, patterns: patterns, running: runningPatterns,
       extensions: commands.mapValues(\.manifest),
       problems: extensions.problems.filter { enabled.contains($0.key) },
       hosts: directory.rootRows(configuration),

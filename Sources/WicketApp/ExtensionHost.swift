@@ -61,9 +61,10 @@ struct ExtensionCommand: Sendable, Equatable {
   }
   /// The items that are name matches at the root for this input. They take the extension's name
   /// where they have no subtitle, and their ids never meet the command row's.
-  func rootItems(_ input: String, including exact: ((Row) -> Bool)? = nil) -> [Row] {
-    itemIndex.best(input, limit: Self.rootItems, including: exact).map {
-      shown($0, atRoot: true, subtitle: $0.subtitle ?? manifest.name)
+  func rootItems(_ query: SearchQuery, including exact: ((Row) -> Bool)? = nil) -> [SearchIndex.Match] {
+    itemIndex.best(query, limit: Self.rootItems, including: exact).map { match in
+      let row = shown(match.row, atRoot: true, subtitle: match.row.subtitle ?? manifest.name)
+      return .init(row: row, quality: match.quality)
     }
   }
   /// The manifest's settings: the saved value, else the default; one with neither is left out.

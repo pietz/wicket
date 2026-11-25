@@ -51,12 +51,6 @@ struct ProviderRequest: Codable, Sendable, Equatable {
   }
 }
 
-@MainActor
-protocol Provider {
-  var id: String { get }
-  func view(for request: ProviderRequest) async -> ProviderView
-}
-
 /// One view with optional parts: Markdown `body` (the answer page), `items` (a native list alone, rows
 /// after the body on a page) and `actions` for the header. At least one of body and items is present on
 /// the wire, unless the view consists of page fields.

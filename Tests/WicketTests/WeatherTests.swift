@@ -69,7 +69,8 @@ private func weatherFixture(
   let command = try bundled("weather")
   #expect(command.manifest.submit)
   let result = Ranking.compose(
-    query: "weather Berlin", names: [], patterns: [:], extensions: [command.id: command.manifest],
+    query: SearchQuery("weather Berlin"), names: [], patterns: [:],
+    extensions: [command.id: command.manifest],
     problems: [:], usage: UsageStore())
   let row = try #require(result.results.first)
   #expect(row.provider == command.id && row.row.title == "Weather")

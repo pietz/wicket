@@ -143,13 +143,12 @@ private let searchOnlyHeight = PaletteLayout.panelHeight(card: 0)
 
 @MainActor private func rootResultsModel(in root: URL) -> LauncherModel {
   LauncherModel(
-    apps: RootResultsApps(), history: UsageHistory(url: root.appending(path: "usage.json")),
+    apps: RootResultsApps().search, history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root, bundled: nil)
 }
 
-@MainActor private struct RootResultsApps: Provider {
-  let id = "apps"
-  func view(for request: ProviderRequest) async -> ProviderView {
-    .init(items: (0..<12).map { row("App \($0)") })
+@MainActor private struct RootResultsApps {
+  func search(_ input: String) async -> SearchIndex {
+    SearchIndex((0..<12).map { row("App \($0)") })
   }
 }

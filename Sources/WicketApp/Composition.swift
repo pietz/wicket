@@ -126,12 +126,11 @@ enum Ranking {
   /// equal usage, a file never outranks any other kind, since its name says less about intent.
   enum Kind: Int, Sendable { case app, command, item, host, file }
 
-  /// One source of name matches (apps, files, an extension's items): its rows, already filtered to
-  /// what matches the input.
+  /// One source of already scored name matches (apps, files, or an extension's items).
   struct Names: Sendable {
     let provider: String
     let kind: Kind
-    let rows: [Row]
+    let matches: [SearchIndex.Match]
   }
 
   struct Output: Sendable {
@@ -227,13 +226,13 @@ enum Ranking {
   ///   - hosts: The host's own rows (`CommandDirectory.rootRows`), listed for a nonempty input only.
   ///   - hostFields: The fields of an available host command, which a host row or extension item may target.
   static func compose(
-    query input: String, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
+    query search: SearchQuery, names: [Names], patterns: [String: Pattern], running: Set<String> = [],
     extensions: [String: ExtensionManifest], problems: [String: ExtensionHost.Problem], hosts: [Result] = [],
     hostFields: (String) -> [Field] = { _ in [] },
     usage: UsageStore, now: Date = Date()
   ) -> Output {
-    let query = Fold.query(input)
-    let words = Fold.words(input)
+    let input = search.input
+    let query = search.scalars
     let keyword = KeywordQuery(input)
     func named(_ ids: some Sequence<String>) -> [String] { byName(ids, extensions) }
 
@@ -262,7 +261,9 @@ enum Ranking {
     // Name matches. Every row matches by its title and keywords; empty input matches everything given.
     struct Candidate { let result: Result, kind: Kind, tier: Int, usage: Double, score: Int }
     let totals = query.isEmpty ? usage.totals(now: now) : [:]
-    func candidate(_ result: Result, _ kind: Kind, onlyKeyword: Bool = false) -> Candidate? {
+    func candidate(
+      _ result: Result, _ kind: Kind, quality: SearchQuery.Quality? = nil, onlyKeyword: Bool = false
+    ) -> Candidate? {
       if kind == .host || result.rootExtensionRow != nil,
         case .run(var address)? = result.row.actions.first?.kind,
         let argument = keyword?.argument(
@@ -288,26 +289,22 @@ enum Ranking {
           score: 0)
       }
       if onlyKeyword { return nil }
-      var score = 0
-      var tier = 0
-      if !query.isEmpty {
-        let keys = ([result.row.title] + (result.row.keywords ?? [])).map(SearchKey.init)
-        guard let best = keys.compactMap({ FuzzyMatcher.score(query, words: words, $0) }).max() else {
-          return nil
-        }
-        score = best
-        tier = keys.map { Self.tier(query, $0, forFile: kind == .file) }.max() ?? 0
-      }
+      guard
+        let quality = quality
+          ?? search.quality(
+            ([result.row.title] + (result.row.keywords ?? [])).map(SearchKey.init), forFile: kind == .file)
+      else { return nil }
       return Candidate(
-        result: result, kind: kind, tier: tier,
+        result: result, kind: kind, tier: quality.tier,
         usage: query.isEmpty ? totals[result.id] ?? 0 : usage.frecency(result.id, query: input, now: now),
-        score: score)
+        score: quality.score)
     }
     var candidates = names.flatMap { source in
-      source.rows.compactMap {
+      source.matches.compactMap {
         candidate(
-          Result(provider: source.provider, row: $0, rootExtensionRow: source.kind == .item ? .item : nil),
-          source.kind)
+          Result(
+            provider: source.provider, row: $0.row, rootExtensionRow: source.kind == .item ? .item : nil),
+          source.kind, quality: $0.quality)
       }
     }
     for id in extensions.keys where keyword != nil || !answered.contains(id) {

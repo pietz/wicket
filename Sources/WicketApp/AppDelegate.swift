@@ -32,7 +32,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     self.updater = updater
     let runtime = RuntimeRecorder(url: RuntimeRecord.url(beside: AgentLog.standard()))
     let model = LauncherModel(
-      apps: apps, files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
+      apps: { _ in apps.index }, files: FilesProvider(), clipboard: clipboard, agentHistory: runs,
       history: history, folder: directory, extensionDataDirectory: Edition.current.extensionDataDirectory(),
       availableUpdate: { updater?.availableUpdate }, checkForUpdates: { updater?.checkForUpdates() },
       runtime: runtime)
@@ -72,7 +72,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.palette.show { model.navigator.fill(prompt, newConversation: true) }
       })
     palette = PaletteController(model: model, settings: settings, pauseHotkeys: pause)
-    apps.onChange = { [weak model] in model?.navigator.sourcesChanged([apps.id]) }
+    apps.onChange = { [weak model] in model?.navigator.sourcesChanged([AppsProvider.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let name = Edition.current.name
     let menu = NSMenu()

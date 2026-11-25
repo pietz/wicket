@@ -18,8 +18,9 @@ private func search(
 )
   -> [Row]
 {
-  Ranking.compose(
-    query: input, names: [.init(provider: "apps", kind: .app, rows: index.matches(input))],
+  let query = SearchQuery(input)
+  return Ranking.compose(
+    query: query, names: [.init(provider: "apps", kind: .app, matches: index.scored(query))],
     patterns: [:], extensions: [:],
     problems: [:], usage: usage, now: now
   ).results.filter { $0.provider == "apps" }.map(\.row)
@@ -31,10 +32,30 @@ private func search(
   ("term", "Terminal"), ("sys", "System Settings"), ("set", "System Settings"),
   ("ap", "App Store"), ("stack", "OrbStack"), ("edit", "BBEdit"), ("pass", "1Password"),
   ("chrome", "Google Chrome"), ("calc", "Calculator"), ("cale", "Calendar"), ("xcode", "Xcode"),
-  ("ZED", "Zed"), ("vs code", "Visual Studio Code"), ("am", "Activity Monitor"),
+  ("ZED", "Zed"), ("vs code", "Visual Studio Code"), ("code visual", "Visual Studio Code"),
+  ("am", "Activity Monitor"),
 ])
 func topResult(query: String, expected: String) {
   #expect(search(index, query).first?.title == expected)
+}
+
+@Test func malformedUsageKeysLeaveTheValidEmptyQueryTotalsIntact() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let file = folder.appending(path: "usage.json")
+  let now = Date.now
+  var store = UsageStore()
+  store.record("legacy-key", now: now)
+  store.record(#"["wrong-width"]"#, now: now)
+  store.record(#"["wrong-type",1]"#, now: now)
+  store.record("apps:Notes", query: "no", now: now)
+  store.record("apps:Notes", query: "note", now: now.addingTimeInterval(-UsageStore.halfLife))
+  store.record("apps:Mail", query: "mail", now: now)
+  try store.save(to: file)
+  let loaded = UsageStore.load(from: file)
+  #expect(loaded.totals(now: now) == ["apps:Notes": 1.5, "apps:Mail": 1])
+  #expect(
+    search(SearchIndex([row("Mail"), row("Notes")]), "", usage: loaded, now: now).first?.title == "Notes")
 }
 
 @Test func rejectsScatteredAndMissingLetters() {

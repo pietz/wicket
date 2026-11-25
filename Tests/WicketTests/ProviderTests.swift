@@ -23,17 +23,17 @@ func badViewsFail(json: String) {
 }
 
 @MainActor
-private final class TestProvider: Provider {
+private final class TestProvider {
   let id: String
-  var waiting: [String: CheckedContinuation<ProviderView, Never>] = [:]
+  var waiting: [String: CheckedContinuation<SearchIndex, Never>] = [:]
   let delayed: Bool
   init(_ id: String, delayed: Bool = false) {
     self.id = id
     self.delayed = delayed
   }
-  func view(for request: ProviderRequest) async -> ProviderView {
-    if delayed { return await withCheckedContinuation { waiting[request.input] = $0 } }
-    return .init(items: [row(id + request.input)])
+  func search(_ input: String) async -> SearchIndex {
+    if delayed { return await withCheckedContinuation { waiting[input] = $0 } }
+    return SearchIndex([row(id + input)])
   }
 }
 
@@ -52,7 +52,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
   let root = url.deletingLastPathComponent()
   _ = try extensionFolder(root, name: "pattern", script: answering("Inline"), fields: ["match": "^test$"])
-  let model = LauncherModel(apps: TestProvider("apps"), history: UsageHistory(url: url), folder: root)
+  let model = LauncherModel(apps: TestProvider("apps").search, history: UsageHistory(url: url), folder: root)
   model.store.update { $0.providers = [.init("apps"), .init("extension:pattern")] }
   await model.extensions.reload()
   model.navigator.input = "test"
@@ -72,14 +72,14 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   let url = FileManager.default.temporaryDirectory.appending(
     path: UUID().uuidString + "/usage.json")
   let provider = TestProvider("apps", delayed: true)
-  let model = LauncherModel(apps: provider, history: UsageHistory(url: url))
+  let model = LauncherModel(apps: provider.search, history: UsageHistory(url: url))
   model.navigator.input = "old"
   #expect(await eventually { provider.waiting["old"] != nil })
   model.navigator.input = "new"
   #expect(await eventually { provider.waiting["new"] != nil })
-  provider.waiting.removeValue(forKey: "new")?.resume(returning: .init(items: [row("New")]))
+  provider.waiting.removeValue(forKey: "new")?.resume(returning: SearchIndex([row("New")]))
   #expect(await eventually { model.navigator.results.first?.row.title == "New" })
-  provider.waiting.removeValue(forKey: "old")?.resume(returning: .init(items: [row("Old")]))
+  provider.waiting.removeValue(forKey: "old")?.resume(returning: SearchIndex([row("Old")]))
   await Task.yield()
   #expect(model.navigator.results.map(\.row.title) == ["New"])
 }
@@ -89,20 +89,20 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   defer { try? FileManager.default.removeItem(at: folder) }
   let provider = TestProvider("apps", delayed: true)
   let model = LauncherModel(
-    apps: provider, history: UsageHistory(url: folder.appending(path: "usage.json")))
+    apps: provider.search, history: UsageHistory(url: folder.appending(path: "usage.json")))
   var sizes: [Int] = []
   let surface = RecordingSurface()
   model.navigator.surface = surface
   surface.onDraw = { sizes.append(model.navigator.results.count) }
   model.navigator.input = "first"
   #expect(await eventually { provider.waiting["first"] != nil })
-  provider.waiting.removeValue(forKey: "first")?.resume(returning: .init(items: [row("first")]))
+  provider.waiting.removeValue(forKey: "first")?.resume(returning: SearchIndex([row("first")]))
   #expect(await eventually { !model.root.isSearching })
   sizes.removeAll()
   model.navigator.input = "second"
   #expect(model.navigator.results.count == 1 && sizes.isEmpty)
   #expect(await eventually { provider.waiting["second"] != nil })
-  provider.waiting.removeValue(forKey: "second")?.resume(returning: .init(items: [row("second")]))
+  provider.waiting.removeValue(forKey: "second")?.resume(returning: SearchIndex([row("second")]))
   #expect(await eventually { !model.root.isSearching })
   #expect(sizes == [1])
 }
@@ -124,7 +124,7 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   let rows = ["a", "b", "c"].map { Row(id: $0, title: "Weather " + $0, actions: []) }
   try JSONEncoder().encode(ProviderView(items: rows)).write(to: response)
   let model = LauncherModel(
-    apps: TestProvider("apps"), history: UsageHistory(url: root.appending(path: "usage.json")),
+    apps: TestProvider("apps").search, history: UsageHistory(url: root.appending(path: "usage.json")),
     folder: root)
   model.store.update { $0.providers = [.init("extension:weather"), .init("apps")] }
   model.extensions.onCatalogChange = nil
@@ -296,7 +296,8 @@ func eventually(within limit: Duration = .seconds(1), _ condition: () -> Bool) a
   defer { try? FileManager.default.removeItem(at: root) }
   _ = try extensionFolder(root, name: "pattern", script: answering("Inline"), fields: ["match": "^te"])
   let model = LauncherModel(
-    apps: TestProvider("apps"), history: UsageHistory(url: root.appending(path: "usage.json")), folder: root,
+    apps: TestProvider("apps").search, history: UsageHistory(url: root.appending(path: "usage.json")),
+    folder: root,
     bundled: nil)
   model.extensions.onCatalogChange = nil
   await model.extensions.reload()

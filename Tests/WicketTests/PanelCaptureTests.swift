@@ -223,8 +223,7 @@ private let nextAnswer =
   override var canBecomeKey: Bool { false }
 }
 
-@MainActor private final class FixedApps: Provider {
-  let id = "apps"
+@MainActor private final class FixedApps {
   /// Answers only when cancelled, so a switch back to the root waits for its list.
   var held = false
   private let index = SearchIndex(
@@ -233,9 +232,9 @@ private let nextAnswer =
         id: name.lowercased(), title: name, subtitle: "Application",
         actions: [.open(URL(fileURLWithPath: "/System/Applications/" + name + ".app"))])
     })
-  func view(for request: ProviderRequest) async -> ProviderView {
+  func search(_ input: String) async -> SearchIndex {
     if held { try? await Task.sleep(for: .seconds(60)) }
-    return .init(items: index.matches(request.input))
+    return index
   }
 }
 
@@ -352,7 +351,7 @@ private let installedAgent: Void = {
         interval: nil) : nil
     let apps = FixedApps()
     let model = LauncherModel(
-      apps: apps, clipboard: clipboard, agentHistory: runs,
+      apps: apps.search, clipboard: clipboard, agentHistory: runs,
       history: UsageHistory(url: folder.appending(path: "usage.json")), folder: folder,
       bundled: ["extension-error", "hotkey-command-error"].contains(name)
         ? try reportedExtensions() : bundledExtensions)

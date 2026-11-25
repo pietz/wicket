@@ -26,7 +26,7 @@ final class LauncherModel {
   let checkForUpdates: () -> Void
 
   init(
-    apps: (any Provider)? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
+    apps: AppSearch? = nil, files: FilesProvider? = nil, clipboard: ClipboardHistory? = nil,
     agentHistory: AgentHistory? = nil, history: UsageHistory,
     folder: URL = FileManager.default.temporaryDirectory, bundled: URL? = ExtensionHost.bundledFolder,
     extensionDataDirectory: URL? = nil, availableUpdate: @escaping () -> String? = { nil },

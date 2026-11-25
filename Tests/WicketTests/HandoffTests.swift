@@ -27,11 +27,10 @@ private func application(in root: URL) throws -> URL {
   return bundle
 }
 
-@MainActor private struct SlowApps: Provider {
-  let id = "apps"
+@MainActor private struct SlowApps {
   let url: URL
-  func view(for request: ProviderRequest) async -> ProviderView {
-    .init(items: [Row(id: url.path, title: "Slow", actions: [.open(url)])])
+  func search(_ input: String) async -> SearchIndex {
+    SearchIndex([Row(id: url.path, title: "Slow", actions: [.open(url)])])
   }
 }
 
@@ -41,7 +40,7 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
   defer { try? FileManager.default.removeItem(at: root) }
   let url = try application(in: root)
   let history = UsageHistory(url: root.appending(path: "usage.json"))
-  let model = LauncherModel(apps: SlowApps(url: url), history: history, folder: root, bundled: nil)
+  let model = LauncherModel(apps: SlowApps(url: url).search, history: history, folder: root, bundled: nil)
   model.agent.connect = { _, _, _ in FakeAgent() }
   model.store.update { $0.providers = [.init("apps")] }
   let held = HeldOpen()

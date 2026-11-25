@@ -8,17 +8,13 @@ struct AppRecord: Sendable, Hashable {
 
 /// Fixed folders avoid Spotlight's backups, disk images and build copies.
 @MainActor
-final class AppsProvider: Provider {
-  let id = "apps"
+final class AppsProvider {
+  static let id = "apps"
   var onChange: (() -> Void)?
   private var rows: [Row] = []
-  private var index = SearchIndex([])
+  private(set) var index = SearchIndex([])
   private var watcher: FileWatcher?
   private var rescanTask: Task<Void, Never>?
-
-  func view(for request: ProviderRequest) async -> ProviderView {
-    .init(items: index.matches(request.input))
-  }
 
   func start(watch: Bool = true) async {
     await rescan()

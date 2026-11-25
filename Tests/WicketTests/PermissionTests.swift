@@ -140,7 +140,7 @@ func anUnresolvedHotkeyShowsItsOwnProblem(compact: Bool, hasRepair: Bool) async 
   #expect(problems["extension:camera"]?.detail.contains("accessibility, calendar") == true)
   // At the root it says so, and leads to Settings, where Wicket updates, rather than to the agent.
   let rows = Ranking.compose(
-    query: "", names: [], patterns: [:], extensions: [:],
+    query: SearchQuery(""), names: [], patterns: [:], extensions: [:],
     problems: ["extension:future": future, "extension:zero": problems["extension:zero"]!],
     usage: UsageStore()
   ).results
