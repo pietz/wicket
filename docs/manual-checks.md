@@ -47,11 +47,13 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 ## 6. Voice
 
 1. Open and speak immediately: first word is caught. Typing takes over; speech never submits; ⌘Return asks.
-2. With voice on and a Bluetooth headset selected for input and output in Sound settings, play music and open and close Wicket. Verify dictation uses a built-in or external hardware mic and music stays high quality throughout. Repeat in clamshell mode with Bluetooth as the only available mic. Verify automatic listening stays off and the pill shows the hint. Click the mic and dictate, then close Wicket and verify music returns to high quality. Reopen and verify listening is off again.
-3. Hide during startup and reopen. If the previous open is still stalled, the retry should promptly show "Microphone didn't start. Try again." Verify dictation works when you reopen after the previous open has returned. Unplug the active mic mid-capture and verify one retry hint and no auto-restart.
-4. Stay silent: stops quietly after ~3 s; mic click restarts. Rapid open/close always clears the menu bar mic indicator.
-5. Verify first-time permission prompt and denial; focus returns to panel afterward.
-6. On a Mac lacking the speech model, verify missing-model message and that typing still works.
+2. With the MacBook lid open and the built-in mic selected in Sound settings, open Wicket and dictate. Stay quiet on a second open and verify listening stops without an error after about 3 seconds. Click the mic to restart.
+3. With an external display, close the lid and leave the built-in mic as the only input. Open Wicket and verify the pill says the built-in mic is muted with the lid closed.
+4. With the lid closed and Bluetooth earbuds as the only usable input, verify automatic listening stays off and the pill shows the Bluetooth hint. Click the mic, dictate, close Wicket, and reopen. Automatic listening should stay off again. With the lid open and the earbuds selected for input and output in Sound settings, play music and open Wicket. Verify automatic dictation uses the built-in or external hardware mic and playback stays high quality.
+5. Select an input that produces no signal, such as a muted USB mic. Open Wicket and verify listening stops after about 1.25 seconds of capture with “No sound from [device name]. Check Sound → Input.” With an unplugged dock jack and Bluetooth earbuds available, select the earbuds in Sound ▸ Input and click the mic. Verify dictation works even if automatic listening picked the dock.
+6. Hide during startup and reopen. If the previous open is still stalled, the retry should promptly show "Microphone didn't start. Try again." Verify dictation works when you reopen after the previous open has returned. Unplug the active mic mid-capture and verify one retry hint and no auto-restart. Rapid open/close always clears the menu bar mic indicator.
+7. Verify first-time permission prompt and denial. Focus returns to the panel afterward.
+8. On a Mac lacking the speech model, verify the missing-model message and that typing still works.
 
 ## 7. Extensions
 

@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreAudio
 import CoreMedia
+import IOKit
 import Speech
 import Synchronization
 
@@ -23,7 +24,7 @@ import Synchronization
         } catch { continuation.finish(throwing: error) }
       }
       task = worker
-      // A conversion error can finish from the audio tap; run teardown away from that callback.
+      // An audio error can finish from the delegate queue; run teardown away from that callback.
       continuation.onTermination = { _ in Task.detached { worker.cancel() } }
     }
   }
@@ -198,7 +199,8 @@ final class Microphone: @unchecked Sendable {
       capture.addInput(input)
       guard capture.canAddOutput(output) else { throw VoiceError.microphoneStartFailed }
       capture.addOutput(output)
-      let samples = AudioSamples(format: format, audio: audio, firstAudio: firstAudio, fail: fail)
+      let samples = AudioSamples(
+        format: format, deviceName: device.localizedName, audio: audio, firstAudio: firstAudio, fail: fail)
       // Session startup and teardown can wait for delivery to drain.
       output.setSampleBufferDelegate(
         samples, queue: DispatchQueue(label: "app.wicket.audio", qos: .userInitiated))
@@ -255,11 +257,37 @@ extension AVCaptureSession: CaptureSession {
 
 /// A Bluetooth microphone switches its headset into call mode, degrading playback.
 enum InputDevice {
+  struct Description: Equatable, Sendable {
+    let transport: UInt32
+    let isInternalMicrophone: Bool
+    let usesBluetooth: Bool
+    let usesContinuity: Bool
+
+    init(
+      transport: UInt32, isInternalMicrophone: Bool? = nil, isContinuityCamera: Bool = false,
+      inputMembers: [Description] = []
+    ) {
+      self.transport = transport
+      self.isInternalMicrophone =
+        isInternalMicrophone
+        ?? (transport == kAudioDeviceTransportTypeBuiltIn
+          || (!inputMembers.isEmpty && inputMembers.allSatisfy(\.isInternalMicrophone)))
+      usesBluetooth =
+        transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
+        || inputMembers.contains(where: \.usesBluetooth)
+      usesContinuity =
+        isContinuityCamera || transport == kAudioDeviceTransportTypeContinuityCaptureWired
+        || transport == kAudioDeviceTransportTypeContinuityCaptureWireless
+        || inputMembers.contains(where: \.usesContinuity)
+    }
+  }
+
   static func select(allowBluetooth: Bool) throws -> AVCaptureDevice {
     let selected = try select(
       current: AVCaptureDevice.default(for: .audio), allowBluetooth: allowBluetooth,
+      clamshellClosed: isClamshellClosed(),
       discover: { AVCaptureDevice.DiscoverySession(deviceTypes: $0, mediaType: $1, position: $2).devices },
-      transport: { transport(uid: $0.uniqueID, captureTransport: UInt32(bitPattern: $0.transportType)) })
+      describe: describe)
     let bytes = withUnsafeBytes(of: selected.transport.bigEndian) { Array($0) }
     let category =
       bytes.allSatisfy { (32...126).contains($0) } ? String(decoding: bytes, as: UTF8.self) : "unknown"
@@ -267,31 +295,51 @@ enum InputDevice {
     return selected.device
   }
 
+  private static func isClamshellClosed() -> Bool {
+    let rootDomain = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+    guard rootDomain != IO_OBJECT_NULL else { return false }
+    defer { IOObjectRelease(rootDomain) }
+    let state = IORegistryEntryCreateCFProperty(rootDomain, "AppleClamshellState" as CFString, nil, 0)
+    return (state?.takeRetainedValue() as? Bool) == true
+  }
+
   static func select<Device>(
-    current: Device?, allowBluetooth: Bool,
+    current: Device?, allowBluetooth: Bool, clamshellClosed: Bool = false,
     discover: ([AVCaptureDevice.DeviceType], AVMediaType, AVCaptureDevice.Position) -> [Device],
-    transport: (Device) -> UInt32
+    describe: (Device) -> Description
   ) throws -> (device: Device, transport: UInt32) {
     guard let current else { throw VoiceError.noMicrophone }
-    let currentTransport = transport(current)
-    let bluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE]
-      .contains(currentTransport)
+    let currentInfo = describe(current)
+    // macOS can still report the internal mic after the lid disconnects it in hardware.
+    let mutedByLid = clamshellClosed && currentInfo.isInternalMicrophone
+    // Clicking the mic lets the user pick an input in Sound settings even when other devices are listed.
+    if allowBluetooth && !mutedByLid { return (current, currentInfo.transport) }
     // An aggregate or unidentified default may route a Bluetooth mic, so a verified mic wins over it.
-    let unverified = [
-      kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAutoAggregate,
-      kAudioDeviceTransportTypeUnknown,
-    ].contains(currentTransport)
-    guard bluetooth || unverified else { return (current, currentTransport) }
-    let candidates = discover([.microphone, .external], .audio, .unspecified)
-      .map { (device: $0, transport: transport($0)) }
-    if let replacement = candidates.first(where: { $0.transport == kAudioDeviceTransportTypeBuiltIn })
-      ?? candidates.first(where: { $0.transport == kAudioDeviceTransportTypeUSB })
-      ?? candidates.first(where: { isNonBluetoothHardware($0.transport) })
-    {
-      return replacement
+    let unverified =
+      !currentInfo.usesContinuity
+      && (isAggregateTransport(currentInfo.transport)
+        || currentInfo.transport == kAudioDeviceTransportTypeUnknown)
+    guard currentInfo.usesBluetooth || unverified || mutedByLid else {
+      return (current, currentInfo.transport)
     }
-    guard allowBluetooth || !bluetooth else { throw VoiceError.bluetoothOnly }
-    return (current, currentTransport)
+    let candidates = discover([.microphone, .external], .audio, .unspecified)
+      .map { (device: $0, info: describe($0)) }
+      .filter { !$0.info.usesContinuity && (!clamshellClosed || !$0.info.isInternalMicrophone) }
+    if let replacement = candidates.first(where: { $0.info.transport == kAudioDeviceTransportTypeBuiltIn })
+      ?? candidates.first(where: { $0.info.transport == kAudioDeviceTransportTypeUSB })
+      ?? candidates.first(where: { !$0.info.usesBluetooth && isNonBluetoothHardware($0.info.transport) })
+    {
+      return (replacement.device, replacement.info.transport)
+    }
+    if mutedByLid {
+      guard let headset = candidates.first(where: { $0.info.usesBluetooth }) else {
+        throw VoiceError.lidClosed
+      }
+      guard allowBluetooth else { throw VoiceError.bluetoothOnly }
+      return (headset.device, headset.info.transport)
+    }
+    guard !currentInfo.usesBluetooth else { throw VoiceError.bluetoothOnly }
+    return (current, currentInfo.transport)
   }
 
   private static func isNonBluetoothHardware(_ transport: UInt32) -> Bool {
@@ -304,16 +352,31 @@ enum InputDevice {
     }
   }
 
-  static func transport(
-    uid: String, captureTransport: UInt32, coreAudio: (String) -> UInt32? = coreAudioTransport
-  ) -> UInt32 {
-    guard let transport = coreAudio(uid), transport != kAudioDeviceTransportTypeUnknown else {
+  static func transport(coreAudio: UInt32?, captureTransport: UInt32) -> UInt32 {
+    guard let coreAudio, coreAudio != kAudioDeviceTransportTypeUnknown else {
       return captureTransport
     }
-    return transport
+    return coreAudio
   }
 
-  private static func coreAudioTransport(_ uid: String) -> UInt32? {
+  private static func describe(_ captureDevice: AVCaptureDevice) -> Description {
+    let device = coreAudioDevice(for: captureDevice.uniqueID)
+    let resolved = transport(
+      coreAudio: device.flatMap(coreAudioTransport),
+      captureTransport: UInt32(bitPattern: captureDevice.transportType))
+    let members = isAggregateTransport(resolved) ? device.map(aggregateInputMembers) ?? [] : []
+    return Description(
+      transport: resolved,
+      isInternalMicrophone: resolved == kAudioDeviceTransportTypeBuiltIn
+        ? device.map(isInternalMicrophone) : nil,
+      isContinuityCamera: captureDevice.isContinuityCamera, inputMembers: members)
+  }
+
+  private static func isAggregateTransport(_ transport: UInt32) -> Bool {
+    transport == kAudioDeviceTransportTypeAggregate || transport == kAudioDeviceTransportTypeAutoAggregate
+  }
+
+  private static func coreAudioDevice(for uid: String) -> AudioDeviceID? {
     var address = AudioObjectPropertyAddress(
       mSelector: kAudioHardwarePropertyTranslateUIDToDevice, mScope: kAudioObjectPropertyScopeGlobal,
       mElement: kAudioObjectPropertyElementMain)
@@ -325,27 +388,87 @@ enum InputDevice {
         &size, &device)
     }
     guard translated == noErr, device != kAudioObjectUnknown else { return nil }
-    address.mSelector = kAudioDevicePropertyTransportType
+    return device
+  }
+
+  private static func coreAudioTransport(_ device: AudioDeviceID) -> UInt32? {
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioDevicePropertyTransportType, mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain)
     var transport = UInt32(0)
-    size = UInt32(MemoryLayout<UInt32>.size)
+    var size = UInt32(MemoryLayout<UInt32>.size)
     guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &transport) == noErr else { return nil }
     return transport
+  }
+
+  /// A 3.5 mm wired headset also reports `BuiltIn`; distinguish it from the lid-muted internal mic.
+  private static func isInternalMicrophone(_ device: AudioDeviceID) -> Bool {
+    var sourceAddress = AudioObjectPropertyAddress(
+      mSelector: kAudioDevicePropertyDataSource, mScope: kAudioObjectPropertyScopeInput,
+      mElement: kAudioObjectPropertyElementMain)
+    var source = UInt32(0)
+    var sourceSize = UInt32(MemoryLayout<UInt32>.size)
+    if AudioObjectGetPropertyData(device, &sourceAddress, 0, nil, &sourceSize, &source) == noErr {
+      return source == 0x696D_6963  // 'imic'
+    }
+    var jackAddress = AudioObjectPropertyAddress(
+      mSelector: kAudioDevicePropertyJackIsConnected, mScope: kAudioObjectPropertyScopeInput,
+      mElement: kAudioObjectPropertyElementMain)
+    var connected = UInt32(0)
+    var jackSize = UInt32(MemoryLayout<UInt32>.size)
+    if AudioObjectGetPropertyData(device, &jackAddress, 0, nil, &jackSize, &connected) == noErr,
+      connected != 0
+    {
+      return false
+    }
+    return true
+  }
+
+  private static func aggregateInputMembers(_ device: AudioDeviceID) -> [Description] {
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioAggregateDevicePropertyActiveSubDeviceList, mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain)
+    var size = UInt32(0)
+    guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr, size > 0 else {
+      return []
+    }
+    var members = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &members) == noErr else { return [] }
+    return members.filter(hasInputStream).map { member in
+      let transport = coreAudioTransport(member) ?? kAudioDeviceTransportTypeUnknown
+      return Description(
+        transport: transport,
+        isInternalMicrophone: transport == kAudioDeviceTransportTypeBuiltIn && isInternalMicrophone(member))
+    }
+  }
+
+  private static func hasInputStream(_ device: AudioDeviceID) -> Bool {
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeInput,
+      mElement: kAudioObjectPropertyElementMain)
+    var size = UInt32(0)
+    return AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr && size > 0
   }
 }
 
 /// All sample delivery and conversion run in order on the output's delegate queue.
 final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
   private let format: AVAudioFormat
+  private let deviceName: String
   private let audio: @Sendable (AVAudioPCMBuffer) -> Void
   private let firstAudio: @Sendable () -> Void
   private let fail: @Sendable (any Error) -> Void
   private var conversion: Conversion?
+  private var probeSeconds: Double? = 0
+  private var signalFrames = 0
+  private var failed = false
 
   init(
-    format: AVAudioFormat, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
+    format: AVAudioFormat, deviceName: String, audio: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     firstAudio: @escaping @Sendable () -> Void, fail: @escaping @Sendable (any Error) -> Void
   ) {
     self.format = format
+    self.deviceName = deviceName
     self.audio = audio
     self.firstAudio = firstAudio
     self.fail = fail
@@ -358,6 +481,7 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
   }
 
   func receive(_ sampleBuffer: CMSampleBuffer) {
+    guard !failed else { return }
     do {
       guard sampleBuffer.numSamples > 0 else { return }
       guard let description = sampleBuffer.formatDescription?.audioStreamBasicDescription,
@@ -380,13 +504,56 @@ final class AudioSamples: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
         firstAudio()
         conversion = try Conversion(input: buffer.format, output: format)
       }
-      if let converted = try conversion?.convert(buffer) { audio(converted) }
-    } catch let error as VoiceError {
-      fail(error)
+      if let converted = try conversion?.convert(buffer) {
+        if let probeSeconds {
+          let rate = converted.format.sampleRate
+          // Require a few milliseconds of signal so a lone startup spike cannot hide a silent input.
+          let enoughSignal = Int((rate * 0.005).rounded(.up))
+          signalFrames += Self.signalFrames(in: converted, upTo: enoughSignal - signalFrames)
+          if signalFrames >= enoughSignal {
+            self.probeSeconds = nil
+          } else {
+            let duration = probeSeconds + Double(converted.frameLength) / rate
+            guard duration < 1.25 else { throw SilentMicrophone(deviceName: deviceName) }
+            self.probeSeconds = duration
+          }
+        }
+        audio(converted)
+      }
     } catch {
-      let system = error as NSError
-      fail(VoiceSystemError(category: .conversionFailed, domain: system.domain, code: system.code))
+      failed = true
+      if error is VoiceError || error is SilentMicrophone {
+        fail(error)
+      } else {
+        let system = error as NSError
+        fail(VoiceSystemError(category: .conversionFailed, domain: system.domain, code: system.code))
+      }
     }
+  }
+
+  private static func signalFrames(in buffer: AVAudioPCMBuffer, upTo limit: Int) -> Int {
+    func count<T: SignedNumeric & Comparable>(
+      _ channels: UnsafePointer<UnsafeMutablePointer<T>>, threshold: T
+    ) -> Int {
+      let stride = buffer.stride
+      let channelCount = Int(buffer.format.channelCount)
+      var signal = 0
+      for frame in 0..<Int(buffer.frameLength) {
+        let audible = (0..<channelCount).contains { channel in
+          let sample = stride == 1 ? channels[channel][frame] : channels[0][frame * stride + channel]
+          return sample < -threshold || sample > threshold
+        }
+        if audible { signal += 1 }
+        if signal == limit { break }
+      }
+      return signal
+    }
+    // At -100 dBFS even a quiet mic's noise floor should count as signal. In 16-bit PCM one bit
+    // already exceeds that floor, so only all-zero samples count as silent.
+    if let channels = buffer.floatChannelData { return count(channels, threshold: 0.00001) }
+    if let channels = buffer.int16ChannelData { return count(channels, threshold: 0) }
+    if let channels = buffer.int32ChannelData { return count(channels, threshold: 21474) }
+    return limit
   }
 }
 

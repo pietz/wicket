@@ -119,7 +119,8 @@ private final class FakeCapture: CaptureSession, @unchecked Sendable {
   let capture = AVCaptureSession()
   let output = AVCaptureAudioDataOutput()
   let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
-  let samples = AudioSamples(format: format, audio: { _ in }, firstAudio: {}, fail: { _ in })
+  let samples = AudioSamples(
+    format: format, deviceName: "Test input", audio: { _ in }, firstAudio: {}, fail: { _ in })
   try #require(capture.canAddOutput(output))
   capture.addOutput(output)
   output.setSampleBufferDelegate(samples, queue: DispatchQueue(label: "test.audio"))
@@ -244,7 +245,7 @@ private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
   let sampleBuffer = try captureSample(input)
   let counts = Mutex((audio: 0, first: 0))
   let receiver = AudioSamples(
-    format: output,
+    format: output, deviceName: "Test input",
     audio: { result in
       #expect(result.format == output && (2001...2401).contains(result.frameLength))
       #expect(abs(result.floatChannelData![0][500] - 0.75) < 0.001)
@@ -255,6 +256,54 @@ private func captureSample(_ input: AVAudioPCMBuffer) throws -> CMSampleBuffer {
   receiver.receive(sampleBuffer)
   receiver.receive(sampleBuffer)
   #expect(counts.withLock { $0 } == (2, 1))
+}
+
+@Test(arguments: [AVAudioCommonFormat.pcmFormatFloat32, .pcmFormatInt16])
+func earlyDigitalSilenceReportsTheInputOnce(_ analyzerFormat: AVAudioCommonFormat) throws {
+  let input = try audio(2, interleaved: true)
+  let output = try #require(
+    AVAudioFormat(commonFormat: analyzerFormat, sampleRate: 16000, channels: 1, interleaved: false))
+  input.floatChannelData![0].update(repeating: 0, count: 2 * Int(input.frameLength))
+  let packet = try captureSample(input)
+  let counts = Mutex((audio: 0, failures: 0))
+  let receiver = AudioSamples(
+    format: output, deviceName: "Dock",
+    audio: { _ in counts.withLock { $0.audio += 1 } }, firstAudio: {},
+    fail: { error in
+      #expect((error as? SilentMicrophone)?.deviceName == "Dock")
+      counts.withLock { $0.failures += 1 }
+    })
+  for _ in 0..<12 { receiver.receive(packet) }
+  #expect(counts.withLock { $0 } == (12, 0))
+  for _ in 0..<4 { receiver.receive(packet) }
+  #expect(counts.withLock { $0 } == (12, 1))
+}
+
+@Test(arguments: [true, false])
+func startupClickDoesNotCountAsQuietInput(_ hasNoiseFloor: Bool) throws {
+  let input = try audio(1)
+  let output = input.format
+  input.floatChannelData![0].update(repeating: 0.000001, count: Int(input.frameLength))
+  let belowThreshold = try captureSample(input)
+  for frame in 0..<Int(input.frameLength) {
+    input.floatChannelData![0][frame] = frame.isMultiple(of: 2) ? 0.00002 : -0.00002
+  }
+  let quietSignal = try captureSample(input)
+  input.floatChannelData![0].update(repeating: 0, count: Int(input.frameLength))
+  input.floatChannelData![0][0] = 0.8
+  let click = try captureSample(input)
+  let failures = Mutex(0)
+  let receiver = AudioSamples(
+    format: output, deviceName: "Quiet microphone",
+    audio: { _ in }, firstAudio: {},
+    fail: { error in
+      #expect(error is SilentMicrophone)
+      failures.withLock { $0 += 1 }
+    })
+  receiver.receive(click)
+  receiver.receive(hasNoiseFloor ? quietSignal : belowThreshold)
+  for _ in 0..<30 { receiver.receive(belowThreshold) }
+  #expect(failures.withLock { $0 } == (hasNoiseFloor ? 0 : 1))
 }
 
 @Test(
@@ -282,7 +331,7 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
     let received = Mutex([Float]())
     let first = Mutex(0)
     let receiver = AudioSamples(
-      format: output,
+      format: output, deviceName: "Test input",
       audio: { buffer in
         #expect(buffer.format == output)
         #expect(buffer.frameLength == 320)
@@ -324,7 +373,7 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
   let output = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
   let received = Mutex(0)
   let receiver = AudioSamples(
-    format: output,
+    format: output, deviceName: "Test input",
     audio: { buffer in
       #expect(buffer.format == output)
       #expect(buffer.frameLength == 320)
@@ -348,7 +397,7 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
   try #require(created == noErr)
   let errors = Mutex([VoiceSystemError]())
   let receiver = AudioSamples(
-    format: format,
+    format: format, deviceName: "Test input",
     audio: { _ in Issue.record("Delivered audio from an unreadable buffer") },
     firstAudio: { Issue.record("Reported first audio from an unreadable buffer") },
     fail: { error in
@@ -380,9 +429,9 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
         current: headset, allowBluetooth: false,
         discover: { _, _, _ in [headset, ("virtual", virtual), ("usb", usb), ("mac", builtin)] },
         transport: { device in
-          InputDevice.transport(uid: device.uid, captureTransport: device.transport) {
-            $0 == headset.uid ? kAudioDeviceTransportTypeBluetooth : nil
-          }
+          InputDevice.transport(
+            coreAudio: device.uid == headset.uid ? kAudioDeviceTransportTypeBluetooth : nil,
+            captureTransport: device.transport)
         })
     },
     session: { selected in
@@ -397,7 +446,6 @@ func sixteenKilohertzMonoPreservesSamples(_ interleaved: Bool, _ tag: AudioChann
 @Test(arguments: [
   kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeThunderbolt, kAudioDeviceTransportTypePCI,
   kAudioDeviceTransportTypeDisplayPort, kAudioDeviceTransportTypeHDMI,
-  kAudioDeviceTransportTypeContinuityCaptureWired, kAudioDeviceTransportTypeContinuityCaptureWireless,
 ])
 func nonBluetoothHardwareReplacesABluetoothDefault(_ hardware: UInt32) throws {
   let bluetoothLE = kAudioDeviceTransportTypeBluetoothLE
@@ -443,6 +491,155 @@ func verifiedMicReplacesAnUnverifiedDefaultWhichStaysUsableAlone(_ unverified: U
   }
 }
 
+@Test(arguments: [false, true])
+func closedLidReplacesBuiltInWithExternalHardware(_ usbConnected: Bool) throws {
+  let builtIn = kAudioDeviceTransportTypeBuiltIn
+  let external = kAudioDeviceTransportTypeThunderbolt
+  let usb = kAudioDeviceTransportTypeUSB
+  let selected = try InputDevice.select(
+    current: builtIn, allowBluetooth: false, clamshellClosed: true,
+    discover: { types, media, position in
+      #expect(types == [.microphone, .external] && media == .audio && position == .unspecified)
+      return [builtIn, external] + (usbConnected ? [usb] : [])
+    }, transport: { $0 })
+  #expect(selected.device == (usbConnected ? usb : external))
+}
+
+@Test(arguments: [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeAggregate], [false, true])
+func replacementPrefersUSBOnlyWhenLidIsClosed(_ current: UInt32, _ clamshellClosed: Bool) throws {
+  let builtIn = kAudioDeviceTransportTypeBuiltIn
+  let usb = kAudioDeviceTransportTypeUSB
+  let selected = try InputDevice.select(
+    current: current, allowBluetooth: false, clamshellClosed: clamshellClosed,
+    discover: { _, _, _ in [current, builtIn, usb] }, transport: { $0 })
+  #expect(selected.device == (clamshellClosed ? usb : builtIn))
+}
+
+@Test(arguments: [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE], [false, true])
+func closedLidBluetoothRequiresExplicitStart(_ bluetooth: UInt32, _ builtInIsDefault: Bool) throws {
+  let builtIn = kAudioDeviceTransportTypeBuiltIn
+  let current = builtInIsDefault ? builtIn : bluetooth
+  func select(allowBluetooth: Bool) throws -> UInt32 {
+    try InputDevice.select(
+      current: current, allowBluetooth: allowBluetooth, clamshellClosed: true,
+      discover: { _, _, _ in [builtIn, bluetooth] }, transport: { $0 }
+    ).device
+  }
+  #expect(throws: VoiceError.bluetoothOnly) { try select(allowBluetooth: false) }
+  #expect(try select(allowBluetooth: true) == bluetooth)
+}
+
+@Test(arguments: [false, true])
+func closedLidReportsWhenBuiltInHasNoUsableReplacement(_ allowBluetooth: Bool) {
+  let builtIn = kAudioDeviceTransportTypeBuiltIn
+  #expect(throws: VoiceError.lidClosed) {
+    try InputDevice.select(
+      current: builtIn, allowBluetooth: allowBluetooth, clamshellClosed: true,
+      discover: { _, _, _ in [builtIn, kAudioDeviceTransportTypeVirtual] }, transport: { $0 })
+  }
+}
+
+@Test func closedLidKeepsWiredBuiltInHeadsetAndUsesItToReplaceInternalMic() throws {
+  let internalMic = (
+    name: "internal",
+    info: InputDevice.Description(transport: kAudioDeviceTransportTypeBuiltIn, isInternalMicrophone: true)
+  )
+  let headset = (
+    name: "headset",
+    info: InputDevice.Description(transport: kAudioDeviceTransportTypeBuiltIn, isInternalMicrophone: false)
+  )
+  let kept = try InputDevice.select(
+    current: headset, allowBluetooth: false, clamshellClosed: true,
+    discover: { _, _, _ in
+      Issue.record("Looked for a replacement for a working wired headset")
+      return []
+    }, describe: \.info)
+  #expect(kept.device.name == "headset")
+
+  let replaced = try InputDevice.select(
+    current: internalMic, allowBluetooth: false, clamshellClosed: true,
+    discover: { _, _, _ in [internalMic, headset] }, describe: \.info)
+  #expect(replaced.device.name == "headset")
+}
+
+@Test func closedLidBluetoothAggregateRequiresExplicitStart() throws {
+  let internalMic = (
+    name: "internal",
+    info: InputDevice.Description(transport: kAudioDeviceTransportTypeBuiltIn, isInternalMicrophone: true)
+  )
+  let aggregate = (
+    name: "aggregate",
+    info: InputDevice.Description(
+      transport: kAudioDeviceTransportTypeAggregate,
+      inputMembers: [InputDevice.Description(transport: kAudioDeviceTransportTypeBluetooth)])
+  )
+  func select(allowBluetooth: Bool) throws -> String {
+    try InputDevice.select(
+      current: aggregate, allowBluetooth: allowBluetooth, clamshellClosed: true,
+      discover: { _, _, _ in [internalMic, aggregate] }, describe: \.info
+    ).device.name
+  }
+  #expect(throws: VoiceError.bluetoothOnly) { try select(allowBluetooth: false) }
+  #expect(try select(allowBluetooth: true) == "aggregate")
+}
+
+@Test(arguments: [kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAutoAggregate])
+func closedLidSkipsAnAggregateOnlyWhenAllItsInputsAreInternal(_ transport: UInt32) throws {
+  let builtIn = InputDevice.Description(transport: kAudioDeviceTransportTypeBuiltIn)
+  let usb = InputDevice.Description(transport: kAudioDeviceTransportTypeUSB)
+  for members in [[builtIn], [builtIn, usb], []] {
+    let aggregate = InputDevice.Description(transport: transport, inputMembers: members)
+    if members == [builtIn] {
+      #expect(throws: VoiceError.lidClosed) {
+        try InputDevice.select(
+          current: aggregate, allowBluetooth: false, clamshellClosed: true,
+          discover: { _, _, _ in [builtIn, aggregate] }, describe: { $0 })
+      }
+    } else {
+      #expect(
+        try InputDevice.select(
+          current: aggregate, allowBluetooth: false, clamshellClosed: true,
+          discover: { _, _, _ in [builtIn, aggregate] }, describe: { $0 }
+        ).device == aggregate)
+    }
+  }
+}
+
+@Test func explicitStartHonorsBluetoothDefaultOverDockInput() throws {
+  let buds = kAudioDeviceTransportTypeBluetooth
+  let dock = kAudioDeviceTransportTypeUSB
+  for manual in [false, true] {
+    #expect(
+      try InputDevice.select(
+        current: buds, allowBluetooth: manual, clamshellClosed: true,
+        discover: { _, _, _ in [dock, buds] }, transport: { $0 }
+      ).device == (manual ? buds : dock))
+  }
+}
+
+@Test(arguments: [
+  kAudioDeviceTransportTypeContinuityCaptureWired, kAudioDeviceTransportTypeContinuityCaptureWireless,
+])
+func continuityIsAvailableOnlyAsTheSystemDefault(_ phone: UInt32) throws {
+  let builtIn = kAudioDeviceTransportTypeBuiltIn
+  let buds = kAudioDeviceTransportTypeBluetooth
+  #expect(throws: VoiceError.lidClosed) {
+    try InputDevice.select(
+      current: builtIn, allowBluetooth: true, clamshellClosed: true,
+      discover: { _, _, _ in [builtIn, phone] }, transport: { $0 })
+  }
+  #expect(throws: VoiceError.bluetoothOnly) {
+    try InputDevice.select(
+      current: buds, allowBluetooth: false, clamshellClosed: true,
+      discover: { _, _, _ in [builtIn, phone, buds] }, transport: { $0 })
+  }
+  #expect(
+    try InputDevice.select(
+      current: phone, allowBluetooth: false, clamshellClosed: true,
+      discover: { _, _, _ in [builtIn, phone, buds] }, transport: { $0 }
+    ).device == phone)
+}
+
 @Test(arguments: [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE])
 func bluetoothRequiresAnExplicitStart(_ transport: UInt32) async throws {
   let select: @Sendable (Bool) throws -> UInt32 = { allowBluetooth in
@@ -472,4 +669,16 @@ func bluetoothRequiresAnExplicitStart(_ transport: UInt32) async throws {
     })
   for await _ in manual.stop() {}
   #expect(capture.counts.withLock { $0 } == (1, 1, 1))
+}
+
+extension InputDevice {
+  fileprivate static func select<Device>(
+    current: Device?, allowBluetooth: Bool, clamshellClosed: Bool = false,
+    discover: ([AVCaptureDevice.DeviceType], AVMediaType, AVCaptureDevice.Position) -> [Device],
+    transport: (Device) -> UInt32
+  ) throws -> (device: Device, transport: UInt32) {
+    try select(
+      current: current, allowBluetooth: allowBluetooth, clamshellClosed: clamshellClosed,
+      discover: discover, describe: { Description(transport: transport($0)) })
+  }
 }

@@ -106,6 +106,21 @@ import Testing
   await model.finish()
 }
 
+@MainActor @Test func silentMicrophoneStopsListeningAndNamesTheInputOnlyInTheUI() async {
+  let fake = FakeTranscriber()
+  let recorder = RuntimeRecorder()
+  let voice = VoiceInput(transcriber: { fake }, runtime: recorder, write: { _ in })
+  voice.arm()
+  fake.feeds[0].yield(.ready)
+  #expect(await eventually { voice.state == .listening })
+  fake.feeds[0].finish(throwing: SilentMicrophone(deviceName: "Desk dock"))
+  #expect(await eventually { voice.state == .idle })
+  #expect(voice.problem == "No sound from Desk dock. Check Sound → Input.")
+  #expect(fake.stops == 1)
+  #expect(recorder.record.lastVoiceFailure?.errorCase == "silentMicrophone")
+  #expect(recorder.record.lastVoiceFailure?.osDomain == nil)
+}
+
 @MainActor @Test func voiceStreamsRevisionsAndFinalSegmentsWithoutSubmitting() async {
   let fake = FakeTranscriber()
   var input = "existing input"

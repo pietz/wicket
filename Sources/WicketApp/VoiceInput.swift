@@ -3,7 +3,7 @@ import Observation
 import os
 
 /// Voice diagnostics for `log show --predicate 'subsystem == "app.wicket" AND category == "voice"'`:
-/// why capture stopped, error domains and codes, and timings. Never transcripts or locales.
+/// why capture stopped, error domains and codes, and timings. Never device names, transcripts or locales.
 enum VoiceLog {
   static let logger = Logger(subsystem: "app.wicket", category: "voice")
   static func milliseconds(since start: ContinuousClock.Instant) -> Int {
@@ -142,12 +142,14 @@ final class VoiceInput {
         bluetoothOnly = true
       } catch {
         guard let self, generation == current else { return }
-        VoiceLog.logger.error("voice failed: \(VoiceLog.describe(error), privacy: .public)")
-        let category = (error as? VoiceSystemError)?.category ?? error as? VoiceError
+        let silent = error as? SilentMicrophone
+        let diagnostic: any Error = silent == nil ? error : VoiceError.silentMicrophone
+        VoiceLog.logger.error("voice failed: \(VoiceLog.describe(diagnostic), privacy: .public)")
+        let category = (diagnostic as? VoiceSystemError)?.category ?? diagnostic as? VoiceError
         permissionDenied = category == .microphoneDenied
-        runtime?.voiceFailed(error, reason: .failed)
+        runtime?.voiceFailed(diagnostic, reason: .failed)
         stop(.failed)
-        problem = category?.description ?? "Couldn't listen. Try again."
+        problem = silent?.message ?? category?.description ?? "Couldn't listen. Try again."
       }
     }
   }
@@ -228,15 +230,22 @@ struct VoiceSystemError: Error {
   let code: Int
 }
 
+struct SilentMicrophone: Error {
+  let deviceName: String
+  var message: String { "No sound from \(deviceName). Check Sound → Input." }
+}
+
 /// The raw value is the case alone, for the log.
 enum VoiceError: String, Error, Equatable, CustomStringConvertible {
   case microphoneDenied, noMicrophone, microphoneStartFailed, noLanguage, modelMissing, usageMissing,
-    conversionFailed, inputChanged, bluetoothOnly
+    conversionFailed, inputChanged, bluetoothOnly, lidClosed, silentMicrophone
   var description: String {
     switch self {
     case .microphoneDenied: "Microphone denied. Allow Wicket in System Settings."
     case .noMicrophone: "No microphone. Check Sound → Input in System Settings."
     case .bluetoothOnly: "Voice off: Bluetooth mic only. Click the mic to use it."
+    case .lidClosed: "Built-in mic is muted with the lid closed. Connect a mic or open the lid."
+    case .silentMicrophone: "No sound from the microphone. Check Sound → Input."
     case .microphoneStartFailed: "Microphone didn't start. Try again."
     case .noLanguage: "No on-device speech for your preferred languages."
     case .modelMissing: "Speech model missing. Check macOS Dictation settings."

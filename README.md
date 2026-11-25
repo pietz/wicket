@@ -56,7 +56,9 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 ## Voice
 
-On by default (toggle in Settings ▸ Voice): Wicket listens on open and fills the search field. Any key takes over; speech never submits. Silence stops capture after 3 seconds (click the mic to listen again). Transcription is Apple on-device speech with no audio saved. If the default mic is Bluetooth, Wicket uses another hardware mic when available to preserve playback quality. If Bluetooth is the only option, listening stays off until you click the mic for that session.
+Wicket listens on open by default. Change this in Settings ▸ Voice. Dictation fills the search field, any key takes over, and speech never submits. If you haven't spoken after 3 seconds, Wicket stops listening. Click the mic to start again. Transcription stays on-device and Wicket saves no audio.
+
+With the lid closed, Wicket skips the MacBook's internal mic and looks for another input. Automatic listening prefers a hardware mic over Bluetooth to preserve playback quality. Click the mic to use the input selected in Sound ▸ Input, or to use Bluetooth when it's the only available input. Wicket uses an iPhone Continuity mic only when it's the system input. If the input delivers near-silent audio for about a second, Wicket stops and names the input to check in Sound settings.
 
 ## The agent
 
