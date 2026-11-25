@@ -43,6 +43,8 @@ Search-bar fields, scalar settings, list-entry fields, and canvas fields share o
 
 **Settings:** Scalar settings require a command and may declare `default`. Rendered in Settings ▸ Extensions and saved in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text/number setting restores its default.
 
+A scalar `choice` option can declare an app bundle ID as `requiresApp`, for example `{"value":"ghostty","label":"Ghostty","requiresApp":"com.mitchellh.ghostty"}`. Settings shows it only when macOS finds the app. Provide an unconditional default so the picker can still show a selection if the saved app is missing. Filtering applies only to the picker. The saved value stays in config and in requests, so the program handles an app becoming unavailable.
+
 **List settings:** A setting with `"type":"list"` declares a name, a description used as its Settings section label, and a nonempty `fields` array. Fields are one level deep. Each field uses one of the four types above and can set `"optional":true`. Text fields can also set `"multiline":true`. A field with `"hidden":true` stays out of the sheet. Supply its value through a program’s `save` action or in config.json. It still follows type and required-field validation and travels in requests. Field names are unique and `id` is reserved. List names cannot contain a slash. An optional singular `itemName` supplies the sheet title, such as **Add Bookmark**. In the sheet, use `placeholder` for a short field label and `description` for help below it. Without `placeholder`, the description serves as the label.
 
 ```json
@@ -248,6 +250,14 @@ Record a hotkey in Settings or add a binding to `config.json` while keeping exis
 ```
 
 For a custom item with its own actions, put it in a separate items-only manifest. A `run` to `links-search` with action `open-link` accepts `fields.template`, optional `fields.query` for a fixed search, and optional `fields.bundleID` for a specific browser.
+
+### Shell's terminal app
+
+Set `extensions.shell.terminal` to `default`, `terminal`, `iterm2`, or `ghostty`. For example, select Ghostty with:
+
+```json
+{"extensions":{"shell":{"terminal":"ghostty"}}}
+```
 
 ### A saved window move
 

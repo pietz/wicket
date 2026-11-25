@@ -7,29 +7,34 @@ struct Field: Codable, Sendable, Equatable {
   struct Option: Codable, Sendable, Equatable {
     let value: String
     let label: String
+    let requiresApp: String?
 
-    init(_ value: String, label: String? = nil) {
+    init(_ value: String, label: String? = nil, requiresApp: String? = nil) {
       self.value = value
       self.label = label ?? value
+      self.requiresApp = requiresApp
     }
 
-    private enum CodingKeys: String, CodingKey { case value, label }
+    private enum CodingKeys: String, CodingKey { case value, label, requiresApp }
     init(from decoder: any Decoder) throws {
       if let value = try? decoder.singleValueContainer().decode(String.self) {
         self.init(value)
       } else {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(try c.decode(String.self, forKey: .value), label: try c.decode(String.self, forKey: .label))
+        self.init(
+          try c.decode(String.self, forKey: .value), label: try c.decode(String.self, forKey: .label),
+          requiresApp: try c.decodeIfPresent(String.self, forKey: .requiresApp))
       }
     }
     func encode(to encoder: any Encoder) throws {
-      if value == label {
+      if value == label && requiresApp == nil {
         var c = encoder.singleValueContainer()
         try c.encode(value)
       } else {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(value, forKey: .value)
         try c.encode(label, forKey: .label)
+        try c.encodeIfPresent(requiresApp, forKey: .requiresApp)
       }
     }
   }
@@ -72,6 +77,10 @@ struct Field: Codable, Sendable, Equatable {
 
   var title: String { placeholder ?? description ?? name }
   var inSearchBar: Bool { type == .text || type == .number }
+
+  func availableOptions(isAppInstalled: (String) -> Bool) -> [Option] {
+    (options ?? []).filter { $0.requiresApp.map(isAppInstalled) ?? true }
+  }
 
   private enum CodingKeys: String, CodingKey {
     case name, type, description, placeholder, options, `default`, optional, multiline, hidden,

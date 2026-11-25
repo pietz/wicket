@@ -4,11 +4,17 @@ import Testing
 @testable import WicketApp
 @testable import shell
 
-// The bundled Shell hands a command to the default terminal. Nothing here opens one: the hand-over runs
+// The bundled Shell hands a command to a terminal. Nothing here opens one: the hand-over runs
 // with a stand-in for `open`, and the `.command` file is run by /bin/sh without a terminal.
 
-private func request(_ input: String, submitted: Bool = false, action: String = "") -> JSON {
-  .object(["input": .string(input), "submitted": .bool(submitted), "action": .string(action)])
+private func request(
+  _ input: String, submitted: Bool = false, action: String = "", terminal: String? = nil
+) -> JSON {
+  var request: [String: JSON] = [
+    "input": .string(input), "submitted": .bool(submitted), "action": .string(action),
+  ]
+  if let terminal { request["settings"] = .object(["terminal": .string(terminal)]) }
+  return .object(request)
 }
 
 @Test func onlyAChosenCommandIsHandedToTheTerminal() throws {
@@ -17,8 +23,8 @@ private func request(_ input: String, submitted: Bool = false, action: String = 
   try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
   defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
   var opened: [String] = []
-  let open = { (path: String) in
-    opened.append(path)
+  let open = { (words: [String]) in
+    opened.append(words.last ?? "")
     return true
   }
   func answered(_ input: String, submitted: Bool = false, action: String = "") -> String {
@@ -50,6 +56,59 @@ private func request(_ input: String, submitted: Bool = false, action: String = 
   }
   #expect(refused.contains("Could not open the terminal"))
   #expect(try FileManager.default.contentsOfDirectory(atPath: temporary.path).count == 2)
+}
+
+@Test func shellHandsTheFileToItsChosenTerminal() throws {
+  let manifest = try bundled("shell").manifest
+  guard case .field(let field) = try #require(manifest.settings.first) else {
+    Issue.record("Expected a terminal setting")
+    return
+  }
+  let options = try #require(field.options)
+  #expect(field.name == "terminal" && field.default == "default")
+  #expect(options.map(\.label) == ["System default", "Terminal", "iTerm2", "Ghostty"])
+  #expect(
+    options.map(\.requiresApp) == [
+      nil, "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty",
+    ])
+  #expect(field.availableOptions { _ in false }.map(\.value) == ["default"])
+  #expect(
+    field.availableOptions { ["com.apple.Terminal", "com.mitchellh.ghostty"].contains($0) }.map(\.value)
+      == ["default", "terminal", "ghostty"])
+
+  let directory = try scratch()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  for option in options {
+    var calls: [[String]] = []
+    let output = answer(
+      request("echo hi", submitted: true, action: "open-terminal", terminal: option.value),
+      temporary: directory.path
+    ) { words in
+      calls.append(words)
+      return true
+    }
+    let file = try #require(calls.first?.last)
+    let arguments = option.requiresApp.map { ["-b", $0] } ?? []
+    #expect(calls == [["/usr/bin/open"] + arguments + [file]])
+    #expect(output.isEmpty)
+  }
+}
+
+@Test func shellFallsBackToTheSystemHandlerWhenItsTerminalCannotOpen() throws {
+  let directory = try scratch()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  var calls: [[String]] = []
+  let output = answer(
+    request("echo hi", submitted: true, action: "open-terminal", terminal: "ghostty"),
+    temporary: directory.path
+  ) { words in
+    calls.append(words)
+    return calls.count == 2
+  }
+  let file = try #require(calls.first?.last)
+  #expect(calls == [["/usr/bin/open", "-b", "com.mitchellh.ghostty", file], ["/usr/bin/open", file]])
+  #expect(output.isEmpty)
+  #expect(FileManager.default.fileExists(atPath: file))
 }
 
 @Test func theTerminalFileRunsTheCommandInTheFolderThenStaysThere() throws {

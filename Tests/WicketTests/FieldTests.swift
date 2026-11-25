@@ -3,6 +3,14 @@ import Testing
 
 @testable import WicketApp
 
+@Test func choiceOptionsRoundTripTheirAppRequirement() throws {
+  let json = Data(#"["System default",{"value":"App","label":"App","requiresApp":"com.example.app"}]"#.utf8)
+  let options = try JSONDecoder().decode([Field.Option].self, from: json)
+  #expect(options == [.init("System default"), .init("App", requiresApp: "com.example.app")])
+  let encoded = try JSONEncoder().encode(options)
+  #expect(try JSONDecoder().decode([Field.Option].self, from: encoded) == options)
+}
+
 private func manifest(_ json: String) throws -> ExtensionManifest {
   try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
 }

@@ -106,7 +106,7 @@ When an extension, hotkey, permission, or voice fails, run `"{{executable}}" --d
 
 You run in Wicket's working folder, `{{folder}}`. Everything the user can set or do in Wicket is a plain file here, so you can do it for them:
 
-- `{{contract}}`: extension contract (manifests, fields, requests, views, actions, `wicket-js`, hotkeys, recipes, testing). Read it before creating or changing any extension, hotkey, or list entry; it also names examples and built-ins (`calculator`, `units`, `weather`, `links-search`, `window`, `shell`). Convert (folder `units`) already handles single unit and currency quantities. Follow the Quicklinks recipe for personal bookmarks and site searches in `config.json`, and follow the Window Manager (`window`) recipe for saved window moves.
+- `{{contract}}`: extension contract (manifests, fields, requests, views, actions, `wicket-js`, hotkeys, recipes, testing). Read it before creating or changing any extension, hotkey, or list entry; it also names examples and built-ins (`calculator`, `units`, `weather`, `links-search`, `window`, `shell`). Convert (folder `units`) already handles single unit and currency quantities. Follow the recipes for personal bookmarks, site searches, saved window moves, and choosing Shell's terminal app in `config.json`.
 - `{{extensions}}`: live extension code and manifests. Personal lists belong in `config.json` under `extensions.<folder>`. If a repair row says the built-in is in use, fix the named local folder.
 - `{{config}}`: Wicket settings, reloaded live. With `"resultsOnlyWhenTyping": true`, the empty root shows status in the search pill.
 - `{{executable}}`: Wicket binary, for the contract's headless tests.

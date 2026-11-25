@@ -48,7 +48,7 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Window Manager** moves the focused window: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display, and Restore. Type a move name (`left`, `max`, `next display`) or `window`. Wicket closes for the move and reports failures or partial moves (which Restore can undo). If Accessibility is missing, choose **Allow Accessibility for Wicket**. Configure gap and Almost Maximize size in Settings ▸ Extensions ▸ Window Manager.
 
-**Shell:** `> git status` opens the command in your default terminal in your home folder on Return (nothing runs before Return).
+**Shell:** Press Return on `> git status` to run it in your home folder. Choose **System default** or an installed Terminal, iTerm2, or Ghostty in Settings ▸ Extensions ▸ Shell. System default uses the macOS handler for `.command` files. Wicket tries that handler if it cannot open the chosen app.
 
 **Clipboard History** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
 

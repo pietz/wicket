@@ -765,10 +765,23 @@ private struct SettingControl: View {
           )
         ).toggleStyle(.switch)
       case .choice:
-        Picker(label, selection: choice) {
-          let options = field.options ?? []
-          let defaultLabel = options.first { $0.value == field.default }?.label
-          Text(defaultLabel.map { "Default (\($0))" } ?? "Unset").tag(nil as String?)
+        let filtersApps = !editingEntry && field.options?.contains { $0.requiresApp != nil } == true
+        let options =
+          filtersApps
+          ? field.availableOptions { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil }
+          : field.options ?? []
+        let defaultOption = options.first { $0.value == field.default }
+        let selection =
+          filtersApps
+          ? Binding(
+            get: { options.first { $0.value == value }?.value ?? defaultOption?.value },
+            set: { value = $0 == defaultOption?.value ? nil : $0 }
+          )
+          : choice
+        Picker(label, selection: selection) {
+          if !filtersApps || defaultOption == nil {
+            Text(defaultOption.map { "Default (\($0.label))" } ?? "Unset").tag(nil as String?)
+          }
           ForEach(options, id: \.value) { Text($0.label).tag(Optional($0.value)) }
         }
       case .text where field.multiline == true:

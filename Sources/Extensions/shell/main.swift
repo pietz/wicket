@@ -1,10 +1,10 @@
-// Wicket's Shell: `> command` at the root offers to open the command in the user's default terminal, in
+// Wicket's Shell: `> command` at the root offers to open the command in the selected terminal, in
 // the home folder; Return does, as a hidden run: the panel closes first. Wicket shows no output: the
 // terminal is the place for a command that runs, asks or keeps going.
 //
 // Nothing runs on a request the user did not choose: the root row, typing and links only describe the
-// command. The named action writes a `.command` file to the user's temporary folder and `open`s it, which
-// hands it to the default terminal; a bundled extension's own folder is inside the signed app.
+// command. The named action writes a `.command` file to the user's temporary folder and hands it to the
+// terminal with `open`; a bundled extension's own folder is inside the signed app.
 //
 // Plain Swift with Darwin, without Foundation, which would cost about 10 ms per process: the root row
 // runs on every keystroke that starts with `>`. After editing, build it with `swiftc -O *.swift -o main`.
@@ -56,7 +56,7 @@ func loginShell() -> String {
 func singleQuoted(_ text: String) -> String {
   "'" + text.split(separator: "'", omittingEmptySubsequences: false).joined(separator: #"'\''"#) + "'"
 }
-/// A `.command` file for the default terminal: it goes to the folder, runs the command in a login shell,
+/// A `.command` file for the terminal: it goes to the folder, runs the command in a login shell,
 /// then stays in an interactive shell there. The command's shell is interactive too, so it reads the rc
 /// file (`~/.zshrc`) where the user's aliases and functions live, as if typed at the prompt. An interactive
 /// zsh hangs up its background jobs when it exits, so `NO_HUP` keeps a `command &` running past it.
@@ -99,23 +99,31 @@ func sweep(_ folder: String, now: time_t = time(nil)) {
     unlink(path)
   }
 }
-/// Opens a file with `/usr/bin/open`, so the default app for it (the terminal, for a `.command`) runs it.
-/// False when it could not.
-func openFile(_ path: String) -> Bool {
+func terminalBundleID(_ choice: String?) -> String? {
+  switch choice {
+  case "terminal": "com.apple.Terminal"
+  case "iterm2": "com.googlecode.iterm2"
+  case "ghostty": "com.mitchellh.ghostty"
+  default: nil
+  }
+}
+
+/// macOS reports whether it could hand off the file, without waiting for the terminal to finish.
+func openFile(_ words: [String]) -> Bool {
   var actions: posix_spawn_file_actions_t?
   posix_spawn_file_actions_init(&actions)
   defer { posix_spawn_file_actions_destroy(&actions) }
   for descriptor: Int32 in 0...2 {
     posix_spawn_file_actions_addopen(&actions, descriptor, "/dev/null", O_RDWR, 0)
   }
-  let words: [String] = ["/usr/bin/open", path]
   let argv = words.map { strdup($0) } + [nil]
   defer { for pointer in argv { free(pointer) } }
   var pid: pid_t = 0
   guard posix_spawn(&pid, "/usr/bin/open", &actions, nil, argv, environ) == 0 else { return false }
   var status: Int32 = 0
-  while waitpid(pid, &status, 0) == -1, errno == EINTR {}
-  return status == 0
+  var result: pid_t
+  repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
+  return result == pid && status == 0
 }
 
 // MARK: - The request
@@ -123,7 +131,7 @@ func openFile(_ path: String) -> Bool {
 /// The answer to a request: the submitted open-terminal action hands it to the terminal through `open` and
 /// has nothing to show; anything else only describes it.
 func answer(
-  _ request: JSON?, temporary: String = temporaryFolder(), open: (String) -> Bool = openFile
+  _ request: JSON?, temporary: String = temporaryFolder(), open: ([String]) -> Bool = openFile
 ) -> String {
   var command = Substring(request?["fields"]?["command"]?.string ?? request?["input"]?.string ?? "")
   // `> ls` typed inside Shell is `ls`.
@@ -136,7 +144,12 @@ func answer(
   sweep(temporary)
   let script = terminalScript(String(command), folder: homeFolder(), shell: loginShell())
   guard let path = writeCommandFile(script, in: temporary) else { return failed }
-  guard open(path) else {
+  if let bundleID = terminalBundleID(request?["settings"]?["terminal"]?.string),
+    open(["/usr/bin/open", "-b", bundleID, path])
+  {
+    return ""
+  }
+  guard open(["/usr/bin/open", path]) else {
     unlink(path)
     return failed
   }
