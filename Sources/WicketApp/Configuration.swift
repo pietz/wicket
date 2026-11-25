@@ -25,6 +25,13 @@ struct Configuration: Codable, Equatable, Sendable {
       self.id = id
       self.enabled = enabled
     }
+    private enum CodingKeys: String, CodingKey { case id, enabled }
+    init(from decoder: any Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      id = try c.decode(String.self, forKey: .id)
+      enabled =
+        c.contains(.enabled) ? try c.decode(Bool.self, forKey: .enabled) : Configuration.enabledByDefault(id)
+    }
   }
   /// Voice listens on the system's default input. A `microphone` key earlier versions saved is ignored.
   struct Voice: Codable, Equatable, Sendable {
@@ -79,10 +86,10 @@ struct Configuration: Codable, Equatable, Sendable {
   /// The backing under the glass: 0 is solid (most readable), 1 none, the clear glass alone.
   var backgroundTransparency: Double = 0.5
   /// The defaults of earlier looks, which every new file stored: 0.15 before Liquid Glass (through 0.3.4),
-  /// 0.75 for the frosted tint. Such a file has no `blur`, which came with the clear glass; there a stored
-  /// value equal to one reads as unset, so it gets the current default without Wicket rewriting it. A file
-  /// with `blur` keeps every value as stored (`ConfigurationFile.edit` adds it on the first save).
+  /// 0.75 for the frosted tint. `blur` used to distinguish newer files. A sparse file can omit `blur`,
+  /// so an explicit choice of either number can record that intent separately.
   static let oldDefaultTransparencies: Set<Double> = [0.15, 0.75]
+  static let transparencyIntentKey = LegacyKey.backgroundTransparencyIsExplicit.rawValue
   /// How strongly the glass blurs what is behind it, 0 to 10 (`GlassBlur`).
   var blur = 4.0
   static let blurRange = 0.0...10.0
@@ -98,7 +105,7 @@ struct Configuration: Codable, Equatable, Sendable {
     case hotkey, hotkeys, appearance, backgroundTransparency, blur, providers, agent, voice, textSize,
       extensions, resultsOnlyWhenTyping, migratedPersonalItems, pendingPersonalItems
   }
-  private enum LegacyKey: String, CodingKey { case compactOnOpen }
+  private enum LegacyKey: String, CodingKey { case compactOnOpen, backgroundTransparencyIsExplicit }
   init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     textSize = try c.decodeIfPresent(TextSize.self, forKey: .textSize) ?? textSize
@@ -112,17 +119,18 @@ struct Configuration: Codable, Equatable, Sendable {
       try c.decodeIfPresent([String: ListMigration.Pending].self, forKey: .pendingPersonalItems) ?? [:]
     appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? appearance
     resultsOnlyWhenTyping = try c.decodeIfPresent(Bool.self, forKey: .resultsOnlyWhenTyping) ?? false
+    let legacy = try decoder.container(keyedBy: LegacyKey.self)
     if !c.contains(.resultsOnlyWhenTyping) {
-      let legacy = try decoder.container(keyedBy: LegacyKey.self)
-      // Fall back to the name shipped in 0.6.0 until the next settings edit migrates it.
+      // Fall back to the name shipped in 0.6.0 until this preference is edited.
       resultsOnlyWhenTyping = try legacy.decodeIfPresent(Bool.self, forKey: .compactOnOpen) ?? false
     }
     let storedBlur = try c.decodeIfPresent(Double.self, forKey: .blur)
     blur = storedBlur ?? blur
-    if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency),
-      storedBlur != nil || !Self.oldDefaultTransparencies.contains(stored)
-    {
-      backgroundTransparency = stored
+    if let stored = try c.decodeIfPresent(Double.self, forKey: .backgroundTransparency) {
+      let explicit = try legacy.decodeIfPresent(Bool.self, forKey: .backgroundTransparencyIsExplicit)
+      if !Self.oldDefaultTransparencies.contains(stored) || (explicit ?? (storedBlur != nil)) {
+        backgroundTransparency = stored
+      }
     }
     providers = try c.decodeIfPresent([ProviderEntry].self, forKey: .providers) ?? providers
     guard hotkey.leavesTypingAlone else {
@@ -170,12 +178,5 @@ struct Configuration: Codable, Equatable, Sendable {
   }
   static func load(at url: URL) throws -> Self {
     try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
-  }
-  func save(at url: URL) throws {
-    try FileManager.default.createDirectory(
-      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    try encoder.encode(self).write(to: url, options: .atomic)
   }
 }

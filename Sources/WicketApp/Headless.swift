@@ -26,6 +26,15 @@ public enum Headless {
     var options: [String: String] = [:]
     func value(_ key: String) -> String? { options[key] }
     let folder = Edition.current.configDirectory()
+    if CommandLine.arguments.dropFirst().elementsEqual(["--settings"]) {
+      do {
+        try printJSON(await effectiveSettings(in: folder))
+        return 0
+      } catch {
+        try? printJSON(["error": "Config: \(error.localizedDescription)"])
+        return 1
+      }
+    }
     if CommandLine.arguments.dropFirst().elementsEqual(["--diagnose"]) {
       do {
         FileHandle.standardOutput.write(try await Diagnostics.report(folder: folder) + Data([10]))
@@ -42,11 +51,6 @@ public enum Headless {
       extensionDataDirectory: Edition.current.extensionDataDirectory())
     let host = model.extensions
     host.onCatalogChange = nil
-    func printJSON<T: Encodable>(_ value: T) throws {
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = [.sortedKeys]
-      FileHandle.standardOutput.write(try encoder.encode(value) + Data([10]))
-    }
     do {
       let args = Array(CommandLine.arguments.dropFirst())
       var i = 0
@@ -67,7 +71,7 @@ public enum Headless {
       if value("--help") != nil {
         try printJSON([
           "usage":
-            "Wicket --diagnose | --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
+            "Wicket --diagnose | --settings | --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
         ])
         await model.finish()
         return 0
@@ -147,5 +151,38 @@ public enum Headless {
       await model.finish()
       return 1
     }
+  }
+
+  private static func printJSON<T: Encodable>(_ value: T) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    FileHandle.standardOutput.write(try encoder.encode(value) + Data([10]))
+  }
+
+  private static func effectiveSettings(in folder: URL) async throws -> Configuration {
+    let file = ConfigurationFile(url: folder.appending(path: "config.json"))
+    var config = Configuration()
+    do {
+      config = try Configuration.load(at: file.url)
+    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+      guard try file.isMissing() else { throw error }
+      config.agent.agent = ConfigurationStore.initialAgent()
+    }
+    let models = AgentDiscovery.load(config.agent.agent, in: folder)?.models ?? []
+    config.agent.model = AgentOptions.resolved(config.agent, key: "model", models: models)
+    config.agent.effort = AgentOptions.resolved(config.agent, key: "effort", models: models)
+    config.agent.mode = config.agent.permissionMode
+    config.agent.speed = AgentOptions.resolved(config.agent, key: "speed", models: models)
+    let host = ExtensionHost(folder: folder)
+    await host.reload()
+    config.providers = config.sources(extensions: host.ids)
+    let saved = config.extensions
+    config.extensions = [:]
+    for command in host.commands.values {
+      let name = command.folder.lastPathComponent
+      let effective = command.settings(saved[name])
+      if !effective.isEmpty { config.extensions[name] = .object(effective) }
+    }
+    return config
   }
 }

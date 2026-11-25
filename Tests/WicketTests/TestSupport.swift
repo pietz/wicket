@@ -3,6 +3,16 @@ import Testing
 
 @testable import WicketApp
 
+extension Configuration {
+  func save(at url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(self).write(to: url, options: .atomic)
+  }
+}
+
 extension ConfigurationStore {
   /// Tests set configuration the way anything else does: by writing the file.
   func update(_ edit: (inout Configuration) -> Void) {

@@ -60,12 +60,18 @@ func invalidShortcut(spelling: String) {
   #expect(throws: Shortcut.ParseError.self) { try Shortcut(spelling) }
 }
 
-@Test func configPersistence() throws {
+@MainActor @Test(arguments: [false, true]) func firstLaunchStoresOnlyTheDetectedAgent(codexOnly: Bool) throws
+{
   let url = FileManager.default.temporaryDirectory.appending(
     path: UUID().uuidString + "/config.json")
   defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-  try Configuration().save(at: url)
-  #expect(try Configuration.load(at: url) == Configuration())
+  let store = ConfigurationStore(url: url)
+  store.start(watching: false, installed: { codexOnly && $0 == .codex })
+  let expected: JSONValue = codexOnly ? .object("agent", .object("name", .string("codex"))) : .object([:])
+  #expect(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: url)) == expected)
+  var effective = Configuration()
+  if codexOnly { effective.agent.agent = .codex }
+  #expect(store.configuration == effective)
 }
 
 @Test func omittedSourcesTakeTheirDefaultAndFollowTheList() {

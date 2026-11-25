@@ -93,6 +93,8 @@ WICKET_CONFIG_DIR=/tmp/wicket-test /Applications/Wicket.app/Contents/MacOS/Wicke
 
 Open Settings from the menu bar, ⌘,, or by typing `settings`. Settings live in `~/.config/wicket/config.json` and reload live; invalid edits keep the last good config and show the error (if broken at startup, the default hotkey opens Wicket on the error and extensions/hotkeys stay off until fixed). Global shortcuts require ⌘, ⌃, or ⌥ (or an F-key); letters with ⌘ or ⌘⇧ alone also need ⌃ or ⌥. Launch at login is in Settings ▸ General.
 
+New `config.json` files store overrides. Settings removes an override when you return that setting to its default and keeps unrelated keys during an edit. Run `Wicket --settings` to see effective values. For direct transparency edits, see the [`--settings` notes](Sources/WicketApp/Resources/extension-contract.md#testing-with-the-real-pipeline).
+
 ## Build from source
 
 Requires Xcode 26 or later (Swift 6.2).

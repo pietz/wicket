@@ -1,27 +1,2 @@
-/* Your Wicket theme. Rules here override the bundled theme, which updates with the app.
-   Wicket reloads this file on save. Start with the tokens; uncomment and change what you want.
-
-:root {
-  --ink: CanvasText;                 text
-  --muted: ...;                      labels and secondary text
-  --line: ...;                       separators, between rows too
-  --surface: ...;                    cards, tiles and code (keep it translucent)
-  --edge: ...;                       the hairline around a card or tile
-  --track: ...;                      empty part of a progress bar
-  --accent: AccentColor;             links and progress
-  --label: ...; --secondary: ...;    a row's title and subtitle, as in the native list
-  --selection: ...;                  the selected row, tile or code block
-  --positive: ...; --warning: ...; --negative: ...;                  a badge's tones
-  --tint: 16%;                       strength of a toned badge
-  --small: 12px; --body: 14px; --title: 16px; --figure: 20px; --big: 24px;   --big is `#`, --figure a tile's title
-  --radius: 12px; --radius-small: 5px;
-}
-
-Use light-dark(light, dark) for a color that differs between appearances.
-Items are w-row (in a run, w-rows), w-tile, w-progress (in a run, w-progresses) and w-badge;
-containers are w-card and w-columns. Attributes arrive as data-* attributes and as
-[data-field="name"] spans (a tile's inside its w-fields, laid out by the tile's width); a badge's tone as [data-tone=positive|warning|negative]. What the user can
-act on has [data-target] (a code block's is the div around its pre, with the copy button), and the
-selected one [data-selected]. Rows copy the native list's metrics: change them only together with the
-launcher's own look.
-*/
+/* Put your Wicket style overrides here. Wicket reloads them on save.
+   See the app's bundled answers.css for the current theme tokens and selectors. */

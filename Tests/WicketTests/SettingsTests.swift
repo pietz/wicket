@@ -51,15 +51,40 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #expect(config.backgroundTransparency == 0.65 && !config.voice.enabled)
     #expect(config.agent.agent == .codex && config.agent.model == "gpt-6")
     #expect(config.agent.effort == "high" && config.agent.mode == "workspace-write")
-    #expect(
-      config.providers == [
-        .init("apps"), .init("files", enabled: false), .init("clipboard", enabled: false),
-        .init("extension:new"),
-      ])
+    #expect(config.providers == [.init("files", enabled: false)])
+    #expect(config.isEnabled("extension:new", extensions: ["extension:new"]))
     try file.set("model", to: nil, in: "agent")
     #expect(try Configuration.load(at: file.url).agent.model == nil)
     try file.selectAgent("claude")
     #expect(try Configuration.load(at: file.url).agent == AgentConfiguration())
+  }
+}
+
+@Test func resettingSettingsRemovesOnlyTheirOverrides() throws {
+  try withSettings(
+    #"{"appearance":"dark","textSize":"medium","voice":{"enabled":false,"microphone":"keep"},"agent":{"streamAnswers":false},"providers":[{"id":"apps","enabled":false,"future":7},{"id":"clipboard","enabled":false}]}"#
+  ) { file in
+    try file.set("appearance", to: Configuration().appearance.rawValue)
+    try file.set("enabled", to: Configuration().voice.enabled, in: "voice")
+    try file.set("streamAnswers", to: Configuration().agent.streamAnswers, in: "agent")
+    try file.setProvider("apps", enabled: true)
+    let written = try Data(contentsOf: file.url)
+    let expected =
+      #"{"textSize":"medium","voice":{"microphone":"keep"},"providers":[{"id":"apps","future":7},{"id":"clipboard","enabled":false}]}"#
+    #expect(
+      try JSONDecoder().decode(JSONValue.self, from: written)
+        == JSONDecoder().decode(JSONValue.self, from: Data(expected.utf8)))
+    #expect(try Configuration.load(at: file.url).isEnabled("apps", extensions: []))
+  }
+  try withSettings { file in
+    try file.setProvider("clipboard", enabled: true)
+    try file.setProvider("clipboard", enabled: false)
+    try file.selectAgent("codex")
+    try file.selectAgent("claude")
+    let target = HotkeyTarget(target: "extension:echo")
+    try file.bind(Shortcut("ctrl+k"), to: target)
+    try file.bind(nil, to: target)
+    #expect(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url)) == .object([:]))
   }
 }
 
@@ -77,13 +102,14 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   }
 }
 
-@Test func savingSettingsCarriesTheLegacyResultsPreferenceForward() throws {
+@Test func savingOtherSettingsKeepsTheLegacyResultsPreference() throws {
   try withSettings(#"{"compactOnOpen":true,"future":42}"#) { file in
     try file.set("appearance", to: "dark")
     let written = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
-    #expect(written["resultsOnlyWhenTyping"] as? Bool == true)
-    #expect(written["compactOnOpen"] == nil)
+    #expect(written["resultsOnlyWhenTyping"] == nil)
+    #expect(written["compactOnOpen"] as? Bool == true)
+    #expect(try Configuration.load(at: file.url).resultsOnlyWhenTyping)
     #expect(written["future"] as? Int == 42)
   }
 }
@@ -103,7 +129,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
     #expect(!pane.resultsOnlyWhenTyping.wrappedValue)
     let written = try #require(
       JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
-    #expect(written["resultsOnlyWhenTyping"] as? Bool == false)
+    #expect(written["resultsOnlyWhenTyping"] == nil)
     #expect(written["compactOnOpen"] == nil)
   }
 }
@@ -667,16 +693,23 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
   }
 }
 
-@Test func theFirstSaveOfAnOldFileKeepsWhatItReadsAs() throws {
-  // An old look's default goes, as it read as unset; another value stays. Either way `blur` marks the file
-  // as current, so a 0.75 saved later is kept.
+@Test func sparseGlassEditsPreserveTheIntentOfOldTransparencyValues() throws {
   try withSettings(#"{"backgroundTransparency":0.75}"#) { file in
     try file.set("enabled", to: false, in: "voice")
-    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any]
-    #expect(object?["backgroundTransparency"] == nil && object?["blur"] as? Double == 4)
+    let object = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
+    #expect(object["backgroundTransparency"] == .number(0.75) && object["blur"] == .null)
+    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.5)
+    try file.set("blur", to: 6)
     #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.5)
     try file.set("backgroundTransparency", to: 0.75)
     #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.75)
+    try file.set("blur", to: Configuration().blur)
+    let reset = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
+    #expect(reset["blur"] == .null)
+    #expect(try Configuration.load(at: file.url).backgroundTransparency == 0.75)
+    try file.set("backgroundTransparency", to: Configuration().backgroundTransparency)
+    let updated = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
+    #expect(updated == .object("voice", .object("enabled", .bool(false))))
   }
   try withSettings(#"{"backgroundTransparency":0.4,"blur":4}"#) { file in
     try file.set("enabled", to: false, in: "voice")

@@ -42,6 +42,41 @@ func removeHeadlessScratch(_ root: URL) {
   for folder in [root, data] { try? FileManager.default.removeItem(at: folder) }
 }
 
+@MainActor @Test func settingsCLIShowsEffectiveValuesAndDoesNotInitializeTheFolder() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let local = try extensionFolder(
+    root, name: "status", script: "touch ran; exit 1",
+    fields: ["settings": [["name": "limit", "type": "number", "description": "Limit", "default": "5"]]])
+  let file = root.appending(path: "config.json")
+  let (defaultsStatus, defaults) = try await cli(root, ["--settings"])
+  #expect(defaultsStatus == 0)
+  #expect(defaults["hotkey"] == .string(Shortcut.default.description))
+  #expect(defaults["voice"]["enabled"] == .bool(true))
+  #expect(defaults["extensions"]["status"]["limit"] == .string("5"))
+  #expect(!FileManager.default.fileExists(atPath: file.path))
+
+  let saved = Data(#"{"agent":{"name":"codex"},"providers":[{"id":"files","enabled":false}]}"#.utf8)
+  try saved.write(to: file)
+  try AgentDiscovery.save([AgentModel(id: "gpt-6.2-terra")], agent: .codex, in: root)
+  let (status, settings) = try await cli(root, ["--settings"])
+  #expect(status == 0)
+  #expect(settings["agent"]["model"] == .string("gpt-6.2-terra"))
+  #expect(settings["agent"]["mode"] == .string("agent"))
+  let sources = settings["providers"].array
+  #expect(sources.contains(.object("id", .string("files"), "enabled", .bool(false))))
+  #expect(sources.contains(.object("id", .string("extension:status"), "enabled", .bool(true))))
+  #expect(try Data(contentsOf: file) == saved)
+  #expect(!FileManager.default.fileExists(atPath: local.appending(path: "ran").path))
+
+  try Data("{".utf8).write(to: file)
+  let (invalid, problem) = try await cli(root, ["--settings"])
+  #expect(invalid == 1 && problem["error"].string?.hasPrefix("Config: ") == true)
+  #expect(try Data(contentsOf: file) == Data("{".utf8))
+  let (notDirectory, workingFolderProblem) = try await cli(file, ["--settings"])
+  #expect(notDirectory == 1 && workingFolderProblem["error"].string?.hasPrefix("Config: ") == true)
+}
+
 /// Built-ins and bundled extensions the list omits are switched off here, so a test names exactly what
 /// runs and the real disk (file search) never decides a result unless asked.
 func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {

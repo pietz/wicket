@@ -34,17 +34,16 @@ final class ConfigurationStore {
   private var optionsWatcher: FileWatcher?
 
   init(url: URL) { self.url = url }
+  /// On first use, prefer Claude unless only Codex is installed.
+  static func initialAgent(installed: (AgentConfiguration.Agent) -> Bool = AgentCLI.installed)
+    -> AgentConfiguration.Agent
+  {
+    !installed(.claude) && installed(.codex) ? .codex : .claude
+  }
   /// Creates the file when missing and reads it. Headless runs pass `watching: false`.
-  func start(watching: Bool = true) {
+  func start(watching: Bool = true, installed: (AgentConfiguration.Agent) -> Bool = AgentCLI.installed) {
     do {
-      // The entry itself, not what it links to: a link whose target is missing (an unmounted volume at
-      // login) is a broken file, not a missing one to fill with defaults.
-      if (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil {
-        // A new file names an agent that is installed: Claude, unless only Codex is.
-        var initial = Configuration()
-        if !AgentCLI.installed(.claude), AgentCLI.installed(.codex) { initial.agent.agent = .codex }
-        try initial.save(at: url)
-      }
+      try ConfigurationFile(url: url).initializeIfNeeded { Self.initialAgent(installed: installed) }
     } catch { failed(error) }
     load()
     guard watching else { return }

@@ -762,7 +762,7 @@ private struct SettingField: View {
     let value = Binding<String?>(
       get: { draft ?? saved },
       set: { value in
-        if setting.inSearchBar { draft = value ?? "" } else { save(value) }
+        if setting.inSearchBar { draft = value ?? "" } else { saveOverride(value) }
       })
     SettingControl(field: setting, value: value)
       .focused($focused)
@@ -779,7 +779,11 @@ private struct SettingField: View {
   private func commit() {
     guard let value = draft, value.isEmpty || setting.canonical(value) != nil else { return }
     draft = nil
-    if value != saved ?? "" { save(value.isEmpty ? nil : value) }
+    if value != saved ?? "" { saveOverride(value.isEmpty ? nil : value) }
+  }
+  private func saveOverride(_ value: String?) {
+    let standard = setting.default.flatMap(setting.canonical)
+    save(value.flatMap(setting.canonical) == standard ? nil : value)
   }
 }
 

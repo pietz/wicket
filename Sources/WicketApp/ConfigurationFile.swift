@@ -1,3 +1,4 @@
+import CoreFoundation
 import Darwin
 import Foundation
 
@@ -6,18 +7,51 @@ import Foundation
 /// future keys survive.
 struct ConfigurationFile {
   let url: URL
+  // A dangling symlink is a broken file, so it must never trigger initialization.
+  func isMissing() throws -> Bool {
+    var info = stat()
+    if lstat(url.path, &info) == 0 { return false }
+    if errno == ENOENT { return true }
+    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+  }
+
+  func initializeIfNeeded(agent: () -> AgentConfiguration.Agent) throws {
+    guard try isMissing() else { return }
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    _ = try write(creating: true) { object in
+      let name = agent()
+      if name != AgentConfiguration().agent { object["agent"] = ["name": name.rawValue] }
+    }
+  }
 
   /// Serialize Wicket writers and reapply the edit if an unlocked writer changes the file in the meantime.
   @discardableResult func edit(_ change: (inout [String: Any]) throws -> Void) throws -> Configuration {
+    try write(change)
+  }
+
+  private func write(
+    creating: Bool = false, _ change: (inout [String: Any]) throws -> Void
+  ) throws -> Configuration {
+    func read(_ target: URL) throws -> Data? {
+      do { return try Data(contentsOf: target) } catch let error as CocoaError
+        where error.code == .fileReadNoSuchFile && creating
+      {
+        guard try isMissing() else { throw error }
+        return nil
+      }
+    }
     for _ in 0..<3 {
       let target = url.resolvingSymlinksInPath()
       let lock = try lockFile(for: target)
       defer { close(lock) }
       guard url.resolvingSymlinksInPath() == target else { continue }
-      let data = try Data(contentsOf: target)
-      let (updated, configuration) = try patch(data, change)
-      guard url.resolvingSymlinksInPath() == target, try Data(contentsOf: target) == data else { continue }
-      try updated?.write(to: target, options: .atomic)
+      let data = try read(target)
+      if creating, let data { return try JSONDecoder().decode(Configuration.self, from: data) }
+      let empty = Data("{}".utf8)
+      let (updated, configuration) = try patch(data ?? empty, change)
+      guard url.resolvingSymlinksInPath() == target, try read(target) == data else { continue }
+      try (updated ?? (data == nil ? empty : nil))?.write(to: target, options: .atomic)
       return configuration
     }
     throw CocoaError(
@@ -47,62 +81,82 @@ struct ConfigurationFile {
   {
     let current = try JSONDecoder().decode(Configuration.self, from: data)
     let original = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-    // A file from before the clear glass (`Configuration.oldDefaultTransparencies`) is edited as it reads:
-    // an old default dropped and `blur` added, so every value written from now on round-trips, including
-    // that old default chosen again. An edit that changes nothing it reads as leaves the file untouched.
-    var base = original
-    if !(original["blur"] is NSNumber) {
-      if let stored = base["backgroundTransparency"] as? Double,
-        Configuration.oldDefaultTransparencies.contains(stored)
-      {
-        base["backgroundTransparency"] = nil
-      }
-      base["blur"] = current.blur
-    }
-    // Carry the 0.6.0 value forward on the next save, dropping the obsolete key.
-    if base.removeValue(forKey: "compactOnOpen") != nil, base["resultsOnlyWhenTyping"] == nil {
-      base["resultsOnlyWhenTyping"] = current.resultsOnlyWhenTyping
-    }
-    var object = base
+    var object = original
     try change(&object)
-    guard !NSDictionary(dictionary: object).isEqual(to: base) else { return (nil, current) }
-    for key in ["backgroundTransparency", "blur"] {
-      if let value = object[key] as? Double { object[key] = NSDecimalNumber(string: String(value)) }
+    preserveTransparency(in: &object, before: original, effective: current.backgroundTransparency)
+    let updated = try encode(object)
+    guard updated != (try encode(original)) else { return (nil, current) }
+    return (updated, try JSONDecoder().decode(Configuration.self, from: updated))
+  }
+
+  private func preserveTransparency(in object: inout [String: Any], before: [String: Any], effective: Double)
+  {
+    let key = Configuration.transparencyIntentKey
+    let stored = object["backgroundTransparency"] as? Double
+    let previous = before["backgroundTransparency"] as? Double
+    let blur = object["blur"] as? NSNumber
+    guard
+      stored != previous || blur != before["blur"] as? NSNumber
+        || (object[key] as? Bool) != (before[key] as? Bool)
+    else { return }
+    guard let stored, Configuration.oldDefaultTransparencies.contains(stored) else {
+      object[key] = nil
+      return
     }
-    let updated = try JSONSerialization.data(
+    // An unrelated blur change must keep how an old transparency reads. Record intent only when
+    // the presence or absence of blur would otherwise change that reading.
+    let explicit = (object[key] as? Bool) ?? (stored != previous || stored == effective)
+    object[key] = explicit == (blur != nil) ? nil : explicit
+  }
+
+  private func encode(_ values: [String: Any]) throws -> Data {
+    var object = values
+    for key in ["backgroundTransparency", "blur"] {
+      if let number = object[key] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+        object[key] = NSDecimalNumber(string: String(number.doubleValue))
+      }
+    }
+    return try JSONSerialization.data(
       withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    let configuration = try JSONDecoder().decode(Configuration.self, from: updated)
-    return (updated, configuration)
   }
 
   func set(_ key: String, to value: Any?, in group: String? = nil) throws {
+    let defaults =
+      try JSONSerialization.jsonObject(with: JSONEncoder().encode(Configuration())) as! [String: Any]
+    let fields = group.map { defaults[$0] as? [String: Any] ?? [:] } ?? defaults
+    let replacement: Any?
+    if let value, let standard = fields[key],
+      try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+        == JSONSerialization.data(withJSONObject: standard, options: [.fragmentsAllowed, .sortedKeys])
+    {
+      replacement = nil
+    } else {
+      replacement = value
+    }
     try edit { object in
       if let group {
         var nested = object[group] as? [String: Any] ?? [:]
-        nested[key] = value
-        object[group] = nested
+        guard nested[key] != nil || replacement != nil else { return }
+        nested[key] = replacement
+        object[group] = nested.isEmpty ? nil : nested
       } else {
-        object[key] = value
+        object[key] = replacement
+        if key == "resultsOnlyWhenTyping" { object["compactOnOpen"] = nil }
+        if key == "backgroundTransparency", let value = replacement as? Double,
+          Configuration.oldDefaultTransparencies.contains(value)
+        {
+          object[Configuration.transparencyIntentKey] = true
+        }
       }
-    }
-  }
-
-  func providers(_ change: (inout [[String: Any]]) -> Void) throws {
-    try edit { object in
-      var entries =
-        object["providers"] as? [[String: Any]]
-        ?? Configuration().providers.map { ["id": $0.id, "enabled": $0.enabled] }
-      change(&entries)
-      object["providers"] = entries
     }
   }
 
   func selectAgent(_ name: String) throws {
     try edit { object in
       var agent = object["agent"] as? [String: Any] ?? [:]
-      agent["name"] = name
+      agent["name"] = name == AgentConfiguration().agent.rawValue ? nil : name
       for key in ["model", "effort", "mode", "speed"] { agent[key] = nil }
-      object["agent"] = agent
+      object["agent"] = agent.isEmpty ? nil : agent
     }
   }
   /// Sets or, with nil, removes the hotkey for `target`, keeping the entry's place and unknown fields.
@@ -118,7 +172,7 @@ struct ConfigurationFile {
       case (nil, let index?): entries.remove(at: index)
       case (nil, nil): return
       }
-      object["hotkeys"] = entries
+      object["hotkeys"] = entries.isEmpty ? nil : entries
     }
   }
   /// Sets or, with nil, removes one of an extension's settings, dropping objects left empty.
@@ -174,18 +228,19 @@ struct ConfigurationFile {
       } else if let index {
         entries.remove(at: index)
         if let bindings = object["hotkeys"] as? [[String: Any]] {
-          object["hotkeys"] = bindings.filter {
+          let remaining = bindings.filter {
             guard let target = ($0["address"] as? String).flatMap({ HotkeyTarget($0) }) else { return true }
             return
               !(target.target == "extension:" + folder && target.entryList == list.name && target.item == id)
           }
+          if remaining.count != bindings.count { object["hotkeys"] = remaining.isEmpty ? nil : remaining }
         }
       } else {
         return
       }
-      own[list.name] = entries
-      all[folder] = own
-      object["extensions"] = all
+      own[list.name] = entries.isEmpty ? nil : entries
+      all[folder] = own.isEmpty ? nil : own
+      object["extensions"] = all.isEmpty ? nil : all
     }
   }
 
@@ -194,24 +249,32 @@ struct ConfigurationFile {
     let id = "extension:" + folder
     try edit { object in
       if let entries = object["providers"] as? [[String: Any]] {
-        object["providers"] = entries.filter { $0["id"] as? String != id }
+        let remaining = entries.filter { $0["id"] as? String != id }
+        if remaining.count != entries.count { object["providers"] = remaining.isEmpty ? nil : remaining }
       }
       if let entries = object["hotkeys"] as? [[String: Any]] {
-        object["hotkeys"] = entries.filter { entry in
+        let remaining = entries.filter { entry in
           guard let target = (entry["address"] as? String).flatMap({ HotkeyTarget($0, allowLegacy: true) })
           else { return true }
           return target.target != id
         }
+        if remaining.count != entries.count { object["hotkeys"] = remaining.isEmpty ? nil : remaining }
       }
     }
   }
   func setProvider(_ id: String, enabled: Bool) throws {
-    try providers { entries in
+    try edit { object in
+      var entries = object["providers"] as? [[String: Any]] ?? []
+      let usesDefault = enabled == Configuration.enabledByDefault(id)
       if let index = entries.firstIndex(where: { $0["id"] as? String == id }) {
-        entries[index]["enabled"] = enabled
-      } else {
+        entries[index]["enabled"] = usesDefault ? nil : enabled
+        if entries[index].count == 1 { entries.remove(at: index) }
+      } else if !usesDefault {
         entries.append(["id": id, "enabled": enabled])
+      } else {
+        return
       }
+      object["providers"] = entries.isEmpty ? nil : entries
     }
   }
 }
