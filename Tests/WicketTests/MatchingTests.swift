@@ -121,3 +121,9 @@ func topResult(query: String, expected: String) {
   try Data("broken".utf8).write(to: url)
   #expect(UsageStore.load(from: url).entries.isEmpty)
 }
+
+@Test func theItemLimitKeepsAStrongerTierOverManyReorderedMatches() {
+  let rows = (1...20).map { row("Form Tax \($0)") } + [row("Archived Tax Form 2026")]
+  let best = SearchIndex(rows).best(SearchQuery("tax form"), limit: 20)
+  #expect(best.count == 20 && best.first?.row.title == "Archived Tax Form 2026")
+}

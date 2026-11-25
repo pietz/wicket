@@ -63,12 +63,13 @@ struct SearchIndex: Sendable {
         scored.append((entry.row, quality))
       }
     }
-    // A stable sort keeps the manifest's order among equal scores.
+    // Tier first, as the root ranks, so reordered-word matches never crowd out a stronger one; the
+    // manifest's order breaks ties.
     return exactRows
       + scored.enumerated().sorted { a, b in
-        let aScore = a.element.quality.score
-        let bScore = b.element.quality.score
-        return aScore == bScore ? a.offset < b.offset : aScore > bScore
+        let (aq, bq) = (a.element.quality, b.element.quality)
+        if aq.tier != bq.tier { return aq.tier > bq.tier }
+        return aq.score == bq.score ? a.offset < b.offset : aq.score > bq.score
       }.prefix(limit).map { Match(row: $0.element.row, quality: $0.element.quality) }
   }
 }

@@ -192,6 +192,17 @@ import Testing
   live[two]?()
   #expect(pressed == [left.description, "launcher"])
 
+  // A launcher move to keys another app holds keeps the launcher's keys from the binding that wanted them.
+  let taken = try Shortcut("ctrl+4")
+  live[taken] = {}
+  config.hotkey = taken
+  config.hotkeys = [.init(keys: two, target: left)]
+  #expect(bindings.apply(config, launcher: launcher).launcher != nil)
+  #expect(launcher.inEffect == two && bindings.inEffect(left) == one)
+  live[taken] = nil
+  config.hotkey = two
+  config.hotkeys = [.init(keys: one, target: left)]
+
   // A duplicate keeps its old keys working, also after a recorder pauses and resumes everything.
   config.hotkeys = [.init(keys: one, target: left), .init(keys: three, target: right)]
   #expect(bindings.apply(config, launcher: launcher).bindings == nil)
