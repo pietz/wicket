@@ -45,11 +45,23 @@ struct SettingList: Codable, Sendable, Equatable {
   var itemName: String?
   var entryName: String { itemName ?? "Entry" }
   var editableFields: [Field] { fields.filter { $0.hidden != true } }
-  /// Hidden values only come from a program's `save`, so a required one rules out adding by hand.
-  var addable: Bool { editable != false && !fields.contains { $0.hidden == true && $0.optional != true } }
+  var addable: Bool { editable != false && missingHidden([:]).isEmpty }
+
+  func valuesForNewEntry(_ supplied: [String: String]) -> [String: String] {
+    var values = supplied
+    for field in fields where values[field.name] == nil {
+      values[field.name] = field.default
+      if values[field.name] == nil, field.hidden != true, field.type == .bool, field.optional != true {
+        values[field.name] = "false"
+      }
+    }
+    return values
+  }
+
   /// The required hidden values `values` lacks or gets wrong; Settings can't supply them.
-  func missingHidden(_ values: [String: String]) -> [String] {
-    fields.filter { field in
+  func missingHidden(_ supplied: [String: String]) -> [String] {
+    let values = valuesForNewEntry(supplied)
+    return fields.filter { field in
       guard field.hidden == true, field.optional != true else { return false }
       guard let value = values[field.name], !value.allSatisfy(\.isWhitespace) else { return true }
       return field.canonical(value) == nil
@@ -61,9 +73,7 @@ struct SettingList: Codable, Sendable, Equatable {
     guard !name.allSatisfy(\.isWhitespace), !name.contains("/"), !description.allSatisfy(\.isWhitespace),
       itemName?.allSatisfy(\.isWhitespace) != true, !fields.isEmpty, !names.contains("id"),
       Set(names).count == names.count,
-      fields.allSatisfy({
-        $0.validInManifest && $0.default == nil && ($0.multiline == nil || $0.type == .text)
-      })
+      fields.allSatisfy({ $0.validInManifest && ($0.multiline == nil || $0.type == .text) })
     else { return false }
     let sample = Dictionary(uniqueKeysWithValues: names.map { ($0, "example") } + [("id", "example")])
     return item == nil || makeRow(sample) != nil

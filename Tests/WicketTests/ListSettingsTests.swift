@@ -5,6 +5,34 @@ import Testing
 
 private let linksID = "extension:links-search"
 
+@Test func listFieldDefaultsPrefillOnlyNewEntriesAndYieldToSuppliedValues() throws {
+  let data = Data(
+    #"""
+    {"name":"Example","contract":2,"command":["./main"],"settings":[{"name":"saved","type":"list","description":"Saved","fields":[
+      {"name":"width","type":"number","description":"Width","min":10,"max":100,"default":50},
+      {"name":"enabled","type":"bool","description":"Enabled"},
+      {"name":"kind","type":"choice","description":"Kind","options":["a","b"],"default":"b","optional":true},
+      {"name":"source","type":"text","description":"Source","hidden":true,"default":"settings"}]}]}
+    """#.utf8)
+  let list = try #require(JSONDecoder().decode(ExtensionManifest.self, from: data).settings.first?.list)
+  let add = SettingsEntryDraft(folder: "example", list: list)
+  #expect(add.initialValues == ["width": "50", "enabled": "false", "kind": "b", "source": "settings"])
+  #expect(list.addable && list.missingHidden([:]).isEmpty)
+  #expect(list.missingHidden(["source": ""]) == ["source"])
+  #expect(!list.accepts([:]) && list.accepts(add.initialValues))
+  let capture = SettingsEntryDraft(folder: "example", list: list, values: ["width": "33.33"])
+  #expect(capture.initialValues["width"] == "33.33")
+  #expect(capture.initialValues["kind"] == "b")
+  let existing = ["id": "example", "width": "60", "enabled": "true", "source": "import"]
+  let edit = SettingsEntryDraft(folder: "example", list: list, values: existing, entryID: "example")
+  #expect(edit.initialValues == existing)
+  let invalid = String(decoding: data, as: UTF8.self).replacingOccurrences(
+    of: "\"default\":50", with: "\"default\":5")
+  #expect(throws: (any Error).self) {
+    try JSONDecoder().decode(ExtensionManifest.self, from: Data(invalid.utf8))
+  }
+}
+
 @Test func aListUsesTypedFieldsAndSubstitutesEachStringOnce() throws {
   let data = Data(
     #"""

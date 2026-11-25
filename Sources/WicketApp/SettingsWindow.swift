@@ -829,7 +829,13 @@ private struct SettingControl: View {
           )
           : choice
         Picker(label, selection: selection) {
-          if !filtersApps || defaultOption == nil {
+          if editingEntry {
+            if field.optional == true {
+              Text("Unset").tag(nil as String?)
+            } else if choice.wrappedValue == nil {
+              Text("Choose…").tag(nil as String?)
+            }
+          } else if !filtersApps || defaultOption == nil {
             Text(defaultOption.map { "Default (\($0.label))" } ?? "Unset").tag(nil as String?)
           }
           ForEach(options, id: \.value) { Text($0.label).tag(Optional($0.value)) }
@@ -896,6 +902,8 @@ struct SettingsEntryDraft: Identifiable {
   let list: SettingList
   var values: [String: String] = [:]
   var entryID: String?
+
+  var initialValues: [String: String] { entryID == nil ? list.valuesForNewEntry(values) : values }
 }
 
 struct SettingsEntryEditor: View {
@@ -911,11 +919,20 @@ struct SettingsEntryEditor: View {
     self.draft = draft
     self.store = store
     self.close = close
-    var values = draft.values
-    for field in draft.list.editableFields where field.type == .bool && field.optional != true {
-      if values[field.name] == nil { values[field.name] = "false" }
+    _values = State(initialValue: draft.initialValues)
+  }
+
+  private func numberProblem(_ field: Field) -> String? {
+    guard field.type == .number, let value = values[field.name], field.canonical(value) == nil else {
+      return nil
     }
-    _values = State(initialValue: values)
+    guard let number = Field.number(value) else { return "Enter a number using a decimal point." }
+    if let min = field.min, let max = field.max, !(min...max).contains(number) {
+      return "Enter a number from \(Field.wire(min)) to \(Field.wire(max))."
+    }
+    if let min = field.min, number < min { return "Enter at least \(Field.wire(min))." }
+    if let max = field.max, number > max { return "Enter at most \(Field.wire(max))." }
+    return "Enter a number that matches the allowed step."
   }
 
   var body: some View {
@@ -932,6 +949,9 @@ struct SettingsEntryEditor: View {
               ), editingEntry: true)
             if let description = field.description, description != field.title {
               Text(description).font(.callout).foregroundStyle(.secondary)
+            }
+            if let problem = numberProblem(field) {
+              Text(problem).font(.callout).foregroundStyle(.red)
             }
           }
         }
