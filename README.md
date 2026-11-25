@@ -66,7 +66,9 @@ Runs your local `claude` or `codex` CLI with your config and MCP servers—Wicke
 
 Replies render as keyboard-driven pages (rows, tiles, cards, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.
 
-If an answer finishes or requests permission while Wicket is hidden, the menu bar icon shows a dot until reopened (no system notification). Conversations stay open for 20 minutes after hiding or finishing, whichever is later. **Agent History** (`history`) keeps the last 100 runs for 30 days outside the working folder. Reopening a run resumes its CLI session when available (or starts fresh with a notice); runs from the non-active agent resume read-only (Claude `plan`, Codex `read-only`) with that agent's default model. The wire log at `~/Library/Logs/Wicket/agent.log` can include prompts, replies, and tool traffic.
+Wicket reopens at search after the launcher has been hidden for more than a minute. A running turn, a pending permission, or an unseen answer brings you back to the conversation even after a minute. The menu bar icon shows a dot for a pending permission or unseen answer while the launcher is hidden. Once you've seen the answer, the next hide starts a fresh minute.
+
+**Agent History** (`history`) keeps the last 100 runs for 30 days outside the working folder. Reopening a run resumes its CLI session when available (or starts fresh with a notice); runs from the non-active agent resume read-only (Claude `plan`, Codex `read-only`) with that agent's default model. The wire log at `~/Library/Logs/Wicket/agent.log` can include prompts, replies, and tool traffic.
 
 Customize standing instructions in `instructions.md` and page styles in `theme.css` inside `~/.config/wicket/`.
 

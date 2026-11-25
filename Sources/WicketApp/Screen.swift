@@ -136,7 +136,7 @@ struct AgentScreen {
 }
 
 /// The agent's screen as the panel draws it and routes keys by (`Navigator.agentScreen`): the session's
-/// turn and its first permission, which the session keeps alive and expires, with this visit's own state.
+/// turn and its first permission, with this visit's own state.
 struct AgentPresentation: Equatable {
   let question: String
   /// The command the question was asked from, whose context went with it.

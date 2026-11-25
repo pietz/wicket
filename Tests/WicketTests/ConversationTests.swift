@@ -64,9 +64,9 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
   #expect(await eventually { !model.agent.busy })
   model.navigator.editInput("Draft follow-up")
   #expect(model.agent.answer == "First answer")
-  let hidden = Date()
   model.navigator.dismiss()
-  model.reopen(now: hidden.addingTimeInterval(1199))
+  model.reopen()
+  model.agent.seen()
   #expect(model.navigator.input == "Draft follow-up" && model.agent.continuing)
   model.navigator.send()
   #expect(!model.agent.continuing)
@@ -79,6 +79,7 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
   fake.ask()
   model.navigator.dismiss()
   model.reopen()
+  model.agent.seen()
   #expect(model.agent.permissions.count == 1 && model.navigator.input == "Editable while running")
   for code: UInt16 in [36, 76] {
     #expect(controller.panel.route(voiceKey(code, "\r", .command, repeatKey: true)))
@@ -98,32 +99,33 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
   await model.finish()
 }
 
-@MainActor @Test func hideAndCompletionEachExtendConversationRetention() async throws {
+@MainActor @Test(arguments: [59.0, 60.0, 61.0])
+func anIdleConversationReopensForOneMinuteAfterHiding(_ secondsHidden: TimeInterval) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let session = AgentSession(folder: root)
-  try await finishTurn(session, "Q", "A")
-  let later = Date().addingTimeInterval(600)
-  session.hidden(now: later)
-  session.reopen(now: later.addingTimeInterval(1199))
-  #expect(session.active)
-  session.reopen(now: later.addingTimeInterval(1201))
-  #expect(!session.active)
-  let fake = FakeAgent()
-  session.connect = { _, _, _ in fake }
-  session.retention = 5
-  session.ask("Long running", settings: .init())
-  #expect(await eventually { fake.running })
-  session.hidden(now: .distantPast)
-  session.reopen(now: .distantFuture)
-  #expect(session.busy)
-  fake.end()
-  #expect(await eventually { !session.busy })
-  session.reopen()
-  #expect(session.active)
-  session.reopen(now: Date().addingTimeInterval(10))
-  #expect(!session.active)
-  await session.shutdown()
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.update { $0.resultsOnlyWhenTyping = true }
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  try await finishTurn(model, "Question", "Answer")
+  navigator.editInput("Draft follow-up")
+  let hidden = Date()
+  navigator.dismiss(now: hidden)
+  model.reopen(now: hidden.addingTimeInterval(secondsHidden))
+  model.agent.seen()
+  navigator.refresh()
+  await navigator.settled()
+
+  if secondsHidden <= 60 {
+    #expect(surface.presentation.agent?.question == "Question")
+    #expect(surface.presentation.page?.source == "Answer" && surface.presentation.showsCard)
+    #expect(navigator.input == "Draft follow-up")
+  } else {
+    #expect(surface.presentation.agent == nil && surface.presentation.page == nil)
+    #expect(!surface.presentation.showsCard && navigator.input.isEmpty)
+  }
+  await model.finish()
 }
 
 @Test func confirmationUsesAgentStatedActionAndFullDetails() throws {
@@ -169,7 +171,7 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
   #expect(PaletteLayout.search == 56)
 }
 
-@MainActor @Test func liveTextSizeReachesTheExistingCanvasAndExpiredDraftReturnsToSearch() async throws {
+@MainActor @Test func liveTextSizeReachesTheExistingCanvas() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root)
@@ -183,80 +185,73 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
   #expect(controller.panel.frame.maxY == frame.maxY)
   model.store.update { $0.textSize = .larger }
   #expect(controller.renderer.textSize == .larger)
-  model.navigator.input = "Keep temporarily"
-  model.navigator.dismiss()
-  model.reopen(now: Date().addingTimeInterval(1201))
-  #expect(!model.agent.active && model.navigator.input.isEmpty && model.navigator.command == nil)
   await model.finish()
 }
 
-/// The turn's own limit stops while a permission waits, so one that first arrives while the panel is
-/// hidden must still be declined when the conversation's time is up, and showing again calls that off.
-@MainActor @Test func aPermissionFirstReceivedWhileHiddenExpiresAtTheHideDeadline() async throws {
+@MainActor @Test(arguments: [false, true])
+func aRunningTurnReopensAfterAMinuteEvenWithAPendingPermission(_ pendingPermission: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let session = AgentSession(folder: root)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
   let fake = FakeAgent()
-  session.connect = { _, _, _ in fake }
-  session.retention = 0.05
-  session.ask("Permission", settings: .init())
+  model.agent.connect = { _, _, _ in fake }
+  navigator.send("Question")
   #expect(await eventually { fake.running })
-  session.hidden()
-  fake.ask()
-  #expect(session.permissions.count == 1)
-  #expect(await eventually { session.permissions.isEmpty })
-  #expect(fake.decisions.map(\.allow) == [false] && session.busy)
-  // Shown again, a permission is the user's to answer: no deadline runs.
-  session.reopen(now: .distantPast)
-  fake.ask()
-  try await Task.sleep(for: .milliseconds(100))
-  #expect(session.permissions.count == 1 && fake.decisions.count == 1)
-  session.decide(false)
-  fake.end()
-  await session.shutdown()
+  let hidden = Date().addingTimeInterval(-61)
+  navigator.dismiss(now: hidden)
+  if pendingPermission { fake.ask() }
+  model.reopen(now: hidden.addingTimeInterval(61))
+  model.agent.seen()
+
+  #expect(surface.presentation.agent?.question == "Question" && surface.presentation.agent?.busy == true)
+  #expect(!model.agent.takesSpeech)
+  #expect(surface.presentation.permissionPending == pendingPermission && fake.decisions.isEmpty)
+  if pendingPermission {
+    navigator.decide(true)
+    #expect(fake.decisions.map(\.allow) == [true])
+  }
+  await model.finish()
 }
 
-@MainActor @Test func hiddenPermissionsExpireWithoutReopeningAndReopenCancelsTheDeadline() async throws {
+@MainActor @Test func anUnseenAnswerKeepsTheConversationUntilItsNextHide() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
-  let session = AgentSession(folder: root)
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
   let fake = FakeAgent()
-  session.connect = { _, _, _ in fake }
-  session.retention = 0.05
-  session.ask("Permission", settings: .init())
+  model.agent.connect = { _, _, _ in fake }
+  navigator.send("Question")
   #expect(await eventually { fake.running })
-  fake.ask()
-  fake.ask()
-  session.hidden()
-  #expect(session.busy && session.permissions.count == 2)
-  #expect(await eventually { session.permissions.isEmpty })
-  #expect(fake.decisions.count == 2 && fake.decisions.allSatisfy { !$0.allow })
-  fake.ask()
-  session.hidden()
-  session.reopen()
-  try await Task.sleep(for: .milliseconds(100))
-  #expect(session.permissions.count == 1 && fake.decisions.count == 2)
-  session.hidden()
-  session.reopen(now: Date().addingTimeInterval(1))
-  #expect(session.permissions.isEmpty && fake.decisions.count == 3)
-  fake.ask()
-  session.hidden()
-  session.decide(false)
+  let hidden = Date()
+  navigator.dismiss(now: hidden)
+  fake.text("Answer")
   fake.end()
-  #expect(await eventually { !session.busy })
-  // A later turn must show its actual completion or error after a hidden conversation.
-  session.reopen()
-  session.ask("Next", settings: .init())
-  #expect(!session.continuing)
-  #expect(await eventually { fake.running })
-  fake.ask()
-  try await Task.sleep(for: .milliseconds(100))
-  #expect(session.permissions.count == 1 && fake.decisions.count == 4)
-  session.decide(false)
-  fake.end(cancelled: true)
-  #expect(await eventually { !session.busy })
-  #expect(session.status == "Cancelled" && !session.continuing)
-  await session.shutdown()
+  #expect(await eventually { fake.stopped })
+  #expect(model.agent.waiting)
+
+  let viewed = hidden.addingTimeInterval(1800)
+  model.reopen(now: viewed)
+  #expect(model.agent.waiting && surface.presentation.page?.source == "Answer")
+  model.agent.seen()
+  #expect(!model.agent.waiting)
+
+  let hiddenAgain = viewed.addingTimeInterval(120)
+  navigator.dismiss(now: hiddenAgain)
+  model.reopen(now: hiddenAgain.addingTimeInterval(59))
+  #expect(surface.presentation.page?.source == "Answer")
+  model.agent.seen()
+  navigator.dismiss(now: hiddenAgain.addingTimeInterval(59))
+  model.reopen(now: hiddenAgain.addingTimeInterval(120))
+  model.agent.seen()
+  navigator.refresh()
+  await navigator.settled()
+  #expect(surface.presentation.agent == nil && !model.agent.waiting)
+  await model.finish()
 }
 
 @MainActor @Test func previousAnswersKeepOnlyTenTurns() async throws {

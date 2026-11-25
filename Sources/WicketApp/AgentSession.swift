@@ -64,24 +64,19 @@ final class AgentSession {
   private var cancelling = false
   private var generation = 0
   private var task: Task<Void, Never>?
-  private var permissionExpiry: Task<Void, Never>?
   private var cancelDeadline: Task<Void, Never>?
   private var deadline: Task<Void, Never>?
   /// Every connection that was let go and is still stopping, so `shutdown` can wait for it.
   private var teardown: Task<Void, Never>?
-  /// The last hide or turn completion. Nil until the first one.
-  private var lastActivity: Date?
+  /// When the panel last went off screen. Nil while it is visible.
+  private var hiddenAt: Date?
   var cancelGrace: Duration = .seconds(3)
-  var retention: TimeInterval = 1200
+  var retention: TimeInterval = 60
   /// Nothing at all from a CLI that started, then nothing for this long during the turn: a working
   /// agent, even one whose command prints for an hour, is never cut off, a hung one is. While a
   /// permission waits for the user, no limit runs.
   var startupLimit: Duration = .seconds(30)
   var turnLimit: Duration = .seconds(600)
-  /// Everything stays for `retention` after the last hide or completion, whichever is later. Keeping a CLI
-  /// warm between questions keeps its full process tree resident at idle. Resume on demand to retain the
-  /// conversation without that cost.
-  private var retainedUntil: Date? { lastActivity?.addingTimeInterval(retention) }
   /// Starts the CLI for one question with these settings in the folder, resuming the session ID if there is one.
   var connect: (AgentConfiguration, URL, String?) async throws -> any AgentConnection
 
@@ -89,44 +84,30 @@ final class AgentSession {
     self.folder = folder
     connect = { try AgentCLI.connect($0, folder: $1, resume: $2, log: log) }
   }
-  /// After the retention window, pending permissions are declined, even while busy. Unless a turn
-  /// is still running, the conversation ends too. Returns true then: the caller drops its draft.
+  /// A running turn (including a permission prompt) or an unseen result always reopens. After it has
+  /// been shown, the next hide starts a fresh retention window. Only an idle conversation expires,
+  /// and only on reopen. The CLI ends with each turn, and finished turns stay in Agent History.
   @discardableResult func reopen(now: Date = Date()) -> Bool {
-    shown = true
-    permissionExpiry?.cancel()
-    guard let retainedUntil, now > retainedUntil else { return false }
-    declineAll()
-    guard !busy else { return false }
-    if active { reset() }
-    lastActivity = nil
+    guard active, !busy, !waiting, let hiddenAt, now.timeIntervalSince(hiddenAt) > retention else {
+      return false
+    }
+    reset()
     return true
   }
   func hidden(now: Date = Date()) {
-    shown = false
-    lastActivity = max(lastActivity ?? now, now)
+    hiddenAt = hiddenAt ?? now
     if active { continuing = true }
     if !permissions.isEmpty { waiting = true }
-    expirePermissions(now: now)
   }
-  /// The panel is on screen, so what waited has been seen. Not part of `reopen`: the Settings hotkey
-  /// reopens and leaves for the Settings window without the panel ever showing.
-  func seen() { waiting = false }
-  /// Whether the panel shows: between `reopen` and `hidden`.
-  private var shown = true
+  /// Only a visible panel clears the dot and starts a new visit. The Settings hotkey goes through
+  /// `reopen` on its way to Settings, leaving the panel hidden.
+  func seen() {
+    hiddenAt = nil
+    waiting = false
+  }
   /// Something waits for the user while the panel is hidden, a permission or an ended turn; the menu bar
   /// icon shows a dot until the panel shows again.
   private(set) var waiting = false
-  /// While the panel is hidden, pending permissions are declined at the end of the retention window,
-  /// including one that first arrives while hidden: the turn's own limit no longer runs then.
-  private func expirePermissions(now: Date = Date()) {
-    permissionExpiry?.cancel()
-    guard !shown, !permissions.isEmpty, let retainedUntil else { return }
-    let delay = max(0, retainedUntil.timeIntervalSince(now))
-    permissionExpiry = Task { [weak self] in
-      do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-      self?.declineAll()
-    }
-  }
   /// An empty conversation with these settings, waiting for its first question. No process starts.
   func open(settings: AgentConfiguration) {
     if active { reset() }
@@ -145,7 +126,6 @@ final class AgentSession {
       previous = Array(previous.suffix(10))
     }
     continuing = false
-    permissionExpiry?.cancel()
     cancelDeadline?.cancel()
     turnID = UUID().uuidString
     problem = nil
@@ -165,7 +145,6 @@ final class AgentSession {
     messageID = nil
     status = "Connecting to \(settings.agent.title)…"
     permissions = []
-    lastActivity = Date()
     launch()
     onChange?()
   }
@@ -280,10 +259,9 @@ final class AgentSession {
         return
       }
       permissions.append(permission)
-      if !shown { waiting = true }
-      // The CLI is silent until the user answers, which may take until `retention`.
+      if hiddenAt != nil { waiting = true }
+      // The CLI is silent while it waits for the user's decision.
       deadline?.cancel()
-      expirePermissions()
     case .finished(let cancelled):
       guard busy else { return }
       finishTurn(status: cancelled ? "Cancelled" : "Ready for a follow-up")
@@ -346,12 +324,11 @@ final class AgentSession {
   private func finishTurn(_ outcome: String = "turn ended", status: String? = nil) {
     if let status { self.status = status }
     // A turn the user cancelled has nothing to come back for; one cut off at the size limit does.
-    if !shown, !cancelling || problem != nil { waiting = true }
+    waiting = hiddenAt != nil && (!cancelling || problem != nil)
     saveTurn()
     declineAll()
     busy = false
     cancelling = false
-    lastActivity = Date()
     cancelDeadline?.cancel()
     deadline?.cancel()
     release(outcome)
@@ -400,7 +377,6 @@ final class AgentSession {
     generation += 1
     task?.cancel()
     cancelDeadline?.cancel()
-    permissionExpiry?.cancel()
     declineAll()
     deadline?.cancel()
     release("conversation reset or app quit")
@@ -408,6 +384,7 @@ final class AgentSession {
     previous = []
     continuing = false
     busy = false
+    waiting = false
     sessionID = nil
     runID = UUID().uuidString
     runSource = nil
@@ -443,7 +420,6 @@ final class AgentSession {
     status = "Ready for a follow-up"
     active = true
     continuing = true
-    lastActivity = Date()
     onChange?()
   }
   /// Returns once every process this session started has stopped, even one that was still starting.

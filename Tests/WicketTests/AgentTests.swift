@@ -903,9 +903,7 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(await eventually { fourth.running })
   #expect(starts.count == 4 && starts[3].1 == "recorded-session")
   fourth.end()
-  #expect(await eventually { !session.busy })
-  session.reopen(now: Date().addingTimeInterval(1201))
-  #expect(!session.active && session.sessionID == nil)
+  #expect(await eventually { !session.busy && fourth.stopped })
   await session.shutdown()
 }
 

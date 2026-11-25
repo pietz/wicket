@@ -1171,7 +1171,7 @@ final class Navigator {
   /// Hides the panel's screens: what was over them, a switch and the work of the screen shown end. A
   /// conversation stays with its follow-up for when the panel shows again; anything else leaves the root
   /// with an empty input.
-  func dismiss() {
+  func dismiss(now: Date = Date()) {
     overlay = nil
     revealedRootList = false
     screen.startSelectionOver()
@@ -1180,7 +1180,7 @@ final class Navigator {
     // question's expiry (`reopen`).
     if !returnsOnEscape { base.fill([:]) }
     focusTarget = nil
-    agent.hidden()
+    agent.hidden(now: now)
     stopArriving()
     // Hiding stops a running command, also under a conversation.
     cancelWork()
@@ -1461,7 +1461,6 @@ final class Navigator {
       if let surface, !surface.isShown { surface.show(arriving: present) } else { present() }
       return
     }
-    // Only an open panel hides: hiding again would count as the user leaving a kept conversation now.
     if surface?.isShown == true { surface?.perform(.hide) }
     let run = UUID()
     hiddenRuns[run] = Task { [weak self, extensions] in
