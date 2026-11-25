@@ -79,32 +79,34 @@ enum AgentCLI {
   @MainActor
   static func connect(
     _ settings: AgentConfiguration, folder: URL, resume: String?, log: AgentLog,
-    environment: [String: String] = Launch.environment(), instructionTemplate: String? = nil
+    environment: [String: String] = ProcessInfo.processInfo.environment, instructionTemplate: String? = nil
   ) throws -> any AgentConnection {
+    let environment = Launch.environment(environment)
     let agent = settings.agent
     let cli = try executable(agent, in: environment)
     let instructions = instructions(
-      in: folder, textSize: settings.textSize, instructionTemplate: instructionTemplate)
+      in: folder, textSize: settings.textSize, environment: environment,
+      instructionTemplate: instructionTemplate)
     switch agent {
     case .claude:
-      return try link(ClaudeTranslator(), cli, settings, folder, resume, instructions, log)
+      return try link(ClaudeTranslator(), cli, settings, folder, resume, instructions, environment, log)
     case .codex:
       return try link(
         CodexTranslator(folder: folder, resume: resume, settings: settings, instructions: instructions), cli,
-        settings, folder, resume, instructions, log)
+        settings, folder, resume, instructions, environment, log)
     }
   }
   @MainActor
   private static func link<T: Translator>(
     _ translator: T, _ cli: URL, _ settings: AgentConfiguration, _ folder: URL, _ resume: String?,
-    _ instructions: String, _ log: AgentLog
+    _ instructions: String, _ environment: [String: String], _ log: AgentLog
   ) throws -> AgentLink<T> {
     let command = [cli.path] + T.arguments(for: settings, resume: resume, instructions: instructions)
     let run = log.begin(settings, command: command, folder: folder)
     do {
       return AgentLink(
         translator,
-        lines: try JSONLines(command: command, folder: folder, environment: Launch.environment(), log: run),
+        lines: try JSONLines(command: command, folder: folder, environment: environment, log: run),
         log: run)
     } catch {
       run.note("END", "failed to start: \(error.localizedDescription)")

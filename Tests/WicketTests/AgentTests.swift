@@ -714,6 +714,7 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   try Data(
     """
     #!/bin/sh
+    [ "$WICKET_EXECUTABLE" = /test/Wicket ] || exit 42
     for a in "$@"; do printf '%s\\037' "$a"; done >> '\(calls.path)'; printf '\\036' >> '\(calls.path)'
     tee -a '\(input.path)' | /usr/bin/python3 '\(fixtureURL("cli-peer.py").path)' \
       '\(fixtureURL("claude-logout.jsonl").path)'
@@ -721,24 +722,26 @@ func codexConversationRunsThroughARealProcessAndAnswersTheCard(_ allow: Bool) as
   ).write(to: cli)
   try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
   let folder = root.appending(path: "work")
-  let session = AgentSession(folder: folder)
+  let model = LauncherModel.testing(in: folder, bundled: nil)
   let log = AgentLog(folder: root.appending(path: "logs"))
-  session.connect = {
-    try AgentCLI.connect($0, folder: $1, resume: $2, log: log, environment: ["PATH": bin.path])
+  let environment = ["PATH": bin.path, "WICKET_EXECUTABLE": "/test/Wicket"]
+  model.agent.connect = {
+    try AgentCLI.connect($0, folder: $1, resume: $2, log: log, environment: environment)
   }
   for question in ["hello", "and again"] {
-    session.ask(question, settings: .init())
-    #expect(await eventually { !session.busy })
+    model.navigator.send(question)
+    #expect(await eventually { model.navigator.agentScreen?.busy == false })
     // A signed-out CLI says so in the turn, without a separate login check.
-    #expect(session.problem == "Sign in first: claude auth login")
+    #expect(model.navigator.agentScreen?.problem == "Sign in first: claude auth login")
   }
-  await session.shutdown()
+  await model.finish()
   let runs = try String(contentsOf: calls, encoding: .utf8).split(separator: "\u{1e}").map {
     $0.split(separator: "\u{1f}").map(String.init)
   }
   #expect(runs.count == 2 && runs.allSatisfy { $0.first == "-p" && !$0.contains("auth") })
   let instructions = try #require(runs[0].firstIndex(of: "--append-system-prompt").map { runs[0][$0 + 1] })
-  #expect(instructions == AgentCLI.instructions(in: folder))
+  #expect(instructions == AgentCLI.instructions(in: folder, environment: environment))
+  #expect(instructions.contains("/test/Wicket"))
   #expect(
     runs[1].contains("--append-system-prompt")
       && runs[1].suffix(2) == ["--resume", "403c1692-f394-4fee-8a3e-d9ba0e982dfb"])
