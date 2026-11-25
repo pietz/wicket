@@ -198,7 +198,7 @@ enum Ranking {
   /// 1. Exact keywords with text for an editable field, longest keyword first, then the name matches' tie-breaks.
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
   /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
-  ///    History, and Clipboard History when it is on: `hosts`) and files, by tier, then usage for this exact input, then
+  ///    History, and Clipboard when it is on: `hosts`) and files, by tier, then usage for this exact input, then
   ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
   ///    never crosses a tier.
   /// 4. Ask agent, on top when nothing is strong and below the results for a keyword with text.

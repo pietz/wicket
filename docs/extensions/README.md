@@ -10,11 +10,11 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 | Convert | [convert.md](convert.md) | Phase 1 shipped | Units offline and currency via Frankfurter. Typed arithmetic with units next. |
 | Weather | [weather.md](weather.md) | Bundled | Current conditions and a five-day forecast by city. |
 | Quicklinks | [quicklinks.md](quicklinks.md) | Shipped | Personal bookmarks and site searches with optional keywords and hotkeys. |
-| Window Manager | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in Settings; multi-window layouts next. |
+| Windows | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in Settings; multi-window layouts next. |
 | Calendar | [calendar.md](calendar.md) | Waiting on permission checks | Read-only 7-day EventKit agenda with Join and headless read. |
 
 **Parked:** System ([system.md](system.md))—waiting on Automation and per-action permission design.
-**Tier 2 (not yet specified):** Snippets, Capture, Processes & Ports, Monitor. Clipboard History stays in core because it polls the pasteboard continuously.
+**Tier 2 (not yet specified):** Snippets, Capture, Processes & Ports, Monitor. Clipboard stays in core because it polls the pasteboard continuously.
 
 ## Decisions every spec follows
 

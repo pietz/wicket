@@ -61,11 +61,11 @@ private func expectedText(_ name: String) -> [String] {
   if name == "weather-page" { return ["Overcast", "Berlin, Germany", "Next hours", "Next days", "Wind"] }
   if name.contains("settings-general") { return ["Text size", "Medium", "Open Wicket", "Launch at login"] }
   if name.contains("settings-extensions") {
-    return ["Built in", "Clipboard History", "Weather", "Window Manager"]
+    return ["Built in", "Clipboard", "Weather", "Windows"]
   }
   if name == "settings-window" {
     return [
-      "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Window Manager",
+      "Moves the frontmost window", "Make It Mine", "Gap", "Almost Maximize", "Hotkeys", "Windows",
     ]
   }
   if name == "settings-quicklinks" {
@@ -87,10 +87,10 @@ private func expectedText(_ name: String) -> [String] {
   if name == "extension-quicklinks-empty" { return ["Quicklinks", "Add a Quicklink"] }
   if name.contains("clipboard-image") {
     // Text recognition reads × as x, now and then.
-    return ["Clipboard History", "Image 1200", "Dimensions", "File size", "Copied", "50m ago"]
+    return ["Clipboard", "Image 1200", "Dimensions", "File size", "Copied", "50m ago"]
   }
   if name.contains("clipboard") {
-    return ["Clipboard History", "func greet", "Hello", "Copied", "Lines", "Characters", "Paste"]
+    return ["Clipboard", "func greet", "Hello", "Copied", "Lines", "Characters", "Paste"]
   }
   if name.contains("permission-high") {
     return ["Allow Claude to delete files", "Deletes", "Show details", "Allow deletion"]

@@ -67,7 +67,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 }
 
 struct SettingsPane: View {
-  static let size = CGSize(width: 680, height: 480)
+  static let size = CGSize(width: 660, height: 480)
   let section: Int
   let store: ConfigurationStore
   let extensions: ExtensionHost
@@ -436,7 +436,7 @@ struct SettingsPane: View {
     .safeAreaInset(edge: .bottom) {
       Button("Extensions Folder") { reveal(extensions.folder.appending(path: "extensions")) }.padding(10)
     }
-    .frame(width: 220)
+    .frame(width: 200)
   }
   private func extensionSources(_ sources: [Configuration.ProviderEntry]) -> [Configuration.ProviderEntry] {
     sources.filter { Self.builtins[$0.id] == nil }.sorted { title($0.id) < title($1.id) }

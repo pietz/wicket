@@ -361,7 +361,7 @@ func perform<AX: WindowAccessibility>(
   // Overlapping hotkeys could re-enable Enhanced User Interface during another frame write.
   let lock = open(
     recordsFile.appendingPathExtension("lock").path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
-  guard lock >= 0 else { return problem("Window Manager can't open its move history") }
+  guard lock >= 0 else { return problem("\(commandName) can't open its move history") }
   defer { close(lock) }
   guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { return problem("Another window move is in progress") }
   // A fork can briefly inherit the descriptor even with O_CLOEXEC.
@@ -470,7 +470,7 @@ func answer(problem: String?, commands: String) -> String { #"{"items":["# + (pr
   var position = 0
   let manifest = JSON.read(manifestBytes, &position)
   if case .bool(true)? = request?["submitted"], let action = request?["action"]?.string {
-    let commandName = manifest?["name"]?.string ?? "Window Manager"
+    let commandName = manifest?["name"]?.string ?? "Windows"
     let settings = request?["settings"]
     let layout = Layout(gap: settings?["gap"]?.string, almostMaximize: settings?["almostMaximize"]?.string)
     if action == "capture" || action == "save-current" {

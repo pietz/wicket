@@ -312,7 +312,7 @@ func openingAnItemsDetailTreatsItsTitleAsText(jsonItem: Bool) async throws {
   await model.navigator.settled()
   #expect(
     model.navigator.results.map(\.row.title)
-      == ["Calculator", "Convert", "Quicklinks", "Shell", "Weather", "Window Manager"])
+      == ["Calculator", "Convert", "Quicklinks", "Shell", "Weather", "Windows"])
 }
 
 @Test func commandReturnAsksAndIMEKeepsOwnership() {

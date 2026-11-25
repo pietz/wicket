@@ -219,7 +219,7 @@ func hotkeyToVisibleWithBindings() async throws {
       none, hidden, shown))
 }
 
-/// Opt-in like `queryLatency`: an arrow key in Clipboard History to the selected clip's detail rendered and
+/// Opt-in like `queryLatency`: an arrow key in Clipboard to the selected clip's detail rendered and
 /// laid out in the canvas (the bridge's acknowledgement), offscreen. 40 text clips of about 1 KB and 10
 /// screenshot-sized images (3024×1964), each image the first time it is shown and again.
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["WICKET_MEASURE"] != nil))

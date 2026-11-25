@@ -2,7 +2,7 @@
 
 **Your own agent, one keystroke away, answering in UI instead of text.**
 
-Press ⌥Space for apps, files, Calculator, Convert, Window Manager, Quicklinks, Shell, Clipboard History, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
+Press ⌥Space for apps, files, Calculator, Convert, Windows, Quicklinks, Shell, Clipboard, and on-device voice input. Ask your installed coding agent (Claude Code or Codex) anything and get a page built for the launcher. Ask it to keep an answer as a command and it writes an extension that answers without the model.
 
 > **Alpha.** Wicket is at 0.x: expect rough edges and settings that change between versions. Bug reports are welcome as GitHub issues.
 
@@ -32,7 +32,7 @@ Upgrading from 0.0.x: old settings and extensions do not carry over; Wicket neve
 
 Exact keyword + space + text matches come first (longest keyword wins), then pattern results (Calculator, Convert), then name matches. Name matches rank in three tiers, from exact matches to prefixes to looser matches. File and folder names that start with the query share the prefix tier, including exact names. Within each tier, usage for the same query breaks ties, and files and folders come last when usage is equal. When nothing matches strongly, **Ask agent** leads so Return sends your question.
 
-Click selects; double-click runs. Type `<keyword> <text>` at the root to fill a command or item's first text field (e.g. `pasteboard invoice` filters Clipboard History when enabled), then press Return, Tab for more fields, or ⌘Return to ask the agent. You can also select a command or item and press Tab to fill its fields. Inside a command whose bar says “Ask about …”, Return with nothing selected asks the agent about that view.
+Click selects; double-click runs. Type `<keyword> <text>` at the root to fill a command or item's first text field (e.g. `pasteboard invoice` filters Clipboard when enabled), then press Return, Tab for more fields, or ⌘Return to ask the agent. You can also select a command or item and press Tab to fill its fields. Inside a command whose bar says “Ask about …”, Return with nothing selected asks the agent about that view.
 
 Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnlyWhenTyping": true` in `config.json`) to start with just the search field. Typing, pasting, dictating text or pressing ↓ reveals the results card. Clearing the field folds it again. An available update has its own row in the empty launcher. Press ↓ to show the full list. While folded, listening and problems are shown in the search pill. Return still runs the selected result, and a kept conversation reopens with its own card.
 
@@ -44,15 +44,15 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
 
-**Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys. **Window Manager** can capture the focused window as a reusable move with **Save Current Window…**.
+**Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys. **Windows** can capture the focused window as a reusable move with **Save Current Window…**.
 
-**Window Manager** moves the focused window: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display, and Restore. Type a move name (`left`, `max`, `next display`) or `window`. Wicket closes for the move and reports failures or partial moves (which Restore can undo). If Accessibility is missing, choose **Allow Accessibility for Wicket**. Configure gap and Almost Maximize size in Settings ▸ Extensions ▸ Window Manager.
+**Windows** moves the focused window: Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, Center, Next Display, and Restore. Type a move name (`left`, `max`, `next display`) or `window`. Wicket closes for the move and reports failures or partial moves (which Restore can undo). If Accessibility is missing, choose **Allow Accessibility for Wicket**. Configure gap and Almost Maximize size in Settings ▸ Extensions ▸ Windows.
 
 **Shell:** Press Return on `> git status` to run it in your home folder. Choose **System default** or an installed Terminal, iTerm2, or Ghostty in Settings ▸ Extensions ▸ Shell. System default uses the macOS handler for `.command` files. Wicket tries that handler if it cannot open the chosen app.
 
-**Clipboard History** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
+**Clipboard** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
 
-**Command hotkeys:** Press ⌘K ▸ **Set Hotkey…** on any command, static item (e.g. Left Half), Settings, Agent History, or Clipboard History. Hidden actions, copy, paste, open, and reveal run without showing Wicket; others open directly on that screen. None are set by default.
+**Command hotkeys:** Press ⌘K ▸ **Set Hotkey…** on any command, static item (e.g. Left Half), Settings, Agent History, or Clipboard. Hidden actions, copy, paste, open, and reveal run without showing Wicket; others open directly on that screen. None are set by default.
 
 ## Voice
 
@@ -76,7 +76,7 @@ Customize standing instructions in `instructions.md` and page styles in `theme.c
 
 An extension is a folder in `~/.config/wicket/extensions/` with `wicket.json` and an optional program (or static items only). Wicket discovers and enables it live with no restart or approval; enabled extensions run with your access. Toggle extensions in Settings ▸ Extensions. Extensions needing Accessibility or Calendar declare them in `permissions`, and Wicket gates access using its own macOS grant. See `extension-contract.md` in the working folder ([source](Sources/WicketApp/Resources/extension-contract.md)).
 
-Built-in extensions (Calculator, Convert, Weather, Quicklinks, Window Manager, Shell) ship inside the app with their source. **Make It Mine** in Settings ▸ Extensions copies one into your folder to customize. A valid local manifest takes precedence. If Wicket cannot load it, the built-in stays active. Personal lists are stored in `config.json`. Optional examples (`agenda`, `canvas-controls`) live in `examples/`; copy one into `extensions/` to enable. Older examples still work. Disable any overlapping entries in Settings ▸ Extensions.
+Built-in extensions (Calculator, Convert, Weather, Quicklinks, Windows, Shell) ship inside the app with their source. **Make It Mine** in Settings ▸ Extensions copies one into your folder to customize. A valid local manifest takes precedence. If Wicket cannot load it, the built-in stays active. Personal lists are stored in `config.json`. Optional examples (`agenda`, `canvas-controls`) live in `examples/`; copy one into `extensions/` to enable. Older examples still work. Disable any overlapping entries in Settings ▸ Extensions.
 
 Deep links open screens from other apps: `wicket://weather?input=berlin`, `wicket://settings`, `wicket://history`, `wicket://clipboard`.
 

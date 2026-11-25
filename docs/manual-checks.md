@@ -59,10 +59,10 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 
 For diagnostics, break a scratch extension's `wicket.json` and ask the agent why it disappeared. Fix the manifest, bind a hotkey to a run that exits nonzero, and press it. Ask again and check that the agent cites the hotkey-triggered entry in `recentFailures`.
 
-1. Settings ▸ Extensions lists Built in and Extensions with switches. Switching Convert off stops `10 km to mi`. Copy `examples/agenda` into `extensions/`: appears enabled within a second. Invalid `wicket.json` shows a warning and reason.
+1. Settings ▸ Extensions lists Clipboard and Windows with switches. Check that labels and switches fit in the sidebar. Switching Convert off stops `10 km to mi`. Copy `examples/agenda` into `extensions/`: appears enabled within a second. Invalid `wicket.json` shows a warning and reason.
 2. Ask the agent for a Caffeinate extension with `hours` and `minutes`: fields follow typed text; Tab/⇧Tab navigate; Return or click runs with values; Japanese IME, paste, and ⌘A work in fields; arrowing off returns keys to input. Check field labels with VoiceOver.
-3. Window Manager settings: Gap 8 and Almost Maximize 80 save on Return and blur; clearing restores defaults. In an extension with a bool and a choice setting, verify that the switch and picker save and reload their string values.
-4. Use **Save Current Window…**, name the move and save. Run it from the root and record its hotkey in Settings. **Make It Mine** copies Window Manager's code into your extensions folder. **Move to Trash** replaces that copy with the bundled version, and the saved move and binding still work.
+3. Windows settings: Gap 8 and Almost Maximize 80 save on Return and blur; clearing restores defaults. In an extension with a bool and a choice setting, verify that the switch and picker save and reload their string values.
+4. Use **Save Current Window…**, name the move and save. Run it from the root and record its hotkey in Settings. **Make It Mine** copies the Windows extension into your extensions folder. **Move to Trash** replaces that copy with the bundled version, and the saved move and binding still work.
 5. `open "wicket-dev://weather?input=berlin"` (closed and open) targets Wicket Dev only, never installed Wicket. `wicket://` links in answers work too.
 6. Calendar (check on first release build too): run `tccutil reset Calendar app.wicket.Wicket.dev`, then ask the agent for a Today EventKit extension declaring `"permissions":["calendar"]` (no helper app). Entering shows "Allow Calendar for Wicket" without running; Return shows macOS's prompt naming Wicket Dev ("Wicket extensions you enable can read your calendar…"); Allow lists events immediately. On denial, the row opens Privacy & Security ▸ Calendars. A manifest with `"contract":3` shows "needs a newer Wicket" (not "needs repair") at root and in Settings.
 7. Symlink an extension from another checkout into `extensions/`: manifest name edits update the root list; retargeting the symlink to another checkout with an identical manifest and editing it updates; moving the checkout away removes the extension and restoring brings it back; retargeting an intermediate symlink (`releases/current`) is picked up.
@@ -78,9 +78,9 @@ For diagnostics, break a scratch extension's `wicket.json` and ask the agent why
 3. Appearance System/Light/Dark updates panel and answers immediately. Transparency (Solid→Clear) and Blur (Sharp→Soft) apply on release over busy wallpaper (light/dark): card blurs at setting, pill (0.56×) matches visually, and blur persists across resize, app switch, and display move. Reduce Transparency renders solid; Increase Contrast renders nearly solid with a border.
 4. Launch at login survives logout/login and starts hidden.
 
-## 9. Window Manager
+## 9. Windows
 
-1. Without Accessibility (and with a stale switch on from an older build): Left Half from the list and its hotkey both show only "Allow Accessibility for Wicket" (hotkey opens panel on it). The subtitle names Window Manager and shows “If on, remove (–) and re-add Wicket” on one line at all four text sizes. Return opens Privacy & Security without a system prompt. Root `left` shows Left Half (no permission row). Type a draft follow-up and press the hotkey over the conversation. Verify that **Allow Accessibility for Wicket** is selected and Escape restores the conversation and draft. Hide Wicket, press the hotkey again, and use Return to open Privacy & Security. Reopen Wicket to verify the same conversation and draft are there. Grant to Wicket only; next press moves the window.
+1. Without Accessibility (and with a stale switch on from an older build): Left Half from the list and its hotkey both show only "Allow Accessibility for Wicket" (hotkey opens panel on it). The subtitle names Windows and shows “If on, remove (–) and re-add Wicket” on one line at all four text sizes. Return opens Privacy & Security without a system prompt. Root `left` shows Left Half (no permission row). Type a draft follow-up and press the hotkey over the conversation. Verify that **Allow Accessibility for Wicket** is selected and Escape restores the conversation and draft. Hide Wicket, press the hotkey again, and use Return to open Privacy & Security. Reopen Wicket to verify the same conversation and draft are there. Grant to Wicket only; next press moves the window.
 2. Over Safari (reopening Wicket for each): Left Half, Right Half, Top Half, Bottom Half, Maximize, Almost Maximize, and Center respect menu bar/Dock, close Wicket immediately, and keep Safari focused.
 3. Restore after Left Half then Maximize steps back one move at a time, then says "Nothing to restore." Manually moved windows report nothing to restore.
 4. Next Display across two differently sized displays preserves relative place and size; single display reports unavailability.
@@ -96,7 +96,7 @@ For diagnostics, break a scratch extension's `wicket.json` and ask the agent why
 4. ⌘K on a file: Open, Reveal in Finder. On Left Half: Run, Set Hotkey…, Remove Hotkey. Escape or ⌘K restores selection; typing closes the menu and searches; IME works in its field.
 5. Open a long extension page with a view action, scroll, deselect, press ⌘K: underlying page is hidden and inert; Escape restores scroll position.
 
-## 11. Clipboard history
+## 11. Clipboard
 
 1. Enable in Settings ▸ Extensions. Copy multi-line text, screenshot (⌃⇧⌘4), and Preview image. `clip` lists newest first with side preview; arrowing feels instant; Return pastes text and images into the prior app.
 2. Passwords from Apple Passwords / 1Password are skipped. If macOS prompts on read, Settings mentions Paste from Other Apps.

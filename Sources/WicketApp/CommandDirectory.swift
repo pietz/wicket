@@ -1,7 +1,7 @@
 import Foundation
 
 /// A command the host answers itself, in process and at once, behind a reserved address: Clipboard
-/// History and Agent History. Answered like an extension's command, except that it has no process.
+/// and Agent History. Answered like an extension's command, except that it has no process.
 @MainActor protocol HostCommand: AnyObject, Sendable {
   var id: String { get }
   nonisolated static var title: String { get }
@@ -76,7 +76,7 @@ extension HostCommand {
   func name(of id: String) -> String? {
     extensions.commands[id]?.manifest.name ?? host(id).map { type(of: $0).title }
   }
-  /// Whether the command may run: an extension or Clipboard History while switched on.
+  /// Whether the command may run: an extension or Clipboard while switched on.
   func isAvailable(_ id: String, in configuration: Configuration) -> Bool {
     if let host = hostType(id) {
       return host.isAvailable(in: configuration, extensions: extensions.ids)

@@ -197,7 +197,7 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
 /// extension's own rows, `{"type":"run","extension":"weather","input":"berlin","fields":{"view":"hourly"}}`,
 /// and a URL for outsiders, `wicket://weather?input=berlin`, which carries no fields. `agent`,
 /// `settings`, `clipboard` and `history` are reserved targets: `agent` fills the input and never sends,
-/// `clipboard` and `history` are the Clipboard History and Agent History commands, and an empty
+/// `clipboard` and `history` are the Clipboard and Agent History commands, and an empty
 /// `extension`, as in a URL without one, is a root query.
 struct Address: Codable, Sendable, Equatable {
   var extensionName: String?

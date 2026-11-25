@@ -1,5 +1,5 @@
 {
-  "name": "Window Manager",
+  "name": "Windows",
   "keyword": "window",
   "description": "Moves the frontmost window: halves, maximize, center, next display, restore.",
   "icon": "macwindow",

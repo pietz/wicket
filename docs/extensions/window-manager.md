@@ -1,4 +1,4 @@
-# Window Manager
+# Windows
 
 ## 1. Summary
 

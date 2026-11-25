@@ -309,7 +309,7 @@ func extensionTextActionsWriteExactTextAndKeepConcealedTextOutOfHistory(type: St
   await model.navigator.settled()
   #expect(
     model.navigator.command?.id == "clipboard" && model.navigator.input == ""
-      && model.navigator.commandName == "Clipboard History")
+      && model.navigator.commandName == "Clipboard")
   #expect(model.navigator.results.map(\.row.title) == ["beta two", "alpha one"])
   #expect(model.navigator.returnAction == .paste("beta two"))
   model.navigator.input = "alp"

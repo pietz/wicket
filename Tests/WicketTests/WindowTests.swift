@@ -178,7 +178,7 @@ private final class FakeWindowAccessibility: WindowAccessibility {
     return sizeError
   }
 
-  func move(_ move: Move, in folder: URL, commandName: String = "Window Manager") throws -> Row? {
+  func move(_ move: Move, in folder: URL, commandName: String = "Windows") throws -> Row? {
     events.removeAll()
     let failure = perform(
       .stock(move), layout: Layout(), pid: 42, name: "Test App", commandName: commandName, displays: [laptop],
@@ -345,7 +345,7 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
 
 @Test func theItemsAreTheMovesAndTheProgramListsThemWithoutMoving() async throws {
   let manifest = try bundled("window").manifest
-  #expect(manifest.name == "Window Manager" && manifest.keyword == "window")
+  #expect(manifest.name == "Windows" && manifest.keyword == "window")
   #expect(!manifest.matches("window"))
   let rows = try #require(manifest.items)
   #expect(rows.map(\.id) == Move.allCases.map(\.rawValue) + ["save-current"])
@@ -384,7 +384,7 @@ private func windowView(_ action: String? = nil, submitted: Bool = false) async 
     window, request: ProviderRequest(input: "", action: "left", submitted: true))
   let row = try #require(view.items.first)
   #expect(view.items.count == 1 && row.title == "Allow Accessibility for Wicket")
-  #expect(row.subtitle == "Window Manager needs it. If on, remove (–) and re-add Wicket.")
+  #expect(row.subtitle == "Windows needs it. If on, remove (–) and re-add Wicket.")
   #expect(row.actions.map(\.kind) == [.open(Permission.accessibility.pane)])
 }
 
@@ -554,7 +554,7 @@ func invalidWindowDefinitionsGiveAClearRowWithoutTouchingWindows(definition: Str
   let ax = FakeWindowAccessibility()
   let failure = try #require(
     perform(
-      .custom(placement), layout: Layout(), pid: 42, name: "Test App", commandName: "Window Manager",
+      .custom(placement), layout: Layout(), pid: 42, name: "Test App", commandName: "Windows",
       displays: [laptop], recordsFile: folder.appending(path: "moves.txt"), ax: ax))
   let row = try JSONDecoder().decode(Row.self, from: Data(failure.utf8))
   #expect(row.title == "Can't apply window move")

@@ -24,7 +24,7 @@ A small, fast, native macOS launcher with your own AI agent built in, and extens
 - The agent is the remote control: everything reachable in Settings (settings, hotkeys, extensions, future catalog installs) works through plain files or headless commands on the same path as the UI.
 - Wicket runs the user's `claude` and `codex` CLIs, one process per question resuming the session; nothing runs between questions, and there is no custom model loop.
 - Keys have one meaning each: Return runs the selection, ⌘Return asks the agent, Tab moves into argument fields, Escape steps back.
-- `config.json` is the only settings store, written through one path preserving unknown fields. Keep Clipboard History and Agent History outside the working folder in `Edition.privateDirectory()`.
+- `config.json` is the only settings store, written through one path preserving unknown fields. Keep Clipboard and Agent History outside the working folder in `Edition.privateDirectory()`.
 - Edition-dependent behavior (folder, hotkey, updates, name) goes through `Edition`; resolve the working folder only via `Edition.configDirectory()`. Never read 0.0.x files as new data and never delete them.
 - Put extension-authoring details in `extension-contract.md`, not `agent-instructions.md`. If authoring needs a long explanation, simplify the design instead of the prompt.
 - Handle realistic failures only; no scaffolding for contrived timing races or failures of error handling itself.

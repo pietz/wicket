@@ -218,7 +218,7 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     #expect(run["items"].array.contains { $0["id"].string == "left" })
   } else {
     #expect(runStatus == 1)
-    #expect(run["error"].string?.contains("Window Manager needs Accessibility") == true)
+    #expect(run["error"].string?.contains("Windows needs Accessibility") == true)
     #expect(run["permissions"].array == [.string("accessibility")])
   }
 }

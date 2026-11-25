@@ -457,7 +457,7 @@ private func link(_ name: String, _ input: String? = nil) -> Address {
   }
   #expect(
     directory.name(of: "history") == "Agent History" && directory.name(of: "extension:weather") == "weather")
-  // Agent History opens whatever is on; Clipboard History and extensions only while on.
+  // Agent History opens whatever is on; Clipboard and extensions only while on.
   var configuration = Configuration()
   #expect(
     directory.isAvailable("history", in: configuration)
