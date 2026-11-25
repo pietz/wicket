@@ -108,14 +108,13 @@ final class LauncherModel {
     }
     let owner = target.target.flatMap { extensions.commands[$0] }
     guard let itemID = target.item else { return navigator.open(target.address, pressed: target) }
-    let item = owner?.item(for: target)
-    if item == nil, target.entryList != nil || target.legacyItem {
+    guard let item = owner?.hotkeyItem(for: target) else {
       let name = owner?.manifest.name ?? target.address.extensionName ?? "this extension"
       return navigator.reportActionProblem("Entry “\(itemID)” is no longer available in \(name).")
     }
     // A switched-off extension's items run nothing: its address shows that it is off.
     guard let owner, configuration.isEnabled(owner.id, extensions: extensions.ids),
-      let action = item?.actions.first
+      let action = item.actions.first
     else {
       return navigator.open(target.address, pressed: target)
     }
@@ -125,8 +124,8 @@ final class LauncherModel {
     case .run(let address):
       navigator.open(address, from: owner.id, submitted: !address.link, pressed: target)
     case .copy, .paste, .open, .reveal: navigator.perform(action)
-    case .send, .ask, .detail, .field, .clip, .hotkey, .grant, .checkForUpdates, .dismissNotice, .editList,
-      .save:
+    case .save: navigator.activate(action, from: Result(provider: owner.id, row: item))
+    case .send, .ask, .detail, .field, .clip, .hotkey, .grant, .checkForUpdates, .dismissNotice, .editList:
       navigator.open(target.address, pressed: target)
     }
   }

@@ -312,6 +312,7 @@ enum Ranking {
     }
     for id in extensions.keys where keyword != nil || !answered.contains(id) {
       let manifest = extensions[id]!
+      guard manifest.hasCommandPage else { continue }
       let row = Row(
         id: "command", title: manifest.name, subtitle: manifest.keyword, icon: manifest.icon,
         actions: [.run(Address(id: id, input: "", hidden: manifest.hidden))],

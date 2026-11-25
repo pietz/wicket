@@ -38,9 +38,9 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Files** search Spotlight from two characters (each typed word starts a word in the file name) across visible home folders, iCloud Drive, `~/Library/CloudStorage`, and mounted volumes, skipping hidden, Library, build, and cache folders. Return opens; ⌘K reveals. Scripts and installers only reveal.
 
-**Calculator** answers bare arithmetic (`12*7`, `200 + 10%`) as you type. Prefix `=` at the root for functions (`sqrt`, `abs`, `sin`, `cos`, `log`, `round`, `mod(a; b)`), constants (`pi`, `e`), scientific notation, or `of` (`=10% of 200`, `=sqrt(9) + 2^3`). Calculator uses base-10 `log`, radians for trigonometry, and signed remainder for `mod`. Bare phone and date shapes stay in search (`=555-1234` or spaces around `-` subtract). Open `calc` for the full grammar without `=`. Use ⌘Return for spoken math (“12 times 7”). Results follow your locale, mark rounding with `≈`, and copy at shown precision without grouping. ⌘K adds **Paste Result**, **Use Result** (continues at root), and **Copy Machine Number** (ASCII dot, when locale decimal ≠ `.`). Configure input format, output format, and precision in Settings ▸ Extensions ▸ Calculator; with locale input, `1,000` is a thousand only where the comma groups thousands.
+**Calculator** answers inline as you type arithmetic (`12*7`, `200 + 10%`). Prefix `=` for functions (`sqrt`, `abs`, `sin`, `cos`, `log`, `round`, `mod(a; b)`), constants (`pi`, `e`), scientific notation, or `of` (`=10% of 200`, `=sqrt(9) + 2^3`). Calculator uses base-10 `log`, radians for trigonometry, and signed remainder for `mod`. Bare phone and date shapes stay in search (`=555-1234` or spaces around `-` subtract). Use ⌘Return for spoken math (“12 times 7”). Results follow your locale, mark rounding with `≈`, and copy at shown precision without grouping. ⌘K adds **Paste Result**, **Use Result** (continues at root), and **Copy Machine Number** (ASCII dot, when locale decimal ≠ `.`). Configure input format, output format, and precision in Settings ▸ Extensions ▸ Calculator. With locale input, `1,000` is a thousand only where the comma groups thousands.
 
-**Convert** handles length, mass, volume, speed, and temperature offline (`10 km in mi`), plus currency (`100 usd to eur`) using Frankfurter rates. Return copies the number. Settings ▸ Extensions ▸ Convert lets you set the home currency, decimal places, and whether to copy the unit or currency code.
+**Convert** answers inline for length, mass, volume, speed, and temperature (`10 km in mi`) and for currency (`100 usd to eur`). Unit conversions work offline and currency uses Frankfurter rates. Return copies the number. Settings ▸ Extensions ▸ Convert lets you set the home currency, decimal places, and whether to copy the unit or currency code.
 
 **Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
 
@@ -52,7 +52,7 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Clipboard History** is off by default; enable it in Settings ▸ Extensions, then type `clip` to search copied texts and images (Return pastes, requiring Accessibility). Keeps 500 entries for 30 days on-device outside the agent's working folder, skipping items password managers mark concealed.
 
-**Command hotkeys:** Press ⌘K ▸ **Set Hotkey…** on any command, static item (e.g. Left Half), Settings, Agent History, or Clipboard History. Hidden actions, copy, paste, open, and reveal run without showing Wicket; others open directly on that screen. None are set by default.
+**Command hotkeys.** Press ⌘K ▸ **Set Hotkey…** on an openable command like Weather, an item with a distinct action like Left Half, Settings, Agent History, or Clipboard History. Calculator, Convert, and Shell answer from root patterns. Hidden actions, copy, paste, open, and reveal run without showing Wicket. Other supported actions open directly on their screen. None are set by default.
 
 ## Voice
 

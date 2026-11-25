@@ -100,16 +100,30 @@ func conversionShowsAnUnavailableRateWithoutActions(rate: String) async throws {
   try JSONEncoder().encode(rateManifest(command, rate: usdToEur)).write(
     to: local.appending(path: "wicket.json"))
   let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
+  model.store.start(watching: false)
+  model.store.change { try $0.set("decimals", to: "4", forExtension: "units") }
+  model.store.change { try $0.set("homeCurrency", to: "EUR", forExtension: "units") }
+  model.store.change { try $0.set("includeUnit", to: "true", forExtension: "units") }
+  model.store.change { try $0.set("precision", to: "4", forExtension: "calculator") }
   await model.extensions.reload()
   for input in ["10 km", "100 usd * 3", "10 frogs", "100 usd to"] {
     model.navigator.input = input
     await model.navigator.settled()
     #expect(!model.navigator.results.contains { $0.provider == "extension:units" })
   }
-  for (input, provider) in [("10 km in mi", "units"), ("100 usd to eur", "units"), ("12*7", "calculator")] {
+  let decimal = ProviderRequest.NumberMarks.current.decimal
+  for (input, provider, title, copy) in [
+    ("10 km in mi", "units", "6\(decimal)2137 mi", "6\(decimal)2137 mi"),
+    ("100 usd to eur", "units", "80 EUR", "80 EUR"),
+    ("100 usd", "units", "80 EUR", "80 EUR"),
+    ("=sqrt(2)", "calculator", "≈ 1\(decimal)414", "1\(decimal)414"),
+  ] {
     model.navigator.input = input
     await model.navigator.settled()
-    #expect(model.navigator.results.first?.provider == "extension:" + provider)
+    let result = try #require(model.navigator.results.first)
+    #expect(result.provider == "extension:" + provider)
+    #expect(result.row.title == title && result.row.actions.first == .copy(copy))
+    #expect(model.navigator.hotkeyTarget(of: result) == nil)
   }
   await model.finish()
 }

@@ -111,18 +111,21 @@ extension HostCommand {
       return .ok
     }
     guard let id = target.target else { return .ok }
+    if target.item == nil, let owner = extensions.commands[id], owner.commandHotkeyTarget == nil {
+      return .missingCommand
+    }
     // A static item can invoke a different command or have its own effect independently of its owner.
-    guard target.item != nil, let owner = extensions.commands[id],
-      isAvailable(id, in: store.configuration)
-    else { return commandResolution(id) }
-    guard let item = owner.item(for: target) else { return .missingItem }
+    guard target.item != nil, let owner = extensions.commands[id] else { return commandResolution(id) }
+    guard let item = owner.hotkeyItem(for: target) else { return .missingItem }
+    guard isAvailable(id, in: store.configuration) else { return .disabled }
     switch item.actions.first?.kind {
     case .run(let address):
+      if extensions.unopenableLinkTarget(address, from: id) != nil { return .missingCommand }
       let destination = address.extensionName == nil ? id : address.targetID
       return destination.map(commandResolution) ?? .ok
     case .paste:
       return permissionStatus(.accessibility) == .granted ? .ok : .missingPermission
-    case .copy, .open, .reveal: return .ok
+    case .copy, .open, .reveal, .save: return .ok
     default: return commandResolution(id)
     }
   }
@@ -132,11 +135,12 @@ extension HostCommand {
   func hotkeyTarget(of result: Result, atRoot: Bool) -> HotkeyTarget? {
     if Self.isRootRow(result) { return HotkeyTarget(target: result.provider) }
     guard let owner = extensions.commands[result.provider] else { return nil }
-    if atRoot, result.rootExtensionRow == .command { return HotkeyTarget(target: owner.id) }
+    if atRoot, result.rootExtensionRow == .command { return owner.commandHotkeyTarget }
     let row = result.row
     if let id = row.indexedItemID {
       let target = HotkeyTarget(target: owner.id, item: id, entryList: row.entryList)
-      return owner.item(for: target) == nil ? nil : target
+      guard let item = owner.item(for: target) else { return nil }
+      return extensions.itemHotkeyTarget(item, in: owner.id)
     }
     // A program can render a manifest row with its original ID and primary action.
     guard !atRoot, let action = row.actions.first,
@@ -144,7 +148,7 @@ extension HostCommand {
         item.entryList == nil && item.id == row.id && item.actions.first?.kind == action.kind
       })
     else { return nil }
-    return HotkeyTarget(target: owner.id, item: item.id, entryList: item.entryList)
+    return extensions.itemHotkeyTarget(item, in: owner.id)
   }
   /// The host's rows at the root, before ranking: Settings and the host commands available now.
   func rootRows(_ configuration: Configuration) -> [Result] {

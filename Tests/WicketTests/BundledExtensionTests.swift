@@ -67,6 +67,7 @@ private func calculatorRow(
   _ input: String, _ locale: ProviderRequest.NumberMarks = us, settings: [String: String] = [:]
 ) async throws -> Row? {
   var request = ProviderRequest(input: input, locale: locale)
+  request.rootMatch = true
   request.settings = settings.mapValues(JSONValue.string)
   return try await runBundled("calculator", request: request).items.first
 }
@@ -308,47 +309,41 @@ func calculatorStatusesHaveNoCopyAction(input: String, title: String) async thro
   let surface = RecordingSurface()
   navigator.surface = surface
   await model.extensions.reload()
-  navigator.input = "12*7"
+  navigator.input = "2+2"
   await navigator.settled()
   let selected = try #require(navigator.selected)
   navigator.run()
-  #expect(surface.effects == [.run(.copy("84"), from: selected)])
+  #expect(surface.effects == [.run(.copy("4"), from: selected)])
+  #expect(navigator.actions(of: selected).contains(.paste("4", title: "Paste Result")))
   let useResult = try #require(navigator.actions(of: selected).first { $0.title == "Use Result" })
   navigator.runRow(selected, action: useResult)
   await navigator.settled()
-  #expect(navigator.command == nil && navigator.input == "=84")
-  navigator.input = "=84+1"
+  #expect(navigator.command == nil && navigator.input == "=4")
+  navigator.input = "=4+1"
   await navigator.settled()
-  #expect(navigator.selected?.row.title == "85")
+  #expect(navigator.selected?.row.title == "5")
   await model.finish()
 }
 
-@MainActor @Test func openCalculatorAcceptsFullExpressions() async throws {
+@MainActor @Test func calculatorTakesFullExpressionsAtTheRootWithEquals() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
   let navigator = model.navigator
-  let surface = RecordingSurface()
-  navigator.surface = surface
   await model.extensions.reload()
 
-  let expression = "sqrt(9) + 2^3"
-  for query in [expression, "2026-1-5"] {
+  for query in ["sqrt(2)", "2026-1-5"] {
     navigator.input = query
     await navigator.settled()
     #expect(!navigator.results.contains { $0.provider == "extension:calculator" })
   }
 
-  navigator.input = "calc"
+  navigator.input = "=sqrt(2)"
   await navigator.settled()
-  navigator.run()
-  await navigator.settled()
-  #expect(navigator.command?.id == "extension:calculator")
-
-  navigator.input = expression
-  await navigator.settled()
-  #expect(navigator.results.first?.row.title == "11")
-  #expect(navigator.results.first?.row.actions.first == .copy("11"))
+  let decimal = ProviderRequest.NumberMarks.current.decimal
+  #expect(navigator.command == nil)
+  #expect(navigator.results.first?.row.title == "≈ 1\(decimal)4")
+  #expect(navigator.results.first?.row.actions.first == .copy("1\(decimal)4"))
   await model.finish()
 }
 

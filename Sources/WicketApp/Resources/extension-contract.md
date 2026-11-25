@@ -19,7 +19,7 @@ Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; 
 
 ### Triggers and ranking
 
-- **Name and keyword:** Match while typing without starting a process. An exact keyword (case-insensitive) + space + text fills the first editable text field (for commands and for manifest items or list entries whose first action is `run` into an enabled command with an editable text field). Selecting the row sends one **submitted** request with the filled fields; Ask agent stays in the list.
+- **Name and keyword:** Give an extension a command page and keyword when the page adds something to the inline answer, such as Weather’s forecast. With `match` and no `keyword`, there is no named command row or directly openable page. Extensions without `match` can open by name. Name and keyword matches start no process as you type. An exact keyword (case-insensitive) + space + text fills the first editable text field (for commands and for manifest items or list entries whose first action is `run` into an enabled command with an editable text field). Selecting the row sends one **submitted** request with the filled fields; Ask agent stays in the list.
 - **`match`:** Regex checked in-process on root input (≤512 UTF-8 bytes regex; skips input >4,096 bytes; 5 ms deadline checked at progress callbacks—prefer anchored, simple patterns). Runs before selection and may arrive late. A nonempty successful result is a strong match. A `body` view yields one "Show details" row (even if `items` are also present); activating it or a pattern-error row reruns with root input and `submitted:false`. New typing cancels the old run. Matching empty input supplies initial root rows (even with Only show results when typing on, where Return still runs the selected row).
   Cache remote lookups in `WICKET_DATA_DIR`.
   A prominent result can take its own command's keyword row when both submit the same request.
@@ -41,7 +41,7 @@ Search-bar fields, scalar settings, list-entry fields, and canvas fields share o
 
 **Search bar:** Supports up to 3 `text`/`number` fields. At the root, fields fixed by the selected row's first `run` action are skipped, including for cross-extension actions. A lone editable `text` field takes its argument in the main search bar after the keyword. Tab opens its command with that field focused and the argument prefilled, if supplied. For an item, Return in the opened command submits its original action with the edited values. With multiple editable fields or an editable `number` field, fields the keyword did not fill appear as slots that Tab and Shift+Tab cycle through. Filled and fixed values travel together on Return or hotkey. Inside a command, the first `text` field claims the main input and Tab moves through the other `text`/`number` slots. `bool`/`choice` fields receive values from actions or headless runs. Empty search-bar fields are omitted. Commands without a text field show "Ask about `<name>`…", where Return with no selection asks the agent.
 
-**Settings:** Scalar settings require a command and may declare `default`. Rendered in Settings ▸ Extensions and saved in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text or number setting or choosing **Default** in a picker restores its default. A saved JSON number is read as decimal text for a number or choice setting. For a choice, the decimal text must match an option.
+**Settings:** Scalar settings require a `command` executable and may declare `default`. Inline-only extensions can use them. Settings ▸ Extensions draws them and saves them in `config.json` under `"extensions":{"<folder>":{...}}`. Every request receives valid saved values or manifest defaults (otherwise omitted). Clearing a text or number setting or choosing **Default** in a picker restores its default. A saved JSON number is read as decimal text for a number or choice setting. For a choice, the decimal text must match an option.
 
 A scalar `choice` option can declare an app bundle ID as `requiresApp`, for example `{"value":"ghostty","label":"Ghostty","requiresApp":"com.mitchellh.ghostty"}`. Settings shows it only when macOS finds the app. Provide an unconditional default so the picker can still show a selection if the saved app is missing. Filtering applies only to the picker. The saved value stays in config and in requests, so the program handles an app becoming unavailable.
 
@@ -87,7 +87,7 @@ Programs can render their own command views. Wicket adds indexed list entries to
 ## Request and process contract
 
 ```json
-{"input":"10 km in mi","fields":{"conversion":"10 km in mi"},"submitted":false,"locale":{"decimal":",","grouping":".","groupingSize":"3","secondaryGroupingSize":"3"},"settings":{}}
+{"input":"10 km in mi","fields":{},"rootMatch":true,"submitted":false,"locale":{"decimal":",","grouping":".","groupingSize":"3","secondaryGroupingSize":"3"},"settings":{}}
 ```
 
 - `fields`: string map of filled search-bar/canvas fields and `run`-supplied values. If a command declares a text field, that field and `input` carry the same text.
@@ -209,8 +209,8 @@ Bundled Swift extensions ship in `Contents/Resources/Extensions/`: `calculator`,
 
 A valid local `wicket.json` takes precedence over the built-in of the same folder name. `--diagnose` reports `shadowsBuiltIn`, `localFolder`, and `bundledFolder` for an active override. Settings shows a banner with actions to restore the built-in, draft an agent request to merge the local changes onto the current built-in, or reveal the local folder. Restoring the built-in moves the local copy to the Trash and keeps settings and hotkeys in `config.json`. If Wicket cannot load the local manifest, it uses the bundled extension and shows one repair row. Recognized, unmodified contract-1 copies of Convert and Windows fall back silently.
 
-- **Calculator (`calculator`):** Root match accepts bare symbol arithmetic or leading `=` (needed at root for functions, constants, scientific notation, and `of`); inside the command, `expression` takes the full grammar with optional `=`. Unit and currency expressions belong to Convert. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (0–5, default 2, with at least one significant digit in Automatic or Scientific and decimal places in Fixed). Automatic prints exact integers in full.
-- **Convert (`units`, `wicket://units`):** Single unit or currency quantities. Currency pairs use Frankfurter reference rates. Settings: `homeCurrency` (default `USD` for omitted targets and ambiguous `$`/`¥`), `decimals` (0–5 decimal places, default `2`), and `includeUnit` (default `false`).
+- **Calculator (`calculator`):** Inline arithmetic. Use bare symbol arithmetic or a leading `=` for functions, constants, scientific notation, and `of`. A headless `--extension calculator --input` request accepts the full grammar with an optional `=`. Unit and currency expressions belong to Convert. Item ID `result`; primary action copies shown precision with request decimal mark (no grouping or `≈`); **Copy Machine Number** (ASCII dot) appears when decimal mark ≠ `.`; **Use Result** prefills `=` + ungrouped result at root. Settings: `inputFormat` (`Locale`/`Dot`/`Comma`), `outputFormat` (`Automatic`/`Fixed`/`Scientific`), `precision` (0–5, default 2, with at least one significant digit in Automatic or Scientific and decimal places in Fixed). Automatic prints exact integers in full.
+- **Convert (`units`):** Inline conversions of single unit or currency quantities. Currency pairs use Frankfurter reference rates. Settings: `homeCurrency` (default `USD` for omitted targets and ambiguous `$`/`¥`), `decimals` (0–5 decimal places, default `2`), and `includeUnit` (default `false`).
 - **Weather (`weather`):** `weather <city>` looks up an inline summary as soon as the city has four non-space characters after an optional “in”. A lookup with no result returns an empty list. The summary's run action submits the city for a full forecast. The command uses `submit:true`. A request with an empty city loads the configured `defaultCity` immediately. A city supplied on a link or command hotkey waits for submission. Weather caches geocoding and forecasts for 10 minutes in `WICKET_DATA_DIR`.
 - **Quicklinks (`links-search`, `wicket://links-search`):** Personal bookmarks and site searches. See the recipe below.
 
@@ -294,7 +294,7 @@ For a custom fallback, use the standalone search above and add `"fallback":true`
 Name `"wicket-js"` and one relative script path in the extension folder:
 
 ```json
-{"contract":2,"name":"Echo","command":["wicket-js","main.js"]}
+{"contract":2,"name":"Echo","keyword":"echo","command":["wicket-js","main.js"]}
 ```
 
 ```js
@@ -350,7 +350,9 @@ Declare needed permissions in `permissions` (e.g. `calendar`); Wicket handles th
 
 ## Hotkeys
 
-Spell `hotkeys` like `hotkey`, one entry per address. `item=<id>` addresses a manifest item and `entry=<list>/<id>` addresses a list entry. Both resolve only in `hotkeys`. Item hotkeys do not record usage. A submitted item run starts with supplied fields plus any root draft for that item; if the destination command already owns canvas form values, it keeps them and validates overrides. Hidden `run`, `copy`, `paste`, `open`, and `reveal` run without showing Wicket; other runs/links open Wicket there. A hotkey on a command itself, or an item of a switched-off extension, opens the command unsubmitted (`submitted:false`) with the address's `input` or an empty field. Missing entries show a message; Settings marks unavailable item hotkeys—remove the binding there or delete its entry from `hotkeys` to free the keys.
+Wicket offers global hotkeys for directly openable commands and for manifest items or list entries whose primary action does something distinct, such as a window move or bookmark. A `save` hotkey opens the extension’s prefilled Add sheet. Pattern-only extensions such as Calculator, Convert, and Shell have no command hotkey.
+
+Spell `hotkeys` like `hotkey`, one entry per address. `item=<id>` addresses a manifest item and `entry=<list>/<id>` addresses a list entry. Both resolve only in `hotkeys`. Item hotkeys do not record usage. A submitted item run starts with supplied fields plus any root draft for that item; if the destination command already owns canvas form values, it keeps them and validates overrides. Hidden `run`, `copy`, `paste`, `open`, and `reveal` run without showing Wicket; other runs/links open Wicket there. A hotkey on a command itself opens it unsubmitted (`submitted:false`) with the address's `input` or an empty field. A shortcut to a removed command or item shows a message. Settings marks it as unavailable. Remove the binding there or delete its entry from `hotkeys` to free the keys.
 
 ## Repair
 

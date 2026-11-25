@@ -755,9 +755,9 @@ private func result(_ expression: Expression, marks: Marks) throws -> String {
     #"{"id":"result","title":\#(title),"subtitle":"Copy result","icon":"equal","prominent":true,"actions":[\#(actions.joined(separator: ","))]}"#
 }
 
-private func row(_ input: String, marks: Marks, inCommand: Bool) -> String? {
+private func row(_ input: String, marks: Marks, rootMatch: Bool) -> String? {
   let hasPrefix = input.drop(while: \.isWhitespace).first == "="
-  let fullGrammar = inCommand || hasPrefix
+  let fullGrammar = !rootMatch || hasPrefix
   guard input.utf8.count <= 512 else { return fullGrammar ? status(.limit) : nil }
   var text = input.map(normalized)[...]
   while text.first?.isWhitespace == true { text = text.dropFirst() }
@@ -787,8 +787,7 @@ private func status(_ issue: Issue) -> String {
 }
 
 let request = JSON.standardInput()
-let expression = request?["fields"]?["expression"]?.string
-let input = expression ?? request?["input"]?.string ?? ""
-let inCommand = if case .bool(true)? = request?["rootMatch"] { false } else { expression != nil }
-let item = row(input, marks: Marks(request), inCommand: inCommand)
+let input = request?["fields"]?["expression"]?.string ?? request?["input"]?.string ?? ""
+let rootMatch = if case .bool(true)? = request?["rootMatch"] { true } else { false }
+let item = row(input, marks: Marks(request), rootMatch: rootMatch)
 print(#"{"items":[\#(item ?? "")]}"#)

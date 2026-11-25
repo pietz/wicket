@@ -2,13 +2,13 @@
 
 ## 1. Summary
 
-Calculator evaluates dimensionless arithmetic as you type in Wicket (Return copies), and plans date/clock math, programmer bit ops, and saved history inside the `calc` command. Runs locally with no network or macOS permissions. Convert owns any expression with a unit or currency token (including future `10 km + 5 mi` or `100 usd * 3`). See [official extensions](README.md).
+Calculator evaluates dimensionless arithmetic inline as you type in Wicket. Return copies the result. It runs locally with no network or macOS permissions. Convert owns any expression with a unit or currency token (including future `10 km + 5 mi` or `100 usd * 3`). See [official extensions](README.md).
 
 ## 2. What exists today (Phase 1)
 
-Shipped in [`Sources/Extensions/calculator/`](../../Sources/Extensions/calculator/main.swift) (Foundation-free Swift 6 + Darwin, contract 2, ID `calculator`, keyword `calc`, icon `equal`, live `expression` text field):
+Shipped in [`Sources/Extensions/calculator/`](../../Sources/Extensions/calculator/main.swift) (Foundation-free Swift 6 + Darwin, contract 2, ID `calculator`, icon `equal`).
 
-- **Root & grammar:** Anchored regex accepts bare symbol arithmetic (requiring a digit and operator) or leading `=` for full grammar (`sqrt`, `abs`, `sin`, `cos`, `log` base-10, `round`, `mod(a; b)` with semicolon separator, `pi`, `e`, scientific notation, `%`, `of`). Inside `calc`, `=` is optional. Bounds: 512 UTF-8 bytes, depth 64, full consumption required. Quantity expressions show a hint pointing to Convert; spoken math goes to the agent via ⌘Return.
+- **Root & grammar.** An anchored regex accepts bare symbol arithmetic (requiring a digit and operator) or leading `=` for the full grammar (`sqrt`, `abs`, `sin`, `cos`, `log` base-10, `round`, `mod(a; b)`, `pi`, `e`, scientific notation, `%`, `of`). Input is limited to 512 UTF-8 bytes and depth 64. The parser requires full consumption. Explicit quantity expressions show a hint pointing to Convert. For spoken math, use ⌘Return to ask the agent.
 - **Root screening:** Trims whitespace, normalizes Unicode operators (`−`, `×`, `÷`) and non-ASCII decimal digits, and rejects bare phone/date shapes (`555-1234`, `(555) 123-4567`, `+1 555-123-4567`, `2026-11-23`, `11/11/2026`, `11.11.2026`, `11-23-26`), while `555 - 1234` and `=555-1234` subtract. Partial bare inputs stay quiet; domain errors (`1/0`) show a status row; `=` adds input guidance (`Finish the expression`).
 - **Exact decimal evaluator:** Checked `Int128` coefficients (signed scale, ties-to-even rounding) with `Double` fallback marked `≈`. Exact integers display and copy in full (`9007199254740992 + 1` → `9007199254740993`). Handles locale marks, pasted grouping spaces (` `, NBSP, NNBSP), and `inputFormat`/`outputFormat`/`precision` settings.
 - **Precision:** Choose 0–5 in Settings ▸ Extensions ▸ Calculator. The default of 2 shows `1/3` as `≈ 0.33`. Fixed uses decimal places. Automatic and Scientific use significant digits, with a minimum of one.
@@ -17,6 +17,8 @@ Shipped in [`Sources/Extensions/calculator/`](../../Sources/Extensions/calculato
 ## 3. Planned design (Phases 2–4)
 
 ### Modes and UX
+
+The `calc` page returns as Programmer and date math ship. History joins that page in Phase 4.
 
 | User action | Planned behavior |
 | --- | --- |

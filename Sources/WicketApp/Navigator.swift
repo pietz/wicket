@@ -995,6 +995,9 @@ final class Navigator {
   ) {
     let own = origin.flatMap { directory.isCommand($0) ? $0 : nil }
     let target = address.extensionName == nil ? own : address.targetID
+    if !replacingFields, let command = extensions.unopenableLinkTarget(address, from: own) {
+      return reportActionProblem("\(command.manifest.name) has no command page.")
+    }
     guard let destination = directory.destination(target) else {
       actionProblem = "No extension named \(target.map { Address(id: $0).extensionName ?? $0 } ?? "")"
       if command == nil, !conversing, overlay == nil, !inDetail,

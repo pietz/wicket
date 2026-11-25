@@ -231,7 +231,7 @@ struct SettingsPane: View {
       Toggle("Only show results when typing", isOn: resultsOnlyWhenTyping)
     }
     let ids = Set(extensions.ids)
-    let unavailable = extensions.unavailableItemHotkeys(config.hotkeys).filter {
+    let unavailable = extensions.unavailableHotkeys(config.hotkeys).filter {
       $0.target.target.map(ids.contains) != true
     }
     if !unavailable.isEmpty {
@@ -529,10 +529,12 @@ struct SettingsPane: View {
       id == "clipboard"
       ? [(ClipboardHistory.title, HotkeyTarget(target: id))]
       : command.map { command in
-        [(command.manifest.name, HotkeyTarget(target: id))]
-          + (command.manifest.items ?? []).map { ($0.title, HotkeyTarget(target: id, item: $0.id)) }
+        (command.commandHotkeyTarget.map { [(command.manifest.name, $0)] } ?? [])
+          + (command.manifest.items ?? []).compactMap { item in
+            extensions.itemHotkeyTarget(item, in: id).map { (item.title, $0) }
+          }
       } ?? []
-    let unavailable = extensions.unavailableItemHotkeys(config.hotkeys).filter { $0.target.target == id }
+    let unavailable = extensions.unavailableHotkeys(config.hotkeys).filter { $0.target.target == id }
     if !targets.isEmpty || !unavailable.isEmpty {
       Section("Hotkeys") {
         ForEach(targets, id: \.1) { hotkeyRow($0.0, $0.1) }
@@ -592,25 +594,35 @@ struct SettingsPane: View {
 
   private func entryTable(_ list: SettingList, folder: String, target: String) -> some View {
     let entries = config.extensions[folder].map { list.read($0[list.name]).entries } ?? []
+    let rows = entries.map { entry in
+      (entry, list.row(entry).flatMap { extensions.itemHotkeyTarget($0, in: target) })
+    }
+    let hasHotkeys = rows.contains { $0.1 != nil }
     return Section {
       if entries.isEmpty {
         Text("No entries").foregroundStyle(.secondary)
       } else {
         HStack {
           Text("Title").frame(maxWidth: .infinity, alignment: .leading)
-          if list.item != nil { Text("Hotkey").frame(width: 134) }
+          if hasHotkeys { Text("Hotkey").frame(width: 134) }
           Color.clear.frame(width: 54, height: 1)
         }
         .font(.caption).foregroundStyle(.secondary)
       }
-      ForEach(entries, id: \.self) { entry in
+      ForEach(rows, id: \.0) { entry, binding in
         if let id = entry["id"] {
           let title = list.title(entry)
           HStack {
             Text(title).lineLimit(1).help(title).frame(maxWidth: .infinity, alignment: .leading)
-            if list.row(entry) != nil {
-              shortcutControls(HotkeyTarget(target: target, item: id, entryList: list.name))
-                .frame(width: 134)
+            if hasHotkeys {
+              Group {
+                if let binding {
+                  shortcutControls(binding)
+                } else {
+                  Color.clear
+                }
+              }
+              .frame(width: 134)
             }
             Button("Edit", systemImage: "pencil") {
               entryEditor = .init(folder: folder, list: list, values: entry, entryID: id)

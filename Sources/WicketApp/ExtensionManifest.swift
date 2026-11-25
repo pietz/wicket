@@ -14,6 +14,8 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
   let command: [String]?
   let icon: String?
   private let match: MatchPattern?
+  /// A pattern takes the place of a named command page unless the manifest also declares a keyword.
+  var hasCommandPage: Bool { match == nil || keyword != nil }
   let fallback: Bool
   /// A known list read once for name matches at the root and static command views.
   let items: [Row]?
@@ -97,6 +99,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
     name = try c.decode(String.self, forKey: .name)
     description = try c.decodeIfPresent(String.self, forKey: .description)
     keyword = try c.decodeIfPresent(String.self, forKey: .keyword)
+      .flatMap { $0.allSatisfy(\.isWhitespace) ? nil : $0 }
     icon = try c.decodeIfPresent(String.self, forKey: .icon)
     let pattern = try c.decodeIfPresent(String.self, forKey: .match)
     fallback = try c.decodeIfPresent(Bool.self, forKey: .fallback) ?? false
@@ -141,7 +144,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
       throw DecodingError.dataCorruptedError(
         forKey: .settings, in: c,
         debugDescription:
-          "Settings need unique names, descriptions and valid fields. Scalar settings need a command.")
+          "Settings need unique names, descriptions and valid fields. Scalar settings need a program.")
     }
     guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw DecodingError.dataCorruptedError(forKey: .name, in: c, debugDescription: "Name must be nonempty")

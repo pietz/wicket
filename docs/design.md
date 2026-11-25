@@ -12,7 +12,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 6. **Address.** A `wicket://` link to the root, an extension, an item, the agent, or Settings; it opens a view and never acts. *Why:* hotkeys, links, and the agent's follow-up rows all point at places the same way.
 7. **View.** A program's answer: `items` (native list), `body` (one HTML page in the page language), and/or `fields` (interactive page controls). Agent answers use the same page language. *Why:* native frame for keys and focus, HTML for freely designed content.
 8. **Setting.** A persisted value an extension declares: a field or a list of entries. Wicket draws it in Settings, stores it in `config.json`, and sends it with every request. *Why:* the extension declares, Wicket draws and saves.
-9. **Hotkey.** Keys bound to an address. *Why:* any item or command, one keystroke away, without a running process.
+9. **Hotkey.** Keys bound to an openable command or an item with a distinct action. *Why:* the action is one keystroke away without a running process.
 10. **Permission.** Declared by an extension, held by Wicket. *Why:* macOS grants to the app, so only Wicket can hold one; declaring lets it check before launch.
 11. **Agent turn.** One run of the user's `claude` or `codex` per question, resuming the session, with Wicket's instructions. Nothing runs between questions. *Why:* the user's own agent, no custom model loop.
 
@@ -29,6 +29,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 2. What does typing wait on? (The answer must be nothing.)
 3. Can the agent do it through files or headless commands?
 4. What does it delete?
+5. What does a command page or keyword add to the inline answer?
 
 ## Where the map doesn't fit yet
 

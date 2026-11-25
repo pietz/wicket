@@ -183,7 +183,6 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   }
 
   let bindings = [
-    ("ctrl+option+1", "wicket://units?item=currency"),
     ("ctrl+option+2", "wicket://window?item=left"),
     ("ctrl+option+3", "wicket://window?entry=moves/coding"),
   ]
@@ -191,12 +190,8 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
     model.store.bind(try Shortcut(keys), to: try #require(HotkeyTarget(address)))
   }
   #expect(model.configuration.hotkeys.count == bindings.count)
-  #expect(model.extensions.unavailableItemHotkeys(model.configuration.hotkeys).isEmpty)
-  model.press(try #require(HotkeyTarget(bindings[0].1)))
-  await model.navigator.settled()
-  #expect(model.navigator.command?.id == "extension:units")
-  #expect(model.navigator.results.contains { $0.row.id == "help" })
-  for address in bindings.dropFirst().map(\.1) {
+  #expect(model.extensions.unavailableHotkeys(model.configuration.hotkeys).isEmpty)
+  for address in bindings.map(\.1) {
     model.press(try #require(HotkeyTarget(address)))
     await model.navigator.settled()
     #expect(model.navigator.command?.id == "extension:window")
@@ -428,16 +423,25 @@ func saveProviders(_ ids: [Configuration.ProviderEntry], in root: URL) throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   try saveProviders([.init("extension:calculator"), .init("extension:units")], in: root)
-  let keyword = try await cli(root, ["--query", "calc"])
-  #expect(keyword.1["items"].array.first?["row"]["title"].string == "Calculator")
-  for input in ["10 km", "100 usd * 3", "12 times 7", "10% of 200", "555−1234", "2026-1-5"] {
+  for input in [
+    "calc", "Calculator", "units", "Convert", "currency", "fx",
+    "10 km", "100 usd * 3", "12 times 7", "10% of 200", "555−1234", "2026-1-5",
+  ] {
     let query = try await cli(root, ["--query", input])
     #expect(query.1["items"].array.first?["provider"].string == "agent", "\(input)")
+    #expect(
+      !query.1["items"].array.contains {
+        let provider = $0["provider"].string
+        return provider == "extension:calculator" || provider == "extension:units"
+      },
+      "\(input)")
   }
   let explicit = try await cli(root, ["--query", "=10% of 200"])
   #expect(explicit.1["items"].array.first?["row"]["title"].string == "20")
   let large = try await cli(root, ["--extension", "calculator", "--input", "9007199254740992 + 1"])
   #expect(large.1["items"].array.first?["actions"].array.first?["text"].string == "9007199254740993")
+  let function = try await cli(root, ["--extension", "calculator", "--input", "sqrt(9)"])
+  #expect(function.1["items"].array.first?["title"].string == "3")
 }
 
 @Test func extensionContractRecipesContainValidJSON() throws {

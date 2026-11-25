@@ -701,10 +701,6 @@ func theSliderSavesEveryTransparencyExactly(value: Double) throws {
   model.navigator.input = "2+2"
   await model.navigator.settled()
   #expect(!model.navigator.results.contains { $0.provider == "extension:calculator" })
-  model.navigator.go(Address(extensionName: "calculator"), submitted: true)
-  await model.navigator.settled()
-  #expect(model.navigator.command?.problem?.contains("switched off") == true)
-  #expect(model.navigator.escape())
   model.navigator.input = "3+3"
   await model.navigator.settled()
   #expect(!model.navigator.results.contains { $0.provider == "extension:calculator" })

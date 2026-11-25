@@ -65,6 +65,7 @@ struct HotkeyRegistrations: Codable, Equatable, Sendable {
   enum Resolution: String, Codable, Sendable {
     case ok, disabled, duplicate
     case missingExtension = "missing extension"
+    case missingCommand = "missing command"
     case missingItem = "missing item"
     case missingPermission = "missing permission"
     case conflictsWithLauncher = "conflicts with launcher"
@@ -90,6 +91,44 @@ struct HotkeyRegistrations: Codable, Equatable, Sendable {
     HotkeyTarget(
       target: target.target, item: target.item, entryList: target.entryList, legacyItem: target.legacyItem
     ).description
+  }
+}
+
+extension ExtensionCommand {
+  var commandHotkeyTarget: HotkeyTarget? {
+    manifest.hasCommandPage ? HotkeyTarget(target: id) : nil
+  }
+
+  func hotkeyItem(for target: HotkeyTarget) -> Row? {
+    guard let item = item(for: target), item.hotkeyTarget(in: id) != nil else { return nil }
+    return item
+  }
+}
+
+extension ExtensionHost {
+  func itemHotkeyTarget(_ row: Row, in owner: String) -> HotkeyTarget? {
+    if case .run(let address)? = row.actions.first?.kind,
+      unopenableLinkTarget(address, from: owner) != nil
+    {
+      return nil
+    }
+    return row.hotkeyTarget(in: owner)
+  }
+}
+
+extension Row {
+  func hotkeyTarget(in owner: String) -> HotkeyTarget? {
+    switch actions.first?.kind {
+    case .copy, .paste, .open, .reveal, .save: break
+    case .run(let address):
+      let otherTarget = address.extensionName != nil && address.targetID != owner
+      guard
+        otherTarget || address.action != nil || address.hidden || address.input?.isEmpty == false
+          || address.fields?.isEmpty == false
+      else { return nil }
+    default: return nil
+    }
+    return HotkeyTarget(target: owner, item: id, entryList: entryList)
   }
 }
 

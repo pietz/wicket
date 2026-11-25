@@ -22,10 +22,11 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 
 ## 3. Calculator, Convert and Shell
 
-1. `12*7` shows 84 first, Return copies. `200 + 10%` → 220, `1,000 + 1` follows locale, `1.2.3` shows no row. (First calculation after an update may lag once.) In Calculator Settings, **Precision** offers 0–5 and defaults to 2. With `1/3`, try 5 in Automatic and 0 in Fixed, then restore the default.
-2. `10 km to mi` shows `6.21 mi` with two decimal places. Search `fx` to open Convert. `100 usd to eur` shows a result using Frankfurter. Return copies the number. Turn on **Include unit when copying** and check that Return copies the unit or currency code as well.
+1. At the root, `2+2` shows 4 and Return copies. Try **Paste Result** and **Use Result** in ⌘K. Use Result fills `=4` at the root. `=sqrt(2)` shows an approximate result, `200 + 10%` shows 220, `1,000 + 1` follows locale, and `1.2.3` shows no Calculator row. In Calculator Settings, change **Precision** and check the inline result for `1/3`, then restore the default of 2.
+2. At the root, `10 km in mi` shows `6.21 mi` with two decimal places. `100 usd to eur` shows a result using Frankfurter. Change **Decimal places** and **Home currency** and check `10 km in mi` and `100 usd`. Turn on **Include unit when copying** and check that Return copies the unit or currency code as well.
 3. `> touch /tmp/wicket-shell-test` shows one row and creates nothing before Return. With **System default** selected, Return on `> ls -la` closes Wicket and opens the macOS `.command` handler in `~` with an interactive shell. `>` alone shows a hint and Return is a no-op.
 4. In Settings ▸ Extensions ▸ Shell, verify that **Terminal app** offers **System default** and only the installed supported apps. Choose **Ghostty**, press Return on `> echo hi`, and confirm Ghostty prints `hi`.
+5. Search by extension name and try `calc`, `units`, `currency`, and `fx` alone. Check that there are no Calculator, Convert, or Shell command rows and that their Settings panes offer no new hotkey. If an older configuration has shortcuts for Calculator, Convert, or the currency item, press each one. It should explain why the target is unavailable. In Settings, remove the unavailable binding and verify that its keys can be recorded for another target.
 
 ## 4. The agent
 

@@ -220,12 +220,26 @@ final class ExtensionHost {
   private var scan: Task<Void, Never>?
   /// The catalog was read at least once. Until then an unknown name may still be on its way.
   private(set) var scanned = false
-  func unavailableItemHotkeys(_ hotkeys: [Configuration.Hotkey]) -> [Configuration.Hotkey] {
+
+  /// A pattern result can link to its own details or retry its own request.
+  func unopenableLinkTarget(_ address: Address, from origin: String?) -> ExtensionCommand? {
+    guard address.link, let id = address.targetID, id != origin, let command = commands[id],
+      !command.manifest.hasCommandPage
+    else { return nil }
+    return command
+  }
+
+  func unavailableHotkeys(_ hotkeys: [Configuration.Hotkey]) -> [Configuration.Hotkey] {
     guard scanned else { return [] }
     return hotkeys.filter { binding in
       let target = binding.target
-      guard let id = target.target, id.hasPrefix("extension:"), target.item != nil else { return false }
-      return commands[id]?.item(for: target) == nil
+      guard let id = target.target, id.hasPrefix("extension:") else { return false }
+      let owner = commands[id]
+      if target.item != nil {
+        guard let item = owner?.item(for: target) else { return true }
+        return itemHotkeyTarget(item, in: id) == nil
+      }
+      return owner?.commandHotkeyTarget == nil
     }
   }
   private var scanWaiters: [CheckedContinuation<Void, Never>] = []

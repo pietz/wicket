@@ -6,8 +6,8 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 
 | Extension | Spec | Status | Summary |
 | --- | --- | --- | --- |
-| Calculator | [calculator.md](calculator.md) | Phase 1 shipped | Arithmetic as you type at the root (`calc` for full grammar); Programmer, date math, and History next. |
-| Convert | [convert.md](convert.md) | Phase 1 shipped | Units offline and currency via Frankfurter. Typed arithmetic with units next. |
+| Calculator | [calculator.md](calculator.md) | Phase 1 shipped | Inline arithmetic with `=` for the full grammar. Programmer, date math, and History are planned. |
+| Convert | [convert.md](convert.md) | Phase 1 shipped | Inline unit conversions offline and currency via Frankfurter. Typed arithmetic with units is planned. |
 | Weather | [weather.md](weather.md) | Bundled | Current conditions and a five-day forecast by city. |
 | Quicklinks | [quicklinks.md](quicklinks.md) | Shipped | Personal bookmarks and site searches with optional keywords and hotkeys. |
 | Windows | [window-manager.md](window-manager.md) | Phases 1–3 shipped | Stock moves, verified readback, Capture, and saved moves in Settings; multi-window layouts next. |
@@ -21,6 +21,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 - **User data & settings:** Personal lists and scalar settings live in `config.json`. API keys live in Keychain. See the [extension contract](../../Sources/WicketApp/Resources/extension-contract.md).
 - **Local customizations:** A valid local manifest overrides the built-in of the same ID. Settings and `--diagnose` surface active overrides so users can recover current built-in features and ask the agent to carry their custom changes forward.
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
+- **Inline answers and hotkeys.** Give an extension a keyword and command page when the page adds to the inline answer. Offer hotkeys for openable commands and items with a distinct action.
 - **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
   - Extensions declare `permissions` and never prompt themselves or build helper apps.

@@ -1,6 +1,6 @@
 # Convert
 
-Convert (`units`) handles single quantities as you type. It supports length, mass, volume (US gallons), speed, and temperature. Use `in` or `to` with a target in the same dimension, as in `10 km in mi`. Unit conversions work offline.
+Convert (`units`) answers single quantities inline at the launcher. It supports length, mass, volume (US gallons), speed, and temperature. Use `in` or `to` with a target in the same dimension, as in `10 km in mi`. Unit conversions work offline.
 
 Currency input accepts case-insensitive ISO 4217 codes and prefix or suffix symbols, such as `€50 to gbp` or `50€ to gbp`. Convert looks up the latest reference rate from [Frankfurter](https://frankfurter.dev/) for the requested pair. Only the currency codes go to Frankfurter. Converting to the same currency needs no lookup.
 

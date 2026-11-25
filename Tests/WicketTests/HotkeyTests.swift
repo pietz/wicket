@@ -445,7 +445,9 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
         while [ ! -e "\(root.path)/release" ]; do sleep 0.01; done
         echo '{"items":[]}'
         """,
-      fields: ["name": name, "items": [["id": "go", "title": "Go", "actions": [["type": "run"]]]]])
+      fields: [
+        "name": name, "items": [["id": "go", "title": "Go", "actions": [["type": "run", "action": "go"]]]],
+      ])
   }
   let model = LauncherModel.testing(in: root)
   await model.extensions.reload()
@@ -534,6 +536,117 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   #expect(
     model.navigator.hotkeyTarget(of: Result(provider: "apps", row: Row(id: "x", title: "X", actions: [])))
       == nil)
+}
+
+@MainActor @Test func patternOnlyExtensionsOfferHotkeysOnlyForDistinctItems() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  _ = try extensionFolder(
+    root, name: "inline",
+    fields: [
+      "keyword": " \t",
+      "match": "^=",
+      "items": [
+        ["id": "hint", "title": "Hint", "actions": []],
+        ["id": "alias", "title": "Alias", "actions": [["type": "run"]]],
+        ["id": "copy", "title": "Copy", "actions": [["type": "copy", "text": "Text"]]],
+        [
+          "id": "draft", "title": "Draft note",
+          "actions": [["type": "save", "setting": "notes", "values": ["title": "Example"]]],
+        ],
+      ],
+      "settings": [
+        [
+          "name": "notes", "type": "list", "description": "Notes",
+          "fields": [["name": "title", "type": "text", "description": "Title"]],
+        ]
+      ],
+    ])
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  await model.extensions.reload()
+  for name in ["calculator", "units", "shell", "inline"] {
+    let command = try #require(model.extensions.commands["extension:" + name])
+    #expect(command.commandHotkeyTarget == nil)
+  }
+  let weather = try #require(model.extensions.commands["extension:weather"])
+  #expect(weather.commandHotkeyTarget == HotkeyTarget(target: weather.id))
+  for (input, id, eligible) in [("hint", "hint", false), ("alias", "alias", false), ("copy", "copy", true)] {
+    model.navigator.input = input
+    await model.navigator.settled()
+    let result = try #require(model.navigator.results.first { $0.row.id == "item:" + id })
+    let target = eligible ? HotkeyTarget(target: "extension:inline", item: id) : nil
+    #expect(model.navigator.hotkeyTarget(of: result) == target)
+  }
+  let surface = RecordingSurface()
+  surface.shown = false
+  model.navigator.surface = surface
+  model.navigator.input = "Draft note"
+  await model.navigator.settled()
+  let draft = try #require(model.navigator.results.first { $0.row.id == "item:draft" })
+  let draftHotkey = try #require(model.navigator.hotkeyTarget(of: draft))
+  model.press(draftHotkey)
+  #expect(surface.shows == 0)
+  #expect(
+    surface.effects == [
+      .settingsList(.init(folder: "inline", setting: "notes", values: ["title": "Example"]))
+    ])
+  await model.finish()
+}
+
+@MainActor @Test func oldInlineExtensionHotkeysStayRemovableAndReportTheirMissingTargets() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: bundledExtensions)
+  try Data(
+    #"""
+    {
+      "hotkeys":[
+        {"keys":"ctrl+1","address":"wicket://calculator"},
+        {"keys":"ctrl+2","address":"wicket://units?input=10%20km%20in%20mi"},
+        {"keys":"ctrl+3","address":"wicket://units?item=currency"},
+        {"keys":"ctrl+4","address":"wicket://links-search?entry=links/convert"}
+      ],
+      "extensions":{"links-search":{"links":[
+        {"id":"convert","title":"Convert Distance","url":"wicket://units?input=10%20km%20in%20mi"}
+      ]}}
+    }
+    """#.utf8
+  ).write(to: model.store.url)
+  model.store.start(watching: false)
+  await model.extensions.reload()
+  let surface = RecordingSurface()
+  surface.shown = false
+  model.navigator.surface = surface
+  let saved = model.configuration.hotkeys
+  #expect(saved.count == 4)
+  #expect(model.extensions.unavailableHotkeys(saved).map(\.target) == saved.map(\.target))
+  let directory = CommandDirectory(extensions: model.extensions, hosts: [], store: model.store)
+  #expect(
+    saved.map { directory.hotkeyResolution($0.target, permissionStatus: { _ in .granted }) }
+      == [.missingCommand, .missingCommand, .missingItem, .missingCommand])
+  model.navigator.input = "Convert Distance"
+  await model.navigator.settled()
+  let quicklink = try #require(model.navigator.results.first { $0.row.id == "entry:links/convert" })
+  #expect(model.navigator.hotkeyTarget(of: quicklink) == nil)
+  for (binding, problem) in zip(
+    saved,
+    [
+      "Calculator has no command page.", "Convert has no command page.",
+      "Entry “currency” is no longer available in Convert.", "Convert has no command page.",
+    ]
+  ) {
+    model.press(binding.target)
+    await model.navigator.settled()
+    #expect(model.navigator.command == nil)
+    #expect(model.navigator.actionProblem == problem)
+  }
+  #expect(surface.shows == 1)
+  model.navigator.open(saved[1].target.address)
+  #expect(model.navigator.command == nil && model.navigator.actionProblem == "Convert has no command page.")
+  #expect(try Configuration.load(at: model.store.url).hotkeys == saved)
+  for binding in saved { model.store.bind(nil, to: binding.target) }
+  #expect(try Configuration.load(at: model.store.url).hotkeys.isEmpty)
+  await model.finish()
 }
 
 @MainActor @Test func setHotkeyRecordsWithEveryHotkeyPausedUntilThePanelHides() async throws {
