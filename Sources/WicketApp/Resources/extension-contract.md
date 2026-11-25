@@ -4,6 +4,18 @@ Create a folder under `extensions/` in the Wicket working folder. Default to Jav
 
 Symlinked extension folders in `extensions/` are watched live, including edits to manifests in the target checkout.
 
+## Contract evolution
+
+Changes within a contract version are additive and backward compatible with extensions already using that version. New optional request or response fields, actions, and tags can ship without a bump. Manifest validation rejects unknown keys, so an older Wicket rejects an extension that uses a newly added manifest key. This is acceptable while Wicket ships its extensions bundled. The catalog will gate installation by `minContract` and `minWicket`.
+
+A breaking change bumps `contract` and replaces the old program runtime in the same release. Incompatible programs get a repair row, as they did moving from contract 1 to 2. Each bump ships a short **Migrating from contract N−1** checklist here for agents repairing extensions.
+
+### Migrating from contract 1
+
+1. Use typed `fields` and `settings` in `wicket.json`.
+2. Read `request.fields` and `request.action` in the program, and return `items` or `body`.
+3. Set `"contract":2` in `wicket.json` and test the extension with the headless commands below.
+
 ## Manifest: wicket.json
 
 ```json
@@ -13,7 +25,7 @@ Symlinked extension folders in `extensions/` are watched live, including edits t
 Required: nonempty `name` and at least one of `command` (nonempty argv array), `items`, or a list setting that declares an `item`.
 Optional: `description` (one line for Settings), `keyword`, SF Symbol `icon`, `fields`, `itemList`, integer `contract`, `settings`, and—requiring `command`—regex `match`, boolean `fallback` (default false), boolean `submit` (default false), boolean `hidden` (default false, requires `submit`), and `permissions`. Any other key triggers a repair row naming it.
 
-Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1; a contract 1 program does not run and shows migration instructions (use typed `fields`/`settings`, read `request.fields`/`request.action`, return `items`/`body`, then set `"contract":2`). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
+Every manifest with a `command` must set `"contract":2`. Omitted defaults to 1. For a contract 1 program, follow [Migrating from contract 1](#migrating-from-contract-1). Items-only manifests may omit `contract` or keep 1. Higher contract versions report that a newer Wicket is needed.
 
 `command` performs no shell expansion. Use `"wicket-js"`, a relative executable (with execute bit and shebang; resolved in the extension folder), a bare executable on Wicket's PATH, or an absolute executable / installed interpreter, e.g. `["/usr/bin/python3","main.py"]`.
 

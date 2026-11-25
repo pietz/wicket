@@ -22,6 +22,7 @@ Specs, shared decisions, and status for official extensions. Wicket-wide roadmap
 - **Local customizations:** A valid local manifest overrides the built-in of the same ID. Settings and `--diagnose` surface active overrides so users can recover current built-in features and ask the agent to carry their custom changes forward.
 - **Existing mechanisms first:** Prefer static items, `run` (`hidden:true` where appropriate), fields, and pages. Add a core mechanism only when two real users need it.
 - **Inline answers and hotkeys.** Give an extension a keyword and command page when the page adds to the inline answer. Offer hotkeys for openable commands and items with a distinct action.
+- **Contract changes:** Follow the [contract evolution policy](../../Sources/WicketApp/Resources/extension-contract.md#contract-evolution) when proposing a change to the extension interface.
 - **Native frame, HTML pages; enabled means trusted:** Follow [AGENTS.md](../../AGENTS.md). A confirmation step for new extensions was considered and left out; it stays an option if real use shows a need.
 - **Permissions: Wicket holds them, extensions declare them, nobody asks twice:**
   - Extensions declare `permissions` and never prompt themselves or build helper apps.
