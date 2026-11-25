@@ -33,7 +33,7 @@ let package = Package(
     .executableTarget(
       name: "links-search", path: "Sources/Extensions/links-search", exclude: ["wicket.json"]),
     .testTarget(
-      name: "WicketTests", dependencies: ["WicketApp", "weather", "window", "shell"],
+      name: "WicketTests", dependencies: ["WicketApp", "units", "weather", "window", "shell"],
       resources: [.copy("Fixtures")]
     ),
   ]

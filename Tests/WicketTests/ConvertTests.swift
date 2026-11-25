@@ -2,32 +2,37 @@ import Foundation
 import Testing
 
 @testable import WicketApp
+@testable import units
 
 private let usdToEur = #"{"date":"2026-11-24","base":"USD","quote":"EUR","rate":0.8}"#
 
-private func rateManifest(_ command: ExtensionCommand, rate: String) throws -> ExtensionManifest {
-  var manifest = try #require(
-    JSONSerialization.jsonObject(with: JSONEncoder().encode(command.manifest)) as? [String: Any])
-  manifest["command"] = [
-    "/usr/bin/env", "WICKET_CONVERT_RATE_JSON=" + rate, command.folder.appending(path: "main").path,
-  ]
-  return try JSONDecoder().decode(
-    ExtensionManifest.self, from: JSONSerialization.data(withJSONObject: manifest))
+private func rateDirectory(_ runner: ExtensionRunner) throws -> URL {
+  let directory = runner.dataDirectory(for: "extension:units")
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  return directory
+}
+
+private func seedUSDtoEUR(in directory: URL) async {
+  _ = await exchangeRate(from: "USD", to: "EUR", in: directory) { _, _ in Data(usdToEur.utf8) }
 }
 
 private func convert(
   _ input: String, settings: [String: String] = [:], rate: String = usdToEur,
+  pair: (String, String) = ("USD", "EUR"), stale: Bool = false,
   locale: ProviderRequest.NumberMarks = .init(decimal: ".", grouping: ",")
 ) async throws -> Row? {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
-  let units = try bundled("units")
-  let command = ExtensionCommand(
-    id: units.id, folder: units.folder, manifest: try rateManifest(units, rate: rate))
+  let runner = ExtensionRunner(dataDirectory: folder)
+  let directory = try rateDirectory(runner)
+  let now = Date.now
+  _ = await exchangeRate(
+    from: pair.0, to: pair.1, in: directory, now: stale ? now.addingTimeInterval(-24 * 3600) : now
+  ) { _, _ in Data(rate.utf8) }
+  if stale { _ = await exchangeRate(from: pair.0, to: pair.1, in: directory, now: now) { _, _ in nil } }
   var request = ProviderRequest(input: input, locale: locale)
   request.settings = settings.mapValues(JSONValue.string)
-  let runner = ExtensionRunner(dataDirectory: folder)
-  return try await runner.run(command, request: request).items.first
+  return try await runner.run(bundled("units"), request: request).items.first
 }
 
 @Test func conversionPrecisionAndCopyUnitApplyToUnitsAndCurrencies() async throws {
@@ -68,7 +73,9 @@ private func convert(
   #expect(try await convert("100 usd", settings: ["homeCurrency": "EUR"])?.title == "80 EUR")
   #expect(try await convert("$100 to eur")?.title == "80 EUR")
   let rate = #"{"base":"CAD","quote":"USD","rate":0.75}"#
-  #expect(try await convert("$100 to usd", settings: ["homeCurrency": "CAD"], rate: rate)?.title == "75 USD")
+  #expect(
+    try await convert("$100 to usd", settings: ["homeCurrency": "CAD"], rate: rate, pair: ("CAD", "USD"))?
+      .title == "75 USD")
   #expect(try await convert("100 usd", rate: "invalid")?.title == "100 USD")
   #expect(try await convert("100 usd to frogs") == nil)
 }
@@ -83,6 +90,36 @@ func conversionShowsAnUnavailableRateWithoutActions(rate: String) async throws {
   #expect(row.actions.isEmpty)
 }
 
+@Test func currencyRatesAreCachedPerPairAndRefreshAfterAnOfflineRetryWindow() async throws {
+  let directory = try scratch()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let now = Date.now
+  let stale = now.addingTimeInterval(6 * 3600)
+  var fetches = 0
+  func lookup(_ at: Date, target: String = "EUR", response: String? = nil) async -> ExchangeRate? {
+    await exchangeRate(from: "USD", to: target, in: directory, now: at) { _, _ in
+      fetches += 1
+      return response.map { Data($0.utf8) }
+    }
+  }
+  #expect(await lookup(now, response: usdToEur) == ExchangeRate(value: 0.8))
+  #expect(await lookup(stale.addingTimeInterval(-1)) == ExchangeRate(value: 0.8))
+  #expect(fetches == 1)
+  #expect(await lookup(stale, target: "JPY") == nil)
+  #expect(await lookup(stale) == ExchangeRate(value: 0.8, stale: true))
+  #expect(await lookup(stale.addingTimeInterval(1)) == ExchangeRate(value: 0.8, stale: true))
+  #expect(fetches == 3)
+  #expect(await lookup(stale.addingTimeInterval(60), response: usdToEur) == ExchangeRate(value: 0.8))
+  #expect(await lookup(stale.addingTimeInterval(61)) == ExchangeRate(value: 0.8))
+  #expect(fetches == 4)
+}
+
+@Test func cachedCurrencyRateIsLabeledAndCanStillBeCopied() async throws {
+  let row = try #require(try await convert("100 usd to eur", stale: true))
+  #expect(row.title == "80 EUR" && row.subtitle == "Cached rate · Copy value")
+  #expect(row.actions == [.copy("80")])
+}
+
 @MainActor @Test func conversionPatternLeavesDimensionlessArithmeticToCalculator() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
@@ -94,11 +131,8 @@ func conversionShowsAnUnavailableRateWithoutActions(rate: String) async throws {
   }
   #expect(!units.matches("12*7"))
   #expect(calculator.matches("12*7"))
-  let command = try bundled("units")
-  let local = folder.appending(path: "extensions/units")
-  try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
-  try JSONEncoder().encode(rateManifest(command, rate: usdToEur)).write(
-    to: local.appending(path: "wicket.json"))
+  let directory = try rateDirectory(ExtensionRunner(dataDirectory: folder.appending(path: "extension-data")))
+  await seedUSDtoEUR(in: directory)
   let model = LauncherModel.testing(in: folder, bundled: bundledExtensions)
   model.store.start(watching: false)
   model.store.change { try $0.set("decimals", to: "4", forExtension: "units") }
