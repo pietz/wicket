@@ -318,7 +318,7 @@ struct SettingsPane: View {
       Text("Microphone")
     } footer: {
       Text(
-        "Wicket listens to the input chosen in Sound settings, using the Mac's own microphone instead of a Bluetooth headset's, and transcribes speech on your Mac. Opening Settings never starts listening or requests permission."
+        "Wicket listens to the input chosen in Sound settings and transcribes speech on your Mac. Listening on open uses the Mac's own microphone instead of a Bluetooth headset's; clicking the mic uses the headset. Opening Settings never starts listening or requests permission."
       )
     }
   }

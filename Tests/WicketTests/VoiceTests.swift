@@ -874,3 +874,21 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   #expect(await eventually(within: .seconds(15)) { fake.feeds.count == 2 })
   await controller.finish()
 }
+
+/// Without listening on open, a failed mic click's error ends with the visit instead of covering the
+/// launcher's status on every later open.
+@MainActor @Test func aManualDictationErrorEndsWithTheVisit() async throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let fake = FakeTranscriber()
+  let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
+  model.store.update { $0.voice.listenOnOpen = false }
+  controller.show(orderFront: false)
+  controller.input.toggle()
+  fake.feeds[0].finish(throwing: VoiceError.noMicrophone)
+  #expect(await eventually { controller.input.status == VoiceError.noMicrophone.description })
+  controller.hide()
+  controller.show(orderFront: false)
+  #expect(controller.input.status == nil && fake.feeds.count == 1)
+  await controller.finish()
+}

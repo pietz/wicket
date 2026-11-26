@@ -164,8 +164,13 @@ final class VoiceInput {
     )
   }
   func stop(_ reason: VoiceStop) {
-    // Dismissal ends the session the hint was for, even while voice is idle.
-    if reason == .hidden { bluetoothOnly = false }
+    // Dismissal ends the session the hint or error was for, even while voice is idle: without listening
+    // on open, nothing else would clear them before the next visit. A denial stays, as the reason voice
+    // no longer starts by itself.
+    if reason == .hidden {
+      bluetoothOnly = false
+      if !permissionDenied { problem = nil }
+    }
     guard active else { return }
     VoiceLog.logger.log(
       "voice stop: \(reason.rawValue, privacy: .public) while \(self.state == .listening ? "listening" : "starting", privacy: .public), \(VoiceLog.milliseconds(since: self.opened), privacy: .public) ms after start"
