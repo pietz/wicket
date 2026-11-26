@@ -70,7 +70,7 @@ Runs your local `claude` or `codex` CLI with your config and MCP servers—Wicke
 
 Replies render as keyboard-driven pages (rows, tiles, cards, charts, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.
 
-While the agent works, a light sweeps along the divider above the footer and dims as the reply starts streaming. With Reduce Motion, it stays in place and pulses. After three seconds, elapsed time appears beside Cancel.
+While the agent works, a light sweeps along the divider above the footer and dims as the reply starts streaming. With Reduce Motion, it stays in place and pulses. After three seconds, elapsed time appears in the footer's left corner.
 
 **Return to search after** in Settings ▸ Agent controls how long an idle conversation stays when you hide Wicket. Choose Immediately, 30 s, 1 min (default), 3 min, 5 min, 10 min, 15 min, or Never. In `config.json`, set `agent.answerRetentionSeconds` to `0`, `30`, `60`, `180`, `300`, `600`, `900`, or `-1` for Never.
 

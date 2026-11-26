@@ -332,12 +332,19 @@ struct LauncherView: View {
       .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
       Divider().anchorPreference(key: FooterDividerBounds.self, value: .bounds) { $0 }
       HStack(spacing: 12) {
-        Text(
+        let status =
           shown.voiceStatus
-            ?? (agent.map { renderer.problem ?? $0.footer }
-              ?? (shown.footerMessage ?? shown.commandName ?? "Wicket"))
-        ).lineLimit(1).help(
-          shown.voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? shown.footerMessage ?? "")
+          ?? (agent.map { renderer.problem ?? $0.footer }
+            ?? (shown.footerMessage ?? shown.commandName ?? "Wicket"))
+        // A running turn's elapsed time takes the status's place, which says how the turn ended once it has.
+        if status.isEmpty, panel?.isShown == true, let agent, agent.busy, let timing = agent.turnTiming,
+          timing.ending == nil
+        {
+          elapsedTimer(from: timing.start)
+        } else {
+          Text(status).lineLimit(1).help(
+            shown.voiceStatus ?? agent.map { renderer.problem ?? $0.footer } ?? shown.footerMessage ?? "")
+        }
         Spacer()
         if shown.permissionPending {
           Text("⌘↩ Allow")
@@ -349,9 +356,6 @@ struct LauncherView: View {
           if let action = shown.selected?.row.actions.first {
             Text("↩ " + action.label)
           } else if agent.busy {
-            if panel?.isShown == true, let timing = agent.turnTiming, timing.ending == nil {
-              elapsedTimer(from: timing.start)
-            }
             Button("Cancel") { navigator.cancelTurn() }.buttonStyle(.plain)
           } else if agent.question.isEmpty {
             Text("↩ Ask")
