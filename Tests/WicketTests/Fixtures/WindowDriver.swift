@@ -11,6 +11,7 @@ final class FakeAccessibility: WindowCaptureAccessibility {
     return (.success, (1...8).map { ($0, $0 == 1 && markFocused) })
   }
   func focusedWindow() -> (AXError, Int?) { (.success, 1) }
+  func windowID(_ window: Int) -> CGWindowID? { CGWindowID(window) }
   func isStandard(_ window: Int) -> (AXError, Bool) { (.success, window != 3) }
   func isMinimized(_ window: Int) -> (AXError, Bool) { (.success, window == 4) }
   func isFullScreen(_ window: Int) -> (AXError, Bool) { (.success, window == 5) }

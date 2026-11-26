@@ -122,25 +122,30 @@ enum WindowMove {
 
 // MARK: - Restore
 
-/// A move Wicket made: the app, the window's frame before and where it ended up (which the app may have
-/// adjusted, such as a terminal snapping to its character grid).
+/// A move Wicket made: the window's identity and its frames before and after the move.
 struct Record: Equatable {
   var pid: Int32
+  var windowID: CGWindowID
   var before: CGRect
   var after: CGRect
   var cycle: Move? = nil
 }
 
-/// One move per line: the pid, both frames as x, y, width and height, and an optional side preset.
+/// One move per line: pid:windowID, both frames as x, y, width and height, and an optional side preset.
 func parse(records text: String) -> [Record] {
   text.split(separator: "\n").compactMap { line in
     let fields = line.split(separator: " ")
-    guard fields.count == 9 || fields.count == 10, let pid = Int32(fields[0]) else { return nil }
+    guard fields.count == 9 || fields.count == 10 else { return nil }
+    // Older entries lack the window ID needed to distinguish overlapping windows of one app.
+    let identity = fields[0].split(separator: ":")
+    guard identity.count == 2, let pid = Int32(identity[0]), let windowID = CGWindowID(identity[1])
+    else { return nil }
     let numbers = fields.dropFirst().prefix(8).compactMap { Double($0) }
     guard numbers.count == 8 else { return nil }
     let cycle = fields.count == 10 ? Move(rawValue: String(fields[9])) : nil
     return Record(
-      pid: pid, before: CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3]),
+      pid: pid, windowID: windowID,
+      before: CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3]),
       after: CGRect(x: numbers[4], y: numbers[5], width: numbers[6], height: numbers[7]),
       cycle: cycle?.cyclesWidth == true ? cycle : nil)
   }
@@ -148,15 +153,15 @@ func parse(records text: String) -> [Record] {
 func format(_ records: [Record]) -> String {
   records.map { record in
     let numbers = [record.before, record.after].flatMap { [$0.minX, $0.minY, $0.width, $0.height] }
-    let line = ([String(record.pid)] + numbers.map { String(Double($0)) }).joined(separator: " ")
+    let line = (["\(record.pid):\(record.windowID)"] + numbers.map { String(Double($0)) }).joined(
+      separator: " ")
     return line + (record.cycle.map { " " + $0.rawValue } ?? "") + "\n"
   }.joined()
 }
 
-/// The latest move of this window: one of its app's that left a window where this one still is (within
-/// a point). Restoring it takes it off, so restoring again goes back one more move.
-func restoreIndex(_ records: [Record], pid: Int32, frame: CGRect) -> Int? {
-  records.lastIndex { $0.pid == pid && framesMatch($0.after, frame) }
+/// The latest move that left this window where it still is (within a point).
+func restoreIndex(_ records: [Record], pid: Int32, windowID: CGWindowID, frame: CGRect) -> Int? {
+  records.lastIndex { $0.pid == pid && $0.windowID == windowID && framesMatch($0.after, frame) }
 }
 
 private func framesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
@@ -176,6 +181,7 @@ let recordsFile: URL = {
 protocol WindowAccessibility {
   associatedtype Window
   func focusedWindow() -> (AXError, Window?)
+  func windowID(_ window: Window) -> CGWindowID?
   func isFullScreen(_ window: Window) -> (AXError, Bool)
   func frame(_ window: Window) -> (AXError, CGRect?)
   func enhancedUserInterface() -> (AXError, Bool)
@@ -188,6 +194,14 @@ struct SystemWindowAccessibility: WindowCaptureAccessibility {
   private let app: AXUIElement
   private let timeout: Float
   private let enhancedAttribute = "AXEnhancedUserInterface"
+
+  private typealias GetWindowID = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+  private static let getWindowID: GetWindowID? = {
+    // RTLD_DEFAULT. Resolve at runtime so moves still work if this private AX bridge disappears.
+    dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow").map {
+      unsafeBitCast($0, to: GetWindowID.self)
+    }
+  }()
 
   init(pid: pid_t, timeout: Float = 1) {
     app = AXUIElementCreateApplication(pid)
@@ -224,6 +238,12 @@ struct SystemWindowAccessibility: WindowCaptureAccessibility {
     let (focusError, focused) = markFocused ? attribute(app, kAXFocusedWindowAttribute) : (.success, nil)
     if focusError == .apiDisabled { return (focusError, []) }
     return (error, windows.map { window in (window, focused.map { CFEqual(window, $0) } ?? false) })
+  }
+
+  func windowID(_ window: AXUIElement) -> CGWindowID? {
+    var id = kCGNullWindowID
+    guard Self.getWindowID?(window, &id) == .success, id != kCGNullWindowID else { return nil }
+    return id
   }
 
   func isStandard(_ window: AXUIElement) -> (AXError, Bool) {
@@ -286,7 +306,7 @@ struct SystemWindowAccessibility: WindowCaptureAccessibility {
 }
 
 private func writeFrame<AX: WindowAccessibility>(
-  _ destination: WindowTarget, to window: AX.Window, using ax: AX
+  _ destination: WindowTarget, current: CGRect, to window: AX.Window, using ax: AX
 ) -> (denied: Bool, actual: CGRect?, cleanupError: AXError) {
   let (error, enhanced) = ax.enhancedUserInterface()
   if error == .apiDisabled { return (true, nil, .success) }
@@ -309,6 +329,20 @@ private func writeFrame<AX: WindowAccessibility>(
   let position = ax.setPosition(origin, of: window)
   let finalSize = ax.setSize(requested, of: window)
   var (readback, actual) = readFrame()
+  let oldSize = sized?.size ?? current.size
+  if finalSize == .success, requested != oldSize {
+    // Some apps acknowledge AXSize before applying it. Wait only while readback is stale.
+    let deadline = ContinuousClock.now + .milliseconds(75)
+    for _ in 0..<3 {
+      guard readback == .success, actual?.size == oldSize,
+        ContinuousClock.now + .milliseconds(20) < deadline
+      else { break }
+      Thread.sleep(forTimeInterval: 0.020)
+      let (error, frame) = ax.frame(window)
+      guard error == .success || error == .apiDisabled else { break }
+      (readback, actual) = (error, frame)
+    }
+  }
   var correction = AXError.success
   if position == .success, readback == .success, let frame = actual {
     let adjusted = destination.position(for: frame.size)
@@ -381,10 +415,11 @@ func perform<AX: WindowAccessibility>(
   guard let current else { return problem("\(name)'s window has no frame to move") }
 
   var records = contents(recordsFile.path).map { parse(records: String(decoding: $0, as: UTF8.self)) } ?? []
-  let historyIndex = restoreIndex(records, pid: pid, frame: current)
+  let windowID = ax.windowID(window)
+  let historyIndex = windowID.flatMap { restoreIndex(records, pid: pid, windowID: $0, frame: current) }
   var restore: Int?
   var cycle: Move?
-  let destination: WindowTarget
+  var destination: WindowTarget
   switch move {
   case .stock(.restore):
     guard let index = historyIndex else {
@@ -411,7 +446,16 @@ func perform<AX: WindowAccessibility>(
     destination = WindowTarget(frame: rect, visible: visible, alignment: placement.anchor.position)
   }
 
-  let (denied, actual, cleanupError) = writeFrame(destination, to: window, using: ax)
+  var (denied, actual, cleanupError) = writeFrame(destination, current: current, to: window, using: ax)
+  if !denied, cleanupError == .success, let cycle, actual == current,
+    destination.frame.width < current.width, let visible = destination.visible,
+    let wider = sideFrames(cycle == .left ? .left : .right, visible: visible, gap: layout.gap(in: visible))
+      .filter({ $0.width > current.width }).min(by: { $0.width < $1.width })
+  {
+    // A clamped size can look like a preset even when the next narrower step cannot move it.
+    destination = WindowTarget(frame: wider, visible: visible, alignment: destination.alignment)
+    (denied, actual, cleanupError) = writeFrame(destination, current: current, to: window, using: ax)
+  }
   var cleanupWarning: String?
   if cleanupError != .success {
     let warning = "Couldn't re-enable Enhanced User Interface for \(name)"
@@ -427,9 +471,10 @@ func perform<AX: WindowAccessibility>(
   let applied =
     restore != nil ? framesMatch(actual, destination.frame) : placementMatches(actual, destination.frame)
   let changed = actual != current
+  var historyChanged = true
   if let restore, applied {
     records.remove(at: restore)
-  } else if changed {
+  } else if changed, let windowID {
     if let restore {
       // A partial Restore can be retried from the verified frame it left behind.
       records[restore].after = actual
@@ -438,10 +483,16 @@ func perform<AX: WindowAccessibility>(
       record.after = actual
       records.append(record)
     } else {
-      records.append(Record(pid: pid, before: current, after: actual, cycle: cycle))
+      records.append(Record(pid: pid, windowID: windowID, before: current, after: actual, cycle: cycle))
     }
+  } else if applied, !denied, let historyIndex, let previous = records[historyIndex].cycle,
+    previous != cycle
+  {
+    records[historyIndex].cycle = nil
+  } else {
+    historyChanged = false
   }
-  if changed || (restore != nil && applied) {
+  if historyChanged {
     let recordLimit = 50
     try? Data(format(records.suffix(recordLimit)).utf8).write(to: recordsFile, options: .atomic)
   }
@@ -450,7 +501,7 @@ func perform<AX: WindowAccessibility>(
   if applied { return nil }
   if changed {
     let next = restore == nil ? "Use Restore to undo the change" : "Try Restore again"
-    return problem("\(name)'s window only moved partway", next)
+    return problem("\(name)'s window only moved partway", windowID == nil ? nil : next)
   }
   return problem("\(name)'s window can't be moved")
 }

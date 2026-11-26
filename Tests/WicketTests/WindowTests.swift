@@ -167,22 +167,24 @@ func aConstrainedSizeKeepsTheMovesAnchor(anchor: window.WindowAnchor, size: CGSi
   let half = CGRect(x: 0, y: 33, width: 756, height: 859)
   // A terminal snapped the maximized window to its grid: the record has where it ended up.
   let maximized = CGRect(x: 0, y: 33, width: 1508, height: 855)
-  let other = Record(pid: 7, before: .zero, after: half)
+  let other = Record(pid: 7, windowID: 1, before: .zero, after: half)
   var records = window.parse(
     records: window.format([
-      Record(pid: 42, before: original, after: half), other,
-      Record(pid: 42, before: half, after: maximized),
-    ]) + "garbage line\n42 1 2 3\n")
+      Record(pid: 42, windowID: 1, before: original, after: half), other,
+      Record(pid: 42, windowID: 1, before: half, after: maximized),
+    ]) + "garbage line\n42 1 2 3\n42 100 200 640 480 0 33 756 859 left\n")
   #expect(records.count == 3)
   // Within a point of where Wicket left it.
-  var index = try #require(restoreIndex(records, pid: 42, frame: maximized.offsetBy(dx: 1, dy: 0)))
+  var index = try #require(
+    restoreIndex(records, pid: 42, windowID: 1, frame: maximized.offsetBy(dx: 1, dy: 0)))
   #expect(records.remove(at: index).before == half)
-  index = try #require(restoreIndex(records, pid: 42, frame: half))
+  index = try #require(restoreIndex(records, pid: 42, windowID: 1, frame: half))
   #expect(records.remove(at: index).before == original)
-  #expect(restoreIndex(records, pid: 42, frame: original) == nil)
+  #expect(restoreIndex(records, pid: 42, windowID: 1, frame: original) == nil)
   // Moved by hand since, or another app's window: nothing to restore.
-  #expect(restoreIndex(records, pid: 7, frame: half.offsetBy(dx: 2, dy: 0)) == nil)
-  #expect(restoreIndex(records, pid: 8, frame: half) == nil)
+  #expect(restoreIndex(records, pid: 7, windowID: 1, frame: half.offsetBy(dx: 2, dy: 0)) == nil)
+  #expect(restoreIndex(records, pid: 8, windowID: 1, frame: half) == nil)
+  #expect(restoreIndex(records, pid: 7, windowID: 2, frame: half) == nil)
   #expect(records == [other])
 }
 
@@ -197,6 +199,7 @@ private final class FakeWindowAccessibility: WindowAccessibility {
 
   static let original = CGRect(x: 100, y: 200, width: 640, height: 480)
   var current = original
+  var focused = 1
   var enhanced = false
   var applyPosition = true
   var applySize = true
@@ -209,16 +212,27 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   var focusError = AXError.success
   var readbackErrors: [AXError] = []
   var reenableErrors: [AXError] = []
+  var staleSizeReads = 0
+  private var pendingSize: (size: CGSize, staleReads: Int)?
   var events: [Event] = []
 
   func focusedWindow() -> (AXError, Int?) {
-    (focusError, focusError == .success ? 1 : nil)
+    (focusError, focusError == .success ? focused : nil)
   }
+  func windowID(_ window: Int) -> CGWindowID? { CGWindowID(window) }
   func isFullScreen(_ window: Int) -> (AXError, Bool) { (.success, false) }
   func frame(_ window: Int) -> (AXError, CGRect?) {
     let error =
       events.contains(.position) && !readbackErrors.isEmpty ? readbackErrors.removeFirst() : .success
     events.append(.readFrame)
+    if error == .success, let pending = pendingSize {
+      if pending.staleReads == 0 {
+        current.size = pending.size
+        pendingSize = nil
+      } else {
+        pendingSize?.staleReads -= 1
+      }
+    }
     return (error, error == .success ? current : nil)
   }
   func enhancedUserInterface() -> (AXError, Bool) { (.success, enhanced) }
@@ -239,7 +253,12 @@ private final class FakeWindowAccessibility: WindowAccessibility {
       let available = trailingLimit.map { $0 - current.minX } ?? size.width
       let achievable = CGSize(width: max(min(available, size.width), minimumWidth), height: size.height)
       let beforePosition = events.contains(.position) ? nil : sizeBeforePosition
-      current.size = beforePosition ?? adjustedSize ?? achievable
+      let accepted = beforePosition ?? adjustedSize ?? achievable
+      if staleSizeReads > 0 {
+        pendingSize = (accepted, staleSizeReads)
+      } else {
+        current.size = accepted
+      }
     }
     return sizeError
   }
@@ -272,7 +291,8 @@ private func moveRecords(in folder: URL) throws -> [Record] {
   ax.applyPosition = false
   ax.applySize = false
   #expect(try ax.move(.left, in: folder)?.title == "Test App's window can't be moved")
-  #expect(ax.events == [.readFrame, .size, .readFrame, .position, .size, .readFrame, .position, .readFrame])
+  #expect(ax.events.prefix(6) == [.readFrame, .size, .readFrame, .position, .size, .readFrame])
+  #expect(ax.events.suffix(2) == [.position, .readFrame])
   #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "moves.txt").path))
 }
 
@@ -306,7 +326,7 @@ func stockMovesAcceptGridSnappingAndModestMinimumWidths(width: Int) throws {
   #expect(ax.current == CGRect(x: 0, y: 33, width: 1008, height: 859))
   #expect(
     try moveRecords(in: folder) == [
-      Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
+      Record(pid: 42, windowID: 1, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
     ])
 
   let restored = try ax.move(.restore, in: folder)
@@ -325,11 +345,34 @@ func restoreUndoesACompleteWidthCycleInOneMove(side: Move) throws {
     let x = side == .left ? 0 : 1512 - width
     #expect(ax.current == CGRect(x: x, y: 33, width: width, height: 859))
     #expect(
-      try moveRecords(in: folder) == [Record(pid: 42, before: original, after: ax.current, cycle: side)])
+      try moveRecords(in: folder) == [
+        Record(pid: 42, windowID: 1, before: original, after: ax.current, cycle: side)
+      ])
   }
   #expect(try ax.move(.restore, in: folder) == nil)
   #expect(ax.current == original)
   #expect(try moveRecords(in: folder).isEmpty)
+}
+
+@Test func twoTiledWindowsOfTheSameAppKeepSeparateRestoreHistories() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let first = FakeWindowAccessibility()
+  let second = FakeWindowAccessibility()
+  second.focused = 2
+  second.current = CGRect(x: 300, y: 180, width: 640, height: 420)
+  let firstOriginal = first.current
+  let secondOriginal = second.current
+
+  #expect(try first.move(.left, in: folder) == nil)
+  #expect(try second.move(.left, in: folder) == nil)
+  #expect(first.current == second.current)
+  #expect(try first.move(.left, in: folder) == nil)
+  #expect(first.current.width == 1008)
+  #expect(try first.move(.restore, in: folder) == nil)
+  #expect(first.current == firstOriginal)
+  #expect(try second.move(.restore, in: folder) == nil)
+  #expect(second.current == secondOriginal)
 }
 
 @Test(arguments: [620, 800])
@@ -346,9 +389,29 @@ func aRightCycleKeepsItsAnchorAndContinuesAfterAMinimumWidth(minimum: Int) throw
     #expect(ax.current == CGRect(x: 1500 - width, y: 45, width: width, height: 835))
   }
   #expect(
-    try moveRecords(in: folder) == [Record(pid: 42, before: starting, after: ax.current, cycle: .right)])
+    try moveRecords(in: folder) == [
+      Record(pid: 42, windowID: 1, before: starting, after: ax.current, cycle: .right)
+    ])
   #expect(try ax.move(.restore, in: folder) == nil)
   #expect(ax.current == starting)
+}
+
+private let wideScreen = CGRect(x: 0, y: 0, width: 1200, height: 800)
+
+@Test func aMinimumWidthNearTwoThirdsDoesNotTrapTheRightCycle() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = CGRect(x: 100, y: 100, width: 900, height: 480)
+  ax.current = original
+  ax.minimumWidth = 784
+  let displays = [Display(frame: wideScreen, visible: wideScreen)]
+  for width in [784, 800, 784, 800] {
+    _ = try ax.apply(.stock(.right), in: folder, displays: displays)
+    #expect(ax.current == CGRect(x: 1200 - width, y: 0, width: width, height: 800))
+  }
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == original)
 }
 
 @Test func aSavedHalfStaysFixedAndStartsItsOwnRestoreStepBeforeAStockCycle() throws {
@@ -364,6 +427,43 @@ func aRightCycleKeepsItsAnchorAndContinuesAfterAMinimumWidth(minimum: Int) throw
   #expect(ax.current.width == 1008)
   #expect(try ax.move(.restore, in: folder) == nil)
   #expect(ax.current == half)
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == original)
+}
+
+@Test func aSavedMoveAlreadyAtItsDestinationEndsThePreviousCycle() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = ax.current
+  #expect(try ax.move(.left, in: folder) == nil)
+  let half = ax.current
+  let saved = WindowMove.custom(Placement(anchor: .left, width: 50, height: 100))
+  #expect(try ax.apply(saved, in: folder) == nil)
+  #expect(try moveRecords(in: folder) == [Record(pid: 42, windowID: 1, before: original, after: half)])
+  #expect(try ax.move(.left, in: folder) == nil)
+  #expect(ax.current.width == 1008)
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == half)
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == original)
+}
+
+@Test func aDelayedRightHalfResizeReanchorsAndCanBeRestored() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = CGRect(x: 100, y: 0, width: 900, height: 800)
+  ax.current = original
+  ax.staleSizeReads = 1
+  let displays = [Display(frame: wideScreen, visible: wideScreen)]
+  let right = CGRect(x: 600, y: 0, width: 600, height: 800)
+  #expect(try ax.apply(.stock(.right), in: folder, displays: displays) == nil)
+  #expect(ax.current == right)
+  #expect(
+    try moveRecords(in: folder) == [
+      Record(pid: 42, windowID: 1, before: original, after: right, cycle: .right)
+    ])
   #expect(try ax.move(.restore, in: folder) == nil)
   #expect(ax.current == original)
 }
@@ -411,7 +511,10 @@ func aRightCycleKeepsItsAnchorAndContinuesAfterAMinimumWidth(minimum: Int) throw
   let partial = CGRect(x: 0, y: 33, width: 900, height: 859)
   #expect(ax.current == partial)
   #expect(try ax.move(.left, in: folder)?.title == "Test App's window can't be moved")
-  #expect(try moveRecords(in: folder) == [Record(pid: 42, before: original, after: partial, cycle: .left)])
+  #expect(
+    try moveRecords(in: folder) == [
+      Record(pid: 42, windowID: 1, before: original, after: partial, cycle: .left)
+    ])
 }
 
 @Test(arguments: [0, 1, 2])
@@ -437,7 +540,8 @@ func enhancedInterfaceStaysOffThroughReadbackAndIsRestoredAfterward(readbackFail
     #expect(result == nil)
     #expect(
       try moveRecords(in: folder) == [
-        Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
+        Record(
+          pid: 42, windowID: 1, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
       ])
   }
 }
@@ -463,7 +567,7 @@ func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXE
   }
   #expect(
     try moveRecords(in: folder) == [
-      Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
+      Record(pid: 42, windowID: 1, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
     ])
 }
 
@@ -479,7 +583,9 @@ func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXE
   #expect(partial.origin == original.origin && partial.size != original.size)
   let history = try String(contentsOf: folder.appending(path: "moves.txt"), encoding: .utf8)
   try #require(
-    window.parse(records: history) == [Record(pid: 42, before: original, after: partial, cycle: .left)],
+    window.parse(records: history) == [
+      Record(pid: 42, windowID: 1, before: original, after: partial, cycle: .left)
+    ],
     "\(history)")
 
   ax.positionError = .success
@@ -487,7 +593,8 @@ func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXE
   ax.sizeError = .failure
   #expect(try ax.move(.restore, in: folder)?.subtitle == "Try Restore again")
   #expect(ax.current.origin == partial.origin && ax.current.size != partial.size)
-  #expect(try moveRecords(in: folder).last == Record(pid: 42, before: partial, after: ax.current))
+  #expect(
+    try moveRecords(in: folder).last == Record(pid: 42, windowID: 1, before: partial, after: ax.current))
 
   ax.sizeError = .success
   #expect(try ax.move(.restore, in: folder) == nil)
@@ -830,7 +937,8 @@ let codingMove = [
     ])
   #expect(status.0 == 0 && status.1 == .object([:]))
   #expect(try observedFrame() == destination)
-  #expect(try moveRecords(in: dataFolder) == [Record(pid: 42, before: original, after: destination)])
+  #expect(
+    try moveRecords(in: dataFolder) == [Record(pid: 42, windowID: 1, before: original, after: destination)])
   let restore = try await cli(root, ["--extension", "window", "--submitted", "--action", "restore"])
   #expect(restore.0 == 0 && restore.1 == .object([:]))
   #expect(try observedFrame() == original)
@@ -854,7 +962,8 @@ let codingMove = [
   await model.navigator.settled()
   #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
   #expect(try observedFrame() == destination)
-  #expect(try moveRecords(in: dataFolder) == [Record(pid: 42, before: original, after: destination)])
+  #expect(
+    try moveRecords(in: dataFolder) == [Record(pid: 42, windowID: 1, before: original, after: destination)])
   model.press(try #require(HotkeyTarget("wicket://window?item=restore")))
   await model.navigator.settled()
   #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)

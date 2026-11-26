@@ -62,11 +62,15 @@ struct WindowTarget {
   }
 }
 
-func sideTarget(_ anchor: WindowAnchor, window: CGRect, visible: CGRect, gap: CGFloat) -> CGRect? {
+func sideFrames(_ anchor: WindowAnchor, visible: CGRect, gap: CGFloat) -> [CGRect] {
   let widths: [CGFloat] = [50, 200.0 / 3, 100.0 / 3]
-  let frames = widths.compactMap {
+  return widths.compactMap {
     Placement(anchor: anchor, width: $0, height: 100).frame(in: visible, gap: gap)
   }
+}
+
+func sideTarget(_ anchor: WindowAnchor, window: CGRect, visible: CGRect, gap: CGFloat) -> CGRect? {
+  let frames = sideFrames(anchor, visible: visible, gap: gap)
   guard let half = frames.first else { return nil }
   if let index = frames.firstIndex(where: { placementMatches(window, $0) }) {
     return frames[(index + 1) % frames.count]
