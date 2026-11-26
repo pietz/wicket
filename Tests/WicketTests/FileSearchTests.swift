@@ -214,7 +214,6 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == queries(invoice) })
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
-  spotlight.send(invoice, [], in: otherScopes)
   #expect(await eventually { model.navigator.results.map(\.row.title) == ["Invoice.pdf"] })
   #expect(model.root.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], in: otherScopes)
@@ -223,7 +222,7 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   spotlight.send(invoice, [home + "/Documents/Invoice-2026.md"], finish: true)
   await model.navigator.settled()
   #expect(model.navigator.results.map(\.row.title) == ["inventory.csv", "Invoice-2026.md"])
-  // The next keystroke keeps the files that still match until its own first batch replaces them.
+  // The next keystroke keeps the files that still match until its own search ends.
   model.navigator.input = "invoice"
   #expect(model.navigator.results.map(\.row.title) == ["Invoice-2026.md"])
   let longer = #"kMDItemFSName == "invoice*"cdw"#
@@ -234,15 +233,17 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   #expect(model.navigator.results.map(\.row.title) == ["Ask agent"])
 }
 
-/// A file carried over from the previous input stays, and stays what Return runs, until the group
-/// that holds it has answered: the other group answering first with nothing must not empty the list.
-@MainActor @Test func aCarriedFileSurvivesTheOtherGroupAnsweringFirst() async throws {
+/// A file carried over from the previous input stays, and stays what Return runs, while batches are
+/// partial: neither the other group answering first with nothing nor its own group delivering another
+/// file first may move it. The finished search then shows only what was found.
+@MainActor @Test func aCarriedFileStaysFirstUntilTheSearchEnds() async throws {
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
+  let (first, second) = (home + "/Documents/Invoice.pdf", home + "/Documents/Invoice2.pdf")
   model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == queries(invoice) })
-  spotlight.send(invoice, [home + "/Documents/Invoice.pdf"], finish: true)
+  spotlight.send(invoice, [first], finish: true)
   spotlight.send(invoice, [], in: otherScopes, finish: true)
   await model.navigator.settled()
   model.navigator.input = "invo"
@@ -250,10 +251,12 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   #expect(await eventually { spotlight.started == queries(invoice, longer) })
   spotlight.send(longer, [], in: otherScopes, finish: true)
   try await Task.sleep(for: .milliseconds(50))
-  #expect(model.navigator.results.first?.row.title == "Invoice.pdf")
-  spotlight.send(longer, [home + "/Documents/Invoice.pdf"], finish: true)
-  await model.navigator.settled()
   #expect(model.navigator.results.map(\.row.title) == ["Invoice.pdf"])
+  spotlight.send(longer, [second])
+  #expect(await eventually { model.navigator.results.map(\.row.title) == ["Invoice.pdf", "Invoice2.pdf"] })
+  spotlight.send(longer, [second], finish: true)
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Invoice2.pdf"])
 }
 
 @MainActor @Test func aFullBatchOfNoiseLeavesRoomForPersonalFiles() async throws {

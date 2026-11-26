@@ -184,7 +184,7 @@ final class FilesProvider: Sendable {
         let groups = FileSearch.scopeGroups(scopes, home: home)
         guard (try? await Task.sleep(for: debounce)) != nil else { return }
         let start = ContinuousClock.now
-        let (updates, feed) = AsyncStream.makeStream(of: (Int, [FileHit]?).self)
+        let (updates, feed) = AsyncStream.makeStream(of: (Int, [FileHit]).self)
         async let queries: Void = withTaskGroup(of: Void.self) { tasks in
           for (index, locations) in groups.enumerated() {
             tasks.addTask {
@@ -193,23 +193,16 @@ final class FilesProvider: Sendable {
                 guard !Task.isCancelled else { return }
                 feed.yield((index, hits))
               }
-              feed.yield((index, nil))  // Answered, even when it found nothing.
             }
           }
           await tasks.waitForAll()
           feed.finish()
         }
         var latest = [[FileHit]](repeating: [], count: groups.count)
-        var answered: Set<Int> = []
         var first = true
         for await (index, hits) in updates {
           guard !Task.isCancelled else { return }
-          if let hits { latest[index] = hits }
-          // The list keeps the previous input's files until the first batch replaces them, so that
-          // batch waits for every group: one group alone would drop a file the other still holds.
-          guard answered.insert(index).inserted || hits != nil, answered.count == groups.count else {
-            continue
-          }
+          latest[index] = hits
           let merged = latest.flatMap { $0 }
           let rows = FileSearch.rows(merged, input: input, scopes: scopes, home: home)
           continuation.yield(rows)

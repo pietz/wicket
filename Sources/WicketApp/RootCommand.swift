@@ -26,7 +26,7 @@ typealias AppSearch = @MainActor (String) async -> SearchIndex
   private var extensions: ExtensionHost { directory.extensions }
 
   private var appMatches: [SearchIndex.Match] = []
-  /// The previous file rows stay until the first batch for a new input replaces them.
+  /// The previous file rows stay until the search for a new input ends.
   private var fileRows: [Row] = []
   private var fileMatches: [SearchIndex.Match] = []
   private var itemRows: [Ranking.Names] = []
@@ -108,8 +108,8 @@ typealias AppSearch = @MainActor (String) async -> SearchIndex
       return Ranking.Names(
         provider: command.id, kind: .item, matches: command.rootItems(query, including: exact))
     }
-    // The previous file rows stay until the first batch for this input replaces them, so files do not
-    // vanish and return on every keystroke; ranking drops those the new input no longer matches.
+    // The previous file rows stay until the search for this input ends, so files do not vanish and
+    // return on every keystroke; ranking drops those the new input no longer matches.
     let files = files.flatMap { files in
       active.contains { $0.id == files.id } && FileSearch.predicate(for: input) != nil ? files : nil
     }
@@ -184,24 +184,26 @@ typealias AppSearch = @MainActor (String) async -> SearchIndex
           if appsReady, !holding { compose() }
         })
     }
-    // Each file batch replaces the previous one. Cancelling the task stops both Spotlight queries.
+    // Each file batch replaces the previous one. A batch can be partial (one search group, or one
+    // still gathering), so the carried rows it lacks stay in front, keeping what Return runs, until
+    // the search ends and shows what was really found. Cancelling the task stops both Spotlight queries.
     if let files {
       pending.insert(files.id)
+      let carried = fileRows
       tasks.append(
         Task { [weak self] in
-          var received = false
+          var found: [Row] = []
           for await rows in files.batches(for: request.input) {
             guard let self, !Task.isCancelled, generation == current else { return }
-            received = true
-            fileRows = rows
-            fileMatches = SearchIndex(rows).scored(query, forFile: true)
+            found = rows
+            let ids = Set(rows.map(\.id))
+            fileRows = carried.filter { !ids.contains($0.id) } + rows
+            fileMatches = SearchIndex(fileRows).scored(query, forFile: true)
             if appsReady, !holding { compose() }
           }
           guard let self, !Task.isCancelled, generation == current else { return }
-          if !received {
-            fileRows = []
-            fileMatches = []
-          }
+          fileRows = found
+          fileMatches = SearchIndex(found).scored(query, forFile: true)
           pending.remove(files.id)
           if appsReady, !holding { compose() }
         })
