@@ -184,6 +184,22 @@ struct ChartTests {
     #expect(!oversizedChart.contains(oversizedTitle))
   }
 
+  @Test func reviewedEdges() {
+    // A range narrower than a Double can resolve still gets distinct axis bounds.
+    let close = html(#"<chart labels="A,B"><line values="0.9999999999999999,1"/></chart>"#)
+    #expect(close.contains("chart-line") && !close.contains("nan") && !close.contains("inf"))
+    // Several column series keep the colors their legend names.
+    let several = html(
+      #"<chart labels="Q1,Q2" highlight="max"><column name="Sales" values="1,2"/>"#
+        + #"<column name="Costs" values="3,4"/></chart>"#)
+    #expect(several.contains("chart-column chart-color-2") && !several.contains("chart-muted"))
+    let lone = html(#"<chart labels="Q1,Q2" highlight="max"><column values="1,2"/></chart>"#)
+    #expect(lone.contains("chart-muted"))
+    // A value beyond the labels is not plotted and does not spoil the chart.
+    let surplus = html(#"<chart labels="Mon,Tue"><line values="4,7,N/A"/></chart>"#)
+    #expect(surplus.contains("chart-line") && !surplus.contains("chart-fallback"))
+  }
+
   @Test func malformedChartKeepsJSONItemsReachable() {
     let body = #"<chart><bar label="Readable" value="1"/><chart>"#
     let item = Row(id: "after", title: "After", actions: [.copy("after")])

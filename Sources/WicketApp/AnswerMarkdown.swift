@@ -443,10 +443,14 @@ enum AnswerMarkdown {
     return (chart, bytes.count, false)
   }
 
-  /// What follows a `<` that may still become a tag: a name being written, or nothing yet.
+  /// What follows a `<` that may still become a tag: nothing yet, the start of a tag's name, or a whole
+  /// name with its attributes. Anything else (`x<y holds`) is text and holds nothing back.
   private static func partial(_ rest: ArraySlice<UInt8>) -> Bool {
-    let name = rest.first == 47 ? rest.dropFirst() : rest
-    return name.first.map { (97...122).contains($0) } ?? true
+    let written = rest.first == 47 ? rest.dropFirst() : rest
+    let name = written.prefix { (97...122).contains($0) }
+    let text = String(decoding: name, as: UTF8.self)
+    let known = Chart.tagNames.union(Page.slots.keys)
+    return name.count == written.count ? known.contains { $0.hasPrefix(text) } : known.contains(text)
   }
 
   private static func render(

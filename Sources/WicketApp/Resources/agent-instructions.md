@@ -80,7 +80,7 @@ Content between opening and closing tags is not shown inline—it is the item's 
   `<progress label="Disk" value="420 of 600 GB" percent="70"/>`
 - **`badge`**: inline capsule (`label`, `tone`), for a state that is good or bad for the user: `positive` a success, `negative` a failure, `warning` a risk they must act on. Self-closing, no detail.
   `<badge label="Overdue" tone="negative"/>`
-- **`chart`**: a plot of the numbers you give it; shown only, never selectable. On the chart: `title`, `unit`, and `highlight="max"` or `"min"` to accent one bar or column. Inside, one of:
+- **`chart`**: a plot of the numbers you give it; shown only, never selectable. On the chart: `title`, `unit`, and `highlight="max"` or `"min"` to accent one bar, or one column of a single series. Inside, one of:
   - series: `labels` on the chart, then `line`, `area` or `column` tags with matching comma-separated `values`, up to 200 points (leave a slot empty for a missing point). Name each with `name` when there are several. Columns sharing a `stack` key stack; `<line style="dashed"/>` suits a target.
   - `<bar label="…" value="…"/>` per thing, or `<share label="…" value="…"/>` per part.
 

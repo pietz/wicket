@@ -179,7 +179,7 @@ Use a chart for a trend or to compare four or more numbers at a glance.
 </chart>
 ```
 
-- **Chart:** `title` and `unit` are optional. `highlight="max"` or `"min"` accents the first bar or column segment with the extreme value.
+- **Chart:** `title` and `unit` are optional. `highlight="max"` or `"min"` accents the first bar with the extreme value, or the first such column when the chart has a single column series.
 - **Series and rules:** Supply comma-separated `labels` on the chart and comma-separated `values` on each self-closing `line`, `area`, or `column`. Empty values are gaps. Wicket pads short lists and truncates long ones to the labels. A legend appears with two or more named series (`name`). Lines take `style="dashed"`. Columns sit side by side, and columns sharing a `stack` key stack. A `rule` marks a numeric `value` or a label `at`; add `label` for its caption and `tone="positive"`, `"warning"`, or `"negative"` to tint a threshold.
 - **Bars or shares:** Omit `labels` and use only `<bar label="…" value="…"/>` for horizontal bars or only `<share label="…" value="…"/>` for a segmented bar. Shares need a positive total. Stacked values and shares must be nonnegative.
 - **Limits:** Up to eight series, 200 labels or values per series, and 24 bars, shares, or rules. Invalid charts show a table of readable data. Charts and their marks ignore action attributes and are skipped by keyboard selection.

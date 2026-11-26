@@ -11,7 +11,10 @@ import Testing
 }
 @Test func completedAnswerKeepsUnfinishedTagLikeText() {
   #expect(AnswerMarkdown.html("use i<count in loop").contains("i&lt;count in loop"))
-  #expect(!AnswerMarkdown.html("use i<count in loop", streaming: true).contains("count"))
+  // While streaming, only what can still become a Wicket tag waits.
+  #expect(AnswerMarkdown.html("use i<count in loop", streaming: true).contains("in loop"))
+  #expect(!AnswerMarkdown.html("use <row title=\"A", streaming: true).contains("row"))
+  #expect(!AnswerMarkdown.html("use <ch", streaming: true).contains("ch"))
 }
 @Test(arguments: [
   (#"Use \<Button>"#, "<p>Use &lt;Button&gt;</p>"),

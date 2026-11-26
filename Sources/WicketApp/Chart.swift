@@ -76,7 +76,8 @@ struct Chart {
     let at = kind == .rule ? attrs["at"] : nil
     let stack = kind == .column ? attrs["stack"].flatMap { $0.isEmpty ? nil : $0 } : nil
     let inputs = kind.isSeries ? attrs["values"].map(Self.parts) ?? [] : [attrs["value"] ?? ""]
-    let points = inputs.prefix(Self.maxPoints).map { text -> Number? in
+    // Values beyond the labels are never plotted, so they cannot make the chart invalid either.
+    let points = inputs.prefix(kind.isSeries ? min(labels.count, Self.maxPoints) : 1).map { text -> Number? in
       let number = Number(text)
       if number == nil, !text.isEmpty { invalid = true }
       if let number, number.value < 0, kind == .share || stack != nil { invalid = true }
@@ -273,7 +274,8 @@ struct Chart {
         + Self.escape(label) + "</span>"
     }.joined()
 
-    let chosen = highlighted(choices)
+    // Several series keep their legend colors, so only a lone series can accent one column.
+    let chosen = columns.count == 1 ? highlighted(choices) : nil
     let slot = 1 / Double(labels.count)
     let columnWidth = min(0.09, slot * 0.78 / Double(max(1, groupCount)))
     // Columns are HTML, not SVG: the plot's stretched viewBox would distort a rounded corner. Only the
@@ -422,7 +424,8 @@ struct Chart {
         low = min(0, low)
         high = max(0, high)
       }
-      if low == high {
+      // Values are normalized to at most 1; a narrower range would round both bounds to one number.
+      if high - low < 1e-9 {
         low -= low == 0 ? 0 : 0.1
         high += high == 0 ? 1 : 0.1
       }
