@@ -185,7 +185,7 @@ typealias AppSearch = @MainActor (String) async -> SearchIndex
         })
     }
     // Each file batch replaces the previous one. A batch can be partial (one search group, or one
-    // still gathering), so the carried rows it lacks stay in front, keeping what Return runs, until
+    // still gathering), so the carried rows keep their places in front, keeping what Return runs, until
     // the search ends and shows what was really found. Cancelling the task stops both Spotlight queries.
     if let files {
       pending.insert(files.id)
@@ -196,8 +196,9 @@ typealias AppSearch = @MainActor (String) async -> SearchIndex
           for await rows in files.batches(for: request.input) {
             guard let self, !Task.isCancelled, generation == current else { return }
             found = rows
-            let ids = Set(rows.map(\.id))
-            fileRows = carried.filter { !ids.contains($0.id) } + rows
+            let fresh = Dictionary(rows.map { ($0.id, $0) }) { first, _ in first }
+            let kept = Set(carried.map(\.id))
+            fileRows = carried.map { fresh[$0.id] ?? $0 } + rows.filter { !kept.contains($0.id) }
             fileMatches = SearchIndex(fileRows).scored(query, forFile: true)
             if appsReady, !holding { compose() }
           }

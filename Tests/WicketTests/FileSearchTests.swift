@@ -259,6 +259,29 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   #expect(model.navigator.results.map(\.row.title) == ["Invoice2.pdf"])
 }
 
+/// Two carried files with the same name tie: the one in front stays what Return opens when its own
+/// group confirms it before the other group has answered for the second.
+@MainActor @Test func aConfirmedCarriedFileKeepsItsPlaceAheadOfAnUnconfirmedOne() async throws {
+  let spotlight = FakeSpotlight()
+  let (model, folder) = try model(spotlight)
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let (first, second) = (home + "/Documents/Invoice.pdf", home + "/Dev/Invoice.pdf")
+  model.navigator.input = "inv"
+  #expect(await eventually { spotlight.started == queries(invoice) })
+  spotlight.send(invoice, [first], finish: true)
+  spotlight.send(invoice, [second], in: otherScopes, finish: true)
+  await model.navigator.settled()
+  let order = model.navigator.results.map(\.row.id)
+  #expect(Set(order) == [first, second])
+  model.navigator.input = "invo"
+  let longer = #"kMDItemFSName == "invo*"cdw"#
+  #expect(await eventually { spotlight.started == queries(invoice, longer) })
+  let (lead, scopes) = order[0] == first ? (first, personalScopes) : (second, otherScopes)
+  spotlight.send(longer, [lead], in: scopes, finish: true)
+  try await Task.sleep(for: .milliseconds(50))
+  #expect(model.navigator.results.map(\.row.id) == order)
+}
+
 @MainActor @Test func aFullBatchOfNoiseLeavesRoomForPersonalFiles() async throws {
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
