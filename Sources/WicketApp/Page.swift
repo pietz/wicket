@@ -233,18 +233,17 @@ struct Page: Equatable, Sendable {
     return "\"\(value)\""
   }
 
-  private static let actionNames = ["open", "copy", "ask", "run"]
-  private static func allowed(runs: Bool) -> ArraySlice<String> { actionNames.prefix(runs ? 4 : 3) }
+  private static let actionNames = ["open", "copy", "copy-body", "ask", "run"]
 
   /// What an item names to do: nothing, one action, or something that must not exist (several,
   /// or one that is refused), whose tag is then dropped so nothing it names can ever run.
   private enum Named {
     case none
-    case one(RowAction)
+    case one(RowAction, beforeDetail: Bool = false)
     case refused
   }
-  private static func action(_ values: [(String, String)], runs: Bool) -> Named {
-    let named = values.filter { key, _ in allowed(runs: runs).contains(key) }
+  private static func action(_ values: [(String, String)], detail: String?, runs: Bool) -> Named {
+    let named = values.filter { key, _ in actionNames.contains(key) && (runs || key != "run") }
     guard let (kind, value) = named.first else { return .none }
     guard named.count == 1 else { return .refused }
     let title = values.first { $0.0 == "action" }?.1
@@ -254,6 +253,9 @@ struct Page: Equatable, Sendable {
       if let address = Address(url: url) { return .one(.run(address, title: title)) }
       return OpenPolicy.allowed(url) ? .one(.open(url, title: title)) : .refused
     case "copy": return .one(.copy(value, title: title))
+    case "copy-body":
+      guard value == "true", let detail else { return .refused }
+      return .one(.copy(detail, title: title), beforeDetail: true)
     case "ask": return .one(.agent(value, title: title))
     default:
       let parts = value.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
@@ -265,8 +267,8 @@ struct Page: Equatable, Sendable {
   }
 
   /// What an item is: shown only, with no action and no content; a target, which needs a title and
-  /// whose content is its detail, opened first by Return, its own action then standing on the detail
-  /// page; or dropped, when its action is refused or ambiguous or a target has no title.
+  /// whose content is its detail, opened by Return unless the item copies its body; or dropped, when
+  /// its action is refused or ambiguous or a target has no title.
   private enum Kind {
     case shown
     case target(Row)
@@ -278,10 +280,11 @@ struct Page: Equatable, Sendable {
     func value(_ key: String) -> String? { values.first { $0.0 == key }?.1 }
     let title = value("title")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let named: RowAction?
-    switch action(values, runs: runs) {
+    let beforeDetail: Bool
+    switch action(values, detail: detail, runs: runs) {
     case .refused: return .dropped
-    case .none: named = nil
-    case .one(let action): named = action
+    case .none: (named, beforeDetail) = (nil, false)
+    case .one(let action, let primary): (named, beforeDetail) = (action, primary)
     }
     if named == nil, detail == nil { return .shown }
     guard !title.isEmpty else { return .dropped }
@@ -295,7 +298,8 @@ struct Page: Equatable, Sendable {
       let heading = label.map { "\($0) · \(title)" } ?? title
       // The item's own action stands at the end of its detail as a row, named by its title.
       let row = named.map { Row(id: "action", title: $0.title ?? title, icon: icon, actions: [$0]) }
-      actions.insert(RowAction(.detail(detailBody(title: heading, content: detail), action: row)), at: 0)
+      let showDetail = RowAction(.detail(detailBody(title: heading, content: detail), action: row))
+      actions.insert(showDetail, at: beforeDetail ? actions.count : 0)
     }
     return .target(
       Row(

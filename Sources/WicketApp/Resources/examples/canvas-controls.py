@@ -34,7 +34,14 @@ body = f"""# {periods[period]} chart
 <line values="{values}"/>
 </chart>
 
-<progress label="Opacity" value="{opacity}%" percent="{opacity}"/>"""
+<progress label="Opacity" value="{opacity}%" percent="{opacity}"/>
+
+<row title="Copy chart settings" copy-body="true">
+- Group by: {periods[period]}
+- Opacity: {opacity}%
+- Grid lines: {"On" if grid == "true" else "Off"}
+- Axis labels: {"On" if labels == "true" else "Off"}
+</row>"""
 print(json.dumps({"body": body, "fields": [
     {"name": "grid", "description": "Grid lines", "type": "bool", "value": grid == "true", "action": True},
     {"name": "labels", "description": "Axis labels", "type": "bool", "value": labels == "true"},

@@ -51,6 +51,7 @@ private let states =
 private let transitions = [
   "arrival-root-held", "arrival-running", "arrival-page-ready", "arrival-back-held", "arrival-typed",
   "arrival-dictated", "extension-actions", "answer-actions", "extension-nested-detail",
+  "extension-copy-actions",
   "extension-actions-back", "answer-actions-back", "asking-running-command", "asking-running-back",
   "history-back", "conversation-back-command", "hotkey-command-error", "hotkey-binding",
 ]
@@ -188,6 +189,7 @@ private let transitionText = [
   "extension-actions": ["Actions for Weekly report", "Copy", "Refresh", "esc Back"],
   "answer-actions": ["Actions for Swift Testing", "Open", "esc Back"],
   "extension-nested-detail": ["Known issues", "Two open problems remain", "Esc Back"],
+  "extension-copy-actions": ["Actions for Known issues", "Copy", "Show details", "esc Back"],
   "extension-actions-back": ["Weekly report", "Release notes", "Owner"],
   "answer-actions-back": ["A good start", "Ask a follow-up", "Open", "End conversation"],
   "asking-running-command": ["Ask about Slow list", "Esc Back"],
@@ -527,18 +529,23 @@ private let installedAgent: Void = {
       #expect(await eventually { model.navigator.command?.busy == true })
       if name != "arrival-running" { model.navigator.askAgent() }
       if name == "asking-running-back" { #expect(model.navigator.escape()) }
-    case "arrival-page-ready", "extension-actions", "extension-nested-detail", "extension-actions-back":
+    case "arrival-page-ready", "extension-actions", "extension-nested-detail", "extension-copy-actions",
+      "extension-actions-back":
       model.navigator.go(Address(id: "report"), submitted: true)
       await model.navigator.settled()
       await controller.renderer.settled()
       switch name {
       case "extension-actions": model.navigator.toggleActions()
-      case "extension-nested-detail":
+      case "extension-nested-detail", "extension-copy-actions":
         // Release notes, then Known issues inside its detail.
         model.navigator.move(1)
         model.activateReturn()
         model.navigator.move(1)
-        model.activateReturn()
+        model.navigator.toggleActions()
+        if name == "extension-nested-detail" {
+          model.navigator.move(1)
+          model.activateReturn()
+        }
       case "extension-actions-back":
         model.navigator.move(1)
         model.navigator.toggleActions()
@@ -646,7 +653,7 @@ private let installedAgent: Void = {
           Three releases shipped, one is waiting for review.
           <row title="Release notes" subtitle="0.4 beta" copy="0.4 beta">
           Two features landed and one fix.
-          <row title="Known issues" copy="Two open problems">Two open problems remain before the release.</row>
+          <row title="Known issues" copy-body="true">Two open problems remain before the release.</row>
           </row>
           <row label="Owner" value="You"/>
           """,
@@ -1163,6 +1170,10 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case "answer-actions": #expect(model.navigator.actionsTitle == "Swift Testing" && model.agent.active)
   case "extension-nested-detail":
     #expect(model.navigator.inDetail && model.navigator.page?.source.hasPrefix("## Known issues") == true)
+  case "extension-copy-actions":
+    #expect(
+      model.navigator.actionsTitle == "Known issues"
+        && model.navigator.results.map(\.row.title) == ["Copy", "Show details"])
   case "extension-actions-back", "answer-actions-back":
     #expect(model.navigator.actionsTitle == nil && model.navigator.selectedTarget == "#0")
   case "asking-running-command":

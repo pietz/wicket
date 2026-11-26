@@ -260,6 +260,50 @@ import Testing
   #expect(opened.targets.map(\.actions) == [[.copy(long)]] && opened.targets[0].title == "14° 8°")
 }
 
+@Test func aBodyCopyKeepsLongMarkdownAndItsDetail() throws {
+  let draft =
+    "## Rückblick\n\n" + String(repeating: "A **draft** with café notes.\n\n", count: 50) + """
+      ```xml
+      </row>
+      ```
+      """
+  #expect(draft.utf8.count > 1024)
+  let body = "<row title=\"Report\" copy-body=\"true\" action=\"Copy report\">\n\n\(draft)\n\n</row>"
+  let page = Page(body: body, runs: false)
+  let target = try #require(page.targets.first)
+  let copy = RowAction.copy(draft, title: "Copy report")
+  #expect(page.targets.count == 1 && page.code.isEmpty)
+  #expect(page.source == ##"<row target="#0" title="Report" icon="doc.on.doc"/>"##)
+  #expect(
+    target.actions == [
+      copy,
+      RowAction(
+        .detail(
+          "## Report\n\n\(draft)",
+          action: Row(id: "action", title: "Copy report", icon: "doc.on.doc", actions: [copy]))),
+    ])
+  #expect(Page(body: String(body.dropLast("</row>".count)), runs: false, streaming: true).targets.isEmpty)
+}
+
+@Test func aBodyCopyNeedsContentAndCountsAsAnAction() {
+  let rejected = [
+    #"<row title="Empty" copy-body="true"/>"#,
+    "<row title=\"Blank\" copy-body=\"true\">\n </row>",
+    #"<row title="Invalid flag" copy-body="false">Draft</row>"#,
+    #"<row title="Duplicate" copy-body="true" copy-body="true">Draft</row>"#,
+    #"<row title="Two copies" copy-body="true" copy="Other">Draft</row>"#,
+    #"<row title="Copy and ask" copy-body="true" ask="Edit this">Draft</row>"#,
+    #"<row title="Copy and run" copy-body="true" run="edit">Draft</row>"#,
+  ]
+  for tag in rejected {
+    let page = Page(body: tag, runs: true)
+    #expect(page.targets.isEmpty && page.source.isEmpty, Comment(rawValue: tag))
+  }
+  let title = String(repeating: "é", count: 512)
+  let oversized = Page(body: "<row title=\"\(title)\" copy-body=\"true\">Draft</row>", runs: false)
+  #expect(oversized.targets.isEmpty)
+}
+
 /// Bars and badges only show, and have no detail; every tag keeps only what its kind shows, and only a
 /// badge has a tone.
 @Test func eachTagKeepsOnlyItsOwnAttributes() {

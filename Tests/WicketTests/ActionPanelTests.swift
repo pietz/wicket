@@ -169,6 +169,44 @@ private var two: [String: Any] {
   await model.finish()
 }
 
+@MainActor @Test(arguments: [false, true])
+func returnAndCommandKCopyTheBodyOfASelectedRow(extensionPage: Bool) async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let draft = "## Release notes\n\n" + String(repeating: "One **fix** shipped.\n\n", count: 60) + "The end."
+  let body = "<row title=\"Draft\" copy-body=\"true\">\n\(draft)\n</row>"
+  let model: LauncherModel
+  if extensionPage {
+    model = try await printing(["body": body], in: root)
+    model.navigator.go(Address(id: "test"))
+    await model.navigator.settled()
+  } else {
+    model = LauncherModel.testing(in: root)
+    try await finishTurn(model, "Draft release notes", body)
+  }
+  let surface = RecordingSurface()
+  let navigator = model.navigator
+  navigator.surface = surface
+  navigator.move(1)
+  let target = try #require(navigator.selected)
+  let copy = PaletteEffect.run(.copy(draft), from: target)
+  #expect(navigator.offersActions)
+  navigator.run()
+  #expect(surface.count(copy) == 1 && !navigator.inDetail)
+
+  navigator.toggleActions()
+  #expect(navigator.results.map(\.row.title) == ["Copy", "Show details"])
+  navigator.run()
+  #expect(surface.count(copy) == 2 && navigator.actionsTitle == nil)
+
+  navigator.toggleActions()
+  navigator.move(1)
+  navigator.run()
+  #expect(navigator.inDetail && navigator.page?.source.hasPrefix("## Draft\n\n\(draft)") == true)
+  #expect(navigator.escape() && navigator.selectedTarget == target.row.id)
+  await model.finish()
+}
+
 @MainActor @Test func anAgentsPermissionClosesTheActionPanelAndKeepsItClosed() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }

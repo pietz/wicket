@@ -161,12 +161,13 @@ Errors show selectable text with Copy and Ask agent actions carrying folder, com
 
 Markdown with Wicket tags (same language as agent answers):
 
-- **Items** (`label`, `icon`, `title`, `subtitle`, `value` slots; body between tags = detail page opened on Return):
+- **Items** have `label`, `icon`, `title`, `subtitle`, and `value` slots. The body between tags becomes the detail page.
   - `<row icon="clock" title="Standup" subtitle="Room 2" value="15 min"/>` (consecutive rows group; `label`+`value` only = property row).
   - `<tile label="Tue" icon="cloud.rain" title="10° 7°"/>` (boxed item).
   - `<progress label="Done" value="7 of 10" percent="70"/>` and `<badge label="Ready" tone="positive"/>` (`positive`/`warning`/`negative`). Self-closing, no detail.
 - **Containers:** `<columns>` places tiles, cards, or charts side by side; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
-- **Item actions:** At most one of `open`, `copy`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`.
+- **Item actions** use at most one of `open`, `copy`, `copy-body`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`. Return normally opens the detail if present, with any action at its end.
+- Use `<row title="Copy report" copy-body="true">…</row>` to make Copy the Return action, with both Copy and Show details in ⌘K. It copies the Markdown source between the tags, trimmed of surrounding whitespace. `copy-body` requires the value `true` and a nonempty body.
 - **Limits & safety:** ≤4,096 UTF-8 bytes per tag. Closed fenced code blocks get a copy button; right-align numeric table columns with `---:`. Show each thing once: what the user acts on carries its action where it stands. Unsupported tags render literally; escape `<` as `&lt;` in external text (or use backticks). JS, images, remote loads, and navigation are disabled. Clicked links route through Wicket. `theme.css` restyles page content; native list and frame are not themeable.
 
 ### Charts
