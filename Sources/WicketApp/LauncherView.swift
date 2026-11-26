@@ -75,7 +75,10 @@ struct SearchField: NSViewRepresentable {
         let line = text.singleLineInput
         // Single-line mode would turn each separator into its own space before the edit is reported.
         if line != text {
+          // Its own undo step, as a plain paste is: else Undo also takes the typing before it.
+          breakUndoCoalescing()
           insertText(line, replacementRange: NSRange(location: NSNotFound, length: 0))
+          breakUndoCoalescing()
           return true
         }
       }

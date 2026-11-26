@@ -1531,8 +1531,9 @@ final class Navigator {
     let shown = CommandScreenRequest(
       input: request.input, fields: request.fields, action: request.action, cause: .submission)
     state.begin(shown)
-    // An arrival sets the input without a rerun.
-    arriving = Arrival(command: state, input: state.input)
+    // An arrival sets the input without a rerun. It keeps the request's own argument: the field's
+    // one-line display would replace a multi-line one on retry.
+    arriving = Arrival(command: state, input: nil)
     var page: Page?
     if case .view(let view) = outcome {
       page = state.makePage(view)
