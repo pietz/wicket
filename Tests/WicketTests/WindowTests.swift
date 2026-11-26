@@ -43,7 +43,66 @@ private let external = Display(
 ])
 func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
   let current = CGRect(x: 10, y: 50, width: 600, height: 600)
-  #expect(target(move, window: current, displays: [laptop, external]) == expected)
+  #expect(target(move, window: current, displays: [laptop, external])?.frame == expected)
+}
+
+@Test(arguments: [
+  (Move.left, [1524, 1524, 1524]),
+  (.right, [2478, 2158, 2798]),
+])
+func stockSidesCycleThroughWidthsOnTheWindowsDisplay(move: Move, origins: [Int]) {
+  let layout = Layout(gap: "12")
+  let displays = [laptop, external]
+  let frames = zip(origins, [942, 1262, 622]).map { x, width in
+    CGRect(x: x, y: -261, width: width, height: 1031)
+  }
+  let floating = CGRect(x: 2000, y: 0, width: 600, height: 500)
+  for (current, expected) in zip([floating] + frames, frames + frames.prefix(1)) {
+    #expect(target(move, window: current, displays: displays, layout: layout)?.frame == expected)
+  }
+  // Keep the outer and vertical edges within tolerance as well as the size.
+  let half = frames[0]
+  let rounded = half.insetBy(dx: 7, dy: 9)
+  #expect(target(move, window: rounded, displays: displays, layout: layout)?.frame == frames[1])
+  for misplaced in [half.offsetBy(dx: 25, dy: 0), half.insetBy(dx: 0, dy: 25)] {
+    #expect(target(move, window: misplaced, displays: displays, layout: layout)?.frame == half)
+  }
+}
+
+@Test(arguments: [window.WindowAnchor.left, .right])
+func aSideWidthBetweenPresetsCanWrapWhenAnAppClampsItsSize(anchor: window.WindowAnchor) {
+  func aligned(_ width: CGFloat) -> CGRect {
+    let x = anchor == .left ? 0 : laptop.visible.maxX - width
+    return CGRect(x: x, y: 33, width: width, height: 859)
+  }
+  #expect(sideTarget(anchor, window: aligned(514), visible: laptop.visible, gap: 0) == aligned(756))
+  #expect(sideTarget(anchor, window: aligned(620), visible: laptop.visible, gap: 0) == aligned(756))
+  #expect(sideTarget(anchor, window: aligned(800), visible: laptop.visible, gap: 0) == aligned(1008))
+}
+
+@Test func sideMovesSkipWidthsThatLeaveNoRoomForTheGap() {
+  let visible = CGRect(x: 0, y: 40, width: 800, height: 1000)
+  let half = CGRect(x: 200, y: 240, width: 100, height: 600)
+  let wider = CGRect(x: 200, y: 240, width: 233, height: 600)
+  #expect(sideTarget(.left, window: half, visible: visible, gap: 200) == wider)
+  #expect(sideTarget(.left, window: wider, visible: visible, gap: 200) == half)
+}
+
+@Test(arguments: [
+  (window.WindowAnchor.bottomRight, CGSize(width: 180, height: 150), CGPoint(x: 10, y: 440)),
+  (.bottomRight, CGSize(width: 300, height: 250), CGPoint(x: -110, y: 340)),
+  (.bottomRight, CGSize(width: 550, height: 390), CGPoint(x: -360, y: 200)),
+  (.topLeft, CGSize(width: 550, height: 390), CGPoint(x: -390, y: 210)),
+  (.topLeft, CGSize(width: 600, height: 400), CGPoint(x: -400, y: 200)),
+  (.center, CGSize(width: 300, height: 250), CGPoint(x: -250, y: 275)),
+  (.center, CGSize(width: 650, height: 450), CGPoint(x: -425, y: 175)),
+])
+func aConstrainedSizeKeepsTheMovesAnchor(anchor: window.WindowAnchor, size: CGSize, expected: CGPoint) throws
+{
+  let visible = CGRect(x: -400, y: 200, width: 600, height: 400)
+  let frame = try #require(Placement(anchor: anchor, width: 50, height: 50).frame(in: visible, gap: 10))
+  let destination = WindowTarget(frame: frame, visible: visible, alignment: anchor.position)
+  #expect(destination.position(for: size) == expected)
 }
 
 @Test func halvesCoverAnOddScreenWithoutAGapAndCenterKeepsTheWindowOnIt() throws {
@@ -51,37 +110,39 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
     frame: CGRect(x: 0, y: 0, width: 1511, height: 981),
     visible: CGRect(x: 0, y: 25, width: 1511, height: 901))
   let current = CGRect(x: 0, y: 0, width: 2000, height: 300)
-  let left = try #require(target(.left, window: current, displays: [odd]))
-  let right = try #require(target(.right, window: current, displays: [odd]))
+  let left = try #require(target(.left, window: current, displays: [odd])?.frame)
+  let right = try #require(target(.right, window: current, displays: [odd])?.frame)
   #expect(left.maxX == right.minX && right.maxX == 1511)
   let top = try #require(Placement(anchor: .top, width: 100, height: 50).frame(in: odd.visible, gap: 0))
   let bottom = try #require(Placement(anchor: .bottom, width: 100, height: 50).frame(in: odd.visible, gap: 0))
   #expect(top.maxY == bottom.minY && bottom.maxY == 926)
   // A window wider than the screen is centered at the screen's width.
-  #expect(target(.center, window: current, displays: [odd]) == CGRect(x: 0, y: 325, width: 1511, height: 300))
+  #expect(
+    target(.center, window: current, displays: [odd])?.frame == CGRect(x: 0, y: 325, width: 1511, height: 300)
+  )
 }
 
 @Test func moveSucceedsOnTheWindowsOwnDisplay() {
   let onExternal = CGRect(x: 2000, y: 0, width: 800, height: 600)
   #expect(
-    target(.left, window: onExternal, displays: [laptop, external])
+    target(.left, window: onExternal, displays: [laptop, external])?.frame
       == CGRect(x: 1512, y: -273, width: 960, height: 1055))
-  #expect(target(.maximize, window: onExternal, displays: [laptop, external]) == external.visible)
+  #expect(target(.maximize, window: onExternal, displays: [laptop, external])?.frame == external.visible)
 }
 
 @Test func nextDisplayKeepsThePlaceAndShareOfTheScreenAndWrapsAround() throws {
   let displays = [laptop, external]
   // A left half stays a left half.
-  let leftHalf = try #require(target(.left, window: .zero, displays: [laptop]))
+  let leftHalf = try #require(target(.left, window: .zero, displays: [laptop])?.frame)
   #expect(
-    target(.nextDisplay, window: leftHalf, displays: displays)
+    target(.nextDisplay, window: leftHalf, displays: displays)?.frame
       == CGRect(x: 1512, y: -273, width: 960, height: 1055))
   // From the rightmost display back to the first.
   let maximized = external.visible
-  #expect(target(.nextDisplay, window: maximized, displays: displays) == laptop.visible)
+  #expect(target(.nextDisplay, window: maximized, displays: displays)?.frame == laptop.visible)
   // A small window keeps its relative place, scaled, and never crosses the edges.
   let small = CGRect(x: 1512 + 1700, y: -273, width: 400, height: 300)
-  let moved = try #require(target(.nextDisplay, window: small, displays: displays))
+  let moved = try #require(target(.nextDisplay, window: small, displays: displays)?.frame)
   #expect(moved.width == 315 && moved.height == 244 && laptop.visible.contains(moved))
   #expect(target(.nextDisplay, window: leftHalf, displays: [laptop]) == nil)
   // Three displays in the order they stand, left to right, whatever order AppKit lists them in.
@@ -89,9 +150,9 @@ func everyMoveFillsItsShareOfTheVisibleFrame(move: Move, expected: CGRect) {
     frame: CGRect(x: -1440, y: 0, width: 1440, height: 900),
     visible: CGRect(x: -1440, y: 25, width: 1440, height: 875))
   let order = [external, laptop, left]
-  #expect(target(.nextDisplay, window: left.visible, displays: order) == laptop.visible)
-  #expect(target(.nextDisplay, window: laptop.visible, displays: order) == external.visible)
-  #expect(target(.nextDisplay, window: external.visible, displays: order) == left.visible)
+  #expect(target(.nextDisplay, window: left.visible, displays: order)?.frame == laptop.visible)
+  #expect(target(.nextDisplay, window: laptop.visible, displays: order)?.frame == external.visible)
+  #expect(target(.nextDisplay, window: external.visible, displays: order)?.frame == left.visible)
 }
 
 @Test func restoreAndAnEmptyScreenListGiveNoTarget() {
@@ -140,6 +201,9 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   var applyPosition = true
   var applySize = true
   var adjustedSize: CGSize?
+  var minimumWidth: CGFloat = 0
+  var sizeBeforePosition: CGSize?
+  var trailingLimit: CGFloat?
   var positionError = AXError.success
   var sizeError = AXError.success
   var focusError = AXError.success
@@ -171,14 +235,26 @@ private final class FakeWindowAccessibility: WindowAccessibility {
   }
   func setSize(_ size: CGSize, of window: Int) -> AXError {
     events.append(.size)
-    if !enhanced, applySize, sizeError == .success { current.size = adjustedSize ?? size }
+    if !enhanced, applySize, sizeError == .success {
+      let available = trailingLimit.map { $0 - current.minX } ?? size.width
+      let achievable = CGSize(width: max(min(available, size.width), minimumWidth), height: size.height)
+      let beforePosition = events.contains(.position) ? nil : sizeBeforePosition
+      current.size = beforePosition ?? adjustedSize ?? achievable
+    }
     return sizeError
   }
 
   func move(_ move: Move, in folder: URL, commandName: String = "Windows") throws -> Row? {
+    try apply(.stock(move), in: folder, commandName: commandName)
+  }
+
+  func apply(
+    _ move: WindowMove, in folder: URL, commandName: String = "Windows", layout: Layout = Layout(),
+    displays: [Display] = [laptop]
+  ) throws -> Row? {
     events.removeAll()
     let failure = perform(
-      .stock(move), layout: Layout(), pid: 42, name: "Test App", commandName: commandName, displays: [laptop],
+      move, layout: layout, pid: 42, name: "Test App", commandName: commandName, displays: displays,
       recordsFile: folder.appending(path: "moves.txt"), ax: self)
     guard let failure else { return nil }
     return try JSONDecoder().decode(Row.self, from: Data(failure.utf8))
@@ -196,7 +272,7 @@ private func moveRecords(in folder: URL) throws -> [Record] {
   ax.applyPosition = false
   ax.applySize = false
   #expect(try ax.move(.left, in: folder)?.title == "Test App's window can't be moved")
-  #expect(ax.events == [.readFrame, .size, .position, .size, .readFrame])
+  #expect(ax.events == [.readFrame, .size, .readFrame, .position, .size, .readFrame, .position, .readFrame])
   #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "moves.txt").path))
 }
 
@@ -224,17 +300,104 @@ func stockMovesAcceptGridSnappingAndModestMinimumWidths(width: Int) throws {
   let first = try ax.move(.left, in: folder)
   #expect(first == nil, "\(first?.title ?? "")")
   #expect(ax.current == adjusted)
+  ax.adjustedSize = nil
   let repeated = try ax.move(.left, in: folder)
   #expect(repeated == nil, "\(repeated?.title ?? "")")
+  #expect(ax.current == CGRect(x: 0, y: 33, width: 1008, height: 859))
   #expect(
     try moveRecords(in: folder) == [
-      Record(pid: 42, before: FakeWindowAccessibility.original, after: adjusted)
+      Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
     ])
 
-  ax.adjustedSize = nil
   let restored = try ax.move(.restore, in: folder)
   #expect(restored == nil, "\(restored?.title ?? "")")
   #expect(ax.current == FakeWindowAccessibility.original)
+}
+
+@Test(arguments: [Move.left, .right])
+func restoreUndoesACompleteWidthCycleInOneMove(side: Move) throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = ax.current
+  for width in [756, 1008, 504, 756] {
+    #expect(try ax.move(side, in: folder) == nil)
+    let x = side == .left ? 0 : 1512 - width
+    #expect(ax.current == CGRect(x: x, y: 33, width: width, height: 859))
+    #expect(
+      try moveRecords(in: folder) == [Record(pid: 42, before: original, after: ax.current, cycle: side)])
+  }
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == original)
+  #expect(try moveRecords(in: folder).isEmpty)
+}
+
+@Test(arguments: [620, 800])
+func aRightCycleKeepsItsAnchorAndContinuesAfterAMinimumWidth(minimum: Int) throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let starting = CGRect(x: 100, y: 200, width: 900, height: 480)
+  ax.current = starting
+  ax.minimumWidth = CGFloat(minimum)
+  let layout = Layout(gap: "12")
+  for width in [max(minimum, 738), 990, minimum, minimum > 738 ? 990 : 738] {
+    _ = try ax.apply(.stock(.right), in: folder, layout: layout)
+    #expect(ax.current == CGRect(x: 1500 - width, y: 45, width: width, height: 835))
+  }
+  #expect(
+    try moveRecords(in: folder) == [Record(pid: 42, before: starting, after: ax.current, cycle: .right)])
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == starting)
+}
+
+@Test func aSavedHalfStaysFixedAndStartsItsOwnRestoreStepBeforeAStockCycle() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  let original = ax.current
+  let saved = WindowMove.custom(Placement(anchor: .left, width: 50, height: 100))
+  for _ in 1...2 { #expect(try ax.apply(saved, in: folder) == nil) }
+  let half = CGRect(x: 0, y: 33, width: 756, height: 859)
+  #expect(ax.current == half)
+  #expect(try ax.move(.left, in: folder) == nil)
+  #expect(ax.current.width == 1008)
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == half)
+  #expect(try ax.move(.restore, in: folder) == nil)
+  #expect(ax.current == original)
+}
+
+@Test func aRightHalfCanGrowWhenItsOldOriginLimitsTheFirstResize() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  ax.current = CGRect(x: 756, y: 33, width: 756, height: 859)
+  ax.trailingLimit = laptop.visible.maxX
+  #expect(try ax.move(.right, in: folder) == nil)
+  #expect(ax.current == CGRect(x: 504, y: 33, width: 1008, height: 859))
+}
+
+@Test func aSavedMoveAnchorsAFixedSizeFromReadback() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  ax.applySize = false
+  let saved = WindowMove.custom(Placement(anchor: .bottomRight, width: 30, height: 30))
+  let result = try ax.apply(saved, in: folder, layout: Layout(gap: "12"))
+  #expect(result?.title == "Test App's window only moved partway")
+  #expect(ax.current == CGRect(x: 860, y: 400, width: 640, height: 480))
+}
+
+@Test func nextDisplayReanchorsAfterTheSizeChangesOnTheDestination() throws {
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  let ax = FakeWindowAccessibility()
+  ax.current = CGRect(x: 756, y: 33, width: 756, height: 859)
+  ax.sizeBeforePosition = CGSize(width: 1024, height: 1200)
+  #expect(try ax.apply(.stock(.nextDisplay), in: folder, displays: [laptop, external]) == nil)
+  #expect(ax.current == CGRect(x: 2472, y: -273, width: 960, height: 1055))
+  #expect(ax.events == [.readFrame, .size, .readFrame, .position, .size, .readFrame, .position, .readFrame])
 }
 
 @Test func aRefusedResizeThatLeavesAnEdgeFarFromTheTargetIsPartial() throws {
@@ -248,7 +411,7 @@ func stockMovesAcceptGridSnappingAndModestMinimumWidths(width: Int) throws {
   let partial = CGRect(x: 0, y: 33, width: 900, height: 859)
   #expect(ax.current == partial)
   #expect(try ax.move(.left, in: folder)?.title == "Test App's window can't be moved")
-  #expect(try moveRecords(in: folder) == [Record(pid: 42, before: original, after: partial)])
+  #expect(try moveRecords(in: folder) == [Record(pid: 42, before: original, after: partial, cycle: .left)])
 }
 
 @Test(arguments: [0, 1, 2])
@@ -259,11 +422,14 @@ func enhancedInterfaceStaysOffThroughReadbackAndIsRestoredAfterward(readbackFail
   ax.enhanced = true
   ax.readbackErrors = Array(repeating: .cannotComplete, count: readbackFailures)
   let result = try ax.move(.left, in: folder)
-  #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop]))
+  #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop])?.frame)
   #expect(ax.enhanced)
   let reads: [FakeWindowAccessibility.Event] =
     readbackFailures == 0 ? [.readFrame] : [.readFrame, .readFrame]
-  #expect(ax.events == [.readFrame, .enhanced(false), .size, .position, .size] + reads + [.enhanced(true)])
+  #expect(
+    ax.events == [.readFrame, .enhanced(false), .size, .readFrame, .position, .size] + reads + [
+      .enhanced(true)
+    ])
   if readbackFailures == 2 {
     #expect(result?.title == "Couldn't verify Test App's final window position")
     #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "moves.txt").path))
@@ -271,7 +437,7 @@ func enhancedInterfaceStaysOffThroughReadbackAndIsRestoredAfterward(readbackFail
     #expect(result == nil)
     #expect(
       try moveRecords(in: folder) == [
-        Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current)
+        Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
       ])
   }
 }
@@ -284,7 +450,7 @@ func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXE
   ax.enhanced = true
   ax.reenableErrors = [.cannotComplete, resultOfRetry]
   let result = try ax.move(.left, in: folder)
-  #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop]))
+  #expect(ax.current == target(.left, window: FakeWindowAccessibility.original, displays: [laptop])?.frame)
   #expect(ax.events.suffix(3) == [.readFrame, .enhanced(true), .enhanced(true)])
   #expect(ax.enhanced == (resultOfRetry == .success))
   if resultOfRetry == .success {
@@ -297,7 +463,7 @@ func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXE
   }
   #expect(
     try moveRecords(in: folder) == [
-      Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current)
+      Record(pid: 42, before: FakeWindowAccessibility.original, after: ax.current, cycle: .left)
     ])
 }
 
@@ -313,7 +479,8 @@ func enhancedInterfaceCleanupRetriesATimeoutAndReportsFailure(resultOfRetry: AXE
   #expect(partial.origin == original.origin && partial.size != original.size)
   let history = try String(contentsOf: folder.appending(path: "moves.txt"), encoding: .utf8)
   try #require(
-    window.parse(records: history) == [Record(pid: 42, before: original, after: partial)], "\(history)")
+    window.parse(records: history) == [Record(pid: 42, before: original, after: partial, cycle: .left)],
+    "\(history)")
 
   ax.positionError = .success
   #expect(try ax.move(.maximize, in: folder) == nil)
@@ -430,7 +597,7 @@ func apiDisabledOffersTheSameRecoveryAsTheHost(duringWrite: Bool) throws {
   for gap in [8.0, 9.0] {
     let layout = Layout(gap: String(gap))
     func moved(_ move: Move) throws -> CGRect {
-      try #require(target(move, window: current, displays: [display], layout: layout))
+      try #require(target(move, window: current, displays: [display], layout: layout)?.frame)
     }
     #expect(try moved(.maximize) == screen.insetBy(dx: gap, dy: gap))
     let (left, right) = (try moved(.left), try moved(.right))
@@ -704,12 +871,20 @@ let codingMove = [
     #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
     #expect(try observedFrame() == CGRect(x: x, y: -180, width: 500, height: 800))
   }
+  model.press(try #require(HotkeyTarget("wicket://window?item=right")))
+  await model.navigator.settled()
+  #expect(surface.shows == 0 && !surface.shown && model.navigator.command == nil)
+  #expect(try observedFrame() == CGRect(x: -667, y: -180, width: 667, height: 800))
+  model.press(try #require(HotkeyTarget("wicket://window?item=restore")))
+  await model.navigator.settled()
+  #expect(try observedFrame() == CGRect(x: -1000, y: -180, width: 500, height: 800))
+
   let retired = try #require(HotkeyTarget("wicket://window?item=top"))
   model.store.bind(try Shortcut("option+cmd+up"), to: retired)
   let directory = CommandDirectory(extensions: model.extensions, hosts: [], store: model.store)
   #expect(directory.hotkeyResolutions().filter { $0.value != .ok } == [retired: .missingItem])
   model.press(retired)
   await model.navigator.settled()
-  #expect(try observedFrame() == CGRect(x: -500, y: -180, width: 500, height: 800))
+  #expect(try observedFrame() == CGRect(x: -1000, y: -180, width: 500, height: 800))
   await model.finish()
 }

@@ -20,6 +20,8 @@ enum Move: String, CaseIterable {
   case left, right, maximize, center
   case nextDisplay = "next-display"
   case restore
+
+  var cyclesWidth: Bool { self == .left || self == .right }
 }
 
 /// A display in the Accessibility API's global coordinates: the origin at the top left of the main
@@ -60,24 +62,28 @@ struct Layout: Equatable {
 }
 
 /// Where a stock move puts a window. Restore instead reads where the window was.
-func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = Layout()) -> CGRect? {
+func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = Layout()) -> WindowTarget? {
   guard !displays.isEmpty else { return nil }
   let index = displayIndex(of: window, in: displays)
   let visible = displays[index].visible
   let gap = layout.gap(in: visible)
   switch move {
   case .left, .right:
-    return Placement(anchor: move == .left ? .left : .right, width: 50, height: 100)
-      .frame(in: visible, gap: gap)
+    let anchor: WindowAnchor = move == .left ? .left : .right
+    guard let frame = sideTarget(anchor, window: window, visible: visible, gap: gap) else { return nil }
+    return WindowTarget(frame: frame, visible: visible, alignment: anchor.position)
   case .maximize:
-    return Placement(anchor: .center, width: 100, height: 100).frame(in: visible, gap: gap)
+    guard let frame = Placement(anchor: .center, width: 100, height: 100).frame(in: visible, gap: gap)
+    else { return nil }
+    return WindowTarget(frame: frame, visible: visible, alignment: WindowAnchor.center.position)
   case .center:
     let screen = visible.insetBy(dx: gap, dy: gap)
     let width = min(window.width, screen.width)
     let height = min(window.height, screen.height)
-    return CGRect(
+    let frame = CGRect(
       x: screen.minX + ((screen.width - width) / 2).rounded(.down),
       y: screen.minY + ((screen.height - height) / 2).rounded(.down), width: width, height: height)
+    return WindowTarget(frame: frame, visible: visible, alignment: WindowAnchor.center.position)
   case .nextDisplay:
     guard displays.count > 1 else { return nil }
     let next = displays[nextDisplay(after: index, in: displays)].visible
@@ -89,9 +95,14 @@ func target(_ move: Move, window: CGRect, displays: [Display], layout: Layout = 
     let height = min((window.height * scaleY).rounded(), next.height)
     let x = (next.minX + (window.minX - screen.minX) * scaleX).rounded()
     let y = (next.minY + (window.minY - screen.minY) * scaleY).rounded()
-    return CGRect(
+    let frame = CGRect(
       x: min(max(x, next.minX), next.maxX - width), y: min(max(y, next.minY), next.maxY - height),
       width: width, height: height)
+    let alignment = (
+      x: width < next.width ? (frame.minX - next.minX) / (next.width - width) : 0.5,
+      y: height < next.height ? (frame.minY - next.minY) / (next.height - height) : 0.5
+    )
+    return WindowTarget(frame: frame, visible: next, alignment: alignment)
   case .restore: return nil
   }
 }
@@ -109,16 +120,6 @@ enum WindowMove {
   case custom(Placement)
 }
 
-private func placementMatches(_ actual: CGRect, _ destination: CGRect) -> Bool {
-  // Allow a few character cells or a modest minimum size without accepting a misplaced window.
-  let horizontal = min(24, destination.width * 0.05)
-  let vertical = min(24, destination.height * 0.05)
-  return abs(actual.minX - destination.minX) <= horizontal
-    && abs(actual.maxX - destination.maxX) <= horizontal
-    && abs(actual.minY - destination.minY) <= vertical
-    && abs(actual.maxY - destination.maxY) <= vertical
-}
-
 // MARK: - Restore
 
 /// A move Wicket made: the app, the window's frame before and where it ended up (which the app may have
@@ -127,26 +128,28 @@ struct Record: Equatable {
   var pid: Int32
   var before: CGRect
   var after: CGRect
+  var cycle: Move? = nil
 }
 
-/// The records file: one move per line, the pid and the two frames as x, y, width and height.
+/// One move per line: the pid, both frames as x, y, width and height, and an optional side preset.
 func parse(records text: String) -> [Record] {
   text.split(separator: "\n").compactMap { line in
     let fields = line.split(separator: " ")
-    guard fields.count == 9, let pid = Int32(fields[0]) else { return nil }
-    let numbers = fields.dropFirst().compactMap { Double($0) }
+    guard fields.count == 9 || fields.count == 10, let pid = Int32(fields[0]) else { return nil }
+    let numbers = fields.dropFirst().prefix(8).compactMap { Double($0) }
     guard numbers.count == 8 else { return nil }
+    let cycle = fields.count == 10 ? Move(rawValue: String(fields[9])) : nil
     return Record(
       pid: pid, before: CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3]),
-      after: CGRect(x: numbers[4], y: numbers[5], width: numbers[6], height: numbers[7]))
+      after: CGRect(x: numbers[4], y: numbers[5], width: numbers[6], height: numbers[7]),
+      cycle: cycle?.cyclesWidth == true ? cycle : nil)
   }
 }
 func format(_ records: [Record]) -> String {
   records.map { record in
-    ([String(record.pid)]
-      + [record.before, record.after].flatMap { [$0.minX, $0.minY, $0.width, $0.height] }.map {
-        String(Double($0))
-      }).joined(separator: " ") + "\n"
+    let numbers = [record.before, record.after].flatMap { [$0.minX, $0.minY, $0.width, $0.height] }
+    let line = ([String(record.pid)] + numbers.map { String(Double($0)) }).joined(separator: " ")
+    return line + (record.cycle.map { " " + $0.rawValue } ?? "") + "\n"
   }.joined()
 }
 
@@ -283,26 +286,45 @@ struct SystemWindowAccessibility: WindowCaptureAccessibility {
 }
 
 private func writeFrame<AX: WindowAccessibility>(
-  _ destination: CGRect, to window: AX.Window, using ax: AX
+  _ destination: WindowTarget, to window: AX.Window, using ax: AX
 ) -> (denied: Bool, actual: CGRect?, cleanupError: AXError) {
   let (error, enhanced) = ax.enhancedUserInterface()
   if error == .apiDisabled { return (true, nil, .success) }
   // Chromium and Electron can defer geometry changes while Enhanced User Interface is on.
   if enhanced, ax.setEnhancedUserInterface(false) == .apiDisabled { return (true, nil, .success) }
 
-  // Shrink before moving to a smaller display and size again there, where the first size may not have fit.
-  let firstSize = ax.setSize(destination.size, of: window)
-  let position = ax.setPosition(destination.origin, of: window)
-  let finalSize = ax.setSize(destination.size, of: window)
-  var (readback, actual) = ax.frame(window)
-  if readback != .success, readback != .apiDisabled { (readback, actual) = ax.frame(window) }
+  func readFrame() -> (AXError, CGRect?) {
+    let result = ax.frame(window)
+    return result.0 == .success || result.0 == .apiDisabled ? result : ax.frame(window)
+  }
+
+  // Size before crossing displays, then size again on the destination where the request may fit.
+  let requested = destination.frame.size
+  let firstSize = ax.setSize(requested, of: window)
+  let (sizing, sized) = ax.frame(window)
+  // Leave space to grow at the new origin if the old origin constrained the first resize.
+  let room = CGSize(
+    width: max(requested.width, sized?.width ?? 0), height: max(requested.height, sized?.height ?? 0))
+  let origin = destination.position(for: room)
+  let position = ax.setPosition(origin, of: window)
+  let finalSize = ax.setSize(requested, of: window)
+  var (readback, actual) = readFrame()
+  var correction = AXError.success
+  if position == .success, readback == .success, let frame = actual {
+    let adjusted = destination.position(for: frame.size)
+    if adjusted != origin, adjusted != frame.origin {
+      correction = ax.setPosition(adjusted, of: window)
+      (readback, actual) = readFrame()
+    }
+  }
 
   var cleanupError = AXError.success
   if enhanced {
     cleanupError = ax.setEnhancedUserInterface(true)
     if cleanupError == .cannotComplete { cleanupError = ax.setEnhancedUserInterface(true) }
   }
-  return ([firstSize, position, finalSize, readback].contains(.apiDisabled), actual, cleanupError)
+  let denied = [firstSize, sizing, position, finalSize, readback, correction].contains(.apiDisabled)
+  return (denied, actual, cleanupError)
 }
 
 // MARK: - Main
@@ -359,20 +381,26 @@ func perform<AX: WindowAccessibility>(
   guard let current else { return problem("\(name)'s window has no frame to move") }
 
   var records = contents(recordsFile.path).map { parse(records: String(decoding: $0, as: UTF8.self)) } ?? []
+  let historyIndex = restoreIndex(records, pid: pid, frame: current)
   var restore: Int?
-  let destination: CGRect
+  var cycle: Move?
+  let destination: WindowTarget
   switch move {
   case .stock(.restore):
-    guard let index = restoreIndex(records, pid: pid, frame: current) else {
+    guard let index = historyIndex else {
       return problem("Nothing to restore", "Wicket has not moved this window, or it moved since")
     }
     restore = index
-    destination = records[index].before
+    destination = WindowTarget(frame: records[index].before)
   case .stock(let stock):
-    guard let rect = target(stock, window: current, displays: displays(), layout: layout) else {
-      return problem("Only one display")
+    let screens = displays()
+    guard !screens.isEmpty else { return problem("No display available") }
+    guard let target = target(stock, window: current, displays: screens, layout: layout) else {
+      if stock == .nextDisplay { return problem("Only one display") }
+      return problem("Can't apply window move", "Use a larger move or reduce the gap in Windows Settings")
     }
-    destination = rect
+    if stock.cyclesWidth { cycle = stock }
+    destination = target
   case .custom(let placement):
     let screens = displays()
     guard !screens.isEmpty else { return problem("No display available") }
@@ -380,7 +408,7 @@ func perform<AX: WindowAccessibility>(
     guard let rect = placement.frame(in: visible, gap: layout.gap(in: visible)) else {
       return problem("Can't apply window move", "Use a larger move or reduce the gap in Windows Settings")
     }
-    destination = rect
+    destination = WindowTarget(frame: rect, visible: visible, alignment: placement.anchor.position)
   }
 
   let (denied, actual, cleanupError) = writeFrame(destination, to: window, using: ax)
@@ -396,7 +424,8 @@ func perform<AX: WindowAccessibility>(
       ?? (denied
         ? accessibilityProblem(commandName) : problem("Couldn't verify \(name)'s final window position"))
   }
-  let applied = restore != nil ? framesMatch(actual, destination) : placementMatches(actual, destination)
+  let applied =
+    restore != nil ? framesMatch(actual, destination.frame) : placementMatches(actual, destination.frame)
   let changed = actual != current
   if let restore, applied {
     records.remove(at: restore)
@@ -404,8 +433,12 @@ func perform<AX: WindowAccessibility>(
     if let restore {
       // A partial Restore can be retried from the verified frame it left behind.
       records[restore].after = actual
+    } else if let cycle, let historyIndex, records[historyIndex].cycle == cycle {
+      var record = records.remove(at: historyIndex)
+      record.after = actual
+      records.append(record)
     } else {
-      records.append(Record(pid: pid, before: current, after: actual))
+      records.append(Record(pid: pid, before: current, after: actual, cycle: cycle))
     }
   }
   if changed || (restore != nil && applied) {

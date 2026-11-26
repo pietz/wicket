@@ -48,6 +48,8 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Windows** moves the focused window with Left Half, Right Half, Maximize, Center (keeping its size), Next Display, or Restore. Type a move name or `window`. Wicket closes for the move and reports failures or partial moves, which Restore can undo. If Accessibility is missing, choose **Allow Accessibility for Wicket**.
 
+Run **Left Half** or **Right Half** again to cycle widths. A full-height window already at half width on that side goes to two-thirds, then one-third, then back to half. **Restore** undoes the whole cycle in one step. When an app limits the window size, Wicket positions the size it accepts using the move's anchor.
+
 In Settings ▸ Extensions ▸ Windows, set the gap or add a saved move with an anchor, width and height percentages, and an optional keyword. Give a move its own hotkey there, or ask the agent to add and bind it. **Save Current Window…** opens the same editor with the nearest anchor and rounded sizes filled in.
 
 **Shell** opens commands in your home folder. Type `> git status` and press Return. Choose the terminal in Settings ▸ Extensions ▸ Shell.
