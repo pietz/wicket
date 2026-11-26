@@ -19,7 +19,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     try file.set("enabled", to: false, in: "voice")
     // An earlier version's microphone choice is kept in the file and ignored.
     try file.set("microphone", to: "stable-uid", in: "voice")
-    #expect(try Configuration.load(at: file.url).voice == Configuration.Voice(enabled: false))
+    #expect(try Configuration.load(at: file.url).voice == Configuration.Voice(listenOnOpen: false))
     try file.set("model", to: "sonnet", in: "agent")
     try file.setProvider("apps", enabled: false)
     let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
@@ -48,7 +48,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     let config = try Configuration.load(at: file.url)
     #expect(config.resultsOnlyWhenTyping)
     #expect(config.hotkey == (try Shortcut("ctrl+option+k")))
-    #expect(config.backgroundTransparency == 0.65 && !config.voice.enabled)
+    #expect(config.backgroundTransparency == 0.65 && !config.voice.listenOnOpen)
     #expect(config.agent.agent == .codex && config.agent.model == "gpt-6")
     #expect(config.agent.effort == "high" && config.agent.mode == "workspace-write")
     #expect(config.providers == [.init("files", enabled: false)])
@@ -65,7 +65,7 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
     #"{"appearance":"dark","textSize":"medium","voice":{"enabled":false,"microphone":"keep"},"agent":{"streamAnswers":false},"providers":[{"id":"apps","enabled":false,"future":7},{"id":"clipboard","enabled":false}]}"#
   ) { file in
     try file.set("appearance", to: Configuration().appearance.rawValue)
-    try file.set("enabled", to: Configuration().voice.enabled, in: "voice")
+    try file.set("enabled", to: Configuration().voice.listenOnOpen, in: "voice")
     try file.set("streamAnswers", to: Configuration().agent.streamAnswers, in: "agent")
     try file.setProvider("apps", enabled: true)
     let written = try Data(contentsOf: file.url)
@@ -166,11 +166,11 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   try Data(#"{"voice":{"enabled":false},"hotkey":"ctrl+k"}"#.utf8).write(to: store.url, options: .atomic)
   #expect(
     await eventually {
-      !store.configuration.voice.enabled && store.configuration.hotkey.description == "ctrl+k"
+      !store.configuration.voice.listenOnOpen && store.configuration.hotkey.description == "ctrl+k"
     })
   try Data("{".utf8).write(to: store.url, options: .atomic)
   #expect(await eventually { store.problem != nil })
-  #expect(store.problem == launcherProblem && !store.configuration.voice.enabled)
+  #expect(store.problem == launcherProblem && !store.configuration.voice.listenOnOpen)
   store.change { try $0.set("enabled", to: true, in: "voice") }
   #expect(store.problem == launcherProblem)
   try Data(#"{"agent":{"name":"codex"}}"#.utf8).write(to: store.url, options: .atomic)
@@ -251,7 +251,7 @@ func resultsOnlyWhenTypingReadsTheLegacyKeyOnlyWhenTheNewKeyIsAbsent(json: Strin
   store.change { _ in throw CocoaError(.fileWriteNoPermission) }
   #expect(store.problem == nil && store.writeProblem != nil)
   store.change { try $0.set("enabled", to: false, in: "voice") }
-  #expect(await eventually { !store.configuration.voice.enabled })
+  #expect(await eventually { !store.configuration.voice.listenOnOpen })
 }
 
 @MainActor @Test func transparencyDragCommitsOnceOnReleaseAndRoundsToHundredths() throws {

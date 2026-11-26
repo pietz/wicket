@@ -620,7 +620,6 @@ private func logged(_ root: URL, _ name: String = "slow") throws -> [ProviderReq
   await model.finish()
   voiced.extensions.onCatalogChange = nil
   await voiced.extensions.reload()
-  voiced.store.update { $0.voice.enabled = true }
   voiced.navigator.input = "a"
   await voiced.navigator.settled()
   controller.input.arm()

@@ -681,7 +681,6 @@ func aRootItemsLinkCannotReceiveTheDraftFromItsPreviousRun(byHotkey: Bool) async
   last = try #require(try requests().last)
   #expect(try requests().count == 3 && last.submitted && last.fields == ["text": "again"])
   // Voice fills the input and runs nothing.
-  model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("spoken words"))

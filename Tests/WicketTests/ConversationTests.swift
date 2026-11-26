@@ -177,7 +177,6 @@ func anIdleConversationReopensForOneMinuteAfterHiding(_ secondsHidden: TimeInter
   let model = LauncherModel.testing(in: root)
   try await finishTurn(model, "Question", "Answer")
   let controller = PaletteController(model: model)
-  model.store.update { $0.voice.enabled = false }
   controller.show(orderFront: false, listen: false)
   let frame = controller.panel.frame
   model.navigator.conversationHeaderHeight += 100

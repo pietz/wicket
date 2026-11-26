@@ -22,7 +22,7 @@ enum VoiceLog {
 
 /// Why capture stopped: the one thing the log needs to tell a key or edit from a failure.
 enum VoiceStop: String, Sendable {
-  case toggle, key, escape, edit, hidden, run, busy, disabled, quit, ended, failed, startTimeout, noSpeech,
+  case toggle, key, escape, edit, hidden, run, busy, quit, ended, failed, startTimeout, noSpeech,
     silence, limit, bluetoothOnly
 }
 

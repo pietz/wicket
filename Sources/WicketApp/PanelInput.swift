@@ -13,8 +13,8 @@ import Observation
 
 /// What the panel types and says into the screens: edits of the input and its slots, and dictation. It
 /// owns the panel's voice, made on first use, and stops it before anything else the user does: a key, an
-/// edit, hiding, or a screen that no longer takes speech (a turn running, a permission waiting, voice
-/// switched off). Transcripts go to the navigator as the whole input.
+/// edit, hiding, or a screen that no longer takes speech (a turn running or a permission waiting).
+/// Transcripts go to the navigator as the whole input.
 @MainActor @Observable
 final class PanelInput: Speech {
   private let navigator: Navigator
@@ -42,21 +42,22 @@ final class PanelInput: Speech {
     navigator.speech = self
   }
 
-  /// Whether the mic button shows: voice is on and the screen takes speech.
-  var offersVoice: Bool { store.configuration.voice.enabled && agent.takesSpeech }
+  var offersVoice: Bool { agent.takesSpeech }
   var bluetoothHint: String? {
     offersVoice && voice?.bluetoothOnly == true ? VoiceError.bluetoothOnly.description : nil
   }
   var speaking: Bool { voice?.active == true }
-  /// What voice says in the panel, including after a failure. Switching voice off clears it.
+  /// What voice says in the panel, including after a failure.
   var status: String? {
-    guard store.configuration.voice.enabled else { return nil }
     if voice?.state == .starting { return "Starting voice…" }
     if voice?.state == .listening { return "Listening…" }
     return voice?.problem
   }
   func stop(_ reason: VoiceStop) { voice?.stop(reason) }
-  func arm() { prepare()?.arm() }
+  func arm() {
+    guard store.configuration.voice.listenOnOpen else { return }
+    prepare()?.arm()
+  }
   func toggle() { prepare()?.toggle() }
   private func prepare() -> VoiceInput? {
     guard offersVoice else { return nil }
@@ -88,14 +89,9 @@ final class PanelInput: Speech {
   func edit(field name: String, to value: String) {
     navigator.setField(name, to: value)
   }
-  /// The panel drew the screens: one that no longer takes speech, or voice switched off, ends dictation.
+  /// The panel drew a screen that no longer takes speech.
   func screensChanged() {
-    guard speaking else { return }
-    if !store.configuration.voice.enabled {
-      stop(.disabled)
-    } else if !agent.takesSpeech {
-      stop(.busy)
-    }
+    if speaking && !offersVoice { stop(.busy) }
   }
   /// Quitting: give capture the same bounded wait to close as a reopen.
   func finish() async {

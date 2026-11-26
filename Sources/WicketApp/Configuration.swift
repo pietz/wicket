@@ -35,12 +35,12 @@ struct Configuration: Codable, Equatable, Sendable {
   }
   /// Voice listens on the system's default input. A `microphone` key earlier versions saved is ignored.
   struct Voice: Codable, Equatable, Sendable {
-    var enabled = true
-    init(enabled: Bool = true) { self.enabled = enabled }
-    private enum CodingKeys: String, CodingKey { case enabled }
+    var listenOnOpen = true
+    init(listenOnOpen: Bool = true) { self.listenOnOpen = listenOnOpen }
+    private enum CodingKeys: String, CodingKey { case listenOnOpen = "enabled" }
     init(from decoder: any Decoder) throws {
       let c = try decoder.container(keyedBy: CodingKeys.self)
-      enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+      listenOnOpen = try c.decodeIfPresent(Bool.self, forKey: .listenOnOpen) ?? true
     }
   }
   /// A global hotkey for an address or a static item: `{"keys":"ctrl+option+left","address":"wicket://window?item=left"}`.

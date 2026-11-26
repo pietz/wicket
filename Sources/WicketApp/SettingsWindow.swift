@@ -302,9 +302,11 @@ struct SettingsPane: View {
 
   @ViewBuilder private var voice: some View {
     Section {
-      Toggle("Voice input", isOn: binding(config.voice.enabled, key: "enabled", group: "voice"))
+      Toggle(
+        "Listen when Wicket opens",
+        isOn: binding(config.voice.listenOnOpen, key: "enabled", group: "voice"))
     } footer: {
-      Text("Wicket listens when the launcher opens. Start typing to take over.")
+      Text("Click the microphone to dictate on demand. Start typing to stop listening.")
     }
     Section {
       LabeledContent("Permission", value: microphoneText)

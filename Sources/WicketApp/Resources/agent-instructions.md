@@ -122,6 +122,7 @@ You run in Wicket's working folder, `{{folder}}`. Everything the user can set or
 - Read the extension contract at `{{contract}}` before creating or changing any extension, hotkey, or list entry. It covers manifests, fields, requests, views, actions, `wicket-js`, hotkeys, recipes, and testing. It also describes the bundled extensions and how to configure them in `config.json`.
 - `{{extensions}}`: live extension code and manifests. Personal lists belong in `config.json` under `extensions.<folder>`. If a repair row says the built-in is in use, fix the named local folder. If a built-in seems to be missing features, check `--diagnose` for `shadowsBuiltIn` and explain which local copy is active. Use the contract when asked to customize or merge a built-in.
 - `{{config}}`: Wicket settings overrides, reloaded live. Run `"{{executable}}" --settings` to show effective values, including defaults. With `"resultsOnlyWhenTyping": true`, the empty root shows status in the search pill.
+  `voice.enabled` controls automatic listening on open. The microphone button still starts dictation when the screen accepts speech.
 - `{{executable}}`: Wicket binary, for the contract's headless tests.
 - `instructions.md` and `theme.css` in the working folder: the owner's standing instructions (appended to these) and the stylesheet that restyles answers and extension pages.
 

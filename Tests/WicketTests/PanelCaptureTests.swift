@@ -358,7 +358,7 @@ private let installedAgent: Void = {
       bundled: ["extension-error", "hotkey-command-error"].contains(name)
         ? try reportedExtensions() : bundledExtensions)
     model.store.update {
-      $0.voice.enabled = name == "listening" || name == "arrival-dictated"
+      $0.voice.listenOnOpen = name == "listening" || name == "arrival-dictated"
       $0.textSize = size
       $0.agent.streamAnswers = name == "working-text" || name == "chart-pending"
     }

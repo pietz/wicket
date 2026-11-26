@@ -293,7 +293,7 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
   #expect(fake.stops == 1)
 }
 
-@MainActor @Test func launcherVoiceIsLazyAndLiveConfigCanDisableIt() async throws {
+@MainActor @Test func openingWithoutAutomaticListeningStillOffersManualDictation() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
@@ -304,22 +304,16 @@ func voiceFailuresStopCaptureAndExplainTheProblem(_ error: VoiceError) async {
       constructions += 1
       return fake
     })
-  #expect(controller.input.voice == nil)
-  model.store.update { $0.voice.enabled = false }
-  controller.input.arm()
-  #expect(constructions == 0 && controller.input.voice == nil)
-  model.store.update { $0.voice.enabled = true }
-  #expect(constructions == 0)  // Enabling does not request permissions or capture.
-  controller.input.arm()
-  fake.feeds[0].yield(.ready)
-  fake.feeds[0].yield(.transcript("2+2."))
+  model.store.update { $0.voice.listenOnOpen = false }
+  controller.show(orderFront: false)
+  #expect(constructions == 0 && controller.input.voice == nil && controller.input.offersVoice)
+  controller.input.toggle()
+  #expect(controller.input.status == "Starting voice…")
+  let feed = try #require(fake.feeds.first)
+  feed.yield(.ready)
+  feed.yield(.transcript("2+2."))
   #expect(await eventually { model.navigator.input == "2+2" })
-  await model.navigator.settled()
-  model.store.update { $0.voice.enabled = false }
-  #expect(controller.input.voice?.state == .idle && fake.stops == 1 && model.navigator.input == "2+2")
-  fake.feeds[0].yield(.transcript("late"))
-  await Task.yield()
-  #expect(model.navigator.input == "2+2")
+  #expect(controller.input.status == "Listening…" && fake.bluetoothAllowed == [true])
   await controller.finish()
 }
 
@@ -329,7 +323,6 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
-  model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("spoken"))
@@ -363,7 +356,6 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
-  model.store.update { $0.voice.enabled = true }
   controller.show(orderFront: false, listen: false)
   controller.input.toggle()
   controller.input.edit("typed directly")
@@ -384,7 +376,6 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   try await finishTurn(model, "First", "Answer")
   let client = FakeAgent()
   model.agent.connect = { _, _, _ in client }
-  model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("Why?"))
@@ -399,14 +390,14 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
 
 @Test func voiceConfigurationAndLanguageChoice() throws {
   for json in ["{}", #"{"voice":{}}"#, #"{"voice":{"enabled":true}}"#] {
-    #expect(try JSONDecoder().decode(Configuration.self, from: Data(json.utf8)).voice.enabled)
+    #expect(try JSONDecoder().decode(Configuration.self, from: Data(json.utf8)).voice.listenOnOpen)
   }
   #expect(
     try !JSONDecoder().decode(Configuration.self, from: Data(#"{"voice":{"enabled":false}}"#.utf8)).voice
-      .enabled)
+      .listenOnOpen)
   let data = Data(#"{"voice":{"enabled":true}}"#.utf8)
   let config = try JSONDecoder().decode(Configuration.self, from: data)
-  #expect(config.voice.enabled)
+  #expect(config.voice.listenOnOpen)
   #expect(
     try JSONDecoder().decode(Configuration.self, from: JSONEncoder().encode(config)) == config)
   #expect(throws: (any Error).self) {
@@ -431,30 +422,33 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
       == .passThrough)
 }
 
-@MainActor @Test func atomicVoiceConfigReloadKeepsInvalidEditsAndStopsOnDisable() async throws {
+@MainActor @Test func atomicVoiceConfigReloadChangesOnlyTheNextOpen() async throws {
   let folder = try scratch()
   defer { try? FileManager.default.removeItem(at: folder) }
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
-  let url = folder.appending(path: "config.json")
+  let url = model.store.url
   model.store.start()
-  var enabled = Configuration()
-  enabled.voice.enabled = true
-  try enabled.save(at: url)
-  #expect(await eventually { model.configuration.voice.enabled })
-  #expect(fake.feeds.isEmpty)
-  controller.input.toggle()
+  controller.show(orderFront: false)
   controller.input.voice?.noSpeechDuration = .seconds(30)
   fake.feeds[0].yield(.ready)
   #expect(await eventually { controller.input.voice?.state == .listening })
   try Data(#"{"voice":{"enabled":"yes"}}"#.utf8).write(to: url, options: .atomic)
   #expect(await eventually { model.store.problem != nil })
-  #expect(model.configuration.voice.enabled && controller.input.voice?.active == true && fake.stops == 0)
-  var disabled = Configuration()
-  disabled.voice.enabled = false
-  try disabled.save(at: url)
-  #expect(await eventually { controller.input.voice?.state == .idle && !model.configuration.voice.enabled })
-  #expect(fake.stops == 1)
+  #expect(model.configuration.voice.listenOnOpen && controller.input.voice?.active == true && fake.stops == 0)
+  try Data(#"{"voice":{"enabled":false}}"#.utf8).write(to: url, options: .atomic)
+  #expect(await eventually { model.store.problem == nil && !model.configuration.voice.listenOnOpen })
+  #expect(controller.input.status == "Listening…" && fake.stops == 0)
+  controller.hide()
+  controller.show(orderFront: false)
+  #expect(controller.input.offersVoice && !controller.input.speaking && fake.feeds.count == 1)
+  try Data("{}".utf8).write(to: url, options: .atomic)
+  #expect(await eventually { model.configuration.voice.listenOnOpen })
+  #expect(!controller.input.speaking && fake.feeds.count == 1)
+  controller.hide()
+  controller.show(orderFront: false)
+  #expect(controller.input.speaking)
+  #expect(await eventually { fake.bluetoothAllowed == [false, false] })
   await controller.finish()
 }
 
@@ -467,7 +461,6 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
   model.store.update { $0.providers = [.init("extension:test")] }
   await model.extensions.reload()
-  model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
   fake.feeds[0].yield(.ready)
   fake.feeds[0].yield(.transcript("voice search"))
@@ -555,7 +548,6 @@ func voiceKeysStopBeforeNormalInputAndSubmission(_ action: PaletteKeyAction) asy
   let client = FakeAgent()
   let (model, controller) = voicedPanel(in: folder, transcriber: { fake })
   model.agent.connect = { _, _, _ in client }
-  model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
   fake.feeds[0].yield(.ready)
   #expect(await eventually { controller.input.voice?.state == .listening })
@@ -625,7 +617,7 @@ func eastAsianSegmentsKeepNativeWordBoundaries(_ language: String) {
   #expect(!model.agent.active)
   controller.hide()
   #expect(controller.input.voice?.state == .idle && fake.stops == 2 && model.navigator.input.isEmpty)
-  model.store.update { $0.voice.enabled = false }
+  model.store.update { $0.voice.listenOnOpen = false }
   controller.show(orderFront: false)
   #expect(controller.input.voice?.state == .idle && fake.feeds.count == 2)
   await controller.finish()
@@ -861,21 +853,20 @@ func onlyThePermissionDialogBorrowsFocusDuringStartup(_ permission: Bool) async 
   }
 }
 
-@MainActor @Test func disablingAndRearmingVoiceWaitsForPreviousCaptureShutdown() async throws {
+@MainActor @Test func reopeningWaitsForPreviousCaptureShutdownBeforeListening() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let fake = FakeTranscriber()
   let (closing, finish) = AsyncStream.makeStream(of: Never.self)
   fake.shutdown = closing
-  let (model, controller) = voicedPanel(in: root, transcriber: { fake })
-  controller.input.arm()
+  let (_, controller) = voicedPanel(in: root, transcriber: { fake })
+  controller.show(orderFront: false)
   let voice = controller.input.voice
   voice?.shutdownDuration = .seconds(60)
   voice?.startupDuration = .seconds(60)
-  model.store.update { $0.voice.enabled = false }
+  controller.hide()
   #expect(controller.input.voice === voice && voice?.state == .idle)
-  model.store.update { $0.voice.enabled = true }
-  controller.input.arm()
+  controller.show(orderFront: false)
   #expect(controller.input.voice === voice)
   await Task.yield()
   #expect(fake.feeds.count == 1)

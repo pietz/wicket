@@ -35,7 +35,6 @@ import Testing
   _ = try extensionFolder(root, name: "caffeine", fields: ["fields": []])  // Another row to move to.
   let fake = FakeTranscriber()
   let (model, controller) = voicedPanel(in: root, transcriber: { fake })
-  model.store.update { $0.voice.enabled = true }
   await model.extensions.reload()
   let panel = controller.panel
   controller.show(orderFront: false, listen: false)

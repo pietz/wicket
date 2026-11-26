@@ -88,7 +88,6 @@ func returningOnAnAppHidesAtOnceAndShowsAnyLaunchError(succeeds: Bool) async thr
 }
 
 @MainActor private func listening(_ controller: PaletteController, _ fake: FakeTranscriber) async -> Bool {
-  controller.model.store.update { $0.voice.enabled = true }
   controller.input.toggle()
   fake.feeds.last?.yield(.ready)
   return await eventually { controller.input.voice?.state == .listening }
