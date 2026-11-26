@@ -157,15 +157,32 @@ Errors show selectable text with Copy and Ask agent actions carrying folder, com
 
 ## Body tags
 
-Markdown plus six tags (same language as agent answers):
+Markdown with Wicket tags (same language as agent answers):
 
 - **Items** (`label`, `icon`, `title`, `subtitle`, `value` slots; body between tags = detail page opened on Return):
   - `<row icon="clock" title="Standup" subtitle="Room 2" value="15 min"/>` (consecutive rows group; `label`+`value` only = property row).
   - `<tile label="Tue" icon="cloud.rain" title="10° 7°"/>` (boxed item).
   - `<progress label="Done" value="7 of 10" percent="70"/>` and `<badge label="Ready" tone="positive"/>` (`positive`/`warning`/`negative`). Self-closing, no detail.
-- **Containers:** `<columns>` places tiles/cards side by side; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
+- **Containers:** `<columns>` places tiles, cards, or charts side by side; `<card icon="…">## Title …</card>` draws a raised box. Soft line breaks inside both become hard breaks.
 - **Item actions:** At most one of `open`, `copy`, `ask`, or (in extension output only) `run="action-name?k=v"`, titled by `action="…"`. Multiple action attributes or a refused `open` drop the item. Percent-encode separators in `run` action names and field values. Items with an action or detail require `title`.
-- **Limits & safety:** ≤1,024 UTF-8 bytes per tag. Closed fenced code blocks get a copy button; right-align numeric table columns with `---:`. Show each thing once: what the user acts on carries its action where it stands. Unsupported tags render literally; escape `<` as `&lt;` in external text (or use backticks). JS, images, remote loads, and navigation are disabled. Clicked links route through Wicket. `theme.css` restyles page content; native list and frame are not themeable.
+- **Limits & safety:** ≤4,096 UTF-8 bytes per tag. Closed fenced code blocks get a copy button; right-align numeric table columns with `---:`. Show each thing once: what the user acts on carries its action where it stands. Unsupported tags render literally; escape `<` as `&lt;` in external text (or use backticks). JS, images, remote loads, and navigation are disabled. Clicked links route through Wicket. `theme.css` restyles page content; native list and frame are not themeable.
+
+### Charts
+
+Use a chart for a trend or to compare four or more numbers at a glance.
+
+```html
+<chart title="Build time" unit="s" labels="Mon,Tue,Wed,Thu">
+<line name="Debug" values="4.6,4.2,4.4,3.9"/>
+<line name="Release" values="7.2,,6.1,5.7" style="dashed"/>
+<rule value="6" label="Goal" tone="warning"/>
+</chart>
+```
+
+- **Chart:** `title` and `unit` are optional. `highlight="max"` or `"min"` accents the first bar or column segment with the extreme value.
+- **Series and rules:** Supply comma-separated `labels` on the chart and comma-separated `values` on each self-closing `line`, `area`, or `column`. Empty values are gaps. Wicket pads short lists and truncates long ones to the labels. A legend appears with two or more named series (`name`). Lines take `style="dashed"`. Columns sit side by side, and columns sharing a `stack` key stack. A `rule` marks a numeric `value` or a label `at`; add `label` for its caption and `tone="positive"`, `"warning"`, or `"negative"` to tint a threshold.
+- **Bars or shares:** Omit `labels` and use only `<bar label="…" value="…"/>` for horizontal bars or only `<share label="…" value="…"/>` for a segmented bar. Shares need a positive total. Stacked values and shares must be nonnegative.
+- **Limits:** Up to eight series, 200 labels or values per series, and 24 bars, shares, or rules. Invalid charts show a table of readable data. Charts and their marks ignore action attributes and are skipped by keyboard selection.
 
 ### Canvas fields
 

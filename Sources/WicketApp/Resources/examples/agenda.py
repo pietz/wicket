@@ -9,7 +9,7 @@ UNTIL, COUNT, EXDATE and moved occurrences (RECURRENCE-ID); a rule with other pa
 within the hour a clock change skips or repeats can show an hour off."""
 import datetime as dt, html, http.client, itertools, json, os, re, signal, sys, urllib.parse, urllib.request, zoneinfo
 DAYS = 7
-TAG_BYTES = 1000  # Wicket reads a tag of up to 1,024 bytes; a longer one loses its detail.
+TAG_BYTES = 1000  # A row shows a line; Wicket reads a tag of up to 4,096 bytes and drops a longer one.
 WEEKDAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 LINE = re.compile(r'([^;:]+)((?:;[^=;:]+=(?:"[^"]*"|[^;:"])*)*):(.*)')  # NAME;PARAM="quoted":value
 PARAM = re.compile(r';([^=;:]+)=((?:"[^"]*"|[^;:"])*)')

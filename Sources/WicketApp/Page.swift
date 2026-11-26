@@ -14,7 +14,7 @@ import Foundation
 /// one that starts with `#` gets another, so it never meets a body target's.
 struct Page: Equatable, Sendable {
   /// Markdown and tags for the renderer, each item self-closing and each container's opening tag
-  /// canonical.
+  /// canonical. A chart keeps its source as one inert block.
   var source: String
   /// Everything the user can act on, in reading order.
   var targets: [Row]
@@ -67,7 +67,7 @@ struct Page: Equatable, Sendable {
     var cursor = 0
     // Most replies have no tag or code fence: they skip Markdown's parse.
     let reading =
-      Self.slots.keys.contains { body.contains("<" + $0) }
+      Self.slots.keys.contains { body.contains("<" + $0) } || body.contains("<chart")
         || (copies && (body.contains("```") || body.contains("~~~")))
       ? AnswerMarkdown.read(body, streaming: streaming) : nil
     /// The tag whose content is being read, with how deep its own kind nests in it.
@@ -100,7 +100,7 @@ struct Page: Equatable, Sendable {
     // Tags and code blocks in reading order, as the renderer reads them; a tag inside code is text.
     var events: [(offset: Int, tag: AnswerMarkdown.Tag?, block: AnswerMarkdown.Block?)] =
       copies ? (reading?.blocks ?? []).map { ($0.start, nil, $0) } : []
-    for tag in reading?.tags ?? [] where Self.slots[tag.name] != nil {
+    for tag in reading?.tags ?? [] where Self.slots[tag.name] != nil || tag.name == "chart" {
       events.append((tag.range.lowerBound, tag, nil))
     }
     events.sort { $0.offset < $1.offset }
@@ -130,6 +130,12 @@ struct Page: Equatable, Sendable {
       }
       source += text(cursor..<current.range.lowerBound)
       cursor = current.range.upperBound
+      if name == "chart" {
+        source += text(current.range)
+        // Bound a malformed final chart before appending the view's own targets and controls.
+        if current.unfinishedChart, !streaming { source += "\n" + AnswerMarkdown.unfinishedChartEnd }
+        continue
+      }
       if name == "field" {
         let names = current.values.filter { $0.0 == "name" }
         if current.selfClosing, !current.closing, names.count == 1,
@@ -218,7 +224,7 @@ struct Page: Equatable, Sendable {
 
   /// A value in the quotes it does not contain. A JSON title can contain both; its double quotes become
   /// typographic ones, as the instructions ask of the agent. Long values are cut: an item shows a line,
-  /// and the renderer reads a tag of at most 1,024 bytes.
+  /// and the renderer reads a tag of at most 4,096 bytes.
   private static func quoted(_ value: String) -> String {
     var value = String(value.replacingOccurrences(of: "\n", with: " ").prefix(300))
     if !value.contains("\"") { return "\"\(value)\"" }

@@ -27,6 +27,15 @@
   --big: 24px;
   --radius: 12px;
   --radius-small: 5px;
+  --chart-height: 202px;
+  --chart-radius: 4px;
+  --chart-stroke: 2px;
+  --chart-grid: var(--line);
+  --chart-1: var(--accent);
+  --chart-2: light-dark(oklch(0.56 0.115 162), oklch(0.76 0.13 162));
+  --chart-3: light-dark(oklch(0.58 0.145 310), oklch(0.76 0.13 310));
+  --chart-4: light-dark(oklch(0.61 0.145 52), oklch(0.79 0.13 65));
+  --chart-5: light-dark(oklch(0.57 0.14 15), oklch(0.76 0.13 15));
   font: var(--body)/1.45 system-ui, -apple-system, sans-serif;
   color: var(--ink);
   background: transparent;
@@ -173,6 +182,110 @@ w-badge:is([data-tone=positive], [data-tone=negative]) { color: var(--ink); back
 w-badge[data-tone=warning]::before { content: ""; display: inline-block; margin-right: 5px; vertical-align: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
 p:has(> w-badge) { line-height: 1.7; }
 
+/* Charts share a viewport with their streaming placeholder. SVG only draws the geometry;
+   labels stay in the document's type scale as the plot stretches. */
+w-chart { display: block; min-width: 0; position: relative; container-type: inline-size; }
+.chart-view { display: flex; flex-direction: column; gap: 8px; height: var(--chart-height); font-variant-numeric: tabular-nums; }
+.chart-title { font-weight: 600; color: var(--ink); }
+.chart-title, .chart-bar-label, .chart-legend-name, .chart-x, .chart-rule-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-scroll { min-height: 0; overflow: auto; }
+.chart-data { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.chart-data table, .chart-scroll table { font-variant-numeric: tabular-nums; }
+.chart-scroll tbody th { border: 0; color: var(--ink); padding-bottom: 4px; }
+.chart-placeholder {
+  flex: 1;
+  background: repeating-linear-gradient(to bottom, transparent 0 calc(25% - 1px), var(--chart-grid) 0 25%);
+}
+
+.chart-color-1 { --chart-color: var(--chart-1); }
+.chart-color-2 { --chart-color: var(--chart-2); }
+.chart-color-3 { --chart-color: var(--chart-3); }
+.chart-color-4 { --chart-color: var(--chart-4); }
+.chart-color-5 { --chart-color: var(--chart-5); }
+.chart-muted { --chart-color: color-mix(in oklch, var(--muted) 38%, transparent); }
+
+.chart-bars { display: grid; grid-template-columns: fit-content(34%) minmax(0, 1fr); align-content: start; gap: 7px 14px; }
+.chart-bar-row { display: grid; grid-column: 1/-1; grid-template-columns: subgrid; align-items: center; min-width: 0; }
+.chart-bar-plot {
+  position: relative;
+  min-width: 0;
+  height: 1.45em;
+  margin-inline: min(30%, calc(var(--chart-negative-width) * 1ch))
+    min(35%, calc(var(--chart-value-width) * 1ch + 8px));
+}
+.chart-bar { position: absolute; inset-block: 4px; left: var(--chart-start); width: var(--chart-width); }
+.chart-bar, .chart-share { border-radius: var(--chart-radius); }
+.chart-bar, .chart-column, .chart-swatch, .chart-share span, .chart-dot { background: var(--chart-color); }
+.chart-bar-value { position: absolute; left: calc(var(--chart-x) + 7px); color: var(--muted); white-space: nowrap; }
+.chart-negative .chart-bar-value { left: calc(var(--chart-x) - 7px); transform: translateX(-100%); }
+.chart-share { display: flex; height: 18px; gap: 2px; overflow: hidden; }
+.chart-share span { flex: var(--chart-share) 1 0; min-width: 0; }
+.chart-shares { padding-top: 2px; }
+.chart-shares .chart-legend { margin-top: 10px; }
+
+.chart-series { display: flex; flex-direction: column; position: relative; flex: 1; min-height: 0; }
+.chart-unit, .chart-y, .chart-x, .chart-rule-label, .chart-legend { font-size: var(--small); color: var(--muted); }
+.chart-unit { position: absolute; right: 0; top: 0; line-height: 1; }
+.chart-axes {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 6px 25px calc(var(--chart-tick-width) * 1ch + 10px);
+}
+.chart-plot { position: relative; height: 100%; }
+.chart-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart-grid { stroke: var(--chart-grid); stroke-width: 1px; stroke-dasharray: 3 3; }
+.chart-line {
+  fill: none; stroke: var(--chart-color); stroke-width: var(--chart-stroke);
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.chart-dashed { stroke-dasharray: 4 4; }
+.chart-fade-start { stop-color: white; stop-opacity: 0.33; }
+.chart-fade-end { stop-color: white; stop-opacity: 0; }
+w-chart mask { mask-type: alpha; }
+.chart-plot .chart-marks { position: absolute; inset: 0; }
+.chart-area { fill: var(--chart-color); }
+.chart-column {
+  position: absolute; left: var(--chart-x); top: var(--chart-y); width: var(--chart-width); height: var(--chart-rise);
+  box-sizing: border-box; background-clip: padding-box; border-top: 1px solid transparent;
+}
+.chart-cap { border-top: 0; border-radius: var(--chart-radius) var(--chart-radius) 0 0; }
+.chart-cap-down { border-top: 0; border-radius: 0 0 var(--chart-radius) var(--chart-radius); }
+.chart-dot {
+  position: absolute; left: var(--chart-x); top: var(--chart-y); transform: translate(-50%, -50%);
+  border-radius: 50%; width: 6px; height: 6px;
+}
+.chart-y { position: absolute; right: calc(100% + 8px); top: var(--chart-y); transform: translateY(-50%); white-space: nowrap; }
+.chart-x {
+  display: none; position: absolute; top: calc(100% + 5px); left: var(--chart-x);
+  max-width: min(34%, calc(var(--chart-label-width) * 1ch + 4px)); transform: translateX(-50%);
+}
+.chart-x.chart-first { transform: none; }
+.chart-x.chart-last { transform: translateX(-100%); }
+@container (width >= 420px) { .chart-x-0 { display: block; } }
+@container (310px <= width < 420px) { .chart-x-1 { display: block; } }
+@container (width < 310px) { .chart-x-2 { display: block; } }
+.chart-rule { stroke: var(--muted); stroke-width: 1px; stroke-dasharray: 4 3; }
+.chart-rule.chart-positive { stroke: var(--positive); }
+.chart-rule.chart-warning { stroke: var(--warning); }
+.chart-rule.chart-negative { stroke: var(--negative); }
+.chart-rule-label { position: absolute; max-width: 42%; }
+.chart-rule-y { right: 2px; top: calc(var(--chart-position) - 3px); transform: translateY(-100%); }
+.chart-rule-below { top: calc(var(--chart-position) + 3px); transform: none; }
+.chart-rule-left, .chart-rule-right { top: 3px; }
+.chart-rule-right { left: calc(var(--chart-position) + 5px); }
+.chart-rule-left { right: calc(100% - var(--chart-position) + 5px); }
+
+.chart-legend { display: flex; flex-wrap: wrap; gap: 3px 16px; list-style: none; margin: 0; padding: 0; }
+.chart-series .chart-legend { max-height: 33%; overflow: auto; }
+.chart-legend li { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; margin: 0; }
+.chart-share + .chart-legend li { white-space: nowrap; }
+.chart-swatch { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chart-legend-name { color: var(--ink); }
+
 /* A card: the one raised box, around what it holds. Its first heading is its title, and its icon sits
    at the top right. */
 w-card { position: relative; padding: 12px 14px; border-radius: var(--radius); background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--edge); }
@@ -186,7 +299,7 @@ w-card > w-rows { margin-block: calc(-6px / var(--zoom, 1)); }
 /* Columns: tiles or cards side by side as equal cells, wrapping when the page is too narrow for them; a
    tile takes its narrow look by itself when its cell is. */
 w-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 8px; }
-w-columns:has(> w-card) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+w-columns:has(> :is(w-card, w-chart)) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 w-columns > * { margin: 0; }
 w-columns > w-card + w-card { margin-top: 0; }
 

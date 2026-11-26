@@ -6,6 +6,8 @@ import cmark_gfm_extensions
 /// cmark owns Markdown. Only controls resolved from the host's Page can produce interactive HTML.
 enum AnswerMarkdown {
   private static let lock = Mutex(())
+  private static let tagLimit = 4096
+  static let unfinishedChartEnd = "</chart unfinished>"
   private static let tags = try! NSRegularExpression(
     pattern: #"^</?([A-Za-z][A-Za-z0-9_-]*)(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?/?>$"#)
   static let attributes = try! NSRegularExpression(
@@ -42,6 +44,7 @@ enum AnswerMarkdown {
     let values: [(String, String)]
     let closing: Bool
     let selfClosing: Bool
+    var unfinishedChart = false
   }
   /// The source as cmark reads it: each Wicket tag is a placeholder token, a paragraph of its own unless
   /// it is an inline badge, so a tag line written straight above a fence never holds the fence in an HTML
@@ -279,56 +282,48 @@ enum AnswerMarkdown {
         i = min(bytes.count, i + 3)
         continue
       }
-      var end = i + 1
-      var quote: UInt8?
-      while end < bytes.count, end - i < 1024 {
-        let byte = bytes[end]
-        if let q = quote {
-          if byte == q { quote = nil }
-        } else if byte == 34 || byte == 39 {
-          quote = byte
-        } else if byte == 60 || byte == 62 {
-          break
-        }
-        end += 1
-      }
+      let candidate = tagEnd(bytes, at: i)
       // A tag still being written, quotes and all, waits: nothing from its `<` on is page yet.
-      if streaming, !escaped, end == bytes.count, partial(bytes[(i + 1)...]) {
+      if streaming, !escaped, candidate == bytes.count, partial(bytes[(i + 1)...]) {
         keep(cursor..<i)
         return result
       }
-      guard end < bytes.count, bytes[end] == 62, quote == nil else {
+      guard let (tag, original) = readTag(bytes, at: i, end: candidate, attributes: !inline && !escaped)
+      else {
         i += 1
         continue
       }
-      let original = String(decoding: bytes[i...end], as: UTF8.self)
-      let ns = original as NSString
-      guard let match = tags.firstMatch(in: original, range: NSRange(location: 0, length: ns.length)) else {
-        i += 1
-        continue
-      }
-      let name = ns.substring(with: match.range(at: 1))
+      let (name, closing, selfClosing, values) = (tag.name, tag.closing, tag.selfClosing, tag.values)
       // An escaped opener becomes part of the literal, so leave its backslash out of the Markdown.
       keep(cursor..<(escaped ? i - 1 : i))
-      cursor = end + 1
+      cursor = tag.range.upperBound
       i = cursor
       // To find the code, a word in the tag's place, which breaks no code span, is enough.
       if inline {
         add(nonce)
         continue
       }
-      // Keep literal tags as text so cmark can read them in link labels and titles.
-      guard !escaped, Page.slots[name] != nil else {
-        add(literal(original))
+      if !escaped, name == "chart", !closing {
+        let chart = readChart(bytes, opening: tag, collect: markup)
+        result.tags.append(
+          Tag(
+            range: tag.range.lowerBound..<chart.end, name: name, values: [], closing: false,
+            selfClosing: selfClosing, unfinishedChart: !chart.closed))
+        cursor = chart.end
+        i = cursor
+        let key = nonce + "T\(result.tags.count)END"
+        add("\n\n\(key)\n\n")
+        if let content = chart.content {
+          result.tokens[key] = content.html(pending: streaming && !chart.closed, ordinal: result.tags.count)
+        }
         continue
       }
-      let closing = original.hasPrefix("</")
-      let selfClosing = original.hasSuffix("/>")
-      let values = closing ? [] : values(original)
-      result.tags.append(
-        Tag(
-          range: (cursor - original.utf8.count)..<cursor, name: name, values: values, closing: closing,
-          selfClosing: selfClosing))
+      // Keep literal tags as text so cmark can read them in link labels and titles.
+      guard !escaped, Page.slots[name] != nil else {
+        add(literal(original.isEmpty ? String(decoding: bytes[tag.range], as: UTF8.self) : original))
+        continue
+      }
+      result.tags.append(tag)
       let key = nonce + "T\(result.tags.count)END"
       if name == "field", markup {
         if !streaming, selfClosing, !closing, let name = values.first(where: { $0.0 == "name" })?.1,
@@ -370,6 +365,84 @@ enum AnswerMarkdown {
     keep(cursor..<bytes.count)
     return result
   }
+  private static func tagEnd(_ bytes: [UInt8], at start: Int) -> Int {
+    let nameStart = start + (start + 1 < bytes.count && bytes[start + 1] == 47 ? 2 : 1)
+    let name = bytes[nameStart...].prefix(7).prefix(while: {
+      (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95
+    })
+    let nameText = String(decoding: name, as: UTF8.self)
+    // An oversized chart opening still encloses its marks, but its attributes are never parsed.
+    let limit = nameText == "chart" && nameStart == start + 1 ? bytes.count - start + 1 : tagLimit
+    var end = start + 1
+    var quote: UInt8?
+    while end < bytes.count, end - start < limit {
+      let byte = bytes[end]
+      if let q = quote {
+        if byte == q { quote = nil }
+      } else if byte == 34 || byte == 39 {
+        quote = byte
+      } else if byte == 60 || byte == 62 {
+        break
+      }
+      end += 1
+    }
+    return end - start == limit ? start : end
+  }
+
+  private static func readTag(
+    _ bytes: [UInt8], at start: Int, end: Int, attributes: Bool
+  ) -> (Tag, String)? {
+    guard end < bytes.count, bytes[end] == 62 else { return nil }
+    let range = start..<(end + 1)
+    if range.count > tagLimit {
+      let chart = Tag(
+        range: range, name: "chart", values: [], closing: false, selfClosing: bytes[end - 1] == 47)
+      return (chart, "")
+    }
+    let original = String(decoding: bytes[range], as: UTF8.self)
+    let ns = original as NSString
+    guard let match = tags.firstMatch(in: original, range: NSRange(location: 0, length: ns.length))
+    else { return nil }
+    let closing = original.hasPrefix("</")
+    let name = ns.substring(with: match.range(at: 1))
+    let known = Page.slots[name] != nil || Chart.tagNames.contains(name)
+    let tag = Tag(
+      range: range, name: name, values: attributes && known && !closing ? values(original) : [],
+      closing: closing, selfClosing: original.hasSuffix("/>"))
+    return (tag, original)
+  }
+
+  private static func readChart(
+    _ bytes: [UInt8], opening: Tag, collect: Bool
+  ) -> (content: Chart?, end: Int, closed: Bool) {
+    var chart = collect ? Chart(opening) : nil
+    var cursor = opening.range.upperBound
+    if opening.range.count > tagLimit { chart?.invalid = true }
+    if opening.selfClosing { return (chart, cursor, true) }
+    var depth = 1
+    while let next = bytes[cursor...].firstIndex(where: { $0 != 32 && $0 != 10 && $0 != 13 && $0 != 9 }) {
+      cursor = next + 1
+      guard bytes[next] == 60,
+        let (tag, original) = readTag(bytes, at: next, end: tagEnd(bytes, at: next), attributes: collect)
+      else {
+        chart?.invalid = true
+        continue
+      }
+      cursor = tag.range.upperBound
+      if tag.name == "chart", !tag.selfClosing {
+        depth += tag.closing ? -1 : 1
+        if depth == 0 || original == unfinishedChartEnd {
+          let suffix = original.dropFirst(7).dropLast()
+          if !suffix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { chart?.invalid = true }
+          return (chart, cursor, true)
+        }
+      }
+      if depth == 1 { chart?.add(tag) } else { chart?.invalid = true }
+    }
+    chart?.invalid = true
+    return (chart, bytes.count, false)
+  }
+
   /// What follows a `<` that may still become a tag: a name being written, or nothing yet.
   private static func partial(_ rest: ArraySlice<UInt8>) -> Bool {
     let name = rest.first == 47 ? rest.dropFirst() : rest

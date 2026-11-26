@@ -37,7 +37,7 @@ struct EvalScore: Codable, Sendable {
   let lengthPoints: Int
 
   static let longParagraphWords = 40
-  static let componentNames = ["row", "tile", "progress", "badge", "columns", "card"]
+  static let componentNames = ["row", "tile", "progress", "badge", "columns", "card", "chart"]
   static let shapeNames = Set(
     componentNames + ["tileInColumns", "cardInColumns", "rowDetail", "copyRow", "headline", "contextLine"])
 

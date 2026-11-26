@@ -1,0 +1,66 @@
+{
+  "chart-bars": {
+    "question": "How long did the build take?",
+    "body": "<chart title=\"Build time by target\" unit=\"s\" highlight=\"max\">\n<bar label=\"WicketApp\" value=\"4.8\"/>\n<bar label=\"WicketTests\" value=\"1.9\"/>\n</chart>",
+    "text": [
+      "Build time by target",
+      "WicketApp",
+      "WicketTests"
+    ]
+  },
+  "chart-area": {
+    "question": "How did the deploy affect latency?",
+    "body": "<chart title=\"API p95 latency\" unit=\"ms\" labels=\"10:00,11:00,12:00,13:00,14:00,15:00\">\n<area values=\"118,124,141,135,238,162\"/>\n<rule value=\"200\" label=\"SLA\" tone=\"warning\"/>\n<rule at=\"14:00\" label=\"Deploy\"/>\n</chart>",
+    "text": [
+      "p95 latency",
+      "Deploy",
+      "SLA",
+      "300"
+    ]
+  },
+  "chart-columns": {
+    "question": "Are we on track for the year?",
+    "body": "<chart title=\"Quarterly revenue\" unit=\"k€\" labels=\"Q1,Q2,Q3,Q4\">\n<column name=\"Self-serve\" values=\"32,35,38,40\" stack=\"rev\"/>\n<column name=\"Enterprise\" values=\"55,62,68,92\" stack=\"rev\"/>\n<line name=\"Target\" values=\"90,100,110,120\" style=\"dashed\"/>\n</chart>",
+    "text": [
+      "Quarterly revenue",
+      "Enterprise",
+      "Target"
+    ]
+  },
+  "chart-shares": {
+    "question": "What is taking up my disk space?",
+    "body": "<chart title=\"Macintosh HD\" unit=\"GB\">\n<share label=\"Apps\" value=\"142\"/>\n<share label=\"Photos\" value=\"96\"/>\n<share label=\"Free\" value=\"194\"/>\n</chart>",
+    "text": [
+      "Macintosh HD",
+      "Apps",
+      "Photos",
+      "Free"
+    ]
+  },
+  "chart-lines-larger": {
+    "question": "How is traffic trending this month?",
+    "body": "<chart title=\"Requests per day\" labels=\"Oct 01,Oct 02,Oct 03,Oct 04,Oct 05,Oct 06,Oct 07,Oct 08,Oct 09,Oct 10,Oct 11,Oct 12,Oct 13,Oct 14,Oct 15,Oct 16,Oct 17,Oct 18,Oct 19,Oct 20,Oct 21,Oct 22,Oct 23,Oct 24,Oct 25,Oct 26,Oct 27,Oct 28,Oct 29,Oct 30\">\n<line name=\"Web\" values=\"30,33,38,36,32,30,42,39,40,36,34,43,42,50,42,39,42,55,51,52,46,50,53,60,58,52,56,63,64,61\"/>\n<line name=\"API\" values=\"14,18,20,18,23,22,21,23,30,28,25,24,30,32,32,31,36,34,35,38,38,36,40,,44,49,44,41,45,49\"/>\n<line name=\"Background\" values=\"9,13,12,13,11,10,16,17,15,20,18,12,14,17,20,23,23,17,20,22,26,22,20,21,23,23,24,23,25,26\"/>\n</chart>",
+    "text": [
+      "Requests per day",
+      "Background",
+      "Oct 01",
+      "Oct 30"
+    ]
+  },
+  "chart-nested": {
+    "question": "What changed in the latest release?",
+    "body": "<columns>\n<chart title=\"API p95 latency\" unit=\"ms\" labels=\"10:00,11:00,12:00,13:00,14:00,15:00\">\n<area values=\"118,124,141,135,238,162\"/>\n<rule value=\"200\" label=\"SLA\" tone=\"warning\"/>\n<rule at=\"14:00\" label=\"Deploy\"/>\n</chart>\n<card>\n## Release notes\n<row label=\"Version\" value=\"0.4 beta\"/>\n<row label=\"Region\" value=\"Europe\"/>\n</card>\n</columns>",
+    "text": [
+      "API p95 latency",
+      "Release notes",
+      "Europe"
+    ]
+  },
+  "chart-pending": {
+    "question": "How did the deploy affect latency?",
+    "body": "<chart title=\"API p95 latency\" unit=\"ms\" labels=\"10:00,11:00,12:00,13:00,14:00,15:00\">\n<area values=\"118,124,141,135,238,162\"/>\n<rule value=\"200\" label=\"SLA\" tone=\"warning\"/>\n<rule at=\"14:00\" label=\"Deploy\"/>",
+    "text": [
+      "p95 latency"
+    ]
+  }
+}

@@ -16,6 +16,11 @@ labels = "true" if fields.get("labels", "true") == "true" else "false"
 
 # An action is one-shot. In a real command, persist the new grid value here.
 confirmed = request.get("submitted") and request.get("action") == "set-grid"
+categories, values = {
+    "day": ("09:00,12:00,15:00,18:00", "14,25,20,28"),
+    "week": ("Mon,Tue,Wed,Thu,Fri", "32,29,38,35,41"),
+    "month": ("Week 1,Week 2,Week 3,Week 4", "98,115,110,123"),
+}[period]
 status = ("Grid shown." if grid == "true" else "Grid hidden.") if confirmed else "Chart preview"
 body = f"""# {periods[period]} chart
 {status}
@@ -24,6 +29,10 @@ body = f"""# {periods[period]} chart
 <field name="labels"/>
 <field name="opacity"/>
 <field name="period"/>
+
+<chart title="Sample data" labels="{categories}">
+<line values="{values}"/>
+</chart>
 
 <progress label="Opacity" value="{opacity}%" percent="{opacity}"/>"""
 print(json.dumps({"body": body, "fields": [

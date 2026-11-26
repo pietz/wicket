@@ -44,7 +44,7 @@ private let states =
     "settings-quicklinks", "settings-quicklinks-add", "settings-quicklinks-edit",
     "settings-quicklinks-search", "settings-window-add", "settings-window-invalid", "settings-error",
     "settings-conflict",
-  ] + transitions
+  ] + transitions + ChartFixture.all.keys.sorted()
 
 /// Moments in the middle of a switch, recorded before the screens move to their own owners: each is
 /// drawn at its checkpoint, not once everything settled, so a broken transition cannot pass.
@@ -58,6 +58,7 @@ private let transitions = [
 /// What text recognition must find, so a blank or broken panel fails.
 private func expectedText(_ name: String) -> [String] {
   if let text = transitionText[name] { return text }
+  if let chart = ChartFixture.all[name] { return chart.text }
   if name == "weather-keyword" { return ["weather", "Ask agent"] }
   if name == "weather-root" { return ["Berlin", "overcast", "Ask agent"] }
   if name == "convert-cached-rate" { return ["80 EUR", "Cached rate"] }
@@ -359,7 +360,7 @@ private let installedAgent: Void = {
     model.store.update {
       $0.voice.enabled = name == "listening" || name == "arrival-dictated"
       $0.textSize = size
-      $0.agent.streamAnswers = name == "working-text"
+      $0.agent.streamAnswers = name == "working-text" || name == "chart-pending"
     }
     let panel = CapturePanel()
     panel.appearance = appearance
@@ -441,6 +442,20 @@ private let installedAgent: Void = {
         #expect(await eventually { !model.agent.busy })
       }
       if name == "conversation-long-expanded" { model.navigator.toggleQuestion() }
+    case "chart-nested":
+      try await configureExtension(name, model)
+    case "chart-pending":
+      let fixture = try #require(ChartFixture.all[state])
+      let agent = FakeAgent()
+      scenario.keep.append(agent)
+      model.agent.connect = { _, _, _ in agent }
+      model.navigator.send(fixture.question)
+      #expect(await eventually { agent.running })
+      agent.text(fixture.body)
+      #expect(await eventually { model.agent.answer == fixture.body })
+    case _ where ChartFixture.all[state] != nil:
+      let fixture = try #require(ChartFixture.all[state])
+      try await finishTurn(model, fixture.question, fixture.body)
     case "clipboard", "clipboard-image":
       let clips = try #require(clipboard)
       model.store.update { $0.providers = [.init("clipboard")] }
@@ -721,7 +736,7 @@ private let installedAgent: Void = {
       await model.navigator.settled()
       _ = model.activateReturn()
       await model.navigator.settled()
-    } else if ["extension-detail", "extension-both"].contains(state) {
+    } else if ["extension-detail", "extension-both", "chart-nested"].contains(state) {
       let demo = folder.appending(path: "extensions/demo")
       try FileManager.default.createDirectory(at: demo, withIntermediateDirectories: true)
       try JSONSerialization.data(withJSONObject: [
@@ -732,8 +747,8 @@ private let installedAgent: Void = {
       ]).write(to: demo.appending(path: "wicket.json"))
       let both = state == "extension-both"
       let view = ProviderView(
-        body:
-          "## A useful extension\n<tile label=\"Total\" title=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>\n<row label=\"Source\" value=\"Local extension\"/>\n<row label=\"Format\" value=\"One JSON view\"/>",
+        body: ChartFixture.all[state]?.body
+          ?? "## A useful extension\n<tile label=\"Total\" title=\"42\"/>\n<card>Written by a program, displayed by Wicket.</card>\n<row label=\"Source\" value=\"Local extension\"/>\n<row label=\"Format\" value=\"One JSON view\"/>",
         items: both
           ? [
             Row(
@@ -1106,6 +1121,11 @@ func scenariosSetUpTheirState(_ state: String) async throws {
     #expect(
       model.agent.active && !model.agent.busy && model.agent.previous.count == 1
         && model.agent.answer.contains("Build something useful"))
+  case "chart-nested":
+    #expect(model.navigator.command != nil && model.navigator.body == ChartFixture.all[state]?.body)
+  case _ where ChartFixture.all[state] != nil:
+    #expect(model.agent.active && model.agent.answer == ChartFixture.all[state]?.body)
+    #expect(model.agent.busy == (state == "chart-pending"))
   case _ where state.hasPrefix("answer"):
     #expect(
       model.agent.active && model.agent.answer.contains("A good start")

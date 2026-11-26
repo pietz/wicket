@@ -66,7 +66,7 @@ If an extension, hotkey, permission, or voice fails, ask the agent why. It can r
 
 Runs your local `claude` or `codex` CLI with your config and MCP servers—Wicket stores no credentials. Configure agent, model, effort, permission mode, speed, and streaming (on by default) in Settings ▸ Agent. On permission prompts, ⌘Return allows once and Escape declines.
 
-Replies render as keyboard-driven pages (rows, tiles, cards, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.
+Replies render as keyboard-driven pages (rows, tiles, cards, charts, details, copyable code blocks). Asking from inside a command (⌘Return) passes its visible state as context.
 
 Wicket reopens at search after the launcher has been hidden for more than a minute. A running turn, a pending permission, or an unseen answer brings you back to the conversation even after a minute. The menu bar icon shows a dot for a pending permission or unseen answer while the launcher is hidden. Once you've seen the answer, the next hide starts a fresh minute.
 
