@@ -4,7 +4,7 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 
 ## Product
 
-- **First calculation after an update can lag.** macOS checks a new binary on first execution (40–700 ms measured for Calculator), exceeding the 30 ms root pattern hold, so the first `12*7` can briefly show a list before the result arrives (Ask agent and untouched Return wait for it). Next: watch in daily use; fix by pre-running each bundled binary once at launch if needed.
+- **First calculation after an update can lag.** macOS checks a new binary on first execution (40–700 ms measured for Calculator), exceeding the 30 ms root pattern hold, so the first `12*7` can briefly show a list before the result arrives (Ask agent and untouched Return wait for it). Accepted for now (once per binary per update). If it matters: a Gatekeeper assessment (`SecAssessmentCreate`) absorbs the cost without running the binary (160 → 42 ms measured); running extensions to warm them is unsafe, and treating the verdict as a health check gave false alarms.
 - **Examples go stale.** `examples/` copies only when absent, so updated apps can leave older examples on disk. Next: move examples to the catalog (ROADMAP step 3).
 - **Pattern runs are invisible.** Enabled `match` extensions run unsandboxed on matching keystrokes with no indicator, so an agent that writes to `extensions/` gains unsandboxed execution on a later keystroke regardless of its permission mode. This is the agreed trust model ([AGENTS.md](AGENTS.md)). Next: show one root notice for newly enabled extensions (ROADMAP step 3).
 - **Root items per extension cap at 20 by fuzzy score alone**, before tier and usage, so a frequently used item in a large list can be excluded on short queries.
