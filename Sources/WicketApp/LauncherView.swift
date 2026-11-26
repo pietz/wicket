@@ -439,10 +439,13 @@ struct LauncherView: View {
       ?? (showsExtension && shown.problem == nil)
     let splitHeight = shown.splits ? PaletteLayout.listHeight(shown) : nil
     let webHeight = splitHeight ?? (showsFullPage ? renderer.height : 0)
-    // The pane shows only this command's details, so another screen's page never flashes in it while
-    // the first one renders. Keep the web view mounted: one added after rendering stayed blank offscreen.
+    // The web view shows only what this screen rendered, so a list's detail never flashes under a page
+    // opened from it (or the reverse) while WebKit renders. Keep it mounted: one added after rendering
+    // stayed blank offscreen.
     let previewReady =
-      !shown.splits || renderer.renderedTurn.hasPrefix(Navigator.previewTurn(shown.command ?? "", nil))
+      shown.splits
+      ? renderer.renderedTurn.hasPrefix(Navigator.previewTurn(shown.command ?? "", nil))
+      : !showsExtension || renderer.renderedTurn == shown.pageTurn
     return HStack(spacing: 0) {
       if shown.splits {
         list.frame(width: PaletteLayout.splitList)
