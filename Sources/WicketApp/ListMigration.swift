@@ -140,8 +140,8 @@ import Foundation
           let rect = legacy.rect
         else { return original }
         entry["anchor"] = WindowAnchor.nearest(to: rect).rawValue
-        entry["width"] = Field.wire(max(10, (rect.width * 10_000).rounded() / 100))
-        entry["height"] = Field.wire(max(10, (rect.height * 10_000).rounded() / 100))
+        entry["width"] = Field.wire(max(10, (Double(rect.width) * 10_000).rounded() / 100))
+        entry["height"] = Field.wire(max(10, (Double(rect.height) * 10_000).rounded() / 100))
         entry["definition"] = nil
         guard list.accepts(entry) else { return original }
         changed = true
