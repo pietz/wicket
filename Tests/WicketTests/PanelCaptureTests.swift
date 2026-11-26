@@ -956,6 +956,10 @@ private let installedAgent: Void = {
   }
 }
 
+@MainActor private func webViews(in view: NSView) -> [WKWebView] {
+  (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap { webViews(in: $0) }
+}
+
 /// Draws the view offscreen. Web views are drawn from their own snapshots: the composited layer of a
 /// web view in a window that is never shown sometimes stays blank however long one waits (whole
 /// batches of pages did, now and then), while a snapshot is rendered by WebKit itself.
@@ -966,14 +970,11 @@ private let installedAgent: Void = {
   guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
     throw ExtensionFailure("No render target")
   }
-  func webViews(_ view: NSView) -> [WKWebView] {
-    (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webViews)
-  }
   // SwiftUI's opacity, as under the action panel, is an ancestor's alpha, which a snapshot ignores.
   func transparent(_ view: NSView?) -> Bool {
     view.map { $0.alphaValue == 0 || transparent($0.superview) } ?? false
   }
-  let shown = webViews(view).filter {
+  let shown = webViews(in: view).filter {
     !$0.isHiddenOrHasHiddenAncestor && !$0.visibleRect.isEmpty && !transparent($0)
   }
   for web in shown { web.isHidden = true }
@@ -1059,6 +1060,75 @@ func panelCapture(_ state: String) async throws {
     }
     await scenario.finish()
   }
+}
+
+@MainActor @Test func panelKeepsItsWebViewAcrossAnswersPagesAndSplitLists() async throws {
+  _ = NSApplication.shared
+  let folder = try scratch()
+  defer { try? FileManager.default.removeItem(at: folder) }
+  _ = try extensionFolder(
+    folder, name: "report",
+    script: #"""
+      case "$(cat)" in
+        *'"action":"stop"'*) cat <<'JSON'
+      {"items":[
+        {"id":"log","title":"Log","detail":"Finished","actions":[{"type":"run","action":"report"}]}
+      ]}
+      JSON
+          ;;
+        *)
+          printf '%s' '{"body":"## Report\n<row title=\"Stop\" run=\"stop\"/>"}'
+          ;;
+      esac
+      """#)
+  let model = LauncherModel.testing(in: folder, bundled: nil)
+  model.extensions.onCatalogChange = nil
+  await model.extensions.reload()
+  let panel = CapturePanel()
+  let controller = PaletteController(model: model, drawsGlass: false, panel: panel)
+  let view = try #require(panel.contentView)
+  let surface = RecordingSurface(wrapping: controller)
+  model.navigator.surface = surface
+  surface.onDraw = { view.layoutSubtreeIfNeeded() }
+  controller.show(orderFront: false, listen: false)
+  model.navigator.arrivalDeadline = .seconds(30)
+  let navigator = model.navigator
+
+  try await finishTurn(
+    model, "Show the report", #"## Ready <row title="Open report" open="wicket://report"/>"#)
+  await controller.renderer.settled()
+  view.layoutSubtreeIfNeeded()
+  let canvas = try #require(webViews(in: view).first)
+  try #require(surface.presentation.agent != nil)
+
+  // The answer stays on screen until the arriving page is ready to replace it in one layout.
+  try #require(navigator.clickTarget("#0", revision: navigator.pageTurn))
+  try #require(surface.presentation.agent != nil)
+  await navigator.settled()
+  try #require(
+    surface.presentation.agent == nil && surface.presentation.page?.source.contains("## Report") == true)
+  await controller.renderer.settled()
+  #expect(webViews(in: view) == [canvas])
+
+  let reportRevision = try #require(surface.presentation.page?.targetRevision)
+  try #require(navigator.clickTarget("#0", revision: reportRevision))
+  await navigator.settled()
+  try #require(surface.presentation.splits)
+  #expect(webViews(in: view) == [canvas])
+  navigator.move(1)
+  let preview = try #require(surface.presentation.preview)
+  #expect(preview.page.source == "Finished")
+  await controller.renderer.settled()
+  #expect(controller.renderer.renderedTurn == preview.turn)
+  #expect(webViews(in: view) == [canvas])
+
+  try #require(model.activateReturn())
+  await navigator.settled()
+  try #require(
+    !surface.presentation.splits && surface.presentation.page?.source.contains("## Report") == true)
+  await controller.renderer.settled()
+  #expect(webViews(in: view) == [canvas])
+  await controller.finish()
 }
 
 /// Always runs. Sets every state up the way the capture does, without drawing, so the capture

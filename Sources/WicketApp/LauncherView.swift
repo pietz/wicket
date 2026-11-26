@@ -277,20 +277,12 @@ struct LauncherView: View {
     VStack(spacing: 0) {
       // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
       let actions = shown.actionsTitle != nil
+      let hasPageContent = agent != nil || shown.problem != nil || shown.page != nil || shown.splits
       ZStack(alignment: .top) {
-        Group {
-          if let agent {
-            agentContent(agent)
-          } else if shown.problem != nil || shown.page != nil {
-            extensionContent
-          }
+        if hasPageContent {
+          pageContent.opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
         }
-        .opacity(actions ? 0 : 1).allowsHitTesting(!actions).accessibilityHidden(actions)
-        if shown.splits {
-          split
-        } else if actions || agent == nil && shown.problem == nil && shown.page == nil {
-          list
-        }
+        if actions || !hasPageContent { list }
       }
       .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
       Divider()
@@ -409,22 +401,48 @@ struct LauncherView: View {
       }
     }
   }
-  /// A command's list with the selected item's detail beside it on the canvas. The pane shows only this
-  /// command's details, so another screen's page never flashes in it while the first one renders; the
-  /// web view stays mounted meanwhile, since one added after its page rendered stayed blank offscreen.
-  private var split: some View {
-    HStack(spacing: 0) {
-      list.frame(width: PaletteLayout.splitList)
-      Divider()
-      if let page = renderer.page {
-        WebView(page).webViewContentBackground(.hidden)
-          .opacity(
-            renderer.renderedTurn.hasPrefix(Navigator.previewTurn(shown.command ?? "", nil)) ? 1 : 0)
-      } else {
-        Spacer()
+  private var pageContent: some View {
+    let conversation = agent.flatMap { $0.question.isEmpty ? nil : $0 }
+    let showsExtension = agent == nil && (shown.problem != nil || shown.page != nil)
+    let showsFullPage =
+      conversation.map { $0.permission == nil && $0.problem == nil && renderer.problem == nil && !$0.working }
+      ?? (showsExtension && shown.problem == nil)
+    let splitHeight = shown.splits ? PaletteLayout.listHeight(shown) : nil
+    let webHeight = splitHeight ?? (showsFullPage ? renderer.height : 0)
+    // The pane shows only this command's details, so another screen's page never flashes in it while
+    // the first one renders. Keep the web view mounted: one added after rendering stayed blank offscreen.
+    let previewReady =
+      !shown.splits || renderer.renderedTurn.hasPrefix(Navigator.previewTurn(shown.command ?? "", nil))
+    return HStack(spacing: 0) {
+      if shown.splits {
+        list.frame(width: PaletteLayout.splitList)
+        Divider()
+      }
+      VStack(spacing: 0) {
+        if showsExtension { extensionContent }
+        if agent?.question.isEmpty == true { agentDraft }
+        // Keep the host in one place as the layout changes. WebKit traps if SwiftUI mounts a second
+        // view for the page while dismantling the first.
+        ScrollView {
+          VStack(spacing: 0) {
+            if let conversation { conversationContent(conversation) }
+            if webHeight > 0 {
+              Group {
+                if let page = renderer.page {
+                  WebView(page).webViewContentBackground(.hidden)
+                } else {
+                  Color.clear
+                }
+              }
+              .frame(height: webHeight)
+              .opacity(previewReady ? 1 : 0)
+            }
+          }
+        }
+        .frame(height: conversation == nil ? webHeight : nil)
       }
     }
-    .frame(height: PaletteLayout.listHeight(shown))
+    .frame(height: splitHeight)
   }
   /// One row of the native list. A page draws its own rows in the same metrics (`answers.css`).
   private func resultRow(_ result: Result) -> some View {
@@ -514,74 +532,62 @@ struct LauncherView: View {
             maxWidth: .infinity, alignment: .leading
           ).padding(.horizontal, 20).padding(.vertical, 18)
         }.frame(height: PaletteLayout.error)
-      } else {
-        answerBody
       }
     }
   }
-  @ViewBuilder private func agentContent(_ agent: AgentPresentation) -> some View {
-    if agent.question.isEmpty {
-      // A draft from the `agent` action or Cmd+Return: nothing is asked yet.
-      Text(
-        shown.returnsOnEscape
-          ? shown.askingAbout.map { "\(shown.askingName) will see what \($0) shows." }
-            ?? "Type a question for \(shown.askingName)."
-          : "Press Return to ask \(shown.askingName), or edit the question first."
+  private var agentDraft: some View {
+    // A draft from the `agent` action or Cmd+Return: nothing is asked yet.
+    Text(
+      shown.returnsOnEscape
+        ? shown.askingAbout.map { "\(shown.askingName) will see what \($0) shows." }
+          ?? "Type a question for \(shown.askingName)."
+        : "Press Return to ask \(shown.askingName), or edit the question first."
+    )
+    .font(.system(size: textSize.points)).foregroundStyle(.secondary)
+    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+    .frame(height: PaletteLayout.answerMin)
+  }
+  @ViewBuilder private func conversationContent(_ agent: AgentPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if let source = agent.source {
+        Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
+      }
+      Text(agent.question).font(.system(size: 13, weight: .medium))
+        .lineLimit(agent.expanded ? nil : 2).textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      if Self.isLong(agent.question) {
+        Button(agent.expanded ? "Show less" : "Show more") { navigator.toggleQuestion() }
+          .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
+      }
+      if let notice = agent.notice {
+        Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
+      }
+    }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
+      .onGeometryChange(for: CGFloat.self) {
+        $0.size.height
+      } action: {
+        navigator.conversationHeaderHeight = $0
+      }
+    if let permission = agent.permission {
+      ConfirmationView(
+        content: .agent(permission, name: agent.agentName, folder: agent.folder),
+        size: textSize, decide: { navigator.decide($0) }
       )
-      .font(.system(size: textSize.points)).foregroundStyle(.secondary)
-      .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-      .frame(height: PaletteLayout.answerMin)
-    } else {
-      conversation(agent)
-    }
-  }
-  private func conversation(_ agent: AgentPresentation) -> some View {
-    ScrollView {
-      VStack(spacing: 0) {
-        VStack(alignment: .leading, spacing: 6) {
-          if let source = agent.source {
-            Text("from \(source)").font(.system(size: 11)).foregroundStyle(.tertiary)
-          }
-          Text(agent.question).font(.system(size: 13, weight: .medium))
-            .lineLimit(agent.expanded ? nil : 2).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-          if Self.isLong(agent.question) {
-            Button(agent.expanded ? "Show less" : "Show more") { navigator.toggleQuestion() }
-              .font(.system(size: 12)).buttonStyle(.plain).foregroundStyle(.secondary)
-          }
-          if let notice = agent.notice {
-            Text(notice).font(.system(size: 11)).foregroundStyle(.tertiary)
-          }
-        }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 2)
-          .onGeometryChange(for: CGFloat.self) {
-            $0.size.height
-          } action: {
-            navigator.conversationHeaderHeight = $0
-          }
-        if let permission = agent.permission {
-          ConfirmationView(
-            content: .agent(permission, name: agent.agentName, folder: agent.folder),
-            size: textSize, decide: { navigator.decide($0) }
-          )
-          .id(permission.id).onGeometryChange(for: CGFloat.self) {
-            $0.size.height
-          } action: {
-            navigator.confirmationHeight = $0
-          }
-        } else if let problem = agent.problem ?? renderer.problem {
-          Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-            .frame(minHeight: renderer.height)
-        } else if agent.working {
-          HStack(spacing: 12) {
-            ProgressView().controlSize(.small)
-            Text(agent.status).font(.system(size: textSize.points)).lineLimit(1).help(agent.status)
-          }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-            .frame(height: PaletteLayout.answerMin)
-        } else {
-          answerBody
-        }
+      .id(permission.id).onGeometryChange(for: CGFloat.self) {
+        $0.size.height
+      } action: {
+        navigator.confirmationHeight = $0
       }
+    } else if let problem = agent.problem ?? renderer.problem {
+      Text(problem).font(.system(size: textSize.points)).textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+        .frame(minHeight: renderer.height)
+    } else if agent.working {
+      HStack(spacing: 12) {
+        ProgressView().controlSize(.small)
+        Text(agent.status).font(.system(size: textSize.points)).lineLimit(1).help(agent.status)
+      }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
+        .frame(height: PaletteLayout.answerMin)
     }
   }
   private static func isLong(_ question: String) -> Bool {
@@ -589,13 +595,6 @@ struct LauncherView: View {
       with: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude),
       options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)]
     ).height > 34
-  }
-  @ViewBuilder private var answerBody: some View {
-    if let page = renderer.page {
-      WebView(page).webViewContentBackground(.hidden).frame(height: renderer.height)
-    } else {
-      Color.clear.frame(height: renderer.height)
-    }
   }
   @ViewBuilder private func icon(_ result: Result) -> some View {
     if let url = result.row.actions.first?.fileURL {
