@@ -71,7 +71,7 @@ struct Page: Equatable, Sendable {
         || (copies && (body.contains("```") || body.contains("~~~")))
       ? AnswerMarkdown.read(body, streaming: streaming) : nil
     /// The tag whose content is being read, with how deep its own kind nests in it.
-    var open: (tag: AnswerMarkdown.Tag, depth: Int)?
+    var open: (tag: AnswerMarkdown.Tag, depth: Int, copiesBody: Bool)?
     func nextID() -> String { "#\(targets.count - fields.count)" }
     /// The tag the renderer gets, with its icon noted for the stylesheet.
     func tag(_ name: String, _ id: String?, _ values: [(String, String)], icon: String?, close: Bool)
@@ -104,7 +104,7 @@ struct Page: Equatable, Sendable {
       events.append((tag.range.lowerBound, tag, nil))
     }
     events.sort { $0.offset < $1.offset }
-    for event in events {
+    readEvents: for event in events {
       guard let current = event.tag else {
         // A code block in an item's content belongs to its detail; an unfinished one is no target yet.
         guard open == nil, let block = event.block, block.closed else { continue }
@@ -154,12 +154,26 @@ struct Page: Equatable, Sendable {
           tag(name, nil, [], icon: name == "card" ? Self.symbol(current.values) : nil, close: false)
           + (current.selfClosing ? "</\(name)>" : "")
       case _ where current.selfClosing: source += place(name, current.values, detail: nil)
-      default: open = (current, 1)
+      default:
+        let copiesBody =
+          Self.actionable.contains(name) && current.values.contains { $0 == ("copy-body", "true") }
+        open = (current, 1, copiesBody)
+        // More text can complete a code span around what looks like a closing tag. Hold this item
+        // and what follows until the final parse so neither its copy text nor later target IDs shift.
+        if streaming, copiesBody { break readEvents }
       }
     }
+    if let item = open, item.copiesBody, !streaming {
+      // An interrupted draft belongs on the page. Show any tags in it as text, without targets.
+      source += "\n\n"
+      for tag in reading?.tags ?? [] where tag.range.lowerBound >= cursor {
+        source += text(cursor..<tag.range.lowerBound) + AnswerMarkdown.literal(text(tag.range))
+        cursor = tag.range.upperBound
+      }
+      open = nil
+    }
     if let item = open {
-      // Still streaming: the item shows, but its content is its detail, so nothing after it is page yet,
-      // and it is a target only once it is complete.
+      // An unfinished item shows without its detail or a target.
       let icon = Self.actionable.contains(item.tag.name) ? Self.symbol(item.tag.values) : nil
       source += tag(item.tag.name, nil, item.tag.values, icon: icon, close: true)
     } else {

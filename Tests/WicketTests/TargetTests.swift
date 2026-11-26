@@ -285,6 +285,67 @@ import Testing
   #expect(Page(body: String(body.dropLast("</row>".count)), runs: false, streaming: true).targets.isEmpty)
 }
 
+@MainActor @Test func cancellingAnOpenBodyCopyShowsTheDraftWithoutAnAction() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let draft = """
+    <row title="Copy draft" copy-body="true">
+    ## Draft
+
+    The first **paragraph**.
+
+    <row title="A tag in the draft" target="#0"/>
+
+    The second paragraph.
+    """
+  let (model, fake) = try await answered(draft, root: root)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  #expect(await eventually { model.agent.answer == draft })
+  #expect(navigator.results.isEmpty)
+  #expect(navigator.escape())
+  #expect(await eventually { surface.presentation.agent?.busy == false && fake.stopped })
+  let page = try #require(surface.presentation.page)
+  let html = AnswerMarkdown.html(page.source, code: page.code)
+  #expect(html.contains("<h2>Draft</h2>"))
+  #expect(html.contains("<p>The first <strong>paragraph</strong>.</p>"))
+  #expect(html.contains("<p>The second paragraph.</p>"))
+  #expect(html.contains("&lt;row title=") && !html.contains("data-target"))
+  #expect(page.targets.isEmpty)
+  await model.finish()
+}
+
+@MainActor @Test func aStreamedBodyCopyWaitsForTheFinalClosingTag() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let opening = #"<row title="Copy draft" copy-body="true">"# + "\n"
+  let firstChunk = "Close it with `</row>"
+  let (model, fake) = try await answered(opening + firstChunk, root: root)
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  #expect(await eventually { model.agent.answer == opening + firstChunk })
+  #expect(navigator.results.isEmpty)
+
+  let draft = firstChunk + "` and check the result."
+  fake.text("` and check the result.")
+  #expect(await eventually { model.agent.answer == opening + draft })
+  #expect(navigator.results.isEmpty)
+
+  let tail = "\n</row>\n" + #"<row title="Follow-up" ask="What comes next?"/>"#
+  fake.text(tail)
+  #expect(await eventually { model.agent.answer == opening + draft + tail })
+  #expect(navigator.results.isEmpty)
+  fake.end()
+  #expect(await eventually { surface.presentation.rows.map(\.row.title) == ["Copy draft", "Follow-up"] })
+  navigator.move(1)
+  let target = try #require(navigator.selected)
+  navigator.run()
+  #expect(surface.count(.run(.copy(draft), from: target)) == 1)
+  await model.finish()
+}
+
 @Test func aBodyCopyNeedsContentAndCountsAsAnAction() {
   let rejected = [
     #"<row title="Empty" copy-body="true"/>"#,
