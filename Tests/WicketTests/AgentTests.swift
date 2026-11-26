@@ -871,6 +871,8 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   // The running tool's status is available for VoiceOver. Action problems still appear in the footer.
   let shown = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil)
   #expect(shown.working && shown.status == "Write allowed.txt" && shown.footer.isEmpty)
+  // What streamed before the tool was narration: the light dims again only for the answer.
+  #expect(shown.turnTiming?.streamingAt == nil)
   let problem = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: "Could not open")
   #expect(problem.footer == "Could not open")
   first.ask(7)
@@ -1071,7 +1073,8 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(fake.decisions.count == 2)
   session.cancel()
   #expect(fake.cancels == 1 && session.status == "Cancelling…")
-  fake.end(cancelled: true)
+  // The CLI may report the turn as completed after the cancel: the user's cancel still wins.
+  fake.end(cancelled: false)
   #expect(await eventually { !session.busy })
   #expect(session.status == "Cancelled" && session.turnTiming?.ending == ending)
   await session.shutdown()

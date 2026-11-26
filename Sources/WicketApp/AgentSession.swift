@@ -267,6 +267,8 @@ final class AgentSession {
         narration = answer + pendingAnswer
         answer = ""
         pendingAnswer = ""
+        // The light dims for the answer, not for narration before a tool.
+        turnTiming?.streamingAt = nil
       }
       messageID = nil
       status = title
@@ -340,6 +342,8 @@ final class AgentSession {
   }
   /// The turn is over and its process ends with it. A failure has already set the footer's status.
   private func finishTurn(_ outcome: String = "turn ended", cancelled: Bool? = nil) {
+    // A CLI can report a completed turn after the user cancelled it; the user's cancel wins.
+    let cancelled = cancelled.map { $0 || cancelling }
     if let cancelled { status = cancelled ? "Cancelled" : "Ready for a follow-up" }
     if turnTiming?.ending == nil {
       let now = Date()

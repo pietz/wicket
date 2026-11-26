@@ -229,9 +229,7 @@ struct InputBar: Layout {
   }
 }
 
-/// The panel's content: the input and its slots, then the card with the screen shown. It draws the
-/// presentation the panel committed (`PaletteController.presentation`), reads what is typed and filled in
-/// as it is, and sends what the user does to the panel (`PaletteController`) or the navigator.
+/// Where the card's footer divider is, for the agent's light to run along.
 private struct FooterDividerBounds: PreferenceKey {
   static let defaultValue: Anchor<CGRect>? = nil
   static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
@@ -239,6 +237,9 @@ private struct FooterDividerBounds: PreferenceKey {
   }
 }
 
+/// The panel's content: the input and its slots, then the card with the screen shown. It draws the
+/// presentation the panel committed (`PaletteController.presentation`), reads what is typed and filled in
+/// as it is, and sends what the user does to the panel (`PaletteController`) or the navigator.
 struct LauncherView: View {
   // SwiftUI can finish a deferred update after AppKit has released the panel's controller.
   private weak var panel: PaletteController?
@@ -390,8 +391,9 @@ struct LauncherView: View {
         .allowsHitTesting(false)
       }
     }
+    // The running status stays readable with the actions panel or a detail over the turn.
     .overlay(alignment: .top) {
-      if showsTurn, let agent, agent.busy {
+      if panel?.isShown == true, let agent, agent.busy, agent.permission == nil {
         Color.clear.frame(height: 1).padding(.top, 8)
           .accessibilityRepresentation {
             Text(agent.status).accessibilityAddTraits(.updatesFrequently)
