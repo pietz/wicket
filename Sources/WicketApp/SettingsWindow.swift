@@ -363,6 +363,11 @@ struct SettingsPane: View {
             ? "Loading settings…"
             : "Changes apply on the next turn. Switching agent starts a new conversation."))
     }
+    Section {
+      answerRetention
+    } footer: {
+      Text("How long Wicket keeps an idle conversation after you close the launcher.")
+    }
     Section(config.agent.agent.product) {
       let agent = config.agent.agent
       if AgentCLI.installed(agent) {
@@ -397,6 +402,26 @@ struct SettingsPane: View {
         } message: {
           Text("Deletes every saved run. This can't be undone.")
         }
+    }
+  }
+  private var answerRetention: some View {
+    let steps = AgentConfiguration.AnswerRetention.allCases
+    let retention = config.agent.answerRetention
+    let value = binding(retention.rawValue, key: "answerRetentionSeconds", group: "agent")
+    return LabeledContent("Return to search after") {
+      HStack {
+        Slider(
+          value: Binding(
+            get: { Double(steps.firstIndex(of: retention)!) },
+            set: { value.wrappedValue = steps[Int($0)].rawValue }),
+          in: 0...Double(steps.count - 1), step: 1
+        ) { Text("Return to search after") }
+        .labelsHidden()
+        .accessibilityValue(retention.label)
+        Text(retention.label)
+          .frame(width: 80, alignment: .trailing)
+          .accessibilityHidden(true)
+      }
     }
   }
   private func option(_ title: String, key: String) -> some View {

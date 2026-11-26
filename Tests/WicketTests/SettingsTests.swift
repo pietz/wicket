@@ -88,6 +88,22 @@ private func withSettings(_ json: String = "{}", _ test: (ConfigurationFile) thr
   }
 }
 
+@Test func answerRetentionPersistsAcrossAgentSwitchesAndRemovesTheDefaultOverride() throws {
+  try withSettings(#"{"agent":{"future":"keep"}}"#) { file in
+    let cases = AgentConfiguration.AnswerRetention.allCases
+    #expect(cases.map(\.rawValue) == [0, 30, 60, 180, 300, 600, 900, -1])
+    for retention in cases {
+      try file.set("answerRetentionSeconds", to: retention.rawValue, in: "agent")
+      #expect(try Configuration.load(at: file.url).agent.answerRetention == retention)
+    }
+    try file.selectAgent("codex")
+    #expect(try Configuration.load(at: file.url).agent.answerRetention == .never)
+    try file.set("answerRetentionSeconds", to: 60, in: "agent")
+    let saved = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file.url))
+    #expect(saved["agent"] == .object(["name": .string("codex"), "future": .string("keep")]))
+  }
+}
+
 @Test(arguments: [
   (#"{"resultsOnlyWhenTyping":true}"#, true),
   (#"{"compactOnOpen":true}"#, true),

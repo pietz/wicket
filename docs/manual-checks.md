@@ -43,8 +43,9 @@ Run `--diagnose` on the app binary to see Wicket's configuration and recent fail
 1. Switch between Claude and ChatGPT; change model, effort, and Fast where offered; next turn uses them.
 2. Ask for a long plain-text answer without tools. With **Stream answers** on, text should appear while the turn is still running. Repeat with it off and verify that the answer appears when complete.
 3. Run a scratch-file edit in each permission mode. Supervised prompts: ⌘Return allows once, Escape declines, plain Return does nothing, Tab moves buttons, Show details shows path. Auto-accept edits, Auto, and Full access prompt progressively less.
-4. Hide a conversation with a finished answer and a draft follow-up. Reopen within a minute and check that both are still there. Hide again for more than a minute and check that Wicket opens at empty search. Open the conversation from **Agent History** and send a follow-up that depends on the earlier answer.
+4. With **Return to search after** at its default of **1 min** in Settings ▸ Agent, hide a conversation with a finished answer and a draft follow-up. Reopen within a minute and check that both are still there. Hide again for more than a minute and check that Wicket opens at empty search. Open the conversation from **Agent History** and send a follow-up that depends on the earlier answer.
 5. Hide while a turn is running and reopen after a minute while it is still running. Repeat with a pending permission and check that the card still takes a decision. Let an answer finish while hidden and wait more than a minute. The menu bar dot should stay until the answer is shown. After viewing it, hide again and wait more than a minute. Wicket should reopen at search.
+6. Move the slider to **Immediately** and verify the label changes and an idle conversation returns to search even after a quick reopen. Select **Never** and check that an idle conversation and its draft stay on reopen until you leave with Escape.
 
 ## 6. Voice
 

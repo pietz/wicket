@@ -99,12 +99,20 @@ func claudeDeltasReachThePaletteAndWebKitBeforeTheTurnEnds() async throws {
   await model.finish()
 }
 
-@MainActor @Test(arguments: [59.0, 60.0, 61.0])
-func anIdleConversationReopensForOneMinuteAfterHiding(_ secondsHidden: TimeInterval) async throws {
+@MainActor
+@Test(arguments: [
+  (nil as Int?, 59.0, true), (nil, 60.0, true), (nil, 61.0, false),
+  (0, 0.0, false), (180, 180.0, true), (180, 181.0, false), (-1, 86_400.0, true),
+])
+func anIdleConversationUsesTheCurrentAnswerRetention(
+  seconds: Int?, secondsHidden: TimeInterval, kept: Bool
+) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
-  model.store.update { $0.resultsOnlyWhenTyping = true }
+  let url = model.store.url
+  try Data(#"{"resultsOnlyWhenTyping":true}"#.utf8).write(to: url)
+  model.store.start(installed: { _ in false })
   let navigator = model.navigator
   let surface = RecordingSurface()
   navigator.surface = surface
@@ -112,15 +120,23 @@ func anIdleConversationReopensForOneMinuteAfterHiding(_ secondsHidden: TimeInter
   navigator.editInput("Draft follow-up")
   let hidden = Date()
   navigator.dismiss(now: hidden)
+  if let seconds {
+    try Data(#"{"resultsOnlyWhenTyping":true,"agent":{"answerRetentionSeconds":\#(seconds)}}"#.utf8)
+      .write(to: url, options: .atomic)
+    try #require(await eventually { model.configuration.agent.answerRetention.rawValue == seconds })
+  }
   model.reopen(now: hidden.addingTimeInterval(secondsHidden))
   model.agent.seen()
   navigator.refresh()
   await navigator.settled()
 
-  if secondsHidden <= 60 {
+  if kept {
     #expect(surface.presentation.agent?.question == "Question")
     #expect(surface.presentation.page?.source == "Answer" && surface.presentation.showsCard)
     #expect(navigator.input == "Draft follow-up")
+    if seconds == -1 {
+      #expect(navigator.escape() && surface.presentation.agent == nil)
+    }
   } else {
     #expect(surface.presentation.agent == nil && surface.presentation.page == nil)
     #expect(!surface.presentation.showsCard && navigator.input.isEmpty)
@@ -188,10 +204,11 @@ func anIdleConversationReopensForOneMinuteAfterHiding(_ secondsHidden: TimeInter
 }
 
 @MainActor @Test(arguments: [false, true])
-func aRunningTurnReopensAfterAMinuteEvenWithAPendingPermission(_ pendingPermission: Bool) async throws {
+func immediateAnswerExpiryKeepsARunningTurnAndItsPendingPermission(_ pendingPermission: Bool) async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
   let model = LauncherModel.testing(in: root, bundled: nil)
+  model.store.update { $0.agent.answerRetention = .immediately }
   let navigator = model.navigator
   let surface = RecordingSurface()
   navigator.surface = surface

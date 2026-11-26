@@ -40,6 +40,7 @@ private func config(_ json: String) throws -> Configuration {
   #"{"hotkey":"space"}"#, #"{"hotkey":"shift+a"}"#, #"{"hotkey":"hyper+space"}"#,
   #"{"backgroundTransparency":-0.1}"#, #"{"backgroundTransparency":1.1}"#,
   #"{"blur":-1}"#, #"{"blur":10.5}"#, #"{"appearance":"sepia"}"#,
+  #"{"agent":{"answerRetentionSeconds":120}}"#,
   #"{"providers":[{"id":"apps","enabled":true},{"id":"apps","enabled":false}]}"#,
   #"{"providers":[{"id":"","enabled":true}]}"#, #"{"providers":false}"#, "{",
 ])

@@ -401,9 +401,8 @@ private func runs(_ root: URL) throws -> [ProviderRequest] {
   fake.text("Answer")
   fake.end()
   #expect(await eventually { !model.agent.busy })
-  model.agent.retention = 0.2
+  model.navigator.dismiss(now: Date().addingTimeInterval(-120))
   controller.hide()
-  try await Task.sleep(for: .milliseconds(300))
   controller.hide()
   model.reopen()
   #expect(!model.agent.active)

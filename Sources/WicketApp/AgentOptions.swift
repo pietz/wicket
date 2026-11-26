@@ -5,18 +5,39 @@ struct AgentConfiguration: Codable, Equatable, Sendable {
     case claude, codex
     var title: String { self == .claude ? "Claude" : "ChatGPT" }
   }
+  enum AnswerRetention: Int, Codable, CaseIterable, Sendable {
+    case immediately = 0
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case threeMinutes = 180
+    case fiveMinutes = 300
+    case tenMinutes = 600
+    case fifteenMinutes = 900
+    case never = -1
+
+    var label: String {
+      switch self {
+      case .immediately: "Immediately"
+      case .thirtySeconds: "30 s"
+      case .never: "Never"
+      default: "\(rawValue / 60) min"
+      }
+    }
+  }
   var agent: Agent = .claude
   var model: String?
   var effort: String?
   var mode: String?
   var speed: String?
   var streamAnswers = true
+  var answerRetention = AnswerRetention.oneMinute
   /// The size answers are drawn at, which the instructions state. It is General's Text size, set
   /// when a question is sent, and never saved under `agent`.
   var textSize = Configuration.TextSize.medium
   init() {}
   enum CodingKeys: String, CodingKey {
     case agent = "name"
+    case answerRetention = "answerRetentionSeconds"
     case model, effort, mode, speed, streamAnswers
   }
   init(from decoder: any Decoder) throws {
@@ -27,6 +48,7 @@ struct AgentConfiguration: Codable, Equatable, Sendable {
     mode = try c.decodeIfPresent(String.self, forKey: .mode)
     speed = try c.decodeIfPresent(String.self, forKey: .speed)
     streamAnswers = try c.decodeIfPresent(Bool.self, forKey: .streamAnswers) ?? true
+    answerRetention = try c.decodeIfPresent(AnswerRetention.self, forKey: .answerRetention) ?? answerRetention
   }
   var permissionMode: String { mode ?? (agent == .claude ? "auto" : "agent") }
 }

@@ -881,8 +881,6 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(await eventually { !session.busy })
   #expect(session.answer == "Hello world" && session.status == "Ready for a follow-up")
   #expect(await eventually { first.stopped })
-  session.reopen()
-  #expect(session.active)
   // The turn ended its process: a follow-up starts a new one that resumes the session.
   session.ask("What was it?", settings: settings)
   #expect(await eventually { second.running })

@@ -1208,7 +1208,7 @@ final class Navigator {
   /// The panel shows again. A conversation or empty question kept past its time is gone, and the root
   /// starts over.
   func reopen(now: Date, availableUpdate: String?) {
-    if agent.reopen(now: now) {
+    if agent.reopen(now: now, retention: configuration.agent.answerRetention) {
       cancelWork()
       conversation = nil
       base.fill([:])

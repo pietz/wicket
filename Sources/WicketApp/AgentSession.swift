@@ -71,7 +71,6 @@ final class AgentSession {
   /// When the panel last went off screen. Nil while it is visible.
   private var hiddenAt: Date?
   var cancelGrace: Duration = .seconds(3)
-  var retention: TimeInterval = 60
   /// Nothing at all from a CLI that started, then nothing for this long during the turn: a working
   /// agent, even one whose command prints for an hour, is never cut off, a hung one is. While a
   /// permission waits for the user, no limit runs.
@@ -87,8 +86,10 @@ final class AgentSession {
   /// A running turn (including a permission prompt) or an unseen result always reopens. After it has
   /// been shown, the next hide starts a fresh retention window. Only an idle conversation expires,
   /// and only on reopen. The CLI ends with each turn, and finished turns stay in Agent History.
-  @discardableResult func reopen(now: Date = Date()) -> Bool {
-    guard active, !busy, !waiting, let hiddenAt, now.timeIntervalSince(hiddenAt) > retention else {
+  func reopen(now: Date, retention: AgentConfiguration.AnswerRetention) -> Bool {
+    guard active, !busy, !waiting, let hiddenAt, retention != .never,
+      retention == .immediately || now.timeIntervalSince(hiddenAt) > TimeInterval(retention.rawValue)
+    else {
       return false
     }
     reset()
