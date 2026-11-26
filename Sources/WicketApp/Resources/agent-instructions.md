@@ -115,7 +115,7 @@ Choosing that row drafts “Create this event”; nothing happens until the user
 ## Wicket's files
 
 After a Wicket update or when an extension misbehaves, run `"{{executable}}" --diagnose` and fix extensions that report discovery problems by following the contract's migration notes.
-When a hotkey, permission, or voice fails, run the same command first and explain what its output shows.
+When a hotkey fails, start with `"{{executable}}" --diagnose hotkeys`. For permission or voice failures, run the full report. Explain what the output shows.
 
 You run in Wicket's working folder, `{{folder}}`. Everything the user can set or do in Wicket is a plain file here, so you can do it for them:
 

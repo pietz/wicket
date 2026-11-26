@@ -70,7 +70,7 @@ extension HostCommand {
   func isCommand(_ id: String) -> Bool { extensions.commands[id] != nil || host(id) != nil }
   /// The command's name.
   func name(of id: String) -> String? {
-    extensions.commands[id]?.manifest.name ?? host(id).map { type(of: $0).title }
+    extensions.commands[id]?.manifest.name ?? hostType(id)?.title
   }
   /// Whether the command may run: an extension or Clipboard while switched on.
   func isAvailable(_ id: String, in configuration: Configuration) -> Bool {
@@ -98,6 +98,18 @@ extension HostCommand {
     }
     var resolution: HotkeyRegistrations.Resolution = .ok
     let delivery: Delivery
+  }
+
+  func hotkeyTitle(_ target: HotkeyTarget) -> String? {
+    if target.item != nil {
+      return target.target.flatMap { extensions.commands[$0]?.item(for: target)?.title }
+    }
+    switch target.target {
+    case nil: return "Open Wicket"
+    case "agent": return "Ask agent"
+    case "settings": return Self.settings.row.title
+    case let id?: return name(of: id)
+    }
   }
 
   /// A hotkey can still show a repair, a switched-off command, or a permission gate when pressed.

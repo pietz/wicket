@@ -26,7 +26,8 @@ public enum Headless {
     var options: [String: String] = [:]
     func value(_ key: String) -> String? { options[key] }
     let folder = Edition.current.configDirectory()
-    if CommandLine.arguments.dropFirst().elementsEqual(["--settings"]) {
+    let args = Array(CommandLine.arguments.dropFirst())
+    if args == ["--settings"] {
       do {
         try printJSON(await effectiveSettings(in: folder))
         return 0
@@ -35,9 +36,23 @@ public enum Headless {
         return 1
       }
     }
-    if CommandLine.arguments.dropFirst().elementsEqual(["--diagnose"]) {
+    if args.first == "--diagnose" {
       do {
-        FileHandle.standardOutput.write(try await Diagnostics.report(folder: folder) + Data([10]))
+        var section: Diagnostics.Section?
+        if args.count > 1 {
+          let valid = Diagnostics.Section.allCases.map(\.rawValue).joined(separator: ", ")
+          guard args.count == 2 else {
+            try printJSON(["error": "Usage: Wicket --diagnose [SECTION]. Valid sections: \(valid)"])
+            return 1
+          }
+          guard let selected = Diagnostics.Section(rawValue: args[1]) else {
+            try printJSON(["error": "Unknown diagnostics section “\(args[1])”. Valid sections: \(valid)"])
+            return 1
+          }
+          section = selected
+        }
+        FileHandle.standardOutput.write(
+          try await Diagnostics.report(folder: folder, section: section) + Data([10]))
         return 0
       } catch {
         FileHandle.standardError.write(Data("Could not encode Wicket diagnostics.\n".utf8))
@@ -52,7 +67,6 @@ public enum Headless {
     let host = model.extensions
     host.onCatalogChange = nil
     do {
-      let args = Array(CommandLine.arguments.dropFirst())
       var i = 0
       while i < args.count {
         let key = args[i]
@@ -71,7 +85,7 @@ public enum Headless {
       if value("--help") != nil {
         try printJSON([
           "usage":
-            "Wicket --diagnose | --settings | --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
+            "Wicket --diagnose [SECTION] | --settings | --query TEXT | --extension ID [--input TEXT] [--fields JSON_OBJECT] [--submitted] [--action NAME]; WICKET_CONFIG_DIR selects the folder."
         ])
         await model.finish()
         return 0

@@ -49,21 +49,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       return bindings.set(keys, for: target, launcher: configuration.configuration.hotkey)
     }
     bindings.onPress = { [weak self] in self?.palette.model.press($0) }
-    let register: (Configuration) -> Void = { [weak self] config in
+    let name = Edition.current.name
+    var applied = Configuration()
+    let register: (Configuration, Bool) -> Void = { [weak self] config, force in
       guard let self else { return }
-      (configuration.hotkeyProblem, configuration.bindingProblem) = bindings.apply(config, launcher: hotkey)
-      configuration.bindingFailures = bindings.failures
+      if force || config != applied || hotkey.inEffect == nil {
+        applied = config
+        (configuration.hotkeyProblem, configuration.bindingProblem) = bindings.apply(config, launcher: hotkey)
+        configuration.bindingFailures = bindings.failures
+        shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"
+      }
       runtime.register(
         HotkeyRegistrations(
           launcher: hotkey.snapshot(config.hotkey, problem: configuration.hotkeyProblem),
-          bindings: bindings.latest))
+          bindings: bindings.latest),
+        configFingerprint: configuration.fingerprint)
     }
     // Either recorder, Settings' or the panel's Set Hotkey…, pauses every hotkey, so it hears the keys.
     let pause: (Bool) -> Void = { [weak self] paused in
       guard let self else { return }
       hotkey.pause(paused)
       bindings.pause(paused)
-      if !paused { register(configuration.configuration) }
+      if !paused { register(configuration.configuration, true) }
     }
     settings = SettingsWindowController(
       store: configuration, extensions: model.extensions, clipboard: clipboard, runs: runs, updater: updater,
@@ -74,7 +81,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     palette = PaletteController(model: model, settings: settings, pauseHotkeys: pause)
     apps.onChange = { [weak model] in model?.navigator.sourcesChanged([AppsProvider.id]) }
     status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    let name = Edition.current.name
     let menu = NSMenu()
     shortcutItem = menu.addItem(
       withTitle: "Open \(name)", action: #selector(show), keyEquivalent: "")
@@ -115,16 +121,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     // The app's one reaction to a configuration load, in order: the services (and through the screens'
     // redraw, voice), then the hotkey registrations, then the status item.
-    var applied = Configuration()
     configuration.onChange = { [weak self] config in
       guard let self else { return }
       NSApp.appearance = config.appearance.nsAppearance
       model.apply(config)
-      if config != applied || hotkey.inEffect == nil {
-        applied = config
-        register(config)
-        shortcutItem.title = "Open \(name) (\(hotkey.inEffect?.symbols ?? "menu"))"
-      }
+      register(config, false)
       // Only what lasts: it is set when a configuration loads, so a recording's rejection would stay.
       status.button?.toolTip =
         configuration.problem ?? configuration.hotkeyProblem ?? configuration.bindingProblem

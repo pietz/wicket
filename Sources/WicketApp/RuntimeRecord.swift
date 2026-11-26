@@ -52,6 +52,7 @@ struct RuntimeRecord: Codable, Sendable {
   var processStartTimeMicroseconds: UInt64? = nil
   var updatedAt: Date
   var permissions: [String: PermissionCheck] = [:]
+  var appliedConfigFingerprint: String?
   var registrations: HotkeyRegistrations?
   var hotkeyProblem: String?
   var bindingProblem: String?
@@ -123,8 +124,10 @@ final class RuntimeRecorder {
     if changed { save() }
   }
 
-  func register(_ registrations: HotkeyRegistrations) {
-    guard registrations != record.registrations else { return }
+  func register(_ registrations: HotkeyRegistrations, configFingerprint: String?) {
+    guard registrations != record.registrations || configFingerprint != record.appliedConfigFingerprint
+    else { return }
+    record.appliedConfigFingerprint = configFingerprint
     record.registrations = registrations
     record.hotkeyProblem = registrations.launcher.problem
     record.bindingProblem = registrations.bindingProblem.map {

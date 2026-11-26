@@ -7,6 +7,11 @@ import Security
 enum Diagnostics {
   private static let unreadableConfig = "unknown (config.json could not be read)"
 
+  enum Section: String, CaseIterable, CodingKey {
+    case app, permissions, config, extensions, hotkeys, runtime, runtimeIsLive, runtimeReason
+    case configReloadPending
+  }
+
   private struct App: Encodable {
     let edition: String
     let version: String?
@@ -93,23 +98,27 @@ enum Diagnostics {
   }
   private struct Hotkeys: Encodable {
     struct Entry: Encodable {
-      enum Registration: String, Encodable { case registered, failed, unknown }
+      enum Registration: String, Encodable { case registered, failed, pending, unknown }
 
       let shortcut: String?
       let target: String?
+      let targetTitle: String?
       let resolution: String
       let registration: Registration
       let inEffect: String?
       let problem: String?
 
       init(
-        shortcut: String? = nil, target: String? = nil, resolution: String,
-        recorded: HotkeyRegistrations.Entry?
+        shortcut: String? = nil, target: String? = nil, targetTitle: String? = nil, resolution: String,
+        pending: Bool = false, recorded: HotkeyRegistrations.Entry?
       ) {
         self.shortcut = shortcut ?? recorded?.shortcut
         self.target = target ?? recorded?.target
+        self.targetTitle = targetTitle
         self.resolution = resolution
-        if let recorded, recorded.resolution != .ok {
+        if pending {
+          registration = .pending
+        } else if let recorded, recorded.resolution != .ok {
           registration = .failed
         } else if let recorded, recorded.inEffect == recorded.shortcut {
           registration = .registered
@@ -133,25 +142,32 @@ enum Diagnostics {
     let runtime: RuntimeRecord?
     let runtimeIsLive: Bool?
     let runtimeReason: String?
+    let configReloadPending: Bool?
 
-    enum CodingKeys: String, CodingKey {
-      case app, permissions, config, extensions, hotkeys, runtime, runtimeIsLive, runtimeReason
+    func value(in section: Section) -> (any Encodable)? {
+      switch section {
+      case .app: app
+      case .permissions: permissions
+      case .config: config
+      case .extensions: extensions
+      case .hotkeys: hotkeys
+      case .runtime: runtime as any Encodable
+      case .runtimeIsLive: runtimeIsLive.map { $0 as any Encodable }
+      case .runtimeReason: runtimeReason.map { $0 as any Encodable }
+      case .configReloadPending: configReloadPending.map { $0 as any Encodable }
+      }
     }
     func encode(to encoder: any Encoder) throws {
-      var values = encoder.container(keyedBy: CodingKeys.self)
-      try values.encode(app, forKey: .app)
-      try values.encode(permissions, forKey: .permissions)
-      try values.encode(config, forKey: .config)
-      try values.encode(extensions, forKey: .extensions)
-      try values.encode(hotkeys, forKey: .hotkeys)
-      try values.encode(runtime, forKey: .runtime)
-      try values.encodeIfPresent(runtimeIsLive, forKey: .runtimeIsLive)
-      try values.encodeIfPresent(runtimeReason, forKey: .runtimeReason)
+      var values = encoder.container(keyedBy: Section.self)
+      for section in Section.allCases {
+        if let value = value(in: section) { try values.encode(value, forKey: section) }
+      }
     }
   }
 
   static func report(
-    folder: URL, bundled: URL? = ExtensionHost.bundledFolder, permissions: Permissions = .system,
+    folder: URL, section: Section? = nil, bundled: URL? = ExtensionHost.bundledFolder,
+    permissions: Permissions = .system,
     edition: Edition = .current, environment: [String: String] = ProcessInfo.processInfo.environment,
     process: (Int32) -> RuntimeRecord.ProcessIdentity? = RuntimeRecord.ProcessIdentity.read,
     parent: (Int32) -> Int32? = ProcessTree.parent
@@ -169,6 +185,9 @@ enum Diagnostics {
     let matchesCopy = runtime.map { matches($0, bundle: bundle) } == true
     let runtimeIsLive = runtime.map { $0.isLive(process: process) }
     let running = matchesCopy && runtimeIsLive == true ? runtime : nil
+    let configReloadPending = running?.appliedConfigFingerprint.flatMap { applied in
+      store.fingerprint.map { $0 != applied }
+    }
     let recorded = matchesCopy ? runtime?.permissions : nil
     let liveMatchesCopy = running.map { hasAncestor($0.pid, parent: parent) } == true
     let live = await Task.detached { permissions.snapshot() }.value
@@ -231,12 +250,18 @@ enum Diagnostics {
         )
       },
       hotkeys: hotkeyReport(
-        directory, configuration: configuration, recorded: running?.registrations,
+        directory, configuration: configuration, running: running?.registrations,
+        reloadPending: configReloadPending == true,
         permissionStatus: permissionStatus),
-      runtime: runtime, runtimeIsLive: runtimeIsLive, runtimeReason: runtimeReason)
+      runtime: runtime, runtimeIsLive: runtimeIsLive, runtimeReason: runtimeReason,
+      configReloadPending: configReloadPending)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     encoder.dateEncodingStrategy = .iso8601
+    if let section {
+      let value = report.value(in: section) ?? (JSONValue.null as any Encodable)
+      return try encoder.encode(value)
+    }
     return try encoder.encode(report)
   }
 
@@ -291,18 +316,24 @@ enum Diagnostics {
   }
 
   private static func hotkeyReport(
-    _ directory: CommandDirectory, configuration: Configuration?, recorded: HotkeyRegistrations?,
+    _ directory: CommandDirectory, configuration: Configuration?, running: HotkeyRegistrations?,
+    reloadPending: Bool,
     permissionStatus: @escaping (Permission) -> Permission.Status
   ) -> Hotkeys {
     guard let configuration else {
       return Hotkeys(
-        launcher: .init(resolution: unreadableConfig, recorded: recorded?.launcher),
-        bindings: (recorded?.bindings ?? []).map { .init(resolution: unreadableConfig, recorded: $0) },
-        note: recorded == nil
+        launcher: .init(resolution: unreadableConfig, recorded: running?.launcher),
+        bindings: (running?.bindings ?? []).map { entry in
+          let targetTitle = entry.target.flatMap { HotkeyTarget($0, allowLegacy: true) }
+            .flatMap(directory.hotkeyTitle)
+          return .init(targetTitle: targetTitle, resolution: unreadableConfig, recorded: entry)
+        },
+        note: running == nil
           ? "config.json could not be read. No live registration record is available."
           : "config.json could not be read. Showing the running app’s last recorded registrations.")
     }
 
+    let recorded = reloadPending ? nil : running
     struct RegistrationKey: Hashable {
       let shortcut: String
       let target: String?
@@ -320,15 +351,19 @@ enum Diagnostics {
       let resolution = resolutions[binding.target] ?? .ok
       let matches = observed[address] ?? []
       return Hotkeys.Entry(
-        shortcut: address.shortcut, target: address.target, resolution: resolution.rawValue,
+        shortcut: address.shortcut, target: address.target,
+        targetTitle: directory.hotkeyTitle(binding.target),
+        resolution: resolution.rawValue, pending: reloadPending,
         recorded: configured[address]?.count == 1 && matches.count == 1 ? matches.first : nil)
     }
     let shortcut = configuration.hotkey.description
     return Hotkeys(
       launcher: .init(
-        shortcut: shortcut, resolution: "ok",
+        shortcut: shortcut, resolution: "ok", pending: reloadPending,
         recorded: recorded?.launcher.shortcut == shortcut ? recorded?.launcher : nil),
       bindings: entries,
-      note: "Target checks use config.json. Registration uses matching observations from the running app.")
+      note: reloadPending
+        ? "The running app has yet to report applying this config.json. Registration is pending."
+        : "Target checks use config.json. Registration uses matching observations from the running app.")
   }
 }

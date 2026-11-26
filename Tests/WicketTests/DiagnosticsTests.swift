@@ -18,7 +18,17 @@ private let deniedPermissions = Permissions(
     _ = try extensionFolder(bundledBase, name: name, script: script)
   }
   let local = try extensionFolder(root, name: "local", script: script, fields: ["permissions": ["calendar"]])
-  let override = try extensionFolder(root, name: "override", script: script)
+  let moves: [String: Any] = [
+    "name": "moves", "type": "list", "description": "Saved moves",
+    "fields": [["name": "title", "type": "text", "description": "Title"]],
+    "item": ["title": "{title}", "actions": [["type": "copy", "text": "{title}"]]],
+  ]
+  let override = try extensionFolder(
+    root, name: "override", script: script,
+    fields: [
+      "settings": [moves],
+      "items": [["id": "left", "title": "Left Half", "actions": [["type": "copy", "text": "left"]]]],
+    ])
   _ = try extensionFolder(root, name: "broken", script: script, fields: ["contract": 1])
   _ = try extensionFolder(root, name: "stranded", script: script, fields: ["contract": 1])
   _ = try extensionFolder(root, name: "typo", script: script, fields: ["keywrod": "typo"])
@@ -27,8 +37,11 @@ private let deniedPermissions = Permissions(
   try FileManager.default.copyItem(at: fixtureURL("retired-units"), to: retired)
 
   var config = Configuration()
+  let moveID = "18e28565-45f4-4e0e-ac2e-29766147cc47"
   config.resultsOnlyWhenTyping = true
   config.extensions["broken"] = .number(1)
+  config.extensions["override"] = .object(
+    "moves", .array([.object("id", .string(moveID), "title", .string("Coding"))]))
   config.providers = [.init("extension:built-in", enabled: false)]
   config.hotkeys = try [
     ("ctrl+1", "wicket://override?input=private-query"),
@@ -38,22 +51,37 @@ private let deniedPermissions = Permissions(
     ("ctrl+5", "wicket://local"),
     ("ctrl+1", "wicket://settings"),
     (config.hotkey.description, "wicket://clipboard"),
+    ("ctrl+7", "wicket://override?item=left"),
+    ("ctrl+9", "wicket://override?entry=moves/\(moveID)"),
     ("ctrl+6", "wicket://units"),
   ].map {
     .init(keys: try Shortcut($0.0), target: try #require(HotkeyTarget($0.1)))
   }
-  try config.save(at: root.appending(path: "config.json"))
+  let store = ConfigurationStore(url: root.appending(path: "config.json"))
+  try config.save(at: store.url)
   let env = ["WICKET_CONFIG_DIR": root.path]
   let url = RuntimeRecord.url(beside: AgentLog.standard(environment: env))
   let recorder = RuntimeRecorder(url: url)
   let launcher = HotKeyRegistration { _ in NSObject() }
-  let commandKeys = CommandHotKeys { keys, _ in keys == config.hotkeys.last?.keys ? nil : NSObject() }
-  let launcherProblem = launcher.apply(config.hotkey)
-  _ = commandKeys.apply(config.hotkeys, launcher: launcher.inEffect)
+  let failedShortcut = config.hotkeys.last?.keys
+  let commandKeys = CommandHotKeys { keys, _ in keys == failedShortcut ? nil : NSObject() }
+  store.onChange = { [weak store] config in
+    let problems = commandKeys.apply(config, launcher: launcher)
+    recorder.register(
+      .init(
+        launcher: launcher.snapshot(config.hotkey, problem: problems.launcher), bindings: commandKeys.latest),
+      configFingerprint: store?.fingerprint)
+  }
+  func waitForRecordedConfig() async throws {
+    let fingerprint = try #require(recorder.record.appliedConfigFingerprint)
+    #expect(
+      await eventually(within: .seconds(5)) {
+        (try? RuntimeRecord.read(url))?.appliedConfigFingerprint == fingerprint
+      })
+  }
   recorder.observePermissions(deniedPermissions.snapshot())
-  recorder.register(
-    .init(launcher: launcher.snapshot(config.hotkey, problem: launcherProblem), bindings: commandKeys.latest))
-  await recorder.finish()
+  store.load()
+  try await waitForRecordedConfig()
 
   let data = try await Diagnostics.report(
     folder: root, bundled: bundled, permissions: deniedPermissions, environment: env)
@@ -106,43 +134,72 @@ private let deniedPermissions = Permissions(
   #expect(report["permissions"]["recorded"]["calendar"]["checkedAt"].string != nil)
   #expect(report["permissions"]["note"].string?.contains("use this copy's recorded permissions") == true)
   #expect(report["runtimeIsLive"] == .bool(true))
+  #expect(report["configReloadPending"] == .bool(false))
   #expect(report["runtime"]["bundlePath"] == .string(Bundle.main.bundleURL.path))
   #expect(report["runtime"]["executablePath"].string != nil)
   #expect(report["runtime"]["processStartTimeMicroseconds"] != .null)
   #expect(report["runtime"]["bindingProblem"].string?.contains("could not be registered") == true)
   #expect(report["hotkeys"]["launcher"]["resolution"] == .string("ok"))
+  let bindings = report["hotkeys"]["bindings"].array
   #expect(
-    report["hotkeys"]["bindings"].array.compactMap { $0["resolution"].string }
+    bindings.compactMap { $0["resolution"].string }
       == [
         "ok", "disabled", "missing extension", "missing item", "missing permission", "duplicate",
-        "conflicts with launcher", "ok",
+        "conflicts with launcher", "ok", "ok", "ok",
       ])
   #expect(report["hotkeys"]["launcher"]["registration"] == .string("registered"))
   #expect(
-    report["hotkeys"]["bindings"].array.compactMap { $0["registration"].string }
-      == ["registered", "registered", "registered", "registered", "registered", "failed", "failed", "failed"])
+    bindings.compactMap { $0["registration"].string }
+      == [
+        "registered", "registered", "registered", "registered", "registered", "failed", "failed",
+        "registered", "registered", "failed",
+      ])
+  #expect(
+    bindings.map { $0["targetTitle"].string }
+      == [
+        "override", "built-in", nil, nil, "local", "Settings", "Clipboard", "Left Half", "Coding", "units",
+      ])
+  #expect(bindings[8]["target"] == .string("wicket://override?entry=moves/\(moveID)"))
   #expect(!String(decoding: data, as: UTF8.self).contains("private-query"))
   #expect(!FileManager.default.fileExists(atPath: root.appending(path: "extension-data").path))
 
   config.hotkeys[0].keys = try Shortcut("ctrl+8")
-  try config.save(at: root.appending(path: "config.json"))
-  let changed = try JSONDecoder().decode(
-    JSONValue.self,
-    from: await Diagnostics.report(
-      folder: root, bundled: bundled, permissions: deniedPermissions, environment: env))
+  try config.save(at: store.url)
+  func diagnose() async throws -> JSONValue {
+    try JSONDecoder().decode(
+      JSONValue.self,
+      from: await Diagnostics.report(
+        folder: root, bundled: bundled, permissions: deniedPermissions, environment: env))
+  }
+  let changed = try await diagnose()
+  #expect(changed["configReloadPending"] == .bool(true))
+  #expect(changed["hotkeys"]["launcher"]["registration"] == .string("pending"))
   let changedBindings = changed["hotkeys"]["bindings"].array
   #expect(changedBindings[0]["resolution"] == .string("ok"))
-  #expect(changedBindings[0]["registration"] == .string("unknown"))
-  #expect(changedBindings[0]["inEffect"] == .null)
-  #expect(changedBindings[1]["registration"] == .string("registered"))
+  #expect(changedBindings.allSatisfy { $0["registration"] == .string("pending") && $0["inEffect"] == .null })
+  #expect(changed["runtime"]["registrations"]["bindings"].array.first?["inEffect"] == .string("ctrl+1"))
 
-  try Data("{".utf8).write(to: root.appending(path: "config.json"))
-  let malformed = try JSONDecoder().decode(
-    JSONValue.self,
-    from: await Diagnostics.report(
-      folder: root, bundled: bundled, permissions: deniedPermissions, environment: env))
+  store.load()
+  try await waitForRecordedConfig()
+  let reloaded = try await diagnose()
+  #expect(reloaded["configReloadPending"] == .bool(false))
+  #expect(reloaded["hotkeys"]["bindings"].array.first?["registration"] == .string("registered"))
+  #expect(reloaded["hotkeys"]["bindings"].array.first?["inEffect"] == .string("ctrl+8"))
+
+  // A rewrite can change the bytes while leaving all decoded settings and registrations equal.
+  let registrations = recorder.record.registrations
+  try (Data(contentsOf: store.url) + Data([10])).write(to: store.url)
+  #expect(try await diagnose()["configReloadPending"] == .bool(true))
+  store.load()
+  await recorder.finish()
+  #expect(recorder.record.registrations == registrations)
+  #expect(try await diagnose()["configReloadPending"] == .bool(false))
+
+  try Data("{".utf8).write(to: store.url)
+  let malformed = try await diagnose()
   let unknown = JSONValue.string("unknown (config.json could not be read)")
   #expect(malformed["config"]["problem"].string?.hasPrefix("Config: ") == true)
+  #expect(malformed["configReloadPending"] == .null)
   for field in ["resultsOnlyWhenTyping", "agent", "agentCLIInstalled"] {
     #expect(malformed["config"][field] == .null)
   }
@@ -153,8 +210,9 @@ private let deniedPermissions = Permissions(
   let recordedBindings = malformed["hotkeys"]["bindings"].array
   #expect(recordedBindings.count == config.hotkeys.count)
   #expect(recordedBindings.allSatisfy { $0["resolution"] == unknown })
-  #expect(recordedBindings.first?["shortcut"] == .string("ctrl+1"))
+  #expect(recordedBindings.first?["shortcut"] == .string("ctrl+8"))
   #expect(recordedBindings.first?["registration"] == .string("registered"))
+  #expect(recordedBindings.first?["targetTitle"] == .string("override"))
 }
 
 @Test func diagnoseCLILeavesMissingFilesAloneAndReportsBadConfig() async throws {
@@ -176,7 +234,27 @@ private let deniedPermissions = Permissions(
   #expect(badReport["hotkeys"]["launcher"]["registration"] == .string("unknown"))
   #expect(badReport["hotkeys"]["launcher"]["shortcut"] == .null)
   let (_, help) = try await cli(root, ["--help"])
-  #expect(help["usage"].string?.contains("--diagnose") == true)
+  #expect(help["usage"].string?.contains("--diagnose [SECTION]") == true)
+}
+
+@Test func diagnoseCLIPrintsASelectedSectionAndListsValidNamesOnError() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let (_, report) = try await cli(root, ["--diagnose"])
+  let names = Diagnostics.Section.allCases.map(\.rawValue)
+  for name in names {
+    let (status, section) = try await cli(root, ["--diagnose", name])
+    #expect(status == 0)
+    #expect(section == report[name])
+  }
+  let (status, error) = try await cli(root, ["--diagnose", "missing"])
+  let message = try #require(error["error"].string)
+  #expect(status == 1)
+  #expect(message.contains("Unknown diagnostics section “missing”"))
+  #expect(message.contains(names.joined(separator: ", ")))
+  let (extraStatus, extraError) = try await cli(root, ["--diagnose", "hotkeys", "config"])
+  #expect(extraStatus == 1)
+  #expect(extraError["error"].string?.contains("--diagnose [SECTION]") == true)
 }
 
 private enum OldRuntimeWriter: CaseIterable { case exited, moved, reusedPID, legacy }
@@ -197,6 +275,7 @@ private func diagnosticsKeepsStaleRuntimeHistory(_ writer: OldRuntimeWriter) asy
     bundlePath: writer == .legacy ? nil : bundle,
     processStartTimeMicroseconds: writer == .legacy ? nil : start,
     updatedAt: Date(), permissions: ["accessibility": .init(status: .granted, checkedAt: Date())],
+    appliedConfigFingerprint: writer == .legacy ? nil : "older-config",
     registrations: .init(
       launcher: .init(shortcut: config.hotkey.description, inEffect: config.hotkey.description),
       bindings: []),
@@ -224,6 +303,7 @@ private func diagnosticsKeepsStaleRuntimeHistory(_ writer: OldRuntimeWriter) asy
     })
   let report = try JSONDecoder().decode(JSONValue.self, from: data)
   #expect(report["runtimeIsLive"] == .bool(false))
+  #expect(report["configReloadPending"] == .null)
   #expect(report["runtimeReason"].string?.contains("could not be verified as running") == true)
   #expect(report["runtime"]["bundlePath"].string == record.bundlePath)
   #expect(report["runtime"]["executablePath"].string == record.executablePath)

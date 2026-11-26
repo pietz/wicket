@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 
@@ -5,6 +6,7 @@ import Observation
 final class ConfigurationStore {
   let url: URL
   private(set) var configuration = Configuration()
+  @ObservationIgnored private(set) var fingerprint: String?
   private(set) var problem: String?
   private(set) var writeProblem: String?
   var applyHotkey: (Shortcut) -> String? = { _ in nil }
@@ -134,7 +136,9 @@ final class ConfigurationStore {
   /// the defaults without extensions.
   func load() {
     do {
-      configuration = try Configuration.load(at: url)
+      let data = try Data(contentsOf: url)
+      configuration = try JSONDecoder().decode(Configuration.self, from: data)
+      fingerprint = Data(SHA256.hash(data: data)).base64EncodedString()
       loaded = true
       problem = nil
       loadOptions()
