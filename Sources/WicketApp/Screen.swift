@@ -148,20 +148,16 @@ struct AgentPresentation: Equatable {
   let permission: AgentPermission?
   let agentName: String
   let folder: URL
-  /// A turn runs, `working` until its answer begins: the answer area shows its own spinner meanwhile.
   let busy: Bool
+  /// A turn with no answer to lay out yet.
   let working: Bool
   let streaming: Bool
+  let turnTiming: AgentTurnTiming?
   let expanded: Bool
   /// The footer's line: what the last action could not do (`Navigator.actionProblem`), else that a kept or
-  /// reopened conversation is ready for a follow-up, else its status, unless the answer area shows that.
+  /// reopened conversation is ready for a follow-up, else the turn's status once it ends.
   let footer: String
-  /// The footer's spinner: a turn runs and the answer area isn't showing its own.
-  let footerBusy: Bool
-  /// `covered`: the actions list hides the conversation, so the answer area shows nothing.
-  @MainActor init(
-    _ session: AgentSession, _ screen: AgentScreen, actionProblem: String?, covered: Bool = false
-  ) {
+  @MainActor init(_ session: AgentSession, _ screen: AgentScreen, actionProblem: String?) {
     question = session.question
     source = session.source
     notice = session.notice
@@ -173,10 +169,9 @@ struct AgentPresentation: Equatable {
     busy = session.busy
     working = session.busy && session.answer.isEmpty
     streaming = session.streaming
+    turnTiming = session.turnTiming
     expanded = screen.expanded
     let continuing = session.continuing && !session.busy && !session.question.isEmpty
-    let answerShowsStatus = working && !covered
-    footer = actionProblem ?? (continuing ? "Continuing conversation" : answerShowsStatus ? "" : status)
-    footerBusy = busy && !answerShowsStatus
+    footer = actionProblem ?? (continuing ? "Continuing conversation" : busy ? "" : status)
   }
 }

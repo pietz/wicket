@@ -1,6 +1,18 @@
 import Foundation
 import Observation
 
+/// When the current turn began, started showing an answer, and entered its ending.
+struct AgentTurnTiming: Equatable {
+  let start: Date
+  var streamingAt: Date?
+  var ending: Ending?
+
+  enum Ending: Equatable {
+    case done(Date)
+    case cancelled(Date)
+  }
+}
+
 /// Owns a conversation: one CLI process per question, which ends with the turn, and the session ID
 /// that the next question resumes. No window dependency.
 @MainActor @Observable
@@ -13,6 +25,7 @@ final class AgentSession {
   private(set) var active = false
   private(set) var busy = false
   private(set) var turnID = UUID().uuidString
+  private(set) var turnTiming: AgentTurnTiming?
   private(set) var question = ""
   /// The command the question was asked from, whose context went with it; nil for a follow-up.
   private(set) var source: String?
@@ -129,6 +142,7 @@ final class AgentSession {
     continuing = false
     cancelDeadline?.cancel()
     turnID = UUID().uuidString
+    turnTiming = AgentTurnTiming(start: Date())
     problem = nil
     chosen = settings
     active = true
@@ -161,7 +175,7 @@ final class AgentSession {
         guard generation == version, !cancelling else {
           await connection.stop("cancelled before the question was sent")
           guard generation == version, busy else { return }
-          finishTurn(status: "Cancelled")
+          finishTurn(cancelled: true)
           return
         }
         self.connection = connection
@@ -173,10 +187,11 @@ final class AgentSession {
         status = "Thinking…"
         arm(startupLimit)
         connection.prompt(prompt, settings: chosen)
+        onChange?()
       } catch {
         guard generation == version else { return }
         if cancelling {
-          finishTurn(status: "Cancelled")
+          finishTurn(cancelled: true)
         } else {
           fail(error.localizedDescription)
         }
@@ -232,6 +247,7 @@ final class AgentSession {
       }
       if answer.utf8.count + pendingAnswer.utf8.count + text.utf8.count <= 1_048_576 {
         if streaming {
+          if turnTiming?.streamingAt == nil { turnTiming?.streamingAt = Date() }
           answer += text
           return drawSoon()
         } else {
@@ -265,7 +281,7 @@ final class AgentSession {
       deadline?.cancel()
     case .finished(let cancelled):
       guard busy else { return }
-      finishTurn(status: cancelled ? "Cancelled" : "Ready for a follow-up")
+      finishTurn(cancelled: cancelled)
       return
     case .failed(let message):
       // A process that ended after its turn is not an error.
@@ -304,6 +320,7 @@ final class AgentSession {
   func cancel() {
     guard busy, !cancelling else { return }
     cancelling = true
+    turnTiming?.ending = .cancelled(Date())
     declineAll()
     status = "Cancelling…"
     task?.cancel()
@@ -317,13 +334,17 @@ final class AgentSession {
       let cancelledVersion = generation
       await release("cancelled; the CLI did not stop in time").value
       guard generation == cancelledVersion else { return }
-      finishTurn(status: "Cancelled")
+      finishTurn(cancelled: true)
     }
     onChange?()
   }
-  /// The turn is over, however it ended: its process ends with it. `status` is what the footer says then.
-  private func finishTurn(_ outcome: String = "turn ended", status: String? = nil) {
-    if let status { self.status = status }
+  /// The turn is over and its process ends with it. A failure has already set the footer's status.
+  private func finishTurn(_ outcome: String = "turn ended", cancelled: Bool? = nil) {
+    if let cancelled { status = cancelled ? "Cancelled" : "Ready for a follow-up" }
+    if turnTiming?.ending == nil {
+      let now = Date()
+      turnTiming?.ending = cancelled == true ? .cancelled(now) : .done(now)
+    }
     // A turn the user cancelled has nothing to come back for; one cut off at the size limit does.
     waiting = hiddenAt != nil && (!cancelling || problem != nil)
     saveTurn()
@@ -386,6 +407,7 @@ final class AgentSession {
     continuing = false
     busy = false
     waiting = false
+    turnTiming = nil
     sessionID = nil
     runID = UUID().uuidString
     runSource = nil

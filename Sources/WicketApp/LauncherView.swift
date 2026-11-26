@@ -232,10 +232,18 @@ struct InputBar: Layout {
 /// The panel's content: the input and its slots, then the card with the screen shown. It draws the
 /// presentation the panel committed (`PaletteController.presentation`), reads what is typed and filled in
 /// as it is, and sends what the user does to the panel (`PaletteController`) or the navigator.
+private struct FooterDividerBounds: PreferenceKey {
+  static let defaultValue: Anchor<CGRect>? = nil
+  static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+    value = nextValue() ?? value
+  }
+}
+
 struct LauncherView: View {
   // SwiftUI can finish a deferred update after AppKit has released the panel's controller.
   private weak var panel: PaletteController?
   private let drawsGlass: Bool
+  private let frozenLightElapsed: TimeInterval?
   private let model: LauncherModel
   private let input: PanelInput
   private let recorder: ShortcutRecorder
@@ -246,9 +254,10 @@ struct LauncherView: View {
   /// The agent's screen, nil while another one shows.
   private var agent: AgentPresentation? { shown.agent }
   private var textSize: Configuration.TextSize { model.configuration.textSize }
-  init(panel: PaletteController, drawsGlass: Bool) {
+  init(panel: PaletteController, drawsGlass: Bool, frozenLightElapsed: TimeInterval?) {
     self.panel = panel
     self.drawsGlass = drawsGlass
+    self.frozenLightElapsed = frozenLightElapsed
     model = panel.model
     input = panel.input
     recorder = panel.recorder
@@ -307,7 +316,9 @@ struct LauncherView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
   private var card: some View {
-    VStack(spacing: 0) {
+    let showsTurn =
+      panel?.isShown == true && shown.actionsTitle == nil && !shown.inDetail && agent?.permission == nil
+    return VStack(spacing: 0) {
       // The action panel lists over a conversation or page, which stay as they were, hidden, for Escape.
       let actions = shown.actionsTitle != nil
       let hasPageContent = agent != nil || shown.problem != nil || shown.page != nil || shown.splits
@@ -318,11 +329,8 @@ struct LauncherView: View {
         if actions || !hasPageContent { list }
       }
       .frame(height: actions ? cardHeight - PaletteLayout.footer : nil, alignment: .top).clipped()
-      Divider()
+      Divider().anchorPreference(key: FooterDividerBounds.self, value: .bounds) { $0 }
       HStack(spacing: 12) {
-        if shown.voiceStatus == nil, let agent, agent.footerBusy {
-          ProgressView().controlSize(.small).padding(.trailing, -4)
-        }
         Text(
           shown.voiceStatus
             ?? (agent.map { renderer.problem ?? $0.footer }
@@ -340,6 +348,9 @@ struct LauncherView: View {
           if let action = shown.selected?.row.actions.first {
             Text("↩ " + action.label)
           } else if agent.busy {
+            if panel?.isShown == true, let timing = agent.turnTiming, timing.ending == nil {
+              elapsedTimer(from: timing.start)
+            }
             Button("Cancel") { navigator.cancelTurn() }.buttonStyle(.plain)
           } else if agent.question.isEmpty {
             Text("↩ Ask")
@@ -369,7 +380,43 @@ struct LauncherView: View {
       .padding(.horizontal, 20).frame(height: PaletteLayout.footer - 1)
     }
     .frame(height: cardHeight)
+    .overlayPreferenceValue(FooterDividerBounds.self) { divider in
+      if let agent, let timing = agent.turnTiming, let divider {
+        GeometryReader { geometry in
+          AgentSweepLight(
+            timing: timing, dividerY: geometry[divider].midY, visible: showsTurn,
+            frozen: frozenLightElapsed.map { timing.start.addingTimeInterval($0) })
+        }
+        .allowsHitTesting(false)
+      }
+    }
+    .overlay(alignment: .top) {
+      if showsTurn, let agent, agent.busy {
+        Color.clear.frame(height: 1).padding(.top, 8)
+          .accessibilityRepresentation {
+            Text(agent.status).accessibilityAddTraits(.updatesFrequently)
+          }
+          .allowsHitTesting(false)
+      }
+    }
     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+  }
+
+  @ViewBuilder private func elapsedTimer(from start: Date) -> some View {
+    if let frozenLightElapsed {
+      elapsedLabel(frozenLightElapsed)
+    } else {
+      TimelineView(.periodic(from: start, by: 1)) {
+        elapsedLabel($0.date.timeIntervalSince(start))
+      }
+    }
+  }
+
+  private func elapsedLabel(_ elapsed: TimeInterval) -> some View {
+    let seconds = max(0, Int(elapsed))
+    return Text(seconds < 60 ? "\(seconds)s" : String(format: "%d:%02d", seconds / 60, seconds % 60))
+      .monospacedDigit().foregroundStyle(.tertiary).accessibilityHidden(elapsed < 3)
+      .opacity(elapsed >= 3 ? 1 : 0).animation(.easeInOut(duration: 0.45), value: elapsed >= 3)
   }
   /// The main input, sized by a hidden copy of its text (or placeholder) so the slots can follow it; the
   /// field itself never sizes itself. The first 200 characters are enough to fill any width.
@@ -619,11 +666,7 @@ struct LauncherView: View {
         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
         .frame(minHeight: renderer.height)
     } else if agent.working {
-      HStack(spacing: 12) {
-        ProgressView().controlSize(.small)
-        Text(agent.status).font(.system(size: textSize.points)).lineLimit(1).help(agent.status)
-      }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 18)
-        .frame(height: PaletteLayout.answerMin)
+      Color.clear.frame(height: PaletteLayout.answerMin)
     }
   }
   private static func isLong(_ question: String) -> Bool {

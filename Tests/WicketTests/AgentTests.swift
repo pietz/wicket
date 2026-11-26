@@ -864,14 +864,15 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   first.text("Hello ")
   first.text("world")
   #expect(session.answer == "Hello world" && session.sessionID == "recorded-session")
+  let streaming = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil)
+  #expect(streaming.turnTiming?.streamingAt != nil && !streaming.working && streaming.footer.isEmpty)
   first.tool("Write allowed.txt")
   #expect(session.status == "Write allowed.txt")
-  // The answer area shows the running tool beside its spinner; the footer doesn't repeat it.
+  // The running tool's status is available for VoiceOver. Action problems still appear in the footer.
   let shown = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil)
-  #expect(shown.working && shown.status == "Write allowed.txt" && shown.footer.isEmpty && !shown.footerBusy)
-  // Behind the actions list, the footer shows it instead.
-  let covered = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: nil, covered: true)
-  #expect(covered.footer == "Write allowed.txt" && covered.footerBusy)
+  #expect(shown.working && shown.status == "Write allowed.txt" && shown.footer.isEmpty)
+  let problem = AgentPresentation(session, AgentScreen(back: .refresh), actionProblem: "Could not open")
+  #expect(problem.footer == "Could not open")
   first.ask(7)
   #expect(session.permissions.count == 1)
   session.decide(false)
@@ -1055,6 +1056,12 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(await eventually { fake.running })
   fake.ask(1)
   session.cancel()
+  let ending = session.turnTiming?.ending
+  guard case .cancelled? = ending else {
+    Issue.record("The light should end when Cancel is pressed")
+    return
+  }
+  #expect(session.busy)
   #expect(fake.decisions.count == 1 && !fake.decisions[0].allow && session.permissions.isEmpty)
   // The CLI keeps asking while it winds down: every request is refused, none becomes a card.
   fake.ask(2)
@@ -1066,7 +1073,7 @@ func sessionStreamsMergesPermissionsAndEveryQuestionStartsItsOwnProcessThatResum
   #expect(fake.cancels == 1 && session.status == "Cancelling…")
   fake.end(cancelled: true)
   #expect(await eventually { !session.busy })
-  #expect(session.status == "Cancelled")
+  #expect(session.status == "Cancelled" && session.turnTiming?.ending == ending)
   await session.shutdown()
 }
 

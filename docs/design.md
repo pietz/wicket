@@ -14,7 +14,7 @@ Wicket is built from a few building blocks. Every feature should be one of them,
 8. **Setting.** A persisted value an extension declares: a field or a list of entries. Wicket draws it in Settings, stores it in `config.json`, and sends it with every request. *Why:* the extension declares, Wicket draws and saves.
 9. **Hotkey.** Keys bound to an openable command or an item with a distinct action. *Why:* the action is one keystroke away without a running process.
 10. **Permission.** Declared by an extension, held by Wicket. *Why:* macOS grants to the app, so only Wicket can hold one; declaring lets it check before launch.
-11. **Agent turn.** One run of the user's `claude` or `codex` per question, resuming the session, with Wicket's instructions. Nothing runs between questions. *Why:* the user's own agent, no custom model loop.
+11. **Agent turn.** One run of the user's `claude` or `codex` per question, resuming the session, with Wicket's instructions. Nothing runs between questions. The footer divider carries the running light, and VoiceOver can read the agent's current status. *Why:* the user's own agent, no custom model loop.
 
 ## Boundaries
 

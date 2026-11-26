@@ -137,7 +137,7 @@ private func expectedText(_ name: String) -> [String] {
   if name.contains("working-text") {
     return ["What should I build next", "Build something useful", "Cancel"]
   }
-  if name.contains("working") { return ["What should I build next", "Thinking", "Cancel"] }
+  if name.contains("working") { return ["What should I build next", "Cancel"] }
   if name.contains("listening") { return ["rainbows", "Ask agent", "Listening", "Ask", "Close"] }
   if name.contains("asking-extension") {
     return ["Ask about Extension report", "Claude will see what Extension report shows", "Ask", "Esc Back"]
@@ -366,8 +366,10 @@ private let installedAgent: Void = {
     }
     let panel = CapturePanel()
     panel.appearance = appearance
+    let lightMoments = ["working": 0.62, "working-text": 4.4]
     let controller = PaletteController(
-      model: model, drawsGlass: false, panel: panel, transcriber: { transcriber })
+      model: model, drawsGlass: false, panel: panel, frozenLightElapsed: lightMoments[name],
+      transcriber: { transcriber })
     let scenario = Scenario(
       model: model, controller: controller, view: panel.contentView!, window: nil, folder: folder)
     scenario.keep.append(transcriber)
@@ -1194,8 +1196,10 @@ func scenariosSetUpTheirState(_ state: String) async throws {
   case _ where state.hasPrefix("settings-"):
     #expect(scenario.controller == nil && scenario.view.frame.size == SettingsPane.size)
   case _ where state.hasPrefix("permission"): #expect(model.agent.permissions.count == 1)
-  case "working": #expect(model.agent.busy && model.agent.answer.isEmpty)
-  case "working-text": #expect(model.agent.busy && !model.agent.answer.isEmpty)
+  case "working":
+    #expect(model.agent.busy && model.agent.answer.isEmpty && model.agent.turnTiming?.streamingAt == nil)
+  case "working-text":
+    #expect(model.agent.busy && !model.agent.answer.isEmpty && model.agent.turnTiming?.streamingAt != nil)
   case "conversation-reopen":
     #expect(model.agent.continuing && model.navigator.input == "Could this work offline?")
   case _ where state.hasPrefix("conversation"):

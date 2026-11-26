@@ -106,11 +106,12 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   @ObservationIgnored private var visibleStarted: TimeInterval?
   @ObservationIgnored private var footerUpdates: Task<Void, Never>?
   /// Between `show` and `hide`. A hidden panel renders nothing, so the renderer can release its page.
-  @ObservationIgnored private var isOpen = false
+  private var isOpen = false
 
   /// `drawsGlass` false leaves the surfaces' backing alone, for offscreen renders, which cannot show glass.
   init(
     model: LauncherModel, drawsGlass: Bool = true, panel: PalettePanel = PalettePanel(),
+    frozenLightElapsed: TimeInterval? = nil,
     transcriber: @escaping () -> any Transcriber = { AppleTranscriber() },
     settings: SettingsWindowController? = nil, pauseHotkeys: @escaping (Bool) -> Void = { _ in },
     openApplication: @escaping (URL, @escaping @MainActor (Error?) -> Void) -> Void = { url, done in
@@ -143,7 +144,8 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     panel.target = self
     navigator.surface = self
     panel.setAccessibilityLabel("Wicket Launcher")
-    let root = NSHostingView(rootView: LauncherView(panel: self, drawsGlass: drawsGlass))
+    let root = NSHostingView(
+      rootView: LauncherView(panel: self, drawsGlass: drawsGlass, frozenLightElapsed: frozenLightElapsed))
     root.sizingOptions = []
     panel.contentView = root
     renderer.onHeight = { [weak self] in self?.resize() }
