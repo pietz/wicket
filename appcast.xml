@@ -6,6 +6,25 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.0</title>
+      <pubDate>Thu, 26 Nov 2026 10:18:51 +0000</pubDate>
+      <sparkle:version>51</sparkle:version>
+      <sparkle:shortVersionString>0.9.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## Charts
+
+Answers can now draw charts. Ask the agent about a trend or a comparison and it shows lines, areas, columns, bars or a parts-of-a-whole bar instead of a wall of numbers, with thresholds and event markers where they help. Stacked columns, several series with a legend, and a highlighted highest or lowest value are all built in.
+
+Extensions can use the same charts on their pages, and `theme.css` can restyle them through the new `--chart-*` tokens.
+
+## Also
+
+- Longer text fits in one row or tile: a tag can now hold 4,096 bytes instead of 1,024, so longer drafts keep their copy row.
+- While an answer streams, text after a `<` (as in `x<y`) no longer waits to appear.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.0</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.0/Wicket-0.9.0.dmg" type="application/octet-stream" sparkle:edSignature="nrlb5juAaT2oyuMO+1q/3lOof/bet3oS2Qz9hdVOpdRhoCLpN2kXCFZ1/ftN4xI6VrpyNdCrtKBaxUNyeK6GCA==" length="4662036"/>
+    </item>
+    <item>
       <title>Wicket 0.8.0</title>
       <pubDate>Wed, 25 Nov 2026 15:35:12 +0000</pubDate>
       <sparkle:version>50</sparkle:version>
