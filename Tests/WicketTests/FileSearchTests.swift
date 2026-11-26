@@ -33,7 +33,7 @@ private func rows(_ paths: [String], _ input: String) -> [Row] {
   ("/Xcode/DerivedData/x.swift", true),
   ("/Users/me/Library/Preferences/x.plist", true),
   ("/project/dist/artifact.zip", true),
-  ("/project/target/release", true),
+  ("/project/target/release/app", true),
   ("/project/Vendor/invoice.pdf", true),
   ("/project/venv/pyvenv.cfg", true),
   ("/project/site-packages/module.py", true),
@@ -46,7 +46,11 @@ private func rows(_ paths: [String], _ input: String) -> [Row] {
   ("/out/lib/bin/notes.txt", false),
 ])
 func noise(path: String, excluded: Bool) {
-  #expect(FileSearch.isExcluded(path) == excluded)
+  #expect(FileSearch.isExcluded(path, isFolder: false) == excluded)
+}
+@Test func aFileNamedLikeANoiseFolderIsKept() {
+  #expect(!FileSearch.isExcluded("/Documents/coverage", isFolder: false))
+  #expect(FileSearch.isExcluded("/Documents/coverage", isFolder: true))
 }
 
 @Test func rowsDropNoiseAndUnscopedPathsAndShowTheFolder() {
@@ -210,6 +214,7 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   model.navigator.input = "inv"
   #expect(await eventually { spotlight.started == queries(invoice) })
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
+  spotlight.send(invoice, [], in: otherScopes)
   #expect(await eventually { model.navigator.results.map(\.row.title) == ["Invoice.pdf"] })
   #expect(model.root.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], in: otherScopes)
@@ -227,6 +232,28 @@ private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
   spotlight.send(longer, [], in: otherScopes, finish: true)
   await model.navigator.settled()
   #expect(model.navigator.results.map(\.row.title) == ["Ask agent"])
+}
+
+/// A file carried over from the previous input stays, and stays what Return runs, until the group
+/// that holds it has answered: the other group answering first with nothing must not empty the list.
+@MainActor @Test func aCarriedFileSurvivesTheOtherGroupAnsweringFirst() async throws {
+  let spotlight = FakeSpotlight()
+  let (model, folder) = try model(spotlight)
+  defer { try? FileManager.default.removeItem(at: folder) }
+  model.navigator.input = "inv"
+  #expect(await eventually { spotlight.started == queries(invoice) })
+  spotlight.send(invoice, [home + "/Documents/Invoice.pdf"], finish: true)
+  spotlight.send(invoice, [], in: otherScopes, finish: true)
+  await model.navigator.settled()
+  model.navigator.input = "invo"
+  let longer = #"kMDItemFSName == "invo*"cdw"#
+  #expect(await eventually { spotlight.started == queries(invoice, longer) })
+  spotlight.send(longer, [], in: otherScopes, finish: true)
+  try await Task.sleep(for: .milliseconds(50))
+  #expect(model.navigator.results.first?.row.title == "Invoice.pdf")
+  spotlight.send(longer, [home + "/Documents/Invoice.pdf"], finish: true)
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Invoice.pdf"])
 }
 
 @MainActor @Test func aFullBatchOfNoiseLeavesRoomForPersonalFiles() async throws {

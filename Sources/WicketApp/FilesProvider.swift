@@ -42,11 +42,14 @@ enum FileSearch {
       .joined(separator: " && ")
   }
 
-  /// Whether a path below a search scope is noise: hidden, inside a build, dependency, cache or
-  /// Library folder, or an app or inside a package such as an app or a photo library.
-  static func isExcluded(_ relativePath: some StringProtocol) -> Bool {
-    relativePath.split(separator: "/").contains { component in
-      component.hasPrefix(".") || noiseFolders.contains(component.lowercased())
+  /// Whether a path below a search scope is noise: hidden, a build, dependency, cache or Library
+  /// folder or inside one, or an app or inside a package such as an app or a photo library. A file
+  /// that merely shares a noise folder's name (`coverage`) is not.
+  static func isExcluded(_ relativePath: some StringProtocol, isFolder: Bool) -> Bool {
+    let components = relativePath.split(separator: "/")
+    return components.enumerated().contains { index, component in
+      component.hasPrefix(".")
+        || ((isFolder || index < components.count - 1) && noiseFolders.contains(component.lowercased()))
         || opaquePackages.contains((String(component) as NSString).pathExtension.lowercased())
     }
   }
@@ -64,13 +67,13 @@ enum FileSearch {
       guard seen.insert(hit.path).inserted else { continue }
       let path = hit.path.utf8
       guard let prefix = prefixes.first(where: { path.starts(with: $0) }),
-        !isExcluded(hit.path[path.index(path.startIndex, offsetBy: prefix.count)...])
+        !isExcluded(
+          hit.path[path.index(path.startIndex, offsetBy: prefix.count)...], isFolder: hit.isFolder)
       else { continue }
       let name = (hit.path as NSString).lastPathComponent
       guard let score = FuzzyMatcher.score(query, words: words, SearchKey(name)) else { continue }
-      let bytes = name.utf8
-      let dot = hit.isFolder ? nil : bytes.lastIndex(of: UInt8(ascii: "."))
-      let length = bytes.distance(from: bytes.startIndex, to: dot ?? bytes.endIndex)
+      // Characters, as the user sees the name, counted once per hit and not in the sort.
+      let length = (hit.isFolder ? name : (name as NSString).deletingPathExtension).count
       scored.append((hit, name, length, score))
     }
     scored.sort { a, b in
@@ -114,7 +117,7 @@ enum FileSearch {
       (try? fm.contentsOfDirectory(
         at: URL(filePath: home, directoryHint: .isDirectory), includingPropertiesForKeys: [.isDirectoryKey]))?
       .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-      .filter { !isExcluded($0.lastPathComponent) }
+      .filter { !isExcluded($0.lastPathComponent, isFolder: true) }
       .map(\.path) ?? []
     let clouds = [iCloudDrive, cloudStorage]
       .map { home + $0 }
@@ -181,7 +184,7 @@ final class FilesProvider: Sendable {
         let groups = FileSearch.scopeGroups(scopes, home: home)
         guard (try? await Task.sleep(for: debounce)) != nil else { return }
         let start = ContinuousClock.now
-        let (updates, feed) = AsyncStream.makeStream(of: (Int, [FileHit]).self)
+        let (updates, feed) = AsyncStream.makeStream(of: (Int, [FileHit]?).self)
         async let queries: Void = withTaskGroup(of: Void.self) { tasks in
           for (index, locations) in groups.enumerated() {
             tasks.addTask {
@@ -190,16 +193,23 @@ final class FilesProvider: Sendable {
                 guard !Task.isCancelled else { return }
                 feed.yield((index, hits))
               }
+              feed.yield((index, nil))  // Answered, even when it found nothing.
             }
           }
           await tasks.waitForAll()
           feed.finish()
         }
         var latest = [[FileHit]](repeating: [], count: groups.count)
+        var answered: Set<Int> = []
         var first = true
         for await (index, hits) in updates {
           guard !Task.isCancelled else { return }
-          latest[index] = hits
+          if let hits { latest[index] = hits }
+          // The list keeps the previous input's files until the first batch replaces them, so that
+          // batch waits for every group: one group alone would drop a file the other still holds.
+          guard answered.insert(index).inserted || hits != nil, answered.count == groups.count else {
+            continue
+          }
           let merged = latest.flatMap { $0 }
           let rows = FileSearch.rows(merged, input: input, scopes: scopes, home: home)
           continuation.yield(rows)
