@@ -360,7 +360,7 @@ import Testing
     let page = Page(body: tag, runs: true)
     #expect(page.targets.isEmpty && page.source.isEmpty, Comment(rawValue: tag))
   }
-  let title = String(repeating: "é", count: 512)
+  let title = String(repeating: "é", count: 2048)
   let oversized = Page(body: "<row title=\"\(title)\" copy-body=\"true\">Draft</row>", runs: false)
   #expect(oversized.targets.isEmpty)
 }
