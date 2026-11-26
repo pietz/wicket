@@ -69,15 +69,15 @@ private func titles(_ output: Ranking.Output) -> [String] { output.results.map(\
   let extensions = ["extension:password": manifest("Password")]
   #expect(
     titles(compose("pass", apps: apps, files: files, extensions: extensions)) == [
-      "Passwords", "Password", "1Password", "Proton Pass", "pass.txt", "passport.pdf", "passwords old.csv",
+      "Passwords", "Password", "1Password", "Proton Pass", "passport.pdf", "pass.txt", "passwords old.csv",
       "Podcasts",
     ])
   // Usage learned for this exact input still lifts a file the user picked before.
   var usage = UsageStore()
-  usage.record(Result(provider: "files", row: files[0]).id, query: "pass", now: Date())
+  usage.record(Result(provider: "files", row: files[1]).id, query: "pass", now: Date())
   #expect(
     titles(compose("pass", apps: apps, files: files, extensions: extensions, usage: usage)).first
-      == "passport.pdf")
+      == "pass.txt")
   // A file is strong only when its whole name starts with the input: file search returns every file
   // with a word like the input, and they must not push Ask agent down or hide the fallbacks.
   let loose = compose("kube", files: [file("notes kubernetes.md")])

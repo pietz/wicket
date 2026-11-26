@@ -184,7 +184,7 @@ typealias AppSearch = @MainActor (String) async -> SearchIndex
           if appsReady, !holding { compose() }
         })
     }
-    // Each batch of file results replaces the previous one; cancelling the task stops the query.
+    // Each file batch replaces the previous one. Cancelling the task stops both Spotlight queries.
     if let files {
       pending.insert(files.id)
       tasks.append(

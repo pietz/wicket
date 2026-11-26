@@ -20,7 +20,7 @@ Open problems only, with user impact and next step. Delete items once fixed (git
 
 ## Files
 
-- **Spotlight caps hits at 500 before sorting**, so common prefixes can miss the best filename.
+- **Spotlight caps each search group at 500 hits before Wicket filters or ranks them.** Personal locations have their own cap. Broad prefixes can still miss the best filename within either group.
 - **Loose files directly in `~` are excluded**: Spotlight scopes must be folders.
 - **Files on FAT/exFAT volumes** typically have the executable bit set, so Wicket only reveals them.
 

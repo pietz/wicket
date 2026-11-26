@@ -4,7 +4,9 @@ import Testing
 @testable import WicketApp
 
 private let home = "/Users/me"
-private let scopes = [home + "/Documents", home + "/Dev", "/Volumes/Backup"]
+private let personalScopes = [home + "/Documents"]
+private let otherScopes = [home + "/Dev", "/Volumes/Backup"]
+private let scopes = personalScopes + otherScopes
 
 private func rows(_ paths: [String], _ input: String) -> [Row] {
   FileSearch.rows(paths.map { FileHit(path: $0, isFolder: false) }, input: input, scopes: scopes, home: home)
@@ -30,10 +32,18 @@ private func rows(_ paths: [String], _ input: String) -> [Row] {
   ("/app/Build/out.txt", true),
   ("/Xcode/DerivedData/x.swift", true),
   ("/Users/me/Library/Preferences/x.plist", true),
+  ("/project/dist/artifact.zip", true),
+  ("/project/target/release", true),
+  ("/project/Vendor/invoice.pdf", true),
+  ("/project/venv/pyvenv.cfg", true),
+  ("/project/site-packages/module.py", true),
+  ("/project/coverage/index.html", true),
+  ("/project/bower_components/pkg/README.md", true),
   ("/Downloads/Tool.app", true),
   ("/Downloads/Tool.APP/Contents/Info.plist", true),
   ("/Pictures/Photos Library.photoslibrary/database", true),
   ("/builder/notes.txt", false),
+  ("/out/lib/bin/notes.txt", false),
 ])
 func noise(path: String, excluded: Bool) {
   #expect(FileSearch.isExcluded(path) == excluded)
@@ -47,9 +57,42 @@ func noise(path: String, excluded: Bool) {
       home + "/Library/Invoice.plist",
       "/Volumes/Backup/Invoices",
     ], "invoice")
-  // Equal scores: the shorter name first.
-  #expect(found.map(\.id) == ["/Volumes/Backup/Invoices", home + "/Documents/Invoice.pdf"])
-  #expect(found[1].title == "Invoice.pdf" && found[1].subtitle == "~/Documents")
+  #expect(found.map(\.id) == [home + "/Documents/Invoice.pdf", "/Volumes/Backup/Invoices"])
+  #expect(found[0].title == "Invoice.pdf" && found[0].subtitle == "~/Documents")
+}
+
+@Test func rowsBreakScoreTiesByRecencyThenStemLengthThenPath() {
+  let old = Date(timeIntervalSince1970: 100)
+  let recent = Date(timeIntervalSince1970: 200)
+  let newest = Date(timeIntervalSince1970: 300)
+  let hits = [
+    FileHit(path: home + "/Dev/invoice.pdf", isFolder: false),
+    FileHit(path: home + "/Documents/invoice.pdf", isFolder: false, recency: old),
+    FileHit(path: home + "/Documents/invoice.o", isFolder: false, recency: old),
+    FileHit(path: home + "/Documents/Invoices", isFolder: true, recency: old),
+    FileHit(path: "/Volumes/Backup/Invoices", isFolder: true, recency: recent),
+    FileHit(path: home + "/Documents/2026 Invoice.pdf", isFolder: false, recency: newest),
+  ]
+  let found = FileSearch.rows(hits, input: "invoice", scopes: scopes, home: home)
+  #expect(
+    found.map(\.id) == [
+      "/Volumes/Backup/Invoices",
+      home + "/Documents/invoice.o",
+      home + "/Documents/invoice.pdf",
+      home + "/Documents/Invoices",
+      home + "/Dev/invoice.pdf",
+      home + "/Documents/2026 Invoice.pdf",
+    ])
+}
+
+@Test func personalScopesHaveTheirOwnCandidateGroup() {
+  let personal = [
+    "/Desktop", "/Documents", "/Downloads", "/Library/Mobile Documents/com~apple~CloudDocs",
+    "/Library/CloudStorage",
+  ].map { home + $0 }
+  let other = otherScopes + [home + "/Documents2"]
+  #expect(FileSearch.scopeGroups(other + personal, home: home) == [personal, other])
+  #expect(FileSearch.scopeGroups(other, home: home) == [other])
 }
 
 @Test func rowsRankByNameAndCap() {
@@ -104,26 +147,37 @@ func noise(path: String, excluded: Bool) {
 /// Spotlight at the edge: records each query and hands out its continuation, so a test decides what
 /// arrives when and sees what was stopped.
 private final class FakeSpotlight: @unchecked Sendable {
+  struct Query: Hashable {
+    let predicate: String
+    let scopes: [String]
+    let limit: Int
+  }
+
   private let lock = NSLock()
-  private var _started: [String] = []
-  private var _stopped: [String] = []
-  private var continuations: [String: AsyncStream<[FileHit]>.Continuation] = [:]
-  var started: [String] { lock.withLock { _started } }
-  var stopped: [String] { lock.withLock { _stopped } }
-  func send(_ predicate: String, _ paths: [String], finish: Bool = false) {
-    let continuation = lock.withLock { continuations[predicate] }
-    continuation?.yield(paths.map { FileHit(path: $0, isFolder: false) })
+  private var _started: Set<Query> = []
+  private var _stopped: Set<Query> = []
+  private var continuations: [Query: AsyncStream<[FileHit]>.Continuation] = [:]
+  var started: Set<Query> { lock.withLock { _started } }
+  var stopped: Set<Query> { lock.withLock { _stopped } }
+  func send(
+    _ predicate: String, _ paths: [String], in scopes: [String] = personalScopes, recency: Date? = nil,
+    finish: Bool = false
+  ) {
+    let query = Query(predicate: predicate, scopes: scopes, limit: FileSearch.candidates)
+    let continuation = lock.withLock { continuations[query] }
+    continuation?.yield(paths.map { FileHit(path: $0, isFolder: false, recency: recency) })
     if finish { continuation?.finish() }
   }
   var provider: FilesProvider {
     FilesProvider(
-      search: { predicate, _, _ in
+      search: { predicate, scopes, limit in
         AsyncStream { continuation in
+          let query = Query(predicate: predicate, scopes: scopes, limit: limit)
+          continuation.onTermination = { _ in self.lock.withLock { _ = self._stopped.insert(query) } }
           self.lock.withLock {
-            self._started.append(predicate)
-            self.continuations[predicate] = continuation
+            self._started.insert(query)
+            self.continuations[query] = continuation
           }
-          continuation.onTermination = { _ in self.lock.withLock { self._stopped.append(predicate) } }
         }
       }, home: home, scopes: { scopes })
   }
@@ -140,26 +194,66 @@ private final class FakeSpotlight: @unchecked Sendable {
 }
 private let invoice = #"kMDItemFSName == "inv*"cdw"#
 
+private func queries(_ predicates: String...) -> Set<FakeSpotlight.Query> {
+  Set(
+    predicates.flatMap { predicate in
+      [personalScopes, otherScopes].map {
+        FakeSpotlight.Query(predicate: predicate, scopes: $0, limit: FileSearch.candidates)
+      }
+    })
+}
+
 @MainActor @Test func fileBatchesReplaceEachOtherAndJoinTheNameMatches() async throws {
   let spotlight = FakeSpotlight()
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
   model.navigator.input = "inv"
-  #expect(await eventually { spotlight.started == [invoice] })
+  #expect(await eventually { spotlight.started == queries(invoice) })
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
   #expect(await eventually { model.navigator.results.map(\.row.title) == ["Invoice.pdf"] })
   #expect(model.root.strongReason == "title prefix: files:" + home + "/Documents/Invoice.pdf")
-  spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], finish: true)
+  spotlight.send(invoice, [home + "/Documents/Invoice.pdf", home + "/Dev/inventory.csv"], in: otherScopes)
+  #expect(await eventually { model.navigator.results.map(\.row.title) == ["Invoice.pdf", "inventory.csv"] })
+  spotlight.send(invoice, [home + "/Dev/inventory.csv"], in: otherScopes, finish: true)
+  spotlight.send(invoice, [home + "/Documents/Invoice-2026.md"], finish: true)
   await model.navigator.settled()
-  #expect(model.navigator.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf"])
+  #expect(model.navigator.results.map(\.row.title) == ["inventory.csv", "Invoice-2026.md"])
   // The next keystroke keeps the files that still match until its own first batch replaces them.
   model.navigator.input = "invoice"
-  #expect(model.navigator.results.map(\.row.title) == ["Invoice.pdf"])
+  #expect(model.navigator.results.map(\.row.title) == ["Invoice-2026.md"])
   let longer = #"kMDItemFSName == "invoice*"cdw"#
-  #expect(await eventually { spotlight.started == [invoice, longer] })
+  #expect(await eventually { spotlight.started == queries(invoice, longer) })
   spotlight.send(longer, [], finish: true)
+  spotlight.send(longer, [], in: otherScopes, finish: true)
   await model.navigator.settled()
   #expect(model.navigator.results.map(\.row.title) == ["Ask agent"])
+}
+
+@MainActor @Test func aFullBatchOfNoiseLeavesRoomForPersonalFiles() async throws {
+  let spotlight = FakeSpotlight()
+  let (model, folder) = try model(spotlight)
+  defer { try? FileManager.default.removeItem(at: folder) }
+  model.navigator.input = "inv"
+  #expect(await eventually { spotlight.started == queries(invoice) })
+  let noise = (0..<FileSearch.candidates).map { home + "/Dev/project/target/invoice-\($0).txt" }
+  spotlight.send(invoice, noise, in: otherScopes, finish: true)
+  spotlight.send(invoice, [home + "/Documents/Invoice.pdf"], finish: true)
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["Invoice.pdf"])
+}
+
+@MainActor @Test func recentFilesLeadTiedMatchesInTheLauncher() async throws {
+  let spotlight = FakeSpotlight()
+  let (model, folder) = try model(spotlight)
+  defer { try? FileManager.default.removeItem(at: folder) }
+  model.navigator.input = "inv"
+  #expect(await eventually { spotlight.started == queries(invoice) })
+  spotlight.send(invoice, [home + "/Documents/Invoice.pdf"], finish: true)
+  spotlight.send(
+    invoice, [home + "/Dev/inventory.csv"], in: otherScopes, recency: Date(timeIntervalSince1970: 100),
+    finish: true)
+  await model.navigator.settled()
+  #expect(model.navigator.results.map(\.row.title) == ["inventory.csv", "Invoice.pdf"])
 }
 
 @MainActor @Test func nothingSearchesBelowTwoCharactersAndTypingStopsTheOldQuery() async throws {
@@ -173,16 +267,17 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   // Keystrokes inside the debounce never reach Spotlight.
   model.navigator.input = "in"
   model.navigator.input = "inv"
-  #expect(await eventually { spotlight.started == [invoice] })
+  #expect(await eventually { spotlight.started == queries(invoice) })
   model.navigator.input = "invo"
   let next = #"kMDItemFSName == "invo*"cdw"#
-  #expect(await eventually { spotlight.stopped == [invoice] && spotlight.started == [invoice, next] })
+  #expect(
+    await eventually { spotlight.stopped == queries(invoice) && spotlight.started == queries(invoice, next) })
   // A late batch of the stopped query changes nothing.
   spotlight.send(invoice, [home + "/Documents/Invoice.pdf"])
   try await Task.sleep(for: .milliseconds(50))
   #expect(model.navigator.results.map(\.provider) == ["agent"])
   model.navigator.input = ""
-  #expect(await eventually { spotlight.stopped == [invoice, next] })
+  #expect(await eventually { spotlight.stopped == queries(invoice, next) })
 }
 
 @MainActor @Test func switchingFilesOffSearchesNothing() async throws {
@@ -200,8 +295,9 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
   model.navigator.input = "inv"
-  #expect(await eventually { spotlight.started == [invoice] })
+  #expect(await eventually { spotlight.started == queries(invoice) })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
+  spotlight.send(invoice, [], in: otherScopes, finish: true)
   #expect(await eventually { model.navigator.results.count == FileSearch.shown })
   #expect(model.navigator.sizedRows == 8)
   model.navigator.input = "invx"
@@ -215,12 +311,13 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
   model.navigator.input = "inv"
-  #expect(await eventually { spotlight.started == [invoice] })
+  #expect(await eventually { spotlight.started == queries(invoice) })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
+  spotlight.send(invoice, [], in: otherScopes, finish: true)
   #expect(await eventually { model.navigator.sizedRows == 8 })
   model.navigator.input = "invxq"
   let query = #"kMDItemFSName == "invxq*"cdw"#
-  #expect(await eventually { spotlight.started.last == query })
+  #expect(await eventually { spotlight.started == queries(invoice, query) })
   // Empty batches recompose the list every 150 ms while the query runs, which ends only after them.
   // The pause counts from the first shorter list, so the card is one row high before the query ends.
   for _ in 0..<6 {
@@ -229,6 +326,7 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   }
   #expect(model.navigator.sizedRows == 1)
   spotlight.send(query, [], finish: true)
+  spotlight.send(query, [], in: otherScopes, finish: true)
   await model.navigator.settled()
   #expect(model.navigator.results.map(\.provider) == ["agent"] && model.navigator.sizedRows == 1)
   model.navigator.input = ""
@@ -239,13 +337,15 @@ private let invoice = #"kMDItemFSName == "inv*"cdw"#
   let (model, folder) = try model(spotlight)
   defer { try? FileManager.default.removeItem(at: folder) }
   model.navigator.input = "inv"
-  #expect(await eventually { spotlight.started == [invoice] })
+  #expect(await eventually { spotlight.started == queries(invoice) })
   spotlight.send(invoice, (0..<12).map { home + "/Documents/invoice \($0).pdf" }, finish: true)
+  spotlight.send(invoice, [], in: otherScopes, finish: true)
   #expect(await eventually { model.navigator.sizedRows == 8 })
   model.navigator.input = "invxq"
   let query = #"kMDItemFSName == "invxq*"cdw"#
-  #expect(await eventually { spotlight.started.last == query })
+  #expect(await eventually { spotlight.started == queries(invoice, query) })
   spotlight.send(query, [], finish: true)
+  spotlight.send(query, [], in: otherScopes, finish: true)
   await model.navigator.settled()
   #expect(model.navigator.sizedRows == 1)
 }

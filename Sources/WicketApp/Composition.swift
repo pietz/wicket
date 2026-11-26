@@ -203,8 +203,8 @@ enum Ranking {
   /// 2. Pattern extension results, one extension after another by name, each in its own order.
   /// 3. Name matches: apps, extension commands, extension items, the host's rows (Settings, Agent
   ///    History, and Clipboard when it is on: `hosts`) and files, by tier, then usage for this exact input, then
-  ///    files after every other kind, then fuzzy score, then kind in that order, then title. Usage
-  ///    never crosses a tier.
+  ///    files after every other kind, then fuzzy score, then kind in that order, then title.
+  ///    Tied files keep the order set by file search. Usage never crosses a tier.
   /// 4. Ask agent, on top when nothing is strong and below the results for a keyword with text.
   /// 5. Fallback extensions, only when nothing is strong, right after Ask agent.
   ///
@@ -334,6 +334,7 @@ enum Ranking {
       if (a.kind == .file) != (b.kind == .file) { return b.kind == .file }
       if a.score != b.score { return a.score > b.score }
       if a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
+      if a.kind == .file { return false }  // The stable sort preserves the file search order.
       let order = a.result.row.title.localizedStandardCompare(b.result.row.title)
       return order == .orderedSame ? a.result.id < b.result.id : order == .orderedAscending
     }

@@ -6,6 +6,13 @@ import os
 struct FileHit: Sendable, Hashable {
   let path: String
   let isFolder: Bool
+  let recency: Date?
+
+  init(path: String, isFolder: Bool, recency: Date? = nil) {
+    self.path = path
+    self.isFolder = isFolder
+    self.recency = recency
+  }
 }
 
 /// The pure half of file search: the Spotlight predicate for an input, which hits are noise and which
@@ -13,7 +20,7 @@ struct FileHit: Sendable, Hashable {
 enum FileSearch {
   /// Shorter inputs match too much of the disk to be useful.
   static let minimumLength = 2
-  /// Spotlight caps hits before any sorting, so this is an arbitrary sample the fuzzy matcher picks from.
+  /// Per scope group. Spotlight caps each sample before the fuzzy matcher can sort it.
   static let candidates = 500
   /// File rows at the root: enough to find a file, few enough not to bury the apps and commands.
   static let shown = 8
@@ -21,6 +28,7 @@ enum FileSearch {
   /// Folders of build output, dependencies, caches or app data, compared case-insensitively.
   static let noiseFolders: Set<String> = [
     "library", "node_modules", "build", "deriveddata", "pods", "__pycache__", "caches",
+    "dist", "target", "vendor", "venv", "site-packages", "coverage", "bower_components",
   ]
   /// Packages whose insides are an app's own. Apps themselves are the apps provider's.
   static let opaquePackages: Set<String> = ["app", "photoslibrary"]
@@ -47,21 +55,31 @@ enum FileSearch {
   /// reveals; one that `OpenPolicy` refuses, such as a script, can only be revealed.
   static func rows(_ hits: [FileHit], input: String, scopes: [String], home: String) -> [Row] {
     let (query, words) = (Fold.query(input), Fold.words(input))
-    // Bytes and precomputed lengths, not `hasPrefix`, `count` and `<` on strings: those are Unicode
-    // aware, and in the sort's tie-breaks they were most of the cost of a batch.
+    // Byte comparisons and precomputed lengths keep scope checks and sorting off the Unicode slow path.
     let prefixes = scopes.map { Array(($0 + "/").utf8) }
+    var seen: Set<String> = []
+    seen.reserveCapacity(hits.count)
     var scored: [(hit: FileHit, name: String, length: Int, score: Int)] = []
     for hit in hits {
+      guard seen.insert(hit.path).inserted else { continue }
       let path = hit.path.utf8
       guard let prefix = prefixes.first(where: { path.starts(with: $0) }),
         !isExcluded(hit.path[path.index(path.startIndex, offsetBy: prefix.count)...])
       else { continue }
       let name = (hit.path as NSString).lastPathComponent
       guard let score = FuzzyMatcher.score(query, words: words, SearchKey(name)) else { continue }
-      scored.append((hit, name, name.utf8.count, score))
+      let bytes = name.utf8
+      let dot = hit.isFolder ? nil : bytes.lastIndex(of: UInt8(ascii: "."))
+      let length = bytes.distance(from: bytes.startIndex, to: dot ?? bytes.endIndex)
+      scored.append((hit, name, length, score))
     }
     scored.sort { a, b in
       if a.score != b.score { return a.score > b.score }
+      if a.hit.recency != b.hit.recency {
+        guard let newer = a.hit.recency else { return false }
+        guard let older = b.hit.recency else { return true }
+        return newer > older
+      }
       if a.length != b.length { return a.length < b.length }
       return a.hit.path.utf8.lexicographicallyPrecedes(b.hit.path.utf8)
     }
@@ -73,10 +91,13 @@ enum FileSearch {
     }
   }
 
+  private static let iCloudDrive = "/Library/Mobile Documents/com~apple~CloudDocs"
+  private static let cloudStorage = "/Library/CloudStorage"
+
   /// The folder under a file's name: "~/Documents/Taxes", "iCloud Drive/Notes", "/Volumes/Disk".
   static func displayFolder(of path: String, home: String) -> String {
     let parent = (path as NSString).deletingLastPathComponent
-    let iCloud = home + "/Library/Mobile Documents/com~apple~CloudDocs"
+    let iCloud = home + iCloudDrive
     if parent == iCloud || parent.hasPrefix(iCloud + "/") {
       return "iCloud Drive" + parent.dropFirst(iCloud.count)
     }
@@ -85,8 +106,8 @@ enum FileSearch {
   }
 
   /// The folders to search, read per query during the debounce, so new folders and volumes are picked
-  /// up at no cost to latency. Each visible folder in home is its own scope, so Spotlight never walks ~/Library; loose files directly in
-  /// home are missed, because a scope must be a folder.
+  /// up at no cost to latency. Each visible folder in home is its own scope, so Spotlight never walks
+  /// ~/Library. Loose files directly in home are missed, because a scope must be a folder.
   static func scopes(home: String) -> [String] {
     let fm = FileManager.default
     let folders =
@@ -95,13 +116,20 @@ enum FileSearch {
       .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
       .filter { !isExcluded($0.lastPathComponent) }
       .map(\.path) ?? []
-    let clouds = ["Library/Mobile Documents/com~apple~CloudDocs", "Library/CloudStorage"]
-      .map { home + "/" + $0 }
+    let clouds = [iCloudDrive, cloudStorage]
+      .map { home + $0 }
       .filter { fm.fileExists(atPath: $0) }
     let volumes =
       fm.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes])?
       .map(\.path).filter { $0.hasPrefix("/Volumes/") } ?? []
     return folders + clouds + volumes
+  }
+
+  /// Separate caps keep matches from other folders from filling the personal folders' sample.
+  static func scopeGroups(_ scopes: [String], home: String) -> [[String]] {
+    let personal = Set(["/Desktop", "/Documents", "/Downloads", iCloudDrive, cloudStorage].map { home + $0 })
+    return [scopes.filter { personal.contains($0) }, scopes.filter { !personal.contains($0) }]
+      .filter { !$0.isEmpty }
   }
 
   /// Spotlight query strings take a backslash before quotes, backslashes and wildcards.
@@ -141,8 +169,7 @@ final class FilesProvider: Sendable {
   }
 
   /// Ends at once when the input is too short to search. Ending the iteration, or cancelling the task
-  /// that iterates, stops the query, also during the debounce. Spotlight starts when the stream is made,
-  /// so make it inside the task that iterates: a task cancelled before it ran then stops it at once.
+  /// that iterates, stops both queries, also during the debounce.
   func batches(for input: String) -> AsyncStream<[Row]> {
     let (search, scopes, home, debounce) = (search, scopes, home, debounce)
     return AsyncStream { continuation in
@@ -151,21 +178,40 @@ final class FilesProvider: Sendable {
         defer { continuation.finish() }
         // Read before the debounce ends, so their 3 to 6 ms cost no latency.
         let scopes = scopes()
+        let groups = FileSearch.scopeGroups(scopes, home: home)
         guard (try? await Task.sleep(for: debounce)) != nil else { return }
         let start = ContinuousClock.now
+        let (updates, feed) = AsyncStream.makeStream(of: (Int, [FileHit]).self)
+        async let queries: Void = withTaskGroup(of: Void.self) { tasks in
+          for (index, locations) in groups.enumerated() {
+            tasks.addTask {
+              guard !Task.isCancelled else { return }
+              for await hits in search(predicate, locations, FileSearch.candidates) {
+                guard !Task.isCancelled else { return }
+                feed.yield((index, hits))
+              }
+            }
+          }
+          await tasks.waitForAll()
+          feed.finish()
+        }
+        var latest = [[FileHit]](repeating: [], count: groups.count)
         var first = true
-        for await hits in search(predicate, scopes, FileSearch.candidates) {
+        for await (index, hits) in updates {
           guard !Task.isCancelled else { return }
-          let rows = FileSearch.rows(hits, input: input, scopes: scopes, home: home)
+          latest[index] = hits
+          let merged = latest.flatMap { $0 }
+          let rows = FileSearch.rows(merged, input: input, scopes: scopes, home: home)
           continuation.yield(rows)
           if first {
             first = false
             let ms = (ContinuousClock.now - start) / .milliseconds(1)
             Self.logger.info(
-              "files: first batch \(rows.count, privacy: .public) of \(hits.count, privacy: .public) in \(ms, format: .fixed(precision: 1), privacy: .public) ms"
+              "files: first batch \(rows.count, privacy: .public) of \(merged.count, privacy: .public) in \(ms, format: .fixed(precision: 1), privacy: .public) ms"
             )
           }
         }
+        await queries
       }
       continuation.onTermination = { _ in task.cancel() }
     }
@@ -190,7 +236,7 @@ enum Spotlight {
 /// One running query. Its state is only touched on `queue`, where MDQuery also posts its
 /// notifications, which is what makes the unchecked `Sendable` sound.
 private final class SpotlightSearch: @unchecked Sendable {
-  private static let queue = DispatchQueue(label: "app.wicket.spotlight", qos: .userInitiated)
+  private let queue = DispatchQueue(label: "app.wicket.spotlight", qos: .userInitiated)
   private let continuation: AsyncStream<[FileHit]>.Continuation
   private var query: MDQuery?
   private var observers: [any NSObjectProtocol] = []
@@ -199,15 +245,16 @@ private final class SpotlightSearch: @unchecked Sendable {
   init(continuation: AsyncStream<[FileHit]>.Continuation) { self.continuation = continuation }
 
   func start(_ predicate: String, scopes: [String], limit: Int) {
-    Self.queue.async { [self] in
+    queue.async { [self] in
       guard !stopped,
         let query = MDQueryCreate(
-          kCFAllocatorDefault, predicate as CFString, [kMDItemContentType] as CFArray, nil)
+          kCFAllocatorDefault, predicate as CFString,
+          [kMDItemContentType, kMDItemLastUsedDate, kMDItemDateAdded] as CFArray, nil)
       else { return continuation.finish() }
       self.query = query
       MDQuerySetSearchScope(query, scopes as CFArray, 0)
       MDQuerySetMaxCount(query, limit)
-      MDQuerySetDispatchQueue(query, Self.queue)
+      MDQuerySetDispatchQueue(query, queue)
       for (name, final) in [(kMDQueryProgressNotification, false), (kMDQueryDidFinishNotification, true)] {
         observers.append(
           NotificationCenter.default.addObserver(
@@ -220,7 +267,7 @@ private final class SpotlightSearch: @unchecked Sendable {
   }
 
   func stop() {
-    Self.queue.async { [self] in
+    queue.async { [self] in
       stopped = true
       guard let query else { return }
       MDQueryStop(query)
@@ -243,7 +290,12 @@ private final class SpotlightSearch: @unchecked Sendable {
       let type = MDQueryGetAttributeValueOfResultAtIndex(query, kMDItemContentType, index).map {
         Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String
       }
-      return FileHit(path: path, isFolder: type == "public.folder")
+      func date(_ attribute: CFString) -> Date? {
+        guard let value = MDQueryGetAttributeValueOfResultAtIndex(query, attribute, index) else { return nil }
+        return Unmanaged<AnyObject>.fromOpaque(value).takeUnretainedValue() as? Date
+      }
+      let recency = date(kMDItemLastUsedDate) ?? date(kMDItemDateAdded)
+      return FileHit(path: path, isFolder: type == "public.folder", recency: recency)
     }
     continuation.yield(hits)
     if final { continuation.finish() }
