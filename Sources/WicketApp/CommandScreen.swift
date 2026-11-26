@@ -88,7 +88,8 @@ enum CommandOutcome {
   /// A link or root pattern can supply a command query while the search bar holds an agent draft.
   private var providerInput = ""
   var input: String {
-    get { descriptor?.inputField == nil ? screen.input : providerInput }
+    // An address's request can carry verbatim text even when the bar shows it on one line.
+    get { descriptor?.inputField == nil ? screen.input : providerInput.singleLineInput }
     set {
       if descriptor?.inputField == nil { screen.input = newValue } else { providerInput = newValue }
     }

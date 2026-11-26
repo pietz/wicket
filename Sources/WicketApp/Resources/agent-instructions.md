@@ -68,7 +68,7 @@ Each item takes at most one action (run on Return, labelled by `action`):
 
 - `open`: `http`, `https`, `mailto`, `wicket://`, or an absolute/`~` path (apps, folders, documents; scripts/installers refused). A `wicket://` link opens a view unsubmitted.
 - `copy`: text to copy.
-- `ask`: draft text placed in the follow-up field without sending; nothing runs until the user sends it, so name the row for the exact action (`Create event`, never `Yes`) and act only once sent.
+- `ask`: draft text placed in the follow-up field without sending. Each run of line breaks becomes one space in the draft. Name the row for the exact action (`Create event`, never `Yes`) and act only once sent.
 
 Content between opening and closing tags is not shown inline—it is the item's detail screen (Return opens, Escape leaves), using the same Markdown and tags. With both detail and action, Return opens the detail with the action at its end. Action or detail requires `title` and makes the item selectable; two actions or a refused `open` drops it.
 

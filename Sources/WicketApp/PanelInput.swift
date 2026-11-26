@@ -100,6 +100,13 @@ final class PanelInput: Speech {
   }
 }
 
+extension String {
+  var singleLineInput: String {
+    guard rangeOfCharacter(from: .newlines) != nil else { return self }
+    return replacingOccurrences(of: #"\R+"#, with: " ", options: .regularExpression)
+  }
+}
+
 /// An edit of a native field: the text it holds now (`text`), the text it was made on (`base`), and what
 /// it inserted there, found by the UTF-16 range around the insertion. Typing during a screen switch
 /// carries only what it inserted into the screen arriving (`Navigator.editInput`), wherever the caret was.

@@ -1409,6 +1409,61 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   (view as? FocusReportingField).map { [$0] } ?? view.subviews.flatMap(fields)
 }
 
+@Test(arguments: [
+  ("", ""),
+  ("日本語 👋  two spaces", "日本語 👋  two spaces"),
+  ("first\r\n\n\rlast", "first last"),
+  ("\nfirst\u{2028}\u{2029}last\r\n", " first last "),
+])
+func searchInputCollapsesRunsOfLineBreaks(_ text: String, _ expected: String) {
+  #expect(text.singleLineInput == expected)
+}
+
+@MainActor @Test func longSearchEditsScrollToTheCaretOffscreen() async throws {
+  let root = try scratch()
+  defer { try? FileManager.default.removeItem(at: root) }
+  let model = LauncherModel.testing(in: root, bundled: nil)
+  let controller = PaletteController(model: model, panel: RoutingPanel())
+  controller.show(orderFront: false, listen: false)
+  let field = try #require(controller.panel.field)
+  let editor = try #require(field.currentEditor() as? NSTextView)
+  let layout = try #require(editor.layoutManager)
+  let container = try #require(editor.textContainer)
+  let pasteboard = NSPasteboard.withUniqueName()
+  defer { pasteboard.releaseGlobally() }
+  let prefix = String(repeating: "transcript ", count: 600)
+  #expect(pasteboard.setString(prefix + "first\r\n\nlast words", forType: .string))
+
+  func expectVisibleEnd(_ text: String) {
+    #expect(editor.string == text)
+    #expect(model.navigator.input == text)
+    let end = text.utf16.count
+    #expect(editor.selectedRange() == NSRange(location: end, length: 0))
+    let lastGlyph = layout.glyphRange(
+      forCharacterRange: NSRange(location: end - 1, length: 1), actualCharacterRange: nil)
+    let lastX =
+      layout.boundingRect(forGlyphRange: lastGlyph, in: container).midX + editor.textContainerOrigin.x
+    #expect(editor.visibleRect.minX > 0)
+    #expect((editor.visibleRect.minX..<editor.visibleRect.maxX).contains(lastX))
+    #expect(editor.bounds.height < 2 * field.intrinsicContentSize.height)
+  }
+
+  #expect(editor.readSelection(from: pasteboard))
+  try await update(controller)
+  expectVisibleEnd(prefix + "first last words")
+  commit(" appended", in: editor)
+  try await update(controller)
+  expectVisibleEnd(prefix + "first last words appended")
+
+  model.navigator.dictate(prefix + "other\r\n\nwords")
+  try await update(controller)
+  expectVisibleEnd(prefix + "other words")
+  field.setFrameSize(NSSize(width: field.frame.width - 100, height: field.frame.height))
+  expectVisibleEnd(prefix + "other words")
+  controller.hide()
+  await model.finish()
+}
+
 @MainActor @Test func aCompositionInTheActionPanelsFieldBecomesTheInputWhenCommitted() async throws {
   let root = try scratch()
   defer { try? FileManager.default.removeItem(at: root) }
@@ -1596,6 +1651,15 @@ func liveActivationKeepsTheExplicitlyPickedItem(doubleClick: Bool) async throws 
   #expect(
     model.navigator.fieldValues == ["title": "か"] && model.navigator.input == "note"
       && slot.stringValue == "か")
+  let pasteboard = NSPasteboard.withUniqueName()
+  defer { pasteboard.releaseGlobally() }
+  #expect(pasteboard.setString("first\r\n\nlast ", forType: .string))
+  editor.setSelectedRange(NSRange(location: 0, length: 0))
+  #expect(editor.readSelection(from: pasteboard))
+  try await update(controller)
+  #expect(model.navigator.fieldValues == ["title": "first last か"] && model.navigator.input == "note")
+  #expect(slot.stringValue == "first last か")
+  #expect(editor.selectedRange() == NSRange(location: "first last ".utf16.count, length: 0))
   controller.hide()
   await model.finish()
 }

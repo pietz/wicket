@@ -26,6 +26,9 @@ struct SearchField: NSViewRepresentable {
     field.font = .systemFont(ofSize: size)
     field.textColor = .labelColor
     field.focusRingType = .none
+    field.usesSingleLineMode = true
+    field.lineBreakMode = .byClipping
+    field.cell?.isScrollable = true
     // Since macOS 14 views draw outside their bounds by default; text longer than the field must not.
     field.bleed = bleed
     field.delegate = context.coordinator
@@ -61,8 +64,23 @@ struct SearchField: NSViewRepresentable {
     moveCaretToEnd(of: field)
   }
   static func moveCaretToEnd(of field: NSTextField) {
-    (field.currentEditor() as? NSTextView)?.setSelectedRange(
-      NSRange(location: field.stringValue.utf16.count, length: 0))
+    guard let editor = field.currentEditor() as? NSTextView else { return }
+    let end = NSRange(location: field.stringValue.utf16.count, length: 0)
+    editor.setSelectedRange(end)
+    editor.scrollRangeToVisible(end)
+  }
+  final class Editor: NSTextView {
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+      if let text = pasteboard.string(forType: .string) {
+        let line = text.singleLineInput
+        // Single-line mode would turn each separator into its own space before the edit is reported.
+        if line != text {
+          insertText(line, replacementRange: NSRange(location: NSNotFound, length: 0))
+          return true
+        }
+      }
+      return super.readSelection(from: pasteboard, type: type)
+    }
   }
   @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
     /// What the model shows, which an edit is made on.
@@ -144,8 +162,14 @@ final class FocusReportingField: NSTextField {
     }
   }
   override func setFrameSize(_ size: NSSize) {
+    let widthChanged = size.width != frame.width
     super.setFrameSize(size)
     updateMask()
+    // AppKit resets the horizontal scroll offset when the slots change the width of the input.
+    if widthChanged, let editor = currentEditor() as? NSTextView {
+      let selection = editor.selectedRange()
+      if selection.length == 0 { editor.scrollRangeToVisible(selection) }
+    }
   }
   private func updateMask() {
     CATransaction.begin()
@@ -156,6 +180,12 @@ final class FocusReportingField: NSTextField {
   }
   override func becomeFirstResponder() -> Bool {
     guard super.becomeFirstResponder() else { return false }
+    if let editor = currentEditor() as? NSTextView, let container = editor.textContainer {
+      // AppKit caps the line at 40,000 points. Use TextKit's default large container size so
+      // the last words of a long transcript are still laid out.
+      editor.maxSize.width = 10_000_000
+      container.size.width = 10_000_000
+    }
     onFocus()
     return true
   }
@@ -367,7 +397,7 @@ struct LauncherView: View {
   /// Fixed sizes, like the input.
   private func fieldSlot(_ field: Field) -> some View {
     let label = field.placeholder ?? field.name
-    let value = navigator.fieldValues[field.name] ?? ""
+    let value = navigator.fieldValues[field.name]?.singleLineInput ?? ""
     return Text(value.isEmpty ? label : value).font(.system(size: 15)).lineLimit(1).hidden()
       .padding(.trailing, 4)  // Room for the caret.
       .frame(minWidth: 24, maxWidth: 150).fixedSize()

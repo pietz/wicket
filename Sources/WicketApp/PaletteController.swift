@@ -91,6 +91,12 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
   /// launcher's rules, with every global hotkey paused (`pauseHotkeys`) so it hears the keys.
   let recorder = ShortcutRecorder()
   @ObservationIgnored private let pauseHotkeys: (Bool) -> Void
+  @ObservationIgnored private lazy var searchFieldEditor: NSTextView = {
+    // Match AppKit's field editor. TextKit 2 doesn't expand the editor horizontally as text is added.
+    let editor = SearchField.Editor(usingTextLayoutManager: false)
+    editor.isFieldEditor = true
+    return editor
+  }()
   /// Where the Settings destination goes.
   @ObservationIgnored private let settings: SettingsWindowController?
   /// Opens an application and calls back once Launch Services answered; tests hold the answer.
@@ -286,8 +292,7 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     panel.contentView?.layoutSubtreeIfNeeded()
     if panel.canBecomeKey, let input = panel.field {
       panel.makeFirstResponder(input)
-      (input.currentEditor() as? NSTextView)?.setSelectedRange(
-        NSRange(location: input.stringValue.utf16.count, length: 0))
+      SearchField.moveCaretToEnd(of: input)
     }
     if arriving == nil { navigator.refresh() }
   }
@@ -415,6 +420,10 @@ final class PaletteController: NSObject, NSWindowDelegate, PaletteKeyTarget, Pal
     await input.finish()
     await model.finish()
   }
+  func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+    client is FocusReportingField ? searchFieldEditor : nil
+  }
+
   func windowDidResignKey(_ notification: Notification) {
     // Only the system consent dialog may borrow focus while voice starts.
     if input.voice?.requestingPermission != true { hide() }

@@ -65,7 +65,8 @@ final class Navigator {
   /// What is typed on the screen shown.
   var input: String {
     get { conversing ? screen.input : command?.input ?? base.input }
-    set {
+    set(value) {
+      let newValue = value.singleLineInput
       let previous = input
       let changed = newValue != previous
       if !conversing, command != nil { command?.input = newValue } else { screen.input = newValue }
@@ -521,8 +522,9 @@ final class Navigator {
   }
   /// Fills in a declared field. Inside a command it is an edit like typing: it reruns the command,
   /// or in a submit command waits for Return.
-  func setField(_ name: String, to value: String) {
+  func setField(_ name: String, to text: String) {
     guard fieldSlots.contains(where: { $0.name == name }) else { return }
+    let value = text.singleLineInput
     guard command != nil else {
       base.fill(name, with: value)
       return pickFieldRow()
@@ -700,10 +702,10 @@ final class Navigator {
     /// Going back (Escape): a second Escape waits for it instead of calling it off.
     var back = false
 
-    init(command: CommandScreen?, input: String, back: Bool = false) {
+    init(command: CommandScreen?, input: String?, back: Bool = false) {
       self.command = command
-      self.command?.input = input
-      rootInput = input
+      if let input { self.command?.input = input }
+      rootInput = input?.singleLineInput ?? ""
       self.back = back
     }
   }
@@ -752,7 +754,9 @@ final class Navigator {
   /// shows anyway, quietly loading, so a slow process does not make Return feel dead. A command
   /// answered without a process switches at once. Ending a conversation waits the same way. Not
   /// `holding`, it shows at once: the panel just showed, and there is no screen worth keeping.
-  private func arrive(_ command: CommandScreen?, input: String, back: Bool = false, holding: Bool = true) {
+  private func arrive(
+    _ command: CommandScreen?, input: String? = nil, back: Bool = false, holding: Bool = true
+  ) {
     stopArriving()
     cancelWork()
     arriving = Arrival(command: command, input: input, back: back)
@@ -786,7 +790,7 @@ final class Navigator {
     if entering, command == nil { base.fill([:]) }
     command = arrival.command
     if entering || conversed { screen.startSelectionOver() }
-    input = arrival.input  // No refresh while arriving: its request is already answered or running.
+    if command == nil { input = arrival.input }  // The command already has its input from the address.
     stopArriving()
     if entering { listed = [] }
   }
@@ -1031,7 +1035,7 @@ final class Navigator {
         return draw()
       }
       guard state.visit == command?.visit, !conversing else {
-        return arrive(state, input: state.input, holding: holding)
+        return arrive(state, holding: holding)
       }
       if arriving == nil, state.runningSubmission, state.page?.fields.isEmpty == false,
         state.next == .submission
