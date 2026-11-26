@@ -6,6 +6,27 @@
     <link>https://github.com/pietz/wicket</link>
     <!-- releases -->
     <item>
+      <title>Wicket 0.9.2</title>
+      <pubDate>Thu, 26 Nov 2026 15:23:10 +0000</pubDate>
+      <sparkle:version>53</sparkle:version>
+      <sparkle:shortVersionString>0.9.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown"><![CDATA[## A calmer agent while it works
+
+The spinner and the "Connecting…", "Thinking…" and tool lines are gone. While the agent works, a slim light in your accent colour sweeps along the divider above the footer, dims a little once the answer starts streaming, and fades when it's done. A cancelled turn ends with a brief grey stop. After three seconds, the elapsed time appears in the footer's left corner. With Reduce Motion the light stays in place and pulses, and VoiceOver still reads what the agent is doing.
+
+## Also
+
+- **Return to search after** in Settings ▸ Agent sets how long an idle conversation stays when you hide Wicket: Immediately, 30 s, 1 min (default), 3 min, 5 min, 10 min, 15 min or Never.
+- Run **Left Half** or **Right Half** again to cycle the window through half, two-thirds and one-third width. **Restore** undoes the whole cycle in one step.
+- Rows can copy a whole draft: Return on a "Copy draft" row copies the text inside it, once the answer has finished.
+- The microphone works for dictation even with **Listen when Wicket opens** turned off.
+- Long input stays on one line and scrolls sideways instead of wrapping.
+- Fixes: undo after a multi-line paste no longer removes your earlier typing, a failed dictation no longer leaves its error on every later open, and opening a page from a list no longer flashes the previous detail.]]></description>
+      <sparkle:fullReleaseNotesLink>https://github.com/pietz/wicket/releases/tag/v0.9.2</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/pietz/wicket/releases/download/v0.9.2/Wicket-0.9.2.dmg" type="application/octet-stream" sparkle:edSignature="/jFf6H9Lc7iE72Vuq+z4flho/rp4XOUIeceKOpmrTTDxJoPV60A4G6eobypuDKHeih3ZCbZNGPrqKjMfC6rGBQ==" length="4700990"/>
+    </item>
+    <item>
       <title>Wicket 0.9.1</title>
       <pubDate>Thu, 26 Nov 2026 14:33:55 +0000</pubDate>
       <sparkle:version>52</sparkle:version>
