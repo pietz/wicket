@@ -7,7 +7,15 @@ private func status(_ message: String) -> String {
 @MainActor private func answer(_ request: JSON) async -> String? {
   let fields = request["fields"]
   let query = fields?["query"]?.string ?? request["input"]?.string ?? ""
-  if let action = request["action"]?.string, action != "open-link" {
+  let action = request["action"]?.string
+  if action == "cache-icon" {
+    if case .bool(true)? = request["submitted"], let raw = fields?["url"]?.string, let url = URL(string: raw)
+    {
+      await cacheFavicon(for: url)
+    }
+    return nil
+  }
+  if let action, action != "open-link" {
     return status("Choose a quicklink to open.")
   }
   guard let template = fields?["template"]?.string else {
@@ -26,6 +34,7 @@ private func status(_ message: String) -> String {
   }
   do {
     try await openLink(url, bundleID: fields?["bundleID"]?.string)
+    if action == "open-link" { await cacheFavicon(for: url) }
     return nil
   } catch {
     return status(error.localizedDescription)

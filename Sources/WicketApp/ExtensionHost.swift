@@ -15,7 +15,9 @@ struct ExtensionCommand: Sendable, Equatable {
 
   let entryProblem: String?
 
-  init(id: String, folder: URL, manifest: ExtensionManifest, saved: JSONValue? = nil) {
+  init(
+    id: String, folder: URL, manifest: ExtensionManifest, saved: JSONValue? = nil, quicklinksData: URL? = nil
+  ) {
     self.id = id
     self.folder = folder
     self.manifest = manifest
@@ -40,9 +42,25 @@ struct ExtensionCommand: Sendable, Equatable {
         items += rows
       }
     }
+    if let quicklinksData {
+      for index in items.indices where items[index].icon == nil {
+        items[index].icon = Self.quicklinkSite(for: items[index])?.favicon(in: quicklinksData).path
+      }
+    }
     self.items = items
     entryProblem = problems.isEmpty ? nil : problems.joined(separator: "\n")
     itemIndex = SearchIndex(items)
+  }
+
+  private static func quicklinkSite(for row: Row) -> QuicklinkSite? {
+    switch (row.entryList, row.actions.first?.kind) {
+    case ("links", .open(let url)):
+      return QuicklinkSite(url)
+    case ("searches", .run(let address)):
+      return address.fields?["template"].flatMap { URL(string: $0) }.flatMap(QuicklinkSite.init)
+    default:
+      return nil
+    }
   }
 
   // The index follows the items.
@@ -163,6 +181,8 @@ final class ExtensionHost {
   /// Beside the running executable's resources: `Contents/Resources/Extensions` in the app.
   nonisolated static let bundledFolder = Bundle.main.resourceURL?.appending(path: "Extensions")
   private let runner: ExtensionRunner
+  private static let quicklinksID = "extension:links-search"
+  private var quicklinkIconRevision = 0
   private let runtime: RuntimeRecorder?
   /// What macOS grants Wicket, checked before a program that declares permissions runs; tests replace it.
   var permissions = Permissions.system
@@ -197,7 +217,8 @@ final class ExtensionHost {
   private func configured(_ command: ExtensionCommand) -> ExtensionCommand {
     ExtensionCommand(
       id: command.id, folder: command.folder, manifest: command.manifest,
-      saved: settings[command.folder.lastPathComponent])
+      saved: settings[command.folder.lastPathComponent],
+      quicklinksData: isBundledQuicklinks(command) ? runner.dataDirectory(for: command.id) : nil)
   }
 
   private func install(_ commands: [String: ExtensionCommand]) -> Set<String> {
@@ -251,7 +272,28 @@ final class ExtensionHost {
   }
   func iconScope(for command: ExtensionCommand) -> ExtensionIcons.Scope {
     .init(
-      folder: command.folder, data: runner.dataDirectory(for: command.id), manifest: command.manifest.icon)
+      folder: command.folder, data: runner.dataDirectory(for: command.id), manifest: command.manifest.icon,
+      revision: isBundledQuicklinks(command) ? quicklinkIconRevision : 0)
+  }
+
+  private func isBundledQuicklinks(_ command: ExtensionCommand) -> Bool {
+    command.id == Self.quicklinksID && command.folder == locations[command.id]?.bundledFolder
+  }
+
+  /// Bookmarks keep their native open action. The submitted cache request runs after dispatching it.
+  func cacheBookmarkIcon(_ url: URL, from result: Result?) {
+    guard result?.provider == Self.quicklinksID, result?.row.entryList == "links",
+      let command = commands[Self.quicklinksID], isBundledQuicklinks(command),
+      let site = QuicklinkSite(url)
+    else { return }
+    Task {
+      let file = site.favicon(in: runner.dataDirectory(for: command.id))
+      let exists = await Task.detached { FileManager.default.fileExists(atPath: file.path) }.value
+      guard !exists else { return }
+      let request = ProviderRequest(
+        input: "", fields: ["url": url.absoluteString], action: "cache-icon", submitted: true)
+      _ = try? await view(command, request: request, trigger: .item, silentSuccess: true)
+    }
   }
 
   func start() {
@@ -457,7 +499,14 @@ final class ExtensionHost {
     let id = UUID()
     let task = Task { [runner, request] in try await runner.run(command, request: request) }
     running[id] = task
-    defer { running[id] = nil }
+    defer {
+      running[id] = nil
+      if isBundledQuicklinks(command), request.submitted,
+        request.action == "open-link" || request.action == "cache-icon"
+      {
+        quicklinkIconRevision += 1
+      }
+    }
     return try await withTaskCancellationHandler {
       do {
         var view = try await task.value

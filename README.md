@@ -44,7 +44,7 @@ Turn on **Only show results when typing** in Settings ▸ General (`"resultsOnly
 
 **Weather** shows current conditions and today's high and low when you type `weather Berlin`. Press Return for the full forecast.
 
-**Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
+**Quicklinks** opens your bookmarks and site searches. Add them in Settings ▸ Extensions ▸ Quicklinks or ask the agent. Type `links` to browse, or a saved keyword with a query, such as `yt cats` after adding YouTube. Website icons appear after you first open their links. Sites without a cached icon show a globe. See the [Quicklinks recipe](Sources/WicketApp/Resources/extension-contract.md#quicklinks) for examples and hotkeys.
 
 **Windows** moves the focused window with Left Half, Right Half, Maximize, Center (keeping its size), Next Display, or Restore. Type a move name or `window`. Wicket closes for the move and reports failures or partial moves, which Restore can undo. If Accessibility is missing, choose **Allow Accessibility for Wicket**.
 

@@ -1099,8 +1099,8 @@ final class Navigator {
   }
   /// A hotkey's copy, paste, open or reveal (`LauncherModel.press`), done as Return on its item would. The
   /// panel shows only to say why it could not, such as a paste without Accessibility access.
-  func perform(_ action: RowAction) {
-    if !activate(action) { surface?.perform(.run(action, from: nil)) }
+  func perform(_ action: RowAction, from result: Result? = nil) {
+    if !activate(action, from: result) { surface?.perform(.run(action, from: nil)) }
     if actionProblem != nil, surface?.isShown == false { surface?.show { [self] in refresh() } }
   }
   /// What the user runs, whoever asked: Return, a button, a menu item or a link. Moving between screens,
@@ -1147,8 +1147,12 @@ final class Navigator {
       sizeList(now: true)
       publish()
     case .open, .reveal:
-      guard let refusal = OpenPolicy.refusal(action) else { return false }
-      actionProblem = refusal
+      if let refusal = OpenPolicy.refusal(action) {
+        actionProblem = refusal
+        return true
+      }
+      if case .open(let url) = action.kind { extensions.cacheBookmarkIcon(url, from: result) }
+      return false
     case .copy, .paste, .clip, .hotkey: return false
     }
     return true

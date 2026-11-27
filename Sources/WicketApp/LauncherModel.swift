@@ -117,7 +117,7 @@ final class LauncherModel {
         navigator.runHidden(address, from: result.provider, pressed: target)
       case .run(let address):
         navigator.open(address, from: result.provider, submitted: !address.link, pressed: target)
-      case .copy, .paste, .open, .reveal: navigator.perform(action)
+      case .copy, .paste, .open, .reveal: navigator.perform(action, from: result)
       case .save: navigator.activate(action, from: result)
       default: break
       }

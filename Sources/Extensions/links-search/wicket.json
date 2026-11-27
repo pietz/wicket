@@ -4,7 +4,7 @@
   "description": "Open your saved links and site searches.",
   "keyword": "links",
   "command": ["./main"],
-  "icon": "link",
+  "icon": "globe",
   "itemList": {
     "empty": {
       "id": "add-quicklink",

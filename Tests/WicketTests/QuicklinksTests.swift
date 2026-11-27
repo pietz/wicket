@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Testing
 
 @testable import WicketApp
@@ -86,19 +87,23 @@ func writeQuicklinks(in root: URL) throws {
 
 /// Compile the shipped request handlers with an inert Launch Services stand-in. The same binary
 /// answers CLI and navigator requests without requiring a runtime test switch in the extension.
-@MainActor private func installLinkProbe(in root: URL) async throws -> URL {
+@MainActor private func installLinkProbe(in root: URL, fetchFavicons: Bool = false) async throws -> URL {
   let folder = root.appending(path: "extensions/links-search")
   try FileManager.default.createDirectory(
     at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
   try FileManager.default.copyItem(at: bundledExtensions.appending(path: "links-search"), to: folder)
   let binary = folder.appending(path: "main")
   try FileManager.default.removeItem(at: binary)
+  let favicon =
+    fetchFavicons
+    ? ["Favicon.swift", "IconRaster.swift", "QuicklinkSite.swift"]
+    : [fixtureURL("FaviconProbe.swift").path]
   let compiled = try await Launch.capture(
     URL(filePath: "/usr/bin/xcrun"),
     [
       "swiftc", "-warnings-as-errors", "-swift-version", "6", "main.swift", "SearchURL.swift", "JSON.swift",
-      fixtureURL("BrowserOpenerProbe.swift").path, "-o", binary.path,
-    ], in: folder, limit: .seconds(30))
+      fixtureURL("BrowserOpenerProbe.swift").path,
+    ] + favicon + ["-o", binary.path], in: folder, limit: .seconds(30))
   guard compiled?.exit.isClean == true else { throw ExtensionFailure("Could not build the link probe") }
   return folder
 }
@@ -392,3 +397,138 @@ private func fields(_ values: [String: String]) throws -> String {
   #expect(try takeOpenedURL(in: folder) == "https://www.youtube.com/results?search_query=swift")
   await model.finish()
 }
+
+@MainActor @Test func quicklinksCacheFaviconsOnlyAfterOpeningAndShareThemBySite() async throws {
+  let root = try scratch()
+  defer { removeHeadlessScratch(root) }
+  let bundle = root.appending(path: "bundle")
+  let folder = try await installLinkProbe(in: bundle, fetchFavicons: true)
+  let opened = folder.appending(path: "opened")
+  let mode = root.appending(path: "mode")
+  let requests = root.appending(path: "requests")
+  try FileManager.default.copyItem(
+    at: fixtureURL("image-icons/favicon.png"), to: root.appending(path: "favicon.png"))
+  let (server, base) = try await serveHTTPFixture(in: root, source: faviconServer)
+  defer { server.terminate() }
+
+  let model = LauncherModel.testing(in: root, bundled: folder.deletingLastPathComponent())
+  let navigator = model.navigator
+  let surface = RecordingSurface()
+  navigator.surface = surface
+  model.store.update {
+    $0.extensions["links-search"] = .object([
+      "links": .array([
+        .object(["id": .string("home"), "title": .string("Team Home"), "url": .string(base + "/news")])
+      ]),
+      "searches": .array([
+        .object([
+          "id": .string("find"), "title": .string("Find team posts"), "keyword": .string("find"),
+          "url": .string(base + "/search?q={query}"),
+        ])
+      ]),
+    ])
+  }
+  await model.extensions.reload()
+  let command = try #require(model.extensions.commands[links])
+  let scope = model.extensions.iconScope(for: command)
+  let site = try #require(URL(string: base).flatMap(QuicklinkSite.init))
+  let cache = site.favicon(in: scope.data)
+  #expect(command.items.map(\.icon) == [cache.path, cache.path])
+  #expect(command.manifest.icon == "globe")
+
+  try "declared".write(to: mode, atomically: true, encoding: .utf8)
+  navigator.input = "team home"
+  await navigator.settled()
+  let bookmark = try #require(navigator.results.first)
+  #expect(bookmark.row.icon == cache.path)
+  #expect(!FileManager.default.fileExists(atPath: requests.path))
+  navigator.run()
+  #expect(surface.effects.last == .run(bookmark.row.actions[0], from: bookmark))
+  try #require(await eventually(within: .seconds(5)) { FileManager.default.fileExists(atPath: cache.path) })
+  #expect(try String(contentsOf: requests, encoding: .utf8) == "/\n/assets/icon.png\n")
+  #expect(await eventually { model.extensions.iconScope(for: command).revision > scope.revision })
+
+  // Query and path differences share the bookmark's site cache.
+  navigator.input = "find team notes"
+  await navigator.settled()
+  navigator.run()
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: folder) == base + "/search?q=team%20notes")
+  #expect(try String(contentsOf: requests, encoding: .utf8) == "/\n/assets/icon.png\n")
+
+  // A hotkey still opens the bookmark through the native action even when its icon is missing.
+  try FileManager.default.removeItem(at: cache)
+  try "touch".write(to: mode, atomically: true, encoding: .utf8)
+  model.press(HotkeyTarget(target: links, item: "home", entryList: "links"))
+  #expect(surface.effects.last == .run(bookmark.row.actions[0], from: nil))
+  try #require(await eventually(within: .seconds(5)) { FileManager.default.fileExists(atPath: cache.path) })
+  #expect(try String(contentsOf: requests, encoding: .utf8).hasSuffix("/\n/touch.png\n"))
+
+  try FileManager.default.removeItem(at: cache)
+  try "oversized".write(to: mode, atomically: true, encoding: .utf8)
+  navigator.run()
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: folder) == base + "/search?q=team%20notes")
+  let fetched = try String(contentsOf: requests, encoding: .utf8)
+  #expect(fetched.hasSuffix("/ opened\n/huge opened\n/favicon.ico opened\n"))
+  let data = try Data(contentsOf: cache)
+  #expect(data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]))
+  let image = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+  #expect(CGImageSourceCreateImageAtIndex(image, 0, nil)?.width == 128)
+  #expect(!FileManager.default.fileExists(atPath: opened.path))
+
+  try FileManager.default.removeItem(at: cache)
+  try "missing".write(to: mode, atomically: true, encoding: .utf8)
+  navigator.run()
+  await navigator.settled()
+  #expect(try takeOpenedURL(in: folder) == base + "/search?q=team%20notes")
+  #expect(!FileManager.default.fileExists(atPath: cache.path))
+  await model.finish()
+}
+
+private let faviconServer = """
+  from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+  from pathlib import Path
+  from struct import pack
+
+  class Handler(BaseHTTPRequestHandler):
+      def reply(self, body, content_type, status=200):
+          self.send_response(status)
+          self.send_header("Content-Type", content_type)
+          self.send_header("Content-Length", str(len(body)))
+          self.end_headers()
+          try:
+              self.wfile.write(body)
+          except (BrokenPipeError, ConnectionResetError):
+              pass
+
+      def do_GET(self):
+          opened = any(Path(".").glob("bundle/extensions/links-search/opened"))
+          with open("requests", "a") as log:
+              print(self.path + (" opened" if opened else ""), file=log)
+          mode = Path("mode").read_text()
+          png = Path("favicon.png").read_bytes()
+          if self.path == "/":
+              links = {
+                  "declared": '<LINK HREF=assets/icon.png REL="shortcut icon">',
+                  "touch": '<link rel="apple-touch-icon" href="/touch.png">',
+                  "oversized": '<link rel=icon href=/huge>',
+              }.get(mode, "")
+              self.reply(links.encode(), "text/html")
+          elif self.path in ("/assets/icon.png", "/touch.png"):
+              self.reply(png, "image/png")
+          elif self.path == "/huge":
+              self.reply(b"x" * (512 * 1024 + 1), "image/png")
+          elif self.path == "/favicon.ico" and mode == "oversized":
+              directory = pack("<HHHBBBBHHII", 0, 1, 1, 144, 144, 0, 0, 1, 32, len(png), 22)
+              self.reply(directory + png, "image/x-icon")
+          else:
+              self.reply(b"", "text/plain", status=404)
+
+      def log_message(self, *args):
+          pass
+
+  with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+      print(server.server_port)
+      server.serve_forever()
+  """

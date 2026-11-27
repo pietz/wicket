@@ -281,6 +281,8 @@ Add bookmarks and site searches in Settings ▸ Extensions ▸ Quicklinks, or ed
 
 Bookmarks open directly and can have a keyword. Site searches take a keyword and an HTTP(S) template with a fixed host and `{query}` in a path segment or query value. `yt cats` fills the query. `yt` followed by Return opens the query prompt. Quicklinks encodes the query before opening the URL.
 
+After opening a web bookmark or submitting a site search, built-in Quicklinks looks for the site's declared favicon at its root and then tries `/favicon.ico`. It saves a PNG in `WICKET_DATA_DIR` as `favicon-<SHA-256 of the site root URL>.png` and shares it across entries for the same scheme, host, and port. Browsing and typing use the existing cache. Rows without a cached image show a globe.
+
 Record a hotkey in Settings or add a binding to `config.json` while keeping existing bindings. A search binding opens the prompt, and a bookmark binding opens its URL.
 
 ```json

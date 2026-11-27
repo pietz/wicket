@@ -143,7 +143,7 @@ struct Row: Codable, Sendable, Equatable, Identifiable {
   let title: String
   var subtitle: String?
   /// An SF Symbol name or, for an extension, a PNG or SVG path.
-  let icon: String?
+  var icon: String?
   var actions: [RowAction]
   let keywords: [String]?
   let prominent: Bool?
